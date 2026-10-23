@@ -21,6 +21,7 @@ use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
+use App\Support\Locales;
 use Brick\Math\BigDecimal;
 use Closure;
 use DB;
@@ -290,6 +291,7 @@ class ImportFromWhmcs extends Command
                     'email' => $record['email'],
                     'password' => $record['password'],
                     'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
+                    'language' => Locales::fromWhmcs($record['language'] ?? null),
                     'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? null : (($record['email_verified_at'] ?? null) ?: null),
                     'created_at' => $date($record['created_at'] ?? null),
                     'updated_at' => $date($record['updated_at'] ?? null),
@@ -332,7 +334,9 @@ class ImportFromWhmcs extends Command
                 // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
                 $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at'],
                     'tax_exempt' => (bool) ($record['taxexempt'] ?? false), 'separate_invoices' => (bool) ($record['separateinvoices'] ?? false),
-                    'auto_charge' => !($record['disableautocc'] ?? false)];
+                    'auto_charge' => !($record['disableautocc'] ?? false),
+                    // Its mails' language (WHMCS «greek», «english», …; empty: the instance's).
+                    'language' => Locales::fromWhmcs($record['language'] ?? null)];
 
                 // The account's details are its primary contact, field for field (docs/accounts.md, PR 3a).
                 $value = fn (string $key) => isset($record[$key]) && trim((string) $record[$key]) !== '' ? trim((string) $record[$key]) : null;

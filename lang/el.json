@@ -988,5 +988,8 @@
     "Too many messages, wait a moment.": "Πολλά μηνύματα, περιμένετε λίγο.",
     "Private with :name": "Ιδιωτικά με :name",
     "Only the two of you read this.": "Το διαβάζετε μόνο εσείς οι δύο.",
-    "This member can no longer receive messages.": "Αυτό το μέλος δεν μπορεί πια να λάβει μηνύματα."
+    "This member can no longer receive messages.": "Αυτό το μέλος δεν μπορεί πια να λάβει μηνύματα.",
+    "Language": "Γλώσσα",
+    "Default": "Προεπιλογή",
+    "The language of its emails and PDFs.": "Η γλώσσα των email και των PDF του."
 }

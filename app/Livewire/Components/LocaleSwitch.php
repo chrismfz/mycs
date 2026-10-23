@@ -5,6 +5,8 @@ namespace App\Livewire\Components;
 use App\Classes\Cart;
 use App\Livewire\Component;
 use App\Models\Currency;
+use App\Support\Actor;
+use Illuminate\Support\Facades\Auth;
 
 class LocaleSwitch extends Component
 {
@@ -59,6 +61,10 @@ class LocaleSwitch extends Component
 
         session(['locale' => $locale]);
         app()->setLocale($locale);
+        // Kept for the login's next visits (docs/accounts.md); never for staff signed in as the customer.
+        if (Auth::guard('web')->check() && !Actor::impersonating()) {
+            Auth::guard('web')->user()->forceFill(['language' => $locale])->save();
+        }
 
         return $this->redirect(request()->header('Referer', '/'), navigate: true);
     }

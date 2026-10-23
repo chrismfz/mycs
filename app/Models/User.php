@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
+ * @property string|null $language
  * @property-read mixed $initials
  * @property-read mixed $avatar
  * @property-read mixed $name
@@ -43,6 +44,8 @@ class User extends Authenticatable implements Auditable, HasAvatar
         'password',
         'tfa_secret',
         'email_verified_at',
+        // Its pages' language, kept from the language switch (docs/accounts.md); null: the instance's.
+        'language',
     ];
 
     /**

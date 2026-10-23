@@ -7,7 +7,9 @@ use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Admin\Resources\UserResource\Pages\ListUsers;
 use App\Admin\Resources\UserResource\RelationManagers\ClientsRelationManager;
 use App\Models\User;
+use App\Support\Locales;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -55,6 +57,11 @@ class UserResource extends Resource
                     ->dehydrateStateUsing(fn (string $state): string => Hash::make($state))
                     ->dehydrated(fn (?string $state): bool => filled($state))
                     ->required(fn (string $operation): bool => $operation === 'create'),
+                Select::make('language')
+                    ->label(__('Language'))
+                    ->options(fn () => Locales::options())
+                    ->formatStateUsing(fn (?string $state) => Locales::allowed($state))
+                    ->placeholder(fn () => __('Default') . ' (' . Locales::main() . ')'),
                 Toggle::make('tfa_secret')
                     ->label('Two Factor Authentication')
                     ->disabled(fn ($record) => !$record?->tfa_secret)

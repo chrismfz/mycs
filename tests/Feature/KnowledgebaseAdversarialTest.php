@@ -27,7 +27,7 @@ class KnowledgebaseAdversarialTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
-        config(['settings.app_language' => 'el', 'settings.allowed_languages' => ['el', 'en'], 'settings.default_currency' => 'EUR']);
+        $this->storeSettings(['app_language' => 'el', 'allowed_languages' => ['el', 'en'], 'default_currency' => 'EUR']);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         app()->setLocale('el');
         $this->category = KbCategory::query()->create(['name' => 'Email', 'description' => 'Ρυθμίσεις email']);
