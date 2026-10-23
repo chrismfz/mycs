@@ -334,10 +334,13 @@ class NotificationHelper
     /** @param  array<string, mixed>  $extra  more for the template (an overdue notice's days) */
     public static function invoiceNotification(Client $client, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
     {
+        // The total as the PDF and the portal show it: after the account credit used on it (ROADMAP, «Total»).
+        $statement = $invoice->statement();
         $data = $extra + [
             'invoice' => $invoice,
             'items' => $invoice->items,
-            'total' => $invoice->formattedTotal,
+            'total' => $invoice->formattedTotal->format($statement['total']),
+            'credit' => $statement['credit'] != 0 ? $invoice->formattedTotal->format($statement['credit']) : '',
             // Δ1: the lines are net; when there is tax, the subtotal and the tax for the template (empty otherwise).
             'subtotal' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->subtotal) : '',
             'tax' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->taxTotal) : '',

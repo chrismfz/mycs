@@ -169,10 +169,20 @@
                     </div>
                 </div>
                 @endif
+                {{-- As the PDF and the email (Invoice::statement): the account credit used, then the total after it. --}}
+                @php
+                    $statement = $invoice->statement();
+                @endphp
+                @if ($statement['credit'] != 0)
                 <div class="flex justify-between">
-                    <div class="text-base font-semibold text-gray-900 uppercase dark:text-white">Total</div>
+                    <div class="text-sm font-medium text-gray-500 uppercase dark:text-base">{{ __('invoices.credit_applied') }}</div>
+                    <div class="text-base font-medium text-gray-900 dark:text-white">{{ $invoice->formattedTotal->format($statement['credit']) }}</div>
+                </div>
+                @endif
+                <div class="flex justify-between">
+                    <div class="text-base font-semibold text-gray-900 uppercase dark:text-white">{{ __('invoices.total') }}</div>
                     <div class="text-base font-bold text-gray-900 dark:text-white">
-                        {{ $invoice->formattedTotal }}
+                        {{ $invoice->formattedTotal->format($statement['total']) }}
                     </div>
                 </div>
             </div>
