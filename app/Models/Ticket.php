@@ -19,6 +19,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * §3 Δ), which staff may link to an account; never by its email on its own.
  *
  * @property int|null $client_id
+ * @property string|null $last_reply_at read with the list (withMax of its public messages)
  */
 #[ObservedBy([TicketObserver::class])]
 class Ticket extends Model implements Auditable

@@ -27,6 +27,7 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class TicketResource extends Resource
 {
@@ -157,11 +158,30 @@ class TicketResource extends Resource
             ]);
     }
 
+    /** «2d 3h», «8h 43m», «12m» since then, as WHMCS's ticket list. */
+    public static function sinceShort(mixed $at): string
+    {
+        if (blank($at)) {
+            return '—';
+        }
+        $minutes = max(0, (int) Carbon::parse($at)->diffInMinutes(now()));
+        $days = intdiv($minutes, 1440);
+        $hours = intdiv($minutes % 1440, 60);
+
+        return match (true) {
+            $days > 0 => "{$days}d {$hours}h",
+            $hours > 0 => "{$hours}h " . ($minutes % 60) . 'm',
+            default => ($minutes % 60) . 'm',
+        };
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'department']))
+            // Its last reply's time, read with the rows (WHMCS «Last Reply»: the customer's or staff's, never an internal note).
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'department'])
+                ->withMax('publicMessages as last_reply_at', 'created_at'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -186,6 +206,15 @@ class TicketResource extends Resource
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
                 TextColumn::make('department.name')
                     ->label('Department'),
+                // How long since its last reply, as WHMCS shows it («8h 43m»; owner 2026-10-23): what waits longest is
+                // seen at once, and sorted by.
+                TextColumn::make('last_reply_at')
+                    ->label('Last Reply')
+                    // Those with no reply yet (a merged one: its messages are its survivor's) last, either way (review).
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderByRaw('last_reply_at IS NULL')
+                        ->orderBy('last_reply_at', $direction))
+                    ->formatStateUsing(fn ($state) => self::sinceShort($state))
+                    ->tooltip(fn (Ticket $record) => $record->last_reply_at ? Carbon::parse($record->last_reply_at)->format('d/m/Y H:i') : null),
                 // A guest's ticket names its guest (docs/tickets.md §3 Δ): no account behind it.
                 TextColumn::make('client.name')
                     ->label('Client')
