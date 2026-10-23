@@ -28,6 +28,7 @@ use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
 use App\Admin\Resources\DomainRegistrarConnectionResource;
+use App\Admin\Resources\DomainRegistrarLogResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainTldResource;
 use App\Admin\Resources\EmailLogResource;
@@ -128,6 +129,7 @@ class TopMenu
             [AuditResource::class, 'index', 'Activity Log'],
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
+            [DomainRegistrarLogResource::class, 'index', 'Registrar Log'],
             [FailedJobResource::class, 'index', 'Failed Jobs'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
             [McpCallResource::class, 'index', 'MCP Calls'],

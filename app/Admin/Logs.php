@@ -4,6 +4,7 @@ namespace App\Admin;
 
 use App\Admin\Pages\CronStats;
 use App\Admin\Resources\Audits\AuditResource;
+use App\Admin\Resources\DomainRegistrarLogResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\ErrorLogResource;
 use App\Admin\Resources\FailedJobResource;
@@ -29,6 +30,7 @@ final class Logs
         'Activity' => [
             [AuditResource::class, 'Activity Log'],
             [ModuleActionResource::class, 'Module Actions'],
+            [DomainRegistrarLogResource::class, 'Registrar Log'],
             [CronStats::class, 'Automation Status'],
         ],
         'Mail' => [

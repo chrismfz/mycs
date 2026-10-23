@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Models\Role;
@@ -243,6 +244,7 @@ class DomainsD5aAdversarialTest extends TestCase
     {
         Carbon::setTestNow('2026-10-17 12:00:00');
         foreach ([DomainStatus::Cancelled, DomainStatus::TransferredAway] as $status) {
+            DomainRegistrarLog::query()->delete(); // the syncs above are logged (the Registrar Log)
             Domain::query()->delete();
             $domain = $this->domain(['expires_at' => '2026-10-01', 'status' => $status]);
             $this->fakeDomain(['status' => 'DEL', 'soft_quarantine_expiry_date' => '2026-11-10 12:00:00', 'hard_quarantine_expiry_date' => '2026-12-08 12:00:00']);
@@ -294,6 +296,7 @@ class DomainsD5aAdversarialTest extends TestCase
             'grace 0, redemption 38' => [0, 38, '2026-11-01', DomainStatus::Redemption],
         ];
         foreach ($cases as $label => [$grace, $redemption, $on, $expected]) {
+            DomainRegistrarLog::query()->delete(); // the syncs above are logged (the Registrar Log)
             Domain::query()->delete();
             DomainTld::query()->delete();
             $tld = DomainTld::query()->create(['tld' => 'com', 'grace_days' => $grace, 'redemption_days' => $redemption, 'is_active' => true]);
