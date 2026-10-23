@@ -135,9 +135,14 @@ class EditService extends EditRecord
         $url = fn (?Service $service) => $service === null ? null : ServiceResource::getUrl('edit', ['record' => $service]);
 
         $client = $record->client;
+        // Nothing to show (no list, a client staff may not open): no subheading at all (ADV-1 of #407).
+        $back = $client !== null && ClientResource::canView($client);
+        if (!$back && $services->count() < 2) {
+            return null;
+        }
 
         return new HtmlString(view('admin.components.client-switcher', [
-            'client' => $client !== null && ClientResource::canView($client)
+            'client' => $back
                 ? ['label' => '#' . $client->id . ' ' . $client->name, 'url' => ClientResource::getUrl('view', ['record' => $client])] : null,
             'title' => __("This client's services"), 'tabLabel' => __("On the client's Products/Services tab"),
             'previousLabel' => __('Previous service'), 'nextLabel' => __('Next service'),

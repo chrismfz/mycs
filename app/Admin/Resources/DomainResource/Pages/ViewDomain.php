@@ -181,9 +181,14 @@ class ViewDomain extends ViewRecord
         $url = fn (?Domain $domain) => $domain === null ? null : DomainResource::getUrl('view', ['record' => $domain]);
 
         $client = $record->client;
+        // Nothing to show (no list, a client staff may not open): no subheading at all (ADV-1 of #407).
+        $back = ClientResource::canView($client);
+        if (!$back && $domains->count() < 2) {
+            return null;
+        }
 
         return new HtmlString(view('admin.components.client-switcher', [
-            'client' => ClientResource::canView($client)
+            'client' => $back
                 ? ['label' => '#' . $client->id . ' ' . $client->name, 'url' => ClientResource::getUrl('view', ['record' => $client])] : null,
             'title' => __("This client's domains"), 'tabLabel' => __("On the client's Domains tab"),
             'previousLabel' => __('Previous domain'), 'nextLabel' => __('Next domain'),
