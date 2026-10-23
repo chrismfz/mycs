@@ -270,4 +270,20 @@ class StaffChatTest extends TestCase
 
         $this->assertSame([], $empty->fresh()->permissions);
     }
+
+    /** Re-review of #373: a sequence whose joiner follows an emoji selector or a skin tone keeps it too. */
+    public function test_zwj_sequences_with_a_selector_or_skin_tone_survive(): void
+    {
+        foreach (["❤\u{FE0F}\u{200D}🔥", "🏳\u{FE0F}\u{200D}🌈", "👩\u{1F3FD}\u{200D}💻"] as $emoji) {
+            $this->assertSame($emoji, ChatText::clean($emoji), (string) json_encode($emoji));
+        }
+        $this->assertSame('👩💻', ChatText::clean("👩\u{202E}\u{200D}💻"), 'a bidi character between them still goes, and so does the joiner');
+    }
+
+    /** Re-review of #373: an address needs a host, not just `https://`. */
+    public function test_a_bare_scheme_is_not_a_link(): void
+    {
+        $this->assertStringNotContainsString('<a ', ChatText::render('see https://). or https://')->toHtml());
+        $this->assertStringContainsString('href="https://a.b"', ChatText::render('(https://a.b)')->toHtml());
+    }
 }

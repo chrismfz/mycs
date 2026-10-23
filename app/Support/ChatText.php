@@ -18,12 +18,13 @@ class ChatText
 
     /**
      * Control characters but the line break, and Unicode format characters (\p{Cf}); the zero-width joiner only where
-     * it does not join two pictographs (an emoji sequence such as 👩‍💻 keeps it: review of #373).
+     * it does not join a pictograph (or its emoji selector or skin tone) to the next, so 👩‍💻 or ❤️‍🔥 keeps it (review
+     * of #373).
      */
-    private const STRIP = '/[\x00-\x09\x0B-\x1F\x7F]|(?!(?<=\p{Extended_Pictographic})\x{200D}(?=\p{Extended_Pictographic}))\p{Cf}/u';
+    private const STRIP = '/[\x00-\x09\x0B-\x1F\x7F]|(?!(?<=[\p{Extended_Pictographic}\x{FE0F}\x{1F3FB}-\x{1F3FF}])\x{200D}(?=\p{Extended_Pictographic}))\p{Cf}/u';
 
     /** A bare address, found in the raw text (never in escaped text, where it would swallow `&quot;`: review of #373). */
-    private const URL = '~(https?://[^\s<>"\'`]+)~i';
+    private const URL = '~(https?://[^\s<>"\'`.,;:!?()]+[^\s<>"\'`]*)~i';
 
     /** The text as it will be kept, or null when nothing is left to send. */
     public static function clean(string $text): ?string
