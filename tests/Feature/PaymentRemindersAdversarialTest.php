@@ -55,6 +55,8 @@ class PaymentRemindersAdversarialTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => $price]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
+        // Issued that day, its mail sent then: not today's (RecordInvoiceMailed).
+        DB::table('invoice_reminders')->where(['invoice_id' => $invoice->id, 'kind' => 'mailed'])->delete();
         MailFacade::fake();
 
         return $invoice->fresh();
