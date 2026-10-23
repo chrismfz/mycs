@@ -286,6 +286,10 @@ return [
             'mcp' => [
                 'use' => 'Use the MCP Server',
             ],
+            // Who of the staff is in, in the sidebar and on the dashboard (docs/livechat.md §7β); every role by default.
+            'staff_online' => [
+                'view' => 'View Staff Online',
+            ],
             'widgets' => [
                 'revenue' => 'View Revenue Widget',
                 'overview' => 'View Overview Widget',

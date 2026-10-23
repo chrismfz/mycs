@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\RoutesNotifications;
+use Illuminate\Support\Carbon;
 use LogicException;
 use OwenIt\Auditing\Contracts\Auditable;
 use SensitiveParameter;
@@ -28,6 +29,8 @@ use SensitiveParameter;
  * @property-read string $name
  * @property-read string $avatar
  * @property bool $active
+ * @property Carbon|null $last_seen_at
+ * @property string $presence_status
  * @property string|null $app_authentication_secret
  * @property array<string>|null $app_authentication_recovery_codes
  */
@@ -55,7 +58,7 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
     ];
 
     /** Never in an audit: secrets and the password hash. */
-    protected $auditExclude = ['password', 'remember_token', 'app_authentication_secret', 'app_authentication_recovery_codes'];
+    protected $auditExclude = ['password', 'remember_token', 'app_authentication_secret', 'app_authentication_recovery_codes', 'last_seen_at'];
 
     protected function casts(): array
     {
@@ -65,6 +68,7 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
             'app_authentication_secret' => 'encrypted',
             'app_authentication_recovery_codes' => 'encrypted:array',
             'last_login_at' => 'datetime',
+            'last_seen_at' => 'datetime',
         ];
     }
 

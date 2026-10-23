@@ -9,7 +9,9 @@ use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\UseStaffGuard;
 use App\Models\Extension;
+use App\Models\Staff;
 use App\Providers\SettingsProvider;
+use App\Support\StaffPresence;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
@@ -115,6 +117,13 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 PanelsRenderHook::SIDEBAR_NAV_END,
                 fn (): string => Blade::render('<x-admin-footer />'),
+            )
+            // The heartbeat of «Staff online» on every page of the admin (docs/livechat.md §7α, §7β), for staff past the
+            // mandatory 2FA set-up only (StaffPresence::mayBeOnline, which the heartbeat checks again on every beat).
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn (): string => ($staff = auth('staff')->user()) instanceof Staff && StaffPresence::mayBeOnline($staff)
+                    ? Blade::render("@livewire('admin.staff-heartbeat')") : '',
             )
             ->renderHook(
                 'panels::head.end',
