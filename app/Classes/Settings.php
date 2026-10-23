@@ -1342,6 +1342,16 @@ class Settings
                     'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, separated by commas or spaces. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
                 ],
                 [
+                    'name' => 'staff_2fa_required',
+                    // Whether every member of staff must set 2FA up before using the admin: full admins only.
+                    'permission' => '*',
+                    'label' => 'Require 2FA for staff',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'On: every member of staff sets up an authenticator app at their first login, before anything else in the admin. Off: 2FA is optional in each member\'s profile; Automation Status warns while it is off. Approving an MCP connector always needs 2FA.',
+                ],
+                [
                     'name' => 'logs_full',
                     // What staff read in the logs and the system mails: full admins only.
                     'permission' => '*',

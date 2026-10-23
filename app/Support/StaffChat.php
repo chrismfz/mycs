@@ -30,12 +30,12 @@ class StaffChat
 
     public static function canView(?Staff $staff): bool
     {
-        // Past the mandatory 2FA set-up too, as for «Staff online» (review of #373).
+        // Past the 2FA set-up too when it is required, as for «Staff online» (review of #373).
         return $staff !== null && StaffPresence::mayBeOnline($staff) && $staff->hasPermission('admin.staff_chat.view');
     }
 
     /**
-     * Someone a member may write to: active, with a role and the chat. Not yet past the mandatory 2FA set-up is fine:
+     * Someone a member may write to: active, with a role and the chat. Not yet past the 2FA set-up is fine:
      * they read it once they are (owner 2026-10-23: new colleagues could not be messaged before their first login).
      */
     public static function reachable(Staff $peer): bool
