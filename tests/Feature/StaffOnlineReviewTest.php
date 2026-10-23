@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\RoleResource;
 use App\Admin\Resources\RoleResource\Pages\CreateRole;
 use App\Models\Role;
 use App\Models\Staff;
@@ -131,7 +132,7 @@ class StaffOnlineReviewTest extends TestCase
         $this->actingAs($admin, 'staff');
 
         Livewire::test(CreateRole::class)
-            ->assertSchemaStateSet(['permissions' => ['admin.staff_online.view']]);
+            ->assertSchemaStateSet(['permissions' => RoleResource::DEFAULT_PERMISSIONS]);
     }
 
     /** R3, R4: the sidebar list has a stable key and polls only while visible. */
