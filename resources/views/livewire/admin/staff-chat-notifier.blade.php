@@ -29,6 +29,48 @@
         onPage() { return location.pathname === new URL(this.$el.dataset.page, location.href).pathname },
         front() { if (this.onPage()) this.store('mycs-chat-front', this.away() ? '0' : String(Date.now())) },
         destroy() { clearInterval(this.timer) },
+        // The set-up lives in init(), never in x-init: Alpine calls an x-init whose value is a function, and the first
+        // statement there (`window.mycsChatAlert ??= …`) was that function, so every page rang (review of #396).
+        init() {
+            window.mycsChatAlert ??= (title, url, notify) => {
+                let muted = false;
+                try { muted = localStorage.getItem('mycs-chat-muted') === '1' } catch (e) {}
+                // A tone only on a running audio context: one scheduled on a suspended context would wait for a click.
+                const ctx = window.mycsChatAudio;
+                if (!muted && ctx && ctx.state === 'running') {
+                    try {
+                        const tone = ctx.createOscillator(); const gain = ctx.createGain();
+                        tone.frequency.value = 880; gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+                        tone.connect(gain).connect(ctx.destination); tone.start(); tone.stop(ctx.currentTime + 0.3);
+                    } catch (e) {}
+                }
+                if (notify && 'Notification' in window && Notification.permission === 'granted') {
+                    const note = new Notification(title, { tag: 'mycs-staff-chat', renotify: true });
+                    note.onclick = () => { window.focus(); window.location.href = url; note.close() };
+                }
+            };
+            // The browser lets a page make sound only after a gesture: the first click or key of the window unlocks it,
+            // and again whenever the browser suspends it (Safari, iOS).
+            window.mycsChatUnlock ??= () => {
+                try {
+                    const ctx = window.mycsChatAudio ??= new AudioContext();
+                    ctx.resume();
+                    ctx.onstatechange = () => { if (ctx.state !== 'running') window.mycsChatListen() };
+                } catch (e) {}
+                document.removeEventListener('pointerdown', window.mycsChatUnlock);
+                document.removeEventListener('keydown', window.mycsChatUnlock);
+            };
+            window.mycsChatListen ??= () => {
+                document.addEventListener('pointerdown', window.mycsChatUnlock);
+                document.addEventListener('keydown', window.mycsChatUnlock);
+            };
+            if (!window.mycsChatListening) { window.mycsChatListening = true; window.mycsChatListen() }
+            this.check();
+            // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
+            this.timer = setInterval(() => this.front(), 5000);
+            new MutationObserver(() => this.check()).observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
+        },
         away() { return document.visibilityState !== 'visible' || !document.hasFocus() },
         title() {
             const total = Number(this.$el.dataset.total);
@@ -54,38 +96,5 @@
             window.mycsChatAlert?.(this.$el.dataset.title, this.$el.dataset.url, this.away());
         },
     }"
-    x-init="
-        window.mycsChatAlert ??= (title, url, notify) => {
-            let muted = false;
-            try { muted = localStorage.getItem('mycs-chat-muted') === '1' } catch (e) {}
-            // A tone only on a running audio context: one scheduled on a suspended context waits and plays at the next
-            // click, which is how every click came to ring (owner 2026-10-23).
-            const ctx = window.mycsChatAudio;
-            if (!muted && ctx && ctx.state === 'running') {
-                try {
-                    const tone = ctx.createOscillator(); const gain = ctx.createGain();
-                    tone.frequency.value = 880; gain.gain.setValueAtTime(0.08, ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
-                    tone.connect(gain).connect(ctx.destination); tone.start(); tone.stop(ctx.currentTime + 0.3);
-                } catch (e) {}
-            }
-            if (notify && 'Notification' in window && Notification.permission === 'granted') {
-                const note = new Notification(title, { tag: 'mycs-staff-chat', renotify: true });
-                note.onclick = () => { window.focus(); window.location.href = url; note.close() };
-            }
-        };
-        // The browser lets a page make sound only after a click; the first click of the window unlocks it, once.
-        if (!window.mycsChatUnlock) {
-            window.mycsChatUnlock = () => {
-                try { (window.mycsChatAudio ??= new AudioContext()).resume() } catch (e) {}
-                document.removeEventListener('pointerdown', window.mycsChatUnlock);
-            };
-            document.addEventListener('pointerdown', window.mycsChatUnlock);
-        }
-        check();
-        // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
-        timer = setInterval(() => front(), 5000);
-        new MutationObserver(() => check()).observe($el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
-    "
     x-on:livewire:navigated.document="title()"
     x-on:focus.window="check()" x-on:blur.window="front()" x-on:visibilitychange.document="check()"></div>
