@@ -5,10 +5,12 @@ namespace App\Services\Invoice;
 use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Jobs\Domains\RenewDomainJob;
 use App\Models\Domain;
+use App\Models\DomainOwnerChange;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +41,12 @@ class ProcessPaidInvoiceService
                         $domainId = (int) $item->reference_id;
                         DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
                     }
+
+                    return;
+                }
+                // A .gr change of holder (G8-5b): sent to the registry after this commit, once.
+                if ($item->reference_type === DomainOwnerChange::class) {
+                    DomainOwnerChanges::paid($item);
 
                     return;
                 }

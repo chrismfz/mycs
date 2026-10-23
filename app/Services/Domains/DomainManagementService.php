@@ -2,6 +2,7 @@
 
 namespace App\Services\Domains;
 
+use App\Contracts\ChangesOwner;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
@@ -46,7 +47,7 @@ use Throwable;
 class DomainManagementService
 {
     /** RFC 1035 host name, lowercase ASCII (IDN as punycode). */
-    private const LOCK_SECONDS = 600;
+    public const LOCK_SECONDS = 600;
 
     public const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
 
@@ -225,6 +226,39 @@ class DomainManagementService
         $domain->forceFill(['status' => DomainStatus::Cancelled, 'meta' => $meta])->save(); // audited
 
         return $said;
+    }
+
+    /**
+     * WRITE, charged, never recalled (G8-5b): the domain's holder changed at its registrar, as DomainOwnerChanges sends it
+     * once paid. Under the domain's lock and logged as every write; its answer applied as a sync would.
+     */
+    public function changeOwner(Domain $domain, Contact $holder, string $kind, ?Staff $staff): DomainSyncResult
+    {
+        $result = null;
+        $this->call($domain, 'owner_change', ['kind' => $kind, 'contact_id' => $holder->id], $staff,
+            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $holder, $kind, &$result) {
+                if (!$registrar instanceof ChangesOwner) {
+                    throw new DomainRegistrarNotConfigured(__('domains.owner_change.not_offered', ['domain' => $domain->fqdn]));
+                }
+                $result = $registrar->changeOwner($domain, $holder, $kind, $credentials);
+
+                return $result->details;
+            });
+        $this->sync->applyResult($domain->refresh(), $result);
+
+        return $result;
+    }
+
+    /** Whether its registrar changes a holder as an act of its own (the .gr registry: ChangesOwner). */
+    public function changesOwner(Domain $domain): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $this->isManageable($domain) && $connection instanceof DomainRegistrarConnection && $connection->isUsable()
+                && $this->factory->for($connection) instanceof ChangesOwner;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** A registration recallable now: at a registrar that recalls, pending or active, registered within RECALL_DAYS. */

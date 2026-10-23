@@ -17,6 +17,7 @@ use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
+use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarLog;
 use App\Models\EmailLog;
 use App\Models\Invoice;
@@ -33,6 +34,7 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Billing\ClientGroupPricing;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Domains\DomainReminders;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
@@ -224,6 +226,22 @@ class CronJob extends Command
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["domains_ordered #{$id}"] = $e;
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
+            // A .gr change of holder paid (or free) and not sent (G8-5b): a job lost, the domain busy. Claimed once (due →
+            // sending), so this never asks the registry twice.
+            $this->runCronJob('domain_owner_changes', function ($number = 0) {
+                DomainOwnerChanges::stuck();
+                foreach (DomainOwnerChanges::due()->where('updated_at', '<', now()->subMinutes(10))->pluck('id') as $id) {
+                    try {
+                        $number += app(DomainOwnerChanges::class)->send((int) $id) !== DomainOwnerChange::STATUS_DUE ? 1 : 0;
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["domain_owner_changes #{$id}"] = $e;
                     }
                 }
 
