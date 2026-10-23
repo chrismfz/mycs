@@ -33,6 +33,11 @@ class WhoisLookup extends Page
 
     protected string $view = 'admin.pages.whois-lookup';
 
+    protected function getViewData(): array
+    {
+        return ['ours' => $this->answer === null ? null : $this->ours()];
+    }
+
     #[Url('domain', except: '')]
     public string $query = '';
 
@@ -53,6 +58,8 @@ class WhoisLookup extends Page
 
     public function mount(): void
     {
+        // Before anything is asked: Filament's own check runs after this mount (code review 1: ?domain= looked up first).
+        abort_unless(static::canAccess(), 403);
         if (trim($this->query) !== '') {
             $this->lookup();
         }
@@ -88,16 +95,14 @@ class WhoisLookup extends Page
         ];
     }
 
-    /** Ours, when it is: the domain's page here (any status, the newest first). */
-    public function ours(): ?Domain
+    /** Ours, when it is: the domain's page here (any status, the newest first). Not callable from the page. */
+    protected function ours(): ?Domain
     {
         if ($this->fqdn === null) {
             return null;
         }
 
-        // Kept as typed (an IDN in Unicode or punycode): either.
-        $unicode = idn_to_utf8($this->fqdn, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $this->fqdn;
-
-        return Domain::query()->whereIn('fqdn', array_unique([$this->fqdn, $unicode]))->latest('id')->first();
+        // Kept as punycode, as here (Domain::booted).
+        return Domain::query()->where('fqdn', $this->fqdn)->latest('id')->first();
     }
 }

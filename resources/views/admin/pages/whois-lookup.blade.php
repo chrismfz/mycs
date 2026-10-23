@@ -11,12 +11,15 @@
     @endif
 
     @if ($answer)
-    @php($ours = $this->ours())
     <x-filament::section>
         <x-slot name="heading">{{ $fqdn }}</x-slot>
         @if ($ours)
         <p class="mb-3 text-sm">{{ __('Ours') }}:
+            @can('view', $ours)
             <a class="underline text-primary-600" href="{{ \App\Admin\Resources\DomainResource::getUrl('view', ['record' => $ours]) }}">{{ $ours->fqdn }}</a>
+            @else
+            {{ $ours->fqdn }}
+            @endcan
             ({{ $ours->status?->value ?? $ours->status }}, {{ $ours->client?->name }})</p>
         @endif
         @if ($answer['status'] === 'not_found')

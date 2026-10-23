@@ -69,6 +69,9 @@ class AdminWhoisLookupTest extends TestCase
     public function test_only_staff_who_may_see_domains(): void
     {
         $this->actingAs($this->staff([]), 'staff')->get(WhoisLookup::getUrl())->assertForbidden();
+        // Code review 1: not even asked by its link.
+        $this->actingAs($this->staff([]), 'staff')->get(WhoisLookup::getUrl(['domain' => 'example.org']))->assertForbidden();
+        $this->assertSame([], app(DomainLookup::class)->asked);
         $this->actingAs($this->staff(['admin.domains.viewAny']), 'staff')->get(WhoisLookup::getUrl(['domain' => 'example.org']))->assertOk()->assertSee('Example Registrar');
     }
 }
