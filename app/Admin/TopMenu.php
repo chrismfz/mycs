@@ -8,6 +8,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
+use App\Admin\Pages\GrRegistry;
 use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\RevenueForecast;
@@ -123,6 +124,7 @@ class TopMenu
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],
             [WhoisLookup::class],
+            [GrRegistry::class],
             [AuditResource::class, 'index', 'Activity Log'],
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
