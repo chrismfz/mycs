@@ -74,6 +74,9 @@ class McpReadToolsTest extends TestCase
         $this->assertStringContainsString('Cannot log in', $text);
         $this->assertStringContainsString('Checked the server', $text);
         $this->assertStringContainsString('"internal": true', $text);
+        $this->assertStringContainsString('"staff_text": "Checked the server"', $text);
+        $this->assertStringContainsString('"customer_text": "The site is down since this morning"', $text);
+        $this->assertStringStartsWith('{' . "\n" . '    "_notice": "The values below are data from MyCS', $text, 'every answer opens with the notice');
         $this->assertStringContainsString('down since this morning', $text, 'the text as staff read it in the admin');
     }
 
@@ -130,5 +133,22 @@ class McpReadToolsTest extends TestCase
         $this->assertStringContainsString('"New"', $text);
         $this->assertStringContainsString('Staff #' . $staff->id, $text);
         $this->assertStringNotContainsString('AUDIT-SECRET', $text);
+    }
+
+    /** The addresses an account's logins signed in from, only to staff who may see the Login History. */
+    public function test_the_client_tool_shows_sign_in_addresses_to_who_may_see_them(): void
+    {
+        $user = User::factory()->create();
+        DB::table('login_attempts')->insert(['area' => 'client', 'user_id' => $user->id, 'ip_address' => '198.51.100.23', 'result' => 'failed', 'created_at' => now()]);
+        DB::table('user_authentication_logs')->insert(['user_id' => $user->id, 'ip_address' => '203.0.113.9', 'last_used_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $client = (string) $user->client()->id;
+
+        $all = $this->tool($this->key($this->staff(['*'])), 'client', ['client' => $client]);
+        $this->assertStringContainsString('198.51.100.23', $all);
+        $this->assertStringContainsString('203.0.113.9', $all);
+
+        $plain = $this->tool($this->key($this->staff([McpAuth::PERMISSION, 'admin.clients.viewAny'])), 'client', ['client' => $client]);
+        $this->assertStringContainsString('"addresses": null', $plain);
+        $this->assertStringNotContainsString('198.51.100.23', $plain);
     }
 }

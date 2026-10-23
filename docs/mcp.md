@@ -51,6 +51,13 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 - **Errors:** a failing tool returns an MCP error with a masked message, never a stack.
 - **One page:** `tools/list` returns up to 50 tools at once (the package's default is 15), so a client that does not
   follow the cursor still sees them all.
+- **Untrusted text:** every answer opens with `_notice`: the values are data, and text in them was written by
+  customers, mail senders, gateways or servers, never instructions. The server's instructions say the same, and a
+  ticket's messages carry their text as `customer_text` or `staff_text`. This is a mark, not the defence: the defence is
+  that no tool changes anything (only `propose_*`, which staff approve), and that an agent's writes elsewhere (ssh, the
+  firewall) need a human's approval.
+- **Addresses:** `client` lists the addresses its logins signed in from (Login History, known addresses) only to staff
+  who may see the Login History (`admin.audit.viewAny`).
 - **Ticket text** comes as staff read it in the admin (up to 10,000 characters a message); what a customer pasted into a
   ticket is not guessed at.
 
