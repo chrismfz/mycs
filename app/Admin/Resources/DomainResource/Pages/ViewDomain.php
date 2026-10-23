@@ -177,14 +177,22 @@ class ViewDomain extends ViewRecord
         $domains = $own()->where('fqdn', '<', $record->fqdn)->orderByDesc('fqdn')->limit($half)->get(['id', 'fqdn', 'status'])->reverse()
             ->push($record)->merge($own()->where('fqdn', '>', $record->fqdn)->orderBy('fqdn')->limit($half)->get(['id', 'fqdn', 'status']))
             ->merge($own()->where('fqdn', $record->fqdn)->whereKeyNot($record->id)->get(['id', 'fqdn', 'status']))->values();
-        if ($domains->count() < 2) {
-            return null;
-        }
         $at = $domains->search(fn (Domain $domain) => $domain->is($record));
         $url = fn (?Domain $domain) => $domain === null ? null : DomainResource::getUrl('view', ['record' => $domain]);
 
-        return new HtmlString(view('admin.resources.domain-resource.client-domains', [
-            'domains' => $domains->map(fn (Domain $domain) => ['fqdn' => $domain->fqdn, 'url' => $url($domain), 'current' => $domain->is($record),
+        $client = $record->client;
+        // Nothing to show (no list, a client staff may not open): no subheading at all (ADV-1 of #407).
+        $back = ClientResource::canView($client);
+        if (!$back && $domains->count() < 2) {
+            return null;
+        }
+
+        return new HtmlString(view('admin.components.client-switcher', [
+            'client' => $back
+                ? ['label' => '#' . $client->id . ' ' . $client->name, 'url' => ClientResource::getUrl('view', ['record' => $client])] : null,
+            'title' => __("This client's domains"), 'tabLabel' => __("On the client's Domains tab"),
+            'previousLabel' => __('Previous domain'), 'nextLabel' => __('Next domain'),
+            'items' => $domains->map(fn (Domain $domain) => ['label' => $domain->fqdn, 'url' => $url($domain), 'current' => $domain->is($record),
                 'status' => $domain->status->getLabel(), 'ended' => in_array($domain->status->value, DomainStatus::terminalValues(), true)])->all(),
             'previous' => $url($at > 0 ? $domains[$at - 1] : null),
             'next' => $url($domains[$at + 1] ?? null),

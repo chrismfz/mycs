@@ -315,8 +315,8 @@ class DomainResource extends Resource
                 )),
             ]);
 
-        // As the mockup (owner 2026-10-23): the domain and the registrar's side by side, everything open; under them its
-        // contacts and child nameservers; its notes last. The registrar's commands are one row above (ViewDomain).
+        // As the mockup (owner 2026-10-23): the domain, its contacts and child nameservers on the left, the registrar's on
+        // the right, everything open; its notes last. The registrar's commands are one row above (ViewDomain).
         return $schema->columns(1)->components([
             // The registrar's commands in one row, as WHMCS's «Registrar Commands»: each opens the page's own action.
             Section::make()->compact()->schema([
@@ -324,8 +324,27 @@ class DomainResource extends Resource
                     ->label(__('Registrar'))->key('registrar_commands'),
             ])->visible(fn ($livewire) => method_exists($livewire, 'registrarCommands') && $livewire->registrarCommands() !== []),
             Grid::make(['default' => 1, 'lg' => 2])->schema([
+                // The left column holds its contacts and child nameservers too: no gap under a short Domain beside a tall
+                // registrar's column (owner 2026-10-23).
                 Group::make([
                     $domain,
+                    $contacts,
+                    // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
+                    Section::make(__('Child nameservers'))
+                        ->visible(fn (Domain $record) => isset($record->meta['child_hosts']) || self::detail($record, 'hosts') !== '')
+                        ->description(fn (Domain $record) => match (true) {
+                            !isset($record->meta['child_hosts']) => __('Names from the last sync; «Read child nameservers» reads their addresses.'),
+                            (bool) ($record->meta['child_hosts']['stale'] ?? false) => __('Out of date (changed after it was read): read again.'),
+                            default => __('Read :when', ['when' => (string) ($record->meta['child_hosts']['read_at'] ?? '—')]),
+                        })
+                        ->schema([
+                            TextEntry::make('child_hosts')->hiddenLabel()->placeholder(__('None at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
+                                ->state(fn (Domain $record) => !isset($record->meta['child_hosts'])
+                                    ? array_values(array_filter(array_map('trim', explode(',', self::detail($record, 'hosts')))))
+                                    : collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
+                                        ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
+                                            . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
+                        ]),
                 ]),
                 Group::make([
                     Section::make(__('Nameservers'))->schema([
@@ -379,25 +398,6 @@ class DomainResource extends Resource
                                     . (is_string($record->meta['dnssec']['note_at'] ?? null) ? ' (' . $record->meta['dnssec']['note_at'] . ')' : '')),
                         ]),
                 ]),
-            ]),
-            Grid::make(['default' => 1, 'lg' => 2])->schema([
-                $contacts,
-                // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
-                Section::make(__('Child nameservers'))
-                    ->visible(fn (Domain $record) => isset($record->meta['child_hosts']) || self::detail($record, 'hosts') !== '')
-                    ->description(fn (Domain $record) => match (true) {
-                        !isset($record->meta['child_hosts']) => __('Names from the last sync; «Read child nameservers» reads their addresses.'),
-                        (bool) ($record->meta['child_hosts']['stale'] ?? false) => __('Out of date (changed after it was read): read again.'),
-                        default => __('Read :when', ['when' => (string) ($record->meta['child_hosts']['read_at'] ?? '—')]),
-                    })
-                    ->schema([
-                        TextEntry::make('child_hosts')->hiddenLabel()->placeholder(__('None at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
-                            ->state(fn (Domain $record) => !isset($record->meta['child_hosts'])
-                                ? array_values(array_filter(array_map('trim', explode(',', self::detail($record, 'hosts')))))
-                                : collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
-                                    ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
-                                        . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
-                    ]),
             ]),
             Section::make(__('Admin notes'))->schema([
                 TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
