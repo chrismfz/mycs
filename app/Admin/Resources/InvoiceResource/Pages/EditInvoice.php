@@ -70,6 +70,18 @@ class EditInvoice extends EditRecord
             || $form->contains(fn (array $amounts, string $key) => $stored->get($key) !== $amounts);
     }
 
+    /** The lines in the form differ from those saved (added, taken off, or any field changed): «Split» moves the saved ones. */
+    public function linesUnsaved(): bool
+    {
+        $stored = InvoiceItem::query()->where('invoice_id', $this->record->getKey())->get()
+            ->mapWithKeys(fn (InvoiceItem $line) => ['record-' . $line->getKey() => [...self::amounts($line->price, $line->quantity, $line->taxed), (string) $line->description]]);
+        $form = collect($this->data['items'] ?? [])
+            ->map(fn ($line) => [...self::amounts($line['price'] ?? null, $line['quantity'] ?? null, $line['taxed'] ?? null), (string) ($line['description'] ?? '')]);
+
+        return $stored->keys()->sort()->values()->all() !== $form->keys()->sort()->values()->all()
+            || $form->contains(fn (array $line, string $key) => $stored->get($key) !== $line);
+    }
+
     /** @return array{0: int, 1: string, 2: bool} */
     private static function amounts(mixed $price, mixed $quantity, mixed $taxed): array
     {
