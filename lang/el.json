@@ -986,6 +986,9 @@
     "You may not write here.": "Δεν μπορείτε να γράψετε εδώ.",
     "The message is empty.": "Το μήνυμα είναι κενό.",
     "Too many messages, wait a moment.": "Πολλά μηνύματα, περιμένετε λίγο.",
+    "Language": "Γλώσσα",
+    "Default": "Προεπιλογή",
+    "The language of its emails and PDFs.": "Η γλώσσα των email και των PDF του.",
     "Ours": "Δικό μας",
     "Raw WHOIS": "Το WHOIS όπως ήρθε"
 }

@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Models\KbArticle;
+use App\Support\Locales;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -26,10 +27,6 @@ use Throwable;
  */
 final class WhmcsKnowledgebaseImport
 {
-    /** WHMCS's language names => ours. */
-    public const LOCALES = ['english' => 'en', 'greek' => 'el', 'german' => 'de', 'french' => 'fr', 'italian' => 'it', 'spanish' => 'es',
-        'dutch' => 'nl', 'portuguese-pt' => 'pt', 'portuguese-br' => 'pt', 'russian' => 'ru', 'turkish' => 'tr', 'arabic' => 'ar', 'danish' => 'da'];
-
     private const IMAGE_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
 
     private const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -180,7 +177,7 @@ final class WhmcsKnowledgebaseImport
     /** @param array<string, string> $fields */
     private function translate(string $table, int $id, string $language, array $fields): void
     {
-        $locale = self::LOCALES[strtolower(trim($language))] ?? null;
+        $locale = Locales::fromWhmcs($language);
         if ($locale === null) {
             $this->counts['translations_unknown']++;
 

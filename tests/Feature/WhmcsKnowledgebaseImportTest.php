@@ -26,7 +26,7 @@ class WhmcsKnowledgebaseImportTest extends TestCase
     {
         parent::setUp();
         Storage::fake('public');
-        config(['settings.app_language' => 'el', 'settings.allowed_languages' => ['el', 'en']]);
+        $this->storeSettings(['app_language' => 'el', 'allowed_languages' => ['el', 'en']]);
         $this->whmcs = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $this->whmcs->exec('CREATE TABLE tblknowledgebase (id INTEGER PRIMARY KEY, title TEXT, article TEXT, views INT, useful INT, votes INT, private TEXT, "order" INT, parentid INT, language TEXT)');
         $this->whmcs->exec('CREATE TABLE tblknowledgebasecats (id INTEGER PRIMARY KEY, parentid INT, name TEXT, description TEXT, hidden TEXT, catid INT, language TEXT)');
