@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Concerns\RemembersRecent;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\UserResource\Pages\EditUser;
@@ -19,6 +20,7 @@ class EditClient extends EditRecord
 {
     use NamesTheClient;
     use RemembersRecent;
+    use TwoColumnForm;
 
     protected static string $resource = ClientResource::class;
 

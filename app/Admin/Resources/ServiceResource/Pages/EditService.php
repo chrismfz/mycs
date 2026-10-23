@@ -6,6 +6,7 @@ use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -47,6 +48,7 @@ use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
 class EditService extends EditRecord
 {
     use RemembersRecent;
+    use TwoColumnForm;
 
     protected static string $resource = ServiceResource::class;
 

@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ConfigOptionResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ConfigOptionResource;
 use App\Exceptions\DisplayException;
 use App\Models\ConfigOption;
@@ -11,6 +12,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditConfigOption extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ConfigOptionResource::class;
 
     /** The save in one transaction: a value refused (used meanwhile) rolls back the rest too. */

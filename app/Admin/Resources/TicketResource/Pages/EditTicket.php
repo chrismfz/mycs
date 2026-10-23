@@ -5,6 +5,7 @@ namespace App\Admin\Resources\TicketResource\Pages;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
@@ -41,6 +42,7 @@ use MyCS\TicketMail\Attachments;
 class EditTicket extends EditRecord
 {
     use RemembersRecent;
+    use TwoColumnForm;
 
     protected static string $resource = TicketResource::class;
 

@@ -10,6 +10,7 @@ use App\Admin\Actions\SendInvoiceEmail;
 use App\Admin\Actions\SetAutoCharge;
 use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Concerns\RemembersRecent;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
@@ -27,6 +28,7 @@ use Illuminate\Support\Carbon;
 class EditInvoice extends EditRecord
 {
     use RemembersRecent;
+    use TwoColumnForm;
 
     protected static string $resource = InvoiceResource::class;
 

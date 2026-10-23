@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\UserResource;
 use App\Models\Client;
 use App\Models\User;
@@ -16,6 +17,8 @@ use OwenIt\Auditing\Events\AuditCustom;
 
 class EditUser extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = UserResource::class;
 
     protected function getHeaderActions(): array

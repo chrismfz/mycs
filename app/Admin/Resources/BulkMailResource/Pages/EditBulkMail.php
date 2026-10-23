@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\BulkMailResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\BulkMailResource;
 use App\Exceptions\DisplayException;
 use App\Models\BulkMail;
@@ -20,6 +21,8 @@ use Illuminate\Support\HtmlString;
 /** A mass mail's page: edited while a draft; previewed, tested and sent from here (BulkMailer). */
 class EditBulkMail extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = BulkMailResource::class;
 
     protected function getHeaderActions(): array

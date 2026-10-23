@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ServerResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ServerResource;
 use App\Helpers\ExtensionHelper;
 use Arr;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class CreateServer extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ServerResource::class;
 
     protected function mutateFormDataBeforeCreate(array $data): array

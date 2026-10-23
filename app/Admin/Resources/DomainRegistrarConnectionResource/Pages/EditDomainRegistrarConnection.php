@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\DomainRegistrarConnectionResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\DomainRegistrarConnectionResource;
 use App\Models\DomainRegistrarConnection;
 use Filament\Resources\Pages\EditRecord;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
  */
 class EditDomainRegistrarConnection extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = DomainRegistrarConnectionResource::class;
 
     protected function getHeaderActions(): array

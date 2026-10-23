@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ServerGroupResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ServerGroupResource;
 use App\Models\ServerGroup;
 use Filament\Actions\DeleteAction;
@@ -10,6 +11,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditServerGroup extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ServerGroupResource::class;
 
     protected function getHeaderActions(): array

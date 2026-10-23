@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ServerResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ServerResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
@@ -13,6 +14,8 @@ use Illuminate\Support\Arr;
 
 class EditServer extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ServerResource::class;
 
     protected function getHeaderActions(): array

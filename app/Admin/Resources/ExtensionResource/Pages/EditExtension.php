@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ExtensionResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ExtensionResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
@@ -12,6 +13,8 @@ use Illuminate\Support\Arr;
 
 class EditExtension extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ExtensionResource::class;
 
     protected function getHeaderActions(): array

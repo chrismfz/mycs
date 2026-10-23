@@ -91,7 +91,8 @@
  * Forms, as WHMCS (owner 2026-10-23): the label beside its field (BasePage::inlineLabels), in a column of its own width
  * rather than a third of the row; less space between fields; a field's help in small type right under it.
  */
-.fi-sc {
+/* Only a schema with Filament's own gap, not a dense or fused one (review of #399). */
+.fi-sc.fi-sc-has-gap:not(.fi-sc-dense) {
     @apply gap-4;
 }
 
@@ -101,21 +102,32 @@
 }
 
 @media (width >= 40rem) {
-    .fi-fo-field.fi-fo-field-has-inline-label {
+    /* Fields and entries alike, so a form's labels line up with the details among them (review of #399). */
+    .fi-fo-field.fi-fo-field-has-inline-label,
+    .fi-in-entry.fi-in-entry-has-inline-label {
         grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
         @apply gap-x-3;
 
-        & .fi-fo-field-content-col {
+        & .fi-fo-field-content-col,
+        & .fi-in-entry-content-col {
             grid-column: auto;
         }
+    }
 
-        & .fi-fo-field-label-col {
-            @apply pt-1.5;
-        }
+    /* Level with an input's text; a toggle's or a checkbox's label is centred already. */
+    .fi-fo-field.fi-fo-field-has-inline-label:has(.fi-input-wrp) .fi-fo-field-label-col {
+        @apply pt-1.5;
+    }
+
+    /* No label to show: no empty column either. */
+    .fi-fo-field.fi-fo-field-has-inline-label:not(:has(.fi-fo-field-label-content)),
+    .fi-in-entry.fi-in-entry-has-inline-label:not(:has(.fi-in-entry-label)) {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
-.fi-fo-field-content-col > .fi-sc .fi-sc-text,
+/* A field's own help only, not the text inside a repeater's rows (review of #399). */
+.fi-fo-field-content-col > .fi-sc > .fi-sc-text,
 .fi-fo-field-content-col > .fi-sc-text {
     @apply text-xs leading-4;
 }

@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\RoleResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\RoleResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -9,6 +10,8 @@ use Livewire\Attributes\Locked;
 
 class EditRole extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = RoleResource::class;
 
     /** Permissions the role holds that the form has no box for (`*`, a disabled extension's): kept as they are. */
