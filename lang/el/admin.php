@@ -18,6 +18,7 @@ return [
         'domain_owner_changes' => 'Αλλαγές κατόχου .gr που στάλθηκαν',
         'domain_epp_codes_cleared' => 'Διαγραφή EPP codes μεταφορών',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
+        'logs_pruned' => 'Καθαρισμός logs (retention)',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'zlic_limits_pruned' => 'Καθαρισμός μετρητών του zlic.php',
         'group_prices_reconciled' => 'Ενημέρωση τιμών ομάδων',

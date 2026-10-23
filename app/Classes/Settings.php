@@ -14,6 +14,7 @@ use App\Rules\TicketReferenceMask;
 use App\Services\Mcp\McpOauth;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
+use App\Support\Retention;
 use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
@@ -712,6 +713,8 @@ class Settings
                     'min_value' => 0,
                     'description' => 'Days the sent email log is kept (0 keeps it forever).',
                 ],
+                // The other logs' retention (App\Support\Retention), each 0 for ever.
+                ...Retention::settings(),
             ],
             'credits' => [
                 [
