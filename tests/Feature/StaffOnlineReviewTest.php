@@ -102,7 +102,7 @@ class StaffOnlineReviewTest extends TestCase
     /** Before 2FA is set up (mandatory), the member is not yet in the admin: they should not show as online. */
     public function test_a_member_who_has_not_set_up_2fa_is_not_online(): void
     {
-        $me = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'R2', 'permissions' => ['*']])->id]);
+        $me = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'R2' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->withSession($this->staffSession($me))->get('/sysadmin/multi-factor-authentication/set-up')->assertOk()->assertDontSee('admin.staff-heartbeat', false);
         StaffPresence::heartbeat($me); // a poll from a tab opened before, too
@@ -113,7 +113,7 @@ class StaffOnlineReviewTest extends TestCase
     /** down() then up() again on the test database (SQLite). */
     public function test_the_migration_rolls_back_and_forward(): void
     {
-        $role = Role::create(['name' => 'Plain', 'permissions' => ['admin.tickets.viewAny', 'admin.staff_online.view']]);
+        $role = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny', 'admin.staff_online.view']]);
         $migration = require database_path('migrations/2026_12_27_000000_staff_presence.php');
 
         $migration->down();
@@ -126,7 +126,7 @@ class StaffOnlineReviewTest extends TestCase
     /** R5: a role created after the migration has the permission ticked by default (docs/livechat.md §7β). */
     public function test_a_new_role_has_staff_online_ticked_by_default(): void
     {
-        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Admin', 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Admin' . uniqid(), 'permissions' => ['*']])->id]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $this->actingAs($admin, 'staff');
 

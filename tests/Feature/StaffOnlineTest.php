@@ -168,8 +168,8 @@ class StaffOnlineTest extends TestCase
 
     public function test_the_migration_gives_every_role_the_permission_once(): void
     {
-        $plain = Role::create(['name' => 'Plain', 'permissions' => ['admin.tickets.viewAny']]);
-        $all = Role::create(['name' => 'All', 'permissions' => ['*']]);
+        $plain = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny']]);
+        $all = Role::create(['name' => 'All' . uniqid(), 'permissions' => ['*']]);
         $migration = require database_path('migrations/2026_12_27_000000_staff_presence.php');
 
         $migration->grantToEveryRole();
