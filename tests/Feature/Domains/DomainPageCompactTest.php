@@ -80,7 +80,7 @@ class DomainPageCompactTest extends TestCase
             transferred: new DateTimeImmutable('2026-10-18 21:01:00'), protocol: '993651', punycode: null, bundle: [], dsValidation: null);
 
         $details = GrEppRegistrar::syncResultFrom($info)->details;
-        $this->assertSame(['c60', '2026-10-18 21:01 UTC', 'ns1.pappa.gr, mail.pappa.gr'], [$details['sponsor'], $details['transferred'], $details['hosts']]);
+        $this->assertSame(['c60', '2026-10-18 21:01 UTC', 'mail.pappa.gr, ns1.pappa.gr'], [$details['sponsor'], $details['transferred'], $details['hosts']]);
 
         $gr = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => '.gr', 'is_active' => true, 'mode' => 'production']);
         $domain = $this->domain('pappa.gr', ['registrar_connection_id' => $gr->id, 'meta' => ['registrar' => ['roid' => 'R1-gr', 'statuses' => 'ok'] + $details]]);

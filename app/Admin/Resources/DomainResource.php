@@ -281,6 +281,9 @@ class DomainResource extends Resource
                 ->state(function (Domain $record) use ($key, $yesNo) {
                     $value = $record->meta['registrar'][$key] ?? null;
 
+                    // CentralNic's flags are «0»/«1» (ADV-6 of #401).
+                    $value = in_array($key, ['x-registry-lock', 'x-whoisprivacy'], true) && in_array($value, ['0', '1'], true) ? $value === '1' : $value;
+
                     return is_bool($value) ? $yesNo($value) : ($value === null || $value === '' ? '—' : (string) $value);
                 }),
             array_keys($labels),

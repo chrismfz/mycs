@@ -6,7 +6,7 @@
     <x-filament::dropdown placement="bottom-start" max-height="24rem">
         <x-slot name="trigger">
             <button type="button" class="rounded-md px-3 py-0.5 ring-1 ring-primary-600 hover:bg-gray-50 dark:hover:bg-white/5">
-                {{ __("This client's domains") }} ({{ count($domains) }}) ▾
+                {{ __("This client's domains") }} ({{ $total }}) ▾
             </button>
         </x-slot>
         <x-filament::dropdown.list>
@@ -18,7 +18,9 @@
                 </span>
             </x-filament::dropdown.list.item>
             @endforeach
+            @if ($tab)
             <x-filament::dropdown.list.item :href="$tab" tag="a" color="gray">{{ __("On the client's Domains tab") }} →</x-filament::dropdown.list.item>
+            @endif
         </x-filament::dropdown.list>
     </x-filament::dropdown>
     @if ($next)

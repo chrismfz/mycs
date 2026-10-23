@@ -114,6 +114,11 @@ class ViewDomain extends ViewRecord
         ];
     }
 
+    private const CLIENT_DOMAINS = 200;
+
+    /** @var list<Action>|null the row, built once a request */
+    private ?array $registrarCommands = null;
+
     /** WHMCS's «Registrar Commands», in its order: [the page's action, its button's label, its colour]. */
     private const REGISTRAR_COMMANDS = [
         ['renewNow', 'Renew now', 'warning'],
@@ -123,6 +128,7 @@ class ViewDomain extends ViewRecord
         ['emailAuthCode', 'Email the EPP code', 'gray'],
         ['eppCode', 'Get EPP code', 'gray'],
         ['editDnssec', 'DNSSEC', 'gray'],
+        ['readDnssec', 'DNSSEC', 'gray'],
         ['readChildHosts', 'Child nameservers', 'gray'],
         ['lock', 'Transfer lock', 'gray'],
         ['privacy', 'WHOIS privacy', 'gray'],
@@ -138,8 +144,16 @@ class ViewDomain extends ViewRecord
      */
     public function registrarCommands(): array
     {
-        return collect(self::REGISTRAR_COMMANDS)
+        // Once a request (ADV-1 of #401: the row's section and its actions asked five times); asked before the page's
+        // actions are built (an empty row then), asked again.
+        if ($this->registrarCommands !== null && $this->registrarCommands !== []) {
+            return $this->registrarCommands;
+        }
+
+        return $this->registrarCommands = collect(self::REGISTRAR_COMMANDS)
             ->filter(fn (array $command) => (bool) $this->getAction($command[0], false)?->isVisible())
+            // One «DNSSEC»: its change once it was read, else its read (ADV-3 of #401).
+            ->unique(fn (array $command) => $command[1])
             ->map(fn (array $command) => Action::make('command_' . $command[0])->label(__($command[1]))->size('sm')->outlined()->color($command[2])
                 ->alpineClickHandler("\$wire.mountAction('{$command[0]}')"))
             ->values()->all();
@@ -152,7 +166,8 @@ class ViewDomain extends ViewRecord
         if (!$record instanceof Domain) {
             return null;
         }
-        $domains = Domain::query()->where('client_id', $record->client_id)->orderBy('fqdn')->get(['id', 'fqdn', 'status']);
+        // The first 200 (a reseller with hundreds: the rest on the client's tab, ADV-4 of #401).
+        $domains = Domain::query()->where('client_id', $record->client_id)->orderBy('fqdn')->limit(self::CLIENT_DOMAINS)->get(['id', 'fqdn', 'status']);
         if ($domains->count() < 2) {
             return null;
         }
@@ -164,7 +179,9 @@ class ViewDomain extends ViewRecord
                 'status' => $domain->status->getLabel(), 'ended' => in_array($domain->status->value, DomainStatus::terminalValues(), true)])->all(),
             'previous' => $url($at > 0 ? $domains[$at - 1] : null),
             'next' => $url($domains[$at + 1] ?? null),
-            'tab' => ClientResource::getUrl('domains', ['record' => $record->client_id]),
+            // Only for staff who may open the client (ADV-2 of #401), as the Client field.
+            'tab' => ClientResource::canView($record->client) ? ClientResource::getUrl('domains', ['record' => $record->client_id]) : null,
+            'total' => Domain::query()->where('client_id', $record->client_id)->count(),
         ])->render());
     }
 

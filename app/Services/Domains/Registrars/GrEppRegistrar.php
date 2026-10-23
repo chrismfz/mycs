@@ -283,7 +283,8 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
                 // hosts under it (their names; their addresses are read by «Read child nameservers»).
                 'sponsor' => $info->clientId,
                 'transferred' => $info->transferred?->format('Y-m-d H:i') . ($info->transferred !== null ? ' UTC' : ''),
-                'hosts' => $info->hosts !== [] ? implode(', ', array_map('strval', $info->hosts)) : null,
+                // Sorted: the registry's order is not ours to keep, and a new order is no change (ADV-5 of #401).
+                'hosts' => $info->hosts !== [] ? implode(', ', collect($info->hosts)->map(fn ($host) => (string) $host)->sort()->values()->all()) : null,
                 'protocol' => $info->protocol,
                 'punycode' => $info->punycode,
                 'bundle' => $info->bundle !== [] ? implode(', ', array_map(fn ($b) => "{$b->name} ({$b->recordType}" . ($b->chargeable ? ', chargeable' : '') . ')', $info->bundle)) : null,
