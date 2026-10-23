@@ -131,7 +131,7 @@ class StaffChatNotifyReviewTest extends TestCase
         $this->assertStringContainsString('renotify: true', $view);
         // Re-review of #382: the front mark is kept fresh by a timer, dropped on blur, and storage failure falls back to memory.
         $this->assertStringContainsString('setInterval(() => this.front(), 5000)', $view);
-        $this->assertStringContainsString('destroy() { clearInterval(this.timer) }', $view);
+        $this->assertStringContainsString('destroy() { clearInterval(this.timer); this.observer?.disconnect() }', $view);
         $this->assertStringContainsString('x-on:blur.window="front()"', $view);
         $this->assertStringContainsString('window.mycsChatNoStorage', $view);
     }
@@ -143,8 +143,9 @@ class StaffChatNotifyReviewTest extends TestCase
 
         $this->assertStringContainsString("ctx.state === 'running'", $view);
         $this->assertStringNotContainsString("addEventListener('click'", $view);
-        $this->assertStringContainsString("removeEventListener('pointerdown', window.mycsChatUnlock)", $view);
-        $this->assertStringContainsString("removeEventListener('keydown', window.mycsChatUnlock)", $view);
+        $this->assertStringContainsString("['pointerdown', 'pointerup', 'keydown']", $view);
+        $this->assertStringContainsString("if (ctx.state === 'running') ['pointerdown', 'pointerup', 'keydown'].forEach((type) => document.removeEventListener", $view);
+        $this->assertStringContainsString('this.observer?.disconnect()', $view);
         $this->assertStringContainsString('ctx.onstatechange', $view);
         $this->assertStringContainsString('window.mycsChatRung', $view);
     }

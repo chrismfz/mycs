@@ -28,7 +28,8 @@
         },
         onPage() { return location.pathname === new URL(this.$el.dataset.page, location.href).pathname },
         front() { if (this.onPage()) this.store('mycs-chat-front', this.away() ? '0' : String(Date.now())) },
-        destroy() { clearInterval(this.timer) },
+        observer: null,
+        destroy() { clearInterval(this.timer); this.observer?.disconnect() },
         // The set-up lives in init(), never in x-init: Alpine calls an x-init whose value is a function, and the first
         // statement there (`window.mycsChatAlert ??= …`) was that function, so every page rang (review of #396).
         init() {
@@ -52,24 +53,24 @@
             };
             // The browser lets a page make sound only after a gesture: the first click or key of the window unlocks it,
             // and again whenever the browser suspends it (Safari, iOS).
+            // The listeners go only once the context really runs: a touch's pointerdown or an Esc does not count as a
+            // gesture to the browser (re-review of #396).
             window.mycsChatUnlock ??= () => {
                 try {
                     const ctx = window.mycsChatAudio ??= new AudioContext();
-                    ctx.resume();
                     ctx.onstatechange = () => { if (ctx.state !== 'running') window.mycsChatListen() };
+                    ctx.resume().then(() => {
+                        if (ctx.state === 'running') ['pointerdown', 'pointerup', 'keydown'].forEach((type) => document.removeEventListener(type, window.mycsChatUnlock));
+                    }).catch(() => {});
                 } catch (e) {}
-                document.removeEventListener('pointerdown', window.mycsChatUnlock);
-                document.removeEventListener('keydown', window.mycsChatUnlock);
             };
-            window.mycsChatListen ??= () => {
-                document.addEventListener('pointerdown', window.mycsChatUnlock);
-                document.addEventListener('keydown', window.mycsChatUnlock);
-            };
+            window.mycsChatListen ??= () => ['pointerdown', 'pointerup', 'keydown'].forEach((type) => document.addEventListener(type, window.mycsChatUnlock));
             if (!window.mycsChatListening) { window.mycsChatListening = true; window.mycsChatListen() }
             this.check();
             // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
             this.timer = setInterval(() => this.front(), 5000);
-            new MutationObserver(() => this.check()).observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
+            this.observer = new MutationObserver(() => this.check());
+            this.observer.observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
         },
         away() { return document.visibilityState !== 'visible' || !document.hasFocus() },
         title() {
