@@ -6,6 +6,7 @@ use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Pages\WhoisLookup;
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Contracts\ChangesOwner;
 use App\Enums\DomainStatus;
@@ -41,6 +42,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
@@ -112,6 +114,77 @@ class ViewDomain extends ViewRecord
         ];
     }
 
+    private const CLIENT_DOMAINS = 200;
+
+    /** @var list<Action>|null the row, built once a request */
+    private ?array $registrarCommands = null;
+
+    /** WHMCS's «Registrar Commands», in its order: [the page's action, its button's label, its colour]. */
+    private const REGISTRAR_COMMANDS = [
+        ['renewNow', 'Renew now', 'warning'],
+        ['nameservers', 'Nameservers', 'gray'],
+        ['contacts', 'Contacts', 'gray'],
+        ['registrarContacts', 'Contacts at the registrar', 'gray'],
+        ['emailAuthCode', 'Email the EPP code', 'gray'],
+        ['eppCode', 'Get EPP code', 'gray'],
+        ['editDnssec', 'DNSSEC', 'gray'],
+        ['readDnssec', 'DNSSEC', 'gray'],
+        ['readChildHosts', 'Child nameservers', 'gray'],
+        ['lock', 'Transfer lock', 'gray'],
+        ['privacy', 'WHOIS privacy', 'gray'],
+        ['ownerChange', 'Change holder', 'warning'],
+        ['recall', 'Recall', 'danger'],
+    ];
+
+    /**
+     * The registrar's commands as one row of buttons (owner 2026-10-23, the mockup): each opens the action of «More» by
+     * its name, with its own checks and confirmation; one not offered for this domain is not shown.
+     *
+     * @return list<Action>
+     */
+    public function registrarCommands(): array
+    {
+        // Once a request (ADV-1 of #401: the row's section and its actions asked five times); asked before the page's
+        // actions are built (an empty row then), asked again.
+        if ($this->registrarCommands !== null && $this->registrarCommands !== []) {
+            return $this->registrarCommands;
+        }
+
+        return $this->registrarCommands = collect(self::REGISTRAR_COMMANDS)
+            ->filter(fn (array $command) => (bool) $this->getAction($command[0], false)?->isVisible())
+            // One «DNSSEC»: its change once it was read, else its read (ADV-3 of #401).
+            ->unique(fn (array $command) => $command[1])
+            ->map(fn (array $command) => Action::make('command_' . $command[0])->label(__($command[1]))->size('sm')->outlined()->color($command[2])
+                ->alpineClickHandler("\$wire.mountAction('{$command[0]}')"))
+            ->values()->all();
+    }
+
+    /** This client's domains to move between (owner 2026-10-23, as WHMCS's «Domains:» select), with ‹ › to the next. */
+    public function getSubheading(): string|Htmlable|null
+    {
+        $record = $this->getRecord();
+        if (!$record instanceof Domain) {
+            return null;
+        }
+        // The first 200 (a reseller with hundreds: the rest on the client's tab, ADV-4 of #401).
+        $domains = Domain::query()->where('client_id', $record->client_id)->orderBy('fqdn')->limit(self::CLIENT_DOMAINS)->get(['id', 'fqdn', 'status']);
+        if ($domains->count() < 2) {
+            return null;
+        }
+        $at = $domains->search(fn (Domain $domain) => $domain->is($record));
+        $url = fn (?Domain $domain) => $domain === null ? null : DomainResource::getUrl('view', ['record' => $domain]);
+
+        return new HtmlString(view('admin.resources.domain-resource.client-domains', [
+            'domains' => $domains->map(fn (Domain $domain) => ['fqdn' => $domain->fqdn, 'url' => $url($domain), 'current' => $domain->is($record),
+                'status' => $domain->status->getLabel(), 'ended' => in_array($domain->status->value, DomainStatus::terminalValues(), true)])->all(),
+            'previous' => $url($at > 0 ? $domains[$at - 1] : null),
+            'next' => $url($domains[$at + 1] ?? null),
+            // Only for staff who may open the client (ADV-2 of #401), as the Client field.
+            'tab' => ClientResource::canView($record->client) ? ClientResource::getUrl('domains', ['record' => $record->client_id]) : null,
+            'total' => Domain::query()->where('client_id', $record->client_id)->count(),
+        ])->render());
+    }
+
     private static function staff(): ?Staff
     {
         $staff = Auth::guard('staff')->user();
@@ -157,34 +230,8 @@ class ViewDomain extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            // To another client (owner 2026-10-23, as WHMCS's «Move»): with its invoices not paid yet; staff with its own
-            // permission, confirmed.
-            Action::make('moveToClient')
-                ->label('Move to another client')->icon('ri-arrow-left-right-line')->color('gray')
-                ->visible(fn () => (bool) Auth::guard('staff')->user()?->hasPermission('admin.domains.move'))
-                ->schema([
-                    ClientComponent::picker('to_client_id')->label('Move to client'),
-                ])
-                ->requiresConfirmation()
-                ->modalDescription('The domain moves to the other client. Nothing changes at the registrar: its contacts are copied to the new client. Its unpaid renewal invoices go with it; paid ones stay. A note is left on both accounts.')
-                ->action(function (array $data, Domain $record, Action $action): void {
-                    $staff = Auth::guard('staff')->user();
-                    abort_unless((bool) $staff?->hasPermission('admin.domains.move'), 403);
-                    $to = Client::query()->findOrFail((int) $data['to_client_id']);
-                    try {
-                        $result = app(MoveToClient::class)->domain($record, $to, $staff);
-                    } catch (DisplayException $e) {
-                        Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
-                        $action->halt();
-
-                        return;
-                    }
-                    $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
-                        . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
-                    Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
-                    $this->redirect(static::getResource()::getUrl('view', ['record' => $record]));
-                }),
-
+            // D7a: its next period invoiced now, before its time (renewed when paid, D5b-2): first, as on the service's page.
+            InvoiceSelectedItemsAction::nextPeriod()->visible(fn (Domain $record) => in_array($record->status, RenewalBilling::BILLED_DOMAINS, true)),
             // The registrar's truth now (docs/domains.md D-9): reads the registrar, changes nothing there.
             Action::make('sync')->label(__('Sync now'))->icon('heroicon-o-arrow-path')
                 ->visible(fn (Domain $record) => self::can('admin.domains.update') && app(DomainSyncService::class)->isSyncable($record))
@@ -200,10 +247,37 @@ class ViewDomain extends ViewRecord
                     $this->refreshFormData([]);
                 }),
 
+            // Everything at the registrar and the rest (owner 2026-10-23): its commands are also one row above the details
+            // (registrarCommands), each opening the action here.
             ActionGroup::make([
+                // To another client (owner 2026-10-23, as WHMCS's «Move»): with its invoices not paid yet; staff with its own
+                // permission, confirmed.
+                Action::make('moveToClient')
+                    ->label('Move to another client')->icon('ri-arrow-left-right-line')->color('gray')
+                    ->visible(fn () => (bool) Auth::guard('staff')->user()?->hasPermission('admin.domains.move'))
+                    ->schema([
+                        ClientComponent::picker('to_client_id')->label('Move to client'),
+                    ])
+                    ->requiresConfirmation()
+                    ->modalDescription('The domain moves to the other client. Nothing changes at the registrar: its contacts are copied to the new client. Its unpaid renewal invoices go with it; paid ones stay. A note is left on both accounts.')
+                    ->action(function (array $data, Domain $record, Action $action): void {
+                        $staff = Auth::guard('staff')->user();
+                        abort_unless((bool) $staff?->hasPermission('admin.domains.move'), 403);
+                        $to = Client::query()->findOrFail((int) $data['to_client_id']);
+                        try {
+                            $result = app(MoveToClient::class)->domain($record, $to, $staff);
+                        } catch (DisplayException $e) {
+                            Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
+                            $action->halt();
+
+                            return;
+                        }
+                        $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
+                            . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
+                        Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
+                        $this->redirect(static::getResource()::getUrl('view', ['record' => $record]));
+                    }),
                 // D-1: a trusted customer's domain renewed now, paid later (the payment adopts it, never a second charge).
-                // D7a: its next period invoiced now, before its time (renewed when paid, D5b-2).
-                InvoiceSelectedItemsAction::nextPeriod()->visible(fn (Domain $record) => in_array($record->status, RenewalBilling::BILLED_DOMAINS, true)),
                 Action::make('renewNow')->label(__('Renew now'))->icon('heroicon-o-arrow-path-rounded-square')->color('warning')
                     ->visible(fn (Domain $record) => self::can('admin.domains.renew') && self::manageable($record))
                     ->requiresConfirmation()
@@ -494,7 +568,7 @@ class ViewDomain extends ViewRecord
                     ->modalDescription(__('The code transfers the domain to whoever has it. Read from the registrar now, never stored; the read is logged.'))
                     ->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))
                     ->modalContent(fn (Domain $record) => $this->eppCode($record)),
-            ])->label(__('At the registrar'))->icon('heroicon-o-globe-alt')->button(),
+            ])->label(__('More'))->icon('heroicon-o-chevron-down')->iconPosition('after')->button()->color('gray'),
 
             // Here only, not at the registrar.
             // What the world sees at its registry: staff's own WHOIS Lookup, asked at once (no captcha, staff's limit;
