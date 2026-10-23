@@ -69,6 +69,11 @@ class ViewDomain extends ViewRecord
             . ' <' . $contact->email . '> #' . $contact->client_id;
     }
 
+    private static function lastDeclaration(Domain $record): ?DomainOwnerChange
+    {
+        return DomainOwnerChange::query()->where('domain_id', $record->id)->whereNotNull('declaration_path')->latest('id')->first();
+    }
+
     /** The open change of holder's next steps (G8-5b), each for the state it is in. @return list<Action> */
     private static function ownerChangeActions(): array
     {
@@ -99,10 +104,11 @@ class ViewDomain extends ViewRecord
                 ->schema([Textarea::make('reason')->label(__('domains.owner_change.cancel_reason'))->required()->maxLength(500)])
                 ->action(fn (Domain $record, array $data) => $run(fn () => app(DomainOwnerChanges::class)->cancel($open($record), (string) $data['reason']),
                     __('domains.owner_change.statuses.cancelled'))),
+            // The last declaration kept, open or ended (it is the record of the transfer).
             Action::make('ownerChangeDeclaration')->label(__('domains.owner_change.download'))->icon('heroicon-o-document-arrow-down')->color('gray')
-                ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && filled($open($record)?->declaration_path))
-                ->action(fn (Domain $record) => Storage::disk(DomainOwnerChanges::DISK)->download($open($record)->declaration_path,
-                    $open($record)->declaration_name ?: basename($open($record)->declaration_path))),
+                ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && self::lastDeclaration($record) !== null)
+                ->action(fn (Domain $record) => Storage::disk(DomainOwnerChanges::DISK)->download(self::lastDeclaration($record)->declaration_path,
+                    self::lastDeclaration($record)->declaration_name ?: basename(self::lastDeclaration($record)->declaration_path))),
         ];
     }
 

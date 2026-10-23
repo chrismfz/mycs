@@ -235,6 +235,7 @@ class CronJob extends Command
             // A .gr change of holder paid (or free) and not sent (G8-5b): a job lost, the domain busy. Claimed once (due →
             // sending), so this never asks the registry twice.
             $this->runCronJob('domain_owner_changes', function ($number = 0) {
+                DomainOwnerChanges::stuck();
                 foreach (DomainOwnerChanges::due()->where('updated_at', '<', now()->subMinutes(10))->pluck('id') as $id) {
                     try {
                         $number += app(DomainOwnerChanges::class)->send((int) $id) !== DomainOwnerChange::STATUS_DUE ? 1 : 0;

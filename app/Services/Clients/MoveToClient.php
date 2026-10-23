@@ -21,6 +21,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Support\AfterCommit;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * A service or a domain moved to another client by staff (owner 2026-10-23, as WHMCS's «Move»): the item is the other
@@ -70,9 +71,17 @@ final class MoveToClient
     }
 
     /** @return array{moved: list<int>, split: array<int, int>} */
-    public function domain(Domain $domain, Client $to, Staff $by): array
+    /**
+     * @param  Contact|null  $holder  a contact of $to every role points to instead of copies (a .gr transfer of holder, G8-5b:
+     *                                the seller's details never copied into the buyer's account; review ADV-4 of #393)
+     */
+    public function domain(Domain $domain, Client $to, Staff $by, ?Contact $holder = null): array
     {
-        return DB::transaction(function () use ($domain, $to, $by) {
+        if ($holder !== null && (int) $holder->client_id !== (int) $to->id) {
+            throw new InvalidArgumentException('The holder given is not a contact of the account the domain moves to.');
+        }
+
+        return DB::transaction(function () use ($domain, $to, $by, $holder) {
             $from = $this->lockClients(Domain::query()->whereKey($domain->id)->value('client_id'), $to);
             $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
             $this->refuseChanged((int) $domain->client_id, $from);
@@ -86,7 +95,7 @@ final class MoveToClient
                 if ($id === null) {
                     continue;
                 }
-                $copies[$id] ??= $this->copyContact((int) $id, $to);
+                $copies[$id] ??= $holder !== null ? (int) $holder->id : $this->copyContact((int) $id, $to);
                 $update["{$role}_contact_id"] = $copies[$id];
             }
             $meta = $domain->meta ?? [];

@@ -411,6 +411,8 @@ return [
         'line_name' => 'Name change of :domain\'s holder (.gr)',
         'line_owner' => 'Transfer of :domain to another holder (.gr)',
         'not_moved' => 'Done; not moved to the new holder\'s account: :why',
+        'no_staff' => 'Done; not moved: the staff member who asked it is gone.',
+        'stuck' => 'Sending for longer than the registry is asked: maybe done there. Look at the registry, then Done at the registry or Cancel.',
         'not_awaiting' => 'It is not awaiting the EETT.',
         'not_refused' => 'Only a refused one is sent again.',
         'not_unknown' => 'Only one with no answer is said done there.',

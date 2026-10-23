@@ -1032,7 +1032,7 @@ class Settings
                     'type' => 'number',
                     'default' => 0,
                     'min_value' => 0,
-                    'description' => 'Charged, as entered (with tax, as the TLD prices), in the default currency, for a .gr name change or transfer to another holder. 0: staff send it without an invoice only.',
+                    'description' => 'Charged as entered (as the TLD prices are, with or without tax by the tax setting), in the default currency, for a .gr name change or transfer to another holder. 0: staff send it without an invoice only.',
                 ],
                 // WHMCS «Default Auto Renewal Setting».
                 [

@@ -16,7 +16,8 @@ class SendDomainOwnerChangeJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 240;
+    /** Longer than the domain's lock (DomainManagementService::LOCK_SECONDS): never killed while the registry is asked. */
+    public int $timeout = 660;
 
     public function __construct(public int $changeId) {}
 

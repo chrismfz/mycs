@@ -127,6 +127,17 @@ class DomainOwnerChanges
         }
     }
 
+    /**
+     * Left «sending» (the worker killed mid-call, a deploy): maybe done at the registry, so never sent again; handed to
+     * staff as «unknown» (ADV-3 of #393). Longer than the domain's lock, so never one still being asked.
+     */
+    public static function stuck(): int
+    {
+        return DomainOwnerChange::query()->where('status', DomainOwnerChange::STATUS_SENDING)
+            ->where('updated_at', '<', now()->subSeconds(DomainManagementService::LOCK_SECONDS + 300))
+            ->update(['status' => DomainOwnerChange::STATUS_UNKNOWN, 'result' => __('domains.owner_change.stuck'), 'updated_at' => now()]);
+    }
+
     /** Due ones not sent (a job lost, the registry down): the cron's. */
     public static function due()
     {
@@ -183,10 +194,11 @@ class DomainOwnerChanges
     {
         $handle = $handle ?: (is_string($change->result) && str_starts_with($change->result, 'handle:') ? substr($change->result, 7) : null);
         $domain = Domain::query()->findOrFail($change->domain_id);
-        $moved = null;
+        $moved = $change->move_to_client_id !== null && $change->staff === null ? __('domains.owner_change.no_staff') : null;
         if ($change->move_to_client_id !== null && $change->staff !== null && (int) $domain->client_id !== (int) $change->move_to_client_id) {
             try {
-                app(MoveToClient::class)->domain($domain, Client::query()->findOrFail($change->move_to_client_id), $change->staff);
+                app(MoveToClient::class)->domain($domain, Client::query()->findOrFail($change->move_to_client_id), $change->staff,
+                    holder: Contact::query()->findOrFail($change->contact_id));
                 $moved = true;
             } catch (Throwable $e) {
                 report($e);
@@ -208,10 +220,22 @@ class DomainOwnerChanges
     /** Staff: the EETT approved it (seen at the registry). */
     public function approved(DomainOwnerChange $change): void
     {
-        if ($change->status !== DomainOwnerChange::STATUS_AWAITING_EETT) {
-            throw new DisplayException(__('domains.owner_change.not_awaiting'));
-        }
-        $this->complete($change);
+        $this->completeFrom($change, DomainOwnerChange::STATUS_AWAITING_EETT, __('domains.owner_change.not_awaiting'));
+    }
+
+    /**
+     * Completed by staff from $from only, read again under a lock (review of #393: a page's copy may be stale): a second
+     * click, or a second staff member, finds it done.
+     */
+    private function completeFrom(DomainOwnerChange $change, string $from, string $refusal): void
+    {
+        DB::transaction(function () use ($change, $from, $refusal) {
+            $now = DomainOwnerChange::query()->whereKey($change->id)->lockForUpdate()->first();
+            if ($now === null || $now->status !== $from) {
+                throw new DisplayException($refusal);
+            }
+            $this->complete($now);
+        });
     }
 
     /**
@@ -220,33 +244,42 @@ class DomainOwnerChanges
      */
     public function retry(DomainOwnerChange $change): string
     {
-        if ($change->status !== DomainOwnerChange::STATUS_REFUSED) {
+        // From refused only, as stored (ADV-1 of #393): a stale page's second «Send again» never asks the registry again.
+        $claimed = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_REFUSED)
+            ->update(['status' => DomainOwnerChange::STATUS_DUE, 'updated_at' => now()]);
+        if ($claimed !== 1) {
             throw new DisplayException(__('domains.owner_change.not_refused'));
         }
-        $change->forceFill(['status' => DomainOwnerChange::STATUS_DUE])->save();
 
         return $this->send($change->id);
     }
 
     public function doneThere(DomainOwnerChange $change): void
     {
-        if ($change->status !== DomainOwnerChange::STATUS_UNKNOWN) {
-            throw new DisplayException(__('domains.owner_change.not_unknown'));
-        }
-        $this->complete($change);
+        $this->completeFrom($change, DomainOwnerChange::STATUS_UNKNOWN, __('domains.owner_change.not_unknown'));
     }
 
     /** Staff: not done there after all (unknown), or no longer wanted (not sent): cancelled, its unpaid invoice with it. */
     public function cancel(DomainOwnerChange $change, string $reason): void
     {
-        if (!in_array($change->status, [DomainOwnerChange::STATUS_AWAITING_PAYMENT, DomainOwnerChange::STATUS_DUE,
-            DomainOwnerChange::STATUS_REFUSED, DomainOwnerChange::STATUS_UNKNOWN], true)) {
+        // Claimed from the status as stored (ADV-2 of #393): never over one the job sent meanwhile.
+        $from = DomainOwnerChange::query()->whereKey($change->id)->value('status');
+        $claimed = in_array($from, [DomainOwnerChange::STATUS_AWAITING_PAYMENT, DomainOwnerChange::STATUS_DUE,
+            DomainOwnerChange::STATUS_REFUSED, DomainOwnerChange::STATUS_UNKNOWN], true)
+            ? DomainOwnerChange::query()->whereKey($change->id)->where('status', $from)
+                ->update(['status' => DomainOwnerChange::STATUS_CANCELLED, 'updated_at' => now()])
+            : 0;
+        if ($claimed !== 1) {
             throw new DisplayException(__('domains.owner_change.not_cancellable'));
         }
+        $change->refresh();
         $invoice = $change->line?->invoice;
         if ($invoice !== null && in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
             $kept = CancelOpenInvoices::handle([$invoice], $reason);
             if ($kept !== []) {
+                // Its invoice holds money: the change stays as it was, for staff to refund or credit first.
+                DomainOwnerChange::query()->whereKey($change->id)->update(['status' => $from, 'updated_at' => now()]);
+
                 throw new DisplayException((string) collect($kept)->first()?->getMessage());
             }
         }
