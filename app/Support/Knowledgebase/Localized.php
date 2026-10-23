@@ -24,7 +24,7 @@ trait Localized
         $locale = app()->getLocale();
         if ($locale !== self::mainLocale()) {
             $text = $this->translations[$locale][$field] ?? null;
-            if (is_string($text) && trim(strip_tags($text)) !== '') {
+            if (is_string($text) && trim(strip_tags($text, '<img>')) !== '') {
                 return $text;
             }
         }

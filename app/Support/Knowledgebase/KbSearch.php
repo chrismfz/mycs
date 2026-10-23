@@ -5,7 +5,6 @@ namespace App\Support\Knowledgebase;
 use App\Models\KbArticle;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 
 /**
  * Search of the published articles (docs/knowledgebase.md), for the knowledgebase's page and the suggestions while a ticket
@@ -51,7 +50,7 @@ final class KbSearch
 
     private static function normalize(string $text): string
     {
-        return mb_strtolower(Str::ascii(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5)));
+        return KbArticle::plain(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5));
     }
 
     /** @return array<int, array{0: string, 1: string, 2: string}> article id => its title, tags and text, normalized */

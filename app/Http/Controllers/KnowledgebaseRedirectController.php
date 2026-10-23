@@ -31,18 +31,22 @@ class KnowledgebaseRedirectController
     }
 
     /** /knowledgebase/{id}: WHMCS opened an article by its id alone. */
-    public function id(int $id): RedirectResponse
+    public function id(string $id): RedirectResponse
     {
-        return $this->to($id, true);
+        // Digits past an int (ADV-5) are no article: the knowledgebase's page.
+        return strlen($id) > 18 ? redirect()->route('kb.index', [], 301) : $this->to((int) $id, true);
     }
 
     /** knowledgebase.php?action=displayarticle&id=…, displaycat&catid=…, search&search=… (WHMCS's addresses without rewrite). */
     public function script(Request $request): RedirectResponse
     {
-        return match ((string) $request->query('action')) {
-            'displayarticle' => $this->to((int) $request->query('id'), true),
-            'displaycat' => $this->to((int) $request->query('catid'), false),
-            'search' => redirect()->route('kb.index', array_filter(['q' => mb_substr((string) $request->query('search'), 0, 200)]), 301),
+        // Only text: an array (?action[]=) is no address of WHMCS's (ADV-4).
+        $query = fn (string $key) => is_string($value = $request->query($key)) ? $value : '';
+
+        return match ($query('action')) {
+            'displayarticle' => $this->to((int) $query('id'), true),
+            'displaycat' => $this->to((int) $query('catid'), false),
+            'search' => redirect()->route('kb.index', array_filter(['q' => mb_substr($query('search'), 0, 200)]), 301),
             default => redirect()->route('kb.index', [], 301),
         };
     }

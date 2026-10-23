@@ -3,7 +3,6 @@
 namespace App\Services\Import;
 
 use App\Models\KbArticle;
-use App\Models\KbCategory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -156,7 +155,7 @@ final class WhmcsKnowledgebaseImport
             $this->counts['unpublished'] += $published ? 0 : 1;
             $now = now();
             $values = ['title' => $title, 'slug' => KbArticle::slugFor($title), 'body' => $this->withLocalImages((string) $row['article'], $base),
-                'tags' => $articleTags === [] ? null : json_encode($articleTags, JSON_UNESCAPED_UNICODE), 'sort' => max(0, min(65535, (int) $row['order'])),
+                'tags' => $articleTags === [] ? null : json_encode($articleTags, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), 'sort' => max(0, min(65535, (int) $row['order'])),
                 'is_published' => $published, 'imported_at' => $now, 'updated_at' => $now];
             if ($existing === null) {
                 DB::table('kb_articles')->insert($values + ['id' => $id, 'whmcs_id' => $id, 'views' => max(0, (int) $row['views']), 'created_at' => $now]);
@@ -193,7 +192,7 @@ final class WhmcsKnowledgebaseImport
         }
         $translations = json_decode((string) ($row->translations ?? ''), true) ?: [];
         $translations[$locale] = $fields;
-        DB::table($table)->where('id', $id)->update(['translations' => json_encode($translations, JSON_UNESCAPED_UNICODE)]);
+        DB::table($table)->where('id', $id)->update(['translations' => json_encode($translations, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)]);
         $this->counts['translations']++;
     }
 
@@ -204,9 +203,15 @@ final class WhmcsKnowledgebaseImport
             return $html;
         }
 
-        return (string) preg_replace_callback('/(<img\b[^>]*?\bsrc\s*=\s*)(["\'])(.*?)\2/is', function (array $m) use ($base) {
-            $url = $this->absolute(html_entity_decode($m[3], ENT_QUOTES | ENT_HTML5), $base);
-            $local = $url === null ? null : $this->download($url);
+        return (string) preg_replace_callback('/(<img\b[^>]*?(?<![\w-])src\s*=\s*)(["\'])(.*?)\2/is', function (array $m) use ($base) {
+            $src = html_entity_decode($m[3], ENT_QUOTES | ENT_HTML5);
+            if (preg_match('#^data:image/[a-z+.-]+;base64,#i', $src)) {
+                // A screenshot pasted into WHMCS: kept as a file, not as megabytes of text in the article (ADV-6).
+                $local = $this->store((string) base64_decode(substr($src, strpos($src, ',') + 1), true));
+            } else {
+                $url = $this->absolute($src, $base);
+                $local = $url === null ? null : $this->download($url);
+            }
 
             return $local === null ? $m[0] : $m[1] . $m[2] . e($local) . $m[2];
         }, $html);
@@ -244,22 +249,44 @@ final class WhmcsKnowledgebaseImport
             return $this->images[$url] = null;
         }
         try {
-            $response = Http::timeout(20)->withOptions(['allow_redirects' => ['max' => 3, 'protocols' => ['http', 'https']]])->get($url);
-            $body = $response->successful() ? $response->body() : '';
-            $type = $body === '' ? null : (new \finfo(FILEINFO_MIME_TYPE))->buffer($body);
-            if (strlen($body) > self::IMAGE_MAX_BYTES || !isset(self::IMAGE_TYPES[$type])) {
-                throw new \RuntimeException('not an image');
-            }
-            $path = 'kb/whmcs/' . sha1($body) . '.' . self::IMAGE_TYPES[$type];
-            Storage::disk('public')->put($path, $body);
-            $this->counts['images']++;
+            $response = Http::timeout(20)->withOptions([
+                'allow_redirects' => ['max' => 3, 'protocols' => ['http', 'https']],
+                // A size told too large: not read at all.
+                'on_headers' => function ($headers) {
+                    if ((int) $headers->getHeaderLine('Content-Length') > self::IMAGE_MAX_BYTES) {
+                        throw new \RuntimeException('too large');
+                    }
+                },
+            ])->get($url);
 
-            return $this->images[$url] = Storage::disk('public')->url($path);
+            return $this->images[$url] = $this->store($response->successful() ? $response->body() : '');
         } catch (Throwable) {
             $this->counts['images_failed']++;
 
             return $this->images[$url] = null;
         }
+    }
+
+    /** An image's bytes kept on the public disk, once by their content; null (counted) when they are no image of ours. */
+    private function store(string $body): ?string
+    {
+        $type = $body === '' ? null : (new \finfo(FILEINFO_MIME_TYPE))->buffer($body);
+        if (strlen($body) > self::IMAGE_MAX_BYTES || !isset(self::IMAGE_TYPES[$type])) {
+            $this->counts['images_failed']++;
+
+            return null;
+        }
+        if ($this->dryRun) {
+            $this->counts['images']++;
+
+            return null;
+        }
+        $path = 'kb/whmcs/' . sha1($body) . '.' . self::IMAGE_TYPES[$type];
+        Storage::disk('public')->put($path, $body);
+        $this->counts['images']++;
+
+        // From the site's root, not APP_URL's host: an import run before the cut-over (code review 6).
+        return '/storage/' . $path;
     }
 
     /** Changed here since it was imported (its updated_at later than its import's): ours is kept. */
@@ -296,19 +323,19 @@ final class WhmcsKnowledgebaseImport
     /** @return array{whmcs: array<string, int>, mycs: array<string, int>} */
     private function parity(): array
     {
-        $count = fn (string $sql) => (int) $this->pdo->query($sql)->fetchColumn();
-        $deletedArticles = DB::table('kb_whmcs_tombstones')->where('ref', 'like', 'article:%')->count();
-        $deletedCategories = DB::table('kb_whmcs_tombstones')->where('ref', 'like', 'category:%')->count();
+        // WHMCS's rows, against ours of them (imported, or deleted here): one gone from WHMCS since is no difference
+        // (code review 7).
+        $ids = fn (string $sql) => array_map('intval', $this->pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN));
+        $articles = $ids('SELECT id FROM tblknowledgebase WHERE parentid = 0');
+        $categories = $ids('SELECT id FROM tblknowledgebasecats WHERE catid = 0');
+        $ours = fn (string $table, string $kind, array $theirs) => count(array_intersect($theirs, array_merge(
+            DB::table($table)->whereNotNull('whmcs_id')->pluck('whmcs_id')->map(fn ($id) => (int) $id)->all(),
+            DB::table('kb_whmcs_tombstones')->where('ref', 'like', $kind . ':%')->pluck('ref')->map(fn ($ref) => (int) substr($ref, strlen($kind) + 1))->all(),
+        )));
 
         return [
-            'whmcs' => [
-                'articles' => $count('SELECT COUNT(*) FROM tblknowledgebase WHERE parentid = 0'),
-                'categories' => $count('SELECT COUNT(*) FROM tblknowledgebasecats WHERE catid = 0'),
-            ],
-            'mycs' => [
-                'articles' => KbArticle::query()->whereNotNull('whmcs_id')->count() + $deletedArticles,
-                'categories' => KbCategory::query()->whereNotNull('whmcs_id')->count() + $deletedCategories,
-            ],
+            'whmcs' => ['articles' => count($articles), 'categories' => count($categories)],
+            'mycs' => ['articles' => $ours('kb_articles', 'article', $articles), 'categories' => $ours('kb_categories', 'category', $categories)],
         ];
     }
 }

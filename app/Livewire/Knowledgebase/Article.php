@@ -30,6 +30,9 @@ class Article extends Component
 
     public function render()
     {
+        // On every request, not only the first: a page kept open (its snapshot) never shows it once unpublished (ADV-1).
+        abort_unless($this->article->is_published, 404);
+
         return view('knowledgebase.article', [
             'categories' => $this->article->categories()->orderBy('sort')->get(),
         ])->layoutData(['title' => $this->article->localized('title'), 'description' => $this->article->excerpt()]);

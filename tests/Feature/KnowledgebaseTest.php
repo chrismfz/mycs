@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\KbArticleResource\Pages\CreateKbArticle;
+use App\Admin\Resources\KbArticleResource\Pages\EditKbArticle;
 use App\Admin\Resources\KbArticleResource\Pages\ListKbArticles;
 use App\Livewire\Knowledgebase\Index;
 use App\Livewire\Tickets\Create as TicketCreate;
@@ -12,6 +13,7 @@ use App\Models\KbCategory;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Knowledgebase\KbSearch;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -119,5 +121,39 @@ class KnowledgebaseTest extends TestCase
             ->call('create')->assertHasNoFormErrors();
         $new = KbArticle::query()->where('title', 'Πώς αλλάζω κωδικό')->sole();
         $this->assertSame(['pos-allazo-kodiko', [$this->category->id]], [$new->slug, $new->categories()->pluck('kb_categories.id')->all()]);
+        $this->assertStringStartsWith('<p>', $new->body, 'saved as HTML, not the editor\'s JSON');
+    }
+
+    /** Code review 1: Greek capitals and accents are the same letters («Η» and «η», «Υ» and «ύ»). */
+    public function test_search_with_greek_capitals_and_accents(): void
+    {
+        $article = KbArticle::query()->create(['title' => 'Υπηρεσίες Ηλεκτρονικού ταχυδρομείου', 'body' => '<p>ΨΗΦΙΑΚΌ ΕΥΡΥΖΩΝΙΚΗΣ</p>']);
+
+        foreach (['υπηρεσιες', 'ηλεκτρονικου', 'ψηφιακο', 'ευρυζωνικής'] as $words) {
+            $this->assertTrue(KbSearch::find($words)->contains('id', $article->id), $words);
+        }
+    }
+
+    /** Code review 4: an imported article is edited as its HTML, so a save of its title keeps WHMCS's markup. */
+    public function test_an_imported_article_keeps_its_html_when_saved(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $html = '<div class="alert alert-info"><p style="color:red">Note</p><iframe src="https://www.youtube.com/embed/x"></iframe></div>';
+        KbArticle::query()->whereKey($this->article->id)->update(['body' => $html, 'whmcs_id' => $this->article->id]);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'KB2', 'permissions' => ['admin.knowledgebase.viewAny', 'admin.knowledgebase.update']])->id]);
+
+        $this->livewireAs($staff)->test(EditKbArticle::class, ['record' => $this->article->getRouteKey()])
+            ->assertFormSet(['html_source' => true])
+            ->fillForm(['title' => 'Renamed'])->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame(['Renamed', $html], [$this->article->fresh()->title, $this->article->fresh()->body]);
+    }
+
+    /** Code review: a translation is what the page shows in that language. */
+    public function test_the_page_shows_the_translation(): void
+    {
+        $this->article->update(['translations' => ['en' => ['title' => 'Restore files - Jetbackup', 'body' => '<p>From cPanel, in English.</p>']]]);
+
+        $this->withSession(['locale' => 'en'])->get($this->article->url())->assertOk()->assertSee('in English')->assertSee('Restore files - Jetbackup');
     }
 }

@@ -112,4 +112,32 @@ class WhmcsKnowledgebaseImportTest extends TestCase
         $this->assertSame('Made here', KbArticle::query()->findOrFail(65)->title);
         $this->assertNotSame($counts['parity']['whmcs'], $counts['parity']['mycs']);
     }
+
+    /** A screenshot pasted into WHMCS (a data: image) becomes a file; anything else in data: stays as it was. */
+    public function test_a_pasted_image_becomes_a_file(): void
+    {
+        $this->whmcs->exec("UPDATE tblknowledgebase SET article = '<img src=\"data:image/png;base64," . base64_encode(self::PNG) . "\"><img src=\"data:image/svg+xml;base64,PHN2Zy8+\">' WHERE id = 66");
+
+        $this->import();
+
+        $body = KbArticle::query()->findOrFail(66)->body;
+        $this->assertStringNotContainsString('data:image/png', $body);
+        $this->assertStringContainsString('/storage/kb/whmcs/', $body);
+        $this->assertStringContainsString('data:image/svg+xml', $body, 'not an image we take');
+    }
+
+    /** Code review 5, 7: data-src is not src; a row gone from WHMCS since is no parity difference. */
+    public function test_data_src_is_not_src_and_parity_after_whmcs_deletes(): void
+    {
+        $this->whmcs->exec("UPDATE tblknowledgebase SET article = '<img data-src=\"https://www.example.test/a.jpg\" src=\"https://www.example.test/b.jpg\">' WHERE id = 65");
+        $this->import();
+        $this->assertStringContainsString('data-src="https://www.example.test/a.jpg"', KbArticle::query()->findOrFail(65)->body);
+        $this->assertStringContainsString('src="/storage/kb/whmcs/', KbArticle::query()->findOrFail(65)->body, 'from the site\'s root');
+
+        KbArticle::query()->findOrFail(66)->delete();
+        $this->whmcs->exec('DELETE FROM tblknowledgebase WHERE id = 66');
+        $counts = $this->import();
+
+        $this->assertSame($counts['parity']['whmcs'], $counts['parity']['mycs']);
+    }
 }

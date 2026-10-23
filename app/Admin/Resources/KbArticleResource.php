@@ -12,6 +12,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -54,8 +55,18 @@ class KbArticleResource extends Resource
                 Select::make('categories')->label('Categories')->relationship('categories', 'name', fn ($query) => $query->orderBy('sort')->orderBy('name'))
                     ->multiple()->preload()->required(),
                 TagsInput::make('tags')->label('Tags')->splitKeys([',', 'Enter']),
-                RichEditor::make('body')->label('Article')->required()->columnSpanFull()
+                // An article from WHMCS is edited as its HTML at first: the editor keeps only what it knows (WHMCS's
+                // classes, styles, iframes would go on any save; code review 4). Staff switch to the editor when they want.
+                Toggle::make('html_source')->label('Edit as HTML')->dehydrated(false)->live()->columnSpanFull()
+                    ->afterStateHydrated(fn (Toggle $component, ?KbArticle $record) => $component->state($record?->whmcs_id !== null))
+                    ->helperText('The editor rewrites HTML it does not know (classes, styles, embedded frames): keep this on for an imported article.'),
+                RichEditor::make('body')->label('Article')->required()->columnSpanFull()->visible(fn (Get $get) => !$get('html_source'))
                     ->fileAttachmentsDisk('public')->fileAttachmentsDirectory('kb')->fileAttachmentsVisibility('public'),
+                // Its own field: the editor's, even hidden, holds the article as it rewrote it. Saved as the body by the pages
+                // (KbArticleResource::withHtmlSource).
+                Textarea::make('body_source')->label('Article (HTML)')->required()->columnSpanFull()->rows(24)->dehydrated(fn (Get $get) => (bool) $get('html_source'))
+                    ->visible(fn (Get $get) => (bool) $get('html_source'))->extraInputAttributes(['class' => 'font-mono text-xs'])
+                    ->afterStateHydrated(fn (Textarea $component, ?KbArticle $record) => $component->state($record?->body)),
                 TextInput::make('sort')->label('Order')->numeric()->minValue(0)->maxValue(65535)->default(0),
                 Toggle::make('is_published')->label('Published')->default(true)->inline(false)
                     ->helperText('Off: only staff see it here; its address answers «not found».'),
@@ -69,6 +80,17 @@ class KbArticleResource extends Resource
                         ->fileAttachmentsDisk('public')->fileAttachmentsDirectory('kb')->fileAttachmentsVisibility('public'),
                 ])->all()),
         ]);
+    }
+
+    /** @param array<string, mixed> $data @return array<string, mixed> the body as staff wrote it, in HTML or with the editor */
+    public static function withHtmlSource(array $data): array
+    {
+        if (array_key_exists('body_source', $data)) {
+            $data['body'] = (string) $data['body_source'];
+            unset($data['body_source']);
+        }
+
+        return $data;
     }
 
     public static function table(Table $table): Table

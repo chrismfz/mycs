@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 
 /**
  * An article of the knowledgebase (docs/knowledgebase.md): HTML written by staff (RichEditor), shown sanitized, never
@@ -43,9 +45,18 @@ class KbArticle extends Model
     /** An address from a title, as WHMCS made it, in lower case: Greek letter by letter, the rest as Str::slug. */
     public static function slugFor(string $title): string
     {
-        $plain = preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize(mb_strtolower($title), \Normalizer::FORM_D));
+        return Str::limit(Str::slug(self::plain($title)), 255, '') ?: 'article';
+    }
 
-        return Str::slug(strtr((string) $plain, self::GREEK)) ?: 'article';
+    /**
+     * A text in plain Latin lower case, Greek letter by letter: lower case and without accents first, so «Η», «η» and «ή»
+     * are one letter (code review 1: Str::ascii makes «Η» an h and «η» an i).
+     */
+    public static function plain(string $text): string
+    {
+        $lower = preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize(mb_strtolower($text), \Normalizer::FORM_D));
+
+        return mb_strtolower(Str::ascii(strtr((string) $lower, self::GREEK)));
     }
 
     /** @return BelongsToMany<KbCategory, $this> */
@@ -66,10 +77,11 @@ class KbArticle extends Model
         return route('kb.article', ['article' => $this->id, 'slug' => $this->slug]);
     }
 
-    /** The body for the page: staff's HTML, sanitized (as a product's description), never compiled as Blade. */
+    /** The body for the page: staff's HTML, sanitized (the rules of a product's description), never compiled as Blade. */
     public function safeBody(): string
     {
-        return Str::sanitizeHtml((string) $this->localized('body'));
+        // Filament's rules, without its 500 000 bytes cap, which cuts a long article silently (ADV-6).
+        return (new HtmlSanitizer(app(HtmlSanitizerConfig::class)->withMaxInputLength(-1)))->sanitize((string) $this->localized('body'));
     }
 
     /** A plain summary (search results, the page's description). */
@@ -78,7 +90,7 @@ class KbArticle extends Model
         return Str::limit(trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string) $this->localized('body')), ENT_QUOTES | ENT_HTML5))), $length);
     }
 
-    /** Whether it carries this tag, as its address writes it (WHMCS: spaces as dashes). */
+    /** Whether it carries this tag, as its address writes it (WHMCS: spaces as dashes; ours: «/» too). */
     public function hasTag(string $tag): bool
     {
         $wanted = self::tagKey($tag);
@@ -88,11 +100,12 @@ class KbArticle extends Model
 
     public static function tagKey(string $tag): string
     {
-        return mb_strtolower(str_replace([' ', '_'], '-', trim($tag)));
+        return mb_strtolower(str_replace([' ', '_', '/'], '-', trim($tag)));
     }
 
     public static function tagUrl(string $tag): string
     {
-        return route('kb.tag', ['tag' => str_replace(' ', '-', trim($tag))]);
+        // A «/» would end the address's segment (ADV-3): a dash, as a space.
+        return route('kb.tag', ['tag' => str_replace([' ', '/'], '-', trim($tag))]);
     }
 }

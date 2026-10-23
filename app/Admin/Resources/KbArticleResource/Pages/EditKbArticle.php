@@ -14,4 +14,9 @@ class EditKbArticle extends EditRecord
     {
         return [DeleteAction::make()];
     }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        return KbArticleResource::withHtmlSource($data);
+    }
 }
