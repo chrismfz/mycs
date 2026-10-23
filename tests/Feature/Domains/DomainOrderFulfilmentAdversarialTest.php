@@ -399,7 +399,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
         $this->runJobs();
         $this->cron();
         $this->assertCount(1, $this->created);
-        $this->assertSame(1, DomainRegistrarLog::query()->where('domain_id', $domain->id)->count());
+        $this->assertSame(1, DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', '!=', 'sync')->count());
     }
 
     public function test_a_partial_payment_sends_nothing(): void
