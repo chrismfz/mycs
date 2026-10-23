@@ -107,7 +107,7 @@ class ServiceFieldsTest extends TestCase
 
         $this->actingAs($staff);
         foreach (['example.gr', '192.0.2.20', '192.0.2.12'] as $search) {
-            $found = ServiceResource::getGlobalSearchResults($search)->map(fn ($result) => $result->title)->implode('|');
+            $found = ServiceResource::getGlobalSearchResults($search)->map(fn ($result) => (string) $result->title)->implode('|');
             $this->assertStringContainsString('#' . $this->service->id, $found, "global search for {$search}");
         }
     }

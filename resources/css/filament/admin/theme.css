@@ -56,3 +56,37 @@
         display: flex;
     }
 }
+
+/*
+ * The admin search, compact as WHMCS's (owner 2026-10-23): more results in view, each a line with its status on the
+ * right (SearchTitle) and its details (client, server, expiry) on one line under it.
+ */
+.fi-topbar .fi-global-search-results-ctn {
+    @apply sm:max-w-lg;
+    max-height: min(70vh, 40rem);
+}
+.fi-global-search-result-group-header {
+    @apply px-3 py-1.5 text-xs tracking-wide uppercase;
+}
+.fi-global-search-result-link {
+    @apply px-3 py-1.5;
+}
+.fi-global-search-result-heading .mycs-search-title {
+    @apply flex items-center justify-between gap-2;
+}
+.fi-global-search-result-heading .mycs-search-text {
+    @apply min-w-0 truncate;
+}
+.fi-global-search-result-heading .mycs-search-badge {
+    @apply shrink-0;
+}
+.fi-global-search-result-details {
+    @apply mt-0 flex flex-wrap gap-x-2;
+}
+.fi-global-search-result-detail {
+    @apply text-xs;
+}
+.fi-global-search-result-detail + .fi-global-search-result-detail::before {
+    content: '·';
+    @apply me-2 text-gray-400;
+}

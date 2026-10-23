@@ -80,6 +80,23 @@ class ClientResource extends Resource
         return '#' . $record->getKey() . ' ' . ($record instanceof Client ? $record->name : '');
     }
 
+    /** With its contact, not one query each. */
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['primaryContact']);
+    }
+
+    /** @return array<string, string> its company and email, on one line (owner 2026-10-23, as WHMCS) */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        $contact = $record instanceof Client ? $record->primaryContact : null;
+
+        return $contact === null ? [] : array_filter([
+            __('Company') => filled($contact->company_name) && $contact->company_name !== $record->name ? (string) $contact->company_name : null,
+            __('Email') => filled($contact->email) ? (string) $contact->email : null,
+        ]);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema

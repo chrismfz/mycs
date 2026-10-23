@@ -7,6 +7,7 @@ use App\Admin\Resources\TicketResource\Pages\CreateTicket;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\TicketResource\Pages\ListTickets;
 use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
+use App\Admin\Search\SearchTitle;
 use App\Models\Client;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -60,12 +61,30 @@ class TicketResource extends Resource
 
     public static function getGloballySearchableAttributes(): array
     {
-        return ['subject'];
+        // …and by its number (#ABC-123 in mails) or id, as WHMCS finds a ticket.
+        return ['subject', 'reference', 'id'];
     }
 
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
     {
-        return $record->subject;
+        return $record instanceof Ticket
+            ? SearchTitle::make('#' . $record->reference . ' ' . $record->subject, Ticket::statusLabel($record->status), Ticket::statusColor($record->status))
+            : (string) $record->getKey();
+    }
+
+    /** With its client, not one query each. */
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact']);
+    }
+
+    /** @return array<string, string> whose it is and when it last moved, on one line */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return !$record instanceof Ticket ? [] : array_filter([
+            __('Client') => $record->client !== null ? $record->client->name . ' #' . $record->client_id : ($record->guest_email ?: null),
+            __('Updated') => $record->updated_at?->format('d/m/Y H:i'),
+        ]);
     }
 
     public static function form(Schema $schema): Schema

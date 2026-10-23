@@ -14,6 +14,7 @@ use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
+use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\EmailLog;
@@ -61,6 +62,35 @@ class InvoiceResource extends Resource
         }
 
         return (string) ($record->number ?: '#' . $record->getKey());
+    }
+
+    /** The admin search finds an invoice by its number or id, as WHMCS (owner 2026-10-23). */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['number', 'id'];
+    }
+
+    /** With what its title and details need, not one query each. */
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact', 'items', 'currency', 'adjustmentNotes']);
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
+    {
+        return $record instanceof Invoice
+            ? SearchTitle::make(__('Invoice') . ' ' . self::getRecordTitle($record), Invoice::statusLabel($record->status), Invoice::statusColor($record->status))
+            : (string) $record->getKey();
+    }
+
+    /** @return array<string, string> whose, how much and when due, on one line */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return !$record instanceof Invoice ? [] : array_filter([
+            __('Client') => $record->client !== null ? $record->client->name . ' #' . $record->client_id : null,
+            __('Total') => (string) $record->formattedTotal,
+            __('Due Date') => $record->due_at?->format('d/m/Y'),
+        ]);
     }
 
     // By id, as its URLs ({record:id}): Filament finds the record again on every request by this key, and the model's

@@ -253,7 +253,10 @@ class ServiceFieldsAdversarialTest extends TestCase
 
         $this->livewireAs($staff)->test(ListService::class)->assertOk()->assertDontSee(self::XSS, false);
         $title = ServiceResource::getGlobalSearchResultTitle($this->service->fresh());
-        $this->assertIsString($title, 'a plain string is escaped by Filament; an Htmlable would not be');
+        // An Htmlable since the status badge (2026-10-23): Filament prints it as it is, so SearchTitle escapes the text itself.
+        $html = is_string($title) ? e($title) : $title->toHtml();
+        $this->assertStringNotContainsString(self::XSS, $html);
+        $this->assertStringContainsString(e(self::XSS), $html);
     }
 
     public function test_holds_the_search_is_bound_not_interpolated(): void
