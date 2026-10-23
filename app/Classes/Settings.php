@@ -657,6 +657,7 @@ class Settings
                     'default' => 0,
                     'required' => true,
                     'min_value' => 0,
+                    'validation' => 'integer',
                     'description' => 'Not in WHMCS (a hook at myip: 30). 0 (default): never. Or days after which an invoice that only buys account credit and was never paid is cancelled.',
                 ],
                 [
