@@ -118,7 +118,7 @@ class StaffDirectMessagesTest extends TestCase
         StaffChat::post($nikos, StaffChat::room(), 'room');
         StaffChat::post($nikos, StaffChat::direct($nikos, $haris), 'not for me');
 
-        $this->assertSame(['room' => 1, $haris->id => 2], StaffChat::unreadByThread($me));
+        $this->assertEquals(['room' => 1, $haris->id => 2], StaffChat::unreadByThread($me), 'per thread, in any order');
         $this->actAs($me);
         $this->assertSame('3', LiveChat::getNavigationBadge());
 
