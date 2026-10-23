@@ -104,8 +104,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [ ] Τράπεζες και υπόλοιπα («πολύ αργότερα»): υπόλοιπα **PayPal/Stripe** στο dashboard (των registrars υπάρχει), port
       του addon των emails της τράπεζας (PaymentsTrackingMatch), «Payments tracking» με δικό του ρόλο, σύνολα τραπεζών
       μόνο για `*`, μέθοδος «τραπεζική κατάθεση».
-- [ ] Μικροί κανόνες από τα hooks του myip: email στο staff σε υπερπληρωμή· αυτόματη ακύρωση απλήρωτων «Add Funds»
-      μετά από 30 μέρες. (Το email αναστολής με τον λόγο έγινε.)
+- [x] ~~Μικροί κανόνες από τα hooks του myip~~ **έγιναν:** το email στο staff σε υπερπληρωμή υπήρχε ήδη («Payment needs
+      attention», `RecordPaymentService::addCredit`)· η αυτόματη ακύρωση απλήρωτων «Add Funds» είναι η ρύθμιση
+      `cronjob_add_funds_cancel` (0 = ποτέ, όπως το WHMCS· στο myip 30 στο cut-over). (Το email αναστολής με τον λόγο έγινε.)
 
 ### Λογαριασμοί και πελάτες
 - [ ] GDPR: εξαγωγή και διαγραφή/ανωνυμοποίηση. (Custom fields πελάτη υπάρχουν, custom properties· μένει το import.)

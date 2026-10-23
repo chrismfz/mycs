@@ -13,6 +13,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Logging\WriteFailures;
 use App\Models\BulkMail;
+use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
@@ -367,6 +368,36 @@ class CronJob extends Command
                 }
 
                 return $number;
+            }, transaction: false);
+
+            // «Add Funds» never paid (a hook of myip's WHMCS, owner 2026-10-23): after as many days, an open invoice that only
+            // buys account credit is cancelled, as any the app gives up on (CancelOpenInvoices: one with money on it is
+            // left to staff). 0 (default) never, as WHMCS.
+            $this->runCronJob('add_funds_cancelled', function () {
+                $days = (int) config('settings.cronjob_add_funds_cancel', 0);
+                if ($days <= 0) {
+                    return 0;
+                }
+                $old = Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('created_at', '<', now()->subDays($days))
+                    ->whereHas('items', fn ($line) => $line->where('reference_type', Credit::class))
+                    ->whereDoesntHave('items', fn ($line) => $line->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
+                    // A payment on its way (SEPA, a PayPal review) is being paid: left to settle (adversarial ADV-1).
+                    ->whereDoesntHave('transactions', fn ($payment) => $payment->where('status', InvoiceTransactionStatus::Processing));
+                // Part paid by a gateway or a transfer: staff refund it (a credit purchase is never moved to credit),
+                // told once a month, not every night (adversarial ADV-3).
+                $partPaid = (clone $old)->whereHas('transactions', fn ($payment) => $payment->where('status', InvoiceTransactionStatus::Succeeded)
+                    ->where('is_credit_transaction', false))->pluck('id');
+                foreach ($partPaid as $id) {
+                    if (Cache::add("add-funds-part-paid:{$id}", true, now()->addDays(30))) {
+                        $this->notices["add_funds_cancelled #{$id}"] = new DisplayException("Invoice #{$id} left open: it buys account credit, is part paid and was not paid in time. Refund its payment, then cancel it.");
+                    }
+                }
+                $invoices = (clone $old)->whereNotIn('id', $partPaid)->orderBy('id')->get();
+                $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.add_funds_unpaid'));
+                $this->leftOpen($left);
+
+                // Those cancelled now: one paid or cancelled by staff since it was read is not (adversarial ADV-2).
+                return Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->count();
             }, transaction: false);
 
             $this->runCronJob('upgrade_invoices_updated', function ($number = 0) {
