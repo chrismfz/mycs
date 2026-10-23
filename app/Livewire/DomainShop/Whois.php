@@ -48,8 +48,7 @@ class Whois extends Component
 
     public function lookup(): void
     {
-        // One solution, one lookup: a captcha found valid earlier in this request counts no more (code review).
-        $this->is_valid = false;
+        // One solution, one lookup: Captchable::captcha() lets a token checked on its arrival cover one action only.
         $this->answer = null;
         $this->error = null;
         // A full name, any registry: «https://www.example.co.uk/page» → example.co.uk (IDN as punycode).

@@ -20,7 +20,8 @@ trait Captchable
         }
         // ALTCHA is checked when the form is sent, not on every field's update: a solution counts once, and a live
         // field's update before the submit would spend it (docs/captcha.md).
-        if (config('settings.captcha') === 'altcha') {
+        // A provider's token is checked when it arrives, once: not again for every other field updated with it.
+        if (config('settings.captcha') === 'altcha' || $name !== 'captcha') {
             return;
         }
         $this->captcha();
@@ -54,7 +55,14 @@ trait Captchable
     // Captchable
     private function captcha()
     {
-        if (!config('settings.captcha') || config('settings.captcha') == 'disabled' || $this->is_valid) {
+        if (!config('settings.captcha') || config('settings.captcha') == 'disabled') {
+            return;
+        }
+        // A token checked when it arrived (updated(), the same request) covers one action, not every one after it:
+        // a provider's token is single-use, so checking it again would refuse it (review of #384).
+        if ($this->is_valid) {
+            $this->is_valid = false;
+
             return;
         }
 
