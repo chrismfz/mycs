@@ -9,6 +9,7 @@ use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
 use App\Admin\Pages\IncomeReport;
+use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
@@ -106,6 +107,7 @@ class TopMenu
         'Support' => [
             [TicketResource::class, 'index', 'Support Tickets'],
             [TicketResource::class, 'create', 'Open New Ticket'],
+            [LiveChat::class],
             [TicketQuarantineResource::class, 'index', 'Mail Quarantine'],
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
             [CannedReplyResource::class, 'index', 'Predefined Replies'],
