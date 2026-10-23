@@ -294,7 +294,8 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
         $this->invoice();
 
         $this->assertSame('13', Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->value('value'));
-        $this->assertSame(1, Invoice::query()->where('number', '13')->count());
+        // The page's save flushed the settings, the invoice number's format with them: the numbers, whatever the format.
+        $this->assertSame(['11', '12', '13'], Invoice::query()->orderBy('id')->pluck('number')->map(fn ($n) => substr((string) $n, -2))->all());
     }
 
     /** Database queue: the mail job is not in `jobs` before the commit; once committed a worker sends it. */

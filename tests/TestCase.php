@@ -51,8 +51,12 @@ abstract class TestCase extends BaseTestCase
     protected function storeSettings(array $settings): void
     {
         foreach ($settings as $key => $value) {
-            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null],
-                is_array($value) ? ['value' => json_encode($value), 'type' => 'array'] : ['value' => $value, 'type' => 'string']);
+            // The type as the value's (the seeder's database_type), so it reads back as given: Saving encodes it.
+            $type = match (true) {
+                is_array($value) => 'array', is_bool($value) => 'boolean', is_int($value) => 'integer',
+                is_float($value) => 'float', default => 'string',
+            };
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $type]);
         }
         SettingsProvider::reload();
     }

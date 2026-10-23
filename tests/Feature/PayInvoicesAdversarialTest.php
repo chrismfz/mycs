@@ -349,7 +349,7 @@ class PayInvoicesAdversarialTest extends TestCase
     public function test_held_immutable_invoices_block_the_bulk_payment(): void
     {
         $invoices = $this->three();
-        config(['settings.immutable_invoices_enabled' => true]);
+        $this->settings(['immutable_invoices_enabled' => [true, 'boolean']]); // a row: the first request's flush keeps it
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->admin()->create();
 
