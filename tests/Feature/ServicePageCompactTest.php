@@ -110,4 +110,22 @@ class ServicePageCompactTest extends TestCase
 
         Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])->assertActionHidden('loginToPanel');
     }
+
+    public function test_the_clients_other_services_with_the_previous_and_next_never_anothers(): void
+    {
+        $this->staff();
+        $make = fn (array $attributes) => Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, ...$attributes]);
+        $next = $make(['domain' => 'second.example.test', 'status' => 'active']);
+        $make(['domain' => 'gone.example.test', 'status' => 'terminated']);
+        $other = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, 'domain' => 'someone-else.example.test']);
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertOk()
+            ->assertSee(__("This client's services") . ' (3)')->assertSee('second.example.test')->assertSee('gone.example.test')
+            ->assertSee(Service::statusLabel('terminated'))->assertDontSee('someone-else.example.test')
+            ->assertSee(ServiceResource::getUrl('edit', ['record' => $next]), false)->assertSee(__('Next service'))->assertDontSee(__('Previous service'));
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $other]))->assertOk()->assertDontSee(__("This client's services"));
+    }
 }

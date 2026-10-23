@@ -7,6 +7,7 @@ use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -39,9 +40,11 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
@@ -108,6 +111,38 @@ class EditService extends EditRecord
         }
 
         return $record;
+    }
+
+    /** At most this many in the list (a reseller's hundreds: the rest on the client's tab). */
+    private const CLIENT_SERVICES = 200;
+
+    /** This client's services to move between (owner 2026-10-23, as WHMCS's select above a product), with ‹ › to the next. */
+    public function getSubheading(): string|Htmlable|null
+    {
+        $record = $this->getRecord();
+        if (!$record instanceof Service) {
+            return null;
+        }
+        $services = Service::query()->where('client_id', $record->client_id)->with('product:id,name')->orderBy('id')
+            ->limit(self::CLIENT_SERVICES)->get(['id', 'client_id', 'product_id', 'domain', 'status']);
+        if ($services->count() < 2) {
+            return null;
+        }
+        $at = $services->search(fn (Service $service) => $service->is($record));
+        $url = fn (?Service $service) => $service === null ? null : ServiceResource::getUrl('edit', ['record' => $service]);
+
+        return new HtmlString(view('admin.resources.service-resource.client-services', [
+            'services' => $services->map(fn (Service $service) => [
+                'label' => '#' . $service->id . ' ' . ($service->product->name ?? '') . ($service->domain ? ' · ' . $service->domain : ''),
+                'url' => $url($service), 'current' => $service->is($record),
+                'status' => Service::statusLabel($service->status), 'ended' => in_array($service->status, Service::ENDED_STATUSES, true),
+            ])->all(),
+            'previous' => $url($at !== false && $at > 0 ? $services[$at - 1] : null),
+            'next' => $url($at !== false ? ($services[$at + 1] ?? null) : null),
+            // Only for staff who may open the client, as the Client field.
+            'tab' => $record->client !== null && ClientResource::canView($record->client) ? ClientResource::getUrl('services', ['record' => $record->client_id]) : null,
+            'total' => Service::query()->where('client_id', $record->client_id)->count(),
+        ])->render());
     }
 
     /** Staff may sign into its panel: their permission, a server whose module offers it, an account made there. */

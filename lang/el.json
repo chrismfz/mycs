@@ -1075,5 +1075,9 @@
     "Zone": "Ζώνη",
     "Email the EPP code": "Αποστολή κωδικού EPP",
     "Change holder": "Αλλαγή κατόχου",
-    "Recall": "Ανάκληση"
+    "Recall": "Ανάκληση",
+    "Previous service": "Προηγούμενη υπηρεσία",
+    "Next service": "Επόμενη υπηρεσία",
+    "This client's services": "Οι υπηρεσίες του πελάτη",
+    "On the client's Products/Services tab": "Στην καρτέλα Products/Services του πελάτη"
 }
