@@ -74,7 +74,7 @@ class TicketMailImportResource extends Resource
         if ($import->ticket_id !== null && TicketResource::canAccess()) {
             return TicketResource::getUrl('edit', ['record' => $import->ticket_id]);
         }
-        if ($import->quarantine_id !== null && TicketQuarantineResource::canAccess()) {
+        if ($import->quarantine_id !== null && $import->from_email !== null && TicketQuarantineResource::canAccess()) {
             return TicketQuarantineResource::getUrl('index', ['search' => $import->from_email]);
         }
 
@@ -85,7 +85,9 @@ class TicketMailImportResource extends Resource
     {
         return $table
             ->defaultSort('id', 'desc')
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('department'))
+            // The quarantine holds anyone's mail and has its own permission: its rows only to whom may open it (review of #406).
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('department')
+                ->when(!TicketQuarantineResource::canAccess(), fn (Builder $q) => $q->where('outcome', '!=', InboundOutcome::QUARANTINED)))
             ->columns([
                 TextColumn::make('created_at')->label(__('Date'))->dateTime()->sortable(),
                 TextColumn::make('department.name')->label(__('To'))->placeholder('—'),
@@ -102,13 +104,14 @@ class TicketMailImportResource extends Resource
                     }),
             ])
             ->filters([
-                SelectFilter::make('outcome')->label(__('Status'))->options(self::outcomes()),
+                SelectFilter::make('outcome')->label(__('Status'))->options(fn (): array => TicketQuarantineResource::canAccess()
+                    ? self::outcomes() : array_diff_key(self::outcomes(), [InboundOutcome::QUARANTINED => true])),
                 SelectFilter::make('department_id')->label(__('Department'))
                     ->options(fn (): array => TicketDepartment::query()->orderBy('name')->pluck('name', 'id')->all()),
                 Filter::make('date')
                     ->schema([
-                        DatePicker::make('from')->label('From'),
-                        DatePicker::make('until')->label('Until'),
+                        DatePicker::make('from')->label(__('From')),
+                        DatePicker::make('until')->label(__('Until')),
                     ])
                     ->query(fn (Builder $query, array $data): Builder => $query
                         ->when($data['from'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '>=', Carbon::parse($date)->startOfDay()))

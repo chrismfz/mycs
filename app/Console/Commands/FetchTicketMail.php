@@ -81,6 +81,8 @@ class FetchTicketMail extends Command
                 . "{$counts[InboundOutcome::QUARANTINED]} quarantined" . ($run->errors ? ', ' . count($run->errors) . ' errors' : ''));
         }
 
+        // The import log as long as the quarantine keeps its mail: then senders and subjects of junk go too (review of #406).
+        TicketMailImport::query()->where('created_at', '<', now()->subDays(90))->delete();
         // A month of runs is enough to tell the health of the polling.
         TicketPollRun::query()->where('started_at', '<', now()->subDays(30))->delete();
         // Handled quarantine (and its raw mail) is kept 90 days; pending stays until staff decide.

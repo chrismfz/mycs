@@ -126,7 +126,13 @@ class InboundRouter
             RateLimiter::hit($limit, 3600);
             // «We received it», only to an address our server vouched for: never mail to a forged From (backscatter).
             if ($verdict->authenticated && $outcome->ticket !== null) {
-                app(TicketMailer::class)->received($outcome->ticket, $from);
+                // After the ticket is in: its failure is reported, never the mail's (read again, it would be a duplicate
+                // and the ticket nowhere in the import log: review of #406).
+                try {
+                    app(TicketMailer::class)->received($outcome->ticket, $from);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
         }
 
