@@ -96,7 +96,8 @@
   "backupcode": <hash>}`. Επιβεβαιώθηκε σε test login του myip (2026-10-23): το secret που βγαίνει είναι ακριβώς αυτό
   της εφαρμογής. Το API του WHMCS **δεν** το διαβάζει (`DecryptPassword` είναι το παλιότερο σχήμα). Γι' αυτό ο importer
   θέλει το `cc_encryption_hash` του WHMCS (από το `configuration.php`) στο `WHMCS_CC_ENCRYPTION_HASH` του `.env`,
-  **μόνο για το run του import**: σβήνεται μετά. Το secret κρατιέται κρυπτογραφημένο με το κλειδί του MyCS, και ο ίδιος
+  **μόνο για το run του import**: σβήνεται μετά, και ξανά `php artisan config:cache` (αλλιώς μένει στο
+  `bootstrap/cache/config.php` μέχρι το επόμενο). Το secret κρατιέται κρυπτογραφημένο με το κλειδί του MyCS, και ο ίδιος
   authenticator συνεχίζει να δουλεύει. Χωρίς αυτό, ή για ένα που δεν διαβάζεται, ο user έρχεται χωρίς 2FA και ο importer
   τυπώνει τα ids τους (10 στο myip, 1 στη nixpal), για να ειδοποιηθούν. Μόνο `totp` (το μόνο που χρησιμοποιείται). Τα
   backup codes δεν μεταφέρονται: το WHMCS κρατά μόνο το hash τους.

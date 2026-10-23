@@ -27,7 +27,7 @@ final class WhmcsSecondFactor
     }
 
     /** WHMCS 8's own scheme, for a stored `<iv>.<ciphertext>` (hex). */
-    public static function decryptWith(string $ccEncryptionHash, string $stored): ?string
+    public static function decryptWith(#[\SensitiveParameter] string $ccEncryptionHash, string $stored): ?string
     {
         $parts = explode('.', trim($stored), 2);
         if (count($parts) !== 2 || !ctype_xdigit($parts[0]) || !ctype_xdigit($parts[1]) || strlen($parts[0]) !== 32 || strlen($parts[1]) % 2 !== 0) {

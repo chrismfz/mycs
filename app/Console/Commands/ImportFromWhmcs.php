@@ -257,7 +257,7 @@ class ImportFromWhmcs extends Command
         });
     }
 
-    /** How the logins' 2FA is read from WHMCS (its API); the tests set their own. */
+    /** How the logins' 2FA is read (WHMCS_CC_ENCRYPTION_HASH, WhmcsSecondFactor); the tests set their own. */
     public ?WhmcsSecondFactor $secondFactor = null;
 
     /**
