@@ -5,6 +5,7 @@ namespace Tests\Feature\Domains;
 use App\Livewire\DomainShop\Whois;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Services\Captcha\Altcha;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Lookup\GrWhois;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,6 +28,14 @@ class GreppWhoisAdversarialTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A lookup asks for the captcha (2026-10-23): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         Cache::flush();
         Http::preventStrayRequests();
     }
@@ -136,7 +145,7 @@ class GreppWhoisAdversarialTest extends TestCase
             return Http::response(self::found(), 200);
         });
 
-        Livewire::withQueryParams(['domain' => 'shop.example.com.gr'])->test(Whois::class)->assertSet('fqdn', 'example.com.gr');
+        Livewire::withQueryParams(['domain' => 'shop.example.com.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup')->assertSet('fqdn', 'example.com.gr');
         $this->assertSame([GrWhois::PRODUCTION . '/api/v1/domain/example.com.gr'], $urls);
     }
 
@@ -151,7 +160,7 @@ class GreppWhoisAdversarialTest extends TestCase
             return Http::response('{"error":404,"message":"not found"}', 404);
         });
 
-        $page = Livewire::withQueryParams(['domain' => 'google.gr'])->test(Whois::class);
+        $page = Livewire::withQueryParams(['domain' => 'google.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup');
         $this->assertSame([], array_filter($urls, fn ($u) => str_starts_with($u, GrWhois::SANDBOX)), 'UAT answered a public whois');
         $page->assertDontSee(__('domains.shop.whois_free'));
     }
@@ -188,7 +197,7 @@ class GreppWhoisAdversarialTest extends TestCase
             'createDate' => $evil, 'registrar' => ['name' => $evil, 'url' => 'javascript:alert(3)', 'email' => 'x@y'],
         ]]), 200));
 
-        $html = Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)->html();
+        $html = Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup')->html();
         $this->assertStringNotContainsString('<script>alert(1)', $html);
         $this->assertStringNotContainsString('<img src=x', $html);
         $this->assertStringNotContainsString('href="javascript:', $html); // registrar_url is data in the snapshot only
@@ -202,7 +211,7 @@ class GreppWhoisAdversarialTest extends TestCase
         $this->connection();
         Http::fake(fn () => throw new ConnectionException('cURL error 28 for https://who4:Whois-pw1@grwhois.ics.forth.gr:800'));
 
-        $html = Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)->assertSee(__('domains.shop.whois_error'))->html();
+        $html = Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup')->assertSee(__('domains.shop.whois_error'))->html();
         $this->assertStringNotContainsString('Whois-pw1', $html);
     }
 
@@ -217,7 +226,7 @@ class GreppWhoisAdversarialTest extends TestCase
         });
 
         $nfd = \Normalizer::normalize('παράδειγμα.gr', \Normalizer::FORM_D);
-        $page = Livewire::withQueryParams(['domain' => 'παράδειγμα.gr'])->test(Whois::class);
+        $page = Livewire::withQueryParams(['domain' => 'παράδειγμα.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup');
         foreach (['ΠΑΡΆΔΕΙΓΜΑ.GR', 'xn--hxajbheg2az3al.gr', 'XN--HXAJBHEG2AZ3AL.GR.', 'www.παράδειγμα.gr', 'https://mail.παράδειγμα.gr/x?y#z', $nfd] as $spelling) {
             $page->set('query', $spelling)->call('lookup')->assertSet('fqdn', 'xn--hxajbheg2az3al.gr');
         }

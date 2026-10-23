@@ -22,6 +22,31 @@ trait Captchable
         $this->captcha();
     }
 
+    /**
+     * The captcha: the one chosen in Settings, and our ALTCHA when none is (it needs no keys): a public form that costs us
+     * (a mail, a registry's lookup) never goes without one (review of #251; whois, 2026-10-23).
+     */
+    protected function requireCaptchaOrAltcha(): void
+    {
+        if (in_array(config('settings.captcha'), [null, '', 'disabled'], true)) {
+            if ($this->captcha === '') {
+                throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
+            }
+            $this->altcha($this->captcha);
+
+            return;
+        }
+        $this->captcha();
+    }
+
+    /** The captcha the page shows: the chosen one, or ours. */
+    public static function captchaKind(): string
+    {
+        $kind = (string) config('settings.captcha');
+
+        return in_array($kind, ['', 'disabled'], true) ? 'altcha' : $kind;
+    }
+
     // Captchable
     private function captcha()
     {

@@ -242,6 +242,7 @@ return [
         'all_prices' => 'All prices',
         'not_a_name' => 'That is not a domain name we can look up: use letters, digits and hyphens.',
         'not_a_full_name' => 'Type a full domain name, such as example.com.',
+        'busy' => 'Many lookups right now: please try again in a few minutes.',
         'too_many' => 'Too many searches from your address: please wait a few minutes.',
         'whois_title' => 'Who owns a domain (whois)',
         'whois_lead' => 'What the registry publishes about a domain: registrar, dates, status and nameservers.',

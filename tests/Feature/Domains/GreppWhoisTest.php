@@ -4,6 +4,7 @@ namespace Tests\Feature\Domains;
 
 use App\Livewire\DomainShop\Whois;
 use App\Models\DomainRegistrarConnection;
+use App\Services\Captcha\Altcha;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Lookup\GrWhois;
 use App\Services\Domains\Registrars\GrEppRegistrar;
@@ -25,6 +26,14 @@ class GreppWhoisTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A lookup asks for the captcha (2026-10-23): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         Cache::flush();
         Http::preventStrayRequests();
     }
@@ -93,7 +102,7 @@ class GreppWhoisTest extends TestCase
         DomainRegistrarConnection::query()->delete();
         $this->connection();
         Http::fake(fn () => Http::response((string) file_get_contents(base_path('packages/gr-epp/tests/fixtures/whois/domain-response.json')), 200));
-        Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)
+        Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)->set('captcha', 'solved')->call('lookup')
             ->assertSee('MYIP NETWORKS')->assertSee('ns1.example.com');
     }
 
