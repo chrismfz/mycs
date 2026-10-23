@@ -49,6 +49,8 @@ use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
 use OwenIt\Auditing\Events\AuditCustom;
 use Throwable;
 
+use function Livewire\store;
+
 class EditService extends EditRecord
 {
     use RemembersRecent;
@@ -118,19 +120,31 @@ class EditService extends EditRecord
             && rescue(fn () => ExtensionHelper::hasFunction($server, 'getLoginUrl'), false, false);
     }
 
-    /** Signed in at its panel (the module's getLoginUrl, as the customer's «Log in»), and who did it in its audit. */
-    public function loginToPanel(Service $record): void
+    /**
+     * Signed in at its panel (the module's getLoginUrl, as the customer's «Log in»), and who did it in its audit. This
+     * page's service only, and only through its action: not a Livewire method anyone may call with another id (ADV-1 of
+     * #400).
+     */
+    protected function loginToPanel(): void
     {
-        abort_unless(self::panelLoginOffered($record), 403);
+        $record = $this->getRecord();
+        abort_unless($record instanceof Service && self::panelLoginOffered($record), 403);
         try {
             $url = ExtensionHelper::callService($record, 'getLoginUrl', [null]);
         } catch (Throwable $e) {
+            // A redirect a module queued before it failed goes nowhere (as the client area's, ADV-2 of #323).
+            store($this)->set('redirect', null);
             report($e);
             Notification::make()->danger()->title('Could not sign in to its panel')->body(mb_substr($e->getMessage(), 0, 200))->send();
 
             return;
         }
-        // Only an https address of a host, never `javascript:` or one with credentials in it (as the client area's).
+        // Only an http(s) address of a host, never `javascript:` or one with credentials in it (as the client area's); nor
+        // one a module queued itself (ADV-3 of #400).
+        $pending = store($this)->get('redirect');
+        if (is_string($pending) && Show::panelUrl($pending) === null) {
+            store($this)->set('redirect', null);
+        }
         $url = is_string($url) ? Show::panelUrl($url) : null;
         if ($url === null) {
             Notification::make()->danger()->title('Could not sign in to its panel')->send();
@@ -140,7 +154,7 @@ class EditService extends EditRecord
         $record->auditEvent = 'panel_login';
         $record->isCustomEvent = true;
         $record->auditCustomOld = [];
-        $record->auditCustomNew = ['staff_id' => Auth::guard('staff')->id()];
+        $record->auditCustomNew = ['staff_id' => Auth::guard('staff')->id(), 'server_id' => $record->provisioningServer()?->id, 'username' => $record->username];
         event(new AuditCustom($record));
         $this->redirect($url);
     }
@@ -155,7 +169,7 @@ class EditService extends EditRecord
             // Into its panel, signed in, as WHMCS's «Log in to panel» (owner 2026-10-23): its own permission, audited.
             Action::make('loginToPanel')->label('Log in to panel')->icon('heroicon-o-arrow-top-right-on-square')->color('gray')
                 ->visible(fn (Service $record) => self::panelLoginOffered($record))
-                ->action(fn (Service $record) => $this->loginToPanel($record)),
+                ->action(fn () => $this->loginToPanel()),
             // The rest behind «More» (owner 2026-10-23: eight buttons on one line); the server's commands are also in the
             // form's Account, one button each.
             ActionGroup::make([

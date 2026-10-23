@@ -401,7 +401,11 @@ class ServiceResource extends Resource
     public static function summaryLine(Service $record): array
     {
         $usage = $record->usage;
-        $hosted = $record->hostedDomains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->values();
+        // A reseller's by account, as before (ADV-2 of #400): «acct: a, b»; one account's, the names alone.
+        $byAccount = $record->hostedDomains->groupBy('account');
+        $hosted = $byAccount->count() > 1
+            ? $byAccount->map(fn ($domains, $account) => "{$account}: " . $domains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->implode(', '))->values()
+            : $record->hostedDomains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->values();
 
         return [
             'disk' => $usage === null ? null : self::meter($usage->disk_used_mb, $usage->disk_limit_mb, true),

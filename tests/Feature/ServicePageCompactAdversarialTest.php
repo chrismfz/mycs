@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Livewire\Exceptions\MethodNotFoundException;
 use Livewire\Livewire;
 use OwenIt\Auditing\Models\Audit;
 use Tests\TestCase;
@@ -84,8 +85,13 @@ class ServicePageCompactAdversarialTest extends TestCase
         $this->staff();
         $other = $this->makeService('victim');
 
-        Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])
-            ->call('loginToPanel', $other->getKey());
+        // Fixed: no Livewire method to call at all (protected, the page's own record); only its action.
+        try {
+            Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])
+                ->call('loginToPanel', $other->getKey());
+            $this->fail('a direct call reached the panel login');
+        } catch (MethodNotFoundException) {
+        }
 
         $this->assertSame([], array_column($this->sessions, 'user'), 'a session was made for another service than the page\'s');
         $this->assertSame(0, Audit::query()->where('event', 'panel_login')->where('auditable_id', $other->id)->count());
@@ -96,8 +102,12 @@ class ServicePageCompactAdversarialTest extends TestCase
     {
         $this->staff(['admin.services.viewAny', 'admin.services.update']);
 
-        Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])
-            ->call('loginToPanel', $this->service->getKey())->assertForbidden();
+        Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])->assertActionHidden('loginToPanel');
+        try {
+            Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])->call('loginToPanel', $this->service->getKey());
+            $this->fail('a direct call reached the panel login');
+        } catch (MethodNotFoundException) {
+        }
         $this->assertSame([], $this->sessions);
     }
 
