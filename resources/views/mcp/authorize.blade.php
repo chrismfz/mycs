@@ -55,7 +55,12 @@
             @if($staff)
                 <p class="error">You are logged in as {{ $staff->name }}, whose role may not use the MCP server.</p>
             @endif
-            <div class="row"><a href="{{ $loginUrl }}"><button type="button" class="primary">Log in to the admin to approve</button></a></div>
+            @if($withoutTwoFactor)
+                <p class="error">You are logged in as {{ $withoutTwoFactor->name }}, without 2FA: approving an MCP connector needs it.</p>
+                <div class="row"><a href="{{ $profileUrl }}"><button type="button" class="primary">Set up 2FA in your profile</button></a></div>
+            @else
+                <div class="row"><a href="{{ $loginUrl }}"><button type="button" class="primary">Log in to the admin to approve</button></a></div>
+            @endif
             <hr>
             <form method="post" action="{{ url('/mcp/oauth/authorize') }}">
                 @csrf

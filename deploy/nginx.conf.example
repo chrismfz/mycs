@@ -1,5 +1,10 @@
 # MyCS behind nginx (the devbox). Under Apache or LiteSpeed (cPanel) public/.htaccess does the same.
 # Only public/index.php and public/zlic.php run PHP: an uploaded file under /storage is never code, whatever its name.
+
+# zlic.php takes the license key and its PSK in the query string (a contract of the licensing clients): its own log
+# without the query, so neither is kept in the access logs (security audit SEC-13). In the http {} block:
+log_format mycs_noquery '$remote_addr - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_user_agent"';
+
 server {
     server_name mycs.example.com;
     root /var/www/mycs/public;
@@ -19,7 +24,18 @@ server {
 
     # The application's answers carry X-Frame-Options, nosniff, Referrer-Policy and a CSP of its own (SecurityHeaders):
     # an add_header here keeps the server's above off them, or a private link's «no-referrer» would get a second value.
-    location ~ ^/(index|zlic)\.php$ {
+    location = /zlic.php {
+        access_log /var/log/nginx/mycs-zlic.log mycs_noquery;
+        add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
+        try_files $uri =404;
+        fastcgi_pass unix:/run/php-fpm/mycs.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+        fastcgi_read_timeout 120s;
+    }
+
+    location ~ ^/index\.php$ {
         add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
         try_files $uri =404;
         fastcgi_pass unix:/run/php-fpm/mycs.sock;

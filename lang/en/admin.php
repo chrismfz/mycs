@@ -15,6 +15,7 @@ return [
         'reminders_sent' => 'Payment reminders sent',
         'domain_invoices_cancelled' => 'Invoices of lost domains cancelled',
         'domains_ordered' => 'Domains registered or transferred',
+        'domain_owner_changes' => '.gr changes of holder sent',
         'domain_epp_codes_cleared' => 'Transfer EPP codes cleared',
         'domain_reminders' => 'Domain expiry notices sent',
         'license_logs_pruned' => 'License access logs pruned',

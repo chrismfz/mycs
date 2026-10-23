@@ -11,5 +11,6 @@ return [
     'module_actions' => 'Pending module actions',
     'licenses' => 'Licenses',
     'domains' => 'Domains',
+    'runtime' => 'PHP and production settings',
     'ticket_mail' => 'Ticket mailboxes',
 ];

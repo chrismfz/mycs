@@ -70,8 +70,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [x] ~~**Η πραγματική IP από τον server**~~ **έγινε (feat/server-ip):** το cPanel λέει την IP κάθε λογαριασμού μαζί με τη
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
-- [ ] **Proxmox (8 VPS): απόφαση υπευθύνου**, extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον
-      πελάτη). Δικό μας module, με το pvewhmcs ως αναφορά (GPL: όχι κώδικας, `provisioning.md`).
+- [ ] **Proxmox (8 VPS): σε αναμονή** (ο υπεύθυνος, 2026-10-23): πρώτα το migration των υπαρχόντων VM (pool `mycs`,
+      σύνδεση με τις υπηρεσίες)· ως τότε χειροκίνητα προϊόντα. Ευρήματα, αποφάσεις (templates + ISO, noVNC μέσα από το
+      MyCS, κόμβος ανά προϊόν), πρόσβαση και σχέδιο: `proxmox.md`.
 - [ ] ngm (1), Hetzner (1): χειροκίνητα προϊόντα (χωρίς κώδικα).
 - [ ] cPanel: root token στους servers του myip πριν τους resellers· συμφιλίωση κατάστασης μετά από job του server
       (το create υπάρχει, #114)· αργότερα, αν χρειαστεί, διαχείριση email/domains μέσα από το MyCS.
@@ -121,8 +122,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       της nixpal)· αναζήτηση με όνομα, domain, IP ή αυτά τα πεδία. Ποτέ οι σημειώσεις του staff (`notes`).
 
 ### Admin
-- [ ] Λίστα προϊόντων «σαν WHMCS»: στήλες Type/Pay Type/Stock/Auto Setup (Duplicate, Pending Orders και dashboard
-      υπάρχουν).
+- [x] ~~Λίστα προϊόντων «σαν WHMCS»~~ **έγινε (feat/product-list-columns):** στήλες Type (το module), Pay Type (από τα
+      πλάνα), Stock (∞ χωρίς όριο), Auto Setup, και Shown (Listed/Hidden/Retired). (Duplicate, Pending Orders και
+      dashboard υπήρχαν· το Auto Setup ως ρύθμιση του προϊόντος επίσης.)
 - [ ] `mycs:login-link`. (Έξοδα: ανήκουν στο Ekdosi.)
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
@@ -139,9 +141,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       (`domains.md` D7-2). Additional fields ανά TLD: όχι ακόμα.
 - [ ] Ο κατάλογος .gr στο MyCS: τιμές και ΦΠΑ πριν πουληθεί από εδώ· ο importer φέρνει το `recurring_amount` των .gr
       δύο χαρακτήρων.
-- [ ] Αλλαγή κατόχου .gr: **G8-5b** (ροή του staff με χρέωση, υπογεγραμμένη δήλωση), **G8-5c** (από τον πελάτη),
-      **G8-5d** (trade στο Openprovider). Το G8-5a (#215) υπάρχει.
-- [ ] **G8-6** διαγραφή στο Μητρώο, με προειδοποίηση, πληκτρολόγηση του ονόματος και δικό της δικαίωμα (backlog).
+- [ ] Αλλαγή κατόχου .gr: **G8-5c** (από τον πελάτη), **G8-5d** (trade στο Openprovider). Τα G8-5a (#215) και
+      **G8-5b** (ροή του staff με τιμολόγιο και δήλωση, `domains/grepp.md`) υπάρχουν.
+- [ ] ~~**G8-6** διαγραφή στο Μητρώο~~: όχι (ιδιοκτήτης 2026-10-23: επικίνδυνη, δεν τη χρησιμοποιήσαμε ποτέ· γίνεται στο grweb).
 - [ ] Έλεγχος μεταγραφής ελληνικών στοιχείων επαφής προς τους registrars.
 - [ ] Τα 8 ερωτήματα του sweep των domains για τον υπεύθυνο (`domains.md`, «Sweep 2026-10-22»).
 

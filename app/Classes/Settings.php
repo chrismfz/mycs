@@ -1024,6 +1024,16 @@ class Settings
                     'default' => true,
                     'description' => 'Off: no «Transfer it to us» in the search.',
                 ],
+                // A .gr domain's change of holder (G8-5b, owner 2026-10-23): one price for a name change and a transfer.
+                [
+                    'name' => 'domain_gr_owner_change_price',
+                    'section' => 'Ordering',
+                    'label' => '.gr change of holder: price',
+                    'type' => 'number',
+                    'default' => 0,
+                    'min_value' => 0,
+                    'description' => 'Charged as entered (as the TLD prices are, with or without tax by the tax setting), in the default currency, for a .gr name change or transfer to another holder. 0: staff send it without an invoice only.',
+                ],
                 // WHMCS «Default Auto Renewal Setting».
                 [
                     'name' => 'domain_default_auto_renew',
@@ -1330,6 +1340,16 @@ class Settings
                     'default' => McpOauth::DEFAULT_REDIRECT_HOSTS,
                     'validation' => 'nullable|max:500',
                     'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, separated by commas or spaces. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
+                ],
+                [
+                    'name' => 'staff_2fa_required',
+                    // Whether every member of staff must set 2FA up before using the admin: full admins only.
+                    'permission' => '*',
+                    'label' => 'Require 2FA for staff',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'On: every member of staff sets up an authenticator app at their first login, before anything else in the admin. Off: 2FA is optional in each member\'s profile; Automation Status warns while it is off. Approving an MCP connector always needs 2FA.',
                 ],
                 [
                     'name' => 'logs_full',

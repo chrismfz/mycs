@@ -130,9 +130,42 @@ class StaffChatNotifyReviewTest extends TestCase
         $this->assertStringContainsString('window.mycsChatMemory', $view);
         $this->assertStringContainsString('renotify: true', $view);
         // Re-review of #382: the front mark is kept fresh by a timer, dropped on blur, and storage failure falls back to memory.
-        $this->assertStringContainsString('setInterval(() => front(), 5000)', $view);
-        $this->assertStringContainsString('destroy() { clearInterval(this.timer) }', $view);
+        $this->assertStringContainsString('setInterval(() => this.front(), 5000)', $view);
+        $this->assertStringContainsString('destroy() { clearInterval(this.timer); this.observer?.disconnect() }', $view);
         $this->assertStringContainsString('x-on:blur.window="front()"', $view);
         $this->assertStringContainsString('window.mycsChatNoStorage', $view);
+    }
+
+    /** Owner 2026-10-23: every click rang. No tone on a suspended context, one unlock listener, a tab's own memory. */
+    public function test_the_tone_never_waits_for_a_click_and_a_tab_never_rings_twice(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+
+        $this->assertStringContainsString("ctx.state === 'running'", $view);
+        $this->assertStringNotContainsString("addEventListener('click'", $view);
+        $this->assertStringContainsString("['pointerdown', 'pointerup', 'keydown']", $view);
+        $this->assertStringContainsString("if (ctx.state === 'running') ['pointerdown', 'pointerup', 'keydown'].forEach((type) => document.removeEventListener", $view);
+        $this->assertStringContainsString('this.observer?.disconnect()', $view);
+        $this->assertStringContainsString('ctx.onstatechange', $view);
+        $this->assertStringContainsString('window.mycsChatRung', $view);
+    }
+
+    /**
+     * Review of #396, the cause: Alpine calls an x-init whose value is a function, and the notifier's first statement
+     * there was one, so every page rang. Its set-up is in init(), and no chat view's x-init starts with an assignment
+     * of a function.
+     */
+    public function test_no_chat_view_has_an_x_init_that_evaluates_to_a_function(): void
+    {
+        $notifier = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+        $this->assertStringNotContainsString('x-init=', $notifier);
+        $this->assertStringContainsString('init() {', $notifier);
+
+        foreach ([...glob(resource_path('views/livewire/admin/staff-*.blade.php')), resource_path('views/admin/pages/live-chat.blade.php')] as $view) {
+            preg_match_all('/x-init="\s*([^;"]*)/', (string) file_get_contents($view), $inits);
+            foreach ($inits[1] as $first) {
+                $this->assertDoesNotMatchRegularExpression('/=\s*(\(|function|async)|\?\?=/', $first, basename($view) . ': x-init starts with a function');
+            }
+        }
     }
 }

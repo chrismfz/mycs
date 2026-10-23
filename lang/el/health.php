@@ -11,5 +11,6 @@ return [
     'module_actions' => 'Εκκρεμείς ενέργειες modules',
     'licenses' => 'Άδειες',
     'domains' => 'Domains',
+    'runtime' => 'PHP και ρυθμίσεις παραγωγής',
     'ticket_mail' => 'Mailboxes των tickets',
 ];
