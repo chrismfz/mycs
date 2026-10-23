@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\FailedJobResource\Pages;
 
+use App\Admin\Concerns\ShowsLogs;
 use App\Admin\Resources\FailedJobResource;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 class ListFailedJobs extends ListRecords
 {
+    use ShowsLogs;
+
     protected static string $resource = FailedJobResource::class;
 
     // Check if jobs table is empty, if not send a notification

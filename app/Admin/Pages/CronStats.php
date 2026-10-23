@@ -2,6 +2,7 @@
 
 namespace App\Admin\Pages;
 
+use App\Admin\Concerns\ShowsLogs;
 use App\Admin\Widgets\CronStat\CronOverview;
 use App\Admin\Widgets\CronStat\CronStat;
 use App\Admin\Widgets\CronStat\CronTable;
@@ -17,6 +18,7 @@ use Throwable;
 class CronStats extends Dashboard
 {
     use HasFiltersAction;
+    use ShowsLogs;
 
     protected static string|\UnitEnum|null $navigationGroup = 'System';
 
