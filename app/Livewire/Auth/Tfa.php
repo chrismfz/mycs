@@ -61,7 +61,7 @@ class Tfa extends Component
         return $this->finish($loginAction, $user, $session);
     }
 
-    /** With a recovery code: used up, and the login taken to its security page to see how many are left. */
+    /** With a recovery code: used up; the login goes on where it was going, told how many are left. */
     public function verifyRecovery(Login $loginAction)
     {
         $this->validate(['recovery' => 'required|string|max:32']);

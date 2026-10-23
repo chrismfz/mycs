@@ -9,6 +9,8 @@ use App\Models\UserSession;
 use App\Support\CurrentClient;
 use App\Support\RecoveryCodes;
 use App\Support\Totp;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -151,14 +153,23 @@ class TfaRecoveryCodesTest extends TestCase
         Livewire::test(Tfa::class)->set('recovery', $codes[0])->call('verifyRecovery')->assertRedirect('/invites/continue');
     }
 
-    /** Code review 3: a save that writes the same secret keeps the codes. */
+    /** Code review 3: a save that writes the same secret keeps the codes, also with a previous key (where it is dirty). */
     public function test_saving_the_same_secret_keeps_the_codes(): void
     {
         $this->user->update(['tfa_secret' => $this->secret]);
         RecoveryCodes::regenerate($this->user);
+        // The app's key, with a previous one (APP_PREVIOUS_KEYS): any write of an encrypted cast is dirty then.
+        $key = base64_decode(substr((string) config('app.key'), 7));
+        Model::encryptUsing((new Encrypter($key, (string) config('app.cipher')))->previousKeys([random_bytes(32)]));
+        try {
+            $this->user->forceFill(['tfa_secret' => $this->secret, 'tfa_recovery_codes' => $this->user->tfa_recovery_codes])->save();
+            $this->user->fresh()->update(['first_name' => 'Maria', 'tfa_secret' => $this->secret]);
 
-        $this->user->fresh()->update(['first_name' => 'Maria', 'tfa_secret' => $this->secret]);
-
-        $this->assertSame(RecoveryCodes::COUNT, RecoveryCodes::remaining($this->user->fresh()));
+            $this->assertSame(RecoveryCodes::COUNT, RecoveryCodes::remaining($this->user->fresh()));
+            $this->user->fresh()->update(['tfa_secret' => null]);
+            $this->assertNull($this->user->fresh()->tfa_recovery_codes);
+        } finally {
+            Model::encryptUsing(null);
+        }
     }
 }
