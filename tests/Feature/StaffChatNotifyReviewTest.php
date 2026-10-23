@@ -129,5 +129,10 @@ class StaffChatNotifyReviewTest extends TestCase
         $this->assertStringContainsString('mycs-chat-front', $view);
         $this->assertStringContainsString('window.mycsChatMemory', $view);
         $this->assertStringContainsString('renotify: true', $view);
+        // Re-review of #382: the front mark is kept fresh by a timer, dropped on blur, and storage failure falls back to memory.
+        $this->assertStringContainsString('setInterval(() => front(), 5000)', $view);
+        $this->assertStringContainsString('destroy() { clearInterval(this.timer) }', $view);
+        $this->assertStringContainsString('x-on:blur.window="front()"', $view);
+        $this->assertStringContainsString('window.mycsChatNoStorage', $view);
     }
 }

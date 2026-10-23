@@ -11,16 +11,24 @@
     data-title="{{ $news['title'] }}" data-url="{{ $url }}" data-page="{{ $page }}"
     x-data="{
         key() { return 'mycs-chat-alerted-' + this.$el.dataset.staff },
+        timer: null,
         store(name, value) {
             window.mycsChatMemory ??= {};
             if (value !== undefined) window.mycsChatMemory[name] = value;
-            try {
-                if (value !== undefined) localStorage.setItem(name, value);
-                return localStorage.getItem(name);
-            } catch (e) {
-                return window.mycsChatMemory[name] ?? null;
+            // Once localStorage fails to write (blocked, private mode, quota), this tab keeps to its memory (re-review of #382).
+            if (!window.mycsChatNoStorage) {
+                try {
+                    if (value !== undefined) localStorage.setItem(name, value);
+                    return localStorage.getItem(name);
+                } catch (e) {
+                    window.mycsChatNoStorage = true;
+                }
             }
+            return window.mycsChatMemory[name] ?? null;
         },
+        onPage() { return location.pathname === new URL(this.$el.dataset.page, location.href).pathname },
+        front() { if (this.onPage()) this.store('mycs-chat-front', this.away() ? '0' : String(Date.now())) },
+        destroy() { clearInterval(this.timer) },
         away() { return document.visibilityState !== 'visible' || !document.hasFocus() },
         title() {
             const total = Number(this.$el.dataset.total);
@@ -29,9 +37,9 @@
         },
         check() {
             this.title();
-            const onPage = location.pathname === new URL(this.$el.dataset.page, location.href).pathname;
+            const onPage = this.onPage();
             // The Live chat page marks itself in front, and unmarks itself as soon as it is not.
-            if (onPage) this.store('mycs-chat-front', this.away() ? '0' : String(Date.now()));
+            this.front();
             const latest = Number(this.$el.dataset.latest);
             const alerted = this.store(this.key());
             if (alerted === null) { this.store(this.key(), String(latest)); return }
@@ -63,7 +71,9 @@
         };
         document.addEventListener('click', () => window.mycsChatAudio?.resume?.(), { once: true });
         check();
+        // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
+        timer = setInterval(() => front(), 5000);
         new MutationObserver(() => check()).observe($el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
     "
     x-on:livewire:navigated.document="title()"
-    x-on:focus.window="check()" x-on:visibilitychange.document="check()"></div>
+    x-on:focus.window="check()" x-on:blur.window="front()" x-on:visibilitychange.document="check()"></div>
