@@ -157,7 +157,10 @@ class Plan extends Model implements Auditable
         // never be billed again, billing-cursor §5). Staff move them to another plan first, each confirmed.
         static::updating(function (self $model) {
             if ($model->isDirty('type') && $model->getOriginal('type') === 'recurring' && in_array($model->type, ['free', 'one-time'], true)) {
-                $paying = $model->services()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->where('price', '>', 0)->count();
+                // Those on it, those moving to it at their next renewal (next_plan_id: ADV-1), and those upgrading to it
+                // (a pending upgrade: ADV-2); live or still pending, at a price or under a coupon still running.
+                $paying = Service::query()->payingEveryCycle()->where(fn ($query) => $query->where('plan_id', $model->id)->orWhere('next_plan_id', $model->id))->count()
+                    + ServiceUpgrade::query()->where('plan_id', $model->id)->where('status', ServiceUpgrade::STATUS_PENDING)->count();
                 if ($paying > 0) {
                     throw new DisplayException(trans_choice('{1} A service pays for this plan every cycle: move it to another plan first.|[2,*] :count services pay for this plan every cycle: move them to another plan first.', $paying));
                 }

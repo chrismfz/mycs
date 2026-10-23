@@ -212,7 +212,7 @@ class ServiceResource extends Resource
                     ->placeholder('Select the plan'),
                 // A paying service moved to a free or one-time plan is never billed again (billing-cursor §5): said so.
                 Toggle::make('ends_billing')->label('Never bill it again')->dehydrated()
-                    ->helperText('This service is billed every cycle; on a free or one-time plan it stays without being billed again.')
+                    ->helperText('This service is billed every cycle; on a free or one-time plan it stays without being billed again. Or set its price to 0 in the same save.')
                     ->visible(fn (Get $get, ?Service $record) => $record !== null && filled($get('plan_id')) && (int) $get('plan_id') !== (int) $record->plan_id
                         && Service::endsBillingRefusal($record, Plan::query()->find($get('plan_id'))) !== null),
                 // Chosen when the service is made; afterwards it moves with «Move to another client» (its invoices with it),

@@ -74,4 +74,16 @@ class PlanBecomesFreeLockTest extends TestCase
         $plan->fresh()->update(['type' => 'free']);
         $this->assertSame('free', $plan->fresh()->type, 'nobody pays for it any more');
     }
+
+    /** As WHMCS's «0» (owner 2026-10-23): the price set to 0 with the free plan, in one save, needs no confirmation. */
+    public function test_price_zero_and_the_free_plan_in_one_save_is_enough(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->fillForm(['plan_id' => $this->free->id, 'price' => 0])->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame([$this->free->id, 0.0], [$this->service->fresh()->plan_id, (float) $this->service->fresh()->price]);
+    }
 }
