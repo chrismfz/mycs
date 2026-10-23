@@ -81,7 +81,7 @@ return [
             'too_many_registrar' => 'Nameservers and lock: at most :max domains at once (10 registrar changes a minute).',
             'not_tried_limit' => 'not tried now (too many changes this minute): try it again in a minute',
             'too_many_selected' => 'At most :max domains at once: untick some.',
-        'too_many' => 'Too many bulk changes in a short time: please try again in a quarter of an hour.',
+            'too_many' => 'Too many bulk changes in a short time: please try again in a quarter of an hour.',
             'not_tried' => 'not tried (the registrar was slow): try it again',
             'auto_renew_off_confirm' => 'Stop renewing the selected domains? They will expire at their end date.',
             'selected' => '{1} :count selected|[2,*] :count selected',
