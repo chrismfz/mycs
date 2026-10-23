@@ -57,10 +57,11 @@ class User extends Authenticatable implements Auditable, HasAvatar
         'password',
         'remember_token',
         'tfa_secret',
+        'tfa_recovery_codes',
     ];
 
-    /** Never in the audit trail (as staff's): the password hash, the remember token, the 2FA secret (PR #158 review A2). */
-    protected $auditExclude = ['password', 'remember_token', 'tfa_secret'];
+    /** Never in the audit trail (as staff's): the password hash, the remember token, the 2FA secret and recovery codes (PR #158 review A2). */
+    protected $auditExclude = ['password', 'remember_token', 'tfa_secret', 'tfa_recovery_codes'];
 
     /**
      * Get the attributes that should be cast.
@@ -73,7 +74,21 @@ class User extends Authenticatable implements Auditable, HasAvatar
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'tfa_secret' => 'encrypted',
+            // The hashes of its unused 2FA recovery codes (RecoveryCodes), never the codes.
+            'tfa_recovery_codes' => 'encrypted:array',
         ];
+    }
+
+    /** Its 2FA secret changed (turned off by the customer or staff, a new one): the recovery codes of the old one go. */
+    protected static function booted(): void
+    {
+        static::saving(function (User $user) {
+            // The values, not isDirty(): with APP_PREVIOUS_KEYS an encrypted cast written with the same value is dirty
+            // (code review 3: an admin save would drop the codes).
+            if ($user->exists && $user->getOriginal('tfa_secret') !== $user->tfa_secret && !$user->isDirty('tfa_recovery_codes')) {
+                $user->tfa_recovery_codes = null;
+            }
+        });
     }
 
     /**

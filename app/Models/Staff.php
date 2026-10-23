@@ -106,11 +106,13 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
     }
 
     /**
-     * What staff did stays theirs (DATA-3): ticket replies and money they moved. Such a member is disabled, not deleted.
+     * What staff did stays theirs (DATA-3): ticket replies, messages in the staff's chat and money they moved. Such a
+     * member is disabled, not deleted.
      */
     public function hasHistory(): bool
     {
         return $this->ticketMessages()->exists()
+            || StaffMessage::query()->where('staff_id', $this->id)->exists()
             || MoneyEvent::query()->where('actor_type', $this->getMorphClass())->where('actor_id', $this->id)->exists();
     }
 
