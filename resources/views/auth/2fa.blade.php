@@ -87,6 +87,15 @@
                     </x-button.primary>
                 </div>
             </form>
+            {{-- The app lost: one of the recovery codes shown when 2FA was turned on (RecoveryCodes). --}}
+            <details class="w-full mt-6 text-sm" @if ($errors->has('recovery')) open @endif>
+                <summary class="cursor-pointer text-base/70">{{ __('auth.use_recovery_code') }}</summary>
+                <form wire:submit.prevent="verifyRecovery" class="mt-3 space-y-3">
+                    <x-form.input name="recovery" type="text" :label="__('auth.recovery_code')" placeholder="xxxxx-xxxxx"
+                        wire:model="recovery" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+                    <x-button.secondary type="submit" class="w-full">{{ __('auth.verify') }}</x-button.secondary>
+                </form>
+            </details>
         </div>
     </div>
 </section>
