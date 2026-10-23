@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Support\CallerIp;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -56,10 +58,22 @@ class LoginAttempt extends Model
 
     protected $fillable = ['area', 'user_id', 'staff_id', 'email', 'ip_address', 'user_agent', 'result'];
 
+    /** One «held back» row per address and area in this time: a flood of blocked requests is one row (review of #409). */
+    public const THROTTLED_ONCE_SECONDS = 300;
+
+    private static bool $quiet = false;
+
     /** A sign-in in the history; never the sign-in's own failure. */
     public static function record(string $area, User|Staff|null $account, ?string $email, string $result): void
     {
+        if (self::$quiet) {
+            return;
+        }
         try {
+            if ($result === self::THROTTLED
+                && !Cache::add('login-history-throttled:' . $area . ':' . CallerIp::key(), true, self::THROTTLED_ONCE_SECONDS)) {
+                return;
+            }
             $email = $email === null ? null : trim($email);
             self::query()->create([
                 'area' => $area,
@@ -72,6 +86,25 @@ class LoginAttempt extends Model
             ]);
         } catch (Throwable $e) {
             report($e);
+        }
+    }
+
+    /**
+     * What runs here is no one's sign-in (a remembered browser given its new token).
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    public static function quietly(callable $callback): mixed
+    {
+        $was = self::$quiet;
+        self::$quiet = true;
+        try {
+            return $callback();
+        } finally {
+            self::$quiet = $was;
         }
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\LoginAttempt;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Staff;
@@ -199,8 +200,9 @@ final class StaffSessions
         $staff->forceFill(['remember_token' => Str::random(60)])->saveQuietly();
         $mine = $by->is($staff) ? self::current($staff, $request) : null;
         if ($mine !== null && $mine->remembered && Auth::guard('staff')->check()) {
-            // This browser stays remembered, with the new token (the old cookie is now worthless).
-            Auth::guard('staff')->login($staff, true);
+            // This browser stays remembered, with the new token (the old cookie is now worthless). No sign-in of anyone:
+            // not in the Login History (review of #409).
+            LoginAttempt::quietly(fn () => Auth::guard('staff')->login($staff, true));
         }
 
         $staff->auditEvent = 'sessions_ended';

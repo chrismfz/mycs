@@ -53,8 +53,8 @@ class LoginAttemptResource extends Resource
     public static function accountUrl(LoginAttempt $attempt): ?string
     {
         return match (true) {
-            $attempt->staff_id !== null && StaffResource::canAccess() => StaffResource::getUrl('edit', ['record' => $attempt->staff_id]),
-            $attempt->user_id !== null && UserResource::canAccess() => UserResource::getUrl('edit', ['record' => $attempt->user_id]),
+            $attempt->staff !== null && StaffResource::canEdit($attempt->staff) => StaffResource::getUrl('edit', ['record' => $attempt->staff]),
+            $attempt->user !== null && UserResource::canEdit($attempt->user) => UserResource::getUrl('edit', ['record' => $attempt->user]),
             default => null,
         };
     }

@@ -60,6 +60,11 @@ class Login extends FilamentLogin
             return null;
         }
 
+        // Filament's own limit of 2FA codes per member holds the request back without a word: in the history too.
+        if ($staff !== null && filled($this->userUndertakingMultiFactorAuthentication) && $this->getMultiFactorChallenge()->isRateLimited($staff)) {
+            LoginAttempt::record(LoginAttempt::STAFF, $staff, $staff->email, LoginAttempt::THROTTLED);
+        }
+
         try {
             $response = parent::authenticate();
         } catch (ValidationException $e) {

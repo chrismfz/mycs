@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Actions\Auth\Logout;
+use App\Models\LoginAttempt;
 use App\Models\UserSession;
 use App\Support\AuthCookies;
 use App\Support\Locales;
@@ -29,11 +30,13 @@ class ResolveUserSession
             $token = UserSession::findValid($session->get('user_session'));
         }
 
+        $remembered = false;
         if (!$token) {
             $id = Cookie::get(AuthCookies::remember());
 
             if ($id) {
                 $token = UserSession::findValid($id);
+                $remembered = $token !== null;
             }
         }
 
@@ -50,6 +53,10 @@ class ResolveUserSession
             // Customers only (the `web` guard): staff have their own guard and plain session (docs/accounts.md, PR 1).
             if (!Auth::guard('web')->check() || Auth::guard('web')->id() !== $token->user_id) {
                 Auth::guard('web')->login($token->user);
+                if ($remembered) {
+                    // Back by «Remember me»: in the Login History, as staff's (review of #409).
+                    LoginAttempt::record(LoginAttempt::CLIENT, $token->user, $token->user->email, LoginAttempt::REMEMBERED);
+                }
                 // Back by its remember cookie: its pages in its own language, as at a login (docs/accounts.md).
                 if (!$session->has('locale') && ($locale = Locales::allowed($token->user->language)) !== null) {
                     $session->put('locale', $locale);
