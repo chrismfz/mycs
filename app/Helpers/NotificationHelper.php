@@ -348,7 +348,8 @@ class NotificationHelper
             'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
             // What is left to pay, for a partly paid invoice (review R5/A10).
             'remaining' => $invoice->formattedRemaining,
-            'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $invoice->total,
+            // Against the total after credit (credit used is not «partly paid»: code review of #388).
+            'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $statement['total'],
             // Unpaid: the bank transfer accounts, line by line, and the reference to write (null without them).
             'bank_transfer' => BankTransferDetails::forTemplate($invoice),
         ];

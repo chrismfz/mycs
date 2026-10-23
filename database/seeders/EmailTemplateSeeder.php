@@ -52,6 +52,9 @@ class EmailTemplateSeeder extends Seeder
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
                 {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -109,6 +112,9 @@ class EmailTemplateSeeder extends Seeder
                 {% if tax %}
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
+                {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
                 {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
@@ -206,6 +212,9 @@ class EmailTemplateSeeder extends Seeder
                 {% if tax %}
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
+                {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
                 {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
@@ -629,6 +638,9 @@ class EmailTemplateSeeder extends Seeder
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
                 {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -704,6 +716,9 @@ class EmailTemplateSeeder extends Seeder
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
                 {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -751,6 +766,9 @@ class EmailTemplateSeeder extends Seeder
                 {% if tax %}
                 - Subtotal: **{{ subtotal }}**
                 - Tax: **{{ tax }}**
+                {% endif %}
+                {% if credit %}
+                - Credit applied: **{{ credit }}**
                 {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
@@ -1116,6 +1134,9 @@ class EmailTemplateSeeder extends Seeder
                     Εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
@@ -1168,6 +1189,9 @@ class EmailTemplateSeeder extends Seeder
                     Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
@@ -1255,6 +1279,9 @@ class EmailTemplateSeeder extends Seeder
                     Η αυτόματη χρέωση για το προτιμολόγιο **#{{ invoice_number }}** δεν ήταν επιτυχής και **δεν** χρεωθήκατε.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
@@ -1649,6 +1676,9 @@ class EmailTemplateSeeder extends Seeder
                     Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
@@ -1716,6 +1746,9 @@ class EmailTemplateSeeder extends Seeder
                     Το προτιμολόγιο **#{{ invoice_number }}** έληξε στις **{{ invoice.due_at|date("d/m/Y") }}** και είναι ληξιπρόθεσμο εδώ και {{ overdue.days }} ημέρα/ες. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα· η πληρωμή ίσως δεν έχει καταχωριστεί ακόμα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
@@ -1758,6 +1791,9 @@ class EmailTemplateSeeder extends Seeder
                     Το προτιμολόγιο **#{{ invoice_number }}** ενημερώθηκε. Ακολουθεί όπως είναι τώρα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if credit %}
+                    - Πίστωση: **{{ credit }}**
+                    {% endif %}
                     - Σύνολο: **{{ total }}**
                     {% if partly_paid %}
                     - Υπόλοιπο προς πληρωμή: **{{ remaining }}**

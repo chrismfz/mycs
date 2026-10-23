@@ -286,7 +286,8 @@ class BankTransferAdversarialTest extends TestCase
     {
         $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
         $default = EmailTemplateSeeder::mapping['new_invoice_created'];
-        $old = preg_replace('/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s', '', $default['body']);
+        // As it was then: without the credit line the seeder has since (2026_12_29, «Total»); the migration writes today's.
+        $old = preg_replace(['/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s', '/\n *\{% if credit %\}.*?\{% endif %\}/s'], ['', ''], $default['body']);
 
         // Malformed JSON only where the column can hold it: MariaDB's json column refuses it (its CHECK), so it never is there.
         $values = DB::connection()->getDriverName() === 'sqlite'
@@ -307,7 +308,8 @@ class BankTransferAdversarialTest extends TestCase
         $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
         $block = '/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s';
         $el = EmailTemplateSeeder::translations['new_invoice_created']['el'];
-        $translations = ['el' => ['body' => preg_replace($block, '', $el['body'])] + $el, 'de' => ['body' => 'Deutsch']];
+        // As it was then: without the credit line the seeder has since (2026_12_29, «Total»).
+        $translations = ['el' => ['body' => preg_replace([$block, '/\n *\{% if credit %\}.*?\{% endif %\}/s'], ['', ''], $el['body'])] + $el, 'de' => ['body' => 'Deutsch']];
         DB::table('notification_templates')->where('key', 'new_invoice_created')
             ->update(['body' => 'Staff text', 'translations' => json_encode($translations, JSON_UNESCAPED_UNICODE)]);
 
