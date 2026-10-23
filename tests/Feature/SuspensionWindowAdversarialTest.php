@@ -13,6 +13,7 @@ use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -63,6 +64,10 @@ class SuspensionWindowAdversarialTest extends TestCase
      */
     public function test_a_failure_in_an_unrelated_step_of_the_daily_run_blocks_every_suspension(): void
     {
+        // A table dropped makes a step fail; on MariaDB that DDL ends the test's transaction (SQLite runs it).
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('DDL inside the test transaction: run on SQLite.');
+        }
         $due = $this->service(['expires_at' => '2026-10-21']);
         Schema::drop('mcp_calls'); // stands for any step failing: here the MCP log pruning, after the suspensions' slot
 

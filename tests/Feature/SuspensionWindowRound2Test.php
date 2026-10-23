@@ -18,6 +18,7 @@ use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -109,6 +110,10 @@ class SuspensionWindowRound2Test extends TestCase
 
     public function test_default_window_a_failing_step_after_the_suspensions_does_not_undo_them(): void
     {
+        // A table dropped makes a step fail; on MariaDB that DDL ends the test's transaction (SQLite runs it).
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('DDL inside the test transaction: run on SQLite.');
+        }
         $due = $this->service(['expires_at' => '2026-10-21']);
         $this->openInvoice($due, '2026-10-21');
         Schema::drop('mcp_calls');

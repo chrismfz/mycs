@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -214,6 +215,10 @@ class CronSystemReviewTest extends TestCase
      */
     public function test_a_run_with_one_failed_step_is_still_recorded_as_run(): void
     {
+        // A table dropped makes a step fail; on MariaDB that DDL ends the test's transaction (SQLite runs it).
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('DDL inside the test transaction: run on SQLite.');
+        }
         Carbon::setTestNow('2026-10-26 00:00:05');
         Schema::drop('mcp_calls'); // one step fails; every other step does its work
 
