@@ -171,8 +171,12 @@ class ViewDomain extends ViewRecord
         if (!$record instanceof Domain) {
             return null;
         }
-        // The first 200 (a reseller with hundreds: the rest on the client's tab, ADV-4 of #401).
-        $domains = Domain::query()->where('client_id', $record->client_id)->orderBy('fqdn')->limit(self::CLIENT_DOMAINS)->get(['id', 'fqdn', 'status']);
+        // A window of 200 around this one (ADV-4 of #401; past the first 200 it lost its place and its ‹ ›, review of #405).
+        $own = fn () => Domain::query()->where('client_id', $record->client_id);
+        $half = intdiv(self::CLIENT_DOMAINS, 2);
+        $domains = $own()->where('fqdn', '<', $record->fqdn)->orderByDesc('fqdn')->limit($half)->get(['id', 'fqdn', 'status'])->reverse()
+            ->push($record)->merge($own()->where('fqdn', '>', $record->fqdn)->orderBy('fqdn')->limit($half)->get(['id', 'fqdn', 'status']))
+            ->merge($own()->where('fqdn', $record->fqdn)->whereKeyNot($record->id)->get(['id', 'fqdn', 'status']))->values();
         if ($domains->count() < 2) {
             return null;
         }
@@ -186,7 +190,7 @@ class ViewDomain extends ViewRecord
             'next' => $url($domains[$at + 1] ?? null),
             // Only for staff who may open the client (ADV-2 of #401), as the Client field.
             'tab' => ClientResource::canView($record->client) ? ClientResource::getUrl('domains', ['record' => $record->client_id]) : null,
-            'total' => Domain::query()->where('client_id', $record->client_id)->count(),
+            'total' => $own()->count(), // a window shows part of them
         ])->render());
     }
 

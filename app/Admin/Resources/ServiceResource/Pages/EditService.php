@@ -7,6 +7,7 @@ use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -24,6 +25,7 @@ use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\ChangeCycle;
+use App\Support\LicenseKeyMask;
 use App\Support\Redact;
 use Exception;
 use Filament\Actions\Action;
@@ -39,9 +41,11 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
@@ -108,6 +112,44 @@ class EditService extends EditRecord
         }
 
         return $record;
+    }
+
+    /** At most this many in the list (a reseller's hundreds: the rest on the client's tab). */
+    private const CLIENT_SERVICES = 200;
+
+    /** This client's services to move between (owner 2026-10-23, as WHMCS's select above a product), with ‹ › to the next. */
+    public function getSubheading(): string|Htmlable|null
+    {
+        $record = $this->getRecord();
+        if (!$record instanceof Service) {
+            return null;
+        }
+        // A window around this one (review of #405: past the first 200, it lost its own place and its ‹ ›).
+        $own = fn () => Service::query()->where('client_id', $record->client_id);
+        $half = intdiv(self::CLIENT_SERVICES, 2);
+        $services = $own()->where('id', '<', $record->id)->orderByDesc('id')->limit($half)->pluck('id')
+            ->reverse()->push($record->id)->merge($own()->where('id', '>', $record->id)->orderBy('id')->limit($half)->pluck('id'));
+        if ($services->count() < 2) {
+            return null;
+        }
+        $services = Service::query()->whereIn('id', $services->all())->with(['product:id,name', 'license'])->orderBy('id')
+            ->get(['id', 'client_id', 'product_id', 'domain', 'status']);
+        $at = $services->search(fn (Service $service) => $service->is($record));
+        $url = fn (?Service $service) => $service === null ? null : ServiceResource::getUrl('edit', ['record' => $service]);
+
+        return new HtmlString(view('admin.resources.service-resource.client-services', [
+            'services' => $services->map(fn (Service $service) => [
+                // A license's «domain» is its key: masked as the search shows it.
+                'label' => '#' . $service->id . ' ' . ($service->product->name ?? '') . ($service->domain ? ' · ' . LicenseKeyMask::domain($service) : ''),
+                'url' => $url($service), 'current' => $service->is($record),
+                'status' => Service::statusLabel($service->status), 'ended' => in_array($service->status, Service::ENDED_STATUSES, true),
+            ])->all(),
+            'previous' => $url($at !== false && $at > 0 ? $services[$at - 1] : null),
+            'next' => $url($at !== false ? ($services[$at + 1] ?? null) : null),
+            // Only for staff who may open the client, as the Client field.
+            'tab' => $record->client !== null && ClientResource::canView($record->client) ? ClientResource::getUrl('services', ['record' => $record->client_id]) : null,
+            'total' => $own()->count(), // a window shows part of them
+        ])->render());
     }
 
     /** Staff may sign into its panel: their permission, a server whose module offers it, an account made there. */

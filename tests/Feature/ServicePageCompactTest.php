@@ -110,4 +110,38 @@ class ServicePageCompactTest extends TestCase
 
         Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])->assertActionHidden('loginToPanel');
     }
+
+    public function test_the_clients_other_services_with_the_previous_and_next_never_anothers(): void
+    {
+        $this->staff();
+        $make = fn (array $attributes) => Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, ...$attributes]);
+        $next = $make(['domain' => 'second.example.test', 'status' => 'active']);
+        $make(['domain' => 'gone.example.test', 'status' => 'terminated']);
+        $other = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, 'domain' => 'someone-else.example.test']);
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertOk()
+            ->assertSee(__("This client's services") . ' (3)')->assertSee('second.example.test')->assertSee('gone.example.test')
+            ->assertSee(Service::statusLabel('terminated'))->assertDontSee('someone-else.example.test')
+            ->assertSee(ServiceResource::getUrl('edit', ['record' => $next]), false)->assertSee(__('Next service'))->assertDontSee(__('Previous service'));
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $other]))->assertOk()->assertDontSee(__("This client's services"));
+    }
+
+    /** Adversarial review of #405: a client with more than the list's 200, on one past the 200th, still has ‹ and itself in the list. */
+    public function test_adv_405_a_service_past_the_lists_limit_keeps_its_previous_and_itself(): void
+    {
+        $this->staff();
+        $last = null;
+        for ($i = 1; $i <= 201; $i++) {
+            $last = Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id,
+                'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, 'domain' => "s{$i}.example.test", 'status' => 'active']);
+        }
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $last]))->assertOk()
+            ->assertSee(__("This client's services") . ' (202)')
+            ->assertSee('s201.example.test')
+            ->assertSee(__('Previous service'));
+    }
 }
