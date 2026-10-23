@@ -26,5 +26,6 @@ return [
     'switch_account' => 'Αλλαγή λογαριασμού',
     'domain_pricing' => 'Τιμές domains',
     'whois' => 'Whois',
+    'knowledgebase' => 'Βάση γνώσεων',
     'contact' => 'Επικοινωνία',
 ];

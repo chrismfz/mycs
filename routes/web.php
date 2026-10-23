@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\IncomeExportController;
 use App\Http\Controllers\AnnouncementUnsubscribeController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
+use App\Http\Controllers\KnowledgebaseRedirectController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
@@ -18,6 +19,7 @@ use App\Livewire\Domains;
 use App\Livewire\DomainShop;
 use App\Livewire\Home;
 use App\Livewire\Invoices;
+use App\Livewire\Knowledgebase;
 use App\Livewire\Products;
 use App\Livewire\Services;
 use App\Livewire\Tickets;
@@ -42,6 +44,18 @@ Route::middleware([PrivateLinkHeaders::class, 'throttle:30,1'])->group(function 
         ->name('tickets.guest.attachment')->where(['token' => '[A-Za-z0-9_-]{1,64}', 'attachment' => '[0-9a-f-]{36}']);
 });
 Route::get('/domain-pricing', DomainShop\Pricing::class)->name('domain.pricing');
+
+// The knowledgebase (docs/knowledgebase.md), public, at WHMCS's own addresses (its links in Google keep working): an
+// article /knowledgebase/{id}/{slug}.html, a category /knowledgebase/{id}/{name}, a tag /knowledgebase/tag/{tag}. WHMCS's
+// /clients/... and knowledgebase.php ones are redirected (301, KnowledgebaseRedirectController).
+Route::get('/knowledgebase', Knowledgebase\Index::class)->name('kb.index');
+Route::get('/knowledgebase/tag/{tag}', Knowledgebase\Tag::class)->name('kb.tag')->where('tag', '[^/]{1,200}');
+Route::get('/knowledgebase/{article}/{slug}.html', Knowledgebase\Article::class)->name('kb.article')->whereNumber('article')->where('slug', '[^/]*');
+Route::get('/knowledgebase/{category}/{slug}', Knowledgebase\Category::class)->name('kb.category')->whereNumber('category')->where('slug', '[^/]*');
+Route::get('/knowledgebase/{id}', [KnowledgebaseRedirectController::class, 'id'])->whereNumber('id');
+Route::get('/knowledgebase.php', [KnowledgebaseRedirectController::class, 'script']);
+Route::get('/clients/knowledgebase.php', [KnowledgebaseRedirectController::class, 'script']);
+Route::get('/clients/knowledgebase/{path?}', [KnowledgebaseRedirectController::class, 'clients'])->where('path', '.*');
 
 // Our captcha's challenges (docs/captcha.md): while it is the chosen captcha, or none is (the contact form uses ours
 // then); a few a minute per address.

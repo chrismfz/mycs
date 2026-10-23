@@ -26,5 +26,6 @@ return [
     'switch_account' => 'Switch account',
     'domain_pricing' => 'Domain prices',
     'whois' => 'Whois',
+    'knowledgebase' => 'Knowledgebase',
     'contact' => 'Contact',
 ];

@@ -140,6 +140,12 @@ return [
                 'create' => 'Block Senders',
                 'delete' => 'Unblock Senders',
             ],
+            'knowledgebase' => [
+                'viewAny' => 'View Knowledgebase',
+                'create' => 'Create Knowledgebase Articles and Categories',
+                'update' => 'Update Knowledgebase Articles and Categories',
+                'delete' => 'Delete Knowledgebase Articles and Categories',
+            ],
             'canned_replies' => [
                 'viewAny' => 'View Predefined Replies',
                 'create' => 'Create Predefined Replies',
