@@ -21,6 +21,18 @@ PHP 8.4 (τα extensions του `composer.lock`), MariaDB 10.11 (utf8mb4_unicode
   ```
   και `systemctl reload php-fpm`. Έλεγχος: `opcache_get_status()` από το pool (όχι από το CLI, έχει δικό του):
   `oom_restarts` 0, `interned_strings_usage.free_memory` > 0. Μετά από deploy ή reload το πρώτο request ξαναμεταγλωττίζει (~1 s).
+- **Ρυθμίσεις PHP για την παραγωγή** (security audit SEC-13, ο έλεγχος «PHP και ρυθμίσεις παραγωγής» στο Automation
+  Status τις διαβάζει από το PHP του site):
+  ```ini
+  expose_php=Off
+  opcache.validate_permission=1   ; κοινό OPcache: άλλο pool δεν τρέχει scripts που έκανε cache το MyCS
+  opcache.validate_root=1         ; με chroot ανά pool· σε CageFS το καλύπτει ήδη η απομόνωση του χρήστη
+  ```
+  `APP_ENV=production`, `APP_DEBUG=false` και `composer install --no-dev`: το `deploy/update.sh` αρνείται dev πακέτα ή
+  debug στην παραγωγή (εκτός με `ALLOW_DEV_IN_PRODUCTION=1`). Το `zlic.php` παίρνει κλειδί και PSK στο query string
+  (contract): στο nginx δικό του access log χωρίς query (`deploy/nginx.conf.example`)· το `error_log` του nginx και τα
+  domlogs του cPanel/LiteSpeed κρατούν το query, άρα σύντομη διάρκεια και `0640`. Στον orion (2026-10-23): LiteSpeed/lsphp σε CageFS, `expose_php` off,
+  `validate_permission` on, `validate_root` off (το καλύπτει το CageFS).
 - **Μέγεθος:** με δεδομένα στο μέγεθος του myip (500 πελάτες, 600 υπηρεσίες, 2.000 domains, 7.200 τιμολόγια) κάθε
   widget του dashboard κάνει 2–16 queries σε ≤ 42 ms SQL, χωρίς N+1: ο όγκος δεν είναι το πρόβλημα, η μνήμη και ο
   δίσκος είναι. Devbox: 16 GB RAM, 16 cores, 42 GB δίσκος (vega, VM 114).

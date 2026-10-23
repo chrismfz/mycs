@@ -27,7 +27,8 @@
 #   APP_DIR=/var/www/mycs   run against another checkout (default: this repo)
 #   PHP=php  COMPOSER=composer  NPM=npm
 #   COMPOSER_DEV=1          keep dev dependencies (tests, pint). Default: DEPLOY_COMPOSER_DEV
-#                           from .env (set DEPLOY_COMPOSER_DEV=1 in the devbox .env)
+#                           from .env (set DEPLOY_COMPOSER_DEV=1 in the devbox .env). Refused with
+#                           APP_ENV=production, as APP_DEBUG=true is, unless ALLOW_DEV_IN_PRODUCTION=1
 #   SKIP_SNAPSHOT=1         no DB snapshot (only for throwaway installs)
 #   SNAPSHOT_KEEP=10        snapshots to keep
 #   QUEUE_SERVICE=mycs-queue  systemd unit of the worker
@@ -63,6 +64,37 @@ warn() { printf '\n\033[1;33m! %s\033[0m\n' "$*"; }
 [[ -f artisan && -f .env ]] || { fail "Not an installed MyCS checkout: $(pwd) (artisan/.env missing)."; exit 1; }
 _env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
 COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
+# Production never gets dev packages (Debugbar, Ignition) nor debug output (security audit SEC-13): refused, unless
+# ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production). APP_ENV and APP_DEBUG
+# as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF, untrimmed inside quotes), and debug on as
+# Laravel's env() has it: anything but false/0/empty/null (review of #392).
+# Laravel's own Env decides, as config/app.php reads it (`env('APP_ENV', 'production')`, `(bool) env('APP_DEBUG',
+# false)`: the process environment over .env, its conversions and quotes), and PHP prints only two digits on a line of
+# its own: no value of .env is echoed, so none can shift or forge the answer (review of #392). When PHP cannot tell,
+# refused: there is no knowing then whether this is production.
+_parsed="$($PHP -d display_errors=stderr -d display_startup_errors=0 -r '
+  require "vendor/autoload.php";
+  Dotenv\Dotenv::create(Illuminate\Support\Env::getRepository(), getcwd())->safeLoad();
+  $env = Illuminate\Support\Env::get("APP_ENV", "production");
+  echo "\nMYCS_GUARD=", strtolower((string) $env) === "production" ? 1 : 0, " ", (bool) Illuminate\Support\Env::get("APP_DEBUG", false) ? 1 : 0, "\n";' 2>&1 || true)"
+_answer="$(grep -E '^MYCS_GUARD=[01] [01]$' <<<"$_parsed" | tail -1 || true)"
+if [[ -z "$_answer" ]]; then
+  if [[ "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
+    fail "Cannot read .env as Laravel does ($PHP with vendor/autoload.php): APP_ENV and APP_DEBUG unknown. Fix PHP/vendor or .env (or ALLOW_DEV_IN_PRODUCTION=1). PHP said:"
+    printf '%s\n' "$_parsed" | tail -5 >&2; exit 1
+  fi
+  _answer="MYCS_GUARD=0 0"
+fi
+_app_env="$([[ "${_answer:11:1}" == "1" ]] && echo production || echo other)"
+_app_debug="$([[ "${_answer:13:1}" == "1" ]] && echo true || echo false)"
+if [[ "$_app_env" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
+  if [[ "${COMPOSER_DEV:-0}" == "1" ]]; then
+    fail "APP_ENV=production with COMPOSER_DEV/DEPLOY_COMPOSER_DEV=1: dev packages would be installed. Unset it (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+  fi
+  if [[ "$_app_debug" == "true" ]]; then
+    fail "APP_ENV=production with APP_DEBUG=true: error pages would show code and settings. Set APP_DEBUG=false (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+  fi
+fi
 
 # --- queue worker -----------------------------------------------------------
 # Stop the worker before touching the schema so no job runs against a
