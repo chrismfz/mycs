@@ -12,7 +12,7 @@ class Tag extends Component
 
     public function mount(string $tag): void
     {
-        $this->tag = mb_substr($tag, 0, 64); // the router decoded it once already (ADV-2)
+        $this->tag = $tag; // decoded once by the router (ADV-2), at most 200 long (the route)
     }
 
     public function render()

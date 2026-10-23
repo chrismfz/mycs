@@ -10,6 +10,7 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\RichEditor;
+use Filament\Forms\Components\RichEditor\RichContentRenderer;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
@@ -59,6 +60,13 @@ class KbArticleResource extends Resource
                 // classes, styles, iframes would go on any save; code review 4). Staff switch to the editor when they want.
                 Toggle::make('html_source')->label('Edit as HTML')->dehydrated(false)->live()->columnSpanFull()
                     ->afterStateHydrated(fn (Toggle $component, ?KbArticle $record) => $component->state($record?->whmcs_id !== null))
+                    // Switched, the text goes along: what was written in one is what the other shows (adversarial R2-3).
+                    ->afterStateUpdated(function (bool $state, Get $get, Set $set) {
+                        foreach (['body' => 'body_source'] + collect(KbArticle::translationLocales())
+                            ->mapWithKeys(fn (string $locale) => ["translations.{$locale}.body" => "translations_source.{$locale}"])->all() as $editor => $source) {
+                            $state ? $set($source, self::html($get($editor))) : $set($editor, filled($get($source)) ? (string) $get($source) : null);
+                        }
+                    })
                     ->helperText('The editor rewrites HTML it does not know (classes, styles, embedded frames): keep this on for an imported article.'),
                 RichEditor::make('body')->label('Article')->required()->columnSpanFull()->visible(fn (Get $get) => !$get('html_source'))
                     ->fileAttachmentsDisk('public')->fileAttachmentsDirectory('kb')->fileAttachmentsVisibility('public'),
@@ -76,8 +84,13 @@ class KbArticleResource extends Resource
                 ->visible(fn () => KbArticle::translationLocales() !== [])
                 ->schema(fn () => collect(KbArticle::translationLocales())->flatMap(fn (string $locale) => [
                     TextInput::make("translations.{$locale}.title")->label('Title (' . $locale . ')')->maxLength(255),
-                    RichEditor::make("translations.{$locale}.body")->label('Article (' . $locale . ')')
+                    RichEditor::make("translations.{$locale}.body")->label('Article (' . $locale . ')')->visible(fn (Get $get) => !$get('html_source'))
                         ->fileAttachmentsDisk('public')->fileAttachmentsDirectory('kb')->fileAttachmentsVisibility('public'),
+                    // As the article's own (adversarial R2-2): its HTML kept while edited as HTML.
+                    Textarea::make("translations_source.{$locale}")->label('Article (' . $locale . ', HTML)')->rows(16)
+                        ->visible(fn (Get $get) => (bool) $get('html_source'))->dehydrated(fn (Get $get) => (bool) $get('html_source'))
+                        ->extraInputAttributes(['class' => 'font-mono text-xs'])
+                        ->afterStateHydrated(fn (Textarea $component, ?KbArticle $record) => $component->state($record?->translations[$locale]['body'] ?? null)),
                 ])->all()),
         ]);
     }
@@ -87,10 +100,19 @@ class KbArticleResource extends Resource
     {
         if (array_key_exists('body_source', $data)) {
             $data['body'] = (string) $data['body_source'];
-            unset($data['body_source']);
         }
+        foreach ((array) ($data['translations_source'] ?? []) as $locale => $html) {
+            $data['translations'][$locale]['body'] = $html;
+        }
+        unset($data['body_source'], $data['translations_source']);
 
         return $data;
+    }
+
+    /** The editor's state (its document, or HTML) as HTML. */
+    private static function html(mixed $state): string
+    {
+        return is_array($state) ? RichContentRenderer::make($state)->toHtml() : (string) $state;
     }
 
     public static function table(Table $table): Table

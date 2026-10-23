@@ -156,4 +156,20 @@ class KnowledgebaseTest extends TestCase
 
         $this->withSession(['locale' => 'en'])->get($this->article->url())->assertOk()->assertSee('in English')->assertSee('Restore files - Jetbackup');
     }
+
+    /** Adversarial R2-3, the other way: from the editor to HTML, the text goes along and what is written there is saved. */
+    public function test_switching_to_html_takes_the_editors_text(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'KB3', 'permissions' => ['admin.knowledgebase.viewAny', 'admin.knowledgebase.update']])->id]);
+        KbArticle::query()->whereKey($this->article->id)->update(['body' => '<p>Written in the editor</p>']);
+
+        $this->livewireAs($staff)->test(EditKbArticle::class, ['record' => $this->article->getRouteKey()])
+            ->assertFormSet(['html_source' => false])
+            ->fillForm(['html_source' => true])
+            ->assertFormSet(fn (array $state) => str_contains((string) $state['body_source'], 'Written in the editor') ? [] : ['body_source' => 'Written in the editor'])
+            ->fillForm(['body_source' => '<div class="note">Now as HTML</div>'])->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame('<div class="note">Now as HTML</div>', $this->article->fresh()->body);
+    }
 }

@@ -203,8 +203,11 @@ final class WhmcsKnowledgebaseImport
             return $html;
         }
 
-        return (string) preg_replace_callback('/(<img\b[^>]*?(?<![\w-])src\s*=\s*)(["\'])(.*?)\2/is', function (array $m) use ($base) {
-            $src = html_entity_decode($m[3], ENT_QUOTES | ENT_HTML5);
+        // The value read without backtracking ([^"]*): a pasted screenshot of megabytes would exhaust PCRE's limit with
+        // .*?, and preg_replace_callback answer null (adversarial R2-1). Should it fail anyway, the article stays as it was.
+        $out = preg_replace_callback('/(<img\b[^>]*?(?<![\w-])src\s*=\s*)(?:"([^"]*)"|\'([^\']*)\')/i', function (array $m) use ($base) {
+            $quote = isset($m[3]) ? "'" : '"';
+            $src = html_entity_decode($m[3] ?? $m[2], ENT_QUOTES | ENT_HTML5);
             if (preg_match('#^data:image/[a-z+.-]+;base64,#i', $src)) {
                 // A screenshot pasted into WHMCS: kept as a file, not as megabytes of text in the article (ADV-6).
                 $local = $this->store((string) base64_decode(substr($src, strpos($src, ',') + 1), true));
@@ -213,8 +216,15 @@ final class WhmcsKnowledgebaseImport
                 $local = $url === null ? null : $this->download($url);
             }
 
-            return $local === null ? $m[0] : $m[1] . $m[2] . e($local) . $m[2];
+            return $local === null ? $m[0] : $m[1] . $quote . e($local) . $quote;
         }, $html);
+        if ($out === null) {
+            $this->counts['images_failed']++;
+
+            return $html;
+        }
+
+        return $out;
     }
 
     private function absolute(string $src, ?string $base): ?string
