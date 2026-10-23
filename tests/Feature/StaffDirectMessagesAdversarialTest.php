@@ -109,4 +109,16 @@ class StaffDirectMessagesAdversarialTest extends TestCase
         $this->assertSame(1, StaffChat::unread($me));
         Livewire::test(StaffTeam::class)->assertSee('Peerzz');
     }
+
+    /** Re-review of #377: opening a thread without writing does not show the opener to the other member. */
+    public function test_merely_opening_a_thread_does_not_reveal_the_opener(): void
+    {
+        $me = $this->member(['admin.staff_chat.view', 'admin.staff_chat.post']);
+        $looker = $this->member(attributes: ['first_name' => 'Lookerzz']);
+        $this->actAs($looker);
+        Livewire::test(StaffRoom::class)->call('open', $me->id);
+
+        $this->actAs($me);
+        Livewire::test(StaffTeam::class)->assertDontSee('Lookerzz');
+    }
 }

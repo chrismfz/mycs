@@ -93,6 +93,8 @@ class StaffChat
             ->join('staff_threads as t', 't.id', '=', 'me.thread_id')
             ->join('staff_thread_members as peer', fn ($join) => $join->on('peer.thread_id', '=', 'me.thread_id')->on('peer.staff_id', '!=', 'me.staff_id'))
             ->where('me.staff_id', $staff->id)->where('t.kind', self::DIRECT)
+            // Threads someone wrote in: merely opening one tells the other member nothing (re-review of #377).
+            ->whereExists(fn ($query) => $query->from('staff_messages')->whereColumn('staff_messages.thread_id', 't.id'))
             ->pluck('peer.staff_id');
 
         return Staff::query()->whereKey($ids)->get()->keyBy('id')->all();
