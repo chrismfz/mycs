@@ -1154,5 +1154,7 @@
     "License checks per day": "Έλεγχοι αδειών ανά μέρα",
     "Staff chat": "Chat του staff",
     "More remain: run it again.": "Μένουν κι άλλες: τρέξτε το ξανά.",
-    "First entry": "Πρώτη εγγραφή"
+    "First entry": "Πρώτη εγγραφή",
+    "Known login addresses": "Γνωστές διευθύνσεις σύνδεσης",
+    "Ticket mail import log": "Log εισαγωγής mail των tickets"
 }
