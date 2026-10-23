@@ -36,4 +36,10 @@ return [
         'token' => env('MYCS_HEALTH_TOKEN'),
     ],
 
+    // The WHMCS importer's read of its logins' 2FA (WHMCS 8 keeps it encrypted with this key, from WHMCS's
+    // configuration.php): set it for the import run only, then remove it.
+    'whmcs' => [
+        'cc_encryption_hash' => env('WHMCS_CC_ENCRYPTION_HASH'),
+    ],
+
 ];

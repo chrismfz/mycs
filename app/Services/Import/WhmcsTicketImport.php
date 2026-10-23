@@ -501,16 +501,13 @@ final class WhmcsTicketImport
     }
 
     /**
-     * The login a customer's message is of: on an account's ticket only, the WHMCS client's own login (the full import
-     * gives it the client's id) when it is one of the account's, else the account's owner. Never another account's.
+     * The login a customer's message is of: on an account's ticket only, the account's owner. WHMCS's `userid` there is
+     * the client's id, not a login's: logins keep their own ids now (docs/importer.md, Logins), so it never names one.
      */
     private function userOf(int $userId, ?int $clientId): ?int
     {
         if ($userId <= 0 || $clientId === null) {
             return null;
-        }
-        if (DB::table('client_user')->where('client_id', $clientId)->where('user_id', $userId)->whereNull('revoked_at')->exists()) {
-            return $userId;
         }
         $owner = DB::table('client_user')->where('client_id', $clientId)->whereNotNull('owner_of_client_id')->value('user_id');
 

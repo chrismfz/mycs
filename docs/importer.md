@@ -84,6 +84,24 @@
   `lib/nixpal-licensing/tests`.
 - Η nixpal πρώτη (31 ενεργοί, ~330 άδειες), μετά 2–3 δοκιμαστικά runs του myip πριν το cut-over.
 
+## Logins και πρόσβαση (`tblusers`, `tblusers_clients`, 2026-10-23)
+- **Logins:** κάθε `tblusers` γίνεται user με **το ίδιο id**, το δικό του email (όχι του λογαριασμού), τον κωδικό του
+  (bcrypt του WHMCS 8, ίδιος) και το `email_verified_at`. Έρχονται και όσοι δεν έχουν λογαριασμό (108 στο myip), ώστε να
+  μη χαθεί κανένα login. Οι απαντήσεις των tickets βρίσκουν έτσι τον ίδιο user (`WhmcsTicketImport::userOf`).
+- **Πρόσβαση:** κάθε `tblusers_clients` γίνεται `client_user`: ο owner με `owner_of_client_id`, οι άλλοι με τα
+  δικαιώματα που είχαν (ίδια ονόματα με το WHMCS, `ClientUser::PERMISSIONS`· ένα άγνωστο μένει έξω). Λογαριασμός χωρίς
+  owner παραλείπεται, όπως πριν (στο WHMCS κάθε λογαριασμός έχει ακριβώς έναν).
+- **2FA (security audit AUTHN-11):** το WHMCS 8 κρατά το `second_factor_config` ως `<iv hex>.<ciphertext hex>`:
+  AES-256-CBC με κλειδί τους πρώτους 32 χαρακτήρες του `sha256(cc_encryption_hash)`, και μέσα JSON `{"secret": <base32>,
+  "backupcode": <hash>}`. Επιβεβαιώθηκε σε test login του myip (2026-10-23): το secret που βγαίνει είναι ακριβώς αυτό
+  της εφαρμογής. Το API του WHMCS **δεν** το διαβάζει (`DecryptPassword` είναι το παλιότερο σχήμα). Γι' αυτό ο importer
+  θέλει το `cc_encryption_hash` του WHMCS (από το `configuration.php`) στο `WHMCS_CC_ENCRYPTION_HASH` του `.env`,
+  **μόνο για το run του import**: σβήνεται μετά, και ξανά `php artisan config:cache` (αλλιώς μένει στο
+  `bootstrap/cache/config.php` μέχρι το επόμενο). Το secret κρατιέται κρυπτογραφημένο με το κλειδί του MyCS, και ο ίδιος
+  authenticator συνεχίζει να δουλεύει. Χωρίς αυτό, ή για ένα που δεν διαβάζεται, ο user έρχεται χωρίς 2FA και ο importer
+  τυπώνει τα ids τους (10 στο myip, 1 στη nixpal), για να ειδοποιηθούν. Μόνο `totp` (το μόνο που χρησιμοποιείται). Τα
+  backup codes δεν μεταφέρονται: το WHMCS κρατά μόνο το hash τους.
+
 ## Πεδία υπηρεσίας (tblhosting, 2026-10-14)
 `domain`, `username`, `dedicatedip`, `assignedips` (μία ανά γραμμή), `notes` (staff), `suspendreason` (μόνο σε
 Suspended) περνούν στα native πεδία της υπηρεσίας. Ο **κωδικός** (`password`) είναι κρυπτογραφημένος με το

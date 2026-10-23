@@ -442,7 +442,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   λογαριασμού ως εξωτερικό id (όπως το WHMCS το client id), και τα ids δεν αλλάζουν. Τα affiliates ανήκουν στον
   λογαριασμό.
 - **Importer:** για κάθε `tblclients` δημιουργούνται user, λογαριασμός με το ίδιο id και owner. Το πλήρες import των
-  `tblusers`/`tblusers_clients` γίνεται στο PR 4.
+  `tblusers`/`tblusers_clients` γίνεται στο PR 4. **Έγινε (2026-10-23, `docs/importer.md`, «Logins»).**
 - **Tests:** στα tests ο λογαριασμός ενός user έχει άλλο id από τον user (+100000), ώστε ένα `user_id` στη θέση ενός
   `client_id` να μην περνά κατά τύχη.
 
