@@ -56,7 +56,7 @@ class AdminDashboardPolishTest extends TestCase
 
     /** WHMCS's five cards, in its order (owner 2026-10-21), the two queues there at zero too. */
     // Six since «Clients with credit» (owner 2026-10-23), before the module actions.
-    public function test_five_cards_pending_orders_first_module_actions_last(): void
+    public function test_the_cards_pending_orders_first_module_actions_last(): void
     {
         $stats = (fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance());
 
