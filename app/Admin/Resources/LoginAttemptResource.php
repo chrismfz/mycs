@@ -14,7 +14,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 /**
- * «Login History» (owner 2026-10-23): every sign-in to the client area and the admin, good or not, the last 90 days.
+ * «Login History» (owner 2026-10-23): every sign-in to the client area and the admin, good or not, for its retention
+ * (90 days by default: App\Support\Retention).
  * Read only.
  */
 class LoginAttemptResource extends Resource

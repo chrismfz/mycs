@@ -430,7 +430,8 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   παραλήπτες ανά είδος έρχονται από τις επαφές.
 - **Login History** (owner 2026-10-23): το `login_attempts` κρατά κάθε σύνδεση στην περιοχή πελατών και στο admin, καλή
   ή όχι: επιτυχία, «Remember me», λάθος κωδικός, άγνωστο email, λάθος κωδικός 2FA, μπλόκο από τα όρια. Ποτέ κωδικός· το
-  email μόνο όταν είναι email. 90 μέρες (`model:prune`). Το «Login as client» δεν είναι σύνδεση πελάτη (είναι στο audit).
+  email μόνο όταν είναι email. Κρατιέται όσο λέει το `retention_login_attempts_days` (90 μέρες εξ ορισμού, Settings → Cronjob →
+  Data Retention· `App\Support\Retention`, ημερήσιος cron, System Cleanup). Το «Login as client» δεν είναι σύνδεση πελάτη (είναι στο audit).
   Τα μπλοκαρισμένα αιτήματα γράφονται μία φορά ανά IP και περιοχή ανά 5 λεπτά (αλλιώς ένα flood γεμίζει τον πίνακα).
   Το `user_authentication_logs` (μία γραμμή ανά user και IP) μένει για το mail «νέα σύνδεση».
 - **Admin:**
