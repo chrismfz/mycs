@@ -298,6 +298,11 @@ return [
             'staff_online' => [
                 'view' => 'View Staff Online',
             ],
+            // The staff's own chat on the Live chat page (docs/livechat.md §7γ); every role by default.
+            'staff_chat' => [
+                'view' => 'View the Staff Chat',
+                'post' => 'Write in the Staff Chat',
+            ],
             'widgets' => [
                 'revenue' => 'View Revenue Widget',
                 'overview' => 'View Overview Widget',

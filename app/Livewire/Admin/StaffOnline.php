@@ -4,6 +4,7 @@ namespace App\Livewire\Admin;
 
 use App\Enums\StaffPresenceStatus;
 use App\Models\Staff;
+use App\Support\StaffChat;
 use App\Support\StaffPresence;
 use Illuminate\View\View;
 use Livewire\Component;
@@ -40,6 +41,7 @@ class StaffOnline extends Component
 
         return view('livewire.admin.staff-online', [
             'canView' => StaffPresence::canView($staff),
+            'canChat' => StaffChat::canView($staff),
             'me' => $staff,
             'myStatus' => $staff ? StaffPresence::status($staff) : null,
             'online' => StaffPresence::canView($staff) ? StaffPresence::online() : [],

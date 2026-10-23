@@ -35,6 +35,9 @@ class RoleResource extends Resource
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-shield-user-fill';
 
+    /** Ticked in a new role's form (docs/livechat.md §7β, §7γ). */
+    public const DEFAULT_PERMISSIONS = ['admin.staff_online.view', 'admin.staff_chat.view', 'admin.staff_chat.post'];
+
     /** @return array<string, string> the permissions a role's form offers: the app's and its extensions' */
     public static function permissionOptions(): array
     {
@@ -60,8 +63,9 @@ class RoleResource extends Resource
                     ->options(fn () => self::permissionOptions())
                     ->columns(4)
                     ->bulkToggleable()
-                    // «Staff online» is on by default in every role (docs/livechat.md §7β), new ones too.
-                    ->default(fn () => PermissionGuard::canGrant(auth()->user(), ['admin.staff_online.view']) ? ['admin.staff_online.view'] : [])
+                    // «Staff online» and the staff's chat are on by default in every role (docs/livechat.md §7β, §7γ), new
+                    // ones too: those of them the member may grant.
+                    ->default(fn () => array_values(array_filter(self::DEFAULT_PERMISSIONS, fn (string $permission) => PermissionGuard::canGrant(auth()->user(), [$permission]))))
                     ->searchable()
                     ->noSearchResultsMessage('Permission could not be found')->columnSpanFull()
                     ->disableOptionWhen(fn (string $value): bool => !PermissionGuard::canGrant(auth()->user(), [$value]))

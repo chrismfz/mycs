@@ -27,7 +27,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 | 1–6δ | Αρίθμηση, σημειώσεις, PayPal vault, licensing/cPanel, ομάδες/promotions, reports, προσφορές, τραπεζική μεταφορά, emails domains, μαζικό email | **Έγιναν** (βλ. «Έγινε»). Από τα reports μένει μόνο σελίδα «Reports» με κατηγορίες όπως του WHMCS (Daily Performance, New Customers, Aging, Income by Product, Top 10), όταν χρειαστεί. |
 | 7 | **Παλιές συνδρομές PayPal: την ημέρα του migration.** 5 υπηρεσίες, 3 πελάτες, €9/μήνα. Μήνυμα στους 3 να αποθηκεύσουν το PayPal στο portal (vault), ακύρωση της παλιάς συνδρομής από το staff· δίχτυ το H2b· στον importer `paypal` → νέο gateway PayPal με το `subscriptionid` | Στο cut-over. Χωρίς νέο κώδικα. |
 | 8 | **Παραγωγή:** στον orion ως `mycs.nixpal.com`· SMTP ίδιο με το WHMCS, JetBackup στον rosso και δοκιμή επαναφοράς. Έγιναν: `/health` (#259), Automation Status (#258), στοιχεία εταιρείας/logo (#264), `deploy/private-files.sh` (#322), headers ασφαλείας (#342), 2FA staff (#344) | Μένουν deploy, SMTP, backups. |
-| 9 | **Importer του νέου σχήματος + `mycs:parity`.** Εισάγονται ήδη: **tickets** (#256), κατάλογος, licensing, admins. **Μένουν:** πελάτες, επαφές, υπηρεσίες με server, τιμολόγια (αρίθμηση: myip number = id· nixpal μετρητής 6818· tests incomplete στο `InvoiceNumberingAdversarialTest`), **domains (D6: 11 της nixpal, 1.383 του myip· δεν έχει γραφτεί)**, πιστώσεις με ιστορικό (`tblcredit`), αποθηκευμένες μέθοδοι (`tblpaymethods` → `billing_agreements`), suspend until (14), config options, addons (`tblhostingaddons`), custom fields (`IP Address` → `dedicated_ip`, και `tblhosting.dedicatedip`· τα `comments` των αδειών έρχονται ήδη ως properties με το licensing import· `tblhosting.notes` → `notes`, μόνο για το staff), VAT (`tbltax`), ομάδες, γλώσσα πελάτη, `tblconfiguration`, σημειώσεις (`tblnotes`, `tblclients.notes`). **Και ό,τι ζητούν τα modules:** cPanel `reseller`/`cpanel_reseller` και όρια· mailcow (MyMail configoption 1–16, username/κωδικός, `mailcow_locked_by_us` για τις suspended)· Centova (όνομα = `tblhosting.username`, έλεγχος των 3 που διαφέρουν στο `listaccounts`, `centova_port`/`servertype`) | Τελικό στάδιο. Re-runnable, με parity (`importer.md`). |
+| 9 | **Importer του νέου σχήματος + `mycs:parity`.** Εισάγονται ήδη: **tickets** (#256), κατάλογος, licensing, admins. **Μένουν:** πελάτες, επαφές, υπηρεσίες με server, τιμολόγια (αρίθμηση: myip number = id· nixpal μετρητής 6818· tests incomplete στο `InvoiceNumberingAdversarialTest`), **domains (D6: 11 της nixpal, 1.383 του myip· δεν έχει γραφτεί)**, πιστώσεις με ιστορικό (`tblcredit`), αποθηκευμένες μέθοδοι (`tblpaymethods` → `billing_agreements`), suspend until (14), config options, addons (`tblhostingaddons`), custom fields (`IP Address` → `dedicated_ip`, και `tblhosting.dedicatedip`· τα `comments` των αδειών έρχονται ήδη ως properties με το licensing import· `tblhosting.notes` → `notes`, μόνο για το staff), VAT (`tbltax`), ομάδες, `tblconfiguration`, σημειώσεις (`tblnotes`, `tblclients.notes`). **Και ό,τι ζητούν τα modules:** cPanel `reseller`/`cpanel_reseller` και όρια· mailcow (MyMail configoption 1–16, username/κωδικός, `mailcow_locked_by_us` για τις suspended)· Centova (όνομα = `tblhosting.username`, έλεγχος των 3 που διαφέρουν στο `listaccounts`, `centova_port`/`servertype`) | Τελικό στάδιο. Re-runnable, με parity (`importer.md`). |
 | 10 | **Runbook cut-over με επιστροφή** (πρότυπο: `go-live-runbook.md` του Ekdosi): πάγωμα, import και parity, DNS/webhooks, **χάρτης 301 (βλ. «Cut-over»)**, ενημέρωση πελατών, έλεγχοι πρώτης μέρας· 2–3 δοκιμαστικές μεταφορές | Τελευταίο. |
 
 ## Ανοιχτά, ανά θέμα
@@ -81,8 +81,10 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 ### Χρέωση και τιμολόγια
 - [ ] Promotions: το ποσοστό για N κύκλους είναι ελεγμένο μέσω cron· μένει test ανανέωσης για Price Override και
       δοκιμαστική περίοδο (#274).
-- [ ] Γλώσσα ανά πελάτη: υπάρχει το `NotificationHelper::localeFor`· μένει στήλη στον πελάτη και το import
-      (`tblclients.language`· nixpal: 6 πελάτες).
+- [x] ~~Γλώσσα ανά πελάτη~~ **έγινε (feat/client-language):** του λογαριασμού για τα email και τα PDF (`clients.language`,
+      από τον πελάτη στα στοιχεία του ή από το staff), του login για τις σελίδες του (`users.language`, από την επιλογή
+      γλώσσας, και στο login)· μόνο επιτρεπτή, αλλιώς του instance. Το import φέρνει και τις δύο (`tblclients.language`,
+      `tblusers.language`: myip 37 αγγλικά, nixpal 29 και λίγες άλλες).
 - [ ] Το «Total» του PDF είναι μετά την πίστωση, του portal και του email το πλήρες· ενιαία διατύπωση (και το «Total»
       του portal είναι αμετάφραστο, `invoices/show.blade.php`). Το αυτόματο πιστωτικό της ακύρωσης γράφεται στα αγγλικά.
 - [x] ~~**INV-17**~~ **έγινε (fix/invoice-issued-at):** το «Issued At» αποθηκεύεται, όπως το «Invoice Date» του WHMCS:
@@ -104,7 +106,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 
 ### Λογαριασμοί και πελάτες
 - [ ] GDPR: εξαγωγή και διαγραφή/ανωνυμοποίηση. (Custom fields πελάτη υπάρχουν, custom properties· μένει το import.)
-- [ ] 2FA πελάτη: recovery codes (του staff υπάρχουν).
+- [x] ~~2FA πελάτη: recovery codes~~ **έγινε (feat/client-2fa-recovery):** 8 κωδικοί μίας χρήσης όταν ανοίγει το 2FA
+      (εμφανίζονται μία φορά, φυλάσσονται μόνο ως sha256, κρυπτογραφημένα)· «χρησιμοποιήστε κωδικό ανάκτησης» στη σελίδα
+      2FA του login· κλείσιμο του 2FA με κωδικό και κωδικό ανάκτησης· νέοι με τον κωδικό πρόσβασης και έναν κωδικό· τα λάθος μετρούν στο
+      ίδιο όριο με τους κωδικούς της εφαρμογής· φεύγουν με το secret (και όταν το κλείνει το staff). Το backup code του
+      WHMCS (hash άγνωστου σχήματος) δεν εισάγεται: όσοι έρθουν με 2FA φτιάχνουν τους δικούς τους.
 - [x] ~~Valid IPs και comments στη λίστα υπηρεσιών του portal~~ **έγινε (feat/service-list-ips):** κάτω από κάθε
       υπηρεσία η IP της (της άδειας τα Valid IPs, αλλιώς η dedicated IP) και τα πεδία που αναφέρει η άδεια (το `comments`
       της nixpal)· αναζήτηση με όνομα, domain, IP ή αυτά τα πεδία. Ποτέ οι σημειώσεις του staff (`notes`).

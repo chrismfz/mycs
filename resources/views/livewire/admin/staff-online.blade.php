@@ -11,7 +11,12 @@
                     'bg-warning-500' => $member['status']->color() === 'warning',
                     'bg-gray-400' => $member['status']->color() === 'gray',
                 ])></span>
+                @if ($canChat && $member['staff']->id !== $me->id)
+                {{-- A click opens the private thread with them (docs/livechat.md §7γ). --}}
+                <a href="{{ \App\Admin\Pages\LiveChat::getUrl(['with' => (int) $member['staff']->id]) }}" wire:navigate class="truncate hover:underline" title="{{ __('Message') }}">{{ $member['staff']->name }}</a>
+                @else
                 <span class="truncate">{{ $member['staff']->name }}</span>
+                @endif
             </li>
             @endforeach
         </ul>

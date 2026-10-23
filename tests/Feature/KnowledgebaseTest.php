@@ -35,7 +35,7 @@ class KnowledgebaseTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['settings.app_language' => 'el', 'settings.allowed_languages' => ['el', 'en'], 'settings.default_currency' => 'EUR']);
+        $this->storeSettings(['app_language' => 'el', 'allowed_languages' => ['el', 'en'], 'default_currency' => 'EUR']);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         app()->setLocale('el');
         $this->category = KbCategory::query()->create(['name' => 'Email', 'description' => 'Ρυθμίσεις email']);
@@ -95,6 +95,7 @@ class KnowledgebaseTest extends TestCase
         $this->assertSame($this->article->title, $this->article->localized('title'), 'none yet: the Greek one');
         $this->article->update(['translations' => ['en' => ['title' => 'Restore files - Jetbackup', 'body' => '<p>From cPanel.</p>']]]);
         $this->get($this->article->url())->assertOk(); // the session's locale may differ; the model decides:
+        app()->setLocale('en'); // the request may have flushed the settings, and app.locale with them (storeSettings)
         $this->assertSame('Restore files - Jetbackup', $this->article->fresh()->localized('title'));
         app()->setLocale('el');
         $this->assertSame('Επαναφορά αρχείων - Jetbackup', $this->article->fresh()->localized('title'));

@@ -137,4 +137,19 @@ class ImportLoginsTest extends TestCase
         $this->assertNull(User::query()->findOrFail(8)->email_verified_at);
         $this->assertNull(Client::query()->find(301), 'an account with no owner to log in is not made');
     }
+
+    /** Their language (docs/accounts.md): WHMCS's names as ours, the account's and the login's; empty is the instance's. */
+    public function test_languages_come_over(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblclients ADD COLUMN language TEXT');
+        $this->whmcs->exec('ALTER TABLE tblusers ADD COLUMN language TEXT');
+        $this->whmcs->exec("UPDATE tblclients SET language = 'english' WHERE id = 300");
+        $this->whmcs->exec("UPDATE tblusers SET language = 'English' WHERE id = 7");
+        $this->whmcs->exec("UPDATE tblusers SET language = '' WHERE id = 8");
+
+        $this->import($this->decrypting());
+
+        $this->assertSame('en', Client::query()->findOrFail(300)->language);
+        $this->assertSame(['en', null], [User::query()->findOrFail(7)->language, User::query()->findOrFail(8)->language]);
+    }
 }

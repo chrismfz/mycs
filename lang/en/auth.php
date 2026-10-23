@@ -54,6 +54,9 @@ return [
     'reset_password' => 'Reset password',
 
     'verify_2fa' => 'Verify 2FA',
+    'use_recovery_code' => 'Lost your authenticator app? Use a recovery code',
+    'recovery_code' => 'Recovery code',
+    'recovery_code_invalid' => 'This recovery code is not valid, or it was used already.',
     'verify' => 'Verify',
 
     'verification' => [
