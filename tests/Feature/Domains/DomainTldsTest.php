@@ -126,7 +126,7 @@ class DomainTldsTest extends TestCase
 
         $page = $this->livewireAs($this->staff())->test(ImportTlds::class)
             ->fillForm(['connection_id' => $this->op->id, 'tlds' => '.com, NET xyz', 'margin_type' => 'percent', 'margin' => '20', 'rounding' => 'none', 'years' => 1])
-            ->call('fetch')
+            ->call('fetch')->set('currency', 'EUR')
             ->assertSee('Extension not supported')->assertSee('11.76');
         $this->assertSame(0, DomainTld::query()->count(), 'fetch writes nothing');
 

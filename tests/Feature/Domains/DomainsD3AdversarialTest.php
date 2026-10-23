@@ -103,7 +103,9 @@ class DomainsD3AdversarialTest extends TestCase
         $page = $this->livewireAs($this->staff())->test(ImportTlds::class)
             ->fillForm(['connection_id' => $this->op->id, 'tlds' => 'com', 'margin_type' => 'percent', 'margin' => '0', 'rounding' => 'none', 'years' => 1]);
         try {
-            $page->set('fetched', ['evil' => ['costs' => ['register' => ['cost' => '0.01', 'currency' => 'EUR']]]]);
+            // The costs are kept on the server (#tld-grid); the browser holds only their Locked key.
+            Cache::put('tld-import:forged', ['staff' => null, 'connection' => $this->op->id, 'tlds' => ['evil' => ['costs' => ['register' => ['cost' => '0.01', 'currency' => 'EUR']]]]], 60);
+            $page->set('fetchKey', 'forged');
             $this->fail('the fetched costs took a value from the browser');
         } catch (CannotUpdateLockedPropertyException) {
             // refused: they are written by fetch() only
