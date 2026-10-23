@@ -68,4 +68,19 @@ class StaffTwoFactorOptionalTest extends TestCase
         $this->assertSame(Health::WARN, $check['status']);
         $this->assertStringContainsString('Staff 2FA is optional', $check['detail']);
     }
+
+    /** Logged in without 2FA: the consent page says to set it up, and never sends the member round the login (review of #395). */
+    public function test_the_consent_page_tells_a_member_without_2fa_to_set_it_up(): void
+    {
+        $this->required(false);
+        Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test', 'type' => 'string']);
+        config(['settings.mcp_oauth_redirect_hosts' => 'example.test']);
+        $clientId = $this->postJson('/mcp/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => ['https://claude.example.test/cb']])->json('client_id');
+
+        $this->actingAs($this->withoutTwoFactor(), 'staff')->get('/mcp/oauth/authorize?' . http_build_query(['response_type' => 'code', 'client_id' => $clientId,
+            'redirect_uri' => 'https://claude.example.test/cb', 'code_challenge' => str_repeat('a', 43), 'code_challenge_method' => 'S256',
+            'state' => 's', 'resource' => url('/mcp')]))
+            ->assertOk()->assertSee('Set up 2FA in your profile')->assertDontSee('Log in to the admin to approve')
+            ->assertSessionMissing('url.intended');
+    }
 }

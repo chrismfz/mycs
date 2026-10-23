@@ -9,6 +9,7 @@ use App\Services\Mcp\OAuthError;
 use App\Services\Mcp\RedirectedOAuthError;
 use App\Support\CallerIp;
 use App\Support\StaffSessions;
+use Filament\Facades\Filament;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -84,7 +85,10 @@ class McpOauthController extends Controller
             return self::page('mcp.oauth-error', ['message' => $e->getMessage()], 400);
         }
         $staff = self::staff();
-        if (!$staff instanceof Staff) {
+        // Logged in to the admin but without 2FA (staff 2FA optional): told to set it up, never sent round the login.
+        $member = Auth::guard('staff')->user();
+        $withoutTwoFactor = !$staff instanceof Staff && $member instanceof Staff ? $member : null;
+        if (!$staff instanceof Staff && $withoutTwoFactor === null) {
             // Back here after logging in to the admin.
             $request->session()->put('url.intended', $request->fullUrl());
         }
@@ -95,6 +99,8 @@ class McpOauthController extends Controller
             'staffMay' => $staff instanceof Staff && McpAccess::staffMay($staff),
             'returnHost' => (string) parse_url($authorize->redirectUri, PHP_URL_HOST),
             'loginUrl' => route('filament.admin.auth.login'),
+            'withoutTwoFactor' => $withoutTwoFactor,
+            'profileUrl' => Filament::getPanel('admin')->getProfileUrl(),
             'keyError' => $request->session()->pull('mcp_key_error'),
         ]);
     }
@@ -132,7 +138,7 @@ class McpOauthController extends Controller
                 $member = Auth::guard('staff')->user();
 
                 return self::back($request, $member instanceof Staff && !$member->hasTwoFactor()
-                    ? 'Set up 2FA in your admin profile first: approving an MCP connector needs it, even when staff 2FA is optional.'
+                    ? 'Set up 2FA in your admin profile first: approving an MCP connector needs it.'
                     : 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
             }
             // Its session's row (one from before the rows has none yet): the consent is tied to it (StaffSessions).
