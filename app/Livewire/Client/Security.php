@@ -41,6 +41,8 @@ class Security extends Component
 
     public string $recovery_password = '';
 
+    public string $recovery_code = '';
+
     public function mount()
     {
         $this->twoFactorEnabled = Auth::user()->tfa_secret ? true : false;
@@ -159,11 +161,15 @@ class Security extends Component
         ]);
 
         $this->notify(__('account.notifications.two_factor_disabled'));
+        $this->recoveryCodes = [];
 
         $this->twoFactorEnabled = false;
     }
 
-    /** New recovery codes (the old ones stop working): with the password, while 2FA is on. */
+    /**
+     * New recovery codes (the old ones stop working): with the password and a code, as turning 2FA off (AUTHN-1): the
+     * password alone would make codes that turn it off (adversarial ADV-1).
+     */
     public function regenerateRecoveryCodes()
     {
         if (Actor::impersonating()) {
@@ -176,7 +182,17 @@ class Security extends Component
         if (($refusal = Reauth::refusal($user, $this->recovery_password)) !== null) {
             return $this->notify($refusal, 'error');
         }
-        $this->reset('recovery_password');
+        if (Totp::tooManyWrong($user)) {
+            return $this->notify(__('Too many attempts. Try again in :minutes minutes.', [
+                'minutes' => (int) ceil(RateLimiter::availableIn(Totp::limitKey($user)) / 60)]), 'error');
+        }
+        $accepted = RecoveryCodes::looksLikeOne($this->recovery_code)
+            ? RecoveryCodes::consume($user, $this->recovery_code)
+            : Totp::accept($user, $user->tfa_secret, $this->recovery_code);
+        if (!$accepted) {
+            return $this->notify(__('account.notifications.two_factor_code_incorrect'), 'error');
+        }
+        $this->reset('recovery_password', 'recovery_code');
         $this->recoveryCodes = RecoveryCodes::regenerate($user);
         $this->notify(__('account.notifications.recovery_codes_regenerated'));
     }

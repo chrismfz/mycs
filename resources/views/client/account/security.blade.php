@@ -48,9 +48,6 @@
         <div class="bg-background-secondary rounded-lg p-4">
             <!-- Two factor authentication -->
             <h5 class="text-lg font-bold pb-3">{{ __('account.two_factor_authentication') }}</h5>
-            @if (session()->has('recovery_used'))
-            <p class="text-sm text-warning mb-3">{{ __('account.recovery_code_used', ['remaining' => trans_choice('account.recovery_codes_remaining', (int) session('recovery_used'))]) }}</p>
-            @endif
             @if ($recoveryCodes !== [])
             {{-- Shown once (RecoveryCodes): never stored as they are. --}}
             <div class="mb-4 p-3 rounded-md border border-warning">
@@ -63,11 +60,14 @@
             @endif
             @if ($twoFactorEnabled)
             <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_enabled') }}</p>
-            <p class="text-sm text-base/60 mt-1">{{ trans_choice('account.recovery_codes_remaining', \App\Support\RecoveryCodes::remaining(auth()->user())) }}</p>
+            <p class="text-sm text-base/60 mt-1">{{ auth()->user()->tfa_recovery_codes === null ? __('account.recovery_codes_none_yet') : trans_choice('account.recovery_codes_remaining', \App\Support\RecoveryCodes::remaining(auth()->user())) }}</p>
             <form wire:submit.prevent="regenerateRecoveryCodes" class="mt-4 flex flex-col gap-2">
                 <p class="text-sm text-primary-100">{{ __('account.recovery_codes_regenerate_description') }}</p>
                 <x-form.input name="recovery_password" type="password" :label="__('account.input.current_password')"
                     wire:model="recovery_password" autocomplete="current-password" required />
+                <x-form.input name="recovery_code" type="text" :label="__('account.input.two_factor_code')"
+                    wire:model="recovery_code" autocomplete="one-time-code" required />
+                <p class="text-xs text-base/60">{{ __('account.two_factor_disable_code_hint') }}</p>
                 <x-button.secondary class="w-full" type="submit">{{ __('account.recovery_codes_regenerate') }}</x-button.secondary>
             </form>
             {{-- Off only with the password and a code from the app (AUTHN-1). --}}

@@ -85,8 +85,10 @@ class Tfa extends Component
         if (!RecoveryCodes::consume($user, $this->recovery)) {
             return $this->addError('recovery', __('auth.recovery_code_invalid'));
         }
-        session()->put('url.intended', route('account.security'));
-        session()->flash('recovery_used', RecoveryCodes::remaining($user));
+        // Told on whatever page it goes to (an invitation's, an OAuth consent: code review 2), not sent elsewhere.
+        $remaining = RecoveryCodes::remaining($user);
+        session()->put('notification', ['type' => $remaining <= 2 ? 'error' : 'success',
+            'message' => __('account.recovery_code_used', ['remaining' => trans_choice('account.recovery_codes_remaining', $remaining)])]);
 
         return $this->finish($loginAction, $user, $session);
     }

@@ -74,7 +74,8 @@ class TfaRecoveryCodesTest extends TestCase
         $codes = RecoveryCodes::regenerate($this->user);
         Session::put('2fa', ['user_id' => $this->user->id, 'remember' => false, 'expires' => now()->addMinutes(5)]);
 
-        Livewire::test(Tfa::class)->set('recovery', strtoupper($codes[2]))->call('verifyRecovery')->assertRedirect(route('account.security'));
+        Livewire::test(Tfa::class)->set('recovery', strtoupper($codes[2]))->call('verifyRecovery')->assertRedirect(route('dashboard'));
+        $this->assertStringContainsString((string) (RecoveryCodes::COUNT - 1), (string) session('notification')['message']);
         $this->assertSame($this->user->id, Auth::id());
         $this->assertSame(RecoveryCodes::COUNT - 1, RecoveryCodes::remaining($this->user->fresh()));
 
@@ -119,8 +120,8 @@ class TfaRecoveryCodesTest extends TestCase
         $old = RecoveryCodes::regenerate($this->user);
         $this->as();
 
-        Livewire::test(Security::class)->set('recovery_password', 'wrong')->call('regenerateRecoveryCodes')->assertSet('recoveryCodes', []);
-        $page = Livewire::test(Security::class)->set('recovery_password', 'Right-Pass-1')->call('regenerateRecoveryCodes');
+        Livewire::test(Security::class)->set('recovery_password', 'wrong')->set('recovery_code', $this->code())->call('regenerateRecoveryCodes')->assertSet('recoveryCodes', []);
+        $page = Livewire::test(Security::class)->set('recovery_password', 'Right-Pass-1')->set('recovery_code', $old[1])->call('regenerateRecoveryCodes');
         $new = $page->get('recoveryCodes');
 
         $this->assertCount(RecoveryCodes::COUNT, $new);
@@ -137,5 +138,27 @@ class TfaRecoveryCodesTest extends TestCase
         $this->user->fresh()->update(['tfa_secret' => null]);
 
         $this->assertNull($this->user->fresh()->tfa_recovery_codes);
+    }
+
+    /** Code review 2: a recovery login goes where the login was going (an invitation), told on that page. */
+    public function test_a_recovery_login_keeps_where_it_was_going(): void
+    {
+        $this->user->update(['tfa_secret' => $this->secret]);
+        $codes = RecoveryCodes::regenerate($this->user);
+        Session::put('url.intended', '/invites/continue');
+        Session::put('2fa', ['user_id' => $this->user->id, 'remember' => false, 'expires' => now()->addMinutes(5)]);
+
+        Livewire::test(Tfa::class)->set('recovery', $codes[0])->call('verifyRecovery')->assertRedirect('/invites/continue');
+    }
+
+    /** Code review 3: a save that writes the same secret keeps the codes. */
+    public function test_saving_the_same_secret_keeps_the_codes(): void
+    {
+        $this->user->update(['tfa_secret' => $this->secret]);
+        RecoveryCodes::regenerate($this->user);
+
+        $this->user->fresh()->update(['first_name' => 'Maria', 'tfa_secret' => $this->secret]);
+
+        $this->assertSame(RecoveryCodes::COUNT, RecoveryCodes::remaining($this->user->fresh()));
     }
 }

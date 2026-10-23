@@ -40,7 +40,9 @@ final class RecoveryCodes
     /** Whether $code is one of its unused codes; if so it is used up (once, under the login's row lock). A wrong one counts. */
     public static function consume(User $user, #[SensitiveParameter] string $code): bool
     {
-        RateLimiter::hit(Totp::limitKey($user), Totp::LOCKOUT_SECONDS);
+        if (RateLimiter::hit(Totp::limitKey($user), Totp::LOCKOUT_SECONDS) > Totp::MAX_WRONG) {
+            return false; // over the limit once counted (parallel requests)
+        }
         $hash = self::hash($code);
 
         $used = DB::transaction(function () use ($user, $hash) {

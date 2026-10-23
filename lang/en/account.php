@@ -17,6 +17,7 @@ return [
     'recovery_codes_description' => 'If you lose your authenticator app, each of these codes signs you in once. Keep them somewhere safe: they are shown only now.',
     'recovery_codes_saved' => 'I have saved them',
     'recovery_codes_remaining' => '{0} No recovery codes left: make new ones.|{1} 1 recovery code left.|[2,*] :count recovery codes left.',
+    'recovery_codes_none_yet' => 'No recovery codes yet: make them below, with your password and a code from your app.',
     'recovery_codes_regenerate' => 'Make new recovery codes',
     'recovery_codes_regenerate_description' => 'The old codes stop working.',
     'recovery_code_used' => 'You signed in with a recovery code. :remaining',

@@ -80,7 +80,9 @@ class User extends Authenticatable implements Auditable, HasAvatar
     protected static function booted(): void
     {
         static::saving(function (User $user) {
-            if ($user->isDirty('tfa_secret') && !$user->isDirty('tfa_recovery_codes')) {
+            // The values, not isDirty(): with APP_PREVIOUS_KEYS an encrypted cast written with the same value is dirty
+            // (code review 3: an admin save would drop the codes).
+            if ($user->exists && $user->getOriginal('tfa_secret') !== $user->tfa_secret && !$user->isDirty('tfa_recovery_codes')) {
                 $user->tfa_recovery_codes = null;
             }
         });

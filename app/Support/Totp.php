@@ -36,7 +36,10 @@ final class Totp
     {
         $code = (string) preg_replace('/\s+/', '', $code);
         // Counted before it is checked (parallel requests never slip more past the limit), cleared when it is right.
-        RateLimiter::hit(self::limitKey($user), self::LOCKOUT_SECONDS);
+        // Over the limit once counted: parallel requests all past tooManyWrong() never check more than it allows.
+        if (RateLimiter::hit(self::limitKey($user), self::LOCKOUT_SECONDS) > self::MAX_WRONG) {
+            return false;
+        }
         $step = 0;
         if (!is_string($secret) || $secret === '' || !(new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name')))->verifyCode($secret, $code, 1, null, $step)) {
             return false;
