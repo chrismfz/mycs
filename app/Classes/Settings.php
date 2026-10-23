@@ -1377,6 +1377,19 @@ class Settings
                     'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, separated by commas or spaces. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
                 ],
                 [
+                    'name' => 'mcp_grant_days',
+                    // How long an MCP connector's approval lasts, however often it is used: full admins only.
+                    'permission' => '*',
+                    'label' => 'MCP grant lifetime (days)',
+                    'type' => 'number',
+                    'default' => McpOauth::GRANT_DAYS,
+                    'required' => true,
+                    'min_value' => 0,
+                    'max_value' => McpOauth::MAX_GRANT_DAYS,
+                    'validation' => 'integer',
+                    'description' => 'Days an approved MCP connector keeps working, however often it is used; then staff approve it again. 0: until revoked (Other → MCP OAuth Grants, a new password or 2FA, ending the session that approved it). Automation Status warns while it is 0.',
+                ],
+                [
                     'name' => 'staff_2fa_required',
                     // Whether every member of staff must set 2FA up before using the admin: full admins only.
                     'permission' => '*',

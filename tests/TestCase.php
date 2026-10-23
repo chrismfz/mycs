@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use App\Console\Commands\CronJob;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
@@ -24,6 +25,9 @@ abstract class TestCase extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
+        CronJob::$lockWait = 0;
 
         // The seeder runs code that memoises with once() (e.g. the settings' currency list, read before the
         // seeder creates USD): start every test from what the seeded database says.
