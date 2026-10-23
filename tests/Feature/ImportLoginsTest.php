@@ -105,25 +105,24 @@ class ImportLoginsTest extends TestCase
         $this->assertStringContainsString('user ids 9', $this->output->fetch(), 'the one not carried is listed');
     }
 
-    public function test_without_whmcss_api_no_login_gets_a_wrong_2fa_and_all_are_listed(): void
+    public function test_without_whmcss_key_no_login_gets_a_wrong_2fa_and_all_are_listed(): void
     {
         $this->import(new WhmcsSecondFactor(null));
 
         $this->assertNull(User::query()->findOrFail(7)->tfa_secret);
         $output = $this->output->fetch();
         $this->assertStringContainsString('user ids 7, 9', $output);
-        $this->assertStringContainsString('WHMCS_API_URL', $output);
+        $this->assertStringContainsString('WHMCS_CC_ENCRYPTION_HASH', $output);
     }
 
     public function test_a_secret_in_other_shapes_is_read_or_refused(): void
     {
         $read = fn (string $plain) => (new WhmcsSecondFactor(fn () => $plain))->secret('totp', 'x');
 
-        $this->assertSame(self::SECRET, $read(serialize(['secret' => self::SECRET])));
         $this->assertSame(self::SECRET, $read(json_encode(['secret' => strtolower(self::SECRET) . '=='])));
         $this->assertNull($read(json_encode(['secret' => 'not base32!'])));
-        $this->assertNull($read('O:8:"stdClass":0:{}'), 'no object is made from it');
-        $this->assertNull((new WhmcsSecondFactor(fn () => self::SECRET))->secret('duosecurity', 'x'), 'another kind of 2FA');
+        $this->assertNull($read(serialize(['secret' => self::SECRET])), 'WHMCS 8 keeps JSON: nothing else is read');
+        $this->assertNull((new WhmcsSecondFactor(fn () => json_encode(['secret' => self::SECRET])))->secret('duosecurity', 'x'), 'another kind of 2FA');
     }
 
     public function test_a_zero_date_and_an_account_whose_owner_is_gone(): void
@@ -137,17 +136,5 @@ class ImportLoginsTest extends TestCase
 
         $this->assertNull(User::query()->findOrFail(8)->email_verified_at);
         $this->assertNull(Client::query()->find(301), 'an account with no owner to log in is not made');
-    }
-
-    public function test_a_token_that_is_not_the_standard_totp_is_not_guessed(): void
-    {
-        $token = fn (array $extra) => json_encode(['tokendata' => base64_encode(serialize($extra + ['tokenkey' => bin2hex('12345678901234567890'), 'tokentype' => 'TOTP']))]);
-        $read = fn (string $plain) => (new WhmcsSecondFactor(fn () => $plain))->secret('totp', 'x');
-
-        $this->assertSame('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', $read($token([])), 'the RFC 6238 test key, hex to base32');
-        $this->assertNull($read($token(['tokenalgorithm' => 'SHA256'])));
-        $this->assertNull($read($token(['tokentimer' => 60])));
-        $this->assertNull($read($token(['tokentype' => 'HOTP'])));
-        $this->assertNull($read('JBSWY3DPEHPK3PXPJBSWY3DP'), 'a bare string is not taken for a secret');
     }
 }

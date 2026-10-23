@@ -3,39 +3,39 @@
 namespace App\Services\Import;
 
 use Closure;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /**
  * A WHMCS login's authenticator secret, carried over so that its owner's app keeps working (security audit AUTHN-11).
  *
- * WHMCS keeps `tblusers.second_factor_config` encrypted with its own key (`cc_encryption_hash`, not in its database):
- * only its API can read it (`DecryptPassword`, a read). Set WHMCS_API_URL, WHMCS_API_IDENTIFIER and WHMCS_API_SECRET for
- * the import; without them, or for one that cannot be read, the login comes without 2FA and the import lists it.
+ * WHMCS 8 keeps `tblusers.second_factor_config` as `<iv hex>.<ciphertext hex>`: AES-256-CBC with the first 32
+ * characters of sha256(cc_encryption_hash), its JSON `{"secret": <base32>, "backupcode": <hash>}` (checked on a test
+ * login, 2026-10-23). WHMCS's API cannot read it (DecryptPassword is its older scheme), so the import is given
+ * WHMCS's `cc_encryption_hash` (WHMCS_CC_ENCRYPTION_HASH, for the import run only). Without it, or for one that cannot
+ * be read, the login comes without 2FA and the import lists it.
  */
 final class WhmcsSecondFactor
 {
-    /** @param  (Closure(string): ?string)|null  $decrypt  WHMCS's DecryptPassword, or none */
+    /** @param  (Closure(string): ?string)|null  $decrypt  turns a stored config into its plain JSON, or none */
     public function __construct(private readonly ?Closure $decrypt) {}
 
     public static function fromEnv(): self
     {
-        $url = rtrim((string) config('services.whmcs.api_url'), '/');
-        $identifier = (string) config('services.whmcs.api_identifier');
-        $secret = (string) config('services.whmcs.api_secret');
-        if ($url === '' || $identifier === '' || $secret === '' || !str_starts_with($url, 'https://')) {
-            return new self(null);
+        $hash = (string) config('services.whmcs.cc_encryption_hash');
+
+        return $hash === '' ? new self(null) : new self(fn (string $stored): ?string => self::decryptWith($hash, $stored));
+    }
+
+    /** WHMCS 8's own scheme, for a stored `<iv>.<ciphertext>` (hex). */
+    public static function decryptWith(string $ccEncryptionHash, string $stored): ?string
+    {
+        $parts = explode('.', trim($stored), 2);
+        if (count($parts) !== 2 || !ctype_xdigit($parts[0]) || !ctype_xdigit($parts[1]) || strlen($parts[0]) !== 32 || strlen($parts[1]) % 2 !== 0) {
+            return null;
         }
+        $plain = openssl_decrypt((string) hex2bin($parts[1]), 'aes-256-cbc', substr(hash('sha256', $ccEncryptionHash), 0, 32), OPENSSL_RAW_DATA, (string) hex2bin($parts[0]));
 
-        return new self(function (string $encrypted) use ($url, $identifier, $secret): ?string {
-            $answer = Http::asForm()->timeout(20)->withOptions(['allow_redirects' => false])->post($url . '/includes/api.php', [
-                'action' => 'DecryptPassword', 'identifier' => $identifier, 'secret' => $secret,
-                'password2' => $encrypted, 'responsetype' => 'json',
-            ]);
-            $password = $answer->successful() ? $answer->json('password') : null;
-
-            return ($answer->json('result') === 'success' && is_string($password)) ? $password : null;
-        });
+        return is_string($plain) ? $plain : null;
     }
 
     public function available(): bool
@@ -54,49 +54,10 @@ final class WhmcsSecondFactor
         } catch (Throwable) {
             return null;
         }
-        if (!is_string($plain) || $plain === '') {
-            return null;
-        }
-        $settings = self::settings($plain);
-        // WHMCS's totp module (ga4php): the key as hex in a serialized token, base64 in `tokendata`.
-        if (is_string($settings['tokendata'] ?? null)) {
-            $token = self::settings((string) base64_decode($settings['tokendata'], true));
-            $hex = $token['tokenkey'] ?? null;
-            $standard = strtoupper((string) ($token['tokentype'] ?? 'TOTP')) === 'TOTP' && (int) ($token['tokentimer'] ?? 30) === 30
-                && strtoupper((string) ($token['tokenalgorithm'] ?? 'SHA1')) === 'SHA1';
-            $secret = $standard && is_string($hex) && $hex !== '' && strlen($hex) % 2 === 0 && ctype_xdigit($hex) ? self::base32((string) hex2bin($hex)) : '';
-        } else {
-            $secret = $settings['secret'] ?? $settings['tokensecret'] ?? null;
-            $secret = is_string($secret) ? strtoupper(str_replace([' ', '='], '', trim($secret))) : '';
-        }
+        $settings = is_string($plain) ? json_decode($plain, true) : null;
+        $secret = is_array($settings) && is_string($settings['secret'] ?? null) ? strtoupper(str_replace([' ', '='], '', trim($settings['secret']))) : '';
 
         // A base32 secret as the authenticator apps take it; anything else is not guessed (a wrong one locks out).
         return preg_match('/^[A-Z2-7]{16,128}$/', $secret) === 1 ? $secret : null;
-    }
-
-    /** @return array<mixed> JSON or serialized settings (never an object made from them), or none */
-    private static function settings(string $text): array
-    {
-        $settings = json_decode($text, true);
-        if (!is_array($settings)) {
-            $settings = @unserialize($text, ['allowed_classes' => false]);
-        }
-
-        return is_array($settings) ? $settings : [];
-    }
-
-    private static function base32(string $bytes): string
-    {
-        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-        $bits = '';
-        foreach (str_split($bytes) as $byte) {
-            $bits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
-        }
-        $out = '';
-        foreach (str_split($bits, 5) as $chunk) {
-            $out .= $alphabet[bindec(str_pad($chunk, 5, '0'))];
-        }
-
-        return $out;
     }
 }

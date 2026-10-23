@@ -298,7 +298,7 @@ class ImportFromWhmcs extends Command
 
         $this->info("Logins with 2FA carried over: {$withTwoFactor}.");
         if ($missed !== []) {
-            $this->warn(count($missed) . ' login(s) had 2FA in WHMCS that did not come over' . ($secondFactor->available() ? ' (not readable)' : ' (set WHMCS_API_URL, WHMCS_API_IDENTIFIER and WHMCS_API_SECRET to bring it)')
+            $this->warn(count($missed) . ' login(s) had 2FA in WHMCS that did not come over' . ($secondFactor->available() ? ' (not readable)' : ' (set WHMCS_CC_ENCRYPTION_HASH, from WHMCS\'s configuration.php, to bring it)')
                 . ': user ids ' . implode(', ', $missed) . '. They log in without it until they set it up again.');
         }
     }

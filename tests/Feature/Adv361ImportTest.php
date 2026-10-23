@@ -6,49 +6,45 @@ use App\Services\Import\WhmcsSecondFactor;
 use Tests\TestCase;
 
 /**
- * Adversarial review of #361: the shape WHMCS's own `totp` module keeps a login's authenticator in.
- *
- * modules/security/totp keeps its settings as ['tokendata' => …], where tokendata is the ga4php library's record:
- * base64_encode(serialize([... 'tokenkey' => <the key in HEX>, 'tokentype' => 'TOTP', ...])) — not a base32 `secret`.
- * The user's `second_factor_config` is that settings array, encrypted (JSON or serialized). DecryptPassword gives the
- * settings back; the base32 secret the authenticator app holds is base32(hex2bin(tokenkey)).
+ * Review of #361, against WHMCS 8's real data (a test login, checked on 2026-10-23): `second_factor_config` is
+ * `<iv hex>.<ciphertext hex>`, AES-256-CBC with the first 32 characters of sha256(cc_encryption_hash), its JSON
+ * `{"secret": <base32>, "backupcode": <sha1 hex>}`. WHMCS's DecryptPassword cannot read it (garbage, «Malformed UTF-8»).
+ * The ga4php `tokendata` the first review expected is not what WHMCS 8 stores.
  */
 class Adv361ImportTest extends TestCase
 {
-    private const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DP';
+    private const SECRET = 'JBSWY3DPEHPK3PXP';
 
-    private static function tokendata(): string
+    private const HASH = 'a-whmcs-cc-encryption-hash-for-the-test';
+
+    /** As WHMCS 8 stores it. */
+    private static function stored(string $plain, string $hash = self::HASH): string
     {
-        // ga4php's helperb322hex(): the base32 key as hex.
-        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-        $bits = '';
-        foreach (str_split(self::SECRET) as $c) {
-            $bits .= str_pad(decbin(strpos($alphabet, $c)), 5, '0', STR_PAD_LEFT);
-        }
-        $hex = '';
-        foreach (str_split(substr($bits, 0, intdiv(strlen($bits), 8) * 8), 8) as $byte) {
-            $hex .= str_pad(dechex(bindec($byte)), 2, '0', STR_PAD_LEFT);
-        }
+        $iv = random_bytes(16);
 
-        return base64_encode(serialize([
-            'tokenkey' => $hex, 'tokentype' => 'TOTP', 'tokentimer' => 30, 'tokencounter' => 1,
-            'tokenalgorithm' => 'SHA1', 'user' => '',
-        ]));
+        return bin2hex($iv) . '.' . bin2hex((string) openssl_encrypt($plain, 'aes-256-cbc', substr(hash('sha256', $hash), 0, 32), OPENSSL_RAW_DATA, $iv));
     }
 
-    private function read(string $plain): ?string
+    private function read(string $stored, string $hash = self::HASH): ?string
     {
-        return (new WhmcsSecondFactor(fn () => $plain))->secret('totp', 'encrypted-by-whmcs');
+        return (new WhmcsSecondFactor(fn (string $config) => WhmcsSecondFactor::decryptWith($hash, $config)))->secret('totp', $stored);
     }
 
-    public function test_whmcs_totp_tokendata_as_json_comes_over(): void
+    public function test_whmcs_8s_own_scheme_comes_over(): void
     {
-        $this->assertSame(self::SECRET, $this->read(json_encode(['tokendata' => self::tokendata()])),
-            'WHMCS totp keeps the key in tokendata (ga4php, hex): every real 2FA would be listed as missed');
+        $this->assertSame(self::SECRET, $this->read(self::stored(json_encode(['secret' => self::SECRET, 'backupcode' => sha1('c8a7')]))));
     }
 
-    public function test_whmcs_totp_tokendata_serialized_comes_over(): void
+    public function test_another_installations_key_reads_nothing(): void
     {
-        $this->assertSame(self::SECRET, $this->read(serialize(['tokendata' => self::tokendata()])));
+        $this->assertNull($this->read(self::stored(json_encode(['secret' => self::SECRET])), 'another-hash'));
+    }
+
+    public function test_the_older_scheme_or_garbage_reads_nothing(): void
+    {
+        $this->assertNull($this->read(base64_encode('old-whmcs-encrypt-output')));
+        $this->assertNull($this->read('zz.zz'));
+        $this->assertNull($this->read(self::stored('not json')));
+        $this->assertNull($this->read(self::stored(json_encode(['secret' => 'not base32!']))));
     }
 }

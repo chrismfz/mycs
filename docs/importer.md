@@ -91,12 +91,15 @@
 - **Πρόσβαση:** κάθε `tblusers_clients` γίνεται `client_user`: ο owner με `owner_of_client_id`, οι άλλοι με τα
   δικαιώματα που είχαν (ίδια ονόματα με το WHMCS, `ClientUser::PERMISSIONS`· ένα άγνωστο μένει έξω). Λογαριασμός χωρίς
   owner παραλείπεται, όπως πριν (στο WHMCS κάθε λογαριασμός έχει ακριβώς έναν).
-- **2FA (security audit AUTHN-11):** το `second_factor_config` είναι κρυπτογραφημένο με το `cc_encryption_hash` του
-  WHMCS, που δεν είναι στη βάση. Ο importer το διαβάζει με το API του WHMCS (`DecryptPassword`, ανάγνωση), αν οριστούν
-  `WHMCS_API_URL` (https), `WHMCS_API_IDENTIFIER` και `WHMCS_API_SECRET` στο `.env`, και το κρατά κρυπτογραφημένο με το
-  κλειδί του MyCS: ο ίδιος authenticator συνεχίζει να δουλεύει. Χωρίς αυτά, ή για ένα που δεν διαβάζεται, ο user έρχεται
-  χωρίς 2FA και ο importer τυπώνει τα ids τους (10 στο myip, 1 στη nixpal), για να ειδοποιηθούν να το ξαναστήσουν.
-  Μόνο `totp` (το μόνο που χρησιμοποιείται).
+- **2FA (security audit AUTHN-11):** το WHMCS 8 κρατά το `second_factor_config` ως `<iv hex>.<ciphertext hex>`:
+  AES-256-CBC με κλειδί τους πρώτους 32 χαρακτήρες του `sha256(cc_encryption_hash)`, και μέσα JSON `{"secret": <base32>,
+  "backupcode": <hash>}`. Επιβεβαιώθηκε σε test login του myip (2026-10-23): το secret που βγαίνει είναι ακριβώς αυτό
+  της εφαρμογής. Το API του WHMCS **δεν** το διαβάζει (`DecryptPassword` είναι το παλιότερο σχήμα). Γι' αυτό ο importer
+  θέλει το `cc_encryption_hash` του WHMCS (από το `configuration.php`) στο `WHMCS_CC_ENCRYPTION_HASH` του `.env`,
+  **μόνο για το run του import**: σβήνεται μετά. Το secret κρατιέται κρυπτογραφημένο με το κλειδί του MyCS, και ο ίδιος
+  authenticator συνεχίζει να δουλεύει. Χωρίς αυτό, ή για ένα που δεν διαβάζεται, ο user έρχεται χωρίς 2FA και ο importer
+  τυπώνει τα ids τους (10 στο myip, 1 στη nixpal), για να ειδοποιηθούν. Μόνο `totp` (το μόνο που χρησιμοποιείται). Τα
+  backup codes δεν μεταφέρονται: το WHMCS κρατά μόνο το hash τους.
 
 ## Πεδία υπηρεσίας (tblhosting, 2026-10-14)
 `domain`, `username`, `dedicatedip`, `assignedips` (μία ανά γραμμή), `notes` (staff), `suspendreason` (μόνο σε
