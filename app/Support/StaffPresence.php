@@ -84,7 +84,8 @@ class StaffPresence
 
     public static function canView(?Staff $staff): bool
     {
-        return $staff !== null && $staff->hasPermission('admin.staff_online.view');
+        // Past the mandatory 2FA set-up too, as the staff chat (review of #387).
+        return $staff !== null && self::mayBeOnline($staff) && $staff->hasPermission('admin.staff_online.view');
     }
 
     private static function key(int $id): string

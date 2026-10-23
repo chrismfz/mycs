@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Admin\Pages\LiveChat;
 use App\Livewire\Admin\StaffRoom;
+use App\Livewire\Admin\StaffTeam;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\StaffMessage;
 use App\Support\StaffChat;
+use App\Support\StaffPresence;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -112,5 +114,27 @@ class StaffDmBefore2faAdversarialTest extends TestCase
     {
         app()->setLocale('en');
         $this->assertSame('This member cannot receive messages in the staff chat.', __('This member cannot receive messages in the staff chat.'));
+    }
+
+    /** Fix of the review: `?with=` someone unreachable on page load says so too. */
+    public function test_a_page_opened_with_someone_unreachable_says_why(): void
+    {
+        $me = $this->member();
+        $noChat = $this->member(['admin.tickets.viewAny']);
+        $this->actAs($me);
+
+        Livewire::withQueryParams(['with' => $noChat->id])->test(StaffRoom::class)
+            ->assertHasErrors('with')->assertSet('with', null);
+    }
+
+    /** Fix of the review, R3: a member not past 2FA sees neither the team nor «Staff online». */
+    public function test_a_pending_member_sees_no_roster(): void
+    {
+        $this->member();
+        $pending = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'P' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $this->assertFalse(StaffPresence::canView($pending));
+        $this->actAs($pending);
+        Livewire::test(StaffTeam::class)->assertDontSee(__('Never'));
     }
 }

@@ -23,14 +23,31 @@ class StaffRoom extends Component
     #[Url(as: 'with')]
     public ?int $with = null;
 
+    /** The page opened with `?with=` someone who cannot be written to says so too (review of #387). */
+    public function mount(): void
+    {
+        $this->warnIfUnreachable();
+    }
+
+    /** The warning is for the request that opened the member; the next poll or send no longer shows it (review of #387). */
+    public function hydrate(): void
+    {
+        $this->resetErrorBag('with');
+    }
+
     #[On('staff-chat-open')]
     public function open(?int $with = null): void
     {
         $this->with = $with;
         $this->resetErrorBag();
-        // Say why, instead of quietly staying in the room (owner 2026-10-23).
+        $this->warnIfUnreachable();
+    }
+
+    /** Say why, instead of quietly staying in the room (owner 2026-10-23). */
+    private function warnIfUnreachable(): void
+    {
         $staff = $this->me();
-        if ($staff !== null && $with !== null && $this->thread($staff)->kind === StaffThread::ROOM) {
+        if ($staff !== null && $this->with !== null && $this->thread($staff)->kind === StaffThread::ROOM) {
             $this->addError('with', __('This member cannot receive messages in the staff chat.'));
         }
     }
