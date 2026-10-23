@@ -106,7 +106,7 @@ final class Health
     public static function report(): array
     {
         $checks = [];
-        foreach (['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail'] as $name) {
+        foreach (['build', 'runtime', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail'] as $name) {
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
@@ -127,6 +127,46 @@ final class Health
 
         return ['status' => self::OK, 'detail' => isset($build['sha']) ? "{$build['sha']} ({$build['ref']}, {$build['committed_at']})" : 'No build.json (not deployed by deploy/update.sh)',
             'data' => $build + ['php' => PHP_VERSION, 'env' => app()->environment()]];
+    }
+
+    /**
+     * The PHP that serves the site (security audit SEC-13): in production no debug output and no dev packages (Debugbar,
+     * Ignition: queries, sessions and requests to whoever asks), and PHP settings that keep the other sites of a
+     * shared server out (`opcache.validate_permission`: another pool cannot include a script cached from this one).
+     * The PHP settings are the web's own: read from the command line they would be the CLI's, so they are left out.
+     */
+    private static function runtime(): array
+    {
+        $production = app()->isProduction();
+        $web = PHP_SAPI !== 'cli';
+        $opcache = filter_var(ini_get('opcache.enable'), FILTER_VALIDATE_BOOLEAN);
+        $found = [];
+        if ($production && config('app.debug')) {
+            $found[] = [self::FAIL, 'APP_DEBUG is on in production: error pages show code, queries and settings'];
+        }
+        $dev = array_keys(array_filter([
+            'barryvdh/laravel-debugbar' => class_exists('Fruitcake\\LaravelDebugbar\\ServiceProvider'),
+            'spatie/laravel-ignition' => class_exists('Spatie\\LaravelIgnition\\IgnitionServiceProvider'),
+        ]));
+        if ($production && $dev !== []) {
+            $found[] = [self::WARN, 'Dev packages installed in production (' . implode(', ', $dev) . '): deploy with composer --no-dev'];
+        }
+        if ($web && filter_var(ini_get('expose_php'), FILTER_VALIDATE_BOOLEAN)) {
+            $found[] = [self::WARN, 'expose_php is on: every answer names the PHP version'];
+        }
+        if ($web && $opcache && !filter_var(ini_get('opcache.validate_permission'), FILTER_VALIDATE_BOOLEAN)) {
+            $found[] = [self::WARN, 'opcache.validate_permission is off: another site on this server can run scripts cached from this one'];
+        }
+        $statuses = array_column($found, 0);
+
+        return [
+            'status' => in_array(self::FAIL, $statuses, true) ? self::FAIL : ($found !== [] ? self::WARN : self::OK),
+            'detail' => $found !== [] ? implode('; ', array_column($found, 1)) : ($web ? 'Production settings as expected' : 'Production settings as expected (PHP settings: read from the web only)'),
+            'data' => ['sapi' => PHP_SAPI, 'env' => app()->environment(), 'debug' => (bool) config('app.debug'), 'dev_packages' => $dev]
+                + ($web ? ['expose_php' => (bool) filter_var(ini_get('expose_php'), FILTER_VALIDATE_BOOLEAN), 'opcache' => $opcache,
+                    'opcache_validate_permission' => (bool) filter_var(ini_get('opcache.validate_permission'), FILTER_VALIDATE_BOOLEAN),
+                    'opcache_validate_root' => (bool) filter_var(ini_get('opcache.validate_root'), FILTER_VALIDATE_BOOLEAN)] : []),
+        ];
     }
 
     private static function database(): array

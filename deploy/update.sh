@@ -27,7 +27,8 @@
 #   APP_DIR=/var/www/mycs   run against another checkout (default: this repo)
 #   PHP=php  COMPOSER=composer  NPM=npm
 #   COMPOSER_DEV=1          keep dev dependencies (tests, pint). Default: DEPLOY_COMPOSER_DEV
-#                           from .env (set DEPLOY_COMPOSER_DEV=1 in the devbox .env)
+#                           from .env (set DEPLOY_COMPOSER_DEV=1 in the devbox .env). Refused with
+#                           APP_ENV=production, as APP_DEBUG=true is, unless ALLOW_DEV_IN_PRODUCTION=1
 #   SKIP_SNAPSHOT=1         no DB snapshot (only for throwaway installs)
 #   SNAPSHOT_KEEP=10        snapshots to keep
 #   QUEUE_SERVICE=mycs-queue  systemd unit of the worker
@@ -63,6 +64,16 @@ warn() { printf '\n\033[1;33m! %s\033[0m\n' "$*"; }
 [[ -f artisan && -f .env ]] || { fail "Not an installed MyCS checkout: $(pwd) (artisan/.env missing)."; exit 1; }
 _env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
 COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
+# Production never gets dev packages (Debugbar, Ignition) nor debug output (security audit SEC-13): refused, unless
+# ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production).
+if [[ "$(_env APP_ENV)" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
+  if [[ "${COMPOSER_DEV:-0}" == "1" ]]; then
+    fail "APP_ENV=production with COMPOSER_DEV/DEPLOY_COMPOSER_DEV=1: dev packages would be installed. Unset it (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+  fi
+  if [[ "$(_env APP_DEBUG | tr '[:upper:]' '[:lower:]')" =~ ^(true|1|on|yes)$ ]]; then
+    fail "APP_ENV=production with APP_DEBUG=true: error pages would show code and settings. Set APP_DEBUG=false (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+  fi
+fi
 
 # --- queue worker -----------------------------------------------------------
 # Stop the worker before touching the schema so no job runs against a
