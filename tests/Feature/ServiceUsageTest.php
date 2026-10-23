@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\ServiceResource\Pages\ListService;
+use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\ServiceUsage;
+use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -248,18 +252,24 @@ class ServiceUsageTest extends TestCase
         $differs = $this->service('otherip');
         $differs->update(['dedicated_ip' => '203.0.113.6']);
         $shared = $this->service('sharedip');
+        $six = $this->service('sixip');
+        $six->update(['dedicated_ip' => '2001:db8::1']);
         $this->accounts = [
             ['user' => 'sameip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => '203.0.113.5'],
             ['user' => 'otherip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => '198.51.100.9'],
             ['user' => 'sharedip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => 'not an ip'],
+            ['user' => 'sixip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => '203.0.113.7'],
         ];
 
         $this->artisan('services:usage')->assertExitCode(0);
 
         $this->assertSame(['203.0.113.5', '198.51.100.9', null], [$same->usage()->sole()->server_ip, $differs->usage()->sole()->server_ip, $shared->usage()->sole()->server_ip]);
         $this->assertSame([false, true, false], [ServiceResource::ipDiffers($same->fresh()), ServiceResource::ipDiffers($differs->fresh()), ServiceResource::ipDiffers($shared->fresh())]);
-        $found = Service::query()->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')
-            ->whereHas('usage', fn ($usage) => $usage->whereNotNull('server_ip')->whereColumn('service_usages.server_ip', '!=', 'services.dedicated_ip'))->pluck('id')->all();
-        $this->assertSame([$differs->id], $found);
+        $this->assertFalse(ServiceResource::ipDiffers($six->fresh()), 'an IPv6 set here is not compared with the IPv4 cPanel tells');
+        // The list's filter (Filament), as staff use it.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListService::class)->filterTable('ip_differs')
+            ->assertCanSeeTableRecords([$differs])->assertCanNotSeeTableRecords([$same, $shared, $six]);
     }
 }

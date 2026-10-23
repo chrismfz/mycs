@@ -168,10 +168,19 @@ class ServiceResource extends Resource
             : '#' . $record->getKey();
     }
 
-    /** A dedicated IP set here that is not the one its server says (both known). */
+    /**
+     * A dedicated IPv4 set here that is not the one its server says (both known). cPanel tells the account's IPv4 only:
+     * an IPv6 set here is not compared (code review of #389); the addresses compared as addresses, not as text.
+     */
     public static function ipDiffers(Service $service): bool
     {
-        return filled($service->dedicated_ip) && filled($service->usage?->server_ip) && $service->dedicated_ip !== $service->usage->server_ip;
+        $mine = (string) $service->dedicated_ip;
+        $theirs = (string) $service->usage?->server_ip;
+        if (!filter_var($mine, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || !filter_var($theirs, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+
+        return inet_pton($mine) !== inet_pton($theirs);
     }
 
     public static function form(Schema $schema): Schema
@@ -442,7 +451,8 @@ class ServiceResource extends Resource
                     ->preload(),
                 // Its dedicated IP set here is not the one its server says (owner 2026-10-23).
                 Filter::make('ip_differs')->label('IP differs from the server')
-                    ->query(fn (Builder $query) => $query->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')
+                    // IPv4 only, as cPanel tells it (an IPv6 set here is never «different»).
+                    ->query(fn (Builder $query) => $query->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')->where('dedicated_ip', 'not like', '%:%')
                         ->whereHas('usage', fn (Builder $usage) => $usage->whereNotNull('server_ip')->whereColumn('service_usages.server_ip', '!=', 'services.dedicated_ip'))),
                 Filter::make('expires_at')
                     ->form([
