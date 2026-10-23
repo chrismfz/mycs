@@ -1158,5 +1158,7 @@
     "More remain: run it again.": "Μένουν κι άλλες: τρέξτε το ξανά.",
     "First entry": "Πρώτη εγγραφή",
     "Known login addresses": "Γνωστές διευθύνσεις σύνδεσης",
-    "Ticket mail import log": "Log εισαγωγής mail των tickets"
+    "Ticket mail import log": "Log εισαγωγής mail των tickets",
+    "Clients with credit": "Πελάτες με πίστωση",
+    "No unused credit": "Καμία αχρησιμοποίητη πίστωση"
 }

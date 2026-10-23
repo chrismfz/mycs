@@ -55,11 +55,12 @@ class AdminDashboardPolishTest extends TestCase
     }
 
     /** WHMCS's five cards, in its order (owner 2026-10-21), the two queues there at zero too. */
-    public function test_five_cards_pending_orders_first_module_actions_last(): void
+    // Six since «Clients with credit» (owner 2026-10-23), before the module actions.
+    public function test_the_cards_pending_orders_first_module_actions_last(): void
     {
         $stats = (fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance());
 
-        $this->assertSame(['Pending Orders', 'Revenue', 'Tickets', 'Services', 'Pending Module Actions'], array_map(fn ($stat) => $stat->getLabel(), array_values($stats)));
+        $this->assertSame(['Pending Orders', 'Revenue', 'Tickets', 'Services', 'Clients with credit', 'Pending Module Actions'], array_map(fn ($stat) => $stat->getLabel(), array_values($stats)));
         $this->assertSame('gray', $stats[0]->getColor());
     }
 

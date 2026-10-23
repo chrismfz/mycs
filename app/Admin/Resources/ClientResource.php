@@ -211,6 +211,14 @@ class ClientResource extends Resource
                 TextColumn::make('created_at')->label(__('Date Created'))->date()->sortable(),
             ])
             ->filters([
+                // Accounts holding unused credit (the dashboard's «Clients with credit»): to staff who may see credits.
+                TernaryFilter::make('with_credit')
+                    ->label(__('Account credit'))
+                    ->visible(fn () => (bool) auth()->user()?->hasPermission('admin.credits.viewAny'))
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereHas('credits', fn (Builder $query) => $query->where('amount', '>', 0)),
+                        false: fn (Builder $query) => $query->whereDoesntHave('credits', fn (Builder $query) => $query->where('amount', '>', 0)),
+                    ),
                 TernaryFilter::make('active_services')
                     ->label(__('Active services'))
                     ->queries(
