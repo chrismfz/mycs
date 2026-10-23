@@ -70,8 +70,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [x] ~~**Η πραγματική IP από τον server**~~ **έγινε (feat/server-ip):** το cPanel λέει την IP κάθε λογαριασμού μαζί με τη
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
-- [ ] **Proxmox (8 VPS): απόφαση υπευθύνου**, extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον
-      πελάτη). Δικό μας module, με το pvewhmcs ως αναφορά (GPL: όχι κώδικας, `provisioning.md`).
+- [ ] **Proxmox (8 VPS): σε αναμονή** (ο υπεύθυνος, 2026-10-23): πρώτα το migration των υπαρχόντων VM (pool `mycs`,
+      σύνδεση με τις υπηρεσίες)· ως τότε χειροκίνητα προϊόντα. Ευρήματα, αποφάσεις (templates + ISO, noVNC μέσα από το
+      MyCS, κόμβος ανά προϊόν), πρόσβαση και σχέδιο: `proxmox.md`.
 - [ ] ngm (1), Hetzner (1): χειροκίνητα προϊόντα (χωρίς κώδικα).
 - [ ] cPanel: root token στους servers του myip πριν τους resellers· συμφιλίωση κατάστασης μετά από job του server
       (το create υπάρχει, #114)· αργότερα, αν χρειαστεί, διαχείριση email/domains μέσα από το MyCS.
