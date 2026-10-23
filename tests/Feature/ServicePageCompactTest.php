@@ -128,4 +128,20 @@ class ServicePageCompactTest extends TestCase
 
         $this->get(ServiceResource::getUrl('edit', ['record' => $other]))->assertOk()->assertDontSee(__("This client's services"));
     }
+
+    /** Adversarial review of #405: a client with more than the list's 200, on one past the 200th, still has ‹ and itself in the list. */
+    public function test_adv_405_a_service_past_the_lists_limit_keeps_its_previous_and_itself(): void
+    {
+        $this->staff();
+        $last = null;
+        for ($i = 1; $i <= 201; $i++) {
+            $last = Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id,
+                'product_id' => $this->service->product_id, 'currency_code' => 'USD', 'price' => 1, 'domain' => "s{$i}.example.test", 'status' => 'active']);
+        }
+
+        $this->get(ServiceResource::getUrl('edit', ['record' => $last]))->assertOk()
+            ->assertSee(__("This client's services") . ' (202)')
+            ->assertSee('s201.example.test')
+            ->assertSee(__('Previous service'));
+    }
 }
