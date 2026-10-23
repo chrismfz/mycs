@@ -7,8 +7,10 @@ use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
+use App\Http\Middleware\LockSession;
 use App\Http\Middleware\MustVerfiyEmail;
 use App\Http\Middleware\PrivateLinkHeaders;
+use App\Http\Middleware\UseStaffGuard;
 use App\Livewire\Auth;
 use App\Livewire\Cart;
 use App\Livewire\Client;
@@ -26,6 +28,7 @@ use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', Home::class)->name('home');
@@ -132,7 +135,9 @@ Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
 // The accountant's income file (ROADMAP 6, review F2 of #280): a plain download for staff, from a signed link.
 Route::get('/' . AdminPanelProvider::PATH . '/reports/income/{year}/{currency}.{format}', IncomeExportController::class)
     ->whereNumber('year')->where('currency', '[A-Z]{3}')->where('format', 'xlsx|csv')
-    ->middleware(['web', 'auth:staff', 'signed'])->name('admin.reports.income.export');
+    // The panel's own session checks (security audit SA-10): the session's IP/agent lock and its password hash.
+    ->middleware(['web', UseStaffGuard::class, 'auth:staff', LockSession::class, AuthenticateSession::class, 'signed'])
+    ->name('admin.reports.income.export');
 
 // The admin was /admin until 2026-10-21 (now AdminPanelProvider::PATH): a bookmark, a link in a mail already sent or the
 // habit lands on the same page there, with its query. Only a GET: nothing posts to a page of the panel itself.

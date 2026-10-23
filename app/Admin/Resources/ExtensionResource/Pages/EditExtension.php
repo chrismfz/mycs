@@ -22,6 +22,8 @@ class EditExtension extends EditRecord
                 ->color('danger')
                 ->label('Uninstall Extension')
                 ->modalDescription('Are you sure you want to uninstall this extension? This will remove all its data and settings.')
+                // Its data and settings go: the delete permission, not only the page's update (security audit SA-7).
+                ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.extensions.delete'))
                 ->action(function (Model $record) {
                     // Call the extension's uninstalled method
                     ExtensionHelper::call($record, 'uninstalled', mayFail: true);

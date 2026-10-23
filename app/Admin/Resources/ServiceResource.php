@@ -21,6 +21,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
+use App\Services\Ops\Scrub;
 use App\Services\Service\DeleteService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -271,7 +272,9 @@ class ServiceResource extends Resource
                     ->columnSpanFull()
                     ->visible(fn (?Service $record) => $record?->license !== null)
                     ->schema([
-                        TextEntry::make('license.license_key')->label('License key')->copyable()->fontFamily('mono'),
+                        TextEntry::make('license.license_key')->label('License key')->fontFamily('mono')
+                            ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state)) // SA-11
+                            ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
                         TextEntry::make('license.status')->label('Status')->badge()->color(fn (?string $state) => match ($state) {
                             License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                         }),

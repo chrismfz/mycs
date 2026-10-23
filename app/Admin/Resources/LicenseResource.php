@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Clusters\Services;
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
 use App\Models\License;
+use App\Services\Ops\Scrub;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -34,7 +35,11 @@ class LicenseResource extends Resource
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client.primaryContact', 'service.client.ownerGrant.user'])) // what Client::name reads (review R2)
             ->defaultSort('last_access', 'desc')
             ->columns([
-                TextColumn::make('license_key')->label('Key')->searchable()->copyable()->fontFamily('mono'),
+                // The whole key opens the customer's software (a bearer value): only to staff who can change services, the
+                // others see it as the MCP does, prefix…last4 (security audit SA-11). The search still finds it whole.
+                TextColumn::make('license_key')->label('Key')->searchable()->fontFamily('mono')
+                    ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state))
+                    ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
                 TextColumn::make('service.client.name')->label('Client'),
                 TextColumn::make('service.product.name')->label('Product'),
                 TextColumn::make('status')->badge()->color(fn (string $state) => match ($state) {
