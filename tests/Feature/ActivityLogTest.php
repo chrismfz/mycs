@@ -22,6 +22,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -132,5 +133,20 @@ class ActivityLogTest extends TestCase
         $this->actingAs($this->staff, 'staff');
         $this->assertFalse(AuditResource::canDeleteAny());
         Livewire::test(ListAudits::class)->assertTableBulkActionDoesNotExist('delete');
+    }
+
+    /** A page of the log reads its subjects and their clients once, not per row (review of #402). */
+    public function test_a_page_of_the_log_reads_its_clients_once(): void
+    {
+        Config::set('audit.console', true);
+        foreach (range(1, 10) as $n) {
+            $domain = Domain::factory()->create(['client_id' => Client::factory()->ownedBy()->create()->id, 'sld' => "n{$n}", 'fqdn' => "n{$n}.test"]);
+            $domain->forceFill(['auto_renew' => false])->save();
+        }
+        $this->actingAs($this->staff, 'staff');
+        DB::enableQueryLog();
+        Livewire::test(ListAudits::class)->assertOk();
+        $contacts = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], 'from "contacts"'))->count();
+        $this->assertLessThanOrEqual(5, $contacts); // one per kind of subject, not one per row
     }
 }

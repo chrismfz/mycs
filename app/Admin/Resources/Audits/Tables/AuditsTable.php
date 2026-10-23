@@ -13,9 +13,8 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -27,8 +26,7 @@ class AuditsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('user')
-                ->with('auditable', fn (Relation $morph) => $morph instanceof MorphTo ? $morph->morphWith(array_fill_keys(AuditSummary::WITH_CLIENT, ['client'])) : $morph))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('user')) // the subjects: ListAudits, by page
             ->columns([
                 TextColumn::make('created_at')
                     ->label('Date')
@@ -84,12 +82,15 @@ class AuditsTable
                         default => $query->where('user_type', Staff::class)
                             ->where('user_id', (int) Str::after((string) $data['value'], 'staff:')),
                     }),
+                // The kinds there are, read at most every ten minutes: a DISTINCT over the whole log (review of #402).
                 SelectFilter::make('auditable_type')
                     ->label('Type')
-                    ->options(fn (): array => Audit::query()->distinct()->orderBy('auditable_type')->pluck('auditable_type')
+                    ->options(fn (): array => collect(Cache::remember('audits.filter.types', 600,
+                        fn () => Audit::query()->distinct()->orderBy('auditable_type')->pluck('auditable_type')->all()))
                         ->mapWithKeys(fn (string $type) => [$type => __(Str::headline(class_basename($type)))])->all()),
                 SelectFilter::make('event')
-                    ->options(fn (): array => Audit::query()->distinct()->orderBy('event')->pluck('event')
+                    ->options(fn (): array => collect(Cache::remember('audits.filter.events', 600,
+                        fn () => Audit::query()->distinct()->orderBy('event')->pluck('event')->all()))
                         ->mapWithKeys(fn (string $event) => [$event => AuditSummary::verb($event)])->all()),
                 Filter::make('date')
                     ->schema([

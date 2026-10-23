@@ -16,6 +16,8 @@ use Filament\Navigation\NavigationItem;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
 
+use function Filament\Support\original_request;
+
 /**
  * The logs in one place, as WHMCS's Utilities → Logs (owner 2026-10-23): each log page shows them all on its left. The
  * pages stay where they were (their URLs, their menus); an item shows only to whom its page lets in.
@@ -60,7 +62,7 @@ final class Logs
                     ->group(__($group))
                     ->icon($class::getNavigationIcon())
                     ->url($resource ? $class::getUrl('index') : $class::getUrl())
-                    ->isActiveWhen(fn () => request()->routeIs($resource ? $class::getRouteBaseName() . '.*' : $class::getRouteName()))
+                    ->isActiveWhen(fn () => original_request()->routeIs($resource ? $class::getRouteBaseName() . '.*' : $class::getRouteName()))
                     ->sort($sort++);
             }
         }

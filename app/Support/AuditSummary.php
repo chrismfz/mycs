@@ -19,7 +19,9 @@ use App\Models\Ticket;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Resources\Resource;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -36,6 +38,16 @@ final class AuditSummary
         Order::class, Contact::class, ClientNote::class, Credit::class,
     ];
 
+    /** Loaded with a page of the log: what the names and the client column read (no query per row). */
+    private const MORPH_WITH = [
+        Client::class => ['primaryContact'],
+        Service::class => ['client.primaryContact', 'product'],
+        Domain::class => ['client.primaryContact'], Invoice::class => ['client.primaryContact'],
+        Ticket::class => ['client.primaryContact'], Order::class => ['client.primaryContact'],
+        Contact::class => ['client.primaryContact'], ClientNote::class => ['client.primaryContact'],
+        Credit::class => ['client.primaryContact'],
+    ];
+
     /** Kept by every model, said by none: left out of the line (the audit's page still has them). */
     private const QUIET = ['created_at', 'updated_at'];
 
@@ -44,6 +56,52 @@ final class AuditSummary
 
     /** A subject's name when its resource has none: the first of these it has. */
     private const NAMES = ['fqdn', 'name', 'label', 'number', 'subject', 'title', 'key', 'code', 'email'];
+
+    /**
+     * A page of the log's subjects in one query per type. An audit of a class no longer there (an extension removed, a
+     * class renamed) has none, as a deleted one: Eloquent would fail on it and take the whole page down (review of #402).
+     *
+     * @param  iterable<Audit>  $audits
+     */
+    public static function loadSubjects(iterable $audits): void
+    {
+        $known = [];
+        foreach ($audits as $audit) {
+            if ($audit->relationLoaded('auditable')) {
+                continue;
+            }
+            if (self::subjectExists($audit)) {
+                $known[] = $audit;
+            } else {
+                $audit->setRelation('auditable', null);
+            }
+        }
+        if ($known !== []) {
+            (new EloquentCollection($known))->load(['auditable' => fn (MorphTo $morph) => $morph->morphWith(self::MORPH_WITH)]);
+        }
+    }
+
+    /** The audit's subject, or null: deleted, or of a class no longer there. */
+    public static function subjectOf(Audit $audit): ?Model
+    {
+        if (!$audit->relationLoaded('auditable')) {
+            try {
+                $audit->setRelation('auditable', self::subjectExists($audit) ? $audit->auditable()->first() : null);
+            } catch (Throwable) {
+                $audit->setRelation('auditable', null);
+            }
+        }
+        $subject = $audit->getRelation('auditable');
+
+        return $subject instanceof Model ? $subject : null;
+    }
+
+    private static function subjectExists(Audit $audit): bool
+    {
+        $type = (string) $audit->auditable_type;
+
+        return $type !== '' && class_exists(Model::getActualClassNameForMorph($type));
+    }
 
     public static function line(Audit $audit): string
     {
@@ -106,7 +164,7 @@ final class AuditSummary
     /** The client the change is about: the client itself, or the one its subject belongs to. */
     public static function client(Audit $audit): ?Client
     {
-        $subject = $audit->auditable;
+        $subject = self::subjectOf($audit);
         if ($subject instanceof Client) {
             return $subject;
         }
@@ -156,7 +214,7 @@ final class AuditSummary
     /** The subject's own page, while it is there and the staff member may open it. */
     public static function subjectUrl(Audit $audit): ?string
     {
-        $subject = $audit->auditable;
+        $subject = self::subjectOf($audit);
         if ($subject === null || $audit->event === 'deleted') {
             return null;
         }
@@ -184,7 +242,7 @@ final class AuditSummary
 
     private static function name(Audit $audit): ?string
     {
-        $subject = $audit->auditable;
+        $subject = self::subjectOf($audit);
         if ($subject !== null) {
             $resource = Filament::getModelResource($subject);
             if ($resource !== null) {
