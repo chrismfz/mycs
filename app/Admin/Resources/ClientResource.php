@@ -85,15 +85,15 @@ class ClientResource extends Resource
         return parent::getGlobalSearchEloquentQuery()->with(['primaryContact']);
     }
 
-    /** @return array<int, string> its company and email, on one line (owner 2026-10-23, as WHMCS) */
+    /** @return array<string, string> its company and email, on one line (owner 2026-10-23, as WHMCS) */
     public static function getGlobalSearchResultDetails(Model $record): array
     {
         $contact = $record instanceof Client ? $record->primaryContact : null;
 
-        return $contact === null ? [] : array_values(array_filter([
-            filled($contact->company_name) && $contact->company_name !== $record->name ? (string) $contact->company_name : null,
-            filled($contact->email) ? (string) $contact->email : null,
-        ]));
+        return $contact === null ? [] : array_filter([
+            __('Company') => filled($contact->company_name) && $contact->company_name !== $record->name ? (string) $contact->company_name : null,
+            __('Email') => filled($contact->email) ? (string) $contact->email : null,
+        ]);
     }
 
     public static function form(Schema $schema): Schema

@@ -39,7 +39,7 @@ class AdminRichSearchTest extends TestCase
     {
         return $resource::getGlobalSearchResults($search)->map(fn ($result) => [
             'title' => html_entity_decode(strip_tags((string) (is_string($result->title) ? e($result->title) : $result->title->toHtml())), ENT_QUOTES),
-            'details' => array_values(array_map('strval', $result->details)),
+            'details' => array_map('strval', $result->details),
         ])->values()->all();
     }
 
@@ -56,8 +56,8 @@ class AdminRichSearchTest extends TestCase
         $this->assertStringContainsString('cdnet.gr', $titles[0]);
         $this->assertStringContainsString(DomainStatus::Active->getLabel(), implode('|', $titles));
         $this->assertStringContainsString(DomainStatus::TransferredAway->getLabel(), implode('|', $titles));
-        $this->assertContains('Maria Pappa #' . $client->id, $results[0]['details']);
-        $this->assertContains(__('Expires') . ' 05/03/2027', array_merge(...array_column($results, 'details')));
+        $this->assertSame('Maria Pappa #' . $client->id, $results[0]['details'][__('Client')]);
+        $this->assertContains('05/03/2027', array_column(array_column($results, 'details'), __('Expires')));
     }
 
     public function test_a_service_ticket_and_invoice_show_their_status(): void
@@ -73,13 +73,13 @@ class AdminRichSearchTest extends TestCase
         $found = $this->results(TicketResource::class, 'Mail is down')[0];
         $this->assertStringContainsString(Ticket::statusLabel(Ticket::STATUS_OPEN), $found['title']);
         $this->assertStringContainsString('#' . $ticket->reference, $found['title']);
-        $this->assertContains('Maria Pappa #' . $client->id, $found['details']);
+        $this->assertSame('Maria Pappa #' . $client->id, $found['details'][__('Client')]);
         $this->assertNotEmpty($this->results(TicketResource::class, (string) $ticket->reference));
 
         $byNumber = $this->results(InvoiceResource::class, (string) ($invoice->number ?: $invoice->id));
         $this->assertNotEmpty($byNumber, 'an invoice is found by its number');
         $this->assertStringContainsString(Invoice::statusLabel('unpaid'), $byNumber[0]['title']);
-        $this->assertContains(__('Due Date') . ' 01/11/2026', $byNumber[0]['details']);
+        $this->assertSame('01/11/2026', $byNumber[0]['details'][__('Due Date')]);
     }
 
     public function test_a_name_is_escaped_in_the_title(): void

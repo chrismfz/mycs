@@ -78,13 +78,13 @@ class TicketResource extends Resource
         return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact']);
     }
 
-    /** @return array<int, string> whose it is and when it last moved, on one line */
+    /** @return array<string, string> whose it is and when it last moved, on one line */
     public static function getGlobalSearchResultDetails(Model $record): array
     {
-        return !$record instanceof Ticket ? [] : array_values(array_filter([
-            $record->client !== null ? $record->client->name . ' #' . $record->client_id : ($record->guest_email ?: null),
-            $record->updated_at?->format('d/m/Y H:i'),
-        ]));
+        return !$record instanceof Ticket ? [] : array_filter([
+            __('Client') => $record->client !== null ? $record->client->name . ' #' . $record->client_id : ($record->guest_email ?: null),
+            __('Updated') => $record->updated_at?->format('d/m/Y H:i'),
+        ]);
     }
 
     public static function form(Schema $schema): Schema

@@ -74,15 +74,18 @@ class DomainResource extends Resource
             : (string) $record->getKey();
     }
 
-    /** @return array<int, string> its client and when it expires, on one line */
+    /** @return array<string, string> its client and when it expires, on one line */
     public static function getGlobalSearchResultDetails(Model $record): array
     {
         if (!$record instanceof Domain) {
             return [];
         }
 
-        return [$record->client->name . ' #' . $record->client_id,
-            ...($record->expires_at !== null ? [__('Expires') . ' ' . $record->expires_at->format('d/m/Y')] : [])];
+        // Labelled, as every resource's: Filament labels all a dropdown's details or none, by the first (review of #380).
+        return array_filter([
+            __('Client') => $record->client->name . ' #' . $record->client_id,
+            __('Expires') => $record->expires_at?->format('d/m/Y'),
+        ]);
     }
 
     public static function table(Table $table): Table

@@ -73,7 +73,7 @@ class InvoiceResource extends Resource
     /** With what its title and details need, not one query each. */
     public static function getGlobalSearchEloquentQuery(): Builder
     {
-        return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact', 'items', 'currency']);
+        return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact', 'items', 'currency', 'adjustmentNotes']);
     }
 
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
@@ -83,14 +83,14 @@ class InvoiceResource extends Resource
             : (string) $record->getKey();
     }
 
-    /** @return array<int, string> whose, how much and when due, on one line */
+    /** @return array<string, string> whose, how much and when due, on one line */
     public static function getGlobalSearchResultDetails(Model $record): array
     {
-        return !$record instanceof Invoice ? [] : array_values(array_filter([
-            $record->client !== null ? $record->client->name . ' #' . $record->client_id : null,
-            (string) $record->formattedTotal,
-            $record->due_at !== null ? __('Due Date') . ' ' . $record->due_at->format('d/m/Y') : null,
-        ]));
+        return !$record instanceof Invoice ? [] : array_filter([
+            __('Client') => $record->client !== null ? $record->client->name . ' #' . $record->client_id : null,
+            __('Total') => (string) $record->formattedTotal,
+            __('Due Date') => $record->due_at?->format('d/m/Y'),
+        ]);
     }
 
     // By id, as its URLs ({record:id}): Filament finds the record again on every request by this key, and the model's
