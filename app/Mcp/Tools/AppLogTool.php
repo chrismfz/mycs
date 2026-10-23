@@ -37,7 +37,8 @@ class AppLogTool extends McpTool
         $type = $request->get('type') === 'http' ? 'http' : 'error';
         $search = trim((string) $request->get('search'));
 
-        return ['type' => $type, 'entries' => DebugLog::query()->where('type', $type)
+        // Application errors are written as «exception» (bootstrap/app.php, the admin's Error Logs: review of #419).
+        return ['type' => $type, 'entries' => DebugLog::query()->where('type', $type === 'http' ? 'http' : 'exception')
             ->when($search !== '', fn ($query) => $query->where($type === 'http' ? 'context->url' : 'context->message', 'like', '%' . $search . '%'))
             ->latest('id')->limit(self::limit($request, 20, 100))->get()
             ->map(function (DebugLog $log) use ($type) {

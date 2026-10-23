@@ -5,6 +5,7 @@ namespace App\Mcp\Tools;
 use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
 use App\Services\Ops\Scrub;
+use App\Support\Redact;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection;
 use Laravel\Mcp\Request;
@@ -53,11 +54,14 @@ class RegistrarLogTool extends McpTool
      */
     public static function rows(Collection $logs): array
     {
-        $names = Domain::query()->whereIn('id', $logs->pluck('domain_id')->filter())->pluck('fqdn', 'id');
+        $domains = Domain::query()->whereIn('id', $logs->pluck('domain_id')->filter())->get(['id', 'fqdn', 'epp_code'])->keyBy('id');
+        // A registrar's error may repeat the domain's EPP code (an EPP <extValue>): masked, as its writers do (review of #419).
+        $error = fn (DomainRegistrarLog $log) => Redact::values((string) Scrub::text(mb_substr((string) $log->error, 0, 1000)),
+            array_filter([$domains[$log->domain_id]->epp_code ?? null])) ?: null;
 
         return $logs->map(fn (DomainRegistrarLog $log) => ['id' => $log->id, 'at' => $log->created_at?->toDateTimeString(),
-            'domain' => $names[$log->domain_id] ?? null, 'action' => $log->action, 'status' => $log->status,
-            'error' => Scrub::text(mb_substr((string) $log->error, 0, 1000)) ?: null, 'invoice_id' => $log->invoice_id,
+            'domain' => $domains[$log->domain_id]->fqdn ?? null, 'action' => $log->action, 'status' => $log->status,
+            'error' => $error($log), 'invoice_id' => $log->invoice_id,
             'by' => $log->staff_id ? 'staff #' . $log->staff_id : ($log->user_id ? 'user #' . $log->user_id : 'system')])->values()->all();
     }
 }

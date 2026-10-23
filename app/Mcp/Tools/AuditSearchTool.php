@@ -63,7 +63,7 @@ class AuditSearchTool extends McpTool
             'ip' => $audit->ip_address,
             // A secret field (a password, a token) by its name only; the rest masked as text, cut.
             'changes' => collect(AuditValue::modified($audit))->map(fn ($change, $field) => array_map(
-                fn ($value) => Redact::isSecretKey((string) $field) ? '********' : Scrub::text(mb_substr(AuditValue::text($value), 0, 500)), (array) $change))->all(),
+                fn ($value) => $field !== 'key' && Redact::isSecretKey((string) $field) ? '********' : Scrub::text(mb_substr(AuditValue::text($value), 0, 500)), (array) $change))->all(),
         ])->all()];
     }
 }

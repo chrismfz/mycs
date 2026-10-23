@@ -22,13 +22,13 @@ class TicketTool extends McpTool
 {
     public const MESSAGES = 100;
 
-    public const MAX_MESSAGES = 500;
+    public const MAX_MESSAGES = 200;
 
     public function schema(JsonSchema $schema): array
     {
         return [
             'ticket' => $schema->string()->description('Ticket id or reference (none: a list).'),
-            'messages' => $schema->integer()->description('Latest messages to show (default 100, at most 500).'),
+            'messages' => $schema->integer()->description('Latest messages to show (default 100, at most 200).'),
             'client' => $schema->integer()->description('For the list: one account\'s tickets.'),
             'status' => $schema->string()->description('For the list: one status (open, answered, customer-reply, closed…).'),
             'limit' => $schema->integer()->description('List size (default 20, at most 100).'),
@@ -61,7 +61,7 @@ class TicketTool extends McpTool
             'id' => $ticket->id, 'reference' => $ticket->reference, 'subject' => Scrub::text($ticket->subject), 'status' => $ticket->status,
             'priority' => $ticket->priority, 'department' => $ticket->department?->name, 'opened_via' => $ticket->opened_via,
             'account' => $ticket->client ? '#' . $ticket->client_id . ' ' . $ticket->client->name : null,
-            'guest' => $ticket->client_id === null ? trim($ticket->guest_name . ' <' . $ticket->guest_email . '>') : null,
+            'guest' => $ticket->client_id === null ? (trim((string) $ticket->guest_name . ($ticket->guest_email ? ' <' . $ticket->guest_email . '>' : '')) ?: 'guest') : null,
             'assigned_to' => $ticket->assignedTo instanceof Staff ? '#' . $ticket->assigned_to . ' ' . $ticket->assignedTo->name : null,
             'ccs' => $ticket->ccs->pluck('email')->all(), 'merged_into' => $ticket->merged_into_id, 'service' => $ticket->service ? '#' . $ticket->service_id . ' ' . ($ticket->service->product->name ?? '') : null,
             'created_at' => $ticket->created_at?->toDateTimeString(), 'updated_at' => $ticket->updated_at?->toDateTimeString(),

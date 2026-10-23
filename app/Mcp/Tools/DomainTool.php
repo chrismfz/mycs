@@ -6,6 +6,7 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
 use App\Services\Ops\NotFound;
 use App\Services\Ops\Scrub;
+use App\Support\Redact;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Server\Attributes\Description;
@@ -53,8 +54,10 @@ class DomainTool extends McpTool
             'contacts' => array_filter(['registrant' => $domain->registrant_handle, 'admin' => $domain->admin_handle, 'tech' => $domain->tech_handle, 'billing' => $domain->billing_handle]),
             'notes' => Scrub::text($domain->notes),
             'created_at' => $domain->created_at?->toDateTimeString(),
-            'last_synced_at' => $domain->last_synced_at === null ? null : (string) $domain->last_synced_at, 'sync_error' => Scrub::text($domain->sync_error),
-            'invoice_lines' => $domain->invoiceItems()->latest('id')->limit(10)->get()->map(fn ($line) => ['invoice_id' => $line->invoice_id,
+            'last_synced_at' => $domain->last_synced_at === null ? null : (string) $domain->last_synced_at,
+            'sync_error' => $domain->sync_error === null ? null : Redact::values((string) Scrub::text($domain->sync_error), array_filter([$domain->epp_code])),
+            // As the admin: invoices only to staff who may see them (review of #419).
+            'invoice_lines' => !$request->user()?->hasPermission('admin.invoices.viewAny') ? null : $domain->invoiceItems()->latest('id')->limit(10)->get()->map(fn ($line) => ['invoice_id' => $line->invoice_id,
                 'description' => $line->description, 'total' => (string) $line->line_total, 'period' => trim(($line->period_start?->toDateString() ?? '') . ' – ' . ($line->period_end?->toDateString() ?? ''), ' –')])->all(),
             'registrar_calls' => RegistrarLogTool::rows(DomainRegistrarLog::query()->where('domain_id', $domain->id)->latest('id')->limit(self::CALLS)->get()),
         ];
