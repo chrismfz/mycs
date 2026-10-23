@@ -17,7 +17,6 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationMana
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
-use App\Models\Currency;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -224,7 +223,7 @@ class InvoiceResource extends Resource
                         TableColumn::make(__('Select'))->hiddenHeaderLabel()->width('2.5rem'),
                         TableColumn::make(__('Description'))->markAsRequired(),
                         TableColumn::make(__('Qty'))->markAsRequired()->width('6rem'),
-                        TableColumn::make(__('Unit price'))->markAsRequired()->width('10rem'),
+                        TableColumn::make(__('Unit price'))->markAsRequired()->width('9rem'),
                         TableColumn::make(__('VAT'))->width('4rem')->alignment(Alignment::Center),
                         TableColumn::make(__('Amount'))->width('8rem')->alignment(Alignment::End),
                     ])
@@ -262,9 +261,7 @@ class InvoiceResource extends Resource
                         TextInput::make('price')
                             ->label('Price (before tax)')
                             ->hiddenLabel()
-                            // Grab invoice currency
-                            ->prefix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->prefix)
-                            ->suffix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->suffix)
+                            // No currency beside it: in the table it left the price no room (the amount shows it).
                             ->required()
                             ->numeric()
                             ->mask(RawJs::make(
