@@ -1120,5 +1120,7 @@
     "Imported as a new ticket": "Εισήχθη ως νέο ticket",
     "Imported as a reply": "Εισήχθη ως απάντηση",
     "Quarantined": "Σε καραντίνα",
-    "Blocked sender": "Αποκλεισμένος αποστολέας"
+    "Blocked sender": "Αποκλεισμένος αποστολέας",
+    "Suspend and terminate on": "Suspend και terminate τις μέρες",
+    "Suspend and terminate from": "Suspend και terminate από τις"
 }
