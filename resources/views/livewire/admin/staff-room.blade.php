@@ -1,7 +1,16 @@
 <div wire:poll.5s.visible class="flex h-full flex-col gap-3">
     @if ($canView)
+    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+        @if ($peer)
+        {{ __('Private with :name', ['name' => $peer->name]) }}
+        <span class="ms-2 text-xs font-normal text-gray-500 dark:text-gray-400">{{ __('Only the two of you read this.') }}</span>
+        @else
+        {{ __('Staff room') }}
+        @endif
+    </h3>
     {{-- Follows new messages while the reader is at the bottom; marks them seen only while the tab is in front. --}}
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
+        wire:key="staff-thread-{{ $thread->id }}"
         data-last-id="{{ (int) $messages->last()?->id }}"
         x-data="{
             atBottom: true,

@@ -3,7 +3,7 @@
         <x-filament::section :heading="__('Team')" class="lg:col-span-1">
             @livewire('admin.staff-team', key('mycs-staff-team'))
         </x-filament::section>
-        <x-filament::section :heading="__('Staff room')" class="lg:col-span-3">
+        <x-filament::section class="lg:col-span-3">
             @livewire('admin.staff-room', key('mycs-staff-room'))
         </x-filament::section>
     </div>
