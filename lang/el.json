@@ -1121,6 +1121,8 @@
     "Imported as a reply": "Εισήχθη ως απάντηση",
     "Quarantined": "Σε καραντίνα",
     "Blocked sender": "Αποκλεισμένος αποστολέας",
+    "Suspend and terminate on": "Suspend και terminate τις μέρες",
+    "Suspend and terminate from": "Suspend και terminate από τις",
     "System Cleanup": "Καθαρισμός συστήματος",
     "Apply retention now": "Εφαρμογή retention τώρα",
     "Deletes what each log keeps no longer, by its setting (as the daily cron does). Logs set to 0 are kept.": "Διαγράφει ό,τι κάθε log δεν κρατά πια, με βάση τη ρύθμισή του (όπως ο ημερήσιος cron). Όσα έχουν 0 κρατιούνται.",

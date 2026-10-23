@@ -9,7 +9,9 @@ use App\Models\Order;
 use App\Models\Service;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\ServerSelector;
+use App\Support\DunningWindow;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -80,6 +82,14 @@ class ServiceObserver
             self::refuseUnknownStatus($service); // a row that already holds one stays editable otherwise
         }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
+            // Back to active from a suspension for non-payment, with a suspension window set: not suspended again the same
+            // day (the hourly run would, within the hour, of a service staff just unsuspended: review of #411). A hold
+            // through today, as «Do not suspend until» shows it; tomorrow the rule applies as ever. Without a window the
+            // cron runs once a day, as before.
+            if ($service->status === Service::STATUS_ACTIVE && $service->getOriginal('dunning_suspended_at') !== null && !DunningWindow::always()
+                && ($service->suspend_hold_until === null || Carbon::parse($service->suspend_hold_until)->lt(Carbon::today()))) {
+                $service->suspend_hold_until = Carbon::today();
+            }
             $service->dunning_suspended_at = null;
             // Not suspended any more: its reason goes (WHMCS clears suspendreason on unsuspend).
             if ($service->getOriginal('status') === Service::STATUS_SUSPENDED && !$service->isDirty('suspend_reason')) {

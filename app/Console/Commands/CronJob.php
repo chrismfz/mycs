@@ -49,6 +49,7 @@ use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\DunningWindow;
 use App\Support\Retention;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -65,7 +66,7 @@ class CronJob extends Command
      *
      * @var string
      */
-    protected $signature = 'app:cron-job';
+    protected $signature = 'app:cron-job {--dunning-only : Only the suspensions and terminations, when their days and hours allow (the hourly run)}';
 
     /**
      * The console command description.
@@ -88,6 +89,9 @@ class CronJob extends Command
     /** @var list<int> services terminated for non-payment in this run (committed): the staff digest */
     private array $terminated = [];
 
+    /** When a daily run last got to the suspensions (the hourly run's gate). */
+    public const DUNNING_READY = 'cron_dunning_ready_at';
+
     /**
      * Execute the console command.
      */
@@ -95,17 +99,115 @@ class CronJob extends Command
     {
         // One run at a time (audit sweep BIL-16): a manual run overlapping the scheduled one would cancel orders and give
         // stock back twice. The lock outlives a crashed run by 2 hours at most.
+        if ($this->option('dunning-only') && DunningWindow::always()) {
+            return self::SUCCESS; // every day at any hour: the daily run does them, as before #411
+        }
         $lock = Cache::lock('app:cron-job', 7200);
         if (!$lock->get()) {
+            if ($this->option('dunning-only')) {
+                return self::SUCCESS; // the daily run is on: it does them, or the next hour does
+            }
             $this->error('Another cron run is in progress: not started.');
+            // Today's renewals, charges and reminders did not run: staff are told, not left to Health a day later (review
+            // of #411). Run it again by hand once the other run is over.
+            NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
+                The daily run found another run of the cron in progress (or the lock of one that crashed, for up to two hours) and did not start: today's invoices, charges and reminders are not done.<br>
+                Run it again once the other is over: <code>php artisan app:cron-job</code>.
+                HTML);
 
             return self::FAILURE;
         }
         try {
-            return $this->runSteps();
+            return $this->option('dunning-only') ? $this->runDunning() : $this->runSteps();
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * The hourly run (owner 2026-10-23): only the suspensions and terminations, and only inside their window and after
+     * today's daily run, so a daily run at night leaves them to the morning of a working day. What is due is done at the
+     * first hour the window opens; a later hour finds it done. Its counts are kept only when it did something; it is no
+     * daily run (last_cron_run).
+     */
+    private function runDunning(): int
+    {
+        // Every day at any hour: the daily run does them, as before. Otherwise only once a daily run of the last day has
+        // reached them (its payments finished, its renewals billed), whatever failed after (review of #411).
+        if (DunningWindow::always() || !DunningWindow::isOpen() || !self::dailyRunReachedDunning()) {
+            return self::SUCCESS;
+        }
+        Config::set('audit.console', true);
+        $this->failures = $this->notices = $this->suspended = $this->terminated = [];
+        WriteFailures::forget();
+
+        // Credit that came in since the daily run (a staff adjustment, a downgrade) pays first, as in the daily run: a
+        // customer with credit is not suspended while it sits unused (decision 5, review of #411).
+        $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
+            $this->failures["credit_applied user #{$userId}"] = $e;
+        }), transaction: false, quietWhenNone: true);
+        // The daily run may come later today (at 14:00, 22:00): what it does before the suspensions is done here first, so
+        // a card that pays today or a cancellation due today comes before a suspension (round 2 of #411). Each is once a
+        // day where it is done (AutoCharge per invoice, a cancellation ends its service): the daily run finds them done.
+        $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false, quietWhenNone: true);
+        if ($this->successFullCharges > 0) {
+            // In the dashboard's «Invoices Charged», as the daily run's (review of #411).
+            CronStat::create(['key' => 'invoice_charged', 'value' => $this->successFullCharges, 'date' => now()->toDateString()]);
+        }
+        $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
+        try {
+            SuspensionDigest::send($this->suspended, $this->terminated);
+        } catch (Throwable $e) {
+            report($e);
+        }
+        // Told once a day, not every hour the window is open (review of #411).
+        $once = fn (string $key) => Cache::add('cron-dunning-told:' . Carbon::today()->toDateString() . ':' . $key, true, 86400);
+        $notices = array_filter($this->notices, fn ($notice, string $key) => $once('notice:' . $key), ARRAY_FILTER_USE_BOTH);
+        if ($notices !== []) {
+            $text = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($notices), $notices)));
+            NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
+                The cron job left these for staff:<br>
+                <pre>{$text}</pre>
+                HTML);
+        }
+        if ($this->failures !== []) {
+            $failures = array_filter($this->failures, fn ($failure, string $key) => $once('failure:' . $key), ARRAY_FILTER_USE_BOTH);
+            if ($failures !== []) {
+                $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($failures), $failures)));
+                NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
+                    An error occurred while suspending or terminating services:<br>
+                    <pre>{$message}.</pre><br>
+                    Please check the system and application logs for more details.
+                    HTML);
+            }
+
+            return self::FAILURE;
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * A daily run of the last 24 hours got to the suspensions' place (DUNNING_READY, or a whole run: last_cron_run). An
+     * unreadable or future time counts as none: the hour waits (review of #411).
+     */
+    private static function dailyRunReachedDunning(): bool
+    {
+        $times = Setting::query()->whereIn('key', [self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)->pluck('value');
+        foreach ($times as $time) {
+            try {
+                $at = Carbon::parse((string) $time);
+            } catch (Throwable) {
+                continue;
+            }
+            if ($at->lte(Carbon::now()) && $at->gt(Carbon::now()->subDay())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function runSteps()
@@ -304,14 +406,7 @@ class CronJob extends Command
 
             // Saved payment methods are charged on the due date and declined charges tried again (PR H, decision 5): after
             // the renewals (one due today is charged in the same run), before the reminders and the suspensions.
-            $this->runCronJob('invoices_charged', function () {
-                $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
-                    $this->failures["invoices_charged #{$id}"] = $e;
-                });
-                $this->successFullCharges += $charged;
-
-                return $charged;
-            }, transaction: false);
+            $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false);
 
             // Saved payment methods expiring this month (PR H2b, WHMCS CCDaySendExpiryNotices).
             $this->runCronJob('card_expiry_notices', function () {
@@ -434,27 +529,7 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
-            $this->runCronJob('cancellations_processed', function ($number = 0) {
-                // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
-                // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
-                // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
-                // has no end of period; its request waits for staff.
-                $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
-                    ->where('expires_at', '<=', now()->endOfDay())
-                    ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
-                    ->orderBy('id')
-                    ->pluck('id');
-                foreach ($ids as $id) {
-                    try {
-                        $number += DB::transaction(fn () => $this->endAsRequested($id));
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["cancellations_processed #{$id}"] = $e;
-                    }
-                }
-
-                return $number;
-            }, transaction: false);
+            $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false);
 
             // Payment reminders before the due date and overdue notices (Σ4): before the suspensions, so a last notice
             // goes out before its service is suspended. Each invoice on its own.
@@ -467,88 +542,18 @@ class CronJob extends Command
                 $this->notices["domain_reminders #{$id}"] = new DisplayException("Domain #{$id}: its expiry notice could not be sent: {$e->getMessage()}. Tried again on the next run.");
             }), transaction: false);
 
-            $this->runCronJob('services_suspended', function ($number = 0) {
-                if (!config('settings.cronjob_suspend_enabled', true)) {
-                    return 0; // Enable Suspension off (as WHMCS)
-                }
-                // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
-                // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
-                // and a service past due with no open invoice is reported instead. Never while a payment is on its
-                // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
-                // hold that just committed).
-                $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
-                if ($requiresInvoice) {
-                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
-                    foreach ($notices as $id) {
-                        $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
-                    }
-                }
-                foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
-                    try {
-                        $done = DB::transaction(function () use ($id, $requiresInvoice) {
-                            $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
-                            if ($service === null) {
-                                return 0;
-                            }
-                            // Register before Service Updated listeners, but execute only after the status commits.
-                            SuspendJob::dispatch($service)->afterCommit();
-                            $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now(), 'suspend_reason' => 'Overdue on Payment'])->save();
+            // The hourly run may do them from here on: payments finished, renewals billed, credit applied. A failure in a
+            // step before or after (one domain, one invoice) no longer holds them back for the day (review of #411).
+            Setting::updateOrCreate(['key' => self::DUNNING_READY, 'settingable_type' => CronStat::class],
+                ['value' => now()->toDateTimeString(), 'type' => 'string']);
 
-                            return 1;
-                        });
-                        $number += $done;
-                        if ($done === 1) {
-                            $this->suspended[] = (int) $id;
-                        }
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["services_suspended #{$id}"] = $e;
-                    }
-                }
-
-                return $number;
-            }, transaction: false);
-
-            $this->runCronJob('services_terminated', function ($number = 0) {
-                if (!config('settings.cronjob_terminate_enabled', true)) {
-                    return 0; // Enable Termination off (as WHMCS)
-                }
-                // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
-                // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
-                // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
-                foreach ($this->terminable()->orderBy('id')->pluck('id') as $id) {
-                    try {
-                        $done = DB::transaction(function () use ($id) {
-                            $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
-                            if ($service === null) {
-                                return 0;
-                            }
-                            TerminateJob::dispatch($service)->afterCommit();
-                            $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
-                            // Only its own lines: an invoice imported from WHMCS bills every service due that day.
-                            // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
-                            $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
-                            // Those overdue past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
-                            $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
-                                __('invoices.cancellation_reasons.service_terminated'), $service);
-                            if ($service->product?->stock !== null) {
-                                $service->product->increment('stock', $service->quantity);
-                            }
-
-                            return 1;
-                        });
-                        $number += $done;
-                        if ($done === 1) {
-                            $this->terminated[] = (int) $id;
-                        }
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["services_terminated #{$id}"] = $e;
-                    }
-                }
-
-                return $number;
-            }, transaction: false);
+            // On the days and from the hour staff set (DunningWindow); otherwise the hourly run does them then.
+            if (DunningWindow::isOpen()) {
+                $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false);
+                $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false);
+            } else {
+                $this->info('Suspensions and terminations wait for their days and hours (Settings → Automation).');
+            }
 
             $this->runCronJob('tickets_closed', function ($number = 0) {
                 // Close tickets with no response for x days (0 disables, as WHMCS)
@@ -615,6 +620,10 @@ class CronJob extends Command
             }
 
             if ($this->notices !== []) {
+                // The hourly run does not tell them again today (review of #411).
+                foreach (array_keys($this->notices) as $key) {
+                    Cache::put('cron-dunning-told:' . Carbon::today()->toDateString() . ':notice:' . $key, true, 86400);
+                }
                 $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
                 NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
                     The cron job left these for staff:<br>
@@ -626,6 +635,11 @@ class CronJob extends Command
                 throw reset($this->failures);
             }
         } catch (Throwable $e) {
+            // It ran, with errors: Health and the Automation status say so, not «not run for days» (review of #411).
+            if ($this->failures !== []) {
+                Setting::updateOrCreate(['key' => 'last_cron_run', 'settingable_type' => CronStat::class],
+                    ['value' => now()->toDateTimeString(), 'type' => 'string']);
+            }
             $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($this->failures), $this->failures)) ?: $e->getMessage());
             NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
                 An error occurred while running the cron job:<br>
@@ -649,6 +663,128 @@ class CronJob extends Command
 
         $this->info('Successfully charged ' . $this->successFullCharges . ' invoices.');
 
+    }
+
+    /** Saved cards and agreements charged (AutoCharge: once a day per invoice): the daily run's step, and the hourly one's. */
+    private function chargeInvoices(): int
+    {
+        $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
+            $this->failures["invoices_charged #{$id}"] = $e;
+        });
+        $this->successFullCharges += $charged;
+
+        return $charged;
+    }
+
+    /** End-of-period cancellations ended on their day: the daily run's step, and the hourly one's. */
+    private function processCancellations(int $number = 0): int
+    {
+        // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
+        // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
+        // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
+        // has no end of period; its request waits for staff.
+        $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+            ->where('expires_at', '<=', now()->endOfDay())
+            ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
+            ->orderBy('id')
+            ->pluck('id');
+        foreach ($ids as $id) {
+            try {
+                $number += DB::transaction(fn () => $this->endAsRequested($id));
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["cancellations_processed #{$id}"] = $e;
+            }
+        }
+
+        return $number;
+    }
+
+    /** Suspend services Suspend Days past due: the daily run's step, and the hourly one's (DunningWindow). */
+    private function suspendServices(int $number = 0): int
+    {
+        if (!config('settings.cronjob_suspend_enabled', true)) {
+            return 0; // Enable Suspension off (as WHMCS)
+        }
+        // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
+        // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
+        // and a service past due with no open invoice is reported instead. Never while a payment is on its
+        // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
+        // hold that just committed).
+        $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
+        if ($requiresInvoice) {
+            $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
+            foreach ($notices as $id) {
+                $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
+            }
+        }
+        foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
+            try {
+                $done = DB::transaction(function () use ($id, $requiresInvoice) {
+                    $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
+                    if ($service === null) {
+                        return 0;
+                    }
+                    // Register before Service Updated listeners, but execute only after the status commits.
+                    SuspendJob::dispatch($service)->afterCommit();
+                    $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now(), 'suspend_reason' => 'Overdue on Payment'])->save();
+
+                    return 1;
+                });
+                $number += $done;
+                if ($done === 1) {
+                    $this->suspended[] = (int) $id;
+                }
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["services_suspended #{$id}"] = $e;
+            }
+        }
+
+        return $number;
+    }
+
+    /** Terminate services Termination Days past due: the daily run's step, and the hourly one's (DunningWindow). */
+    private function terminateServices(int $number = 0): int
+    {
+        if (!config('settings.cronjob_terminate_enabled', true)) {
+            return 0; // Enable Termination off (as WHMCS)
+        }
+        // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
+        // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
+        // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
+        foreach ($this->terminable()->orderBy('id')->pluck('id') as $id) {
+            try {
+                $done = DB::transaction(function () use ($id) {
+                    $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
+                    if ($service === null) {
+                        return 0;
+                    }
+                    TerminateJob::dispatch($service)->afterCommit();
+                    $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
+                    // Only its own lines: an invoice imported from WHMCS bills every service due that day.
+                    // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
+                    $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
+                    // Those overdue past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
+                    $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+                        __('invoices.cancellation_reasons.service_terminated'), $service);
+                    if ($service->product?->stock !== null) {
+                        $service->product->increment('stock', $service->quantity);
+                    }
+
+                    return 1;
+                });
+                $number += $done;
+                if ($done === 1) {
+                    $this->terminated[] = (int) $id;
+                }
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["services_terminated #{$id}"] = $e;
+            }
+        }
+
+        return $number;
     }
 
     /**
@@ -749,6 +885,7 @@ class CronJob extends Command
         $cutoff = today()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
         $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
             ->whereDate('expires_at', '<', $cutoff)
+
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
 
         return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
@@ -954,7 +1091,7 @@ class CronJob extends Command
     /**
      * Function to run a specific cron job by its key.
      */
-    private function runCronJob(string $key, callable $callback, bool $transaction = true): void
+    private function runCronJob(string $key, callable $callback, bool $transaction = true, bool $quietWhenNone = false): void
     {
         try {
             $items = ($transaction ? DB::transaction(fn () => $callback()) : $callback()) ?? 0;
@@ -963,6 +1100,9 @@ class CronJob extends Command
             $this->failures[$key] = $e;
 
             return;
+        }
+        if ($quietWhenNone && $items === 0) {
+            return; // an hourly run that found nothing: no row for it
         }
 
         CronStat::create([

@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command(ScheduleHeartbeatCommand::class)->description('Updates the last scheduler run time')->everyMinute()->onOneServer();
 Schedule::command(CronJob::class)->description('Runs daily to send out invoices, suspend servers, etc.')->dailyAt(config('settings.cronjob_time', '09:00'))->withoutOverlapping(120)->onOneServer();
+// Suspensions and terminations on their days and from their hour (Settings → Automation): the daily run may be at night.
+Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 // The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. Before the
 // cron's run, so it sees the night's payments and yesterday's run. One task of the scheduler to come (ROADMAP).

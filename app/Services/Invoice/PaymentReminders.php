@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
+use App\Support\DunningWindow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -237,7 +238,8 @@ class PaymentReminders
             ->filter(fn (Service $service) => $service->status === Service::STATUS_ACTIVE && $service->plan_id !== null && $service->expires_at !== null
                 && !in_array($service->plan?->type, ['free', 'one-time'], true))
             ->map(function (Service $service) use ($days) {
-                $day = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
+                // On the first day the suspensions' window allows (Settings → Automation: no weekend, say).
+                $day = DunningWindow::firstDayFrom(Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1));
                 $held = $service->suspend_hold_until !== null && !Carbon::parse($service->suspend_hold_until)->lt($day);
 
                 return $held || $day->lte(Carbon::today()) ? null : $day;

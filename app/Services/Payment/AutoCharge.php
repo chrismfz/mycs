@@ -11,8 +11,10 @@ use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Support\DunningWindow;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -91,7 +93,8 @@ final class AutoCharge
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')->where('no_auto_charge', false)
             ->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
             // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
-            ->whereDate('due_at', '>=', $today->subDays(self::window())->toDateString())
+            // A suspension window (Settings → Automation) postpones a suspension 6 days at most: those days are in it too.
+            ->whereDate('due_at', '>=', $today->subDays(self::window() + (DunningWindow::always() ? 0 : 7))->toDateString())
             ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereNotNull('default_billing_agreement_id'))
             // A renewal: of a service, or of a domain (D5b); none of an ended domain.
             ->whereHas('items', fn ($items) => $items->whereIn('reference_type', [Service::class, Domain::class]))
@@ -119,7 +122,12 @@ final class AutoCharge
             return false; // once a day, also when the cron runs twice
         }
         $offset = (int) $invoice->due_at->startOfDay()->diffInDays($today, false);
-        if ((clone $cron)->exists() && !self::retryOn($offset)) {
+        $postponed = self::postponedSuspendDays($invoice);
+        if ($offset > max($postponed, self::window())) {
+            return false; // past its window (the query's is wider while a suspension window may postpone it)
+        }
+        // The days a suspension window adds (no weekend, say) are tried every day, up to the morning it suspends.
+        if ((clone $cron)->exists() && !self::retryOn($offset) && !($offset > self::suspendDays() && $offset <= $postponed)) {
             return false;
         }
 
@@ -140,7 +148,7 @@ final class AutoCharge
         // The customer hears of it on the first decline, the last try before suspension and when the bank asks them to
         // confirm: not on every daily retry (Π7.7).
         $first = (clone $cron)->whereIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED])->count() === 1;
-        if ($first || $offset === self::lastTry() || $attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
+        if ($first || $offset === self::lastTry($postponed) || $attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
             NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
         }
         $max = max(0, (int) config('settings.autocharge_max_failures', 0));
@@ -197,10 +205,32 @@ final class AutoCharge
         return max(self::suspendDays(), ...[0, ...self::retryDays()]);
     }
 
-    /** The day of the last try before the suspension: the day before it, or the last retry day set before it (ADV-8). */
-    private static function lastTry(): int
+    /**
+     * The offset of the day its suspension really comes when a suspension window postpones it (owner 2026-10-23: no
+     * weekend), so the card is tried up to that morning; the nominal Suspend Days otherwise (review of #411).
+     */
+    private static function postponedSuspendDays(Invoice $invoice): int
     {
         $suspend = self::suspendDays();
+        if (DunningWindow::always()) {
+            return $suspend;
+        }
+        $due = Carbon::parse($invoice->due_at)->startOfDay();
+        $nominal = $due->copy()->addDays($suspend + 1);
+        $later = (int) $nominal->diffInDays(DunningWindow::firstDayFrom($nominal));
+
+        return $later === 0 ? $suspend : $suspend + 1 + $later;
+    }
+
+    /** The day of the last try before the suspension: the day before it, or the last retry day set before it (ADV-8). */
+    private static function lastTry(?int $suspend = null): int
+    {
+        // A suspension a window postponed is tried every day up to its morning: that morning is the last try (round 4
+        // of #411), whatever the retry days.
+        if ($suspend !== null && $suspend > self::suspendDays()) {
+            return $suspend;
+        }
+        $suspend ??= self::suspendDays();
         $days = self::retryDays();
         if ($days === []) {
             return $suspend;
