@@ -56,8 +56,9 @@ class RegistrarLogTool extends McpTool
     {
         $domains = Domain::query()->whereIn('id', $logs->pluck('domain_id')->filter())->get(['id', 'fqdn', 'epp_code'])->keyBy('id');
         // A registrar's error may repeat the domain's EPP code (an EPP <extValue>): masked, as its writers do (review of #419).
-        $error = fn (DomainRegistrarLog $log) => Redact::values((string) Scrub::text(mb_substr((string) $log->error, 0, 1000)),
-            array_filter([$domains[$log->domain_id]->epp_code ?? null])) ?: null;
+        // Masked first, then cut: a code across the cut would show its start (review of #419).
+        $error = fn (DomainRegistrarLog $log) => mb_substr(Redact::values((string) Scrub::text((string) $log->error),
+            array_filter([$domains[$log->domain_id]->epp_code ?? null])), 0, 1000) ?: null;
 
         return $logs->map(fn (DomainRegistrarLog $log) => ['id' => $log->id, 'at' => $log->created_at?->toDateTimeString(),
             'domain' => $domains[$log->domain_id]->fqdn ?? null, 'action' => $log->action, 'status' => $log->status,

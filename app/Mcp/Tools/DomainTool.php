@@ -52,7 +52,7 @@ class DomainTool extends McpTool
             'nameservers' => $domain->nameservers->sortBy('sort')->pluck('host')->values()->all(),
             'registrar_domain_id' => $domain->registrar_domain_id, 'idn_script' => $domain->idn_script,
             'contacts' => array_filter(['registrant' => $domain->registrant_handle, 'admin' => $domain->admin_handle, 'tech' => $domain->tech_handle, 'billing' => $domain->billing_handle]),
-            'notes' => Scrub::text($domain->notes),
+            'notes' => $domain->notes === null ? null : Redact::values((string) Scrub::text($domain->notes), array_filter([$domain->epp_code])),
             'created_at' => $domain->created_at?->toDateTimeString(),
             'last_synced_at' => $domain->last_synced_at === null ? null : (string) $domain->last_synced_at,
             'sync_error' => $domain->sync_error === null ? null : Redact::values((string) Scrub::text($domain->sync_error), array_filter([$domain->epp_code])),
