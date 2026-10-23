@@ -48,15 +48,36 @@
         <div class="bg-background-secondary rounded-lg p-4">
             <!-- Two factor authentication -->
             <h5 class="text-lg font-bold pb-3">{{ __('account.two_factor_authentication') }}</h5>
+            @if (session()->has('recovery_used'))
+            <p class="text-sm text-warning mb-3">{{ __('account.recovery_code_used', ['remaining' => trans_choice('account.recovery_codes_remaining', (int) session('recovery_used'))]) }}</p>
+            @endif
+            @if ($recoveryCodes !== [])
+            {{-- Shown once (RecoveryCodes): never stored as they are. --}}
+            <div class="mb-4 p-3 rounded-md border border-warning">
+                <p class="font-semibold">{{ __('account.recovery_codes') }}</p>
+                <p class="text-sm text-primary-100 mt-1">{{ __('account.recovery_codes_description') }}</p>
+                <pre class="mt-2 grid grid-cols-2 gap-x-6 font-mono text-sm select-all">@foreach ($recoveryCodes as $code){{ $code }}
+@endforeach</pre>
+                <x-button.secondary wire:click="hideRecoveryCodes" class="mt-3 !w-fit">{{ __('account.recovery_codes_saved') }}</x-button.secondary>
+            </div>
+            @endif
             @if ($twoFactorEnabled)
             <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_enabled') }}</p>
+            <p class="text-sm text-base/60 mt-1">{{ trans_choice('account.recovery_codes_remaining', \App\Support\RecoveryCodes::remaining(auth()->user())) }}</p>
+            <form wire:submit.prevent="regenerateRecoveryCodes" class="mt-4 flex flex-col gap-2">
+                <p class="text-sm text-primary-100">{{ __('account.recovery_codes_regenerate_description') }}</p>
+                <x-form.input name="recovery_password" type="password" :label="__('account.input.current_password')"
+                    wire:model="recovery_password" autocomplete="current-password" required />
+                <x-button.secondary class="w-full" type="submit">{{ __('account.recovery_codes_regenerate') }}</x-button.secondary>
+            </form>
             {{-- Off only with the password and a code from the app (AUTHN-1). --}}
             <form wire:submit.prevent="disableTwoFactor" class="mt-4 flex flex-col gap-2">
                 <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_disable_description') }}</p>
                 <x-form.input name="disable_password" type="password" :label="__('account.input.current_password')"
                     wire:model="disable_password" autocomplete="current-password" required />
                 <x-form.input name="disable_code" type="text" :label="__('account.input.two_factor_code')"
-                    :placeholder="__('account.input.two_factor_code_placeholder')" wire:model="disable_code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required />
+                    :placeholder="__('account.input.two_factor_code_placeholder')" wire:model="disable_code" autocomplete="one-time-code" required />
+                <p class="text-xs text-base/60">{{ __('account.two_factor_disable_code_hint') }}</p>
                 <x-button.primary class="w-full" type="submit">
                     {{ __('account.two_factor_authentication_disable') }}
                 </x-button.primary>

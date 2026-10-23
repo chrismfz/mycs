@@ -6,6 +6,7 @@ use App\Livewire\Component;
 use App\Models\UserSession;
 use App\Support\Actor;
 use App\Support\Reauth;
+use App\Support\RecoveryCodes;
 use App\Support\Totp;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -33,6 +34,12 @@ class Security extends Component
     public $showEnableTwoFactor = false;
 
     public string $twoFactorCode = '';
+
+    /** The recovery codes just made: shown once, then gone from the page (RecoveryCodes). @var list<string> */
+    #[Locked]
+    public array $recoveryCodes = [];
+
+    public string $recovery_password = '';
 
     public function mount()
     {
@@ -95,6 +102,8 @@ class Security extends Component
                 ]);
 
                 $this->notify(__('account.notifications.two_factor_enabled'));
+                // Its recovery codes, shown once now: the way back in without the app.
+                $this->recoveryCodes = RecoveryCodes::regenerate(Auth::user());
 
                 $this->twoFactorEnabled = true;
                 $this->showEnableTwoFactor = false;
@@ -136,7 +145,11 @@ class Security extends Component
             return $this->notify(__('Too many attempts. Try again in :minutes minutes.', [
                 'minutes' => (int) ceil(RateLimiter::availableIn(Totp::limitKey($user)) / 60)]), 'error');
         }
-        if (!Totp::accept($user, $user->tfa_secret, $this->disable_code)) {
+        // A code from the app, or one of the recovery codes (the app lost).
+        $accepted = RecoveryCodes::looksLikeOne($this->disable_code)
+            ? RecoveryCodes::consume($user, $this->disable_code)
+            : Totp::accept($user, $user->tfa_secret, $this->disable_code);
+        if (!$accepted) {
             return $this->notify(__('account.notifications.two_factor_code_incorrect'), 'error');
         }
         $this->reset('disable_password', 'disable_code');
@@ -148,6 +161,30 @@ class Security extends Component
         $this->notify(__('account.notifications.two_factor_disabled'));
 
         $this->twoFactorEnabled = false;
+    }
+
+    /** New recovery codes (the old ones stop working): with the password, while 2FA is on. */
+    public function regenerateRecoveryCodes()
+    {
+        if (Actor::impersonating()) {
+            return $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+        }
+        $user = Auth::user();
+        if (!$user->tfa_secret) {
+            return;
+        }
+        if (($refusal = Reauth::refusal($user, $this->recovery_password)) !== null) {
+            return $this->notify($refusal, 'error');
+        }
+        $this->reset('recovery_password');
+        $this->recoveryCodes = RecoveryCodes::regenerate($user);
+        $this->notify(__('account.notifications.recovery_codes_regenerated'));
+    }
+
+    /** The codes written down: off the page. */
+    public function hideRecoveryCodes(): void
+    {
+        $this->recoveryCodes = [];
     }
 
     public function logoutSession(UserSession $session)
