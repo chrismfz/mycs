@@ -34,6 +34,15 @@ class StaffChat
         return $staff !== null && StaffPresence::mayBeOnline($staff) && $staff->hasPermission('admin.staff_chat.view');
     }
 
+    /**
+     * Someone a member may write to: active, with a role and the chat. Not yet past the mandatory 2FA set-up is fine:
+     * they read it once they are (owner 2026-10-23: new colleagues could not be messaged before their first login).
+     */
+    public static function reachable(Staff $peer): bool
+    {
+        return $peer->active && $peer->role_id !== null && $peer->hasPermission('admin.staff_chat.view');
+    }
+
     public static function canPost(?Staff $staff): bool
     {
         return self::canView($staff) && $staff?->hasPermission('admin.staff_chat.post');
@@ -50,7 +59,7 @@ class StaffChat
      */
     public static function direct(Staff $me, Staff $peer): ?StaffThread
     {
-        if ($me->id === $peer->id || !self::canView($me) || !self::canView($peer)) {
+        if ($me->id === $peer->id || !self::canView($me) || !self::reachable($peer)) {
             return null;
         }
         $thread = self::thread(self::DIRECT, self::pairKey($me->id, $peer->id));
@@ -156,7 +165,7 @@ class StaffChat
         $peerId = DB::table('staff_thread_members')->where('thread_id', $thread->id)->where('staff_id', '!=', $staff->id)->value('staff_id');
         $peer = $peerId === null ? null : Staff::query()->find($peerId);
 
-        return $peer !== null && self::canView($peer) ? $peer : null;
+        return $peer !== null && self::reachable($peer) ? $peer : null;
     }
 
     public static function markRead(Staff $staff, StaffThread $thread, ?int $upTo = null): void
