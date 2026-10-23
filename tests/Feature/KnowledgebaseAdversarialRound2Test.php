@@ -31,7 +31,7 @@ class KnowledgebaseAdversarialRound2Test extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['settings.app_language' => 'el', 'settings.allowed_languages' => ['el', 'en'], 'settings.default_currency' => 'EUR']);
+        $this->storeSettings(['app_language' => 'el', 'allowed_languages' => ['el', 'en'], 'default_currency' => 'EUR']);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         app()->setLocale('el');
         Http::preventStrayRequests();

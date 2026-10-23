@@ -5,6 +5,7 @@ namespace Tests;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
@@ -38,6 +39,22 @@ abstract class TestCase extends BaseTestCase
         if (!is_dir(storage_path('app/tickets/uploads'))) {
             @mkdir(storage_path('app/tickets/uploads'), 0755, true);
         }
+    }
+
+    /**
+     * Settings as rows, read back into config. A config() set in setUp() does not last: in the first test of a process
+     * the seeder saves settings, and their flush (FlushCacheListener) reloads them from the database when the test's
+     * first request terminates.
+     *
+     * @param  array<string, mixed>  $settings
+     */
+    protected function storeSettings(array $settings): void
+    {
+        foreach ($settings as $key => $value) {
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null],
+                is_array($value) ? ['value' => json_encode($value), 'type' => 'array'] : ['value' => $value, 'type' => 'string']);
+        }
+        SettingsProvider::reload();
     }
 
     /**
