@@ -36,8 +36,12 @@ class LicenseResource extends Resource
             ->defaultSort('last_access', 'desc')
             ->columns([
                 // The whole key opens the customer's software (a bearer value): only to staff who can change services, the
-                // others see it as the MCP does, prefix…last4 (security audit SA-11). The search still finds it whole.
-                TextColumn::make('license_key')->label('Key')->searchable()->fontFamily('mono')
+                // others see it as the MCP does, prefix…last4 (security audit SA-11), and find it only by the whole key: a part
+                // of it would tell the hidden middle one character at a time (review of #368).
+                TextColumn::make('license_key')->label('Key')->fontFamily('mono')
+                    ->searchable(query: fn (Builder $query, string $search) => auth()->user()?->hasPermission('admin.services.update')
+                        ? $query->where('license_key', 'like', "%{$search}%")
+                        : $query->where('license_key', trim($search)))
                     ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state))
                     ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
                 TextColumn::make('service.client.name')->label('Client'),
