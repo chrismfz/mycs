@@ -11,6 +11,7 @@
         {{ __('Staff room') }}
         @endif
     </h3>
+    @error('with') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror
     {{-- Follows new messages while the reader is at the bottom; marks them seen only while the tab is in front. --}}
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         wire:key="staff-thread-{{ $thread->id }}"

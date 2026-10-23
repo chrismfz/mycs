@@ -192,4 +192,33 @@ class StaffDirectMessagesTest extends TestCase
             ->assertDontSeeHtml('wire:submit="send"');
         $this->assertSame(1, StaffThread::query()->where('kind', StaffChat::DIRECT)->count(), 'opening it made nothing new');
     }
+
+    /** Owner 2026-10-23: a new colleague who has not set up 2FA yet can be written to, and reads it once they have. */
+    public function test_a_colleague_before_their_2fa_set_up_receives_and_reads_once_set_up(): void
+    {
+        $me = $this->member();
+        $new = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'N' . uniqid(), 'permissions' => self::ALL])->id]);
+        $this->actAs($me);
+
+        Livewire::test(StaffRoom::class)->call('open', $new->id)->assertHasNoErrors()
+            ->assertSee(__('Private with :name', ['name' => $new->name]))
+            ->set('body', 'welcome aboard')->call('send')->assertHasNoErrors();
+
+        $this->assertFalse(StaffChat::canView($new), 'not past 2FA yet: they read nothing');
+        $this->assertSame([], StaffChat::unreadByThread($new));
+
+        $new->forceFill(['app_authentication_secret' => 'JBSWY3DPEHPK3PXP'])->save();
+        $this->assertSame([$me->id => 1], StaffChat::unreadByThread($new->fresh()));
+    }
+
+    /** Owner 2026-10-23: opening someone who cannot be written to says so, instead of quietly staying in the room. */
+    public function test_opening_someone_without_the_chat_says_why(): void
+    {
+        $me = $this->member();
+        $noChat = $this->member(['admin.tickets.viewAny']);
+        $this->actAs($me);
+
+        Livewire::test(StaffRoom::class)->call('open', $noChat->id)
+            ->assertHasErrors('with')->assertSee(__('This member cannot receive messages in the staff chat.'));
+    }
 }
