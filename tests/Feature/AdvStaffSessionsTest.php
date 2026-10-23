@@ -132,9 +132,13 @@ class AdvStaffSessionsTest extends TestCase
         $this->app['auth']->forgetGuards();
 
         $admin = $this->staff(['admin.staff.viewAny', 'admin.staff.sessions']);
+        // The admin works from another browser: its own session, not the one that gave the consent.
+        $this->app['session.store']->forget(StaffSessions::SESSION_KEY);
+        $this->app['session.store']->setId(str_repeat('b', 40));
         Livewire::actingAs($admin, 'staff')->test(StaffSessionList::class, ['staffId' => $staff->id])->call('endOthers');
 
-        $this->assertNotNull(StaffSession::query()->sole()->ended_at);
+        // The consent's own session has a row too now (fix of #375): every one of them is ended.
+        $this->assertSame(0, StaffSession::query()->whereNull('ended_at')->count());
         $this->assertNotNull(McpOauthGrant::query()->sole()->revoked_at, 'the MCP grant approved by the ended login is still live');
     }
 

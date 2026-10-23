@@ -267,4 +267,21 @@ class StaffSessionsTest extends TestCase
 
         $this->assertNull(session('marker'));
     }
+
+    /** One laptop's older remembered row, its session gone: ended with the newest, its connector too (review of #375). */
+    public function test_ending_a_session_also_ends_dead_remembered_rows_and_their_connectors(): void
+    {
+        $staff = $this->member();
+        $older = $this->otherSession($staff, ['session_id' => 'long-gone', 'remembered' => true, 'created_at' => now()->subDays(9), 'last_seen_at' => now()->subDays(8)]);
+        $newest = $this->otherSession($staff, ['session_id' => 'live-one', 'remembered' => true]);
+        $alive = $this->otherSession($staff, ['session_id' => 'still-here', 'remembered' => true]);
+        $this->app['session']->driver()->getHandler()->write('still-here', serialize(['x' => 1]));
+        $grant = $this->grant($staff, $older->ulid);
+
+        StaffSessions::end($staff, [$newest], $staff, request());
+
+        $this->assertNotNull($older->fresh()->ended_at);
+        $this->assertNotNull($grant->fresh()->revoked_at);
+        $this->assertNull($alive->fresh()->ended_at, 'a remembered browser whose session is alive is listed until ended');
+    }
 }

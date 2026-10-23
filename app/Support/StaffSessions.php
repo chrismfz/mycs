@@ -148,6 +148,16 @@ final class StaffSessions
         $since = null;
         $ulids = [];
         $currentId = self::store($request)->getId();
+        $sessions = collect($sessions)->values();
+        if ($sessions->isNotEmpty()) {
+            // The member's other remembered rows whose session is gone from the store: only «remember me» could bring
+            // them back, and its token is rotated below. Ended with the rest, so nothing they approved outlives them
+            // (one laptop leaves a row per remembered return: review of #375).
+            $handler = self::store($request)->getHandler();
+            $sessions = $sessions->merge(self::open($staff)->where('remembered', true)->whereNotIn('ulid', $sessions->pluck('ulid'))->get()
+                ->filter(fn (StaffSession $row) => $row->session_id !== $currentId && $row->ulid !== self::store($request)->get(self::SESSION_KEY)
+                    && (!is_string($row->session_id) || $row->session_id === '' || (string) $handler->read($row->session_id) === '')));
+        }
         foreach ($sessions as $row) {
             if ($row->staff_id !== $staff->id || $row->ended_at !== null) {
                 continue;
