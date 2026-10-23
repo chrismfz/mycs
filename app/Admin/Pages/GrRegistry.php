@@ -200,10 +200,12 @@ class GrRegistry extends Page
      */
     private function hosts(): Collection
     {
-        // Read with none (hosts: []) never fill the limit (ADV-3 of #394); .gr and .ελ.
-        return Domain::query()->where('meta->child_hosts->hosts', 'like', '%name%')
+        // Read with none (hosts: []) never fill the limit (ADV-3 of #394): sifted here, not by a JSON «like», which
+        // MariaDB and SQLite read differently; .gr and .ελ, a few hundred at most.
+        return Domain::query()->whereNotNull('meta->child_hosts')
             ->where(fn ($q) => $q->whereIn('tld', ['gr', 'ελ'])->orWhere('tld', 'like', '%.gr'))
-            ->orderBy('fqdn')->limit(50)->get()
+            ->orderBy('fqdn')->lazy(200)
+            ->filter(fn (Domain $domain) => ($domain->meta['child_hosts']['hosts'] ?? []) !== [])->take(50)->collect()
             ->flatMap(fn (Domain $domain) => collect($domain->meta['child_hosts']['hosts'] ?? [])->map(fn ($host) => [
                 'host' => (string) ($host['name'] ?? $host['host'] ?? ''),
                 'addresses' => array_values(array_map('strval', (array) ($host['addresses'] ?? []))),
