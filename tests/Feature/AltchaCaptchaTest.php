@@ -181,4 +181,18 @@ class AltchaCaptchaTest extends TestCase
             ->set('captcha', $this->solve($this->challenge()))->assertHasNoErrors('captcha')->assertDontSee(__('auth.captcha_required'))
             ->call('submit')->assertHasNoErrors('captcha');
     }
+
+    /**
+     * Owner 2026-10-23: no form ever passed. Livewire 4 sends the live $wire.set of the solution as a «$set» call, and the
+     * widget's reset after a sent form took it for one: the solution was cleared the moment it was found. The reset
+     * skips Livewire's own «$» calls (the widget's script; a browser runs it, so its text is what is checked here).
+     */
+    public function test_the_widget_resets_only_after_a_form_is_sent_not_after_its_own_set(): void
+    {
+        $script = (string) file_get_contents(resource_path('views/components/captcha/altcha.blade.php'));
+
+        $this->assertStringContainsString("\$wire.set('captcha', ev.detail.payload)", $script);
+        $this->assertStringContainsString(".some((call) => !String(call.method ?? '').startsWith('$'))", $script);
+        $this->assertStringNotContainsString('if (!(commit.calls ?? []).length)', $script);
+    }
 }

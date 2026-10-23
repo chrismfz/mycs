@@ -13,7 +13,7 @@
 <script>
     const widget = $wire.$el.querySelector('altcha-widget');
     // Solved: the payload is sent now, so the error of the try before goes (Captchable::updated); counted only when the
-    // form is sent (an update calls no action).
+    // form is sent.
     widget.addEventListener('statechange', (ev) => {
         if (ev.detail.state === 'verified') {
             $wire.set('captcha', ev.detail.payload);
@@ -21,8 +21,10 @@
     });
     // A solution counts once: after this form was sent (a failed login, a validation error) solve a new one. Only this
     // component's requests that call an action, not a live field's update (code review of #222); cleaned up with it.
+    // Livewire 4 sends a live $wire.set as a «$set» call: not the form sent, so never this reset (owner 2026-10-23: the
+    // solution was cleared the moment it was found, and no form ever passed).
     $wire.$hook('commit', ({ commit, succeed }) => {
-        if (!(commit.calls ?? []).length) {
+        if (!(commit.calls ?? []).some((call) => !String(call.method ?? '').startsWith('$'))) {
             return;
         }
         succeed(() => {
