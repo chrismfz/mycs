@@ -596,7 +596,7 @@ class CronJob extends Command
             $this->runCronJob('email_logs_deleted', fn () => ($days = Retention::days('email_logs')) > 0
                 ? Retention::pruneBefore('email_logs', now()->subDays($days)) : 0, transaction: false);
             // The other logs by their own settings (Settings → Cronjob → Data Retention).
-            $this->runCronJob('logs_pruned', fn () => array_sum(array_diff_key(Retention::pruneAll(), ['email_logs' => 0])), transaction: false);
+            $this->runCronJob('logs_pruned', fn () => array_sum(Retention::pruneAll(except: ['email_logs'])), transaction: false);
 
             // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
             // they want kept. Before the notices mail (its failure would skip this), and also on a run with failures:

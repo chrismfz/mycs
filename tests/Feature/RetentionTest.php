@@ -73,8 +73,9 @@ class RetentionTest extends TestCase
     {
         Storage::fake(TicketQuarantine::DISK);
         Storage::disk(TicketQuarantine::DISK)->put('quarantine/raw.eml', 'raw');
-        $row = TicketQuarantine::query()->create(['reason' => 'spam', 'raw_path' => 'quarantine/raw.eml', 'status' => 'pending']);
-        DB::table('ticket_quarantine')->where('id', $row->id)->update(['created_at' => now()->subDays(100)]);
+        // Handled by staff 100 days ago (pending mail is kept: AdvRetentionTest).
+        $row = TicketQuarantine::query()->create(['reason' => 'spam', 'raw_path' => 'quarantine/raw.eml', 'status' => 'released']);
+        DB::table('ticket_quarantine')->where('id', $row->id)->update(['created_at' => now()->subDays(120), 'handled_at' => now()->subDays(100)]);
 
         Retention::pruneBefore('ticket_quarantine', now()->subDays(90));
 
@@ -122,6 +123,8 @@ class RetentionTest extends TestCase
             $attachment = TicketMessageAttachment::query()->create(['ticket_message_id' => $message->id, 'path' => $path, 'filename' => 'f.txt', 'filesize' => 4, 'mime_type' => 'text/plain']);
             // Its last activity, after the message touched it.
             DB::table('tickets')->where('id', $ticket->id)->update(['status' => $status, 'updated_at' => now()->subDays($daysAgo)]);
+            DB::table('ticket_messages')->where('id', $message->id)->update(['created_at' => now()->subDays($daysAgo)]);
+            DB::table('ticket_message_attachments')->where('id', $attachment->id)->update(['created_at' => now()->subDays($daysAgo)]);
 
             return [$message, $attachment];
         };

@@ -103,13 +103,11 @@ class SystemCleanup extends Page
                 $key = (string) ($arguments['key'] ?? '');
                 abort_unless(array_key_exists($key, Retention::logs()), 404);
                 $before = Carbon::parse($data['before'])->startOfDay();
-                $deleted = 0;
-                do {
-                    $batch = Retention::pruneBefore($key, $before);
-                    $deleted += $batch;
-                } while ($batch >= Retention::MAX_PER_RUN);
+                // One run's worth a click (as the cron's): millions of rows never hold a web request past its time.
+                $deleted = Retention::pruneBefore($key, $before);
                 self::record($key, $deleted, $before);
-                Notification::make()->success()->title(__(':count entries deleted.', ['count' => $deleted]))->send();
+                Notification::make()->success()->title(__(':count entries deleted.', ['count' => $deleted]))
+                    ->body($deleted >= Retention::MAX_PER_RUN ? __('More remain: run it again.') : null)->send();
             });
     }
 
@@ -129,13 +127,17 @@ class SystemCleanup extends Page
             ->action(function (array $data) {
                 $before = Carbon::parse($data['before'])->startOfDay();
                 $deleted = 0;
+                // Closed, and quiet since: no message of any kind (an internal note touches no ticket) and the file itself
+                // older (review of #410).
                 TicketMessageAttachment::query()
-                    ->whereHas('ticketMessage.ticket', fn ($ticket) => $ticket->where('status', Ticket::STATUS_CLOSED)->where('updated_at', '<', $before))
+                    ->where('created_at', '<', $before)
+                    ->whereHas('ticketMessage.ticket', fn ($ticket) => $ticket->where('status', Ticket::STATUS_CLOSED)->where('updated_at', '<', $before)
+                        ->whereDoesntHave('messages', fn ($messages) => $messages->where('created_at', '>=', $before)))
                     ->chunkById(500, function ($attachments) use (&$deleted) {
                         foreach ($attachments as $attachment) {
-                            $file = $attachment->local_path; // only inside the tickets' folder
-                            if ($file !== null && is_file($file)) {
-                                @unlink($file);
+                            $file = $attachment->local_path; // only inside the tickets' own folder
+                            if ($file !== null && is_file($file) && !@unlink($file)) {
+                                continue; // not removable: the row stays with its file
                             }
                             $attachment->delete();
                             $deleted++;
