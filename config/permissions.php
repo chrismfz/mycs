@@ -177,6 +177,8 @@ return [
                 'update' => 'Update Staff',
                 'viewAny' => 'View Staff',
                 'delete' => 'Delete Staff',
+                // See and end other members' sessions (a lost laptop); everyone sees and ends their own.
+                'sessions' => 'View and End Staff Sessions',
             ],
             'roles' => [
                 'create' => 'Create Roles',

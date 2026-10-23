@@ -45,8 +45,9 @@ return [
         ],
 
         // The admin panel only (docs/accounts.md, PR 1): its own login, never a customer.
+        // Laravel's session guard, its «remember me» cookie __Host- prefixed (App\Auth\StaffSessionGuard).
         'staff' => [
-            'driver' => 'session',
+            'driver' => 'staff-session',
             'provider' => 'staff',
         ],
     ],

@@ -6,6 +6,7 @@ use App\Admin\Resources\StaffResource\Pages\CreateStaff;
 use App\Admin\Resources\StaffResource\Pages\EditStaff;
 use App\Admin\Resources\StaffResource\Pages\ListStaff;
 use App\Classes\PermissionGuard;
+use App\Livewire\Admin\StaffSessionList;
 use App\Models\Role;
 use App\Models\Staff;
 use Filament\Actions\EditAction;
@@ -13,6 +14,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Livewire;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -66,6 +69,11 @@ class StaffResource extends Resource
                 // Disabled: no login, no API key. Staff with history are disabled, not deleted (DATA-3).
                 Toggle::make('active')->translateLabel()->default(true)
                     ->disabled(fn (?Staff $record): bool => $record !== null && $record->is(auth()->user())),
+                // A lost laptop: the member's sessions, to end (StaffSessions); their own are in their profile.
+                Section::make(__('Sessions'))->collapsible()->columnSpanFull()
+                    ->visible(fn (?Staff $record, string $operation): bool => $operation === 'edit' && $record !== null
+                        && (bool) auth()->user()?->hasPermission('admin.staff.sessions'))
+                    ->schema([Livewire::make(StaffSessionList::class, fn (Staff $record) => ['staffId' => $record->id])->key('staff-sessions')]),
             ]);
     }
 

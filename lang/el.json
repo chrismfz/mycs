@@ -976,5 +976,22 @@
     "Busy": "Απασχολημένος",
     "Away": "Λείπω",
     "Connected now": "Συνδεδεμένος τώρα",
-    "(hidden)": "(κρυφό)"
+    "(hidden)": "(κρυφό)",
+    "Sessions": "Συνεδρίες",
+    "Unknown device": "Άγνωστη συσκευή",
+    "Started": "Ξεκίνησε",
+    "Last seen": "Τελευταία φορά",
+    "Remember me": "Να με θυμάσαι",
+    "This browser": "Αυτός ο browser",
+    "End this session": "Τερματισμός συνεδρίας",
+    "End this session? That browser is logged out at once.": "Να τερματιστεί η συνεδρία; Ο browser αποσυνδέεται αμέσως.",
+    "No open sessions.": "Καμία ανοιχτή συνεδρία.",
+    "End all your other sessions? Your other browsers are logged out, and «Remember me» on them ends.": "Να τερματιστούν όλες οι άλλες συνεδρίες σας; Οι άλλοι browsers σας αποσυνδέονται και το «Να με θυμάσαι» τους λήγει.",
+    "End all of this member's sessions? Every browser of theirs is logged out, and «Remember me» on them ends.": "Να τερματιστούν όλες οι συνεδρίες του μέλους; Κάθε browser του αποσυνδέεται και το «Να με θυμάσαι» λήγει.",
+    "End all other sessions": "Τερματισμός όλων των άλλων συνεδριών",
+    "End all sessions": "Τερματισμός όλων των συνεδριών",
+    "Ending a session also ends «Remember me» on every browser of this member: each one asks for the password and 2FA again.": "Ο τερματισμός μιας συνεδρίας λήγει και το «Να με θυμάσαι» σε κάθε browser του μέλους: ο καθένας ζητά ξανά κωδικό και 2FA.",
+    "The session was ended.": "Η συνεδρία τερματίστηκε.",
+    "{0} No other session was open.|{1} One session was ended.|[2,*] :count sessions were ended.": "{0} Δεν υπήρχε άλλη ανοιχτή συνεδρία.|{1} Τερματίστηκε μία συνεδρία.|[2,*] Τερματίστηκαν :count συνεδρίες.",
+    "Your session was ended.": "Η συνεδρία σας τερματίστηκε."
 }
