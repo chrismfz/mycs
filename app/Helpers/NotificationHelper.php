@@ -24,6 +24,7 @@ use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
+use App\Support\Locales;
 use App\Support\LogText;
 use App\Support\Redact;
 use Carbon\Carbon;
@@ -255,9 +256,13 @@ class NotificationHelper
      * The language a customer's mails are written in. The company's default language for now; the customer's own when
      * the accounts work gives clients one (docs/accounts.md: `language`, imported from WHMCS).
      */
+    /**
+     * The language of what goes to them (docs/accounts.md): an account's mails and PDFs in its own (WHMCS's
+     * tblclients.language), a login's in its own; else the instance's.
+     */
     public static function localeFor(User|Client|null $recipient): string
     {
-        return (string) config('settings.app_language', config('app.locale', 'en'));
+        return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
     private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push): void

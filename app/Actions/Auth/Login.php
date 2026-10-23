@@ -6,6 +6,7 @@ use App\Events\Auth\Login as LoginEvent;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Support\AuthCookies;
+use App\Support\Locales;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
@@ -30,6 +31,10 @@ class Login
         Session::put('user_session', $userSession->ulid);
 
         Auth::guard('web')->login($user);
+        // Its pages in its own language, as it last chose (docs/accounts.md).
+        if (($locale = Locales::allowed($user->language)) !== null) {
+            Session::put('locale', $locale);
+        }
 
         if ($remember) {
             Cookie::queue(AuthCookies::remember(), $userSession->ulid, 60 * 24 * 30); // 30 days

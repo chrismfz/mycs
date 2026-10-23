@@ -10,11 +10,13 @@ use App\Models\User;
 use App\Services\Tax\EuVat;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\Locales;
 use App\Support\Reauth;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class Account extends ComponentWithProperties
 {
@@ -28,6 +30,9 @@ class Account extends ComponentWithProperties
     public string $last_name = '';
 
     public string $email = '';
+
+    /** The account's language for its mails and PDFs ('' : the instance's). */
+    public string $language = '';
 
     public function mount()
     {
@@ -43,6 +48,7 @@ class Account extends ComponentWithProperties
         if ($this->canEditDetails) {
             // The account's details are its primary contact (PR 3a), as WHMCS's client profile.
             $this->fillContact(CurrentClient::model()?->primaryContact);
+            $this->language = (string) CurrentClient::model()?->language;
             $this->initializeProperties(CurrentClient::model(), Client::class);
         } else {
             $this->custom_properties = new Collection;
@@ -55,7 +61,8 @@ class Account extends ComponentWithProperties
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email,' . Auth::id(),
-        ], CurrentClient::allows('profile') ? $this->contactRules() : [], $this->getRulesForProperties());
+        ], CurrentClient::allows('profile') ? $this->contactRules() + ['language' => ['nullable', 'string', Rule::in(array_keys(Locales::options()))]] : [],
+            $this->getRulesForProperties());
     }
 
     public function validationAttributes()
@@ -107,6 +114,7 @@ class Account extends ComponentWithProperties
             if ($client !== null) {
                 $this->identityLocked = (bool) $client->primaryContact?->identityLocked();
                 $client->primaryContact?->update($this->contactValues());
+                $client->forceFill(['language' => Locales::allowed($this->language)])->save();
                 if (array_key_exists('properties', $validatedData)) {
                     $this->updateProperties($client, $validatedData['properties']);
                 }

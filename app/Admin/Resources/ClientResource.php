@@ -23,6 +23,7 @@ use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Services\Admin\ClientSummary;
+use App\Support\Locales;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
@@ -107,6 +108,12 @@ class ClientResource extends Resource
                 // The account's billing choices, under its details (they sat beside them as grid columns).
                 Section::make(__('Billing'))
                     ->schema([
+                        // WHMCS «Language» (docs/accounts.md): its mails and PDFs.
+                        Select::make('language')
+                            ->label(__('Language'))
+                            ->options(fn () => Locales::options())
+                            ->placeholder(fn () => __('Default') . ' (' . Locales::main() . ')')
+                            ->helperText(__('The language of its emails and PDFs.')),
                         // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
                         Toggle::make('credit_auto_apply')
                             ->label(__('Credit pays open invoices automatically'))
