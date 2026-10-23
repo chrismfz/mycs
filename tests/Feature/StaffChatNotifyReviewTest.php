@@ -135,4 +135,16 @@ class StaffChatNotifyReviewTest extends TestCase
         $this->assertStringContainsString('x-on:blur.window="front()"', $view);
         $this->assertStringContainsString('window.mycsChatNoStorage', $view);
     }
+
+    /** Owner 2026-10-23: every click rang. No tone on a suspended context, one unlock listener, a tab's own memory. */
+    public function test_the_tone_never_waits_for_a_click_and_a_tab_never_rings_twice(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+
+        $this->assertStringContainsString("ctx.state === 'running'", $view);
+        $this->assertStringNotContainsString("addEventListener('click'", $view);
+        $this->assertStringContainsString('if (!window.mycsChatUnlock)', $view);
+        $this->assertStringContainsString("removeEventListener('pointerdown', window.mycsChatUnlock)", $view);
+        $this->assertStringContainsString('window.mycsChatRung', $view);
+    }
 }

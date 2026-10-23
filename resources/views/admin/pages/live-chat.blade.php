@@ -6,7 +6,10 @@
             muted: (() => { try { return localStorage.getItem('mycs-chat-muted') === '1' } catch (e) { return false } })(),
             toggleSound() { this.muted = !this.muted; try { localStorage.setItem('mycs-chat-muted', this.muted ? '1' : '0') } catch (e) {} },
             async allow() { if ('Notification' in window) this.permission = await Notification.requestPermission() },
-            test() { window.mycsChatAudio?.resume?.(); window.mycsChatAlert?.(@js(__('Test notification of the staff chat')), window.location.href, true) },
+            async test() {
+                try { await (window.mycsChatAudio ??= new AudioContext()).resume() } catch (e) {}
+                window.mycsChatAlert?.(@js(__('Test notification of the staff chat')), window.location.href, true);
+            },
         }">
         <x-filament::button size="sm" color="gray" x-show="permission === 'default'" x-on:click="allow()">{{ __('Turn on notifications') }}</x-filament::button>
         <span class="text-xs text-gray-500 dark:text-gray-400" x-show="permission === 'granted'">{{ __('Notifications are on in this browser.') }}</span>

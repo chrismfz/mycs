@@ -42,9 +42,12 @@
             this.front();
             const latest = Number(this.$el.dataset.latest);
             const alerted = this.store(this.key());
-            if (alerted === null) { this.store(this.key(), String(latest)); return }
-            if (!latest || latest <= Number(alerted)) return;
+            // The tab's own memory guards too: whatever storage says, a tab never rings twice for one message.
+            window.mycsChatRung ??= 0;
+            if (alerted === null) { this.store(this.key(), String(latest)); window.mycsChatRung = Math.max(window.mycsChatRung, latest); return }
+            if (!latest || latest <= Math.max(Number(alerted), window.mycsChatRung)) return;
             this.store(this.key(), String(latest));
+            window.mycsChatRung = latest;
             if (onPage && !this.away()) return;
             // Another tab has the Live chat page in front: the member is reading there.
             if (Date.now() - Number(this.store('mycs-chat-front') ?? 0) < 15000) return;
@@ -55,9 +58,11 @@
         window.mycsChatAlert ??= (title, url, notify) => {
             let muted = false;
             try { muted = localStorage.getItem('mycs-chat-muted') === '1' } catch (e) {}
-            if (!muted) {
+            // A tone only on a running audio context: one scheduled on a suspended context waits and plays at the next
+            // click, which is how every click came to ring (owner 2026-10-23).
+            const ctx = window.mycsChatAudio;
+            if (!muted && ctx && ctx.state === 'running') {
                 try {
-                    const ctx = window.mycsChatAudio ??= new AudioContext();
                     const tone = ctx.createOscillator(); const gain = ctx.createGain();
                     tone.frequency.value = 880; gain.gain.setValueAtTime(0.08, ctx.currentTime);
                     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
@@ -69,7 +74,14 @@
                 note.onclick = () => { window.focus(); window.location.href = url; note.close() };
             }
         };
-        document.addEventListener('click', () => window.mycsChatAudio?.resume?.(), { once: true });
+        // The browser lets a page make sound only after a click; the first click of the window unlocks it, once.
+        if (!window.mycsChatUnlock) {
+            window.mycsChatUnlock = () => {
+                try { (window.mycsChatAudio ??= new AudioContext()).resume() } catch (e) {}
+                document.removeEventListener('pointerdown', window.mycsChatUnlock);
+            };
+            document.addEventListener('pointerdown', window.mycsChatUnlock);
+        }
         check();
         // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
         timer = setInterval(() => front(), 5000);
