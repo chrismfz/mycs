@@ -42,9 +42,8 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Settings as rows, read back into config. A config() set in setUp() does not last: in the first test of a process
-     * the seeder saves settings, and their flush (FlushCacheListener) reloads them from the database when the test's
-     * first request terminates.
+     * Settings as rows, read back into config. A config() does not last past a saved setting: its flush
+     * (FlushCacheListener) reloads the settings from the database when the test's next request terminates.
      *
      * @param  array<string, mixed>  $settings
      */

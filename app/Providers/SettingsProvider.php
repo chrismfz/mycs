@@ -40,7 +40,7 @@ class SettingsProvider extends ServiceProvider
         // Once per app, flushing only if still pending: a flush or reload meanwhile already read what was saved (the
         // seeder flushes at its end; a test reloads in setUp() and its config() stays past its first request).
         $this->app->terminating(function () {
-            if (self::flushPending()) {
+            if ($this->app->bound(self::FLUSH_PENDING)) { // this app's, not whichever app() is current
                 self::flushCache();
             }
         });
@@ -103,7 +103,10 @@ class SettingsProvider extends ServiceProvider
         }
     }
 
-    /** The settings again from the database, past the cached rows (tests: the database is switched after the boot). */
+    /**
+     * The settings again from the database, past the cached rows. For tests only (their database is switched after the
+     * boot): it cancels a pending flush, and with it the queue workers' restart, which app code saving a setting needs.
+     */
     public static function reload(): void
     {
         app()->forgetInstance(self::FLUSH_PENDING);
