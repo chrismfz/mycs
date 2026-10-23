@@ -204,6 +204,9 @@ return [
     'update_label' => 'Update Label',
 
     'domain' => 'Domain',
+    'search' => 'Search services',
+    'search_placeholder' => 'Search by name, domain, IP or comments…',
+    'no_match' => 'No service matches «:search».',
     'dedicated_ip' => 'Dedicated IP',
     'assigned_ips' => 'Assigned IPs',
     'username' => 'Username',
