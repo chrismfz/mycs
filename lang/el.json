@@ -1249,5 +1249,9 @@
     "Ignore invoicing": "Χωρίς τιμολόγηση",
     "As Ekdosi's «Ignore invoicing» for this customer.": "Όπως το «Ignore invoicing» του Ekdosi για αυτόν τον πελάτη.",
     "Immediate invoicing": "Άμεση τιμολόγηση",
-    "As Ekdosi's «Immediate invoicing» for this customer.": "Όπως το «Immediate invoicing» του Ekdosi για αυτόν τον πελάτη."
+    "As Ekdosi's «Immediate invoicing» for this customer.": "Όπως το «Immediate invoicing» του Ekdosi για αυτόν τον πελάτη.",
+    "Billing settings": "Ρυθμίσεις χρέωσης",
+    "Not: :list": "Όχι: :list",
+    "Owner 2FA": "2FA κατόχου",
+    "Yes, no method saved": "Ναι, χωρίς αποθηκευμένο τρόπο"
 }

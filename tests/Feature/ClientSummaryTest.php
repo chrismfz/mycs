@@ -120,7 +120,7 @@ class ClientSummaryTest extends TestCase
         foreach (['123.45', 'summary.example.test', 'Secret subject', '198.51.100.23', __('Credit Balance')] as $hidden) {
             $page->assertDontSee($hidden);
         }
-        $this->assertSame(['details', 'invoices', 'credit', 'services', 'domains', 'open_tickets', 'emails', 'other'], array_keys(ClientSummary::for($client, null)));
+        $this->assertSame(['details', 'invoices', 'credit', 'services', 'domains', 'open_tickets', 'emails', 'settings', 'other'], array_keys(ClientSummary::for($client, null)));
         $this->assertNull(ClientSummary::for($client, null)['invoices']);
 
         $this->actingAs($this->staff(['*']))->get(ClientResource::getUrl('view', ['record' => $client]))

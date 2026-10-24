@@ -8,6 +8,7 @@ use App\Enums\DomainStatus;
 use App\Models\AdjustmentNote;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Currency;
 use App\Models\Domain;
@@ -21,6 +22,7 @@ use App\Models\Ticket;
 use App\Models\UserAuthenticationLog;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\LicenseKeyMask;
+use App\Support\Locales;
 
 /**
  * The client's «Summary» in the admin, as WHMCS's client profile: its details, its invoices by status, its services,
@@ -29,6 +31,16 @@ use App\Support\LicenseKeyMask;
 class ClientSummary
 {
     public const INVOICE_STATUSES = [Invoice::STATUS_PAID, Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT, Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED];
+
+    /** The account's yes/no settings and their defaults (the Edit page's): the Summary marks only those changed. */
+    public const SETTING_DEFAULTS = [
+        'auto_charge' => true,
+        'credit_auto_apply' => true,
+        'separate_invoices' => false,
+        'tax_exempt' => false,
+        'ignore_invoicing' => false,
+        'immediate_invoicing' => false,
+    ];
 
     /** Each panel and the permission of the page it summarises (as the client's own subpages require). */
     public const PANELS = [
@@ -48,7 +60,7 @@ class ClientSummary
      */
     public static function for(Client $client, ?Staff $staff): array
     {
-        $client->loadMissing(['primaryContact', 'ownerGrant.user']);
+        $client->loadMissing(['primaryContact', 'ownerGrant.user', 'group', 'defaultBillingAgreement']);
         self::$currencies = [];
         $may = fn (string $panel) => (bool) $staff?->hasPermission(self::PANELS[$panel]);
 
@@ -62,11 +74,12 @@ class ClientSummary
             'open_tickets' => $may('tickets') ? Ticket::query()->where('client_id', $client->id)->where('status', '!=', 'closed')->count() : null,
             'emails' => $may('emails') ? EmailLog::query()->where('client_id', $client->id)->latest('id')->limit(5)
                 ->get(['id', 'subject', 'status', 'created_at'])->all() : null,
+            'settings' => self::settings($client),
             'other' => self::other($client, $may('logins')),
         ];
     }
 
-    /** @return array<string, string|null> */
+    /** @return array<string, mixed> */
     private static function details(Client $client): array
     {
         $contact = $client->primaryContact;
@@ -85,7 +98,48 @@ class ClientSummary
             'phone' => $contact?->phone,
             'tax_id' => $contact?->tax_id,
             'vat_number' => $contact?->vat_number,
+            // What VIES (or staff) last said of it: pending, valid, invalid (as the Contacts tab shows it).
+            'vat_status' => filled($contact?->vat_number) ? $contact->vat_status : null,
+            'type' => $contact?->type,
+            'tax_office' => $contact?->tax_office,
+            'activity' => $contact?->activity,
+            'document_type' => $contact?->document_type,
+            // null: never chosen (an empty list too: the forms save one when nothing is ticked, and nothing reads the
+            // choice yet, review F1); else the ticked categories, in the form's order.
+            'email_preferences' => blank($contact?->email_preferences) ? null
+                : array_values(array_intersect(Contact::EMAIL_PREFERENCES, (array) $contact->email_preferences)),
         ];
+    }
+
+    /**
+     * The Edit page's «Billing» and «Fiscal invoicing (Ekdosi)» choices, to read at a glance.
+     *
+     * @return array<string, mixed>
+     */
+    private static function settings(Client $client): array
+    {
+        $group = $client->group;
+        // As the cron reads it (Client::autoChargeAgreement): a method of another account is none.
+        $method = $client->defaultBillingAgreement;
+        $method = $method !== null && (int) $method->client_id === (int) $client->id ? $method : null;
+        $names = (array) config('app.available_locales', []);
+        $main = Locales::main();
+        // The instance's own language chosen by hand (e.g. WHMCS «greek» on an el instance) is its default (review F2).
+        $language = Locales::allowed($client->language);
+        $language = $language === $main ? null : $language;
+        $settings = [
+            'language' => $language === null ? null : (string) ($names[$language] ?? $language),
+            'language_default' => (string) ($names[$main] ?? $main),
+            'group' => $group === null ? null : ['name' => $group->name, 'percent' => $group->percent(),
+                // Into a style attribute: a hex colour only.
+                'colour' => preg_match('/^#[0-9a-f]{3,8}$/i', (string) $group->colour) === 1 ? $group->colour : null],
+            'method' => $method?->name,
+        ];
+        foreach (self::SETTING_DEFAULTS as $field => $default) {
+            $settings[$field] = (bool) ($client->{$field} ?? $default);
+        }
+
+        return $settings;
     }
 
     /**
@@ -180,6 +234,8 @@ class ClientSummary
             'last_login' => null,
             'last_login_ip' => null,
             'users' => null,
+            'owner_2fa' => null,
+            'contacts' => $client->contacts()->active()->count(),
         ];
         if (!$logins) {
             return $other;
@@ -195,6 +251,8 @@ class ClientSummary
             'last_login' => $grant?->last_login_at,
             'last_login_ip' => $log?->ip_address,
             'users' => ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->count(),
+            // Present, not decrypted: a secret that no longer decrypts must not break the page (review F6).
+            'owner_2fa' => $owner === null ? null : filled($owner->getRawOriginal('tfa_secret')),
         ]);
     }
 
