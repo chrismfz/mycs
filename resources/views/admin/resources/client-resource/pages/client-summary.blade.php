@@ -13,6 +13,9 @@
     $label = 'text-gray-500 dark:text-gray-400';
     $group = 'flex items-baseline justify-between pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400';
     $onOff = fn (bool $on) => $on ? __('Yes') : __('No');
+    // «With selected» (the owner, 2026-10-24, as WHMCS's): a tick box on each row it may invoice.
+    $tick = 'fi-checkbox-input';
+    $selectAll = fn (string $property, array $ids) => '$wire.' . $property . ' = $event.target.checked ? ' . \Illuminate\Support\Js::from(array_map('strval', $ids)) . ' : []';
 @endphp
 
 {{-- The account's sticky notes, as WHMCS shows them above a client (staff only) --}}
@@ -214,13 +217,15 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left {{ $label }}">
+                        @if ($selectable['services'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['services'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedServices', $selectable['services']) }}" x-bind:checked="($wire.selectedServices?.length ?? 0) === {{ count($selectable['services']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
                         <th class="py-2 pr-3">ID</th><th class="py-2 pr-3">{{ __('Product/Service') }}</th><th class="py-2 pr-3">{{ __('Amount') }}</th>
                         <th class="py-2 pr-3">{{ __('Billing Cycle') }}</th><th class="py-2 pr-3">{{ __('Signup Date') }}</th><th class="py-2 pr-3">{{ __('Next Due Date') }}</th><th class="py-2">{{ __('Status') }}</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($svc['rows'] as $s)
-                        <tr class="border-t border-gray-100 dark:border-white/5">
+                        <tr class="border-t border-gray-100 dark:border-white/5" wire:key="summary-service-{{ $s['id'] }}">
+                            @if ($selectable['services'] !== null)<td class="py-2 pr-2">@if (in_array($s['id'], $selectable['services'], true))<input type="checkbox" class="{{ $tick }}" wire:model="selectedServices" value="{{ $s['id'] }}" aria-label="{{ __('Select') }} #{{ $s['id'] }}">@endif</td>@endif
                             <td class="py-2 pr-3">@if ($links['service'])<x-filament::link :href="($links['service'])($s['id'])">{{ $s['id'] }}</x-filament::link>@else{{ $s['id'] }}@endif</td>
                             <td class="py-2 pr-3">{{ $s['product'] }}@if ($s['domain']) <span class="{{ $label }}">- {{ $s['domain'] }}</span>@endif</td>
                             <td class="py-2 pr-3 whitespace-nowrap">{{ $s['amount'] }}</td>
@@ -230,7 +235,7 @@
                             <td class="py-2"><x-filament::badge :color="Service::statusColor($s['status'])">{{ Service::statusLabel($s['status']) }}</x-filament::badge></td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="py-3 {{ $label }}">{{ __('No services') }}</td></tr>
+                        <tr><td colspan="{{ $selectable['services'] !== null ? 8 : 7 }}" class="py-3 {{ $label }}">{{ __('No services') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -244,13 +249,15 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left {{ $label }}">
+                        @if ($selectable['domains'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['domains'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedDomains', $selectable['domains']) }}" x-bind:checked="($wire.selectedDomains?.length ?? 0) === {{ count($selectable['domains']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
                         <th class="py-2 pr-3">ID</th><th class="py-2 pr-3">{{ __('domains.domain') }}</th><th class="py-2 pr-3">{{ __('Registered') }}</th>
                         <th class="py-2 pr-3">{{ __('Expires') }}</th><th class="py-2 pr-3">{{ __('Auto renew') }}</th><th class="py-2">{{ __('Status') }}</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($summary['domains']['rows'] as $dom)
-                        <tr class="border-t border-gray-100 dark:border-white/5">
+                        <tr class="border-t border-gray-100 dark:border-white/5" wire:key="summary-domain-{{ $dom['id'] }}">
+                            @if ($selectable['domains'] !== null)<td class="py-2 pr-2">@if (in_array($dom['id'], $selectable['domains'], true))<input type="checkbox" class="{{ $tick }}" wire:model="selectedDomains" value="{{ $dom['id'] }}" aria-label="{{ __('Select') }} {{ $dom['fqdn'] }}">@endif</td>@endif
                             <td class="py-2 pr-3">@if ($links['domain'])<x-filament::link :href="($links['domain'])($dom['id'])">{{ $dom['id'] }}</x-filament::link>@else{{ $dom['id'] }}@endif</td>
                             <td class="py-2 pr-3">{{ $dom['fqdn'] }}</td>
                             <td class="py-2 pr-3 whitespace-nowrap">{{ $dom['registered']?->format('d/m/Y') ?? '—' }}</td>
@@ -259,10 +266,26 @@
                             <td class="py-2"><x-filament::badge :color="$dom['status']->getColor()">{{ $dom['status']->getLabel() }}</x-filament::badge></td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="py-3 {{ $label }}">{{ __('No domains') }}</td></tr>
+                        <tr><td colspan="{{ $selectable['domains'] !== null ? 7 : 6 }}" class="py-3 {{ $label }}">{{ __('No domains') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
     </x-filament::section>
+@endif
+
+{{-- Under both tables, as WHMCS's «With selected»: one action for now, more may join the list. --}}
+@if (($selectable['services'] !== null && $svc !== null) || ($selectable['domains'] !== null && $summary['domains'] !== null))
+    <div class="mt-4 flex flex-wrap items-center gap-3 text-sm" x-data="{ get count() { return ($wire.selectedServices?.length ?? 0) + ($wire.selectedDomains?.length ?? 0) } }">
+        <span class="{{ $label }}">{{ __('With selected:') }}</span>
+        <x-filament::dropdown placement="bottom-start">
+            <x-slot name="trigger">
+                <x-filament::button color="gray" size="sm" icon="heroicon-m-chevron-down" icon-position="after">{{ __('Choose an action') }}</x-filament::button>
+            </x-slot>
+            <x-filament::dropdown.list>
+                <x-filament::dropdown.list.item icon="heroicon-o-document-duplicate" wire:click="mountAction('invoiceSelectedRows')">{{ __('invoices.selected.action') }}</x-filament::dropdown.list.item>
+            </x-filament::dropdown.list>
+        </x-filament::dropdown>
+        <span class="{{ $label }}" x-show="count > 0" x-cloak x-text="{{ \Illuminate\Support\Js::from(__(':count selected')) }}.replace(':count', count)"></span>
+    </div>
 @endif

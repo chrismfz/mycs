@@ -15,6 +15,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Notifications\Notification;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,11 +35,10 @@ class InvoiceSelectedItemsAction
             // Only what staff may see (review F4): services and domains each with their own permission.
             ->schema(fn (Client $record): array => [
                 CheckboxList::make('services')->label(__('invoices.selected.services'))->visible(self::may('admin.services.viewAny'))
-                    ->options($record->services()->whereIn('status', ['active', 'suspended'])
-                        ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))->with('product')->orderBy('expires_at')->get()
+                    ->options(self::billableServices($record)->with('product')->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Service $s) => [$s->id => self::serviceLabel($s)])->all()),
                 CheckboxList::make('domains')->label(__('invoices.selected.domains'))->visible(self::may('admin.domains.viewAny'))
-                    ->options($record->domains()->whereIn('status', array_map(fn ($s) => $s->value, RenewalBilling::BILLED_DOMAINS))->orderBy('expires_at')->get()
+                    ->options(self::billableDomains($record)->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Domain $d) => [$d->id => self::domainLabel($d)])->all()),
             ])
             ->action(function (Client $record, array $data): void {
@@ -48,6 +48,69 @@ class InvoiceSelectedItemsAction
                     self::may('admin.domains.viewAny') ? $record->domains()->whereKey(array_map('intval', $data['domains'] ?? []))->get() : [],
                 );
             });
+    }
+
+    /**
+     * The Summary's «With selected» (the owner, 2026-10-24, as WHMCS's): the rows ticked in its Products/Services and
+     * Domains tables, kept on the page as `selectedServices` and `selectedDomains`. Only this client's, each kind only
+     * for staff who may see it, whatever ids the browser sends; one that stopped being billable since the page was drawn
+     * comes back as skipped, with why (adversarial ADV449-2).
+     */
+    public static function forSummary(): Action
+    {
+        return Action::make('invoiceSelectedRows')
+            ->label(__('invoices.selected.action'))
+            ->icon('heroicon-o-document-duplicate')
+            ->authorize(fn (): bool => self::allowed())
+            ->requiresConfirmation()
+            ->modalDescription(fn ($livewire): string => __(':count selected', ['count' => count(self::ids($livewire->selectedServices)) + count(self::ids($livewire->selectedDomains))])
+                . '. ' . __('invoices.selected.help'))
+            ->action(function (Client $record, $livewire): void {
+                $processed = self::run(
+                    self::may('admin.services.viewAny') ? $record->services()->whereKey(self::ids($livewire->selectedServices))->with(['product', 'plan'])->get() : [],
+                    self::may('admin.domains.viewAny') ? $record->domains()->whereKey(self::ids($livewire->selectedDomains))->get() : [],
+                );
+                // Kept when nothing was done (busy, nothing found): staff try again without ticking them anew (ADV449-4).
+                if ($processed) {
+                    $livewire->selectedServices = [];
+                    $livewire->selectedDomains = [];
+                }
+            });
+    }
+
+    /**
+     * The ids the browser sent: positive whole numbers only, never a value coerced into one (ADV449-1: intval() makes
+     * an array or «1abc» into 1).
+     *
+     * @return list<int>
+     */
+    private static function ids(mixed $ticked): array
+    {
+        return array_values(array_unique(array_map('intval', array_filter((array) $ticked,
+            fn (mixed $id): bool => (is_int($id) && $id > 0) || (is_string($id) && ctype_digit($id) && (int) $id > 0)))));
+    }
+
+    /**
+     * What may be invoiced ahead: its live services that renew, and its domains the renewals bill.
+     *
+     * @return HasMany<Service, Client>
+     */
+    public static function billableServices(Client $client): HasMany
+    {
+        return $client->services()->whereIn('status', ['active', 'suspended'])
+            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
+    }
+
+    /** @return HasMany<Domain, Client> */
+    public static function billableDomains(Client $client): HasMany
+    {
+        return $client->domains()->whereIn('status', array_map(fn ($s) => $s->value, RenewalBilling::BILLED_DOMAINS));
+    }
+
+    /** May staff invoice ahead, and see this kind (services or domains)? */
+    public static function mayInvoice(string $kind): bool
+    {
+        return self::allowed() && self::may('admin.' . $kind . '.viewAny');
     }
 
     /** The client's Services or Domains list: the ticked rows. */
@@ -98,19 +161,20 @@ class InvoiceSelectedItemsAction
      * @param  iterable<Service>  $services
      * @param  iterable<Domain>  $domains
      */
-    private static function run(iterable $services, iterable $domains): void
+    /** @return bool whether the selection was gone through (false: nothing selected, or nothing could be done) */
+    private static function run(iterable $services, iterable $domains): bool
     {
         if (collect($services)->isEmpty() && collect($domains)->isEmpty()) {
             Notification::make()->warning()->title(__('invoices.selected.none'))->send();
 
-            return;
+            return false;
         }
         try {
             $result = (new InvoiceSelectedItems)->handle($services, $domains);
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('invoices.selected.nothing_billed'))->body(e($e->getMessage()))->send();
 
-            return;
+            return false;
         }
         $notification = $result['invoices'] === []
             ? Notification::make()->warning()->title(__('invoices.selected.nothing_billed'))
@@ -123,6 +187,8 @@ class InvoiceSelectedItemsAction
             $notification->body($body)->persistent();
         }
         $notification->send();
+
+        return true;
     }
 
     private static function serviceLabel(Service $service): string

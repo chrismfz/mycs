@@ -1257,5 +1257,9 @@
     "Bank totals": "Υπόλοιπα λογαριασμών",
     "Last movement :when": "Τελευταία κίνηση :when",
     "pending :amount": "σε αναμονή :amount",
-    "Total (EUR)": "Σύνολο (EUR)"
+    "Total (EUR)": "Σύνολο (EUR)",
+    "With selected:": "Με τα επιλεγμένα:",
+    "Choose an action": "Επιλέξτε ενέργεια",
+    ":count selected": ":count επιλεγμένα",
+    "Select all": "Επιλογή όλων"
 }
