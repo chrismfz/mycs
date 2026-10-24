@@ -1243,5 +1243,11 @@
     ":count of these prices are below their cost.": ":count από αυτές τις τιμές είναι κάτω από το κόστος τους.",
     "A typed price is not for a product of this page: clear the typed prices and type them again.": "Μια χειροκίνητη τιμή δεν αντιστοιχεί σε προϊόν αυτής της σελίδας: καθαρίστε τις χειροκίνητες τιμές και γράψτε τις ξανά.",
     "Clear typed prices": "Καθαρισμός χειροκίνητων τιμών",
-    ":count typed prices have no known cost (no exchange rate) and are written as typed.": ":count χειροκίνητες τιμές δεν έχουν γνωστό κόστος (καμία ισοτιμία) και γράφονται όπως γράφτηκαν."
+    ":count typed prices have no known cost (no exchange rate) and are written as typed.": ":count χειροκίνητες τιμές δεν έχουν γνωστό κόστος (καμία ισοτιμία) και γράφονται όπως γράφτηκαν.",
+    "Fiscal invoicing (Ekdosi)": "Φορολογική τιμολόγηση (Ekdosi)",
+    "Kept for the Ekdosi bridge: nothing reads them yet.": "Κρατιούνται για τη γέφυρα με το Ekdosi: δεν τα διαβάζει τίποτα ακόμα.",
+    "Ignore invoicing": "Χωρίς τιμολόγηση",
+    "As Ekdosi's «Ignore invoicing» for this customer.": "Όπως το «Ignore invoicing» του Ekdosi για αυτόν τον πελάτη.",
+    "Immediate invoicing": "Άμεση τιμολόγηση",
+    "As Ekdosi's «Immediate invoicing» for this customer.": "Όπως το «Immediate invoicing» του Ekdosi για αυτόν τον πελάτη."
 }
