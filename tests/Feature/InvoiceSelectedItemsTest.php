@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Pages\ClientSummaryPage;
 use App\Admin\Resources\ClientResource\Pages\ShowDomains;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
@@ -313,5 +314,71 @@ class InvoiceSelectedItemsTest extends TestCase
             'due_at' => now(), 'currency_code' => 'EUR'])->billsOnlyPeriodsToCome(), 'no renewal lines: nothing to keep');
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame([2, 1], [count($this->lines($kept)), count($this->lines($givenUp))]);
+    }
+
+    public function test_the_summary_ticks_its_billable_rows_and_invoices_them_with_selected(): void
+    {
+        // The owner, 2026-10-24: tick boxes in the Summary's two tables and «With selected», as WHMCS's.
+        $service = $this->service();
+        $domain = $this->domain();
+        $terminated = $this->service(['status' => Service::STATUS_TERMINATED]);
+        $client = $this->user->client();
+        $admin = Staff::factory()->admin()->create();
+
+        $html = $this->actingAs($admin)->get(ClientResource::getUrl('view', ['record' => $client]))->assertOk()
+            ->assertSee(__('With selected:'))->assertSee(__('invoices.selected.action'))->getContent();
+        $this->assertStringContainsString('wire:model="selectedServices" value="' . $service->id . '"', $html);
+        $this->assertStringContainsString('wire:model="selectedDomains" value="' . $domain->id . '"', $html);
+        $this->assertStringNotContainsString('wire:model="selectedServices" value="' . $terminated->id . '"', $html, 'not billable: no tick box');
+
+        $this->livewireAs($admin)->test(ClientSummaryPage::class, ['record' => $client->getRouteKey()])
+            ->set('selectedServices', [(string) $service->id])->set('selectedDomains', [(string) $domain->id])
+            ->callAction('invoiceSelectedRows')->assertNotified()
+            ->assertSet('selectedServices', [])->assertSet('selectedDomains', []);
+
+        $this->assertCount(1, $this->lines($service));
+        $this->assertSame($this->lines($service)[0]->invoice_id, $this->lines($domain)[0]->invoice_id);
+    }
+
+    public function test_with_selected_bills_only_this_clients_billable_rows_whatever_the_browser_sends(): void
+    {
+        $service = $this->service();
+        $terminated = $this->service(['status' => Service::STATUS_TERMINATED]);
+        $foreign = $this->service(['client_id' => User::factory()->create()->client()->id]);
+        $foreignDomain = $this->domain(['client_id' => $foreign->client_id, 'sld' => 'other', 'fqdn' => 'other.com']);
+
+        $this->livewireAs(Staff::factory()->admin()->create())->test(ClientSummaryPage::class, ['record' => $this->user->client()->getRouteKey()])
+            ->set('selectedServices', [(string) $service->id, (string) $terminated->id, (string) $foreign->id, 'x'])
+            ->set('selectedDomains', [(string) $foreignDomain->id])
+            ->callAction('invoiceSelectedRows');
+
+        $this->assertCount(1, $this->lines($service));
+        $this->assertSame([], $this->lines($terminated));
+        $this->assertSame([], $this->lines($foreign));
+        $this->assertSame([], $this->lines($foreignDomain));
+    }
+
+    public function test_with_selected_follows_staffs_permissions(): void
+    {
+        $service = $this->service();
+        $domain = $this->domain();
+        $client = $this->user->client();
+
+        // No right to create invoices: no tick boxes, no «With selected», no action.
+        $viewer = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.services.viewAny', 'admin.domains.viewAny', 'admin.invoices.viewAny'])->create();
+        $this->actingAs($viewer)->get(ClientResource::getUrl('view', ['record' => $client]))->assertOk()
+            ->assertDontSee(__('With selected:'))->assertDontSee('wire:model="selectedServices"', false);
+        $this->livewireAs($viewer)->test(ClientSummaryPage::class, ['record' => $client->getRouteKey()])
+            ->assertActionHidden('invoiceSelectedRows');
+
+        // May bill and see services, not domains: a ticked domain is not billed.
+        $billing = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.invoices.viewAny', 'admin.invoices.create', 'admin.services.viewAny'])->create();
+        $this->actingAs($billing)->get(ClientResource::getUrl('view', ['record' => $client]))->assertOk()
+            ->assertSee(__('With selected:'))->assertDontSee('wire:model="selectedDomains"', false);
+        $this->livewireAs($billing)->test(ClientSummaryPage::class, ['record' => $client->getRouteKey()])
+            ->set('selectedServices', [(string) $service->id])->set('selectedDomains', [(string) $domain->id])
+            ->callAction('invoiceSelectedRows');
+        $this->assertCount(1, $this->lines($service));
+        $this->assertSame([], $this->lines($domain));
     }
 }

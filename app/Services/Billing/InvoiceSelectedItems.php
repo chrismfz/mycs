@@ -10,6 +10,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Money\CreditAutoApply;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -96,7 +97,11 @@ final class InvoiceSelectedItems
         $locks = [];
         foreach ($clientIds as $clientId) {
             $lock = RenewalBilling::selectingLock($clientId);
-            if (!$lock->block(10)) {
+            // block() throws when the time is up, it never returns false (adversarial ADV449-3): «busy», not a 500, and
+            // the locks already taken are let go.
+            try {
+                $lock->block(10);
+            } catch (LockTimeoutException) {
                 array_map(fn (Lock $held) => $held->release(), $locks);
 
                 throw new DisplayException(__('invoices.selected.busy'));

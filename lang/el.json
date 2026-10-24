@@ -1253,5 +1253,9 @@
     "Billing settings": "Ρυθμίσεις χρέωσης",
     "Not: :list": "Όχι: :list",
     "Owner 2FA": "2FA κατόχου",
-    "Yes, no method saved": "Ναι, χωρίς αποθηκευμένο τρόπο"
+    "Yes, no method saved": "Ναι, χωρίς αποθηκευμένο τρόπο",
+    "With selected:": "Με τα επιλεγμένα:",
+    "Choose an action": "Επιλέξτε ενέργεια",
+    ":count selected": ":count επιλεγμένα",
+    "Select all": "Επιλογή όλων"
 }
