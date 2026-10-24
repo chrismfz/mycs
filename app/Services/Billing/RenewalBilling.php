@@ -134,7 +134,12 @@ final class RenewalBilling
         // so that it has something to pay (else it would be unsuspended, billed and suspended again the same night).
         $paidSinceSuspended = $service->dunning_suspended_at !== null && $lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->applied_at !== null && $line->applied_at->greaterThanOrEqualTo($service->dunning_suspended_at));
-        if ($service->status === 'suspended' && !$paidSinceSuspended && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+        // And one suspended for non-payment whose overdue period lost its invoice to staff (re-issued: «Cancel» → «Re-issue»,
+        // or deleted), not given up on: that period is billed again, so the customer has something to pay for the
+        // suspension they are under (sweep by simulation 2026-10-24: else suspended, never billed, terminated).
+        $reissued = $service->dunning_suspended_at !== null
+            && $service->nextPeriodStart($billed)->toDateString() === $service->paidUntilBase()->toDateString();
+        if ($service->status === 'suspended' && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->period_start->greaterThan($service->paidUntilBase()))) {
             return 0;
         }

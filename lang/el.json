@@ -1180,5 +1180,8 @@
     "As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay, unless «Suspend only with an overdue invoice» is on); farther periods invoiced early are billed at their time": "Κανονικά: δεν ανανεώνεται ό,τι τιμολόγησε το cron (μια ενεργή υπηρεσία αναστέλλεται στην ημερομηνία της, χωρίς τιμολόγιο να πληρωθεί, εκτός αν είναι ενεργό το «Suspend only with an overdue invoice»)· όσες περίοδοι τιμολογήθηκαν νωρίτερα τιμολογούνται στην ώρα τους",
     "Re-issue: bill them all again (a new invoice, another price, a mistake)": "Επανέκδοση: τιμολογούνται όλες ξανά (νέο τιμολόγιο, άλλη τιμή, λάθος)",
     "Give them all up (not renewing)": "Εγκαταλείπονται όλες (δεν ανανεώνεται)",
-    "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε."
+    "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε.",
+    "No email sent": "Δεν στάλθηκε email",
+    "The customer was never told of this suspension: no unsuspension email.": "Ο πελάτης δεν ενημερώθηκε ποτέ γι' αυτή την αναστολή: δεν στάλθηκε email επαναφοράς.",
+    "Invoice :invoice has a card charge on its way: wait for it (a few minutes, or the gateway's answer).": "Το τιμολόγιο :invoice έχει χρέωση κάρτας σε εξέλιξη: περιμένετε (λίγα λεπτά, ή την απάντηση του gateway)."
 }

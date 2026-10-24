@@ -537,6 +537,17 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * The customer was told of its suspension: of the suspension and unsuspension mails about it, the latest is a
+     * suspension's. A suspension the worker never did (paid or unsuspended by staff first), or done without a mail, was
+     * never told: its end is not told either (sweep by simulation 2026-10-24).
+     */
+    public function toldOfSuspension(): bool
+    {
+        return EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
+            ->whereIn('template_key', ['server_suspended', 'server_unsuspended'])->latest('id')->value('template_key') === 'server_suspended';
+    }
+
+    /**
      * Paid until $paidUntil, would the cron suspend it again? Then a payment does not unsuspend it (Δ3a, sweep Π4.1):
      * unsuspended, the next run would suspend it again, with two mails and two server jobs. The cron's rule: suspension
      * on, no hold in force, no payment on its way, Suspend Days past the date, and with «suspend only with an overdue

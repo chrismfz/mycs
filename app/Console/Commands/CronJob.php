@@ -173,7 +173,7 @@ class CronJob extends Command
             CronStat::create(['key' => 'invoice_charged', 'value' => $this->successFullCharges, 'date' => now()->toDateString()]);
         }
         $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false, quietWhenNone: true);
-        $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('services_suspended', fn () => $this->suspendServices(hourly: true), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
         try {
             SuspensionDigest::send($this->suspended, $this->terminated);
@@ -719,7 +719,7 @@ class CronJob extends Command
     }
 
     /** Suspend services Suspend Days past due: the daily run's step, and the hourly one's (DunningWindow). */
-    private function suspendServices(int $number = 0): int
+    private function suspendServices(int $number = 0, bool $hourly = false): int
     {
         if (!config('settings.cronjob_suspend_enabled', true)) {
             return 0; // Enable Suspension off (as WHMCS)
@@ -738,9 +738,9 @@ class CronJob extends Command
         }
         foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
             try {
-                $done = DB::transaction(function () use ($id, $requiresInvoice) {
+                $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly) {
                     $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
-                    if ($service === null || self::chargeOnItsWay($service)) {
+                    if ($service === null || self::chargeOnItsWay($service) || ($hourly && self::periodUnbilled($service))) {
                         return 0;
                     }
                     // Register before Service Updated listeners, but execute only after the status commits.
@@ -930,6 +930,22 @@ class CronJob extends Command
                 ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
                 ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
                 ->where('invoices.status', Invoice::STATUS_PAID));
+    }
+
+    /**
+     * Its overdue period has no invoice yet and was not given up on (staff deleted or re-issued its renewal since the
+     * daily run): the hourly run leaves it to the daily one, which bills it first (sweep by simulation 2026-10-24: else
+     * suspended with nothing to pay until the evening's run).
+     */
+    private static function periodUnbilled(Service $service): bool
+    {
+        // Any open invoice of it is something to pay (an imported one without periods too): not this case.
+        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
+            return false;
+        }
+        [, $billed] = $service->billedPeriodLines();
+
+        return $service->nextPeriodStart($billed)->toDateString() === $service->paidUntilBase()->toDateString();
     }
 
     /**
