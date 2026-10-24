@@ -405,7 +405,6 @@
     "Stored and never shown: leave empty to keep it.": "Αποθηκευμένο και δεν εμφανίζεται ποτέ: αφήστε κενό για να μείνει.",
     "Test Connection": "Δοκιμή σύνδεσης",
     "The registrar refused the login or could not be reached.": "Ο registrar αρνήθηκε τη σύνδεση ή δεν απάντησε.",
-    "2 to N years at N times the one-year price.": "2 έως Ν έτη, στο Ν φορές την τιμή του ενός έτους.",
     ":count TLD(s) imported.": "Εισήχθησαν :count TLD.",
     ":count cost(s) updated; no price changed.": "Ενημερώθηκαν :count κόστη· καμία τιμή δεν άλλαξε.",
     "Automatic registration": "Αυτόματη καταχώριση",
@@ -1216,5 +1215,7 @@
     "Type the TLDs to fetch.": "Γράψε τα TLDs για ανάκτηση.",
     "Costs and prices (1 year, or the shortest registration)": "Κόστη και τιμές (1 έτος, ή η συντομότερη εγγραφή)",
     "Register and renew from :years years: their prices and costs are for :years years.": "Εγγραφή και ανανέωση από :years χρόνια: οι τιμές και τα κόστη τους είναι για :years χρόνια.",
-    ":years years": ":years χρόνια"
+    ":years years": ":years χρόνια",
+    "2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.": "2 έως N χρόνια στο N επί την τιμή του ενός έτους· TLD που πουλιέται από 2 χρόνια (.gr): 2, 4, … έως N.",
+    "Fetched before an update of MyCS: fetch again.": "Ανακτήθηκε πριν από ενημέρωση του MyCS: ανάκτησέ το ξανά."
 }

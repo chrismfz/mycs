@@ -88,9 +88,11 @@ class TldResellerPriceTest extends TestCase
         $this->fakeOp();
         $prices = app(TldImport::class)->prices($this->pricing('gr'), new TldImportOptions(marginType: 'percent', margin: '20', years: 3), ['EUR'])['EUR'];
 
-        $this->assertSame([2, 3], array_keys($prices['register']), 'from 2 years, up to the 3 asked');
+        $this->assertSame([2], array_keys($prices['register']), 'from 2 years, whole periods only: no 3-year .gr');
         $this->assertSame(['price' => '15.00', 'cost' => '12.50', 'cost_currency' => 'EUR'], $prices['register'][2], '6.25 a year + 20% = 7.50');
-        $this->assertSame(['price' => '22.50', 'cost' => '18.75', 'cost_currency' => 'EUR'], $prices['register'][3]);
+        $four = app(TldImport::class)->prices($this->pricing('gr'), new TldImportOptions(marginType: 'percent', margin: '20', years: 5), ['EUR'])['EUR']['register'];
+        $this->assertSame([2, 4], array_keys($four));
+        $this->assertSame(['price' => '30.00', 'cost' => '25.00', 'cost_currency' => 'EUR'], $four[4]);
         $this->assertSame([2], array_keys(app(TldImport::class)->prices($this->pricing('gr'), new TldImportOptions(marginType: 'percent', margin: '20', years: 1), ['EUR'])['EUR']['renew']), '1 year asked: the shortest it sells');
         $this->assertSame([1], array_keys($prices['transfer']));
 
@@ -132,5 +134,19 @@ class TldResellerPriceTest extends TestCase
         $page->set('selected', ['gr'])->call('import');
         $this->assertSame([2], $gr->prices()->where('operation', 'register')->pluck('years')->all(), 'no 1-year .gr');
         $this->assertSame('15.00', $gr->load('prices')->priceFor('register', 2, 'EUR'));
+    }
+
+    public function test_an_import_takes_off_sale_the_periods_the_registrar_does_not_sell(): void
+    {
+        $this->fakeOp();
+        $gr = DomainTld::query()->create(['tld' => 'gr']);
+        $row = fn (string $op, int $years, ?string $price) => DomainTldPrice::query()->create(['domain_tld_id' => $gr->id, 'operation' => $op, 'years' => $years, 'currency_code' => 'EUR', 'price' => $price]);
+        [$one, $three, $transfer] = [$row('register', 1, '35.98'), $row('renew', 3, '40.00'), $row('transfer', 1, '0.00')];
+
+        app(TldImport::class)->import($this->op, ['gr' => $this->pricing('gr')], new TldImportOptions(marginType: 'percent', margin: '20', years: 4));
+
+        $this->assertSame([null, null], [$one->fresh()->price, $three->fresh()->price], 'a 1- and a 3-year .gr: not offered');
+        $this->assertSame('0.00', $transfer->fresh()->price, 'a transfer is not a period: kept');
+        $this->assertSame(['15.00', '30.00'], [$gr->load('prices')->priceFor('register', 2, 'EUR'), $gr->priceFor('renew', 4, 'EUR')]);
     }
 }

@@ -111,16 +111,18 @@ class TldResellerPriceAdversarialTest extends TestCase
      */
     public function test_f3_odd_years_of_a_two_year_tld_keep_the_rounding_ending(): void
     {
+        // Fixed by never writing an odd year of a 2-year TLD (.gr is sold for 2, 4, … 10 years: code review 1 of #424);
+        // the whole periods keep the ending.
         $gr = new TldPricing(tld: 'gr', costs: ['register' => ['cost' => '12.50', 'currency' => 'EUR']], minYears: 2);
-        $whole = app(TldImport::class)->prices($gr, new TldImportOptions(marginType: 'percent', margin: '20', rounding: '.00', years: 3), ['EUR'])['EUR']['register'];
+        $whole = app(TldImport::class)->prices($gr, new TldImportOptions(marginType: 'percent', margin: '20', rounding: '.00', years: 4), ['EUR'])['EUR']['register'];
         $half = app(TldImport::class)->prices(
             new TldPricing(tld: 'gr', costs: ['register' => ['cost' => '12.80', 'currency' => 'EUR']], minYears: 2),
-            new TldImportOptions(marginType: 'percent', margin: '20', rounding: '.50', years: 3), ['EUR'])['EUR']['register'];
+            new TldImportOptions(marginType: 'percent', margin: '20', rounding: '.50', years: 5), ['EUR'])['EUR']['register'];
 
-        $this->assertSame('15.00', $whole[2]['price']);
-        $this->assertMatchesRegularExpression('/\.00$/', $whole[3]['price'], 'rounded to whole: not 22.50');
-        $this->assertSame('15.50', $half[2]['price']);
-        $this->assertMatchesRegularExpression('/\.(00|50)$/', $half[3]['price'], 'rounded to .50: not 23.25');
+        $this->assertSame([2, 4], array_keys($whole), 'no 3-year .gr');
+        $this->assertSame(['15.00', '30.00'], [$whole[2]['price'], $whole[4]['price']]);
+        $this->assertSame([2, 4], array_keys($half), 'no 3- or 5-year .gr');
+        $this->assertSame(['15.50', '31.00'], [$half[2]['price'], $half[4]['price']]);
     }
 
     /**

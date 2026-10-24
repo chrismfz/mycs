@@ -901,13 +901,28 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
             $entry = $this->costEntry($prices[$opKey] ?? null);
-            if ($entry !== null && !isset($costs[$operation])) { // the first key of an operation wins
+            // The first key of an operation wins; a free offer is no cost where the list has one (a 0.00 written as a
+            // price would be kept as staff's «free» after the offer ends: adversarial F2 of #424).
+            $free = $entry !== null && bccomp($entry['cost'], '0', 2) === 0;
+            if ($entry !== null && !isset($costs[$operation]) && !($free && $opKey === 'reseller_price')) {
                 $costs[$operation] = $entry;
             }
         }
-        // Its prices are for the shortest registration it sells (.gr: 2 years, 12.50 = 6.25 a year).
-        $min = $data['min_period'] ?? $prices['min_period'] ?? 1;
-        $minYears = is_int($min) && $min >= 1 && $min <= 10 ? $min : 1;
+        $reseller = $this->costEntry($prices['reseller_price'] ?? null);
+        if (!isset($costs['register']) && $reseller !== null) {
+            $costs['register'] = $reseller; // free, and no list price: free indeed
+        }
+        // Its prices are for the shortest registration it sells (.gr: 2 years, 12.50 = 6.25 a year); a number or a
+        // numeric string, top level or among the prices (adversarial F1 of #424); else 1.
+        $minYears = 1;
+        foreach ([$data['min_period'] ?? null, $prices['min_period'] ?? null] as $min) {
+            $min = is_int($min) ? $min : (is_string($min) && ctype_digit($min) ? (int) $min : 0);
+            if ($min >= 1 && $min <= 10) {
+                $minYears = $min;
+
+                break;
+            }
+        }
 
         // The stages after expiry (D5a, Openprovider's TLD pages): soft quarantine (our grace) and hard quarantine (our
         // redemption), in days. The restore fee belongs to the stage that has one: the hard quarantine if the TLD has it

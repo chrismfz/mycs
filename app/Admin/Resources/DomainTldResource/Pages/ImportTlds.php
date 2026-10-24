@@ -155,7 +155,7 @@ class ImportTlds extends Page implements HasForms
                     ->options(['none' => __('No rounding'), '.00' => 'x.00', '.50' => 'x.50', '.99' => 'x.99']),
                 Select::make('years')->label(__('Register and renew up to (years)'))->required()
                     ->options(collect(range(1, 10))->mapWithKeys(fn (int $n) => [$n => (string) $n])->all())
-                    ->helperText(__('2 to N years at N times the one-year price.')),
+                    ->helperText(__('2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.')),
                 Toggle::make('redemption_fee')->label(__('Import the grace and redemption fees'))->live()->helperText(__('The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.')),
                 Toggle::make('auto_register')->label(__('Automatic registration with this registrar')),
                 Toggle::make('keep_free_and_closed')->label(__('Keep free and not-offered prices'))
@@ -391,6 +391,9 @@ class ImportTlds extends Page implements HasForms
                 'order' => [$record === null ? 1 : 0, $record === null ? $position : $order[$tld]]];
             $position++;
             $pricing = self::pricingOf($tld, $answer);
+            if ($pricing === null && is_array($answer['costs'] ?? null)) {
+                $row['error'] = __('Fetched before an update of MyCS: fetch again.'); // no period: never imported
+            }
             $row['min_years'] = $pricing === null ? 1 : $pricing->minYears;
             $costs = $pricing?->costs;
             if ($pricing !== null && $costs !== null) {
@@ -499,11 +502,9 @@ class ImportTlds extends Page implements HasForms
     private static function pricingOf(string $tld, array $answer): ?TldPricing
     {
         $costs = $answer['costs'] ?? null;
-        $min = $answer['min_years'] ?? 1;
+        $min = $answer['min_years'] ?? null; // none: kept before #424 (a list price, no period): fetch again (adversarial F4)
 
-        return is_array($costs)
-            ? new TldPricing(tld: $tld, costs: $costs, minYears: is_int($min) && $min >= 1 && $min <= 10 ? $min : 1)
-            : null;
+        return is_array($costs) && is_int($min) && $min >= 1 && $min <= 10 ? new TldPricing(tld: $tld, costs: $costs, minYears: $min) : null;
     }
 
     /** Import the ticked TLDs, all or nothing. */
