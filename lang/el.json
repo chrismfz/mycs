@@ -1228,5 +1228,20 @@
     "2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.": "2 έως N χρόνια στο N επί την τιμή του ενός έτους· TLD που πουλιέται από 2 χρόνια (.gr): 2, 4, … έως N.",
     "Fetched before an update of MyCS: fetch again.": "Ανακτήθηκε πριν από ενημέρωση του MyCS: ανάκτησέ το ξανά.",
     "Saved": "Αποθηκεύτηκε",
-    "Not a MAC address: :mac": "Δεν είναι διεύθυνση MAC: :mac"
+    "Not a MAC address: :mac": "Δεν είναι διεύθυνση MAC: :mac",
+    "Cost is this account's price at Openprovider; margin is over the cost. :total products, :alerts with a price below or near its cost. Tick the products to make or reprice; a price typed in «Your price» is written instead of the margin's.": "Κόστος είναι η τιμή αυτού του λογαριασμού στο Openprovider· το margin είναι πάνω από το κόστος. :total προϊόντα, :alerts με τιμή κάτω ή κοντά στο κόστος. Επιλέξτε τα προϊόντα που θα δημιουργηθούν ή θα πάρουν νέα τιμή· μια τιμή στο «Η τιμή σας» γράφεται αντί για εκείνη του margin.",
+    "Search certificates": "Αναζήτηση πιστοποιητικών",
+    "Typed prices": "Χειροκίνητες τιμές",
+    "Cannot sell": "Δεν πωλείται",
+    "Your price": "Η τιμή σας",
+    "No :currency price: give its rate.": "Καμία τιμή σε :currency: δώστε την ισοτιμία.",
+    "Not sold for :count year(s).": "Δεν πωλείται για :count χρόνια.",
+    "Your price for :name": "Η τιμή σας για :name",
+    "Not a price": "Δεν είναι τιμή",
+    "No certificate matches.": "Κανένα πιστοποιητικό δεν ταιριάζει.",
+    "The price typed for «:product» (:currency, :years year(s)) cannot be written: a price above zero, for years the plans have.": "Η τιμή για «:product» (:currency, :years χρόνια) δεν μπορεί να γραφτεί: χρειάζεται τιμή πάνω από μηδέν, για χρόνια που έχουν τα πακέτα.",
+    ":count of these prices are below their cost.": ":count από αυτές τις τιμές είναι κάτω από το κόστος τους.",
+    "A typed price is not for a product of this page: clear the typed prices and type them again.": "Μια χειροκίνητη τιμή δεν αντιστοιχεί σε προϊόν αυτής της σελίδας: καθαρίστε τις χειροκίνητες τιμές και γράψτε τις ξανά.",
+    "Clear typed prices": "Καθαρισμός χειροκίνητων τιμών",
+    ":count typed prices have no known cost (no exchange rate) and are written as typed.": ":count χειροκίνητες τιμές δεν έχουν γνωστό κόστος (καμία ισοτιμία) και γράφονται όπως γράφτηκαν."
 }
