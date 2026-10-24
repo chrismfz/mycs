@@ -69,6 +69,7 @@ class SslToolsTest extends TestCase
             'unicode' => [['παράδειγμα.gr']],
             'leading hyphen' => [['-example.gr']],
             'ip' => [['192.0.2.1']],
+            'common name over 64' => [[str_repeat('a', 60) . '.example.gr']],
         ];
     }
 

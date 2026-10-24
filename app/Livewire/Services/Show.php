@@ -607,8 +607,9 @@ class Show extends Component
         $this->authorize('update', $this->service);
         $order = SslOrder::query()->where('service_id', $this->service->id)->first();
 
+        // Never during a renewal (OpenproviderSsl::reissue refuses it): no key made for nothing (review 8).
         return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order?->order_id !== null && $order->issued() && $order->status === 'ACT'
-            && ($order->order_ends_at === null || $order->order_ends_at->isFuture());
+            && ($order->order_ends_at === null || $order->order_ends_at->isFuture()) && $order->renew_requested_at === null;
     }
 
     /** `manageproducts`, an active service, an order waiting for its approver's email. */

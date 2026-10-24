@@ -170,6 +170,7 @@ return [
             'domain' => 'Domain',
             'domain_hint' => 'example.gr covers example.gr and www.example.gr; *.example.gr covers every subdomain and example.gr.',
             'domain_invalid' => 'Enter a domain name, such as example.gr or *.example.gr.',
+            'name_too_long' => 'This name is longer than a certificate allows (64 characters).',
             'key_type' => 'Key type',
             'key_types' => ['rsa2048' => 'RSA 2048 (works everywhere)', 'ec-p256' => 'EC P-256 (smaller, faster)'],
             'kept_note' => 'MyCS keeps the private key encrypted, so you can download it from this page at any time. Only you and authorised staff can open it.',

@@ -86,7 +86,7 @@
             @endif
         </div>
         @can('update', $service)
-        @if($sslOrder->status === 'ACT' && (!$sslOrder->order_ends_at || $sslOrder->order_ends_at->isFuture()))
+        @if($sslOrder->status === 'ACT' && (!$sslOrder->order_ends_at || $sslOrder->order_ends_at->isFuture()) && $sslOrder->renew_requested_at === null)
         <details class="mt-3">
             <summary class="text-sm font-semibold cursor-pointer">{{ __('services.ssl.reissue_title') }}</summary>
             <p class="text-xs text-base/50 mt-1">{{ __('services.ssl.reissue_hint') }}</p>

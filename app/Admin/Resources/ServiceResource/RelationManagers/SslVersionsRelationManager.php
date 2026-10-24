@@ -18,6 +18,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Exceptions\Cancel;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
@@ -56,6 +57,20 @@ class SslVersionsRelationManager extends RelationManager
     private static function mayKey(): bool
     {
         return (bool) self::staff()?->hasPermission(SslVault::KEY_PERMISSION);
+    }
+
+    /** Keys a member of staff may see or download an hour (as the portal's, per staff member: review 6). */
+    private const KEYS_PER_HOUR = 30;
+
+    private static function keyLimited(): void
+    {
+        $limit = 'admin-ssl-key:' . self::staff()?->id;
+        if (RateLimiter::tooManyAttempts($limit, self::KEYS_PER_HOUR)) {
+            Notification::make()->danger()->title('Too many keys opened: try again later')->send();
+
+            throw new Cancel;
+        }
+        RateLimiter::hit($limit, 3600);
     }
 
     private static function mayUpdate(): bool
@@ -124,15 +139,22 @@ class SslVersionsRelationManager extends RelationManager
                     Action::make('revealKey')->label('Reveal key (audited)')->icon('ri-eye-line')->color('warning')
                         ->visible(fn (SslVersion $record) => $record->hasKey() && self::mayKey())
                         ->modalHeading('Private key')->modalSubmitAction(false)->modalCancelActionLabel('Close')
+                        // Audited once, as it opens; each render of the open modal reads it again (review 4).
+                        ->mountUsing(function (SslVersion $record) {
+                            abort_unless(self::mayKey(), 403);
+                            self::keyLimited();
+                            app(SslVault::class)->revealOpened($record);
+                        })
                         ->modalContent(function (SslVersion $record) {
                             abort_unless(self::mayKey(), 403);
 
-                            return self::pemView(['Private key' => app(SslVault::class)->keyPem($record, 'admin')]);
+                            return self::pemView(['Private key' => app(SslVault::class)->revealedPem($record)]);
                         }),
                     Action::make('downloadKey')->label('Download .key')->icon('ri-key-2-line')->color('warning')
                         ->visible(fn (SslVersion $record) => $record->hasKey() && self::mayKey())
                         ->action(function (SslVersion $record) {
                             abort_unless(self::mayKey(), 403);
+                            self::keyLimited();
                             $pem = app(SslVault::class)->keyPem($record, 'admin');
 
                             return response()->streamDownload(function () use ($pem) {
@@ -147,6 +169,7 @@ class SslVersionsRelationManager extends RelationManager
                         ])
                         ->action(function (SslVersion $record, array $data, Action $action) {
                             abort_unless(self::mayKey(), 403);
+                            self::keyLimited();
                             try {
                                 $pfx = app(SslVault::class)->pfx($record, (string) $data['password'], 'admin');
                             } catch (ServerRefused $e) {
@@ -171,8 +194,9 @@ class SslVersionsRelationManager extends RelationManager
                             try {
                                 app(SslVault::class)->attachKey($record, (string) $data['key']);
                             } catch (ServerRefused $e) {
+                                // Closed, never left open with the pasted key in the page's state (review 5).
                                 Notification::make()->danger()->title('Not attached')->body($e->getMessage())->send();
-                                $action->halt();
+                                $action->cancel();
 
                                 return;
                             }
@@ -220,7 +244,8 @@ class SslVersionsRelationManager extends RelationManager
         return Action::make($name)
             ->label($reissue ? 'Reissue with a key from here…' : 'Generate key and order…')->icon('ri-key-2-line')
             ->visible(function () use ($reissue) {
-                if (!self::mayUpdate()) {
+                // An active service only, as in the client area: never a charged order for a suspended one (review 7).
+                if (!self::mayUpdate() || $this->service()->status !== Service::STATUS_ACTIVE) {
                     return false;
                 }
                 $order = $this->order();
@@ -258,7 +283,7 @@ class SslVersionsRelationManager extends RelationManager
                 ? 'A new certificate for the same name (not charged), with a key made here. The customer validates it again.'
                 : 'Orders the certificate at Openprovider (charged), with a key made here and kept in the vault.')
             ->action(function (array $data, Action $action) use ($reissue) {
-                abort_unless(self::mayUpdate(), 403);
+                abort_unless(self::mayUpdate() && $this->service()->status === Service::STATUS_ACTIVE, 403);
                 $limit = 'admin-ssl-generate:' . self::staff()?->id;
                 if (RateLimiter::tooManyAttempts($limit, self::GENERATE_PER_HOUR)) {
                     Notification::make()->danger()->title('Too many keys generated: try again later')->send();

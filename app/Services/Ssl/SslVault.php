@@ -9,6 +9,7 @@ use App\Models\SslVersion;
 use App\Models\Staff;
 use App\Models\User;
 use App\Support\Actor;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -71,11 +72,21 @@ class SslVault
         if ($keepKeyOf !== null && ($keepKeyOf->ssl_order_id !== $order->id || !$keepKeyOf->hasKey())) {
             throw new ServerRefused(__('services.ssl.vault.no_key_to_keep'));
         }
+        if (strlen($names[0] ?? '') > Csr::MAX_COMMON_NAME) {
+            throw new ServerRefused(__('services.ssl.vault.name_too_long')); // ADV-2 of #437: never a 500
+        }
         try {
             $key = $keepKeyOf?->privateKey() ?? PrivateKey::generate($type);
             $csr = Csr::create($key, $names);
         } catch (SslToolsException) {
             throw new ServerRefused(__('services.ssl.vault.not_generated'));
+        }
+        if ($keepKeyOf !== null && self::norm($keepKeyOf->csr) === self::norm($csr->pem)) {
+            // An RSA key's CSR for the same names is byte-identical: the version it came from is the one reissued, never
+            // a second draft of the same CSR (review 2). Its next certificate gets a version of its own when filed.
+            $this->audit($order, 'ssl_key_generated', $keepKeyOf, ['kept_from' => $keepKeyOf->number]);
+
+            return $keepKeyOf;
         }
         $version = $this->add($order, [
             'source' => SslVersion::SOURCE_GENERATED,
@@ -113,9 +124,12 @@ class SslVault
         });
     }
 
-    /** The version whose certificate is the order's, else the last one ordered. */
+    /** The version whose certificate is the order's, else the last one ordered; none while no order is made. */
     public function current(SslOrder $order): ?SslVersion
     {
+        if ($order->order_id === null) {
+            return null; // waiting for its (new) CSR: an ended order's versions are history, none in use (review 3)
+        }
         $versions = $order->versions()->orderByDesc('number')->get();
         $certificate = self::norm($order->certificate);
 
@@ -153,6 +167,21 @@ class SslVault
         $this->audit($version->order, 'ssl_key_downloaded', $version, ['file' => 'key', 'via' => $via]);
 
         return $key->pem();
+    }
+
+    /**
+     * The key shown on screen (the admin's «Reveal»): audited once when it is opened (revealOpened), then read for each
+     * render of the open modal without another audit (review 4).
+     */
+    public function revealOpened(SslVersion $version): void
+    {
+        $this->readKey($version);
+        $this->audit($version->order, 'ssl_key_downloaded', $version, ['file' => 'key', 'via' => 'admin-reveal']);
+    }
+
+    public function revealedPem(SslVersion $version): string
+    {
+        return $this->readKey($version)->pem();
     }
 
     /** The version's certificate, key and chain as a .pfx with the password given: audited. */
@@ -202,7 +231,11 @@ class SslVault
     private function markOrdered(SslOrder $order): void
     {
         $csr = self::norm($order->csr);
-        $version = $order->versions()->orderByDesc('number')->get()->first(fn (SslVersion $v) => self::norm($v->csr) === $csr);
+        $versions = $order->versions()->orderByDesc('number')->get();
+        // An RSA key's CSR for the same names is byte-identical: one already ordered is it, never a draft kept for a
+        // reissue that was not asked (review 2).
+        $same = $versions->filter(fn (SslVersion $v) => self::norm($v->csr) === $csr);
+        $version = $same->first(fn (SslVersion $v) => $v->ordered_at !== null) ?? $same->first();
         if ($version !== null) {
             if ($version->ordered_at === null) {
                 $version->forceFill(['ordered_at' => now()])->save();
@@ -215,9 +248,13 @@ class SslVault
         } catch (SslToolsException) {
             $parsed = null;
         }
+        // A CSR the customer made from a key this vault holds (one downloaded): that key goes with it (review 1).
+        $keyed = self::withKey($versions, $parsed?->spkiSha256);
         $this->add($order, [
             'source' => SslVersion::SOURCE_PASTED,
-            'key_description' => $parsed?->keyDescription,
+            'key_type' => $keyed?->key_type,
+            'key_description' => $keyed->key_description ?? $parsed?->keyDescription,
+            'private_key' => $keyed?->private_key,
             'spki_sha256' => $parsed?->spkiSha256,
             'csr' => trim((string) $order->csr),
             'common_name' => $order->common_name ?? $parsed?->commonName,
@@ -242,7 +279,8 @@ class SslVault
         $versions = $order->versions()->orderByDesc('number')->get();
         if ($versions->contains(fn (SslVersion $v) => self::norm($v->certificate) === $norm)) {
             $filed = $versions->first(fn (SslVersion $v) => self::norm($v->certificate) === $norm);
-            if (self::norm($filed->chain) !== self::norm($order->intermediate)) {
+            // A sync whose answer has no intermediate never wipes the chain kept (adversarial review note of #437).
+            if (filled($order->intermediate) && self::norm($filed->chain) !== self::norm($order->intermediate)) {
                 $filed->forceFill(['chain' => $order->intermediate])->save();
             }
 
@@ -256,8 +294,12 @@ class SslVault
         ];
         $ofKey = $versions->filter(fn (SslVersion $v) => $v->spki_sha256 !== null && hash_equals($v->spki_sha256, $certificate->spkiSha256));
         $mine = $ofKey->first(fn (SslVersion $v) => $v->ordered_at !== null) ?? $ofKey->first(); // never a draft never ordered first
+        $keyed = self::withKey($versions, $certificate->spkiSha256);
         if ($mine !== null && blank($mine->certificate)) {
             $mine->forceFill($fields + ['ordered_at' => $mine->ordered_at ?? now()])->save();
+            if (!$mine->hasKey() && $keyed !== null) {
+                $mine->forceFill(['private_key' => $keyed->private_key, 'key_type' => $keyed->key_type, 'key_description' => $keyed->key_description])->save();
+            }
 
             return;
         }
@@ -271,9 +313,9 @@ class SslVault
         }
         $this->add($order, $fields + [
             'source' => SslVersion::SOURCE_SYNCED,
-            'key_type' => $mine?->key_type,
-            'key_description' => $mine->key_description ?? $certificate->keyDescription,
-            'private_key' => $mine?->hasKey() ? $mine->private_key : null,
+            'key_type' => $keyed?->key_type,
+            'key_description' => $keyed->key_description ?? $certificate->keyDescription,
+            'private_key' => $keyed?->private_key,
             'spki_sha256' => $certificate->spkiSha256,
             'csr' => $csr,
             'common_name' => $certificate->commonName ?: $order->common_name,
@@ -316,6 +358,16 @@ class SslVault
         event(new AuditCustom($service));
         $service->isCustomEvent = false;
         $service->auditCustomNew = [];
+    }
+
+    /**
+     * This order's version that holds the key of this public key, if any.
+     *
+     * @param  Collection<int, SslVersion>  $versions
+     */
+    private static function withKey(Collection $versions, ?string $spki): ?SslVersion
+    {
+        return $spki === null ? null : $versions->first(fn (SslVersion $v) => $v->hasKey() && $v->spki_sha256 !== null && hash_equals($v->spki_sha256, $spki));
     }
 
     private static function norm(?string $pem): string

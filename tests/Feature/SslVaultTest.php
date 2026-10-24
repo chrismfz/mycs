@@ -194,8 +194,8 @@ class SslVaultTest extends TestCase
         $this->assertStringNotContainsString('PRIVATE KEY', $raw);
         $this->assertSame($key->pem(), decrypt($raw, false));
         $this->assertArrayNotHasKey('private_key', $version->toArray());
-        $body = substr($key->pem(), 40, 40);
-        $this->assertStringNotContainsString($body, json_encode($page->snapshot));
+        $body = explode("\n", $key->pem())[2]; // one whole base64 line; slashes unescaped below (adversarial note of #437)
+        $this->assertStringNotContainsString($body, json_encode($page->snapshot, JSON_UNESCAPED_SLASHES));
         $this->assertStringNotContainsString($body, $page->html());
 
         $page->set('sslMethod', 'dns')->call('sslOrder')->assertHasNoErrors();
@@ -316,14 +316,16 @@ class SslVaultTest extends TestCase
         $first = $this->generateAndOrder();
         $firstCertificate = $this->issue();
 
-        // Kept: a new CSR of the same key; the new certificate on the new version, the old one where it was.
+        // Kept: an RSA key's CSR for the same names is the same CSR, so no second draft; the new certificate gets a
+        // version of its own with the same key, the old one stays where it was.
         $this->portal()->set('sslReissueKey', 'keep')->call('sslGenerate')->assertSet('sslName', 'shop.example.test')
             ->set('sslMethod', 'dns')->call('sslReissue')->assertHasNoErrors();
+        $this->assertSame(1, $this->order()->versions()->count());
+        $second = $this->issue();
         $kept = $this->order()->versions()->where('number', 2)->sole();
         $this->assertSame($first->spki_sha256, $kept->spki_sha256);
         $this->assertSame($first->privateKey()->pem(), $kept->privateKey()->pem());
-        $second = $this->issue();
-        $this->assertSame($second->pem, $kept->fresh()->certificate);
+        $this->assertSame($second->pem, $kept->certificate);
         $this->assertSame($firstCertificate->pem, $first->fresh()->certificate);
 
         // Rotated: another key.
@@ -412,5 +414,75 @@ class SslVaultTest extends TestCase
         $this->assertNotNull($version->ordered_at);
         $this->assertSame(trim((string) $version->csr), trim($this->orders[777]['csr']));
         $this->assertSame($staff->id, $version->creator_id);
+    }
+
+    /** Review 1: a CSR the customer made from the vault's draft key brings that key with it. */
+    public function test_a_csr_made_from_a_kept_key_carries_that_key(): void
+    {
+        $this->portal()->set('sslDomain', 'shop.example.test')->call('sslGenerate');
+        $draft = $this->order()->versions()->sole();
+        $ownCsr = Csr::create($draft->privateKey(), ['shop.example.test']); // other names, same key
+        $this->portal()->set('sslMode', 'paste')->set('sslCsr', $ownCsr->pem)->call('sslCheck')->set('sslMethod', 'dns')->call('sslOrder')->assertHasNoErrors();
+        $this->issue();
+
+        $current = app(SslVault::class)->current($this->order());
+        $this->assertNotSame($draft->id, $current->id);
+        $this->assertTrue($current->hasKey());
+        $this->assertSame($draft->privateKey()->pem(), $current->privateKey()->pem());
+    }
+
+    /** Review 2: a «keep the key» RSA request is the same CSR: no second draft, nothing marked ordered that was not sent. */
+    public function test_a_kept_rsa_key_makes_no_duplicate_draft(): void
+    {
+        $first = $this->generateAndOrder();
+        $this->issue();
+        $this->portal()->set('sslReissueKey', 'keep')->call('sslGenerate')->assertSet('sslCsr', trim($first->csr) . "\n");
+
+        $this->artisan('ssl:sync')->assertSuccessful();
+
+        $this->assertSame(1, $this->order()->versions()->count());
+        $this->assertSame($first->id, app(SslVault::class)->current($this->order())->id);
+    }
+
+    /** Review 3: an order started over has no version in use. */
+    public function test_after_starting_over_no_version_is_in_use(): void
+    {
+        $this->generateAndOrder();
+        $this->issue();
+        $this->order()->forceFill(['previous_order_ids' => [777], 'order_id' => null, 'certificate' => null, 'csr' => null])->save();
+
+        $this->assertNull(app(SslVault::class)->current($this->order()));
+    }
+
+    /** Review 4: revealing a key in the admin is audited once, however often the modal renders. */
+    public function test_a_revealed_key_is_audited_once(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $version = $this->generateAndOrder();
+        $staff = $this->staff(['admin.services.viewAny', 'admin.services.update', SslVault::KEY_PERMISSION]);
+
+        $page = $this->livewireAs($staff)->test(SslVersionsRelationManager::class, ['ownerRecord' => $this->service->fresh(), 'pageClass' => EditService::class])
+            ->mountTableAction('revealKey', $version);
+        $page->call('$refresh')->call('$refresh');
+
+        $this->assertSame(1, Audit::query()->where('event', 'ssl_key_downloaded')->count());
+        $this->assertStringNotContainsString(substr($version->privateKey()->pem(), 40, 40), json_encode($page->snapshot));
+    }
+
+    /** Review 7 and 8: no key made for an order or reissue that cannot happen (a suspended service, a pending renewal). */
+    public function test_no_key_is_generated_for_an_order_that_cannot_happen(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = $this->staff(['admin.services.viewAny', 'admin.services.update']);
+        $this->service->forceFill(['status' => 'suspended'])->save();
+        $this->livewireAs($staff)->test(SslVersionsRelationManager::class, ['ownerRecord' => $this->service->fresh(), 'pageClass' => EditService::class])
+            ->assertTableActionHidden('sslGenerateOrder');
+
+        $this->service->forceFill(['status' => 'active'])->save();
+        $this->generateAndOrder();
+        $this->issue();
+        $this->order()->forceFill(['renew_requested_at' => now(), 'renew_for' => now()])->save();
+        $this->portal()->set('sslReissueKey', 'new')->call('sslGenerate');
+        $this->assertSame(1, $this->order()->versions()->count());
     }
 }

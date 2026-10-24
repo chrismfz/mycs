@@ -13,6 +13,9 @@ final class Csr
 
     private const SUBJECT_ALT_NAME = '2.5.29.17';
 
+    /** X.520's upper bound for a commonName: OpenSSL refuses a longer one. */
+    public const MAX_COMMON_NAME = 64;
+
     /** @param list<string> $names */
     private function __construct(
         public readonly string $pem,
@@ -40,6 +43,9 @@ final class Csr
                 throw SslToolsException::because('A name is not a valid host name.');
             }
         }
+        if (strlen($names[0]) > self::MAX_COMMON_NAME) {
+            throw SslToolsException::because('The first name is longer than a certificate\'s common name allows (64 characters).');
+        }
         // openssl_csr_new takes its extensions from a config file only: written for this call, then removed. The names
         // were checked above (letters, digits, «-», «.», a leading «*.»), so nothing in them can change the file.
         $config = tempnam(sys_get_temp_dir(), 'csr');
@@ -50,7 +56,7 @@ final class Csr
             $sans = implode(',', array_map(fn (string $n) => "DNS:{$n}", $names));
             file_put_contents($config, "[req]\ndistinguished_name = dn\n[dn]\n[ext]\nsubjectAltName = {$sans}\n");
             $privateKey = $key->key();
-            $csr = openssl_csr_new(['commonName' => $names[0]], $privateKey, ['config' => $config, 'req_extensions' => 'ext', 'digest_alg' => 'sha256']);
+            $csr = @openssl_csr_new(['commonName' => $names[0]], $privateKey, ['config' => $config, 'req_extensions' => 'ext', 'digest_alg' => 'sha256']);
             if (!$csr instanceof OpenSSLCertificateSigningRequest || !openssl_csr_export($csr, $pem)) {
                 throw SslToolsException::because('The request could not be made.');
             }
