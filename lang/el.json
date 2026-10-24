@@ -1226,5 +1226,7 @@
     "Register and renew from :years years: their prices and costs are for :years years.": "Εγγραφή και ανανέωση από :years χρόνια: οι τιμές και τα κόστη τους είναι για :years χρόνια.",
     ":years years": ":years χρόνια",
     "2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.": "2 έως N χρόνια στο N επί την τιμή του ενός έτους· TLD που πουλιέται από 2 χρόνια (.gr): 2, 4, … έως N.",
-    "Fetched before an update of MyCS: fetch again.": "Ανακτήθηκε πριν από ενημέρωση του MyCS: ανάκτησέ το ξανά."
+    "Fetched before an update of MyCS: fetch again.": "Ανακτήθηκε πριν από ενημέρωση του MyCS: ανάκτησέ το ξανά.",
+    "Saved": "Αποθηκεύτηκε",
+    "Not a MAC address: :mac": "Δεν είναι διεύθυνση MAC: :mac"
 }

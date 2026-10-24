@@ -3,6 +3,7 @@
 namespace App\Helpers;
 
 use App\Attributes\ExtensionMeta;
+use App\Classes\Extension\OfflineServer;
 use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
@@ -51,6 +52,7 @@ use Illuminate\Validation\ValidationException;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use OwenIt\Auditing\Events\AuditCustom;
 use ReflectionClass;
+use RuntimeException;
 use Throwable;
 
 class ExtensionHelper
@@ -730,7 +732,7 @@ class ExtensionHelper
      * Refund a transaction via the payment gateway.
      *
      * @throws \InvalidArgumentException If amount is invalid.
-     * @throws \RuntimeException If the gateway does not support refunds or the refund fails.
+     * @throws RuntimeException If the gateway does not support refunds or the refund fails.
      */
     public static function refund(InvoiceTransaction $transaction, float $amount, bool $notify = true): bool
     {
@@ -744,13 +746,13 @@ class ExtensionHelper
         $gateway = $transaction->gateway;
 
         if (!$gateway || !self::hasFunction($gateway, 'supportsRefunds') || !self::hasFunction($gateway, 'refund')) {
-            throw new \RuntimeException('Gateway does not support refunds for transaction #' . $transaction->id);
+            throw new RuntimeException('Gateway does not support refunds for transaction #' . $transaction->id);
         }
 
         $gatewayInstance = self::getExtension('gateway', $gateway->extension, $gateway->settings);
 
         if (!$gatewayInstance->supportsRefunds()) {
-            throw new \RuntimeException('Gateway does not support refunds for transaction #' . $transaction->id);
+            throw new RuntimeException('Gateway does not support refunds for transaction #' . $transaction->id);
         }
 
         $refundedAtGateway = false;
@@ -765,7 +767,7 @@ class ExtensionHelper
                 $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
 
                 if ($success === false || $success === null || $success === '') {
-                    throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
+                    throw new RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
                 }
                 $refundedAtGateway = true;
                 $reference = is_string($success) ? $success : null;
@@ -1617,6 +1619,31 @@ class ExtensionHelper
     }
 
     /**
+     * A server action on a machine with no API: a task in Pending Module Actions (open, given up at once: no retry can do
+     * it), staff mailed once, as WHMCS's «Auto Release» to-do. The service's status follows as for any module; staff
+     * mark the task resolved once done on the machine. A creation starts the service's dates, as a module's would.
+     *
+     * @return array<string, mixed>
+     */
+    private static function offlineTask(Service $service, string $recorded, string $module, string $action): array
+    {
+        $what = trim(($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
+        ModuleAction::recordFailure($service, $recorded, $module,
+            new RuntimeException("By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this resolved.'));
+        if (ModuleAction::giveUp($service, $recorded)) {
+            NotificationHelper::sendSystemEmailNotification("By hand: {$recorded} service #{$service->id}", e(
+                "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
+                . 'then mark the task resolved in Pending Module Actions.'
+            ));
+        }
+        if ($action === 'createServer') {
+            self::startCreated($service);
+        }
+
+        return [];
+    }
+
+    /**
      * Runs one server action and records it (Σ1, module_actions): a failure stays open for the Pending Module Actions,
      * a success closes it. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an exception
      * too, so no caller mistakes a refused action for a done one. Nothing to do on the server (no module, or a module
@@ -1638,7 +1665,12 @@ class ExtensionHelper
         self::recordAudit($service, 'extension_action', [], ['action' => $audit]);
 
         try {
-            $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+            $extension = self::getExtension('server', $server->extension, $server->settings);
+            // No API (OfflineVm, OfflineDedicated): the action is staff's, by hand (owner 2026-10-24).
+            if ($extension instanceof OfflineServer) {
+                return self::offlineTask($service, $recorded, (string) $server->extension, $action);
+            }
+            $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
 
             if ($result === false) {
                 throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
