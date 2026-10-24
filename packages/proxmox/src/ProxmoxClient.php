@@ -54,12 +54,13 @@ final class ProxmoxClient
 
                 return $decoded['data'];
             }
-            if ($status !== 0) {
+            if ($status !== 0 && !in_array($status, [502, 503, 504], true)) {
                 // An answer of the cluster about this path (e.g. a 500 «QEMU guest agent is not running»): another
                 // node would say the same.
                 throw new ProxmoxException("{$base}: HTTP {$status} for {$path}.");
             }
-            $errors[] = "{$base}: not reached";
+            // Not reached, or its proxy not serving (restarting, a gateway in front of a node down): the next node.
+            $errors[] = $status === 0 ? "{$base}: not reached" : "{$base}: HTTP {$status}";
         }
 
         throw new ProxmoxException('No node answered: ' . implode('; ', $errors) . '.');

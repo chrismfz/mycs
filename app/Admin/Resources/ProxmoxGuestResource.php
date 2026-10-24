@@ -40,7 +40,7 @@ class ProxmoxGuestResource extends Resource
     {
         return $table
             ->defaultSort('vmid')
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['server', 'service.product', 'service.client']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('server')->with(['server', 'service.product', 'service.client']))
             ->columns([
                 TextColumn::make('server.name')->label('Cluster')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('vmid')->label('VMID')->sortable()->searchable(),

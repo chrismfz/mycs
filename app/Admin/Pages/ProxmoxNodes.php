@@ -49,7 +49,7 @@ class ProxmoxNodes extends Page
     /**
      * Each cluster: its nodes with their graphs, or why it could not be read.
      *
-     * @return list<array{name: string, error: ?string, nodes: list<array<string, mixed>>}>
+     * @return list<array{id: int, name: string, error: ?string, nodes: list<array<string, mixed>>}>
      */
     public function clusters(): array
     {
@@ -80,19 +80,20 @@ class ProxmoxNodes extends Page
 
                     return $nodes;
                 });
-                $clusters[] = ['name' => $server->name, 'error' => null, 'nodes' => $nodes];
+                $clusters[] = ['id' => $server->id, 'name' => $server->name, 'error' => null, 'nodes' => $nodes];
             } catch (Throwable $e) {
-                $clusters[] = ['name' => $server->name, 'error' => Redact::text($e->getMessage()), 'nodes' => []];
+                $clusters[] = ['id' => $server->id, 'name' => $server->name, 'error' => Redact::text($e->getMessage()), 'nodes' => []];
             }
         }
 
         return $clusters;
     }
 
-    /** @return array<string, int> node => guests on it mapped/unmapped, from the last sync */
+    /** @return array<string, int> «server id:node» => its guests not mapped, from the last sync (node names repeat across clusters) */
     public function unmappedByNode(): array
     {
-        return ProxmoxGuest::query()->unmapped()->whereNull('gone_at')->selectRaw('node, count(*) as n')->groupBy('node')->pluck('n', 'node')->map(fn ($n) => (int) $n)->all();
+        return ProxmoxGuest::query()->unmapped()->whereNull('gone_at')->selectRaw('server_id, node, count(*) as n')->groupBy('server_id', 'node')->get()
+            ->mapWithKeys(fn ($row) => [$row->server_id . ':' . $row->node => (int) $row->getAttribute('n')])->all();
     }
 
     /**

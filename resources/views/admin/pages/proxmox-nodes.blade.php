@@ -36,8 +36,9 @@
                                     up {{ now()->subSeconds((int) ($node['uptime'] ?? 0))->diffForHumans(syntax: Carbon\CarbonInterface::DIFF_ABSOLUTE, parts: 2) }}
                                 </span>
                             @endif
-                            @if (($unmapped[$node['node'] ?? ''] ?? 0) > 0)
-                                <x-filament::badge color="warning">{{ $unmapped[$node['node']] }} not mapped</x-filament::badge>
+                            @php $notMapped = $unmapped[$cluster['id'] . ':' . ($node['node'] ?? '')] ?? 0; @endphp
+                            @if ($notMapped > 0)
+                                <x-filament::badge color="warning">{{ $notMapped }} not mapped</x-filament::badge>
                             @endif
                         </div>
                         @if ($online)

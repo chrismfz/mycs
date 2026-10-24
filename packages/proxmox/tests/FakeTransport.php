@@ -12,6 +12,9 @@ final class FakeTransport implements Transport
     /** @var array<string, true> bases that do not answer */
     public array $down = [];
 
+    /** @var array<string, int> bases that answer this status to everything */
+    public array $statuses = [];
+
     /** @param  array<string, array{0: int, 1: mixed}>  $answers  path => [status, data] */
     public function __construct(public array $answers = []) {}
 
@@ -20,6 +23,9 @@ final class FakeTransport implements Transport
         $this->sent[] = [$base, $path, $headers];
         if (isset($this->down[$base])) {
             return [0, ''];
+        }
+        if (isset($this->statuses[$base])) {
+            return [$this->statuses[$base], ''];
         }
         $key = substr($path, strlen('/api2/json/'));
         if (!isset($this->answers[$key])) {

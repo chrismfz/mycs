@@ -39,6 +39,15 @@ final class ProxmoxClientTest extends TestCase
         $this->assertSame([self::VEGA, self::PEGASUS, self::PEGASUS], array_column($http->sent, 0), 'vega tried once, then pegasus first');
     }
 
+    public function test_a_node_whose_proxy_is_not_serving_fails_over(): void
+    {
+        $http = new FakeTransport(['nodes' => [200, [['node' => 'pegasus']]]]);
+        $http->statuses[self::VEGA] = 503;
+
+        $this->assertCount(1, $this->client($http)->nodes());
+        $this->assertSame([self::VEGA, self::PEGASUS], array_column($http->sent, 0));
+    }
+
     public function test_all_nodes_down_says_so(): void
     {
         $http = new FakeTransport;
