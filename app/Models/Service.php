@@ -543,15 +543,23 @@ class Service extends Model implements Auditable
      */
     public function toldOfSuspension(): bool
     {
-        $latest = EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
-            ->whereIn('template_key', ['server_suspended', 'server_unsuspended'])->latest('id')->value('template_key');
-        if ($latest !== null) {
-            return $latest === 'server_suspended';
+        $mails = EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
+            ->whereIn('template_key', ['server_suspended', 'server_unsuspended']);
+        // A manual hold has no start: the latest of its mails says (none: never told; review round 2 of #434).
+        if ($this->dunning_suspended_at === null) {
+            return (clone $mails)->latest('id')->value('template_key') === 'server_suspended';
         }
+        // For non-payment: a «suspended» mail of THIS suspension (an earlier one's does not count: round 2 of #434).
+        $since = CarbonImmutable::parse($this->dunning_suspended_at);
+        if ((clone $mails)->where('template_key', 'server_suspended')->where('created_at', '>=', $since->subMinute())->exists()) {
+            return true;
+        }
+        // Its mail pruned from the log (older than the log keeps), or suspended before MyCS (imported, no mail of it at all
+        // and not recent enough for its job to be still on its way): told.
+        $days = (int) config('settings.cronjob_delete_email_logs', 90);
 
-        // No mail of it in the log: pruned (90 days by default), or suspended before MyCS (imported). Told, unless the
-        // suspension is recent enough for its job to be still on its way (adversarial review of #434).
-        return $this->dunning_suspended_at === null || CarbonImmutable::parse($this->dunning_suspended_at)->lessThan(CarbonImmutable::now()->subDay());
+        return ($days > 0 && $since->lessThan(CarbonImmutable::now()->subDays($days)))
+            || (!(clone $mails)->exists() && $since->lessThan(CarbonImmutable::now()->subDay()));
     }
 
     /**
