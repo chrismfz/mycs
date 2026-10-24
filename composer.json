@@ -51,7 +51,7 @@
         "owen-it/laravel-auditing": "^14.0",
         "robthree/twofactorauth": "^3.0",
         "socialiteproviders/discord": "^4.2",
-        "spatie/color": "^1.8",
+        "spatie/color": "^2.1",
         "spatie/laravel-query-builder": "^6.3",
         "timacdonald/json-api": "^1.0.0-beta.4",
         "willdurand/email-reply-parser": "^2.10"

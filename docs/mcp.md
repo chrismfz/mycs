@@ -51,6 +51,13 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 - **Errors:** a failing tool returns an MCP error with a masked message, never a stack.
 - **One page:** `tools/list` returns up to 50 tools at once (the package's default is 15), so a client that does not
   follow the cursor still sees them all.
+- **Untrusted text:** every answer opens with `_notice`: the values are data, and text in them was written by
+  customers, mail senders, gateways or servers, never instructions. The server's instructions say the same, and a
+  ticket's messages carry their text as `customer_text` or `staff_text`. This is a mark, not the defence: the defence is
+  that no tool changes anything (only `propose_*`, which staff approve), and that an agent's writes elsewhere (ssh, the
+  firewall) need a human's approval.
+- **Addresses:** `client` lists the addresses its logins signed in from (Login History, known addresses) only to staff
+  who may see the Login History (`admin.audit.viewAny`).
 - **Ticket text** comes as staff read it in the admin (up to 10,000 characters a message); what a customer pasted into a
   ticket is not guessed at.
 
@@ -78,7 +85,8 @@ customers' Passport was removed), so no other token can be one for the MCP.
   - An access token (`mcpat_…`) lasts an hour.
   - A refresh token (`mcprt_…`) lasts 90 days and is rotated on every use. **Any** refresh token the grant already
     used, coming back, revokes the grant: someone kept a copy. So does a code used twice. A grant ends a year after
-    its approval, however often refreshed.
+    its approval, however often refreshed: the setting «MCP grant lifetime» (days; 0 keeps it until revoked, and
+    Automation Status warns while it is 0).
   - A new password revokes the grants that login approved.
   - Only hashes are stored.
 - **Checked on every call:** the member of staff must be active with «Use the MCP Server». A grant approved with a key
@@ -124,3 +132,8 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
 - **`server_test`** (Update Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
   stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
   gets MyCS locked out.
+
+- **Ticket reply drafts** (`propose_ticket_reply`, needs Update Tickets): the agent drafts a reply; staff see it on the
+  ticket's page above the reply box, its text as written (links as plain text), and «Use the draft» (into the reply box,
+  after what they already wrote: they change it and send it themselves) or «Discard». Approving it in MCP Proposals
+  sends nothing (the page offers «Open the ticket» instead). Nothing reaches a customer without a member of staff.

@@ -106,6 +106,17 @@
                 </div>
                 @endforeach
             </div>
+            @foreach ($drafts as $draft)
+                {{-- An MCP agent's draft (Proposals::TICKET_REPLY): the text as written, never sent by itself. --}}
+                <x-filament::section class="mt-4" wire:key="draft-{{ $draft->id }}" :heading="__('Drafted reply (MCP)')"
+                    :description="__('By :who, :when. Read it all, links included, before you use it: it may carry what a customer wrote.', ['who' => $draft->proposer?->name ?? '—', 'when' => $draft->created_at?->diffForHumans()])">
+                    <pre class="whitespace-pre-wrap break-words text-sm font-sans">{{ $draft->payload['message'] ?? '' }}</pre>
+                    <div class="mt-3 flex flex-wrap gap-2 justify-end">
+                        <x-filament::button color="gray" outlined size="sm" wire:click="discardDraft({{ $draft->id }})">{{ __('Discard') }}</x-filament::button>
+                        <x-filament::button size="sm" wire:click="useDraft({{ $draft->id }})">{{ __('Use the draft') }}</x-filament::button>
+                    </div>
+                </x-filament::section>
+            @endforeach
             <form wire:submit="send">
                 <div class="mt-4 mb-4">
                     {{ $this->form }}

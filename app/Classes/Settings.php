@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
 use App\Rules\TicketReferenceMask;
+use App\Services\Domains\Pricing\TldImport;
 use App\Services\Mcp\McpOauth;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
@@ -1114,6 +1115,17 @@ class Settings
                     'required' => false,
                     'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
                 ],
+                // The «Popular» button of TLD Import & Pricing Sync (owner 2026-10-24): which TLDs it fetches.
+                [
+                    'name' => 'domain_popular_tlds',
+                    'section' => 'Ordering',
+                    'label' => 'Popular TLDs',
+                    'type' => 'text',
+                    'default' => TldImport::POPULAR_TLDS,
+                    'required' => false,
+                    'validation' => ['nullable', 'max:2000'],
+                    'description' => 'The TLDs the «Popular» button of TLD Import & Pricing Sync fetches, separated by commas or spaces, without the dot.',
+                ],
                 // Domains billed at all (D5b): on; off only while another system still bills them (a migration, D-12) or in
                 // an emergency at a registrar.
                 [
@@ -1363,6 +1375,19 @@ class Settings
                     'default' => McpOauth::DEFAULT_REDIRECT_HOSTS,
                     'validation' => 'nullable|max:500',
                     'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, separated by commas or spaces. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
+                ],
+                [
+                    'name' => 'mcp_grant_days',
+                    // How long an MCP connector's approval lasts, however often it is used: full admins only.
+                    'permission' => '*',
+                    'label' => 'MCP grant lifetime (days)',
+                    'type' => 'number',
+                    'default' => McpOauth::GRANT_DAYS,
+                    'required' => true,
+                    'min_value' => 0,
+                    'max_value' => McpOauth::MAX_GRANT_DAYS,
+                    'validation' => 'integer',
+                    'description' => 'Days an approved MCP connector keeps working, however often it is used; then staff approve it again. 0: until revoked (Other → MCP OAuth Grants, a new password or 2FA, ending the session that approved it). Automation Status warns while it is 0.',
                 ],
                 [
                     'name' => 'staff_2fa_required',

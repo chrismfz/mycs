@@ -53,4 +53,37 @@ class TldPriceMathTest extends TestCase
             }
         }
     }
+
+    public function test_the_margin_over_cost_in_percent_one_decimal_half_away_from_zero(): void
+    {
+        $this->assertSame('107.7', TldPriceMath::marginPercent('23.33', '11.23'));
+        $this->assertSame('-8.7', TldPriceMath::marginPercent('4.20', '4.60'));
+        $this->assertSame('-100.0', TldPriceMath::marginPercent('0.00', '4.60'), 'free, at a cost');
+        $this->assertSame('0.1', TldPriceMath::marginPercent('1.0005', '1'), 'half up');
+        $this->assertSame('-0.1', TldPriceMath::marginPercent('0.9995', '1'), 'half away from zero below');
+        $this->assertSame('0.0', TldPriceMath::marginPercent('4.5999', '4.60'), 'never «-0.0»');
+        $this->assertSame('20.0', TldPriceMath::marginPercent('13.16532', '10.9711'), 'a converted cost, exact');
+        $this->assertNull(TldPriceMath::marginPercent('5.00', '0.00'), 'no percentage of a zero cost');
+    }
+
+    public function test_a_price_below_its_cost_is_a_loss_and_up_to_ten_percent_above_it_is_thin(): void
+    {
+        $this->assertSame('loss', TldPriceMath::alert('4.59', '4.60'));
+        $this->assertSame('loss', TldPriceMath::alert('0.00', '4.60'), 'free at a cost');
+        $this->assertSame('thin', TldPriceMath::alert('4.60', '4.60'), 'at cost');
+        $this->assertSame('thin', TldPriceMath::alert('11.00', '10.00'), '10% exactly');
+        $this->assertNull(TldPriceMath::alert('11.01', '10.00'));
+        $this->assertNull(TldPriceMath::alert('0.00', '0.00'));
+        $this->assertNull(TldPriceMath::alert('3.00', '0'), 'a zero cost: nothing to compare');
+        $this->expectException(InvalidArgumentException::class);
+        TldPriceMath::alert('-1', '1');
+    }
+
+    public function test_a_cost_quoted_for_some_years_for_others(): void
+    {
+        $this->assertSame(['6.25', '12.50', '25.00', '9.80', '14.99'], [TldPriceMath::forYears('12.50', 1, 2), TldPriceMath::forYears('12.50', 2, 2),
+            TldPriceMath::forYears('12.50', 4, 2), TldPriceMath::forYears('9.80', 1), TldPriceMath::forYears('29.97', 1, 2)]);
+        $this->expectException(InvalidArgumentException::class);
+        TldPriceMath::forYears('12.50', 1, 0);
+    }
 }

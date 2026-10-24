@@ -27,8 +27,24 @@ final class McpOauth
 
     public const REFRESH_DAYS = 90;
 
-    /** However often it is refreshed, a grant ends a year after staff approved it (review MCPO-4). */
+    /**
+     * However often it is refreshed, a grant ends this many days after staff approved it (review MCPO-4): the setting «MCP
+     * grant lifetime», 365 by default; 0 keeps it until revoked (owner 2026-10-24: the grants are listed and revoked by
+     * hand).
+     */
     public const GRANT_DAYS = 365;
+
+    /** The setting's longest: ten years (more would overflow into «already past»). */
+    public const MAX_GRANT_DAYS = 3650;
+
+    /** Whole days from 0 to MAX_GRANT_DAYS; anything else (empty, 0.5, a typo) is the default, never «until revoked». */
+    public static function grantDays(): int
+    {
+        $value = config('settings.mcp_grant_days');
+        $days = is_int($value) ? ($value >= 0 ? $value : null) : (is_string($value) && preg_match('/^\s*\d+\s*$/', $value) === 1 ? (int) $value : null);
+
+        return $days !== null && $days <= self::MAX_GRANT_DAYS ? $days : self::GRANT_DAYS;
+    }
 
     public const ACCESS_PREFIX = 'mcpat_';
 
@@ -283,7 +299,7 @@ final class McpOauth
                 return new OAuthError('invalid_grant', 'The refresh token is another client\'s.');
             }
             if ($grant->revoked_at !== null || $grant->refresh_expires_at === null || $grant->refresh_expires_at->isPast()
-                || $grant->created_at?->copy()->addDays(self::GRANT_DAYS)->isPast() || self::grantAlive($grant) === null) {
+                || (self::grantDays() > 0 && $grant->created_at?->copy()->addDays(self::grantDays())->isPast()) || self::grantAlive($grant) === null) {
                 $grant->revoke('Expired or not allowed any more');
 
                 return new OAuthError('invalid_grant', 'The grant expired or was revoked.');

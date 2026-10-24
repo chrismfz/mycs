@@ -72,6 +72,17 @@ final class TldPriceMath
         return bcmul(self::cents($yearly), (string) $years, 2);
     }
 
+    /** A cost quoted for $per years, for $years of them, to the cent half up (12.50 for 2 years: 6.25 for 1, 25.00 for 4). */
+    public static function forYears(string $cost, int $years, int $per = 1): string
+    {
+        if ($years < 1 || $years > 10 || $per < 1 || $per > 10) {
+            throw new InvalidArgumentException("Years are 1 to 10, not {$years} of {$per}.");
+        }
+        self::amount($cost);
+
+        return self::cents(bcdiv(bcmul($cost, (string) $years, self::SCALE), (string) $per, self::SCALE));
+    }
+
     /** A cost in another currency of MyCS, exact, by the rate staff gave (1 unit of the cost's currency = rate units). */
     public static function convert(string $amount, string $rate): string
     {
@@ -82,6 +93,45 @@ final class TldPriceMath
         }
 
         return bcmul($amount, $rate, self::SCALE);
+    }
+
+    /** How close above its cost a price is «thin» (orange on the import page): up to 10% over it. */
+    public const THIN_MARGIN_PERCENT = '10';
+
+    /**
+     * The profit of a price over its cost, in percent of the cost, to one decimal half away from zero (negative below the
+     * cost), as WHMCS's page shows it; null where the cost is zero (no percentage of nothing).
+     */
+    public static function marginPercent(string $price, string $cost): ?string
+    {
+        self::amount($price);
+        self::amount($cost);
+        if (bccomp($cost, '0', self::SCALE) === 0) {
+            return null;
+        }
+        $exact = bcdiv(bcmul(bcsub($price, $cost, self::SCALE), '100', self::SCALE), $cost, self::SCALE);
+        $rounded = bccomp($exact, '0', self::SCALE) < 0 ? bcsub($exact, '0.05', 1) : bcadd($exact, '0.05', 1);
+
+        return bccomp($rounded, '0', 1) === 0 ? '0.0' : $rounded; // never «-0.0»
+    }
+
+    /**
+     * How a price stands against its cost: 'loss' below it, 'thin' from the cost to THIN_MARGIN_PERCENT over it, null
+     * above that, or where the cost is zero.
+     */
+    public static function alert(string $price, string $cost): ?string
+    {
+        self::amount($price);
+        self::amount($cost);
+        if (bccomp($cost, '0', self::SCALE) === 0) {
+            return null;
+        }
+        if (bccomp($price, $cost, self::SCALE) < 0) {
+            return 'loss';
+        }
+        $thin = bcmul($cost, bcadd('1', bcdiv(self::THIN_MARGIN_PERCENT, '100', self::SCALE), self::SCALE), self::SCALE);
+
+        return bccomp($price, $thin, self::SCALE) <= 0 ? 'thin' : null;
     }
 
     /** Two decimals, half up. */
