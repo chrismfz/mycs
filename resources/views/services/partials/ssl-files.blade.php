@@ -40,6 +40,18 @@
     @endif
     @endif
 
+    @if($sslCurrent)
+    <details class="mt-3" @if($sslChecks !== []) open @endif>
+        <summary class="text-sm cursor-pointer">{{ __('services.ssl.checks.title') }}</summary>
+        <div class="mt-2 flex flex-col gap-2">
+            <x-button.secondary type="button" class="!w-fit" wire:click="sslRunChecks" wire:loading.attr="disabled">{{ __('services.ssl.checks.run') }}</x-button.secondary>
+            @if($sslChecks !== [])
+            <x-ssl-check-results :results="$sslChecks" />
+            @endif
+        </div>
+    </details>
+    @endif
+
     @if($sslVersions->count() > 1 || ($sslVersions->first() && $sslVersions->first()->id !== $sslCurrent?->id))
     <details class="mt-3">
         <summary class="text-sm cursor-pointer">{{ __('services.ssl.vault.history') }}</summary>

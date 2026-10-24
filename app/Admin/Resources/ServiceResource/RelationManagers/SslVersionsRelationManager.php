@@ -23,6 +23,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\HtmlString;
 use MyCS\SslTools\KeyType;
@@ -58,6 +59,9 @@ class SslVersionsRelationManager extends RelationManager
     {
         return (bool) self::staff()?->hasPermission(SslVault::KEY_PERMISSION);
     }
+
+    /** Versions a member of staff may check an hour. */
+    private const CHECKS_PER_HOUR = 120;
 
     /** Keys a member of staff may see or download an hour (as the portal's, per staff member: review 6). */
     private const KEYS_PER_HOUR = 30;
@@ -134,6 +138,20 @@ class SslVersionsRelationManager extends RelationManager
                             'Certificate' => $record->certificate, 'CA bundle' => $record->chain, 'CSR' => $record->csr,
                         ])),
                 ])->label('Files')->icon('ri-file-download-line')->button()->color('gray'),
+                // Its key (never shown), CSR, certificate and chain checked together (docs/ssl-vault.md, PR 2).
+                Action::make('check')->label('Check')->icon('ri-shield-check-line')->button()->color('gray')
+                    ->modalHeading(fn (SslVersion $record) => "Version {$record->number} checked")
+                    ->modalSubmitAction(false)->modalCancelActionLabel('Close')
+                    ->mountUsing(function () {
+                        $limit = 'admin-ssl-check:' . self::staff()?->id; // review 8 of #438
+                        if (RateLimiter::tooManyAttempts($limit, self::CHECKS_PER_HOUR)) {
+                            Notification::make()->danger()->title('Too many checks: try again later')->send();
+
+                            throw new Cancel;
+                        }
+                        RateLimiter::hit($limit, 3600);
+                    })
+                    ->modalContent(fn (SslVersion $record) => new HtmlString(Blade::render('<x-ssl-check-results :results="$results" />', ['results' => app(SslVault::class)->check($record)]))),
                 ActionGroup::make([
                     // Opening it shows the key, and the audit is written as it is read.
                     Action::make('revealKey')->label('Reveal key (audited)')->icon('ri-eye-line')->color('warning')
