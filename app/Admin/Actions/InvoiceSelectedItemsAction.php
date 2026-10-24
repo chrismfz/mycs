@@ -15,6 +15,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Notifications\Notification;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,11 +35,10 @@ class InvoiceSelectedItemsAction
             // Only what staff may see (review F4): services and domains each with their own permission.
             ->schema(fn (Client $record): array => [
                 CheckboxList::make('services')->label(__('invoices.selected.services'))->visible(self::may('admin.services.viewAny'))
-                    ->options($record->services()->whereIn('status', ['active', 'suspended'])
-                        ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))->with('product')->orderBy('expires_at')->get()
+                    ->options(self::billableServices($record)->with('product')->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Service $s) => [$s->id => self::serviceLabel($s)])->all()),
                 CheckboxList::make('domains')->label(__('invoices.selected.domains'))->visible(self::may('admin.domains.viewAny'))
-                    ->options($record->domains()->whereIn('status', array_map(fn ($s) => $s->value, RenewalBilling::BILLED_DOMAINS))->orderBy('expires_at')->get()
+                    ->options(self::billableDomains($record)->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Domain $d) => [$d->id => self::domainLabel($d)])->all()),
             ])
             ->action(function (Client $record, array $data): void {
@@ -48,6 +48,53 @@ class InvoiceSelectedItemsAction
                     self::may('admin.domains.viewAny') ? $record->domains()->whereKey(array_map('intval', $data['domains'] ?? []))->get() : [],
                 );
             });
+    }
+
+    /**
+     * The Summary's «With selected» (the owner, 2026-10-24, as WHMCS's): the rows ticked in its Products/Services and
+     * Domains tables, kept on the page as `selectedServices` and `selectedDomains`. Only this client's billable ones,
+     * each kind only for staff who may see it, whatever ids the browser sends.
+     */
+    public static function forSummary(): Action
+    {
+        return Action::make('invoiceSelectedRows')
+            ->label(__('invoices.selected.action'))
+            ->icon('heroicon-o-document-duplicate')
+            ->authorize(fn (): bool => self::allowed())
+            ->requiresConfirmation()
+            ->modalDescription(__('invoices.selected.help'))
+            ->action(function (Client $record, $livewire): void {
+                $ids = fn (mixed $ticked): array => array_values(array_filter(array_map('intval', (array) $ticked)));
+                self::run(
+                    self::may('admin.services.viewAny') ? self::billableServices($record)->whereKey($ids($livewire->selectedServices))->get() : [],
+                    self::may('admin.domains.viewAny') ? self::billableDomains($record)->whereKey($ids($livewire->selectedDomains))->get() : [],
+                );
+                $livewire->selectedServices = [];
+                $livewire->selectedDomains = [];
+            });
+    }
+
+    /**
+     * What may be invoiced ahead: its live services that renew, and its domains the renewals bill.
+     *
+     * @return HasMany<Service, Client>
+     */
+    public static function billableServices(Client $client): HasMany
+    {
+        return $client->services()->whereIn('status', ['active', 'suspended'])
+            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
+    }
+
+    /** @return HasMany<Domain, Client> */
+    public static function billableDomains(Client $client): HasMany
+    {
+        return $client->domains()->whereIn('status', array_map(fn ($s) => $s->value, RenewalBilling::BILLED_DOMAINS));
+    }
+
+    /** May staff invoice ahead, and see this kind (services or domains)? */
+    public static function mayInvoice(string $kind): bool
+    {
+        return self::allowed() && self::may('admin.' . $kind . '.viewAny');
     }
 
     /** The client's Services or Domains list: the ticked rows. */

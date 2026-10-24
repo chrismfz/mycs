@@ -35,6 +35,12 @@ class ClientSummaryPage extends ViewRecord
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-identification';
 
+    /** @var list<int|string> the rows ticked in the Products/Services table, for «With selected» */
+    public array $selectedServices = [];
+
+    /** @var list<int|string> the rows ticked in the Domains table */
+    public array $selectedDomains = [];
+
     /** @var array<string, mixed>|null built once per request */
     private ?array $summary = null;
 
@@ -75,6 +81,11 @@ class ClientSummaryPage extends ViewRecord
             // The sticky notes on top (WHMCS's client «Notes»); the page is staff's, as are the notes.
             // All time and yearly (the owner, 2026-10-21), for staff who may see its invoices.
             'yearlyTotals' => $can('admin.invoices.viewAny') ? ClientTotals::for($client) : null,
+            // The rows «With selected» may invoice: a tick box on them only (null: no tick boxes for this staff).
+            'selectable' => [
+                'services' => InvoiceSelectedItemsAction::mayInvoice('services') ? InvoiceSelectedItemsAction::billableServices($client)->pluck('id')->all() : null,
+                'domains' => InvoiceSelectedItemsAction::mayInvoice('domains') ? InvoiceSelectedItemsAction::billableDomains($client)->pluck('id')->all() : null,
+            ],
             'stickyNotes' => $client->notes()->where('sticky', true)->with('staff')->latest()->latest('id')->limit(10)->get(),
             'links' => [
                 'edit' => ClientResource::canEdit($client) ? ClientResource::getUrl('edit', ['record' => $client]) : null,
@@ -88,6 +99,12 @@ class ClientSummaryPage extends ViewRecord
                 'email' => $can('admin.email_logs.view') ? fn (int $id) => EmailLogResource::getUrl('view', ['record' => $id]) : null,
             ],
         ];
+    }
+
+    /** Mounted from the Summary's «With selected» dropdown. */
+    public function invoiceSelectedRowsAction(): Action
+    {
+        return InvoiceSelectedItemsAction::forSummary();
     }
 
     protected function getHeaderActions(): array
