@@ -1,13 +1,18 @@
 @php
     use App\Models\EmailLog;
     use App\Models\Invoice;
+    use App\Models\Contact;
     use App\Models\Service;
+    use App\Services\Admin\ClientSummary;
     $d = $summary['details'];
+    $set = $summary['settings'];
     $inv = $summary['invoices'];
     $svc = $summary['services'];
     $other = $summary['other'];
     $row = 'flex justify-between gap-4 py-1 border-b border-gray-100 dark:border-white/5 text-sm';
     $label = 'text-gray-500 dark:text-gray-400';
+    $group = 'flex items-baseline justify-between pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400';
+    $onOff = fn (bool $on) => $on ? __('Yes') : __('No');
 @endphp
 
 {{-- The account's sticky notes, as WHMCS shows them above a client (staff only) --}}
@@ -24,18 +29,43 @@
 @endforeach
 
 <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+    {{-- A value at its usual setting is plain grey; one changed from it is a badge (the owner, 2026-10-24). --}}
     <x-filament::section :heading="__('Client Information')">
+        <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Name') }}</span><span class="text-right break-all">{{ $d['name'] ?: '—' }}</span></div>
+        <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Type') }}</span><span class="text-right">
+            @if ($d['type'] === 'business')<x-filament::badge color="info">{{ __('account.contact_type.business') }}</x-filament::badge>
+            @elseif ($d['type'])<span class="{{ $label }}">{{ __('account.contact_type.' . $d['type']) }}</span>@else—@endif
+        </span></div>
         @foreach ([
-            __('Name') => $d['name'], __('Company') => $d['company'], __('Email') => $d['email'],
+            __('Company') => $d['company'], __('Email') => $d['email'],
             __('Address') => $d['address'], __('Address 2') => $d['address2'], __('City') => $d['city'], __('State') => $d['state'],
             __('Postcode') => $d['postcode'], __('Country') => $d['country'], __('Phone') => $d['phone'],
-            __('Tax ID') => $d['tax_id'], __('EU VAT number') => $d['vat_number'],
+            __('Tax ID') => $d['tax_id'], __('Tax office') => $d['tax_office'], __('Activity') => $d['activity'],
         ] as $name => $value)
             <div class="{{ $row }}"><span class="{{ $label }}">{{ $name }}</span><span class="text-right break-all">{{ $value ?: '—' }}</span></div>
         @endforeach
+        <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('EU VAT number') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right break-all">
+            {{ $d['vat_number'] ?: '—' }}
+            @if ($d['vat_status'])<x-filament::badge :color="match ($d['vat_status']) { 'valid' => 'success', 'invalid' => 'danger', default => 'gray' }">{{ __('vat.status.' . $d['vat_status']) }}</x-filament::badge>@endif
+        </span></div>
+        <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Document') }}</span><span class="text-right">
+            @if ($d['document_type'] === 'invoice')<x-filament::badge color="info">{{ __('account.document_type.invoice') }}</x-filament::badge>
+            @elseif ($d['document_type'])<span class="{{ $label }}">{{ __('account.document_type.' . $d['document_type']) }}</span>@else—@endif
+        </span></div>
+        @php
+            $emails = $d['email_preferences'];
+            $missing = $emails === null ? [] : array_values(array_diff(Contact::EMAIL_PREFERENCES, $emails));
+            $kind = fn (string $kind) => __('account.email_preference.' . $kind);
+        @endphp
+        <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Receives emails') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right">
+            @if ($emails === null)—
+            @elseif ($missing === [])<span class="{{ $label }}">{{ __('All') }}</span>
+            @elseif ($emails === [])<x-filament::badge color="warning">{{ __('None') }}</x-filament::badge>
+            @else{{ implode(' · ', array_map($kind, $emails)) }} <x-filament::badge color="warning">{{ __('Not: :list', ['list' => implode(', ', array_map($kind, $missing))]) }}</x-filament::badge>@endif
+        </span></div>
     </x-filament::section>
 
-    @if ($inv !== null || $summary['credit'] !== null)
+    {{-- Always: its settings are the account's, as its details (only the money needs the invoices' or credits' permission). --}}
         <x-filament::section :heading="__('Invoices/Billing')">
             @if ($inv !== null)
                 @foreach ($inv['statuses'] as $status => $line)
@@ -49,12 +79,39 @@
             @if ($summary['credit'] !== null)
                 <div class="{{ $row }} font-medium"><span>{{ __('Credit Balance') }}</span><span class="text-right">{{ $summary['credit'] ? implode(', ', $summary['credit']) : '—' }}</span></div>
             @endif
+
+            {{-- The Edit page's «Billing» and «Fiscal invoicing (Ekdosi)» (the owner, 2026-10-24). --}}
+            <div class="{{ $group }}"><span>{{ __('Billing settings') }}</span>@if ($links['edit'])<x-filament::link :href="$links['edit']" size="sm" class="normal-case tracking-normal">{{ __('Edit') }}</x-filament::link>@endif</div>
+            <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Language') }}</span><span class="text-right">
+                @if ($set['language'])<x-filament::badge color="info">{{ $set['language'] }}</x-filament::badge>@else<span class="{{ $label }}">{{ __('Default') }} ({{ $set['language_default'] }})</span>@endif
+            </span></div>
+            <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Client group') }}</span><span class="text-right">
+                @if ($set['group'])
+                    <x-filament::badge color="gray">@if ($set['group']['colour'])<span class="me-1 inline-block h-2 w-2 rounded-full" style="background-color: {{ $set['group']['colour'] }}"></span>@endif{{ $set['group']['name'] . ($set['group']['percent'] ? ' −' . (float) $set['group']['percent'] . '%' : '') }}</x-filament::badge>
+                @else—@endif
+            </span></div>
+            <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Payment method for renewals') }}</span><span class="text-right break-all">{{ $set['method'] ?? '—' }}</span></div>
+            @foreach ([
+                'auto_charge' => __('Charge renewals automatically'), 'credit_auto_apply' => __('Credit pays open invoices automatically'),
+                'separate_invoices' => __('Separate invoices'), 'tax_exempt' => __('Tax exempt'),
+                '' => __('Fiscal invoicing (Ekdosi)'), // a heading, not a setting
+                'ignore_invoicing' => __('Ignore invoicing'), 'immediate_invoicing' => __('Immediate invoicing'),
+            ] as $field => $name)
+                @if ($field === '')
+                    <div class="{{ $group }}"><span>{{ $name }}</span></div>
+                @else
+                    <div class="{{ $row }} items-center" data-setting="{{ $field }}"><span class="{{ $label }}">{{ $name }}</span><span class="text-right">
+                        @if ($set[$field] === ClientSummary::SETTING_DEFAULTS[$field])<span class="{{ $label }}">{{ $onOff($set[$field]) }}</span>
+                        @else<x-filament::badge color="warning">{{ $onOff($set[$field]) }}</x-filament::badge>@endif
+                    </span></div>
+                @endif
+            @endforeach
+
             <div class="flex flex-wrap gap-3 pt-3 text-sm">
                 @if ($links['invoices'])<x-filament::link :href="$links['invoices']">{{ __('Invoices') }}</x-filament::link>@endif
                 @if ($links['credits'])<x-filament::link :href="$links['credits']">{{ __('Credits') }}</x-filament::link>@endif
             </div>
         </x-filament::section>
-    @endif
 
     @if ($svc !== null || $summary['open_tickets'] !== null)
         <x-filament::section :heading="__('Products/Services')">
@@ -83,7 +140,13 @@
         @if ($other['users'] !== null)
             <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Last Login') }}</span><span class="text-right">{{ $other['last_login']?->format('d/m/Y H:i') ?? '—' }}@if ($other['last_login_ip'])<br><span class="{{ $label }}">{{ $other['last_login_ip'] }}</span>@endif</span></div>
             <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Users') }}</span><span>{{ $other['users'] }}</span></div>
+            @if ($other['owner_2fa'] !== null)
+                <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Owner 2FA') }}</span><span>
+                    @if ($other['owner_2fa'])<x-filament::badge color="success">{{ __('Yes') }}</x-filament::badge>@else<span class="{{ $label }}">{{ __('No') }}</span>@endif
+                </span></div>
+            @endif
         @endif
+        <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Contacts') }}</span><span>{{ $other['contacts'] }}</span></div>
 
         @if ($summary['emails'] !== null)
             <div class="pt-4 text-sm font-medium">{{ __('Recent Emails') }}</div>

@@ -77,6 +77,7 @@ class ClientSummaryPage extends ViewRecord
             'yearlyTotals' => $can('admin.invoices.viewAny') ? ClientTotals::for($client) : null,
             'stickyNotes' => $client->notes()->where('sticky', true)->with('staff')->latest()->latest('id')->limit(10)->get(),
             'links' => [
+                'edit' => ClientResource::canEdit($client) ? ClientResource::getUrl('edit', ['record' => $client]) : null,
                 'services' => $can('admin.services.viewAny') ? ClientResource::getUrl('services', ['record' => $client]) : null,
                 'service' => $can('admin.services.update') ? fn (int $id) => ServiceResource::getUrl('edit', ['record' => $id]) : null,
                 'domains' => $can('admin.domains.viewAny') ? ClientResource::getUrl('domains', ['record' => $client]) : null,
