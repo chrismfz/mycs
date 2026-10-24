@@ -95,6 +95,21 @@ class AppearanceSettingsTest extends TestCase
         $this->assertStringContainsString('<p>{{ 1 + 1 }} @php echo "x"; @endphp</p>', $html);
     }
 
+    /** spatie/color reads the colour and writes it as the setting's mode (hsl); what it can't read is refused. */
+    public function test_a_colour_is_converted_to_hsl_and_a_wrong_one_refused(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        config(['settings.system_email_address' => 'billing@example.test']);
+
+        $this->livewireAs($owner)->test(Settings::class)
+            ->set('data.theme_primary', '#ff0000')
+            ->assertSet('data.theme_primary', 'hsl(0, 100%, 50%)')
+            ->set('data.theme_secondary', 'not a colour')
+            ->call('save')
+            ->assertHasErrors('data.theme_secondary');
+    }
+
     public function test_the_appearance_tab_shows_and_saves(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
