@@ -11,6 +11,7 @@ use App\Admin\Pages\Extension;
 use App\Admin\Pages\GrRegistry;
 use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
+use App\Admin\Pages\ProxmoxNodes;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
 use App\Admin\Pages\SslChecker;
@@ -54,6 +55,7 @@ use App\Admin\Resources\OfferResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\ProductResource;
+use App\Admin\Resources\ProxmoxGuestResource;
 use App\Admin\Resources\RoleResource;
 use App\Admin\Resources\ServerGroupResource;
 use App\Admin\Resources\ServerResource;
@@ -136,6 +138,8 @@ class TopMenu
             [LoginAttemptResource::class, 'index', 'Login History'],
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
+            [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
+            [ProxmoxNodes::class],
             [DomainRegistrarLogResource::class, 'index', 'Registrar Log'],
             [FailedJobResource::class, 'index', 'Failed Jobs'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
