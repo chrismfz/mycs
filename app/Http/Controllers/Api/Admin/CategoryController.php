@@ -29,9 +29,9 @@ class CategoryController extends ApiController
     {
         // Fetch categories with pagination
         $categories = QueryBuilder::for(Category::class)
-            ->allowedFilters(['name', 'parent_id', 'slug'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'name'])
+            ->allowedFilters('name', 'parent_id', 'slug')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'name')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the categories as a JSON response
@@ -44,7 +44,7 @@ class CategoryController extends ApiController
     public function show(GetCategoryRequest $request, Category $category)
     {
         $category = QueryBuilder::for(Category::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($category->id);
 
         // Return the category as a JSON response
