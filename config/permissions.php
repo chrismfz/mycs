@@ -90,6 +90,8 @@ return [
                 'move' => 'Move Services to Another Client',
                 // Into the account's panel signed in, as its owner (owner 2026-10-23): audited.
                 'sso' => 'Log in to a Service\'s Panel',
+                // An SSL certificate's private key, seen or downloaded (owner 2026-10-24): audited each time.
+                'ssl_keys' => 'View and Download SSL Private Keys',
             ],
             // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
             'domains' => [

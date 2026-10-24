@@ -1,0 +1,67 @@
+# SSL: κλειδιά, CSR και πιστοποιητικά στο MyCS (vault)
+
+Αποφάσεις του υπευθύνου (2026-10-24). Τα πιστοποιητικά κρατούν το πολύ 199 ημέρες από τον 2026-03 και θα μικρύνουν· τα
+κλειδιά με το χέρι και στις σημειώσεις του admin δεν βγαίνουν. Η παραγγελία μέσω Openprovider μένει όπως ήταν
+(`extensions/Servers/OpenproviderSsl`): το vault φτιάχνει το CSR που της δίνεται και κρατά ό,τι βγαίνει.
+
+## Φάσεις
+1. **Κλειδί και CSR από το MyCS** (PR 1): ο πελάτης στο portal και το staff στο admin. RSA 2048 (προεπιλογή) ή
+   EC P-256. Το CSR περνά από το `decodeCsr` → `placeOrder` / `reissue` όπως ένα επικολλημένο. Το «έχω δικό μου CSR»
+   μένει ως είχε.
+2. **Vault** (PR 1): κλειδί, CSR, πιστοποιητικό και αλυσίδα κάθε έκδοσης· λήψη key, crt, ca-bundle, fullchain, csr και
+   `.pfx`. Reissue με νέο κλειδί (προεπιλογή) ή με το ίδιο. Οι παλιές εκδόσεις μένουν.
+3. Εγκατάσταση στο cPanel: **όχι ακόμα** (το module του cPanel δεν αγγίζεται).
+4. **Εργαλεία ελέγχου** (PR 2): κλειδί ↔ CSR ↔ πιστοποιητικό, αλυσίδα, ονόματα, λήξη· decode· σελίδα Utilities.
+
+## Αποφάσεις
+- **Κρυπτογράφηση με το `APP_KEY`** (cast `encrypted`, όπως τα άλλα μυστικά της βάσης): ένα δεύτερο κλειδί στο ίδιο
+  `.env` δεν προσθέτει τίποτα (2026-10-24). Η αλλαγή του `APP_KEY` περνά από το `APP_PREVIOUS_KEYS`.
+- **Ο πελάτης δεν σβήνει το κλειδί** από το MyCS: το χρειάζεται ο υπεύθυνος (π.χ. σε migration). Το portal το λέει.
+- **Staff σε «Login as client»:** το κλειδί θέλει και εκεί το permission `admin.services.ssl_keys`· το audit γράφει
+  το staff.
+- **Επισύναψη κλειδιού** από το admin (από τις σημειώσεις ή τον server του πελάτη): μόνο σε έκδοση χωρίς κλειδί και
+  μόνο αν το δημόσιο κλειδί του είναι της έκδοσης.
+
+## Μοντέλο
+`ssl_versions` (`App\Models\SslVersion`), πολλές ανά `ssl_orders`, αριθμημένες 1, 2, 3…:
+- `source`: `generated` (εδώ), `pasted` (CSR του πελάτη, χωρίς κλειδί), `synced` (πιστοποιητικό που βρέθηκε χωρίς
+  έκδοση: παραγγελίες πριν το vault, ή νέο πιστοποιητικό για κλειδί που είχε ήδη άλλο, π.χ. ανανέωση).
+- `private_key` κρυπτογραφημένο και `$hidden`· διαβάζεται μόνο από το `SslVault` (`keyPem()`, `pfx()`).
+- `spki_sha256`: το SHA-256 του δημόσιου κλειδιού (SubjectPublicKeyInfo). Ίδιο σε κλειδί, CSR και πιστοποιητικό· με
+  αυτό μπαίνει κάθε πιστοποιητικό στην έκδοσή του.
+- `ordered_at`: πότε το CSR της πήγε σε παραγγελία ή reissue· null: φτιάχτηκε και δεν χρησιμοποιήθηκε («not ordered»).
+
+**Πώς γεμίζει (`SslVault::record`, στο τέλος κάθε `sync` του extension, που δεν αποτυγχάνει ποτέ εξαιτίας του):** το
+CSR της παραγγελίας βρίσκει την έκδοσή του (ίδιο CSR) και σημειώνεται `ordered_at`, ή γράφεται ως `pasted`· το
+πιστοποιητικό μπαίνει στη νεότερη παραγγελμένη έκδοση με το ίδιο δημόσιο κλειδί που δεν έχει πιστοποιητικό· αν έχει
+ήδη άλλο, νέα έκδοση (`synced`) με το ίδιο κλειδί και CSR, ώστε κάθε πιστοποιητικό να μένει. Ό,τι υπήρχε πριν φτιάχνει
+τις εκδόσεις του στο επόμενο ωριαίο `ssl:sync`. «Σε χρήση» είναι η έκδοση με το πιστοποιητικό της παραγγελίας.
+
+## Κώδικας
+- `packages/ssl-tools` (χωρίς framework, δικά του tests): `PrivateKey` (generate, parse, PKCS#8, χωρίς passphrase),
+  `Csr` (create με subjectAltName από config ανά κλήση, parse με τα ονόματα από το DER, έλεγχος υπογραφής),
+  `Certificate`, `Pkcs12`, `Pem`. Τα σφάλματα είναι σταθερές προτάσεις: ποτέ το input, ποτέ το κείμενο του OpenSSL.
+- `App\Services\Ssl\SslVault`: generate, record, current, attachKey, keyPem, pfx, `namesFor`, `customerMayReadKey`.
+- Portal: `Services\Show::sslGenerate`, partials `ssl-request`, `ssl-files`· `SslFileController` (routes
+  `services.ssl.file`, `services.ssl.pfx`).
+- Admin: `SslVersionsRelationManager` στην υπηρεσία (αρχεία, κλειδί, .pfx, επισύναψη, «Generate key and order»,
+  «Reissue with a key from here»).
+
+## Ονόματα
+Από το domain που γράφεται: `example.gr` → example.gr, www.example.gr· `www.example.gr` → www.example.gr, example.gr·
+`*.example.gr` → *.example.gr, example.gr. Δηλαδή ό,τι δέχεται ήδη το `decodeCsr` (όνομα και www, ή wildcard και
+βάση). IDN ως punycode· IP, ένα label, κενά, κόμματα, νέες γραμμές: όχι.
+
+## Ασφάλεια
+- Κλειδί ποτέ σε logs, mails, τιμές audit, exceptions, ούτε στο state του Livewire: φτιάχνεται στον server, το
+  component κρατά μόνο το CSR. Λήψη μόνο από route (portal) ή action (admin), με `Cache-Control: no-store`.
+- **Permission `admin.services.ssl_keys`** («View and Download SSL Private Keys») για staff, στο admin και σε
+  «Login as client». Ο πελάτης: login με `manageproducts` στον λογαριασμό. Ένα login μόνο με `products` κατεβάζει
+  πιστοποιητικό και CSR, όχι κλειδί.
+- **Audit** στην υπηρεσία: `ssl_key_generated`, `ssl_key_downloaded` (`file`: key ή pfx, `via`: portal ή admin),
+  `ssl_key_attached`, με αριθμό έκδοσης και `spki_sha256`· ποτέ το κλειδί. Η εμφάνιση του κλειδιού στο admin γράφεται
+  ως `ssl_key_downloaded`, `via: admin`.
+- **Rate limits:** δημιουργία 5 την ώρα ανά υπηρεσία και 20 τη μέρα ανά λογαριασμό (portal), 30 την ώρα ανά staff
+  (admin)· λήψη κλειδιού ή `.pfx` 20 την ώρα ανά υπηρεσία.
+- Μια έκδοση φτάνει μόνο μέσα από τη δική της υπηρεσία (`/services/{service}/ssl/{version}/…`, αλλιώς 404).
+- Το `.pfx` έχει κωδικό που δίνεται στη λήψη και δεν κρατιέται (OpenSSL 3: AES-256, PBKDF2).

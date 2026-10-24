@@ -835,6 +835,18 @@ class Service extends Model implements Auditable
         return $this->hasManyThrough(LicenseAccessLog::class, License::class);
     }
 
+    /** @return HasOne<SslOrder, $this> its Openprovider SSL order (OpenproviderSsl), if it has one */
+    public function sslOrder(): HasOne
+    {
+        return $this->hasOne(SslOrder::class);
+    }
+
+    /** @return HasManyThrough<SslVersion, SslOrder, $this> its SSL order's keys, CSRs and certificates (docs/ssl-vault.md) */
+    public function sslVersions(): HasManyThrough
+    {
+        return $this->hasManyThrough(SslVersion::class, SslOrder::class);
+    }
+
     /** @return HasOne<License, $this> its nixpal license (NixpalLicensing), if it has one */
     public function license(): HasOne
     {

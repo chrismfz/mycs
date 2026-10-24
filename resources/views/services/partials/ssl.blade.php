@@ -5,31 +5,8 @@
 
     @if($sslOrder->awaitingConfiguration())
         @can('update', $service)
-        <p class="text-sm text-base/70 mt-1">{{ __('services.ssl.configure_hint') }}</p>
-        <form wire:submit="{{ $sslName ? 'sslOrder' : 'sslCheck' }}" class="flex flex-col gap-3 mt-3">
-            <x-form.textarea wire:model.blur="sslCsr" name="sslCsr" :label="__('services.ssl.csr')" rows="8" class="font-mono text-xs" required
-                placeholder="-----BEGIN CERTIFICATE REQUEST-----" />
-            @if($sslName)
-            <p class="text-sm">{{ __('services.ssl.for_name') }} <strong>{{ $sslName }}</strong></p>
-            <x-form.select wire:model.live="sslMethod" name="sslMethod" :label="__('services.ssl.method')" required>
-                <option value="dns">{{ __('services.ssl.methods.dns') }}</option>
-                <option value="https">{{ __('services.ssl.methods.https') }}</option>
-                <option value="email">{{ __('services.ssl.methods.email') }}</option>
-            </x-form.select>
-            @if($sslMethod === 'email')
-            <x-form.select wire:model="sslApprover" name="sslApprover" :label="__('services.ssl.approver')" required>
-                <option value="">—</option>
-                @foreach($sslApprovers as $approver)
-                <option value="{{ $approver }}">{{ $approver }}</option>
-                @endforeach
-            </x-form.select>
-            @endif
-            <p class="text-xs text-base/50">{{ __('services.ssl.order_hint') }}</p>
-            <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.order') }}</x-button.primary>
-            @else
-            <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.check') }}</x-button.primary>
-            @endif
-        </form>
+        <p class="text-sm text-base/70 mt-1">{{ __('services.ssl.vault.configure_hint') }}</p>
+        @include('services.partials.ssl-request', ['reissue' => false, 'submit' => 'sslOrder'])
         @else
         <p class="text-sm text-base/70 mt-1">{{ __('services.ssl.awaiting') }}</p>
         @endcan
@@ -113,32 +90,15 @@
         <details class="mt-3">
             <summary class="text-sm font-semibold cursor-pointer">{{ __('services.ssl.reissue_title') }}</summary>
             <p class="text-xs text-base/50 mt-1">{{ __('services.ssl.reissue_hint') }}</p>
-            <form wire:submit="{{ $sslName ? 'sslReissue' : 'sslCheck' }}" class="flex flex-col gap-3 mt-2">
-                <x-form.textarea wire:model.blur="sslCsr" name="sslCsr" :label="__('services.ssl.csr')" rows="6" class="font-mono text-xs" required
-                    placeholder="-----BEGIN CERTIFICATE REQUEST-----" />
-                @if($sslName)
-                <x-form.select wire:model.live="sslMethod" name="sslMethod" :label="__('services.ssl.method')" required>
-                    <option value="dns">{{ __('services.ssl.methods.dns') }}</option>
-                    <option value="https">{{ __('services.ssl.methods.https') }}</option>
-                    <option value="email">{{ __('services.ssl.methods.email') }}</option>
-                </x-form.select>
-                @if($sslMethod === 'email')
-                <x-form.select wire:model="sslApprover" name="sslApprover" :label="__('services.ssl.approver')" required>
-                    <option value="">—</option>
-                    @foreach($sslApprovers as $approver)
-                    <option value="{{ $approver }}">{{ $approver }}</option>
-                    @endforeach
-                </x-form.select>
-                @endif
-                <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.reissue') }}</x-button.primary>
-                @else
-                <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.check') }}</x-button.primary>
-                @endif
-            </form>
+            @include('services.partials.ssl-request', ['reissue' => true, 'submit' => 'sslReissue'])
         </details>
         @endif
         @endcan
         @endif
+    @endif
+
+    @if($sslVersions->isNotEmpty())
+        @include('services.partials.ssl-files')
     @endif
 </div>
 @endif
