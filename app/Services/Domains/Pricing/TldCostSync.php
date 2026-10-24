@@ -56,8 +56,11 @@ class TldCostSync
                 if (!TldPriceMath::isAmount($entry['cost'])) {
                     continue; // a negative or garbled cost is never written
                 }
-                foreach ($tld->prices()->where('operation', $operation)->whereBetween('years', [1, 10])->get() as $row) {
-                    $cost = TldPriceMath::years($entry['cost'], in_array($operation, ['register', 'renew'], true) ? $row->years : 1);
+                $perYear = in_array($operation, ['register', 'renew'], true);
+                // A cost quoted for 2 years (.gr) is no cost of a 1-year price (which the registrar does not sell).
+                $from = $perYear ? $pricing->minYears : 1;
+                foreach ($tld->prices()->where('operation', $operation)->whereBetween('years', [$from, 10])->get() as $row) {
+                    $cost = (string) $pricing->costFor($operation, $perYear ? $row->years : 1);
                     $row->fill(['cost' => $cost, 'cost_currency' => $entry['currency']]);
                     if ($row->isDirty(['cost', 'cost_currency'])) {
                         $row->save();

@@ -88,8 +88,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
 
     private const MAX_TLD_PAGES = 40;
 
-    /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
+    /**
+     * Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). A registration
+     * costs us its `reseller_price` (what its panel charges this account, offers included: .com 9.80, .app 8.43), not its
+     * `create_price`, a list price (11.23, 14.99): read live, 2026-10-24; `create_price` only where it gives no other.
+     */
     private const PRICE_KEYS = [
+        'reseller_price' => 'register',
         'create_price' => 'register',
         'renew_price' => 'renew',
         'transfer_price' => 'transfer',
@@ -896,10 +901,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
             $entry = $this->costEntry($prices[$opKey] ?? null);
-            if ($entry !== null) {
+            if ($entry !== null && !isset($costs[$operation])) { // the first key of an operation wins
                 $costs[$operation] = $entry;
             }
         }
+        // Its prices are for the shortest registration it sells (.gr: 2 years, 12.50 = 6.25 a year).
+        $min = $data['min_period'] ?? $prices['min_period'] ?? 1;
+        $minYears = is_int($min) && $min >= 1 && $min <= 10 ? $min : 1;
 
         // The stages after expiry (D5a, Openprovider's TLD pages): soft quarantine (our grace) and hard quarantine (our
         // redemption), in days. The restore fee belongs to the stage that has one: the hard quarantine if the TLD has it
@@ -923,7 +931,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
             }
         }
 
-        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays);
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears);
     }
 
     /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */

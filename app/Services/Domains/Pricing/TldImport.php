@@ -107,15 +107,18 @@ class TldImport
                 if ($rate === null || $rate === '' || !TldPriceMath::isAmount($entry['cost'])) {
                     continue; // never a silent conversion, never a negative or garbled cost
                 }
+                // A cost is quoted for the shortest registration the registrar sells (.gr: 2 years): that is the unit
+                // the margin and the rounding apply to, once, as a year's for the others; other periods in proportion.
+                $min = $perYear ? $pricing->minYears : 1;
                 // Exact until one rounding (review: converting, then adding the margin, each to the cent, drifted).
-                $yearly = TldPriceMath::round(
+                $unit = TldPriceMath::round(
                     TldPriceMath::withMargin(TldPriceMath::convert($entry['cost'], $rate), $options->marginType, $options->margin),
                     $options->rounding,
                 );
-                foreach (range(1, $perYear ? $options->years : 1) as $years) {
+                foreach (range($min, $perYear ? max($min, $options->years) : 1) as $years) {
                     $out[$currency][$operation][$years] = [
-                        'price' => TldPriceMath::years($yearly, $years),
-                        'cost' => TldPriceMath::years($entry['cost'], $perYear ? $years : 1),
+                        'price' => TldPriceMath::forYears($unit, $years, $min), // no price for fewer years: never asked
+                        'cost' => (string) $pricing->costFor($operation, $years),
                         'cost_currency' => $entry['currency'],
                     ];
                 }

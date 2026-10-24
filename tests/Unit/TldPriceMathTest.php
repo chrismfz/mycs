@@ -78,4 +78,12 @@ class TldPriceMathTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         TldPriceMath::alert('-1', '1');
     }
+
+    public function test_a_cost_quoted_for_some_years_for_others(): void
+    {
+        $this->assertSame(['6.25', '12.50', '25.00', '9.80', '14.99'], [TldPriceMath::forYears('12.50', 1, 2), TldPriceMath::forYears('12.50', 2, 2),
+            TldPriceMath::forYears('12.50', 4, 2), TldPriceMath::forYears('9.80', 1), TldPriceMath::forYears('29.97', 1, 2)]);
+        $this->expectException(InvalidArgumentException::class);
+        TldPriceMath::forYears('12.50', 1, 0);
+    }
 }
