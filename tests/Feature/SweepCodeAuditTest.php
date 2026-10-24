@@ -27,6 +27,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\TakenPay\TakenPay;
 use Tests\TestCase;
 
@@ -220,7 +221,7 @@ class SweepCodeAuditTest extends TestCase
         [, $first] = $this->renewal('2026-10-21');
         [, $second] = $this->renewal('2026-10-22');
         // The cron charged the first: Stripe took it, its webhook not here yet.
-        ChargeAttempt::query()->create(['key' => 'k1', 'invoice_id' => $first->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $agreement->id,
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $first->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $agreement->id,
             'amount' => '10.00', 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CRON, 'status' => ChargeAttempt::STATUS_SUCCEEDED,
             'started_at' => now(), 'sent_at' => now(), 'finished_at' => now()]);
         $this->assertTrue(SavedMethodCharge::onItsWay($first->fresh()), 'precondition: held');
