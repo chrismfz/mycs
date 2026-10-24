@@ -26,6 +26,7 @@ final class Guest
         public readonly array $macs = [],
         public readonly array $ips = [],
         public readonly array $tags = [],
+        public readonly ?string $pool = null,
     ) {}
 
     /** @param  array<string, mixed>  $resource  one row of /cluster/resources?type=vm */
@@ -49,6 +50,7 @@ final class Guest
             $macs,
             $ips,
             $tags,
+            isset($resource['pool']) && $resource['pool'] !== '' ? (string) $resource['pool'] : null,
         );
     }
 

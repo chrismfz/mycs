@@ -60,7 +60,7 @@ final class GuestSync
                 $row->fill(['service_id' => null, 'internal' => false, 'note' => null, 'macs' => null, 'ips' => null]);
             }
             $row->fill([
-                'type' => $guest->type, 'node' => $guest->node, 'name' => $guest->name, 'status' => $guest->status,
+                'type' => $guest->type, 'node' => $guest->node, 'pool' => $guest->pool, 'name' => $guest->name, 'status' => $guest->status,
                 'template' => $guest->template, 'cpus' => $guest->cpus, 'max_memory' => $guest->maxMemory, 'max_disk' => $guest->maxDisk,
                 'uptime' => $guest->uptime, 'tags' => $guest->tags, 'last_seen_at' => $now, 'gone_at' => null,
             ]);

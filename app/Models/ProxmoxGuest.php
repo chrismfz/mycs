@@ -17,12 +17,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ProxmoxGuest extends Model
 {
     protected $fillable = ['server_id', 'vmid', 'type', 'node', 'name', 'status', 'template', 'cpus', 'max_memory', 'max_disk',
-        'uptime', 'macs', 'ips', 'tags', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note'];
+        'uptime', 'macs', 'ips', 'tags', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note', 'pool', 'onboot_before_suspend'];
 
     protected function casts(): array
     {
         return ['template' => 'boolean', 'internal' => 'boolean', 'macs' => 'array', 'ips' => 'array', 'tags' => 'array',
-            'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
+            'last_seen_at' => 'datetime', 'gone_at' => 'datetime', 'onboot_before_suspend' => 'boolean'];
     }
 
     /** @return BelongsTo<Server, $this> */

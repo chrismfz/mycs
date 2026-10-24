@@ -34,12 +34,38 @@ final class ProxmoxClient
      */
     public function get(string $path)
     {
+        return $this->call('GET', $path);
+    }
+
+    /**
+     * A call that changes something: its «data» (a task's UPID for most). On a node that cannot be reached it goes to
+     * the next one like a read; every change made here is safe to ask twice (a stop of a stopped guest, a destroy of
+     * one gone fails and is read as done by the caller).
+     *
+     * @param  array<string, scalar>  $form
+     * @return mixed
+     */
+    public function write(string $method, string $path, array $form = [])
+    {
+        return $this->call($method, $path, $form);
+    }
+
+    /**
+     * @param  array<string, scalar>  $form
+     * @return mixed
+     */
+    private function call(string $method, string $path, array $form = [])
+    {
         $headers = ['Authorization' => "PVEAPIToken={$this->tokenId}={$this->secret}", 'Accept' => 'application/json'];
         $errors = [];
         foreach ($this->bases as $i => $base) {
-            [$status, $body] = $this->http->send('GET', $base, '/api2/json/' . ltrim($path, '/'), $headers);
-            if ($status === 401 || $status === 403) {
-                throw new ProxmoxException("The token was refused ({$status}): check its ID, secret and permissions.");
+            [$status, $body] = $this->http->send($method, $base, '/api2/json/' . ltrim($path, '/'), $headers, $form);
+            if ($status === 401) {
+                throw new ProxmoxException('The token was refused (401): check its ID and secret.', 401);
+            }
+            if ($status === 403) {
+                // The token is fine, this path is not its: a guest outside its pool, a privilege it lacks.
+                throw new ProxmoxException("Permission denied for {$path} (403): check the token's role and pool.", 403);
             }
             if ($status >= 200 && $status < 300) {
                 $decoded = json_decode($body, true);
@@ -57,7 +83,9 @@ final class ProxmoxClient
             if ($status !== 0 && !in_array($status, [502, 503, 504], true)) {
                 // An answer of the cluster about this path (e.g. a 500 «QEMU guest agent is not running»): another
                 // node would say the same.
-                throw new ProxmoxException("{$base}: HTTP {$status} for {$path}.");
+                $message = json_decode($body, true);
+                $reason = is_array($message) ? (string) ($message['message'] ?? '') : '';
+                throw new ProxmoxException("{$base}: HTTP {$status} for {$path}" . ($reason !== '' ? ': ' . trim($reason) : '.'), $status);
             }
             // Not reached, or its proxy not serving (restarting, a gateway in front of a node down): the next node.
             $errors[] = $status === 0 ? "{$base}: not reached" : "{$base}: HTTP {$status}";
@@ -121,5 +149,56 @@ final class ProxmoxClient
         }
 
         return $guests;
+    }
+
+    /**
+     * One guest as the cluster lists it now (its node may have changed since the last read), or null when it is not
+     * there any more.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resource(int $vmid): ?array
+    {
+        foreach ((array) $this->get('cluster/resources?type=vm') as $resource) {
+            if (is_array($resource) && (int) ($resource['vmid'] ?? 0) === $vmid) {
+                return $resource;
+            }
+        }
+
+        return null;
+    }
+
+    /** «nodes/{node}/{qemu|lxc}/{vmid}», a guest's API path. */
+    public static function guestPath(array $resource): string
+    {
+        return 'nodes/' . rawurlencode((string) $resource['node']) . '/' . (($resource['type'] ?? 'qemu') === 'lxc' ? 'lxc' : 'qemu') . '/' . (int) $resource['vmid'];
+    }
+
+    /**
+     * Waits for a task (its UPID) to end, polling every $every seconds up to $timeout: true when it ended OK, false when
+     * it still runs; a task that failed throws with its exit status.
+     */
+    public function waitTask(string $upid, int $timeout = 90, int $every = 2, ?callable $sleep = null): bool
+    {
+        $sleep ??= 'sleep';
+        if (preg_match('/^UPID:([^:]+):/', $upid, $m) !== 1) {
+            throw new ProxmoxException("Not a task id: {$upid}");
+        }
+        $path = 'nodes/' . rawurlencode($m[1]) . '/tasks/' . rawurlencode($upid) . '/status';
+        for ($waited = 0; ; $waited += $every) {
+            $task = (array) $this->get($path);
+            if (($task['status'] ?? '') === 'stopped') {
+                $exit = (string) ($task['exitstatus'] ?? '');
+                if ($exit !== 'OK' && !str_starts_with($exit, 'WARNINGS')) {
+                    throw new ProxmoxException("The task failed: {$exit}");
+                }
+
+                return true;
+            }
+            if ($waited >= $timeout) {
+                return false;
+            }
+            $sleep($every);
+        }
     }
 }

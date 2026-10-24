@@ -12,11 +12,12 @@ final class PanelTransport implements Transport
     /** @param  array<string, string|null>  $ips  base => that node's IP */
     public function __construct(private readonly array $ips, private readonly bool $selfSigned, private readonly int $timeout = 20) {}
 
-    public function send(string $method, string $base, string $path, array $headers): array
+    public function send(string $method, string $base, string $path, array $headers, array $form = []): array
     {
         try {
             $response = PanelConnection::http($base, $this->ips[$base] ?? null, $this->selfSigned)
-                ->connectTimeout(5)->timeout($this->timeout)->withHeaders($headers)->send($method, $base . $path);
+                ->connectTimeout(5)->timeout($this->timeout)->withHeaders($headers)
+                ->send($method, $base . $path, $form === [] ? [] : ['form_params' => $form]);
         } catch (ConnectionException) {
             return [0, ''];
         }
