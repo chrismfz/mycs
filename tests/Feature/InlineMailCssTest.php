@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Listeners\InlineMailCss;
 use App\Mail\ResentMail;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -34,5 +35,15 @@ class InlineMailCssTest extends TestCase
     public function test_a_mail_without_its_css_goes_as_it_was(): void
     {
         $this->assertSame('<p>Hello</p>', $this->sent('<p>Hello</p>'));
+    }
+
+    /** Review of #444: inlined past Gmail's clipping (about 102 KB), a mail that fitted goes as it was. */
+    public function test_a_mail_the_inlining_would_make_gmail_clip_goes_as_it_was(): void
+    {
+        $rows = str_repeat('<tr><td class="cell">Line</td></tr>', 1800);
+        $html = '<html><head><style>.cell { font-family: Helvetica, Arial, sans-serif; color: #3d4852; padding: 4px; }</style></head><body><table>' . $rows . '</table></body></html>';
+        $this->assertLessThan(InlineMailCss::MAX_BYTES, strlen($html), 'the premise: it fits as it is');
+
+        $this->assertSame($html, $this->sent($html));
     }
 }
