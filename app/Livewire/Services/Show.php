@@ -9,20 +9,25 @@ use App\Livewire\Component;
 use App\Models\ClientUser;
 use App\Models\Service;
 use App\Models\SslOrder;
+use App\Models\SslVersion;
 use App\Models\User;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ChangeCycle;
+use App\Services\Ssl\SslVault;
 use App\Support\Actor;
 use App\Support\Redact;
 use Exception;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
+use MyCS\SslTools\KeyType;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 use function Livewire\store;
@@ -71,6 +76,17 @@ class Show extends Component
     public array $sslApprovers = [];
 
     public string $sslMethod = 'dns';
+
+    /** «Generate it for me» or «I have a CSR» (docs/ssl-vault.md). */
+    public string $sslMode = 'generate';
+
+    /** The domain a key's CSR is made for: «example.gr» (and its www) or «*.example.gr» (and example.gr). */
+    public string $sslDomain = '';
+
+    public string $sslKeyType = 'rsa2048';
+
+    /** A reissue's key: a new one (the default, owner 2026-10-24), or the current one kept. */
+    public string $sslReissueKey = 'new';
 
     public ?string $sslApprover = null;
 
@@ -136,6 +152,9 @@ class Show extends Component
                 }
             }
             $this->currentView = $this->currentView ?? ($this->views[0]['name'] ?? null);
+            if ($this->hasSsl) {
+                $this->sslDomain = (string) SslOrder::query()->where('service_id', $this->service->id)->value('common_name');
+            }
         }
         $this->label = $this->service->label;
         $this->contactId = $this->service->contact_id;
@@ -452,6 +471,43 @@ class Show extends Component
         }
     }
 
+    /**
+     * A key and its CSR made here for the domain (kept encrypted in the vault), then checked as a pasted CSR would be:
+     * the order or the reissue goes on as before. A few an hour per service, and a day per account.
+     */
+    public function sslGenerate(): void
+    {
+        $reissue = !$this->sslMayOrder() && $this->sslMayReissue();
+        if (!$reissue && !$this->sslMayOrder()) {
+            return;
+        }
+        $this->validate([
+            'sslDomain' => ['required', 'string', 'max:253'],
+            'sslKeyType' => ['required', Rule::enum(KeyType::class)],
+            'sslReissueKey' => ['required', 'in:new,keep'],
+        ]);
+        $this->reset('sslName', 'sslApprovers', 'sslApprover');
+        if ($this->sslLimited('generate', 5) || $this->sslLimitedAccount('generate', 20)) {
+            return;
+        }
+        $order = SslOrder::query()->where('service_id', $this->service->id)->sole();
+        $vault = app(SslVault::class);
+        try {
+            $names = SslVault::namesFor($this->sslDomain);
+            $keep = $reissue && $this->sslReissueKey === 'keep' ? $vault->current($order) : null;
+            if ($reissue && $this->sslReissueKey === 'keep' && $keep === null) {
+                throw new ServerRefused(__('services.ssl.vault.no_key_to_keep'));
+            }
+            $version = $vault->generate($order, KeyType::from($this->sslKeyType), $names, $keep);
+        } catch (ServerRefused $e) {
+            $this->notify(__('services.ssl.refused', ['reason' => $e->getMessage()]), 'error');
+
+            return;
+        }
+        $this->sslCsr = (string) $version->csr;
+        $this->sslCheck();
+    }
+
     /** Another CSR is checked again. */
     public function updatedSslCsr(): void
     {
@@ -551,8 +607,9 @@ class Show extends Component
         $this->authorize('update', $this->service);
         $order = SslOrder::query()->where('service_id', $this->service->id)->first();
 
+        // Never during a renewal (OpenproviderSsl::reissue refuses it): no key made for nothing (review 8).
         return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order?->order_id !== null && $order->issued() && $order->status === 'ACT'
-            && ($order->order_ends_at === null || $order->order_ends_at->isFuture());
+            && ($order->order_ends_at === null || $order->order_ends_at->isFuture()) && $order->renew_requested_at === null;
     }
 
     /** `manageproducts`, an active service, an order waiting for its approver's email. */
@@ -601,6 +658,38 @@ class Show extends Component
         RateLimiter::hit($key, 3600);
 
         return false;
+    }
+
+    /** A per-account limit, over a day (a key a few times a day is plenty; many services do not multiply it). */
+    private function sslLimitedAccount(string $action, int $max): bool
+    {
+        if (RateLimiter::tooManyAttempts($key = "client-ssl-{$action}:" . $this->service->client_id, $max)) {
+            $this->notify(__('services.ssl.too_many'), 'error');
+
+            return true;
+        }
+        RateLimiter::hit($key, 86400);
+
+        return false;
+    }
+
+    /**
+     * What the page shows of the vault: the versions ordered (newest first) and the last key made since, which one is
+     * in use, and whether this login may have its keys.
+     *
+     * @return array{sslVersions: Collection<int, SslVersion>, sslCurrent: ?SslVersion, sslMayKey: bool}
+     */
+    private function sslVaultView(?SslOrder $order): array
+    {
+        if ($order === null) {
+            return ['sslVersions' => collect(), 'sslCurrent' => null, 'sslMayKey' => false];
+        }
+        $versions = $order->versions()->orderByDesc('number')->get();
+        $lastOrdered = $versions->first(fn (SslVersion $v) => $v->ordered_at !== null);
+        $shown = $versions->filter(fn (SslVersion $v) => $v->ordered_at !== null || $v->number > (int) $lastOrdered?->number)
+            ->unique(fn (SslVersion $v) => $v->ordered_at !== null ? "o{$v->id}" : 'draft')->values();
+
+        return ['sslVersions' => $shown, 'sslCurrent' => app(SslVault::class)->current($order), 'sslMayKey' => SslVault::customerMayReadKey($this->service)];
     }
 
     /** Openprovider's refusal told with its reason; anything else (not known) told as such, its detail reported. */
@@ -717,7 +806,8 @@ class Show extends Component
             'canSeeContact' => $canEditContact || $this->canSeeContact(),
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),
-            'sslOrder' => $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
+            'sslOrder' => $sslOrder = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
+            ...$this->sslVaultView($sslOrder),
         ])->layoutData([
             'title' => $this->service->label,
             'sidebar' => true,

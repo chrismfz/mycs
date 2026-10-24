@@ -78,6 +78,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       (το create υπάρχει, #114)· αργότερα, αν χρειαστεί, διαχείριση email/domains μέσα από το MyCS.
 - [ ] SSL: live δοκιμή με πραγματική παραγγελία (PositiveSSL 6,53 €), με έγκριση του υπευθύνου. Οι 12 του TheSSLStore
       γίνονται νέες παραγγελίες στο Openprovider στη λήξη τους (οι 2 RapidSSL → PositiveSSL).
+- [ ] SSL vault (`ssl-vault.md`, υπεύθυνος 2026-10-24): κλειδί και CSR από το MyCS, φύλαξη κλειδιού, CSR,
+      πιστοποιητικού και αλυσίδας, λήψεις και `.pfx`, reissue με ίδιο ή νέο κλειδί (PR 1)· εργαλεία ελέγχου και σελίδα
+      Utilities (PR 2)· εγκατάσταση στο cPanel αργότερα.
 - [ ] mailcow: δοκιμή live στο mymail (με άδεια και το API key).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 

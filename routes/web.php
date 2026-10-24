@@ -7,6 +7,7 @@ use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\KnowledgebaseRedirectController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\SocialLoginController;
+use App\Http\Controllers\SslFileController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\MustVerfiyEmail;
@@ -25,6 +26,7 @@ use App\Livewire\Knowledgebase;
 use App\Livewire\Products;
 use App\Livewire\Services;
 use App\Livewire\Tickets;
+use App\Models\SslVersion;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
@@ -98,6 +100,10 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
 
     Route::get('/services', Services\Index::class)->name('services')->middleware('client.can:products');
     Route::get('/services/{service}', Services\Show::class)->name('services.show')->middleware('can:view,service');
+    // An SSL service's files (docs/ssl-vault.md): its key and .pfx need more than seeing it (SslFileController).
+    Route::get('/services/{service}/ssl/{version}/{file}', [SslFileController::class, 'download'])->name('services.ssl.file')
+        ->whereIn('file', SslVersion::FILES)->middleware('can:view,service');
+    Route::post('/services/{service}/ssl/{version}/pfx', [SslFileController::class, 'pfx'])->name('services.ssl.pfx')->middleware('can:view,service');
     // The customer's domains (D7-2).
     Route::get('/domains', Domains\Index::class)->name('domains')->middleware('client.can:domains');
     Route::get('/domains/{domain}', Domains\Show::class)->name('domains.show')->middleware('can:view,domain');
