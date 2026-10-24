@@ -104,4 +104,24 @@ final class AdversarialTest extends TestCase
         $alert = $this->parse(Fixtures::eurobank('πιστώθηκε', '1,00', 'X', '9.999.999.999.999.999,00', ''));
         $this->assertTrue($alert === null || $alert->balance === null, 'a balance that does not fit the column: ' . $alert?->balance);
     }
+
+    /**
+     * Round 2. The one-set rule counts the ARC headers the MIME parser sees; it does not see a header written with
+     * whitespace before its colon («ARC-Seal : …», RFC 5322 obsolete syntax), it drops it. A verifier that reads the
+     * obsolete syntax (RFC 5322 §4.5.2 says to accept it) sees an i=2 set after ours and validates the chain; we see one
+     * set, ours, and believe a body the i=2 sealer may have rewritten (finding 3 of round 1 again). A mail with a
+     * header we cannot read is no mail we vouch for.
+     */
+    public function test_an_arc_set_hidden_behind_whitespace_before_the_colon_is_still_a_second_set(): void
+    {
+        $auth = "Authentication-Results: mx.example.test;\r\n\tarc=pass (\"attacker.example:s=s1:i=2\")\r\n"
+            . "ARC-Seal : i=2; a=rsa-sha256; d=attacker.example; s=s1; cv=pass; t=1792740999;\r\n\tb=BBBB\r\n"
+            . "ARC-Message-Signature : i=2; a=rsa-sha256; d=attacker.example; s=s1; h=from:subject; bh=CCCC; b=DDDD\r\n"
+            . "ARC-Authentication-Results : i=2; relay.attacker.example; arc=pass\r\n"
+            . Fixtures::forwardedByUs('eurobank.gr');
+
+        $alert = $this->parse(Fixtures::eurobank('πιστώθηκε', '5.000,00', 'ΤΙΜΟΛΟΓΙΟ 32999', '9.000,00', $auth));
+
+        $this->assertFalse($alert?->authentic, 'a second ARC set our parser cannot see: ' . $alert?->authenticity);
+    }
 }
