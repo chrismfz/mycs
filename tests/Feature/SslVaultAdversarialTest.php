@@ -188,14 +188,13 @@ class SslVaultAdversarialTest extends TestCase
         $this->issue();
 
         $this->portal()->set('sslReissueKey', 'keep')->call('sslGenerate')->assertSet('sslName', 'shop.example.test');
-        $draft = $this->order()->versions()->where('number', 2)->sole();
-        $this->assertNull($draft->ordered_at);
-        // (identical CSR: the root of it)
-        $this->assertSame(trim((string) $first->csr), trim((string) $draft->csr));
+        // Fixed by reusing the version of the identical CSR (no second draft): what stays is that nothing never sent is
+        // marked ordered, and no version but the first exists to be.
+        $this->assertSame(1, $this->order()->versions()->count());
 
         $this->artisan('ssl:sync')->assertSuccessful(); // the hourly sync, nothing reissued
 
-        $this->assertNull($draft->fresh()->ordered_at, 'a CSR generated and never sent to Openprovider was marked ordered');
+        $this->assertSame([$first->id], $this->order()->versions()->whereNotNull('ordered_at')->pluck('id')->all(), 'a CSR generated and never sent to Openprovider was marked ordered');
     }
 
     /**
