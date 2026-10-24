@@ -639,7 +639,9 @@ class OpenproviderSslTest extends TestCase
         RateLimiter::clear('service-ssl-order:' . $this->service->id);
         $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
 
-        $page = Livewire::test(Show::class, ['service' => $this->service])->assertSee(__('services.ssl.check'));
+        // «Generate it for me» first (docs/ssl-vault.md); «I have a CSR» as before.
+        $page = Livewire::test(Show::class, ['service' => $this->service])->assertSee(__('services.ssl.vault.generate'))
+            ->set('sslMode', 'paste')->assertSee(__('services.ssl.check'));
         $page->set('sslCsr', self::CSR)->call('sslCheck')->assertSet('sslName', 'shop.example.test')
             ->assertSet('sslApprovers', ['admin@shop.example.test', 'webmaster@shop.example.test']);
         $this->assertSame([], $this->sent('POST', '/v1/ssl/orders'), 'checking orders nothing');

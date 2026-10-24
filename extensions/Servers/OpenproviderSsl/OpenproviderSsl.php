@@ -12,6 +12,7 @@ use App\Models\SslOrder;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
+use App\Services\Ssl\SslVault;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Exception;
 use Illuminate\Support\Carbon;
@@ -506,6 +507,11 @@ class OpenproviderSsl extends Server
             'sync_error' => null,
         ])->save();
         $this->tellNewCertificate($order);
+        try {
+            app(SslVault::class)->record($order); // the CSR's and the certificate's version (docs/ssl-vault.md)
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**

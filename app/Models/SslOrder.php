@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -70,6 +71,12 @@ class SslOrder extends Model
     public function connection(): BelongsTo
     {
         return $this->belongsTo(DomainRegistrarConnection::class, 'connection_id');
+    }
+
+    /** @return HasMany<SslVersion, $this> its keys, CSRs and certificates (docs/ssl-vault.md) */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(SslVersion::class);
     }
 
     /** Waiting for its CSR: no order asked for yet. */

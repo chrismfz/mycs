@@ -136,7 +136,7 @@ class RenewServiceService
             $id = $service->id;
             $until = $paidUntil->toDateString();
             DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment applied, service still overdue: needs staff attention', e(
-                "A payment renewed service #{$id} until {$until}, which is still past Suspend Days: it stays suspended until the rest is paid (unsuspend it by hand to give it time)."
+                "A payment renewed service #{$id} until {$until}, which is still past Suspend Days: it stays suspended until the rest is paid (to give it time: set «Do Not Suspend Until» and unsuspend it; an unsuspension alone is undone by the next run)."
             )));
             $manualHold = true; // kept as it is, as a hold would be
         }

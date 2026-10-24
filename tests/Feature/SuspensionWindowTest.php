@@ -43,10 +43,17 @@ class SuspensionWindowTest extends TestCase
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(array_merge([
+        $service = Service::factory()->create(array_merge([
             'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
+        // Its renewal billed, as the daily run does before any suspension (the hourly run leaves an unbilled period to it).
+        if ($service->expires_at !== null && $service->status === Service::STATUS_ACTIVE) {
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at]);
+            $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
+        }
+
+        return $service;
     }
 
     private function at(string $time): void
