@@ -458,7 +458,7 @@
     "Transfer": "Μεταφορά",
     "With the same margin.": "Με το ίδιο περιθώριο.",
     "Without the dot: com, gr, com.gr.": "Χωρίς τελεία: com, gr, com.gr.",
-    "Years": "Χρόνια",
+    "Years": "Έτη",
     "new": "νέο",
     "Keep free and not-offered prices": "Κράτα τις δωρεάν τιμές και όσες δεν προσφέρονται",
     "A 0.00 (free) or empty (not offered) price stays as it is.": "Μια τιμή 0,00 (δωρεάν) ή κενή (δεν προσφέρεται) μένει ως έχει.",
@@ -583,7 +583,7 @@
     "No due date: never billed nor suspended": "Χωρίς ημερομηνία πληρωμής: δεν τιμολογείται ούτε αναστέλλεται ποτέ",
     "Due date": "Ημερομηνία πληρωμής",
     "Draft": "Πρόχειρο",
-    ":count year|:count years": ":count χρόνος|:count χρόνια",
+    ":count year|:count years": ":count έτος|:count έτη",
     "Registration pending for more than :days days": "Καταχώρηση σε εκκρεμότητα πάνω από :days ημέρες",
     "Active but past its expiry: the domain sync has not run": "Ενεργό αλλά ληγμένο: το sync των domains δεν έτρεξε",
     "This order has domains: cancel it instead.": "Αυτή η παραγγελία έχει domains: ακυρώστε την αντί να τη διαγράψετε.",
@@ -1238,5 +1238,8 @@
     "Not a price": "Δεν είναι τιμή",
     "No certificate matches.": "Κανένα πιστοποιητικό δεν ταιριάζει.",
     "The price typed for «:product» (:currency, :years year(s)) cannot be written: a price above zero, for years the plans have.": "Η τιμή για «:product» (:currency, :years χρόνια) δεν μπορεί να γραφτεί: χρειάζεται τιμή πάνω από μηδέν, για χρόνια που έχουν τα πακέτα.",
-    ":count of these prices are below their cost.": ":count από αυτές τις τιμές είναι κάτω από το κόστος τους."
+    ":count of these prices are below their cost.": ":count από αυτές τις τιμές είναι κάτω από το κόστος τους.",
+    "A typed price is not for a product of this page: clear the typed prices and type them again.": "Μια χειροκίνητη τιμή δεν αντιστοιχεί σε προϊόν αυτής της σελίδας: καθαρίστε τις χειροκίνητες τιμές και γράψτε τις ξανά.",
+    "Clear typed prices": "Καθαρισμός χειροκίνητων τιμών",
+    ":count typed prices have no known cost (no exchange rate) and are written as typed.": ":count χειροκίνητες τιμές δεν έχουν γνωστό κόστος (καμία ισοτιμία) και γράφονται όπως γράφτηκαν."
 }

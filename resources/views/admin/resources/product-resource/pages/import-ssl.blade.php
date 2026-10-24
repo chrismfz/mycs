@@ -55,6 +55,9 @@
                         @endforeach
                     </x-filament::input.select>
                 </x-filament::input.wrapper>
+                @if ($grid['typed'] > 0)
+                    <x-filament::button size="sm" color="gray" wire:click="clearTyped">{{ __('Clear typed prices') }} ({{ $grid['typed'] }})</x-filament::button>
+                @endif
                 <span class="ms-auto flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span class="inline-flex items-center gap-1"><span class="inline-block size-3 rounded-sm border border-danger-300 bg-danger-50 dark:border-danger-500/40 dark:bg-danger-500/15"></span>{{ __('Below cost') }}</span>
                     <span class="inline-flex items-center gap-1"><span class="inline-block size-3 rounded-sm border border-warning-300 bg-warning-50 dark:border-warning-500/40 dark:bg-warning-500/15"></span>{{ __('Up to 10% above cost') }}</span>
@@ -111,7 +114,14 @@
                                         {{ $reasons[$row['reason']] ?? $row['reason'] }}
                                     @endif
                                 </td>
-                                @if ($row['line'] === null)
+                                @if ($row['line'] === null && $row['typed'] !== null)
+                                    {{-- No cost in this currency (no rate), yet a price typed: it is what the import writes (ADV-6 of #442). --}}
+                                    <td class="{{ $cell }} text-right tabular-nums whitespace-nowrap">
+                                        <div class="font-medium">— <span class="text-xs font-normal text-primary-600 dark:text-primary-400">→ {{ $row['typed'] }} ✎</span></div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400">—</div>
+                                    </td>
+                                    <td class="{{ $cell }} text-center text-xs">—</td>
+                                @elseif ($row['line'] === null)
                                     <td colspan="2" class="{{ $cell }} text-xs text-gray-500 dark:text-gray-400">
                                         {{ isset($row['costs'][$years]) ? __('No :currency price: give its rate.', ['currency' => $this->currency]) : __('Not sold for :count year(s).', ['count' => $years]) }}
                                     </td>

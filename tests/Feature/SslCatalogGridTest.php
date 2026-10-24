@@ -205,4 +205,26 @@ class SslCatalogGridTest extends TestCase
         $this->assertSame(1, $page->instance()->belowCostTicked());
         $this->assertSame('loss', self::rows($page)[9]['new_alert']);
     }
+
+    /** Review 1 of #442: a typed price with no cost to compare with (no rate) is told in the confirmation. */
+    public function test_a_typed_price_with_no_known_cost_is_told(): void
+    {
+        $page = $this->page()->set('overrides.' . ImportSsl::overrideKey(9, 'USD', 1), '1.00');
+
+        $this->assertSame(['9'], array_map('strval', $page->get('selected')));
+        $this->assertSame(0, $page->instance()->belowCostTicked());
+        $this->assertSame(1, $page->instance()->typedWithoutCostTicked());
+        $this->assertSame(1, $page->instance()->grid()['typed'], 'counted whatever currency the grid shows');
+    }
+
+    /** Review 6 of #442: a stored price that is no amount (a negative one) never breaks the page. */
+    public function test_a_negative_stored_price_shows_no_margin_and_no_error(): void
+    {
+        $this->existing('-1.00');
+        $page = $this->page()->assertOk();
+        $row = self::rows($page)[9];
+
+        $this->assertNull($row['now_margin']);
+        $this->assertNull($row['alert']);
+    }
 }

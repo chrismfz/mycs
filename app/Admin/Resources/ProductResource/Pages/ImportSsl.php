@@ -119,6 +119,18 @@ class ImportSsl extends Page implements HasForms
         return $codes;
     }
 
+    /** A typed value that is there: anything but null and blank text (an array or a number is there, and is no price). */
+    private static function given(mixed $value): bool
+    {
+        return $value !== null && !(is_string($value) && trim($value) === '');
+    }
+
+    /** Every typed price cleared (a price typed for years no longer shown can be cleared too). */
+    public function clearTyped(): void
+    {
+        $this->overrides = [];
+    }
+
     public static function overrideKey(int $id, string $currency, int $years): string
     {
         return "{$id}:{$currency}:{$years}";
@@ -174,6 +186,8 @@ class ImportSsl extends Page implements HasForms
         foreach ($rows as $row) {
             $line = collect($row['lines'])->first(fn (array $l) => $l['currency'] === $this->currency && $l['years'] === $years);
             $typedRaw = $this->overrides[self::overrideKey((int) $row['id'], $this->currency, $years)] ?? null;
+            // Any price typed for it, whatever currency and years the grid shows (ADV-5 of #442).
+            $typedAny = array_filter($this->overrides, fn ($v, $k) => self::given($v) && str_starts_with((string) $k, $row['id'] . ':'), ARRAY_FILTER_USE_BOTH) !== [];
             $typed = self::typedPrice($typedRaw);
             $cost = $line['cost'] ?? null;
             $now = $line['now'] ?? null;
@@ -184,17 +198,19 @@ class ImportSsl extends Page implements HasForms
                 'now' => $now,
                 'new' => $new,
                 'typed' => $typed,
-                'typed_invalid' => filled($typedRaw) && $typed === null,
-                'now_margin' => $now !== null && $cost !== null ? TldPriceMath::marginPercent($now, $cost) : null,
+                'typed_invalid' => self::given($typedRaw) && $typed === null,
+                'typed_any' => $typedAny,
+                // A price now that is no amount (a negative one from an old import) shows no margin, never a broken page.
+                'now_margin' => $now !== null && $cost !== null && TldPriceMath::isAmount($now) ? TldPriceMath::marginPercent($now, $cost) : null,
                 'new_margin' => $new !== null && $cost !== null ? TldPriceMath::marginPercent($new, $cost) : null,
-                'alert' => $now !== null && $cost !== null ? TldPriceMath::alert($now, $cost) : null,
+                'alert' => $now !== null && $cost !== null && TldPriceMath::isAmount($now) ? TldPriceMath::alert($now, $cost) : null,
                 'new_alert' => $new !== null && $cost !== null ? TldPriceMath::alert($new, $cost) : null,
                 'priceable' => $row['sellable'] && ($years <= (int) ($this->data['years'] ?? 1)) && isset($row['costs'][$years]),
             ];
         }
         $total = count($out);
         $alerts = count(array_filter($out, fn (array $r) => $r['alert'] !== null || ($r['new_alert'] !== null && $r['new'] !== $r['now'])));
-        $typedCount = count(array_filter($out, fn (array $r) => $r['typed'] !== null));
+        $typedCount = count(array_filter($out, fn (array $r) => $r['typed_any']));
         $search = mb_strtolower(trim($this->search));
         $out = array_values(array_filter($out, fn (array $r) => ($search === '' || str_contains(mb_strtolower($r['brand'] . ' ' . $r['name'] . ' #' . $r['id']), $search))
             && match (in_array($this->filter, self::FILTERS, true) ? $this->filter : 'all') {
@@ -202,7 +218,7 @@ class ImportSsl extends Page implements HasForms
                 'mycs' => $r['products'] !== [],
                 'new' => $r['sellable'] && $r['products'] === [],
                 'alerts' => $r['alert'] !== null || $r['new_alert'] !== null,
-                'typed' => $r['typed'] !== null,
+                'typed' => $r['typed_any'],
                 'unsellable' => !$r['sellable'],
                 default => true,
             }));
@@ -237,15 +253,19 @@ class ImportSsl extends Page implements HasForms
         $currencies = self::currencies();
         $out = [];
         foreach ($this->overrides as $key => $value) {
-            if (!is_string($value) || trim($value) === '') {
+            if (!self::given($value)) {
                 continue;
             }
-            $parts = explode(':', (string) $key);
-            if (count($parts) !== 3 || !isset($entries[(int) $parts[0]])) {
+            // Only the page's own keys: «09:EUR:1» or «9:EUR:1:x» never stand for one, nor is skipped (ADV-2, ADV-3 of #442).
+            if (preg_match('/^([1-9]\d{0,9}):([A-Z]{3}):([1-9])$/', (string) $key, $m) !== 1) {
+                throw new InvalidArgumentException(__('A typed price is not for a product of this page: clear the typed prices and type them again.'));
+            }
+            [$id, $currency, $years] = [(int) $m[1], $m[2], (int) $m[3]];
+            if (!isset($entries[$id])) {
                 continue; // a product not ticked: its typed price waits
             }
-            [$id, $currency, $years] = [(int) $parts[0], $parts[1], (int) $parts[2]];
-            $price = self::typedPrice($value);
+            // Anything but text is no price, as the grid shows it (ADV-4 of #442).
+            $price = is_string($value) ? self::typedPrice($value) : null;
             if ($price === null || !in_array($currency, $currencies, true) || $years < 1 || $years > $options->years || !isset($entries[$id]['costs'][$years])) {
                 throw new InvalidArgumentException(__('The price typed for «:product» (:currency, :years year(s)) cannot be written: a price above zero, for years the plans have.', [
                     'product' => trim(($entries[$id]['brand'] ?? '') . ' ' . ($entries[$id]['name'] ?? '')), 'currency' => $currency, 'years' => $years]));
@@ -254,6 +274,29 @@ class ImportSsl extends Page implements HasForms
         }
 
         return $out;
+    }
+
+    /** How many typed prices of the ticked products have no cost to compare with (a currency with no rate). */
+    public function typedWithoutCostTicked(): int
+    {
+        $ticked = array_map('intval', $this->selected);
+        $count = 0;
+        foreach ($this->rows() as $row) {
+            if (!in_array((int) $row['id'], $ticked, true) || !$row['sellable']) {
+                continue;
+            }
+            foreach ($this->overrides as $key => $value) {
+                if (!is_string($value) || self::typedPrice($value) === null || preg_match('/^' . (int) $row['id'] . ':([A-Z]{3}):([1-9])$/', (string) $key, $m) !== 1) {
+                    continue;
+                }
+                $line = collect($row['lines'])->first(fn (array $l) => $l['currency'] === $m[1] && $l['years'] === (int) $m[2]);
+                if (($line['cost'] ?? null) === null) {
+                    $count++;
+                }
+            }
+        }
+
+        return $count;
     }
 
     /** How many of the ticked products' prices the import would write below their cost (for its confirmation). */
@@ -364,6 +407,7 @@ class ImportSsl extends Page implements HasForms
         }
         $this->fetchedFrom = $server->id;
         $this->selected = []; // nothing ticked: an import is staff's choice, product by product
+        $this->overrides = []; // typed for what was fetched before (another server, maybe): never written here (ADV-1 of #442)
     }
 
     /**
@@ -478,7 +522,8 @@ class ImportSsl extends Page implements HasForms
             Action::make('fetch')->label(__('Fetch products and costs'))->icon('heroicon-o-arrow-path')->action(fn () => $this->fetch()),
             Action::make('importSelected')->label(__('Import selected'))->icon('heroicon-o-arrow-down-tray')
                 ->requiresConfirmation()->modalDescription(fn () => __('The ticked products are made or get the new prices; nothing else changes.')
-                    . (($below = $this->belowCostTicked()) > 0 ? ' ' . __(':count of these prices are below their cost.', ['count' => $below]) : ''))
+                    . (($below = $this->belowCostTicked()) > 0 ? ' ' . __(':count of these prices are below their cost.', ['count' => $below]) : '')
+                    . (($unknown = $this->typedWithoutCostTicked()) > 0 ? ' ' . __(':count typed prices have no known cost (no exchange rate) and are written as typed.', ['count' => $unknown]) : ''))
                 ->disabled(fn () => $this->fetched === [])->action(fn () => $this->import()),
         ];
     }
