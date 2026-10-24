@@ -57,10 +57,9 @@
             $missing = $emails === null ? [] : array_values(array_diff(Contact::EMAIL_PREFERENCES, $emails));
             $kind = fn (string $kind) => __('account.email_preference.' . $kind);
         @endphp
-        <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Receives emails') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right">
+        <div class="{{ $row }} items-center" data-setting="email_preferences"><span class="{{ $label }}">{{ __('Receives emails') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right">
             @if ($emails === null)—
             @elseif ($missing === [])<span class="{{ $label }}">{{ __('All') }}</span>
-            @elseif ($emails === [])<x-filament::badge color="warning">{{ __('None') }}</x-filament::badge>
             @else{{ implode(' · ', array_map($kind, $emails)) }} <x-filament::badge color="warning">{{ __('Not: :list', ['list' => implode(', ', array_map($kind, $missing))]) }}</x-filament::badge>@endif
         </span></div>
     </x-filament::section>
@@ -82,7 +81,7 @@
 
             {{-- The Edit page's «Billing» and «Fiscal invoicing (Ekdosi)» (the owner, 2026-10-24). --}}
             <div class="{{ $group }}"><span>{{ __('Billing settings') }}</span>@if ($links['edit'])<x-filament::link :href="$links['edit']" size="sm" class="normal-case tracking-normal">{{ __('Edit') }}</x-filament::link>@endif</div>
-            <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Language') }}</span><span class="text-right">
+            <div class="{{ $row }} items-center" data-setting="language"><span class="{{ $label }}">{{ __('Language') }}</span><span class="text-right">
                 @if ($set['language'])<x-filament::badge color="info">{{ $set['language'] }}</x-filament::badge>@else<span class="{{ $label }}">{{ __('Default') }} ({{ $set['language_default'] }})</span>@endif
             </span></div>
             <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Client group') }}</span><span class="text-right">
@@ -101,7 +100,9 @@
                     <div class="{{ $group }}"><span>{{ $name }}</span></div>
                 @else
                     <div class="{{ $row }} items-center" data-setting="{{ $field }}"><span class="{{ $label }}">{{ $name }}</span><span class="text-right">
-                        @if ($set[$field] === ClientSummary::SETTING_DEFAULTS[$field])<span class="{{ $label }}">{{ $onOff($set[$field]) }}</span>
+                        {{-- On, with no method of its own: the cron charges nothing (review F3); a hint, as most pay by transfer. --}}
+                        @if ($field === 'auto_charge' && $set['auto_charge'] && $set['method'] === null)<span class="{{ $label }}">{{ __('Yes, no method saved') }}</span>
+                        @elseif ($set[$field] === ClientSummary::SETTING_DEFAULTS[$field])<span class="{{ $label }}">{{ $onOff($set[$field]) }}</span>
                         @else<x-filament::badge color="warning">{{ $onOff($set[$field]) }}</x-filament::badge>@endif
                     </span></div>
                 @endif

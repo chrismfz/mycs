@@ -104,9 +104,10 @@ class ClientSummary
             'tax_office' => $contact?->tax_office,
             'activity' => $contact?->activity,
             'document_type' => $contact?->document_type,
-            // null: never chosen; else the ticked categories, in the form's order.
-            'email_preferences' => $contact?->email_preferences === null ? null
-                : array_values(array_intersect(Contact::EMAIL_PREFERENCES, $contact->email_preferences)),
+            // null: never chosen (an empty list too: the forms save one when nothing is ticked, and nothing reads the
+            // choice yet, review F1); else the ticked categories, in the form's order.
+            'email_preferences' => blank($contact?->email_preferences) ? null
+                : array_values(array_intersect(Contact::EMAIL_PREFERENCES, (array) $contact->email_preferences)),
         ];
     }
 
@@ -121,10 +122,14 @@ class ClientSummary
         // As the cron reads it (Client::autoChargeAgreement): a method of another account is none.
         $method = $client->defaultBillingAgreement;
         $method = $method !== null && (int) $method->client_id === (int) $client->id ? $method : null;
+        $names = (array) config('app.available_locales', []);
+        $main = Locales::main();
+        // The instance's own language chosen by hand (e.g. WHMCS «greek» on an el instance) is its default (review F2).
         $language = Locales::allowed($client->language);
+        $language = $language === $main ? null : $language;
         $settings = [
-            'language' => $language === null ? null : (string) (config('app.available_locales')[$language] ?? $language),
-            'language_default' => Locales::main(),
+            'language' => $language === null ? null : (string) ($names[$language] ?? $language),
+            'language_default' => (string) ($names[$main] ?? $main),
             'group' => $group === null ? null : ['name' => $group->name, 'percent' => $group->percent(),
                 // Into a style attribute: a hex colour only.
                 'colour' => preg_match('/^#[0-9a-f]{3,8}$/i', (string) $group->colour) === 1 ? $group->colour : null],
@@ -246,7 +251,8 @@ class ClientSummary
             'last_login' => $grant?->last_login_at,
             'last_login_ip' => $log?->ip_address,
             'users' => ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->count(),
-            'owner_2fa' => $owner === null ? null : filled($owner->tfa_secret),
+            // Present, not decrypted: a secret that no longer decrypts must not break the page (review F6).
+            'owner_2fa' => $owner === null ? null : filled($owner->getRawOriginal('tfa_secret')),
         ]);
     }
 

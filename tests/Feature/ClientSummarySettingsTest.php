@@ -55,7 +55,7 @@ class ClientSummarySettingsTest extends TestCase
         return $this->actingAs($this->staff($permissions))->get(ClientResource::getUrl('view', ['record' => $this->client]))->assertOk();
     }
 
-    /** The HTML of one yes/no row of the page, up to the end of its row. */
+    /** The HTML of one marked row of the page (`data-setting`), up to the end of its row. */
     private function settingRow(string $html, string $field): string
     {
         $start = strpos($html, 'data-setting="' . $field . '"');
@@ -154,7 +154,42 @@ class ClientSummarySettingsTest extends TestCase
     {
         $this->client->primaryContact->forceFill(['email_preferences' => ['affiliate', 'domain', 'product', 'support', 'invoice', 'general']])->save();
 
-        $this->page()->assertSee(__('All'))->assertDontSee('Not: ');
+        $row = $this->settingRow($this->page()->getContent(), 'email_preferences');
+        $this->assertStringContainsString(__('All'), $row);
+        $this->assertStringNotContainsString('fi-badge', $row);
+    }
+
+    public function test_an_empty_mail_choice_reads_as_never_chosen(): void
+    {
+        // The client area saves [] when nothing is ticked, and nothing reads the choice yet (review F1): no «None» alarm.
+        $this->client->primaryContact->forceFill(['email_preferences' => []])->save();
+
+        $this->assertNull(ClientSummary::for($this->client->fresh(), $this->staff(['*']))['details']['email_preferences']);
+        $row = $this->settingRow($this->page()->getContent(), 'email_preferences');
+        $this->assertStringContainsString('—', $row);
+        $this->assertStringNotContainsString('fi-badge', $row);
+    }
+
+    public function test_the_instances_own_language_chosen_by_hand_is_the_default(): void
+    {
+        $this->storeSettings(['allowed_languages' => ['en', 'el'], 'app_language' => 'el']);
+        $this->client->forceFill(['language' => 'el'])->save(); // as WHMCS «greek» is imported
+
+        $settings = ClientSummary::for($this->client->fresh(), $this->staff(['*']))['settings'];
+
+        $this->assertNull($settings['language']);
+        $this->assertSame('Ελληνικά', $settings['language_default']);
+        $this->assertStringNotContainsString('fi-badge', $this->settingRow($this->page()->getContent(), 'language'));
+    }
+
+    public function test_auto_charge_without_a_method_says_so(): void
+    {
+        $row = $this->settingRow($this->page()->getContent(), 'auto_charge');
+        $this->assertStringContainsString(__('Yes, no method saved'), $row);
+        $this->assertStringNotContainsString('fi-badge', $row);
+
+        $this->client->forceFill(['default_billing_agreement_id' => $this->agreement($this->client, 'Visa 1111')->id])->save();
+        $this->assertStringNotContainsString(__('Yes, no method saved'), $this->settingRow($this->page()->getContent(), 'auto_charge'));
     }
 
     public function test_the_owners_2fa_shows_only_to_staff_who_may_see_logins(): void
