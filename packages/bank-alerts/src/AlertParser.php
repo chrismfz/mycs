@@ -4,6 +4,7 @@ namespace MyCS\BankAlerts;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use MyCS\TicketMail\AuthVerdict;
 use MyCS\TicketMail\Parser;
 use Throwable;
 use ZBateson\MailMimeParser\Message;
@@ -37,7 +38,11 @@ final class AlertParser
             return null;
         }
         $values = fn (string $name) => array_map(fn ($h) => trim($h->getRawValue()), $message->getAllHeadersByName($name));
-        $verdict = Authenticity::verdict($email->authenticationResults, $values('ARC-Seal'), $values('ARC-Message-Signature'),
+        // An ARC header written with space before its colon (obsolete syntax) is dropped by the parser but may be read by
+        // the verifier: an ARC set we cannot see is no proof (adversarial round 2 of #450).
+        $head = (string) preg_split('/\r?\n\r?\n/', $raw, 2)[0];
+        $hidden = preg_match('/^ARC-[A-Za-z-]+[ \t]+:/mi', $head) === 1;
+        $verdict = $hidden ? new AuthVerdict(false, 'arc_header_unreadable') : Authenticity::verdict($email->authenticationResults, $values('ARC-Seal'), $values('ARC-Message-Signature'),
             $values('ARC-Authentication-Results'), $authservId, $sealer, $email->fromEmail);
 
         $fields = $bank === self::EUROBANK ? self::eurobank($email->body) : self::piraeus($email->body, $timezone);

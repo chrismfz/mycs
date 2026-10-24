@@ -79,7 +79,9 @@ class PaymentsTracking extends TableWidget
                     }),
                 Action::make('reopen')->label('')->icon('heroicon-o-arrow-uturn-left')->color('gray')->tooltip('Back to pending')
                     ->visible(fn (BankMovement $record) => in_array($record->status, [BankMovement::ACKNOWLEDGED, BankMovement::IGNORED], true) && self::canUpdate())
-                    ->action(fn (BankMovement $record) => $record->update(['status' => BankMovement::PENDING, 'acknowledged_by' => null, 'acknowledged_at' => null])),
+                    // Back to what it was: pending only for a vouched-for credit of ours (adversarial round 2 of #450).
+                    ->action(fn (BankMovement $record) => $record->update(['status' => $record->authentic ? BankMovement::PENDING : BankMovement::UNVERIFIED,
+                        'acknowledged_by' => null, 'acknowledged_at' => null])),
             ]);
     }
 

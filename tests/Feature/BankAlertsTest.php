@@ -153,6 +153,28 @@ class BankAlertsTest extends TestCase
         $this->assertSame('not_our_account', BankMovement::query()->where('reason', 'THEIRS')->value('authenticity'));
     }
 
+    public function test_a_mail_that_keeps_failing_for_another_cause_is_passed_after_its_attempts(): void
+    {
+        BankMovement::creating(function (BankMovement $movement) {
+            if ($movement->reason === 'STUCK') {
+                throw new \RuntimeException('SQLSTATE[HY000]: General error: something the mail cannot fix');
+            }
+        });
+        $mailbox = new FakeAlertMailbox(['INBOX' => ['validity' => 1, 'messages' => []]]);
+        $this->reader($mailbox)->run();
+        $mailbox->add('INBOX', $this->credit('10,00', 'STUCK'));
+        $mailbox->add('INBOX', $this->credit('11,00', 'AFTER'));
+
+        foreach (range(1, AlertReader::ATTEMPTS - 1) as $run) {
+            $this->reader($mailbox)->run();
+            $this->assertFalse(BankMovement::query()->where('reason', 'AFTER')->exists(), "run {$run}: the folder waits on the mail, to try it again");
+        }
+        $summary = $this->reader($mailbox)->run();
+
+        $this->assertTrue(BankMovement::query()->where('reason', 'AFTER')->exists(), 'passed after its attempts, never stuck for good');
+        $this->assertNotEmpty($summary['errors']);
+    }
+
     public function test_our_accounts_as_the_gateway_takes_them(): void
     {
         $this->assertSame(['eurobank' => ['2261'], 'piraeus' => ['ΟΨΕΩΣ ΕΤΑΙΡΙΩΝ Κ EXAMPLE', 'SECOND']],

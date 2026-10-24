@@ -25,6 +25,9 @@ final class AlertReader
     /** Mails read per folder and run: a first read of thousands is spread over a few runs. */
     public const BATCH = 300;
 
+    /** Runs a mail that fails for another cause than its own data is tried in, before it is passed with an error. */
+    public const ATTEMPTS = 5;
+
     /** @param  array{folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts?: array<string, list<string>>}  $settings */
     public function __construct(private readonly AlertMailbox $mailbox, private readonly array $settings) {}
 
@@ -66,10 +69,21 @@ final class AlertReader
                 if ($this->store($raw, $folder, $uid <= $cursor['history_until'])) {
                     $summary['new']++;
                 }
+                unset($cursor['failing']);
             } catch (Throwable $e) {
-                // Said, and passed: one mail (a forged one too) never stops the folder (reviews of #450).
                 report($e);
                 $summary['errors'][] = "{$folder} UID {$uid}: " . mb_substr($e->getMessage(), 0, 300);
+                // The mail's own data (a value out of range): passed at once, it never stops the folder (reviews of #450).
+                // Anything else (a deadlock, the database gone): tried again next run from this mail, so a real alert is
+                // never lost to a passing error; passed only after ATTEMPTS runs (adversarial round 2 of #450).
+                $attempts = (($cursor['failing']['uid'] ?? null) === $uid ? (int) $cursor['failing']['attempts'] : 0) + 1;
+                if (!self::mailAtFault($e) && $attempts < self::ATTEMPTS) {
+                    $cursor['failing'] = ['uid' => $uid, 'attempts' => $attempts];
+                    $save();
+
+                    return;
+                }
+                unset($cursor['failing']);
             }
             $cursor['last'] = max($cursor['last'], $uid);
             $save(); // kept as it goes: a run cut short resumes after the last mail done
@@ -99,6 +113,12 @@ final class AlertReader
         ]);
 
         return $movement->wasRecentlyCreated;
+    }
+
+    /** A database refusal of the mail's own data (SQLSTATE class 22: out of range, invalid date, too long). */
+    private static function mailAtFault(Throwable $e): bool
+    {
+        return preg_match('/SQLSTATE\[22[0-9A-Z]{3}\]/', $e->getMessage()) === 1;
     }
 
     /** Its account is one of ours for its bank (Bank transfer → «Our accounts»): none set, none is ours. */
