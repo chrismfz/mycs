@@ -15,6 +15,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
+use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
 use Livewire\Livewire;
 use Livewire\LivewireManager;
 
@@ -28,6 +29,10 @@ abstract class TestCase extends BaseTestCase
 
         // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
         CronJob::$lockWait = 0;
+
+        // Livewire marks «a component rendered» in a static that only its own test helper resets: a later plain HTTP test
+        // in the same process got Livewire's no-cache headers instead of its own (AltchaCaptchaTest, 2026-10-24).
+        SupportDisablingBackButtonCache::$disableBackButtonCache = false;
 
         // The seeder runs code that memoises with once() (e.g. the settings' currency list, read before the
         // seeder creates USD): start every test from what the seeded database says.
