@@ -537,6 +537,32 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * The customer was told of its suspension: of the suspension and unsuspension mails about it, the latest is a
+     * suspension's. A suspension the worker never did (paid or unsuspended by staff first), or done without a mail, was
+     * never told: its end is not told either (sweep by simulation 2026-10-24).
+     */
+    public function toldOfSuspension(): bool
+    {
+        $mails = EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
+            ->whereIn('template_key', ['server_suspended', 'server_unsuspended']);
+        // A manual hold has no start: the latest of its mails says (none: never told; review round 2 of #434).
+        if ($this->dunning_suspended_at === null) {
+            return (clone $mails)->latest('id')->value('template_key') === 'server_suspended';
+        }
+        // For non-payment: a «suspended» mail of THIS suspension (an earlier one's does not count: round 2 of #434).
+        $since = CarbonImmutable::parse($this->dunning_suspended_at);
+        if ((clone $mails)->where('template_key', 'server_suspended')->where('created_at', '>=', $since->subMinute())->exists()) {
+            return true;
+        }
+        // Its mail pruned from the log (older than the log keeps), or suspended before MyCS (imported, no mail of it at all
+        // and not recent enough for its job to be still on its way): told.
+        $days = (int) config('settings.cronjob_delete_email_logs', 90);
+
+        return ($days > 0 && $since->lessThan(CarbonImmutable::now()->subDays($days)))
+            || (!(clone $mails)->exists() && $since->lessThan(CarbonImmutable::now()->subDay()));
+    }
+
+    /**
      * Paid until $paidUntil, would the cron suspend it again? Then a payment does not unsuspend it (Δ3a, sweep Π4.1):
      * unsuspended, the next run would suspend it again, with two mails and two server jobs. The cron's rule: suspension
      * on, no hold in force, no payment on its way, Suspend Days past the date, and with «suspend only with an overdue

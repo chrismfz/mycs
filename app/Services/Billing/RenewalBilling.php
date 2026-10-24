@@ -134,7 +134,20 @@ final class RenewalBilling
         // so that it has something to pay (else it would be unsuspended, billed and suspended again the same night).
         $paidSinceSuspended = $service->dunning_suspended_at !== null && $lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->applied_at !== null && $line->applied_at->greaterThanOrEqualTo($service->dunning_suspended_at));
-        if ($service->status === 'suspended' && !$paidSinceSuspended && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+        // And one suspended for non-payment whose overdue period lost its invoice to staff (re-issued: «Cancel» → «Re-issue»,
+        // or deleted), not given up on: that period is billed again, so the customer has something to pay for the
+        // suspension they are under (sweep by simulation 2026-10-24: else suspended, never billed, terminated).
+        // Only on staff's explicit «Re-issue» (a cancelled line at that date, kept billable): never inferred from a line
+        // missing (an imported WHMCS service, an invoice deleted), and never past Termination Days, when the same run
+        // ends it (adversarial review of #434).
+        $reissued = $service->dunning_suspended_at !== null
+            && $service->nextPeriodStart($billed)->toDateString() === $service->paidUntilBase()->toDateString()
+            && $service->invoiceItems()->whereDate('period_start', $service->paidUntilBase()->toDateString())->whereNull('forgone_at')
+                ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED))->exists()
+            && !(config('settings.cronjob_terminate_enabled', true)
+                && ($service->suspend_hold_until === null || CarbonImmutable::parse($service->suspend_hold_until)->startOfDay()->lessThan(CarbonImmutable::today()))
+                && $service->paidUntilBase()->lessThan(CarbonImmutable::today()->subDays(max(0, (int) config('settings.cronjob_order_terminate', 60)))));
+        if ($service->status === 'suspended' && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->period_start->greaterThan($service->paidUntilBase()))) {
             return 0;
         }

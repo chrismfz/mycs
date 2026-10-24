@@ -237,9 +237,19 @@ class PaymentReminders
         $on = self::services($invoice)
             ->filter(fn (Service $service) => $service->status === Service::STATUS_ACTIVE && $service->plan_id !== null && $service->expires_at !== null
                 && !in_array($service->plan?->type, ['free', 'one-time'], true))
-            ->map(function (Service $service) use ($days) {
+            ->map(function (Service $service) use ($days, $invoice) {
+                $day = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
+                // «Suspend only with an overdue invoice»: the invoice too must be due and issued Suspend Days ago, as
+                // CronJob::suspendable() asks (sweep by simulation 2026-10-24: an invoice issued late told a day too early).
+                if (config('settings.cronjob_suspend_requires_invoice', false)) {
+                    foreach ([$invoice->due_at ?? $invoice->created_at, $invoice->created_at] as $at) {
+                        if ($at !== null) {
+                            $day = $day->max(Carbon::parse($at)->startOfDay()->addDays($days + 1));
+                        }
+                    }
+                }
                 // On the first day the suspensions' window allows (Settings → Automation: no weekend, say).
-                $day = DunningWindow::firstDayFrom(Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1));
+                $day = DunningWindow::firstDayFrom($day);
                 $held = $service->suspend_hold_until !== null && !Carbon::parse($service->suspend_hold_until)->lt($day);
 
                 return $held || $day->lte(Carbon::today()) ? null : $day;

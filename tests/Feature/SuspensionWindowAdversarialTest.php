@@ -41,14 +41,21 @@ class SuspensionWindowAdversarialTest extends TestCase
         parent::tearDown();
     }
 
-    private function service(array $attributes, ?User $user = null): Service
+    private function service(array $attributes, ?User $user = null, bool $billed = true): Service
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(array_merge([
+        $service = Service::factory()->create(array_merge([
             'client_id' => ($user ?? User::factory()->create())->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
+        // Its renewal billed, as the daily run does before any suspension (the hourly run leaves an unbilled period to it).
+        if ($billed && $service->expires_at !== null && $service->status === Service::STATUS_ACTIVE) {
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at]);
+            $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
+        }
+
+        return $service;
     }
 
     private function lastDailyRun(string $at): void
@@ -111,7 +118,7 @@ class SuspensionWindowAdversarialTest extends TestCase
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $user = User::factory()->create();
-        $due = $this->service(['expires_at' => '2026-10-21'], $user);
+        $due = $this->service(['expires_at' => '2026-10-21'], $user, billed: false);
 
         Carbon::setTestNow('2026-10-26 03:00:00'); // Monday, the daily run at night: nothing to apply yet
         $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-21']);
@@ -137,7 +144,7 @@ class SuspensionWindowAdversarialTest extends TestCase
     public function test_the_hourly_run_does_not_drop_the_no_open_invoice_notice(): void
     {
         config(['settings.cronjob_suspend_requires_invoice' => true]);
-        $service = $this->service(['expires_at' => '2026-10-21']); // past due, nothing the customer can pay
+        $service = $this->service(['expires_at' => '2026-10-21'], billed: false); // past due, nothing the customer can pay
         // A staff draft (as SuspensionRulesTest): the cron does not bill it again, and it is no open invoice. Without it the
         // daily run bills the service and there is nothing to report, window or not (checked when fixing #411).
         $draft = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'draft', 'currency_code' => 'USD', 'due_at' => '2026-10-21']);

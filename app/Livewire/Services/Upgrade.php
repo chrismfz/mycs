@@ -17,7 +17,6 @@ use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\DowngradeCredit;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Brick\Math\BigDecimal;
-use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -274,7 +273,7 @@ class Upgrade extends Component
             $invoice = new Invoice([
                 'currency_code' => $service->currency_code,
                 'status' => Invoice::STATUS_UNPAID,
-                'due_at' => Carbon::now()->addDays(7),
+                'due_at' => ServiceUpgrade::invoiceDueAt($service),
                 'client_id' => $service->client_id,
             ]);
             $invoice->save();
