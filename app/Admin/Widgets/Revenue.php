@@ -15,7 +15,7 @@ use Flowframe\Trend\TrendValue;
 class Revenue extends ChartWidget
 {
     // The dashboard's order (owner 2026-10-21): cards, registrar credit, revenue | support, income | renewals.
-    protected static ?int $sort = 2;
+    protected static ?int $sort = 3;
 
     // About half the height it had (owner 2026-10-21).
     protected ?string $maxHeight = '160px';

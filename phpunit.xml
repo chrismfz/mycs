@@ -12,6 +12,7 @@
             <directory>tests/Feature</directory>
         </testsuite>
         <testsuite name="Packages">
+            <directory>packages/bank-alerts/tests</directory>
             <directory>packages/billing-period/tests</directory>
             <directory>packages/cnic/tests</directory>
             <directory>packages/gr-epp/tests</directory>

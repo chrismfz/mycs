@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Money\BankTransferDetails;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\HtmlString;
 
 /**
  * Bank transfer (myip, 43% of its payments; owner 2026-10-21): an offline method. It shows the company's bank accounts and
@@ -47,7 +48,72 @@ class BankTransfer extends Gateway
                 'required' => false,
                 'default' => true,
             ],
+            // The banks' alert emails (Payments tracking, owner 2026-10-24): read, never moved, marked or deleted.
+            ['name' => 'alerts_help', 'type' => 'placeholder', 'label' => new HtmlString('<span class="text-sm">'
+                . e('Payments tracking: MyCS reads the Eurobank and Piraeus alert emails of this mailbox (credits and debits) without changing anything in it. What is already there when it first reads a folder counts for the balances only, never as a new payment.')
+                . '</span>')],
+            ['name' => 'alerts_enabled', 'label' => 'Read the bank alert emails', 'type' => 'checkbox', 'required' => false, 'default' => false],
+            ['name' => 'alerts_host', 'label' => 'Alerts mailbox: IMAP host', 'type' => 'text', 'required' => false, 'placeholder' => 'mail.example.com'],
+            ['name' => 'alerts_port', 'label' => 'IMAP port', 'type' => 'number', 'required' => false, 'default' => 993],
+            ['name' => 'alerts_encryption', 'label' => 'Encryption', 'type' => 'select', 'required' => false, 'default' => 'ssl',
+                'options' => ['ssl' => 'SSL/TLS', 'starttls' => 'STARTTLS']],
+            ['name' => 'alerts_username', 'label' => 'IMAP username', 'type' => 'text', 'required' => false],
+            ['name' => 'alerts_password', 'label' => 'IMAP password', 'type' => 'password', 'required' => false, 'encrypted' => true],
+            ['name' => 'alerts_folders', 'label' => 'Folders', 'type' => 'text', 'required' => false, 'default' => 'INBOX',
+                'description' => 'Comma separated (INBOX, Checked). A mail moved from one to another is read once.'],
+            ['name' => 'alerts_authserv_id', 'label' => 'Our mail server (authserv-id)', 'type' => 'text', 'required' => false, 'placeholder' => 'mail.example.com',
+                'description' => 'The name our server writes in Authentication-Results. Only a mail it vouches the bank sent counts for the balances and the matching.'],
+            ['name' => 'alerts_arc_sealer', 'label' => 'Our ARC sealing domain', 'type' => 'text', 'required' => false, 'placeholder' => 'example.com',
+                'description' => 'When the alerts reach the mailbox through a forward inside our server (sieve redirect): the domain our server seals with.'],
+            ['name' => 'alerts_accounts', 'label' => 'Our accounts', 'type' => 'textarea', 'required' => false,
+                'placeholder' => "eurobank: 1234\npiraeus: ACCOUNT NAME AS THE ALERT SHOWS IT",
+                'description' => 'One per line, «bank: account» as the alerts name it (Eurobank: the last digits; Piraeus: the account\'s name). An alert about any other account (a genuine one, sent on to us) is never a payment of ours.'],
+            ['name' => 'alerts_ignore', 'label' => 'Credits to ignore', 'type' => 'textarea', 'required' => false,
+                'description' => 'One per line: a credit whose reference contains it is not for staff (the card acquirer\'s settlements, e.g. its merchant id).'],
         ];
+    }
+
+    /**
+     * The alerts mailbox's settings, or null when reading is off or not set up.
+     *
+     * @return array{host: string, port: int, encryption: string, username: string, password: string, folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts: array<string, list<string>>}|null
+     */
+    public function alertSettings(): ?array
+    {
+        if (!$this->config('alerts_enabled') || blank($this->config('alerts_host')) || blank($this->config('alerts_username'))) {
+            return null;
+        }
+        $list = fn (?string $value, string $by) => array_values(array_filter(array_map('trim', explode($by, (string) $value)), fn ($v) => $v !== ''));
+
+        return [
+            'host' => trim((string) $this->config('alerts_host')),
+            'port' => (int) ($this->config('alerts_port') ?: 993),
+            'encryption' => $this->config('alerts_encryption') === 'starttls' ? 'starttls' : 'ssl',
+            'username' => trim((string) $this->config('alerts_username')),
+            'password' => (string) $this->config('alerts_password'),
+            'folders' => $list($this->config('alerts_folders') ?: 'INBOX', ',') ?: ['INBOX'],
+            'authserv_id' => trim((string) $this->config('alerts_authserv_id')),
+            'arc_sealer' => trim((string) $this->config('alerts_arc_sealer')),
+            'ignore' => $list($this->config('alerts_ignore'), "\n"),
+            'accounts' => self::accounts((string) $this->config('alerts_accounts')),
+        ];
+    }
+
+    /**
+     * «eurobank: 1234» lines into each bank's accounts.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function accounts(string $lines): array
+    {
+        $accounts = [];
+        foreach (preg_split('/\R/', $lines) ?: [] as $line) {
+            if (preg_match('/^\s*(eurobank|piraeus)\s*:\s*(.+?)\s*$/iu', $line, $m) === 1) {
+                $accounts[strtolower($m[1])][] = $m[2];
+            }
+        }
+
+        return $accounts;
     }
 
     /** Offered only in a currency the accounts take (reviews of #287: never a USD invoice told to wire to EUR accounts). */

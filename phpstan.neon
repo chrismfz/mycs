@@ -7,6 +7,7 @@ parameters:
     paths:
         - app/
         - extensions/
+        - packages/bank-alerts/src/
         - packages/billing-period/src/
         - packages/cnic/src
         - packages/gr-epp/src/
