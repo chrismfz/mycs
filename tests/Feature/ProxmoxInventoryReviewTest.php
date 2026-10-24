@@ -125,6 +125,7 @@ class ProxmoxInventoryReviewTest extends TestCase
         GuestSync::sync($server);
 
         $this->answers['cluster/resources'] = [];
+        $this->answers['nodes'] = []; // a token without its ACL sees no node either (round 2: then refused)
         try {
             GuestSync::sync($server);
         } catch (\Throwable) {

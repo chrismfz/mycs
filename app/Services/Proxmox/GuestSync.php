@@ -25,7 +25,7 @@ final class GuestSync
         if (!$extension instanceof Proxmox) {
             throw new \InvalidArgumentException("{$server->name} is not a Proxmox server.");
         }
-        $lock = Cache::lock("proxmox.sync.{$server->id}", 300);
+        $lock = Cache::lock("proxmox.sync.{$server->id}", 1800);
         if (!$lock->get()) {
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
@@ -42,7 +42,9 @@ final class GuestSync
         $guests = $extension->client()->guests(); // throws before anything is written: a failed read marks nothing gone
         // An empty list where there were guests is a token that sees nothing (its ACL removed), not a cluster emptied:
         // nothing marked gone (review of #446).
-        if ($guests === [] && ProxmoxGuest::query()->where('server_id', $server->id)->whereNull('gone_at')->exists()) {
+        // A token that sees its nodes but no guest is a cluster really emptied: then they go.
+        if ($guests === [] && ProxmoxGuest::query()->where('server_id', $server->id)->whereNull('gone_at')->exists()
+            && $extension->client()->nodes() === []) {
             throw new RuntimeException("{$server->name} listed no guest: check the token's permissions (PVEAuditor on /). Nothing marked gone.");
         }
 

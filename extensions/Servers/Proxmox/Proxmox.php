@@ -62,8 +62,12 @@ class Proxmox extends Server
     public function testConfig(): bool|string
     {
         try {
-            $this->client()->version();
-            $this->client()->nodes();
+            $client = $this->client();
+            $client->version();
+            // /version and /nodes answer any valid token; a token without its ACL sees no node (review of #446).
+            if ($client->nodes() === []) {
+                return 'The token works but sees no node: give it PVEAuditor on «/» (pveum acl modify / --roles PVEAuditor --users mycs@pve --tokens \'mycs@pve!api\').';
+            }
         } catch (Throwable $e) {
             return $e->getMessage();
         }

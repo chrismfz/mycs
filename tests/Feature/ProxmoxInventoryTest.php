@@ -145,6 +145,15 @@ class ProxmoxInventoryTest extends TestCase
         $this->assertSame(0, ProxmoxGuest::query()->whereNotNull('gone_at')->count());
     }
 
+    public function test_a_cluster_really_emptied_marks_its_guests_gone(): void
+    {
+        $server = $this->cluster();
+        GuestSync::sync($server);
+        $this->answers['cluster/resources'] = []; // its nodes still seen: the token is fine
+
+        $this->assertSame(['seen' => 0, 'new' => 0, 'gone' => 2], GuestSync::sync($server));
+    }
+
     public function test_two_clusters_may_have_the_same_vmid(): void
     {
         GuestSync::sync($this->cluster('One'));
