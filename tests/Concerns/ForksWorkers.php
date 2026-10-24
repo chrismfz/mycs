@@ -16,8 +16,13 @@ trait ForksWorkers
     protected static function endWorker(string $dir, int $index, int $code): never
     {
         touch("$dir/exit-$index-$code");
-        pcntl_exec('/bin/sh', ['-c', 'exit ' . $code]);
-        exit($code); // only if the exec failed
+        try {
+            pcntl_exec('/bin/sh', ['-c', 'exit ' . $code]);
+        } finally {
+            // Only if the exec failed. Laravel turns its warning into an ErrorException: without the finally, the
+            // forked child would unwind into the test (deleting the shared dir) and go on running the suite.
+            exit($code);
+        }
     }
 
     /** In the parent: whether the worker ended well, never waiting past $seconds (then it is killed and fails). */
@@ -26,8 +31,7 @@ trait ForksWorkers
         $deadline = microtime(true) + $seconds;
         while (pcntl_waitpid($pid, $status, WNOHANG) === 0) {
             if (microtime(true) > $deadline) {
-                exec('kill -9 ' . $pid);
-                pcntl_waitpid($pid, $status);
+                self::killWorker($pid);
                 if (!file_exists("$dir/error-$index")) {
                     file_put_contents("$dir/error-$index", "Worker $index did not finish within {$seconds}s.");
                 }
@@ -38,5 +42,26 @@ trait ForksWorkers
         }
 
         return pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0 && file_exists("$dir/exit-$index-0");
+    }
+
+    /**
+     * In the parent's finally: kills and reaps the workers still running (an assertion or a waitFor failed first).
+     * Without posix_kill(), which is not always installed: calling it there threw and hid the real failure.
+     *
+     * @param  list<int>  $pids
+     */
+    protected static function reapWorkers(array $pids): void
+    {
+        foreach ($pids as $pid) {
+            if (pcntl_waitpid($pid, $status, WNOHANG) === 0) {
+                self::killWorker($pid);
+            }
+        }
+    }
+
+    private static function killWorker(int $pid): void
+    {
+        exec('kill -9 ' . $pid);
+        pcntl_waitpid($pid, $status);
     }
 }

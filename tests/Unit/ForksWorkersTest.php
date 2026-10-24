@@ -60,4 +60,21 @@ class ForksWorkersTest extends TestCase
         $this->assertLessThan(5, microtime(true) - $started);
         $this->assertStringContainsString('did not finish', (string) file_get_contents("{$this->dir}/error-0"));
     }
+
+    /** The harnesses' finally: a worker still running is killed and reaped, with or without posix. */
+    public function test_still_running_workers_are_reaped(): void
+    {
+        $done = $this->fork(fn () => self::endWorker($this->dir, 0, 0));
+        $hung = $this->fork(function () {
+            sleep(30);
+            self::endWorker($this->dir, 1, 0);
+        });
+        $this->assertTrue($this->awaitWorker($done, $this->dir, 0)); // already reaped: skipped
+
+        $started = microtime(true);
+        self::reapWorkers([$done, $hung]);
+        $this->assertLessThan(5, microtime(true) - $started);
+        $this->assertSame(-1, pcntl_waitpid($hung, $status, WNOHANG)); // reaped, no zombie left
+        $this->assertFileDoesNotExist("{$this->dir}/exit-1-0");
+    }
 }

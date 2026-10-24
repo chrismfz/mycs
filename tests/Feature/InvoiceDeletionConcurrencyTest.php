@@ -180,12 +180,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
                     file_exists("$dir/error-$index") ? file_get_contents("$dir/error-$index") : 'Payment worker failed.');
             }
         } finally {
-            foreach ($pids as $pid) {
-                if (pcntl_waitpid($pid, $status, WNOHANG) === 0) {
-                    posix_kill($pid, SIGKILL);
-                    pcntl_waitpid($pid, $status);
-                }
-            }
+            self::reapWorkers($pids);
             foreach (glob("$dir/*") ?: [] as $file) {
                 unlink($file);
             }
