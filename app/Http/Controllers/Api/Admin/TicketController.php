@@ -32,9 +32,9 @@ class TicketController extends ApiController
     {
         // Fetch tickets with pagination
         $tickets = QueryBuilder::for(Ticket::class)
-            ->allowedFilters(['id', 'reference', 'client_id', 'status', 'priority', 'department_id'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'status', 'priority', 'department_id'])
+            ->allowedFilters('id', 'reference', 'client_id', 'status', 'priority', 'department_id')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'status', 'priority', 'department_id')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the tickets as a JSON response
@@ -59,7 +59,7 @@ class TicketController extends ApiController
     public function show(GetTicketRequest $request, Ticket $ticket)
     {
         $ticket = QueryBuilder::for(Ticket::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($ticket->id);
 
         // Return the ticket as a JSON response

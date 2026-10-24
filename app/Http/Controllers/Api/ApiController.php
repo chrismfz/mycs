@@ -48,7 +48,7 @@ abstract class ApiController extends Controller
     protected function loadAllowedIncludes(Model $model, array $includes): Model
     {
         return QueryBuilder::for($model::class)
-            ->allowedIncludes($this->allowedIncludes($includes))
+            ->allowedIncludes(...$this->allowedIncludes($includes))
             ->findOrFail($model->getKey());
     }
 
