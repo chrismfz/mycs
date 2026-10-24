@@ -15,10 +15,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use MyCS\SslTools\Certificate;
+use MyCS\SslTools\CheckResult;
 use MyCS\SslTools\Csr;
 use MyCS\SslTools\KeyType;
 use MyCS\SslTools\Pkcs12;
 use MyCS\SslTools\PrivateKey;
+use MyCS\SslTools\SslCheck;
 use MyCS\SslTools\SslToolsException;
 use OwenIt\Auditing\Events\AuditCustom;
 use SensitiveParameter;
@@ -196,6 +198,40 @@ class SslVault
         $this->audit($version->order, 'ssl_key_downloaded', $version, ['file' => 'pfx', 'via' => $via]);
 
         return $pfx;
+    }
+
+    /**
+     * The version checked (docs/ssl-vault.md, PR 2): its key (read here, never shown), CSR, certificate and chain against
+     * each other, the chain's trust, the dates. Codes and plain values only.
+     *
+     * @return list<array{code: string, status: string, values: array<string, string>}>
+     */
+    public function check(SslVersion $version): array
+    {
+        try {
+            $key = $version->hasKey() ? $version->privateKey()?->pem() : null;
+        } catch (SslToolsException) {
+            $key = null;
+        }
+        $certificates = filled($version->certificate) ? trim((string) $version->certificate) . "\n" . trim((string) $version->chain) : null;
+
+        return array_map(fn (CheckResult $r) => $r->toArray(), SslCheck::run($key, $version->csr, $certificates));
+    }
+
+    /**
+     * A pasted CSR, or a certificate with its chain, read and checked: never a private key (refused, so none is
+     * taken in from a page that does not need one).
+     *
+     * @return list<array{code: string, status: string, values: array<string, string>}>
+     */
+    public static function decode(string $text): array
+    {
+        if (str_contains($text, 'PRIVATE KEY')) {
+            throw new ServerRefused(__('services.ssl.checks.no_keys_here'));
+        }
+        $isCsr = str_contains($text, 'CERTIFICATE REQUEST');
+
+        return array_map(fn (CheckResult $r) => $r->toArray(), SslCheck::run(null, $isCsr ? $text : null, $isCsr ? null : $text));
     }
 
     /**
