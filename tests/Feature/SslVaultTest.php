@@ -572,4 +572,19 @@ class SslVaultTest extends TestCase
         $page->set('key', $other->pem())->call('check');
         $this->assertSame('fail', self::statuses($page->get('results'))['match.key_certificate']);
     }
+
+    /** Review 1 of #438: a key pasted to decode is cleared even when the decode is limited or the text too long. */
+    public function test_a_key_pasted_to_decode_never_stays_in_the_page(): void
+    {
+        $key = PrivateKey::generate(KeyType::EcP256)->pem();
+        $line = explode("\n", $key)[2];
+        $page = $this->portal();
+        for ($i = 0; $i < 30; $i++) {
+            $page->set('sslDecodeText', 'nothing')->call('sslDecode');
+        }
+        foreach ([$key, $key . str_repeat('x', 70000), str_replace('PRIVATE KEY', 'EC PRIVATE KEY', $key)] as $text) {
+            $page->set('sslDecodeText', $text)->call('sslDecode')->assertSet('sslDecodeText', '');
+            $this->assertStringNotContainsString($line, json_encode($page->snapshot, JSON_UNESCAPED_SLASHES));
+        }
+    }
 }

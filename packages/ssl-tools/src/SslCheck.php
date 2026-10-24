@@ -28,7 +28,7 @@ final class SslCheck
     public static function run(#[SensitiveParameter] ?string $key, ?string $csr, ?string $certificates, ?string $caFile = null, ?DateTimeImmutable $now = null): array
     {
         $check = new self;
-        $privateKey = $check->read('key', $key, fn (string $t) => PrivateKey::parse($t),
+        $privateKey = $check->read('key', $key, fn (#[SensitiveParameter] string $t) => PrivateKey::parse($t),
             fn (PrivateKey $k) => ['type' => $k->description, 'fingerprint' => $k->spkiSha256]);
         $request = $check->read('csr', $csr, fn (string $t) => Csr::parse($t),
             fn (Csr $c) => ['name' => $c->commonName, 'names' => implode(', ', $c->names), 'type' => $c->keyDescription, 'fingerprint' => $c->spkiSha256]);
@@ -44,9 +44,11 @@ final class SslCheck
                 $check->add('certificate.invalid', CheckResult::FAIL, ['reason' => $e->getMessage()]);
             }
         }
-        $leaf = $chain[0] ?? null;
+        // The same certificate pasted twice is one (review 5 of #438).
+        $chain = array_values(array_reduce($chain, fn (array $seen, Certificate $c) => $seen + [hash('sha256', $c->pem) => $c], []));
+        $leaf = self::leaf($chain, $privateKey->spkiSha256 ?? $request?->spkiSha256);
         if ($leaf !== null) {
-            $check->add('certificate.read', CheckResult::INFO, ['name' => $leaf->commonName, 'names' => implode(', ', $leaf->names), 'issuer' => $leaf->issuer,
+            $check->add('certificate.read', CheckResult::INFO, ['name' => $leaf->commonName, 'names' => implode(', ', $leaf->names ?: [$leaf->commonName]), 'issuer' => $leaf->issuer,
                 'serial' => $leaf->serial, 'from' => $leaf->notBefore->format('Y-m-d'), 'to' => $leaf->notAfter->format('Y-m-d'), 'type' => $leaf->keyDescription,
                 'fingerprint' => $leaf->spkiSha256]);
         }
@@ -59,11 +61,14 @@ final class SslCheck
         }
         if ($request !== null && $leaf !== null) {
             $check->add('match.csr_certificate', $leaf->matches($request) ? CheckResult::OK : CheckResult::FAIL);
-            $missing = array_values(array_diff(array_unique(array_merge([$request->commonName], $request->names)), $leaf->names ?: [$leaf->commonName]));
+            $covers = $leaf->names ?: [$leaf->commonName];
+            // A CSR may carry no common name, only its names (ADV-4 of #438).
+            $wanted = array_filter(array_unique(array_merge([$request->commonName], $request->names)), fn (string $n) => $n !== '');
+            $missing = array_values(array_filter($wanted, fn (string $n) => !self::covered($n, $covers)));
             $check->add('names.covered', $missing === [] ? CheckResult::OK : CheckResult::FAIL, ['missing' => implode(', ', $missing)]);
         }
         if ($leaf !== null) {
-            $check->chain($leaf, array_slice($chain, 1), $caFile);
+            $check->chain($leaf, array_values(array_filter($chain, fn (Certificate $c) => $c !== $leaf)), $caFile);
             $check->dates($leaf, $now ?? new DateTimeImmutable);
         }
 
@@ -120,9 +125,17 @@ final class SslCheck
         $extra = array_values(array_filter($pool, fn (Certificate $c) => !in_array($c, $path, true)));
         $names = implode(' → ', array_map(fn (Certificate $c) => $c->commonName ?: $c->subjectDn, $path));
 
-        $trusted = $this->trusted($leaf, array_slice($path, 1), $caFile);
-        if ($trusted) {
+        // A CA certificate pasted alone is checked as one, not as a web server's (review 3 of #438).
+        $intermediates = array_slice($path, 1);
+        $purpose = $leaf->isCa ? X509_PURPOSE_ANY : X509_PURPOSE_SSL_SERVER;
+        $now = new DateTimeImmutable; // OpenSSL checks as of now, whatever date the dates() line is told for
+        if ($this->trusted($leaf, $intermediates, $caFile, $purpose)) {
             $this->add('chain.trusted', CheckResult::OK, ['path' => $names]);
+        } elseif (array_filter($path, fn (Certificate $c) => $c->notBefore > $now || $c->notAfter <= $now) !== []) {
+            // Out of its dates, OpenSSL verifies no chain: never told «incomplete» or «not trusted» for it (review 2).
+            $this->add('chain.dates', CheckResult::WARN, ['path' => $names]);
+        } elseif (!$leaf->isCa && $this->trusted($leaf, $intermediates, $caFile, X509_PURPOSE_ANY)) {
+            $this->add('chain.wrong_purpose', CheckResult::FAIL, ['path' => $names]);
         } elseif ($current->selfSigned()) {
             $this->add('chain.untrusted_root', CheckResult::FAIL, ['path' => $names, 'root' => $current->commonName ?: $current->subjectDn]);
         } else {
@@ -133,8 +146,50 @@ final class SslCheck
         }
     }
 
+    /**
+     * The certificate the others are checked for: the one of the key or CSR given, else the first that is no CA and
+     * signs none of the others (a bundle pasted intermediate first: review 4 of #438), else the first.
+     *
+     * @param  list<Certificate>  $chain
+     */
+    private static function leaf(array $chain, ?string $spki): ?Certificate
+    {
+        foreach ($chain as $certificate) {
+            if ($spki !== null && hash_equals($certificate->spkiSha256, $spki)) {
+                return $certificate;
+            }
+        }
+        foreach ($chain as $certificate) {
+            if (!$certificate->isCa && array_filter($chain, fn (Certificate $other) => $other !== $certificate && $other->issuedBy($certificate)) === []) {
+                return $certificate;
+            }
+        }
+
+        return $chain[0] ?? null;
+    }
+
+    /**
+     * A CSR's name covered by the certificate's names: listed, or under a wildcard of one label (*.example.gr covers
+     * shop.example.gr, never example.gr nor a.b.example.gr).
+     *
+     * @param  list<string>  $covers
+     */
+    private static function covered(string $name, array $covers): bool
+    {
+        $name = rtrim(strtolower($name), '.');
+        foreach ($covers as $cover) {
+            $cover = rtrim(strtolower($cover), '.');
+            if ($cover === $name || (str_starts_with($cover, '*.') && !str_starts_with($name, '*.')
+                && substr($name, strpos($name, '.') ?: 0) === substr($cover, 1) && str_contains($name, '.'))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<Certificate> $intermediates */
-    private function trusted(Certificate $leaf, array $intermediates, ?string $caFile): bool
+    private function trusted(Certificate $leaf, array $intermediates, ?string $caFile, int $purpose): bool
     {
         $caFile ??= openssl_get_cert_locations()['default_cert_file'] ?? null;
         if (!is_string($caFile) || !is_readable($caFile)) {
@@ -149,10 +204,9 @@ final class SslCheck
             file_put_contents($untrusted, implode('', array_map(fn (Certificate $c) => $c->pem, $intermediates)));
         }
         try {
-            // Its purpose checked as of now: an expired one is told by dates() too.
             $ok = $untrusted !== null
-                ? @openssl_x509_checkpurpose($leaf->pem, X509_PURPOSE_SSL_SERVER, [$caFile], $untrusted)
-                : @openssl_x509_checkpurpose($leaf->pem, X509_PURPOSE_SSL_SERVER, [$caFile]);
+                ? @openssl_x509_checkpurpose($leaf->pem, $purpose, [$caFile], $untrusted)
+                : @openssl_x509_checkpurpose($leaf->pem, $purpose, [$caFile]);
         } finally {
             if ($untrusted !== null) {
                 @unlink($untrusted);

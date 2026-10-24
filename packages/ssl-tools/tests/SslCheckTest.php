@@ -51,11 +51,11 @@ class SslCheckTest extends TestCase
         $this->leaf = self::sign($this->csr, self::$interKey, self::$inter);
     }
 
-    private static function sign(Csr $csr, PrivateKey $by, ?Certificate $issuer, bool $ca = false, int $days = 90): Certificate
+    private static function sign(Csr $csr, PrivateKey $by, ?Certificate $issuer, bool $ca = false, int $days = 90, string $eku = 'serverAuth'): Certificate
     {
         $config = tempnam(sys_get_temp_dir(), 'crt');
         $ext = $ca ? "basicConstraints = critical, CA:TRUE\nkeyUsage = critical, keyCertSign, cRLSign\n"
-            : "basicConstraints = CA:FALSE\nkeyUsage = digitalSignature, keyEncipherment\nextendedKeyUsage = serverAuth\nsubjectAltName = "
+            : "basicConstraints = CA:FALSE\nkeyUsage = digitalSignature, keyEncipherment\nextendedKeyUsage = {$eku}\nsubjectAltName = "
                 . implode(',', array_map(fn ($n) => "DNS:{$n}", $csr->names)) . "\n";
         file_put_contents($config, "[req]\ndistinguished_name = dn\n[dn]\n[ext]\n{$ext}");
         $x509 = openssl_csr_sign($csr->pem, $issuer?->pem, $by->key(), $days, ['config' => $config, 'x509_extensions' => 'ext', 'digest_alg' => 'sha256'], random_int(1, PHP_INT_MAX));
@@ -151,5 +151,52 @@ class SslCheckTest extends TestCase
         $line = explode("\n", $this->key->pem())[2];
         $this->assertStringNotContainsString($line, json_encode(array_map(fn (CheckResult $r) => $r->toArray(), $results), JSON_UNESCAPED_SLASHES));
         $this->assertSame([], SslCheck::run(null, '  ', null));
+    }
+
+    /** Review 2 of #438: an expired certificate's chain is not told «incomplete» or «untrusted». */
+    public function test_an_expired_chain_is_told_as_such(): void
+    {
+        $expired = self::sign($this->csr, self::$interKey, self::$inter, days: 0);
+        $codes = self::codes(SslCheck::run(null, null, $expired->pem . self::$inter->pem, self::$caFile));
+
+        $this->assertSame('warn', $codes['chain.dates']);
+        $this->assertArrayNotHasKey('chain.incomplete', $codes);
+        $this->assertArrayNotHasKey('chain.untrusted_root', $codes);
+    }
+
+    /** Review 3 of #438: a certificate not for web servers, and a CA certificate pasted alone. */
+    public function test_purpose_and_ca_certificates(): void
+    {
+        $client = self::sign($this->csr, self::$interKey, self::$inter, eku: 'clientAuth');
+        $this->assertSame('fail', self::codes(SslCheck::run(null, null, $client->pem . self::$inter->pem, self::$caFile))['chain.wrong_purpose']);
+
+        $root = SslCheck::run(null, null, self::$root->pem, self::$caFile);
+        $this->assertSame('ok', self::codes($root)['chain.trusted']);
+        $this->assertSame('root.example.test', self::find($root, 'certificate.read')->values['names']);
+        $this->assertSame('ok', self::codes(SslCheck::run(null, null, self::$inter->pem, self::$caFile))['chain.trusted']);
+    }
+
+    /** Review 4 and 5 of #438: a bundle pasted intermediate first, with the intermediate twice. */
+    public function test_the_leaf_is_found_whatever_the_order(): void
+    {
+        $results = SslCheck::run(null, $this->csr->pem, self::$inter->pem . $this->leaf->pem . self::$inter->pem, self::$caFile);
+        $codes = self::codes($results);
+
+        $this->assertSame('example.gr', self::find($results, 'certificate.read')->values['name']);
+        $this->assertSame('ok', $codes['match.csr_certificate']);
+        $this->assertSame('ok', $codes['chain.trusted']);
+        $this->assertArrayNotHasKey('chain.extra', $codes);
+        $this->assertSame('example.gr', self::find(SslCheck::run(null, null, self::$inter->pem . $this->leaf->pem, self::$caFile), 'certificate.read')->values['name']);
+    }
+
+    /** Review 7 of #438: a one-label wildcard covers a name under it, and only that. */
+    public function test_a_wildcard_covers_one_label(): void
+    {
+        $key = PrivateKey::generate(KeyType::EcP256);
+        $wild = self::sign(Csr::create($key, ['*.example.gr', 'example.gr']), self::$interKey, self::$inter);
+
+        $this->assertSame('ok', self::codes(SslCheck::run(null, Csr::create($key, ['shop.example.gr', 'example.gr'])->pem, $wild->pem, self::$caFile))['names.covered']);
+        $deep = SslCheck::run(null, Csr::create($key, ['a.b.example.gr'])->pem, $wild->pem, self::$caFile);
+        $this->assertSame('a.b.example.gr', self::find($deep, 'names.covered')->values['missing']);
     }
 }

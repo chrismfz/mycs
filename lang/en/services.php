@@ -184,6 +184,8 @@ return [
                 'untrusted_root' => 'The chain ends at a root that is not trusted (:root): :path',
                 'incomplete' => 'The chain is incomplete: the certificate of «:missing» is missing (:path)',
                 'extra' => 'The CA bundle has certificates that are not part of the chain: :names',
+                'dates' => 'The chain cannot be verified while a certificate in it is outside its dates: :path',
+                'wrong_purpose' => 'The chain is trusted, but the certificate is not for web servers (TLS server): :path',
             ],
             'dates' => [
                 'valid' => 'Valid until :to (:days days)',

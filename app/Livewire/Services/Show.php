@@ -539,6 +539,13 @@ class Show extends Component
     {
         $this->authorize('view', $this->service);
         $this->sslDecoded = [];
+        // A key pasted here is cleared first, before any other answer could leave it in the page (review 1 of #438).
+        if (preg_match('/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|PRIVATE KEY/', $this->sslDecodeText) === 1) {
+            $this->sslDecodeText = '';
+            $this->notify(__('services.ssl.checks.no_keys_here'), 'error');
+
+            return;
+        }
         if (!$this->hasSsl) {
             return;
         }

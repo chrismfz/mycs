@@ -60,6 +60,9 @@ class SslVersionsRelationManager extends RelationManager
         return (bool) self::staff()?->hasPermission(SslVault::KEY_PERMISSION);
     }
 
+    /** Versions a member of staff may check an hour. */
+    private const CHECKS_PER_HOUR = 120;
+
     /** Keys a member of staff may see or download an hour (as the portal's, per staff member: review 6). */
     private const KEYS_PER_HOUR = 30;
 
@@ -139,6 +142,15 @@ class SslVersionsRelationManager extends RelationManager
                 Action::make('check')->label('Check')->icon('ri-shield-check-line')->button()->color('gray')
                     ->modalHeading(fn (SslVersion $record) => "Version {$record->number} checked")
                     ->modalSubmitAction(false)->modalCancelActionLabel('Close')
+                    ->mountUsing(function () {
+                        $limit = 'admin-ssl-check:' . self::staff()?->id; // review 8 of #438
+                        if (RateLimiter::tooManyAttempts($limit, self::CHECKS_PER_HOUR)) {
+                            Notification::make()->danger()->title('Too many checks: try again later')->send();
+
+                            throw new Cancel;
+                        }
+                        RateLimiter::hit($limit, 3600);
+                    })
                     ->modalContent(fn (SslVersion $record) => new HtmlString(Blade::render('<x-ssl-check-results :results="$results" />', ['results' => app(SslVault::class)->check($record)]))),
                 ActionGroup::make([
                     // Opening it shows the key, and the audit is written as it is read.

@@ -60,10 +60,20 @@ class SslChecker extends Page
     {
         abort_unless(static::canAccess(), 403);
         $key = $this->key;
+        $csr = $this->csr;
+        $certificate = $this->certificate;
         $this->key = ''; // never kept in the page's state past this request
+        // A combined PEM (certificate, chain and key in one file) pasted in another box: checked as pasted, its key
+        // taken as the key, and the box cleared, so no key stays in the page (ADV-3 of #438).
+        foreach (['csr', 'certificate'] as $field) {
+            if (str_contains($this->{$field}, 'PRIVATE KEY')) {
+                $key = trim($key) === '' ? $this->{$field} : $key;
+                $this->{$field} = '';
+            }
+        }
         $this->results = [];
         $this->error = null;
-        foreach ([$key, $this->csr, $this->certificate] as $text) {
+        foreach ([$key, $csr, $certificate] as $text) {
             if (strlen($text) > Pem::MAX_LENGTH) {
                 $this->error = 'One of the texts is too long.';
 
@@ -77,7 +87,7 @@ class SslChecker extends Page
             return;
         }
         RateLimiter::hit($limit, 60);
-        $this->results = array_map(fn (CheckResult $r) => $r->toArray(), SslCheck::run($key, $this->csr, $this->certificate));
+        $this->results = array_map(fn (CheckResult $r) => $r->toArray(), SslCheck::run($key, $csr, $certificate));
         if ($this->results === []) {
             $this->error = 'Paste a key, a CSR or a certificate.';
         }
