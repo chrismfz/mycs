@@ -88,6 +88,12 @@ final class GuestLifecycle
             return;
         }
         $this->locked($service, function (ProxmoxGuest $row, ?array $resource) {
+            if ($resource === null && $row->gone_at === null && $row->status !== 'destroyed') {
+                // Not in the list, though the last read saw it: a token that sees only part of the cluster (its pool), or
+                // a VM taken out of the pool. Never «destroyed» on that: staff confirm it (adversarial round 2 of #447).
+                throw new LeftToStaff("VM {$row->vmid} ({$row->name}) is not listed on the cluster any more: check whether it still runs "
+                    . 'and destroy it by hand if it does; then mark this done.');
+            }
             if ($resource !== null && $row->status !== 'destroyed') {
                 $path = ProxmoxClient::guestPath($resource);
                 if (($resource['status'] ?? '') === 'running') {
