@@ -100,5 +100,6 @@
     @if($sslVersions->isNotEmpty())
         @include('services.partials.ssl-files')
     @endif
+    @include('services.partials.ssl-decode')
 </div>
 @endif

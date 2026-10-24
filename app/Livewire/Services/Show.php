@@ -88,6 +88,17 @@ class Show extends Component
     /** A reissue's key: a new one (the default, owner 2026-10-24), or the current one kept. */
     public string $sslReissueKey = 'new';
 
+    /** @var list<array{code: string, status: string, values: array<string, string>}> the version in use, checked (SslVault::check) */
+    #[Locked]
+    public array $sslChecks = [];
+
+    /** A CSR or certificate pasted to be read: never a key (SslVault::decode). */
+    public string $sslDecodeText = '';
+
+    /** @var list<array{code: string, status: string, values: array<string, string>}> */
+    #[Locked]
+    public array $sslDecoded = [];
+
     public ?string $sslApprover = null;
 
     public string $newPassword = '';
@@ -506,6 +517,41 @@ class Show extends Component
         }
         $this->sslCsr = (string) $version->csr;
         $this->sslCheck();
+    }
+
+    /**
+     * The version in use checked (docs/ssl-vault.md, PR 2): whoever sees the service. Its key is read for the match
+     * only, never shown. A few an hour.
+     */
+    public function sslRunChecks(): void
+    {
+        $this->authorize('view', $this->service);
+        $order = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null;
+        $current = $order !== null ? app(SslVault::class)->current($order) : null;
+        if ($current === null || $this->sslLimited('verify', 30)) {
+            return;
+        }
+        $this->sslChecks = app(SslVault::class)->check($current);
+    }
+
+    /** A pasted CSR or certificate read (nothing kept); a pasted key refused and cleared at once. */
+    public function sslDecode(): void
+    {
+        $this->authorize('view', $this->service);
+        $this->sslDecoded = [];
+        if (!$this->hasSsl) {
+            return;
+        }
+        $this->validate(['sslDecodeText' => ['required', 'string', 'max:65536']]);
+        if ($this->sslLimited('verify', 30)) {
+            return;
+        }
+        try {
+            $this->sslDecoded = SslVault::decode($this->sslDecodeText);
+        } catch (ServerRefused $e) {
+            $this->sslDecodeText = '';
+            $this->notify($e->getMessage(), 'error');
+        }
     }
 
     /** Another CSR is checked again. */

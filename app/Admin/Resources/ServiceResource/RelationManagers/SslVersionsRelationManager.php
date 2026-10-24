@@ -23,6 +23,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\HtmlString;
 use MyCS\SslTools\KeyType;
@@ -134,6 +135,11 @@ class SslVersionsRelationManager extends RelationManager
                             'Certificate' => $record->certificate, 'CA bundle' => $record->chain, 'CSR' => $record->csr,
                         ])),
                 ])->label('Files')->icon('ri-file-download-line')->button()->color('gray'),
+                // Its key (never shown), CSR, certificate and chain checked together (docs/ssl-vault.md, PR 2).
+                Action::make('check')->label('Check')->icon('ri-shield-check-line')->button()->color('gray')
+                    ->modalHeading(fn (SslVersion $record) => "Version {$record->number} checked")
+                    ->modalSubmitAction(false)->modalCancelActionLabel('Close')
+                    ->modalContent(fn (SslVersion $record) => new HtmlString(Blade::render('<x-ssl-check-results :results="$results" />', ['results' => app(SslVault::class)->check($record)]))),
                 ActionGroup::make([
                     // Opening it shows the key, and the audit is written as it is read.
                     Action::make('revealKey')->label('Reveal key (audited)')->icon('ri-eye-line')->color('warning')

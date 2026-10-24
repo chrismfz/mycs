@@ -92,6 +92,8 @@ return [
                 'sso' => 'Log in to a Service\'s Panel',
                 // An SSL certificate's private key, seen or downloaded (owner 2026-10-24): audited each time.
                 'ssl_keys' => 'View and Download SSL Private Keys',
+                // Utilities → SSL Checker: any key, CSR and certificate pasted and checked, nothing kept (owner 2026-10-24).
+                'ssl_checker' => 'Use the SSL Checker',
             ],
             // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
             'domains' => [

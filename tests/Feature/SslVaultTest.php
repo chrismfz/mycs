@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Pages\SslChecker;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\RelationManagers\SslVersionsRelationManager;
 use App\Exceptions\ServerRefused;
@@ -484,5 +485,91 @@ class SslVaultTest extends TestCase
         $this->order()->forceFill(['renew_requested_at' => now(), 'renew_for' => now()])->save();
         $this->portal()->set('sslReissueKey', 'new')->call('sslGenerate');
         $this->assertSame(1, $this->order()->versions()->count());
+    }
+
+    /** @param list<array{code: string, status: string}> $results @return array<string, string> */
+    private static function statuses(array $results): array
+    {
+        return array_column($results, 'status', 'code');
+    }
+
+    /** PR 2: the version in use checked in the portal, its key read for the match only, never put in the page. */
+    public function test_the_portal_checks_the_version_in_use(): void
+    {
+        $version = $this->generateAndOrder();
+        $this->issue();
+
+        $page = $this->portal()->call('sslRunChecks');
+        $codes = self::statuses($page->get('sslChecks'));
+        $this->assertSame('ok', $codes['match.key_csr']);
+        $this->assertSame('ok', $codes['match.key_certificate']);
+        $this->assertSame('ok', $codes['match.csr_certificate']);
+        $this->assertSame('ok', $codes['names.covered']);
+        $this->assertSame('fail', $codes['chain.untrusted_root']); // the test's CA is no public root
+        $this->assertSame('ok', $codes['dates.valid']);
+        $page->assertSee(__('services.ssl.checks.match.key_certificate.ok'));
+        $line = explode("\n", $version->privateKey()->pem())[2];
+        $this->assertStringNotContainsString($line, json_encode($page->snapshot, JSON_UNESCAPED_SLASHES));
+        $this->assertStringNotContainsString($line, $page->html());
+        $this->assertFalse(Audit::query()->where('event', 'ssl_key_downloaded')->exists(), 'a check shows no key: nothing to audit');
+
+        // A login that only sees the service checks it too (nothing of the key is shown).
+        $viewer = User::factory()->create();
+        ClientUser::query()->create(['user_id' => $viewer->id, 'client_id' => $this->owner->client()->id, 'permissions' => ['products']]);
+        $this->assertSame('ok', self::statuses($this->portal($viewer)->call('sslRunChecks')->get('sslChecks'))['match.key_certificate']);
+    }
+
+    /** PR 2: a pasted CSR or certificate decoded; a pasted key refused and cleared from the page at once. */
+    public function test_the_portal_decodes_a_csr_or_certificate_never_a_key(): void
+    {
+        $key = PrivateKey::generate(KeyType::EcP256);
+        $csr = Csr::create($key, ['shop.example.test']);
+        $page = $this->portal()->set('sslDecodeText', $csr->pem)->call('sslDecode');
+        $this->assertSame('info', self::statuses($page->get('sslDecoded'))['csr.read']);
+
+        $certificate = $this->sign($csr, self::$caKey, self::$ca);
+        $page->set('sslDecodeText', $certificate->pem . self::$ca->pem)->call('sslDecode');
+        $codes = self::statuses($page->get('sslDecoded'));
+        $this->assertSame('info', $codes['certificate.read']);
+        $this->assertArrayHasKey('dates.valid', $codes);
+
+        $page->set('sslDecodeText', $key->pem())->call('sslDecode')->assertSet('sslDecodeText', '')->assertSet('sslDecoded', []);
+        $this->assertStringNotContainsString(explode("\n", $key->pem())[2], json_encode($page->snapshot, JSON_UNESCAPED_SLASHES));
+    }
+
+    /** PR 2: the admin checks a version without revealing or auditing its key. */
+    public function test_the_admin_checks_a_version(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $version = $this->generateAndOrder();
+        $this->issue();
+        $staff = $this->staff(['admin.services.viewAny']);
+
+        $this->livewireAs($staff)->test(SslVersionsRelationManager::class, ['ownerRecord' => $this->service->fresh(), 'pageClass' => EditService::class])
+            ->assertTableActionVisible('check', $version)->mountTableAction('check', $version);
+        $this->assertSame('ok', self::statuses(app(SslVault::class)->check($version->fresh()))['match.key_certificate']);
+        $this->assertFalse(Audit::query()->where('event', 'ssl_key_downloaded')->exists());
+    }
+
+    /** PR 2: Utilities → SSL Checker, behind its own permission; the pasted key cleared as soon as it is checked. */
+    public function test_the_staff_ssl_checker(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs($this->staff(['admin.services.viewAny']), 'staff')->get(SslChecker::getUrl())->assertForbidden();
+
+        $key = PrivateKey::generate(KeyType::Rsa2048);
+        $csr = Csr::create($key, ['shop.example.test', 'www.shop.example.test']);
+        $certificate = $this->sign($csr, self::$caKey, self::$ca);
+        $page = $this->livewireAs($this->staff([SslChecker::PERMISSION]))->test(SslChecker::class)
+            ->set('key', $key->pem())->set('csr', $csr->pem)->set('certificate', $certificate->pem . self::$ca->pem)->call('check')
+            ->assertSet('key', '')->assertSee('The key matches the certificate');
+        $codes = self::statuses($page->get('results'));
+        $this->assertSame('ok', $codes['match.key_csr']);
+        $this->assertSame('ok', $codes['names.covered']);
+        $this->assertStringNotContainsString(explode("\n", $key->pem())[2], json_encode($page->snapshot, JSON_UNESCAPED_SLASHES));
+
+        $other = PrivateKey::generate(KeyType::Rsa2048);
+        $page->set('key', $other->pem())->call('check');
+        $this->assertSame('fail', self::statuses($page->get('results'))['match.key_certificate']);
     }
 }
