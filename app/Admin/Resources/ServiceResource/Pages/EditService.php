@@ -10,6 +10,7 @@ use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\OfflineMachine;
+use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
 use App\Exceptions\ServerRefused;
@@ -219,6 +220,8 @@ class EditService extends EditRecord
             InvoiceSelectedItemsAction::nextPeriod()->visible(in_array($record->status, ['active', 'suspended'], true)),
             // A machine with no API: its details (the form's «Machine» opens it too).
             OfflineMachine::editAction()->visible(fn (Service $record) => OfflineMachine::fields($record) !== []),
+            // Its Proxmox VM's power (one mapped in Proxmox Guests).
+            ProxmoxPower::group($record),
             // Into its panel, signed in, as WHMCS's «Log in to panel» (owner 2026-10-23): its own permission, audited.
             Action::make('loginToPanel')->label('Log in to panel')->icon('heroicon-o-arrow-top-right-on-square')->color('gray')
                 ->visible(fn (Service $record) => self::panelLoginOffered($record))

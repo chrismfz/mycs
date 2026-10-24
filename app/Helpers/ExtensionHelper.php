@@ -10,6 +10,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
+use App\Exceptions\LeftToStaff;
 use App\Exceptions\NothingToDoOnServer;
 use App\Jobs\Server\SuspendJob;
 use App\Models\BillingAgreement;
@@ -159,6 +160,9 @@ class ExtensionHelper
         $config = self::getConfig($record->type, $record->extension, array_merge($current, $values) ?: ['_' => null]);
 
         foreach ($config as $option) {
+            if (($option['type'] ?? null) === 'placeholder') {
+                continue; // a text on the form, not a setting
+            }
             $value = $values[$option['name']] ?? null;
             if ($skipNull && $value === null) {
                 continue;
@@ -1628,25 +1632,40 @@ class ExtensionHelper
     private static function offlineTask(Service $service, string $recorded, string $module, string $action): array
     {
         $what = trim(($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
+
+        return self::staffTask($service, $recorded, $module, $action,
+            "By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.',
+            "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
+            . 'then mark the task done in Pending Module Actions.');
+    }
+
+    /**
+     * A task for staff in Pending Module Actions (open, given up at once: no retry can do it), staff mailed once with the
+     * service's details; older open tasks of the service that it makes moot are closed.
+     *
+     * @return array<string, mixed>
+     */
+    private static function staffTask(Service $service, string $recorded, string $module, string $action, string $task, string $mail): array
+    {
         $now = now();
         // A new task each time (review of #443: the old open row was reused and staff were not told); older open ones
         // of this machine that the new one makes moot are closed.
         ModuleAction::query()->open()->where('service_id', $service->id)->where('subject', ModuleAction::SUBJECT_BY_HAND)
             ->whereIn('action', ModuleAction::BY_HAND_SUPERSEDES[$recorded] ?? [$recorded])
             ->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by a newer task: {$recorded}", 'updated_at' => $now]);
+        // A failed attempt of the same action before it (a retry that got this far) is done with.
+        ModuleAction::query()->open()->where('service_id', $service->id)->whereNull('subject')->where('action', $recorded)
+            ->update(['status' => ModuleAction::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'left to staff', 'updated_at' => $now]);
         ModuleAction::query()->create(['service_id' => $service->id, 'action' => $recorded, 'subject' => ModuleAction::SUBJECT_BY_HAND,
             'module' => $module, 'status' => ModuleAction::STATUS_OPEN, 'attempts' => 1, 'last_attempt_at' => $now, 'given_up_at' => $now,
-            'last_error' => "By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.']);
+            'last_error' => $task]);
         // Its details in the mail too (a deleted service takes them with it: review R5); after commit, and a mail that
         // fails never fails the action (R6).
         $details = $service->properties()->get()->map(fn ($p) => ($p->name ?: $p->key) . ': ' . str_replace("\n", ', ', (string) $p->value))->implode("\n");
         $id = $service->id;
-        DB::afterCommit(function () use ($id, $recorded, $what, $module, $details) {
+        DB::afterCommit(function () use ($id, $recorded, $mail, $details) {
             try {
-                NotificationHelper::sendSystemEmailNotification("By hand: {$recorded} service #{$id}", nl2br(e(
-                    "Service #{$id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
-                    . 'then mark the task done in Pending Module Actions.' . ($details !== '' ? "\n\n{$details}" : '')
-                )));
+                NotificationHelper::sendSystemEmailNotification("By hand: {$recorded} service #{$id}", nl2br(e($mail . ($details !== '' ? "\n\n{$details}" : ''))));
             } catch (Throwable $e) {
                 report($e);
             }
@@ -1699,7 +1718,16 @@ class ExtensionHelper
             if ($extension instanceof OfflineServer) {
                 return self::offlineTask($service, $recorded, (string) $server->extension, $action);
             }
-            $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+            try {
+                $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+            } catch (LeftToStaff $e) {
+                // Done as far as the module goes, its last step staff's on purpose (Proxmox «Terminate: stop»): what a
+                // done action makes moot is closed as for one (review of #447).
+                ModuleAction::closeSuperseded($service, $recorded, "superseded by {$recorded} (left to staff)");
+
+                return self::staffTask($service, $recorded, (string) $server->extension, $action, $e->getMessage(),
+                    "Service #{$service->id} ({$server->extension}): " . $e->getMessage());
+            }
 
             if ($result === false) {
                 throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');

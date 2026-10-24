@@ -4,16 +4,20 @@ namespace MyCS\Extensions\Servers\Proxmox;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Models\Service;
+use App\Services\Proxmox\GuestLifecycle;
 use App\Support\PanelConnection;
 use App\Support\Proxmox\PanelTransport;
+use Illuminate\Support\HtmlString;
 use MyCS\Proxmox\ProxmoxClient;
+use RuntimeException;
 use Throwable;
 
 /**
  * A Proxmox VE cluster (owner 2026-10-24), read-only for now: its nodes, their graphs and its guests, each mapped to a
  * service or marked internal (Proxmox guests). One server per cluster, with up to three of its nodes' addresses: any
  * node answers for the whole cluster, so one node down hides nothing. A second cluster or a standalone node is another
- * server. The token needs only PVEAuditor on «/».
+ * server. Reading needs PVEAuditor on «/»; the actions the MyCS role on its pool (docs/proxmox.md).
  */
 #[ExtensionMeta(
     name: 'Proxmox VE',
@@ -23,6 +27,29 @@ use Throwable;
 )]
 class Proxmox extends Server
 {
+    /** The cluster's side, on the server's form (owner 2026-10-24): what to run on one node, and why. */
+    private const SETUP_HELP = <<<'HTML'
+        <details class="text-sm">
+        <summary class="cursor-pointer font-medium">How to set it up on the cluster</summary>
+        <div class="mt-2 space-y-3">
+        <p>On any node, as root. The token is the same for the whole cluster.</p>
+        <div><p class="font-medium">1. Read (lists, graphs): changes nothing</p>
+        <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pveum user add mycs@pve --comment "MyCS control plane"
+        pveum user token add mycs@pve api --privsep 1
+        pveum acl modify / --roles PVEAuditor --users mycs@pve --tokens 'mycs@pve!api'</pre>
+        <p class="text-gray-500">The second command prints the token's secret once: paste it below, nowhere else. PVEAuditor only reads.</p></div>
+        <div><p class="font-medium">2. Suspend, start, terminate: only the VMs in the pool</p>
+        <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
+        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate"
+        pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
+        pvesh set /pools --poolid mycs --vms 101,102</pre>
+        <p class="text-gray-500">PowerMgmt stops and starts, Config.Options turns «start at boot» off while suspended, Allocate destroys
+        (only with «Terminate: Destroy»). A customer's VM goes in the pool once mapped (Utilities → Proxmox Guests → «Pool
+        command» lists them); our own VMs stay out, and MyCS never touches them.</p></div>
+        </div>
+        </details>
+        HTML;
+
     public function getConfig($values = []): array
     {
         $ip = PanelConnection::fields()[0];
@@ -33,6 +60,7 @@ class Proxmox extends Server
         ];
 
         return [
+            ['name' => 'setup_help', 'type' => 'placeholder', 'label' => new HtmlString(self::SETUP_HELP)],
             ['name' => 'host', 'type' => 'text', 'label' => 'Node address', 'placeholder' => 'https://pve1.example.com:8006',
                 'validation' => 'url:https', 'required' => true, 'description' => 'Any node of the cluster: it answers for all of them.'],
             ...PanelConnection::fields(),
@@ -41,6 +69,12 @@ class Proxmox extends Server
             ['name' => 'token_id', 'type' => 'text', 'label' => 'API token ID', 'placeholder' => 'mycs@pve!api', 'required' => true,
                 'validation' => ['required', 'regex:/^[^@\s]+@[^!\s]+![^\s]+$/']],
             ['name' => 'token_secret', 'type' => 'password', 'label' => 'API token secret', 'required' => true, 'encrypted' => true],
+            ['name' => 'pool', 'type' => 'text', 'label' => 'MyCS pool', 'default' => 'mycs', 'required' => false,
+                'validation' => ['nullable', 'regex:/^[A-Za-z0-9_.-]+$/'],
+                'description' => 'MyCS suspends, starts and destroys only VMs in this pool, each mapped to its service (Proxmox Guests).'],
+            ['name' => 'terminate', 'type' => 'select', 'label' => 'Terminate', 'default' => 'stop', 'required' => false,
+                'options' => [['value' => 'stop', 'label' => 'Stop the VM and leave its destroy to staff'], ['value' => 'destroy', 'label' => 'Destroy the VM and its disks']],
+                'description' => 'A failsafe while MyCS is new: a terminated service\'s VM is stopped, and staff destroy it by hand (a task in Pending Module Actions).'],
         ];
     }
 
@@ -57,6 +91,39 @@ class Proxmox extends Server
 
         return new ProxmoxClient(new PanelTransport($ips, (bool) $this->config('self_signed')), array_keys($ips),
             trim((string) $this->config('token_id')), trim((string) $this->config('token_secret')));
+    }
+
+    /** Suspend = stop (owner 2026-10-24): a clean shutdown, then a hard stop; not started again by a node's reboot. */
+    public function suspendServer(Service $service, $settings, $properties)
+    {
+        $this->lifecycle($service)->suspend($service);
+
+        return true;
+    }
+
+    public function unsuspendServer(Service $service, $settings, $properties)
+    {
+        $this->lifecycle($service)->unsuspend($service);
+
+        return true;
+    }
+
+    /**
+     * Terminate = destroy with its disks (owner 2026-10-24: months unpaid by then; the backups are the way back), once the
+     * server's «Terminate» says so; until then (the default) stopped, the destroy left to staff.
+     */
+    public function terminateServer(Service $service, $settings, $properties)
+    {
+        $this->lifecycle($service)->terminate($service, $this->config('terminate') === 'destroy');
+
+        return true;
+    }
+
+    public function lifecycle(Service $service): GuestLifecycle
+    {
+        $server = $service->provisioningServer() ?? throw new RuntimeException("Service #{$service->id} has no server.");
+
+        return new GuestLifecycle($this->client(), $server, trim((string) $this->config('pool')) ?: 'mycs');
     }
 
     public function testConfig(): bool|string
