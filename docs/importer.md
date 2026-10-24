@@ -213,3 +213,60 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 ## Domains: από το WHMCS, όχι από τους registrars (ο υπεύθυνος, 2026-10-21)
 
 Ο importer κάθε instance παίρνει τα domains από το **δικό του** WHMCS (`tbldomains`). Τα συνδέει με τη σύνδεση του registrar τους στο MyCS (`registrar` cnic, openprovider, grepp → η αντίστοιχη `DomainRegistrarConnection`). Δεν εισάγει ποτέ τη λίστα ενός λογαριασμού registrar: ο λογαριασμός του CNIC είναι κοινός για myip (198) και nixpal (4), και θα έφερνε τα domains της άλλης εταιρείας. Η λίστα του registrar (`listDomains`) χρησιμεύει μόνο για έλεγχο parity, δηλαδή για όσα υπάρχουν στο ένα σύστημα και όχι στο άλλο.
+
+## Sweep του WHMCS της nixpal (2026-10-24, μόνο ανάγνωση)
+
+WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 30/09–24/10/2026. Εδώ μόνο ό,τι **λείπει** ή **θέλει απόφαση**.
+Ό,τι καλύπτεται ήδη (πελάτες, υπηρεσίες, άδειες, τιμολόγια, πληρωμές, πιστώσεις, tickets, admins) είναι στο ROADMAP,
+γραμμή 9.
+
+### Λείπουν από τον importer
+- **Ετικέτες υπηρεσιών του πελάτη:** `mod_clientproductdescriptions` (type `tblhosting`, pid = service id), 310 εγγραφές,
+  124 σε ενεργές → `services.label`. Το addon είναι ακόμα ενεργό, ο φάκελός του όμως δεν υπάρχει πια.
+- **Τύποι γραμμών τιμολογίου:**
+  - PromoHosting (3.871, relid = υπηρεσία): σήμερα μπαίνει με `reference_type` null, πρέπει να γίνει Service, ώστε οι
+    εκπτώσεις να μετρούν ανά προϊόν.
+  - GroupDiscount (498, relid 0): χωρίς υπηρεσία.
+  - Γραμμές domain (18): ανήκουν στο D6.
+  - **2 ορφανές γραμμές**, χωρίς τιμολόγιο: θα σπάσουν το FK, άρα παραλείπονται με αναφορά.
+- **Χώρα του τιμολογίου:** `tblinvoicedata` (6.116) → `invoice_snapshots.tax_country`. Χρειάζεται ως στοιχείο για το
+  ΦΠΑ ΕΕ (OSS, reverse charge).
+- **Συναίνεση marketing:** `tblclients.emailoptout` (76), `marketing_emails_opt_in` (156), `tblmarketing_consent`
+  (269) → το opt-out του `announcement_news` (`NotificationPreference`). Χωρίς αυτό, το πρώτο μαζικό email θα πάει σε
+  όσους έχουν πει όχι (GDPR).
+- **Κατάσταση υπενθυμίσεων:** `tbldomainreminders` και οι πρόσφατες υπενθυμίσεις overdue → `invoice_reminders` και
+  `domain_reminders`. Χωρίς αυτό, το πρώτο cron ξαναστέλνει τις υπενθυμίσεις των τελευταίων 3 ημερών (`CATCH_UP_DAYS`).
+- **Spam filters των tickets:** `tblticketspamfilters` (54, όλα sender) → `TicketBlockedSender`.
+- **Announcements:** 4 δημοσιευμένα → extension Announcements, και τα URLs τους στον χάρτη 301.
+- **Handles του Openprovider:** `wHandles`, `wDomain_handle` → `domains.*_handle`, μαζί με το D6.
+- **Ακραίες περιπτώσεις:**
+  - 48 πληρωμένα τιμολόγια του 2019–2020 **χωρίς αριθμό** (σύνολο 23 €): γίνονται δεκτά.
+  - 1 πληρωμή Stripe με ημερομηνία `0000-00-00` και ποσό 0.
+  - Ο μετρητής αρίθμησης είναι σήμερα **6845** (`SequentialInvoiceNumberValue`) και ξαναδιαβάζεται τη μέρα του cut-over.
+
+### Χρειάζονται απόφαση
+- **3η υπενθύμιση overdue την ημέρα λήξης:** το `SendThirdOverdueInvoiceReminder` είναι κενό, και το WHMCS το διαβάζει
+  ως ημέρα 0. Στην πράξη ο πελάτης παίρνει 3 emails, τις ημέρες 0, 1 και 2 (118/97/92 σε 12 μήνες). Το
+  `settings-map` λέει 1/2/—.
+- **Αυτόματη ακύρωση απλήρωτων στις 60 ημέρες:** στη nixpal είναι ενεργή (2 τιμολόγια σε 12 μήνες) και η MyCS δεν έχει
+  αντίστοιχη ρύθμιση. Πιθανότατα δεν χρειάζεται, γιατί συμπίπτει με το terminate στις 60.
+- **Ιστορικό emails πελατών:** `tblemails`, 13.059. Είτε οι τελευταίοι 12–24 μήνες στα `email_logs`, είτε μόνο αρχείο.
+- **Webhook του PayPal (ppcpv):** σήμερα πηγαίνει στο `/modules/gateways/callback/paypal_ppcpv.php`, που δεν υπάρχει στο
+  `routes/legacy.php`. Είτε ξαναδηλώνεται στο `/extensions/paypal/webhook`, είτε μπαίνει forwarder. Για το Stripe:
+  0 webhooks σε 24 ημέρες, να ελεγχθεί το endpoint στο dashboard του Stripe.
+
+### Για το runbook (γραμμή 10)
+- **Πάγωμα:** σταματούν **πρώτα** τα cron του clnixpal, `crons/cron.php` και `crons/pop.php`, και τα δύο κάθε 5 λεπτά.
+  Αλλιώς το WHMCS συνεχίζει να χρεώνει, και τα δύο συστήματα διαβάζουν το ίδιο POP3.
+- **Χάρτης 301:**
+  - όλα τα `tblproducts_slugs` (25), τα `/cart.php?a=add&pid=` και τα `?billingcycle=`·
+  - τα `/store/...` στα οποία παραπέμπουν τα nixpal.com και zonecloud.io·
+  - τα `/announcements/*` και `/knowledgebase/*`.
+- **zlic.php:** ~9.000 ελέγχοι την ημέρα από 330 IPs (GET 95%). Τα 6.806 HTTP 400 χρειάζονται κι αυτά parity, γιατί
+  είναι ελέγχους με `license` και `license_PSK`: να υπάρχει fixture γι' αυτή την περίπτωση.
+- **API του WHMCS:** κανένα σύστημα σε παραγωγή δεν το καλεί. Υπάρχει μόνο ένα credential, του δικού μας εργαλείου
+  (84.54.49.6), που ανακαλείται μετά το cut-over.
+- Πριν από το πάγωμα: καθάρισμα των 12 ανοιχτών to-dos, μεταφορά με το χέρι του 1 αρχείου πελάτη, και port του welcome
+  email «ZoneCloud» στα προϊόντα licensing.
+- Δεν χρειάζονται: usage billing (δεν τιμολογήθηκε ποτέ), OAuth SSO, logs, caches των vendors, ο νεκρός
+  `nixpal_license`, τα κενά quotes/affiliates/downloads.
