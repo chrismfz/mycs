@@ -10,12 +10,14 @@ use App\Services\Service\RenewServiceService;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\ForksWorkers;
 use Tests\TestCase;
 use Throwable;
 
 class BillingCursorConcurrencyTest extends TestCase
 {
     use DatabaseTruncation;
+    use ForksWorkers;
 
     protected function beforeTruncatingDatabase(): void
     {
@@ -125,10 +127,10 @@ class BillingCursorConcurrencyTest extends TestCase
                             (new RenewServiceService)->handle(Service::findOrFail($serviceId), InvoiceItem::findOrFail($itemId));
                         }
                         DB::disconnect();
-                        exit(0);
+                        self::endWorker($dir, $index, 0);
                     } catch (Throwable $e) {
                         file_put_contents("$dir/error-$index", $e->getMessage());
-                        exit(1);
+                        self::endWorker($dir, $index, 1);
                     }
                 }
                 $pids[] = $pid;
@@ -142,17 +144,11 @@ class BillingCursorConcurrencyTest extends TestCase
             }
             touch("$dir/start");
             foreach ($pids as $index => $pid) {
-                pcntl_waitpid($pid, $status);
-                $this->assertTrue(pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0,
+                $this->assertTrue($this->awaitWorker($pid, $dir, $index),
                     file_exists("$dir/error-$index") ? file_get_contents("$dir/error-$index") : 'Callback failed.');
             }
         } finally {
-            foreach ($pids as $pid) {
-                if (pcntl_waitpid($pid, $status, WNOHANG) === 0) {
-                    posix_kill($pid, SIGKILL);
-                    pcntl_waitpid($pid, $status);
-                }
-            }
+            self::reapWorkers($pids);
             foreach (glob("$dir/*") as $file) {
                 unlink($file);
             }
