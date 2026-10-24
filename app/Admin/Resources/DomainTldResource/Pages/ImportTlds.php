@@ -92,7 +92,7 @@ class ImportTlds extends Page implements HasForms
     /** The currency the grid shows prices and margins in. */
     public string $currency = '';
 
-    /** @var array<string, array{costs?: array<string, array{cost: string, currency: string}>, error?: string, not_offered?: bool}>|null */
+    /** @var array<string, array{costs?: array<string, array{cost: string, currency: string}>, min_years?: int, error?: string, not_offered?: bool}>|null */
     private ?array $fetchedMemo = null;
 
     public static function canAccess(array $parameters = []): bool
@@ -155,7 +155,7 @@ class ImportTlds extends Page implements HasForms
                     ->options(['none' => __('No rounding'), '.00' => 'x.00', '.50' => 'x.50', '.99' => 'x.99']),
                 Select::make('years')->label(__('Register and renew up to (years)'))->required()
                     ->options(collect(range(1, 10))->mapWithKeys(fn (int $n) => [$n => (string) $n])->all())
-                    ->helperText(__('2 to N years at N times the one-year price.')),
+                    ->helperText(__('2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.')),
                 Toggle::make('redemption_fee')->label(__('Import the grace and redemption fees'))->live()->helperText(__('The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.')),
                 Toggle::make('auto_register')->label(__('Automatic registration with this registrar')),
                 Toggle::make('keep_free_and_closed')->label(__('Keep free and not-offered prices'))
@@ -229,7 +229,7 @@ class ImportTlds extends Page implements HasForms
         foreach ($tlds as $tld) {
             $answer = $answers[$tld] ?? null;
             $fetched[$tld] = match (true) {
-                $answer instanceof TldPricing => ['costs' => $answer->costs],
+                $answer instanceof TldPricing => ['costs' => $answer->costs, 'min_years' => $answer->minYears],
                 is_string($answer) => ['error' => $answer],
                 default => ['not_offered' => true],
             };
@@ -254,7 +254,7 @@ class ImportTlds extends Page implements HasForms
         TimeLimit::atLeast(180);
         $fetched = [];
         foreach (app(TldImport::class)->fetchAll($connection) as $tld => $pricing) {
-            $fetched[$tld] = ['costs' => $pricing->costs];
+            $fetched[$tld] = ['costs' => $pricing->costs, 'min_years' => $pricing->minYears];
         }
         $this->keep($connection, $fetched, in_array($filter, self::FILTERS, true) ? $filter : 'all');
     }
@@ -281,7 +281,7 @@ class ImportTlds extends Page implements HasForms
     /**
      * What the registrar answered, as kept: only for the staff member and the connection it was fetched for.
      *
-     * @return array<string, array{costs?: array<string, array{cost: string, currency: string}>, error?: string, not_offered?: bool}>
+     * @return array<string, array{costs?: array<string, array{cost: string, currency: string}>, min_years?: int, error?: string, not_offered?: bool}>
      */
     public function fetched(): array
     {
@@ -378,7 +378,7 @@ class ImportTlds extends Page implements HasForms
     {
         $currency = in_array($this->currency, $this->currencies(), true) ? $this->currency : ($this->currencies()[0] ?? '');
         $import = app(TldImport::class);
-        $existing = DomainTld::query()->with(['prices' => fn ($q) => $q->where('years', 1)->where('currency_code', $currency)])
+        $existing = DomainTld::query()->with(['prices' => fn ($q) => $q->where('currency_code', $currency)])
             ->orderBy('sort')->get()->keyBy('tld');
         $order = array_flip($existing->keys()->all());
         $rows = [];
@@ -390,15 +390,22 @@ class ImportTlds extends Page implements HasForms
                 'not_offered' => (bool) ($answer['not_offered'] ?? false), 'importable' => false, 'alert' => false, 'ops' => [],
                 'order' => [$record === null ? 1 : 0, $record === null ? $position : $order[$tld]]];
             $position++;
-            $costs = $answer['costs'] ?? null;
-            if (is_array($costs)) {
-                $new = $import->prices(new TldPricing(tld: $tld, costs: $costs), $options, [$currency])[$currency] ?? [];
+            $pricing = self::pricingOf($tld, $answer);
+            if ($pricing === null && is_array($answer['costs'] ?? null)) {
+                $row['error'] = __('Fetched before an update of MyCS: fetch again.'); // no period: never imported
+            }
+            $row['min_years'] = $pricing === null ? 1 : $pricing->minYears;
+            $costs = $pricing?->costs;
+            if ($pricing !== null && $costs !== null) {
+                $new = $import->prices($pricing, $options, [$currency])[$currency] ?? [];
                 $row['importable'] = $costs !== [];
                 foreach (TldImport::GRID_OPERATIONS as $operation) {
-                    $price = $record?->prices->firstWhere('operation', $operation);
+                    // Register and renew at the shortest registration the registrar sells (.gr: 2 years), as quoted.
+                    $period = in_array($operation, ['register', 'renew'], true) ? $pricing->minYears : 1;
+                    $price = $record?->prices->first(fn ($p) => $p->operation === $operation && (int) $p->years === $period);
                     // What the import writes: a free or not-offered price it keeps is shown kept (adversarial F5 of #422).
                     $kept = $price !== null && $options->keepFreeAndClosed && ($price->price === null || bccomp((string) $price->price, '0', 2) === 0);
-                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $price?->price, $kept ? null : ($new[$operation][1]['price'] ?? null));
+                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $price?->price, $kept ? null : ($new[$operation][$period]['price'] ?? null));
                     $row['ops'][$operation] = $cell;
                     $row['alert'] = $row['alert'] || ($cell['alert'] !== null && in_array($operation, $this->operations(), true));
                 }
@@ -487,6 +494,19 @@ class ImportTlds extends Page implements HasForms
         return $rows;
     }
 
+    /**
+     * A fetched answer as the registrar's TldPricing (its costs and its shortest registration), or null for none.
+     *
+     * @param  array<string, mixed>  $answer
+     */
+    private static function pricingOf(string $tld, array $answer): ?TldPricing
+    {
+        $costs = $answer['costs'] ?? null;
+        $min = $answer['min_years'] ?? null; // none: kept before #424 (a list price, no period): fetch again (adversarial F4)
+
+        return is_array($costs) && is_int($min) && $min >= 1 && $min <= 10 ? new TldPricing(tld: $tld, costs: $costs, minYears: $min) : null;
+    }
+
     /** Import the ticked TLDs, all or nothing. */
     public function import(): void
     {
@@ -500,9 +520,9 @@ class ImportTlds extends Page implements HasForms
         $fetched = $this->fetched();
         $pricings = [];
         foreach ($this->selected as $tld) {
-            $costs = $fetched[$tld]['costs'] ?? null;
-            if (is_array($costs) && $costs !== []) {
-                $pricings[$tld] = new TldPricing(tld: $tld, costs: $costs);
+            $pricing = self::pricingOf($tld, $fetched[$tld] ?? []);
+            if ($pricing !== null && $pricing->costs !== []) {
+                $pricings[$tld] = $pricing;
             }
         }
         if ($pricings === []) {

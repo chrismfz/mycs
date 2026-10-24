@@ -88,8 +88,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
 
     private const MAX_TLD_PAGES = 40;
 
-    /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
+    /**
+     * Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). A registration
+     * costs us its `reseller_price` (what its panel charges this account, offers included: .com 9.80, .app 8.43), not its
+     * `create_price`, a list price (11.23, 14.99): read live, 2026-10-24; `create_price` only where it gives no other.
+     */
     private const PRICE_KEYS = [
+        'reseller_price' => 'register',
         'create_price' => 'register',
         'renew_price' => 'renew',
         'transfer_price' => 'transfer',
@@ -896,8 +901,26 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
             $entry = $this->costEntry($prices[$opKey] ?? null);
-            if ($entry !== null) {
+            // The first key of an operation wins; a free offer is no cost where the list has one (a 0.00 written as a
+            // price would be kept as staff's «free» after the offer ends: adversarial F2 of #424).
+            $free = $entry !== null && bccomp($entry['cost'], '0', 2) === 0;
+            if ($entry !== null && !isset($costs[$operation]) && !($free && $opKey === 'reseller_price')) {
                 $costs[$operation] = $entry;
+            }
+        }
+        $reseller = $this->costEntry($prices['reseller_price'] ?? null);
+        if (!isset($costs['register']) && $reseller !== null) {
+            $costs['register'] = $reseller; // free, and no list price: free indeed
+        }
+        // Its prices are for the shortest registration it sells (.gr: 2 years, 12.50 = 6.25 a year); a number or a
+        // numeric string, top level or among the prices (adversarial F1 of #424); else 1.
+        $minYears = 1;
+        foreach ([$data['min_period'] ?? null, $prices['min_period'] ?? null] as $min) {
+            $min = is_int($min) ? $min : (is_string($min) && ctype_digit($min) ? (int) $min : 0);
+            if ($min >= 1 && $min <= 10) {
+                $minYears = $min;
+
+                break;
             }
         }
 
@@ -923,7 +946,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
             }
         }
 
-        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays);
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears);
     }
 
     /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */

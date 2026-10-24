@@ -20,7 +20,7 @@
             <p class="text-sm text-warning-600 dark:text-warning-400">{{ __('The costs fetched are no longer kept: fetch them again.') }}</p>
         </x-filament::section>
     @elseif ($grid['total'] > 0)
-        <x-filament::section :heading="__('Costs and prices (1 year)')"
+        <x-filament::section :heading="__('Costs and prices (1 year, or the shortest registration)')"
             :description="__(':total TLDs, :alerts with a price below or near its cost.', ['total' => number_format($grid['total']), 'alerts' => $grid['alerts']])">
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <x-filament::input.wrapper class="w-56" prefix-icon="heroicon-m-magnifying-glass">
@@ -94,6 +94,9 @@
                                     .{{ $tld }}
                                     @if (!$row['exists'] && $row['importable'])
                                         <span class="text-xs font-normal text-gray-500 dark:text-gray-400">{{ __('new') }}</span>
+                                    @endif
+                                    @if (($row['min_years'] ?? 1) > 1)
+                                        <div class="text-xs font-normal text-gray-500 dark:text-gray-400" title="{{ __('Register and renew from :years years: their prices and costs are for :years years.', ['years' => $row['min_years']]) }}">{{ __(':years years', ['years' => $row['min_years']]) }}</div>
                                     @endif
                                 </td>
                                 <td class="{{ $cell }} text-center">

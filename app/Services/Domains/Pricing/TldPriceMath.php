@@ -72,6 +72,17 @@ final class TldPriceMath
         return bcmul(self::cents($yearly), (string) $years, 2);
     }
 
+    /** A cost quoted for $per years, for $years of them, to the cent half up (12.50 for 2 years: 6.25 for 1, 25.00 for 4). */
+    public static function forYears(string $cost, int $years, int $per = 1): string
+    {
+        if ($years < 1 || $years > 10 || $per < 1 || $per > 10) {
+            throw new InvalidArgumentException("Years are 1 to 10, not {$years} of {$per}.");
+        }
+        self::amount($cost);
+
+        return self::cents(bcdiv(bcmul($cost, (string) $years, self::SCALE), (string) $per, self::SCALE));
+    }
+
     /** A cost in another currency of MyCS, exact, by the rate staff gave (1 unit of the cost's currency = rate units). */
     public static function convert(string $amount, string $rate): string
     {

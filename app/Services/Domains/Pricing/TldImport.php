@@ -107,15 +107,20 @@ class TldImport
                 if ($rate === null || $rate === '' || !TldPriceMath::isAmount($entry['cost'])) {
                     continue; // never a silent conversion, never a negative or garbled cost
                 }
+                // A cost is quoted for the shortest registration the registrar sells (.gr: 2 years): that is the unit
+                // the margin and the rounding apply to, once, as a year's for the others; other periods in proportion.
+                $min = $perYear ? $pricing->minYears : 1;
                 // Exact until one rounding (review: converting, then adding the margin, each to the cent, drifted).
-                $yearly = TldPriceMath::round(
+                $unit = TldPriceMath::round(
                     TldPriceMath::withMargin(TldPriceMath::convert($entry['cost'], $rate), $options->marginType, $options->margin),
                     $options->rounding,
                 );
-                foreach (range(1, $perYear ? $options->years : 1) as $years) {
+                // Whole periods only: .gr is sold for 2, 4, …, 10 years, never 3 (code review 1 of #424).
+                $periods = $perYear ? range($min, max($min, $options->years)) : [1];
+                foreach (array_filter($periods, fn (int $years) => $years % $min === 0) as $years) {
                     $out[$currency][$operation][$years] = [
-                        'price' => TldPriceMath::years($yearly, $years),
-                        'cost' => TldPriceMath::years($entry['cost'], $perYear ? $years : 1),
+                        'price' => TldPriceMath::forYears($unit, $years, $min), // no price for fewer years: never asked
+                        'cost' => (string) $pricing->costFor($operation, $years),
                         'cost_currency' => $entry['currency'],
                     ];
                 }
@@ -154,6 +159,13 @@ class TldImport
                 }
                 $row->save();
 
+                // Periods the registrar does not sell (a 1- or 3-year .gr, from an import that read its 2-year quote as
+                // a year's): not offered any more, never left on sale (code review 2 of #424).
+                if ($pricing->minYears > 1) {
+                    DomainTldPrice::query()->where('domain_tld_id', $row->id)->whereIn('operation', ['register', 'renew'])
+                        ->whereRaw('years % ? <> 0', [$pricing->minYears])->whereNotNull('price')->get()
+                        ->each(fn (DomainTldPrice $unsold) => $unsold->update(['price' => null]));
+                }
                 foreach ($prices as $currency => $operations) {
                     foreach ($operations as $operation => $byYears) {
                         foreach ($byYears as $years => $price) {
