@@ -31,9 +31,9 @@ class UserController extends ApiController
     {
         // Fetch users with pagination
         $users = QueryBuilder::for(User::class)
-            ->allowedFilters(['first_name', 'last_name', 'email'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'first_name', 'last_name', 'email', 'created_at'])
+            ->allowedFilters('first_name', 'last_name', 'email')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'first_name', 'last_name', 'email', 'created_at')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the users as a JSON response
@@ -58,7 +58,7 @@ class UserController extends ApiController
     public function show(GetUserRequest $request, User $user)
     {
         $user = QueryBuilder::for(User::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($user->id);
 
         // Return the user as a JSON response

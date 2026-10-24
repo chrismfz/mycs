@@ -34,9 +34,9 @@ class CreditController extends ApiController
     {
         // Fetch credits with pagination
         $credits = QueryBuilder::for(Credit::class)
-            ->allowedFilters(['id', 'currency_code', 'client_id'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
+            ->allowedFilters('id', 'currency_code', 'client_id')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'currency_code')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the credits as a JSON response
@@ -66,7 +66,7 @@ class CreditController extends ApiController
     public function show(GetCreditRequest $request, Credit $credit)
     {
         $credit = QueryBuilder::for(Credit::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($credit->id);
 
         // Return the credit as a JSON response

@@ -31,9 +31,9 @@ class AffiliateController extends ApiController
     {
         // Fetch affiliates with pagination
         $affiliates = QueryBuilder::for(Affiliate::class)
-            ->allowedFilters(['affiliate_id', 'code', 'visitors', 'reward', 'discount'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'code', 'visitors', 'reward', 'discount', 'created_at'])
+            ->allowedFilters('affiliate_id', 'code', 'visitors', 'reward', 'discount')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'code', 'visitors', 'reward', 'discount', 'created_at')
             ->simplePaginate(request('per_page', 15));
 
         // Return the affiliates as a JSON response
@@ -58,7 +58,7 @@ class AffiliateController extends ApiController
     public function show(GetAffiliateRequest $request, Affiliate $affiliate)
     {
         $affiliate = QueryBuilder::for(Affiliate::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($affiliate->id);
 
         // Return the affiliate as a JSON response
