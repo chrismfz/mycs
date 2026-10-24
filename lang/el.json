@@ -1227,6 +1227,8 @@
     ":years years": ":years χρόνια",
     "2 to N years at N times the one-year price; a TLD sold from 2 years (.gr): 2, 4, … up to N.": "2 έως N χρόνια στο N επί την τιμή του ενός έτους· TLD που πουλιέται από 2 χρόνια (.gr): 2, 4, … έως N.",
     "Fetched before an update of MyCS: fetch again.": "Ανακτήθηκε πριν από ενημέρωση του MyCS: ανάκτησέ το ξανά.",
+    "Saved": "Αποθηκεύτηκε",
+    "Not a MAC address: :mac": "Δεν είναι διεύθυνση MAC: :mac",
     "Cost is this account's price at Openprovider; margin is over the cost. :total products, :alerts with a price below or near its cost. Tick the products to make or reprice; a price typed in «Your price» is written instead of the margin's.": "Κόστος είναι η τιμή αυτού του λογαριασμού στο Openprovider· το margin είναι πάνω από το κόστος. :total προϊόντα, :alerts με τιμή κάτω ή κοντά στο κόστος. Επιλέξτε τα προϊόντα που θα δημιουργηθούν ή θα πάρουν νέα τιμή· μια τιμή στο «Η τιμή σας» γράφεται αντί για εκείνη του margin.",
     "Search certificates": "Αναζήτηση πιστοποιητικών",
     "Typed prices": "Χειροκίνητες τιμές",

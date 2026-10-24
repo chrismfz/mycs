@@ -7,6 +7,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Components\ClientComponent;
 use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
+use App\Admin\Resources\ServiceResource\OfflineMachine;
 use App\Admin\Resources\ServiceResource\Pages\CreateService;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
@@ -366,6 +367,22 @@ class ServiceResource extends Resource
                             ->alpineClickHandler("\$wire.mountAction('changeStatus', { action: '{$command}' })"))->values()->all())
                             ->label('Module')
                             ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record?->provisioningServer() !== null),
+                    ]),
+                // A machine with no API (OfflineVm, OfflineDedicated, owner 2026-10-24): what staff keep about it, edited
+                // in one window. Its hostname and IPv4 are the account's domain and IPs above.
+                Section::make('Machine')
+                    ->columns(3)
+                    ->columnSpanFull()
+                    ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && OfflineMachine::fields($record) !== [])
+                    ->schema(fn (?Service $record) => [
+                        ...collect(OfflineMachine::fields($record))->map(fn (array $field) => TextEntry::make('machine_' . $field['name'])->label($field['label'])
+                            ->state(fn (Service $record) => OfflineMachine::value($record, $field['name']))->placeholder('—')
+                            ->fontFamily(in_array($field['type'], ['mac', 'ip'], true) ? 'mono' : null)
+                            ->copyable(in_array($field['type'], ['mac', 'ip'], true))
+                            ->columnSpan(in_array($field['type'], ['textarea'], true) ? 'full' : 1))->values()->all(),
+                        Actions::make([Action::make('machine_edit')->label('Edit machine details')->icon('heroicon-o-pencil-square')->size('sm')->color('gray')
+                            ->alpineClickHandler("\$wire.mountAction('editMachine')")
+                            ->visible(fn (Service $record) => (bool) auth()->user()?->can('update', $record))]),
                     ]),
                 // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
                 Section::make('License')

@@ -38,6 +38,13 @@ class UnsuspendJob implements ShouldQueue
         // account left suspended while MyCS says active is far worse than a needless call (review of #418).
         // Read now, cleared once the server has answered: a retry after a failure still knows (combined review).
         $neverSuspended = Cache::get(SuspendJob::neverSuspendedKey($this->service->id)) === true;
+        // On a machine with no API the mark is proof (its suspension never fails silently: it is a task): no task to
+        // unsuspend what nobody suspended (review of #443).
+        if ($neverSuspended && ExtensionHelper::isOffline($this->service)) {
+            Cache::forget(SuspendJob::neverSuspendedKey($this->service->id));
+
+            return;
+        }
         $data = [];
         try {
             $data = ExtensionHelper::unsuspendServer($this->service);

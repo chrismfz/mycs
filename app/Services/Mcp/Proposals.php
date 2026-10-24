@@ -247,8 +247,8 @@ final class Proposals
                 ? "Send {$what} to its registrar again (address, phone, email; never names)."
                 : "Mark {$what} fixed at the registrar by hand, without sending anything."];
         }
-        // A staff task (OptionTasks): done by hand, nothing to run; marked done.
-        if ($action->action === OptionTasks::ACTION) {
+        // A staff task (OptionTasks, or a machine with no API): done by hand, nothing to run; marked done.
+        if ($action->action === OptionTasks::ACTION || $action->subject === ModuleAction::SUBJECT_BY_HAND) {
             if ($type === self::RETRY_MODULE_ACTION) {
                 throw new InvalidArgumentException("Module action #{$action->id} is a staff task: nothing to retry, mark it done once it is done by hand.");
             }
