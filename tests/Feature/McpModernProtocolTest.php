@@ -7,6 +7,7 @@ use App\Models\ApiKey;
 use App\Models\Role;
 use App\Models\Staff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -30,7 +31,7 @@ class McpModernProtocolTest extends TestCase
     }
 
     /** @param array<string, mixed> $params */
-    private function modern(?string $key, string $method, array $params = [], ?string $name = null, ?string $headerMethod = null): \Illuminate\Testing\TestResponse
+    private function modern(?string $key, string $method, array $params = [], ?string $name = null, ?string $headerMethod = null): TestResponse
     {
         $params['_meta'] = ['io.modelcontextprotocol/protocolVersion' => self::VERSION, 'io.modelcontextprotocol/clientCapabilities' => (object) []];
         $headers = ['Accept' => 'application/json, text/event-stream', 'MCP-Protocol-Version' => self::VERSION, 'Mcp-Method' => $headerMethod ?? $method]
