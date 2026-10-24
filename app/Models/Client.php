@@ -45,6 +45,9 @@ class Client extends Model implements Auditable
         'default_billing_agreement_id',
         'auto_charge',
         'client_group_id',
+        // Ekdosi's (owner 2026-10-24): kept for the bridge, staff only.
+        'ignore_invoicing',
+        'immediate_invoicing',
     ];
 
     protected function casts(): array
@@ -54,6 +57,8 @@ class Client extends Model implements Auditable
             'tax_exempt' => 'boolean',
             'separate_invoices' => 'boolean',
             'auto_charge' => 'boolean',
+            'ignore_invoicing' => 'boolean',
+            'immediate_invoicing' => 'boolean',
         ];
     }
 
