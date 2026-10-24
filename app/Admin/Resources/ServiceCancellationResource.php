@@ -15,6 +15,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
@@ -74,6 +75,10 @@ class ServiceCancellationResource extends Resource
                 TextColumn::make('reason')
                     ->searchable(),
                 TextColumn::make('type'),
+                // When an end-of-period request ends its service (the cron, on this day).
+                TextColumn::make('service.expires_at')
+                    ->label(__('Ends'))
+                    ->date(),
                 TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -84,7 +89,10 @@ class ServiceCancellationResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                // Not handled yet: the service still runs (ServiceCancellation::wherePending), the dashboard's card.
+                Filter::make('pending')
+                    ->label(__('Not handled yet'))
+                    ->query(fn (Builder $query) => ServiceCancellation::wherePending($query)),
             ])
             ->recordActions([
                 EditAction::make(),

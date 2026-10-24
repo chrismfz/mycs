@@ -148,3 +148,39 @@
         @apply text-sm font-normal text-gray-500 dark:text-gray-400;
     }
 }
+
+/*
+ * The dashboard's cards (Overview): smaller, so seven fit in one row on a desktop screen (owner 2026-10-24). A long
+ * value (a revenue in thousands) wraps rather than spill out of its card.
+ */
+/* The cards' grid is a schema: beats the forms' gap above. */
+.fi-wi-stats-overview .fi-sc.fi-sc-has-gap:not(.fi-sc-dense) {
+    @apply gap-3;
+}
+
+.fi-wi-stats-overview-stat {
+    @apply min-w-0 px-4 pt-3 pb-4;
+
+    & .fi-wi-stats-overview-stat-content {
+        @apply gap-y-1;
+    }
+
+    & .fi-wi-stats-overview-stat-label {
+        @apply text-xs;
+    }
+
+    & .fi-wi-stats-overview-stat-value {
+        @apply text-2xl break-words;
+    }
+
+    & .fi-wi-stats-overview-stat-description {
+        @apply text-xs;
+    }
+}
+
+/* Seven in a row on a laptop (the dashboard 1024–1279px wide): the values a step smaller, «€0,00 EUR» on one line. */
+@container (width >= 64rem) and (width < 80rem) {
+    .fi-wi-stats-overview-stat .fi-wi-stats-overview-stat-value {
+        @apply text-xl;
+    }
+}

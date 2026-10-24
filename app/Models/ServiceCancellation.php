@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Observers\ServiceCancellationObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -23,5 +24,41 @@ class ServiceCancellation extends Model implements Auditable
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * Not handled yet: its service still runs (active, suspended or not yet set up). One at the end of the period ends
+     * with the cron on its due date; one without a due date, or an immediate one that did not go through, waits for staff.
+     *
+     * @param  Builder<ServiceCancellation>  $query
+     * @return Builder<ServiceCancellation>
+     */
+    public function scopePending(Builder $query): Builder
+    {
+        return self::wherePending($query);
+    }
+
+    /**
+     * Of the pending ones, those whose service ends within $days days (today included), or is already past due.
+     *
+     * @param  Builder<ServiceCancellation>  $query
+     * @return Builder<ServiceCancellation>
+     */
+    public function scopeEndingWithin(Builder $query, int $days): Builder
+    {
+        return self::wherePending($query)->whereHas('service', fn (Builder $query) => $query->where('expires_at', '<=', now()->addDays($days)->endOfDay()));
+    }
+
+    /**
+     * The rule itself, for a query that is not typed as the requests' (a table filter's).
+     *
+     * @template TQuery of Builder
+     *
+     * @param  TQuery  $query
+     * @return TQuery
+     */
+    public static function wherePending(Builder $query): Builder
+    {
+        return $query->whereHas('service', fn (Builder $query) => $query->whereIn('status', Service::PAYING_STATUSES));
     }
 }

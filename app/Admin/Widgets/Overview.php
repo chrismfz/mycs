@@ -5,6 +5,7 @@ namespace App\Admin\Widgets;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\OrderResource;
+use App\Admin\Resources\ServiceCancellationResource;
 use App\Classes\Price;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
@@ -14,8 +15,10 @@ use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\Ticket;
 use App\Services\Admin\ClientSummary;
+use App\Support\AdminBadge;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Flowframe\Trend\Trend;
@@ -50,16 +53,21 @@ class Overview extends BaseWidget
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
             $this->clientsWithCredit(),
+            $this->pendingCancellations(),
             $this->pendingModuleActions(),
         ]);
     }
 
-    /** All the cards in one row on a wide screen: five, or as many as this staff member may see (review of #279). */
+    /**
+     * All the cards in one row on a desktop screen: seven, or as many as this staff member may see (review of #279).
+     * By the width the dashboard has (a container query: the sidebar open or folded), from 1024px; narrower, they wrap
+     * in rows of four, three, two and one. The cards are smaller for it (density.css).
+     */
     protected function getColumns(): int|array
     {
         $count = max(1, count($this->getCachedStats()));
 
-        return ['default' => 1, 'md' => min(3, $count), 'xl' => $count];
+        return ['default' => 1, '@sm' => min(2, $count), '@2xl' => min(3, $count), '@4xl' => min(4, $count), '@5xl' => $count];
     }
 
     /** WHMCS's «Pending Orders» counter (Σ1-b2): always there, gray at zero. */
@@ -94,6 +102,28 @@ class Overview extends BaseWidget
             ->description($clients === 0 ? __('No unused credit') : $totals)
             ->color($clients === 0 ? 'gray' : 'info')
             ->url(ClientResource::getUrl('index', ['filters' => ['with_credit' => ['value' => '1']]]));
+    }
+
+    /**
+     * Cancellation requests not handled yet (owner 2026-10-24): their service still runs. Gray at zero; the list opens
+     * on those, and the subline says how many end within a week. Counted as the menu's badges are (AdminBadge).
+     */
+    private function pendingCancellations(): ?Stat
+    {
+        if (!ServiceCancellationResource::canViewAny()) {
+            return null;
+        }
+        $pending = AdminBadge::count('ServiceCancellation.pending', fn () => ServiceCancellation::query()->pending()->count());
+        $soon = $pending === 0 ? 0 : AdminBadge::count('ServiceCancellation.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count());
+
+        return Stat::make(__('Pending Cancellations'), (string) $pending)
+            ->description(match (true) {
+                $pending === 0 => __('Nothing waiting'),
+                $soon > 0 => trans_choice(':count ends within 7 days|:count end within 7 days', $soon),
+                default => __('None ends within 7 days'),
+            })
+            ->color($pending === 0 ? 'gray' : ($soon > 0 ? 'warning' : 'info'))
+            ->url(ServiceCancellationResource::getUrl('index', ['filters' => ['pending' => ['isActive' => true]]]));
     }
 
     /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), always there, gray at zero. */

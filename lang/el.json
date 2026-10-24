@@ -1261,5 +1261,11 @@
     "With selected:": "Με τα επιλεγμένα:",
     "Choose an action": "Επιλέξτε ενέργεια",
     ":count selected": ":count επιλεγμένα",
-    "Select all": "Επιλογή όλων"
+    "Select all": "Επιλογή όλων",
+    "Pending Cancellations": "Εκκρεμείς ακυρώσεις",
+    "Nothing waiting": "Τίποτα σε αναμονή",
+    ":count ends within 7 days|:count end within 7 days": ":count λήγει μέσα σε 7 ημέρες|:count λήγουν μέσα σε 7 ημέρες",
+    "None ends within 7 days": "Καμία δεν λήγει μέσα σε 7 ημέρες",
+    "Not handled yet": "Χωρίς χειρισμό ακόμη",
+    "Ends": "Λήγει"
 }
