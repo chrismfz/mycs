@@ -45,3 +45,30 @@ jobs:
 
       - name: PHPStan (new errors only, see phpstan-baseline.neon)
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
+
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      # The locked versions against the advisories (no install needed): a known hole fails the PR.
+      - name: Composer audit
+        run: composer audit --locked --no-interaction --abandoned=report
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # What reaches the browser; the build tools only run on our machines.
+      - name: npm audit
+        run: npm audit --omit=dev --audit-level=moderate

@@ -171,7 +171,7 @@ class GrRegistry extends Page
      * null as the text «null», so empty ones would fill the limit.
      *
      * @param  Collection<int, DomainRegistrarConnection>  $connections
-     * @return Collection<int, array{domain: Domain, url: string, statuses: non-empty-list<array{code: non-falsy-string, text: array<mixed>|string}>}>
+     * @return Collection<int, array{domain: Domain, url: string, statuses: non-empty-list<array{code: string, text: array<mixed>|string}>}>
      */
     private function toCheck(Collection $connections): Collection
     {

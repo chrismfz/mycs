@@ -1,0 +1,36 @@
+# Weekly dependency PRs (security updates come at once, whatever the schedule). Every PR goes through the CI and the
+# usual review before merge: nothing merges by itself.
+version: 2
+updates:
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      composer-minor:
+        update-types: [minor, patch]
+    # Packages of our own (composer path repositories) are not Dependabot's.
+    ignore:
+      - dependency-name: "mycs/*"
+      - dependency-name: "nixpal/*"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
