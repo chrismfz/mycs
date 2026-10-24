@@ -22,6 +22,9 @@ final class Certificate
         public readonly string $spkiSha256,
         public readonly ?KeyType $keyType,
         public readonly string $keyDescription,
+        public readonly string $subjectDn,
+        public readonly string $issuerDn,
+        public readonly bool $isCa,
     ) {}
 
     /** The first certificate in the text. */
@@ -75,7 +78,41 @@ final class Certificate
             Pem::spkiSha256($publicKey),
             $keyType,
             $description,
+            self::dn((array) ($data['subject'] ?? [])),
+            self::dn((array) ($data['issuer'] ?? [])),
+            str_contains(strtoupper((string) ($data['extensions']['basicConstraints'] ?? '')), 'CA:TRUE'),
         );
+    }
+
+    /** @param array<string, mixed> $parts a distinguished name as openssl_x509_parse gives it, as one comparable string */
+    private static function dn(array $parts): string
+    {
+        $out = [];
+        foreach ($parts as $key => $value) {
+            foreach ((array) $value as $one) {
+                $out[] = $key . '=' . (string) $one;
+            }
+        }
+
+        return implode(', ', $out);
+    }
+
+    /** This certificate is signed by that one: its issuer is that one's subject, and the signature verifies with its key. */
+    public function issuedBy(self $parent): bool
+    {
+        if ($this->issuerDn !== $parent->subjectDn) {
+            return false;
+        }
+        $key = @openssl_pkey_get_public($parent->pem);
+        $ok = $key instanceof OpenSSLAsymmetricKey && @openssl_x509_verify($this->pem, $key) === 1;
+        SslToolsException::clearOpensslErrors();
+
+        return $ok;
+    }
+
+    public function selfSigned(): bool
+    {
+        return $this->issuedBy($this);
     }
 
     /** Its public key is the one in this CSR. */
