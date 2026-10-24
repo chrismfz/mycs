@@ -365,6 +365,27 @@ class PayPal extends Gateway
         return $response->object();
     }
 
+    /**
+     * What the account holds (Bank totals, owner 2026-10-24), from the Balances API (the app needs its «balance»
+     * permission): each currency's available and pending (total minus available), decimal strings.
+     *
+     * @return list<array{currency: string, available: string, pending: string}>
+     */
+    public function balance(): array
+    {
+        $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        $response = $this->request('get', $url . '/v1/reporting/balances?currency_code=ALL');
+        $rows = [];
+        foreach ((array) ($response->balances ?? []) as $balance) {
+            $available = (string) ($balance->available_balance->value ?? '0.00');
+            $total = (string) ($balance->total_balance->value ?? $available);
+            $rows[] = ['currency' => strtoupper((string) ($balance->currency ?? '')), 'available' => $available,
+                'pending' => bcsub($total, $available, 2)];
+        }
+
+        return $rows;
+    }
+
     public function supportsPaymentGroups(): bool
     {
         return true;

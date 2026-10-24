@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "435f5831d4d06fd1d745781e26cbe2f8",
+    "content-hash": "1ae849b1d382a2fa597c5b3f8e281e4c",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -4669,6 +4669,42 @@
                 }
             ],
             "time": "2026-09-29T19:21:12+00:00"
+        },
+        {
+            "name": "mycs/bank-alerts",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/bank-alerts",
+                "reference": "070e5c7143d9c59d9ccc7c15441897c25c545397"
+            },
+            "require": {
+                "mycs/ticket-mail": "^1.0",
+                "php": "^8.3",
+                "zbateson/mail-mime-parser": "^3.0|^4.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\BankAlerts\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\BankAlerts\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Reads the banks' alert emails (Eurobank, Piraeus): a credit or debit, its amount, the account's balance and the transfer's reference, and whether our mail server vouches that the bank sent it. Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "mycs/billing-period",

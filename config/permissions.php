@@ -324,6 +324,12 @@ return [
                 'renewals' => 'View Renewals and Records to Check Widgets',
                 // What is left with each registrar (G8-1, owner 2026-10-19).
                 'registrar_credit' => 'View Registrar Credit Widget',
+                // The bank alerts' credits (owner 2026-10-24: staff see them; the balances are a separate permission).
+                'payments_tracking' => 'View Payments Tracking Widget',
+                'bank_totals' => 'View Bank Totals Widget (bank, Stripe and PayPal balances)',
+            ],
+            'bank_payments' => [
+                'update' => 'Acknowledge bank payments (Payments tracking)',
             ],
         ],
     ],

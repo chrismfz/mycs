@@ -3,6 +3,7 @@
 namespace App\Admin\Widgets\Renewals;
 
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Widgets\PaymentsTracking;
 use App\Models\Service;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -18,6 +19,15 @@ use Illuminate\Support\HtmlString;
 class ServiceRenewals extends TableWidget
 {
     protected static ?int $sort = 21;
+
+    /**
+     * With Payments tracking beside Income, the renewals go in line below them, services left (owner 2026-10-24);
+     * without it, domain renewals fill the room beside Income, as before (owner 2026-10-21).
+     */
+    public static function getSort(): int
+    {
+        return PaymentsTracking::canView() ? 19 : 21;
+    }
 
     // Half the width from lg: they flow two by two, the first beside «Income» (owner 2026-10-21).
     protected int|string|array $columnSpan = 1; // the dashboard's grid: one column below lg (full width), two from lg

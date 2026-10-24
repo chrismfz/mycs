@@ -1,0 +1,126 @@
+<?php
+
+namespace App\Admin\Widgets;
+
+use App\Admin\Resources\InvoiceResource;
+use App\Models\BankMovement;
+use App\Models\Invoice;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Filament\Widgets\TableWidget;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
+
+/**
+ * «Payments tracking» (WHMCS's widget, owner 2026-10-24): the credits of the bank accounts from their alert emails,
+ * newest first. A credit not yet seen to is «pending»: staff find its invoice (🔍) and tick it once done. The card
+ * acquirer's settlements are ignored, what was in the mailbox before the reading started is history. A credit our
+ * mail server cannot vouch the bank sent is marked: never trusted for the balances or the matching.
+ */
+class PaymentsTracking extends TableWidget
+{
+    // Right of Income, below Support (owner 2026-10-24); the renewals in line below them.
+    protected static ?int $sort = 13;
+
+    protected static ?string $pollingInterval = '60s';
+
+    protected static ?string $heading = 'Payments tracking';
+
+    public function table(Table $table): Table
+    {
+        return $table
+            ->query(BankMovement::query()->credits()->with('acknowledgedBy'))
+            ->defaultSort('executed_at', 'desc')
+            ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)
+            ->recordClasses(fn (BankMovement $record) => $record->status === BankMovement::PENDING ? 'bg-warning-50 dark:bg-warning-500/10' : null)
+            ->columns([
+                TextColumn::make('status')->label('')->width('1%')
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        BankMovement::PENDING => '☐',
+                        BankMovement::ACKNOWLEDGED => '✓',
+                        BankMovement::IGNORED => '–',
+                        default => '·',
+                    })
+                    ->tooltip(fn (BankMovement $record) => match ($record->status) {
+                        BankMovement::PENDING => 'Pending: for staff',
+                        BankMovement::ACKNOWLEDGED => 'Seen to by ' . ($record->acknowledgedBy->name ?? 'staff') . ' ' . $record->acknowledged_at?->diffForHumans(),
+                        BankMovement::IGNORED => 'Ignored (a configured reference: card settlements)',
+                        default => 'In the mailbox before the reading started',
+                    }),
+                TextColumn::make('amount')->label('Amount')->alignEnd()
+                    ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €')
+                    ->description(fn (BankMovement $record) => $record->bankName()),
+                TextColumn::make('reason')->label('Reference')->wrap()->searchable()
+                    ->description(fn (BankMovement $record) => $record->authentic ? null : '⚠ Not vouched for by our mail server: check it at the bank'),
+                TextColumn::make('executed_at')->label('When')->dateTime('d/m/Y H:i')->sortable(),
+            ])
+            ->filters([
+                SelectFilter::make('status')->options([BankMovement::PENDING => 'Pending', BankMovement::ACKNOWLEDGED => 'Seen to',
+                    BankMovement::IGNORED => 'Ignored', BankMovement::HISTORY => 'History']),
+                SelectFilter::make('bank')->options(BankMovement::BANKS),
+            ])
+            ->recordActions([
+                Action::make('find')->label('')->icon('heroicon-o-magnifying-glass')->tooltip('Invoices that match')
+                    ->modalHeading('Invoices that match the payment')->modalSubmitAction(false)->modalCancelActionLabel('Close')
+                    ->modalContent(fn (BankMovement $record) => new HtmlString(self::matchesHtml($record))),
+                Action::make('acknowledge')->label('')->icon('heroicon-o-check')->color('success')->tooltip('Seen to')
+                    ->visible(fn (BankMovement $record) => $record->status === BankMovement::PENDING && self::canUpdate())
+                    ->action(function (BankMovement $record) {
+                        $record->update(['status' => BankMovement::ACKNOWLEDGED, 'acknowledged_by' => auth('staff')->id(), 'acknowledged_at' => now()]);
+                        Notification::make()->success()->title('Marked seen to')->send();
+                    }),
+                Action::make('reopen')->label('')->icon('heroicon-o-arrow-uturn-left')->color('gray')->tooltip('Back to pending')
+                    ->visible(fn (BankMovement $record) => in_array($record->status, [BankMovement::ACKNOWLEDGED, BankMovement::IGNORED], true) && self::canUpdate())
+                    ->action(fn (BankMovement $record) => $record->update(['status' => BankMovement::PENDING, 'acknowledged_by' => null, 'acknowledged_at' => null])),
+            ]);
+    }
+
+    /**
+     * The invoices whose number (or id) the reference names, and the unpaid ones whose remaining is the amount.
+     *
+     * @return array{named: Collection<int, Invoice>, amount: Collection<int, Invoice>, tokens: list<string>}
+     */
+    public static function matches(BankMovement $movement): array
+    {
+        preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d])|(?<![\d-])\d{3,9}(?![\d-])/', $movement->reason, $m);
+        $tokens = array_values(array_unique($m[0]));
+        $named = $tokens === [] ? collect() : Invoice::query()->with('client')
+            ->where(fn (Builder $q) => $q->whereIn('number', $tokens)->orWhereIn('id', array_filter($tokens, 'ctype_digit')))
+            ->limit(20)->get();
+        $amount = Invoice::query()->with(['client', 'items', 'transactions'])->where('status', Invoice::STATUS_UNPAID)->latest('id')->limit(1000)->get()
+            ->filter(fn (Invoice $invoice) => bccomp(number_format((float) $invoice->remaining, 2, '.', ''), (string) $movement->amount, 2) === 0)
+            ->take(20)->values();
+
+        return ['named' => $named, 'amount' => $amount, 'tokens' => $tokens];
+    }
+
+    private static function matchesHtml(BankMovement $movement): string
+    {
+        $found = self::matches($movement);
+        $row = fn (Invoice $invoice) => '<tr class="border-t border-gray-200 dark:border-white/10"><td class="py-1 pe-3"><a class="text-primary-600 underline" target="_blank" href="'
+            . e(InvoiceResource::getUrl('edit', ['record' => $invoice])) . '">' . e($invoice->number ?: '#' . $invoice->id) . '</a></td><td class="pe-3">'
+            . e($invoice->client->name ?? '') . '</td><td class="pe-3">' . e($invoice->status) . '</td><td class="text-end tabular-nums">'
+            . e((string) $invoice->formattedRemaining) . '</td></tr>';
+        $section = fn (string $title, Collection $invoices) => '<p class="mt-3 text-sm font-medium">' . e($title) . '</p>'
+            . ($invoices->isEmpty() ? '<p class="text-sm text-gray-500">None.</p>'
+                : '<table class="w-full text-sm">' . $invoices->map($row)->implode('') . '</table>');
+
+        return '<p class="text-sm">' . e(number_format((float) $movement->amount, 2, ',', '.') . ' € · ' . $movement->bankName() . ' · ' . $movement->reason) . '</p>'
+            . $section('Named in the reference' . ($found['tokens'] !== [] ? ' (' . implode(', ', $found['tokens']) . ')' : ''), $found['named'])
+            . $section('Unpaid, with this amount left to pay', $found['amount']);
+    }
+
+    private static function canUpdate(): bool
+    {
+        return (bool) auth('staff')->user()?->hasPermission('admin.bank_payments.update');
+    }
+
+    public static function canView(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('admin.widgets.payments_tracking') && BankMovement::query()->exists();
+    }
+}

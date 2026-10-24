@@ -108,9 +108,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       upstream)· SEPA (υπάρχει κώδικας, όχι δοκιμή). (Η ανοχή υπογραφής του Stripe, PAY-14, έγινε: #341.)
 - [ ] Tests incomplete: `BillingCursorMoneyTest` γραμμές 173 και 224 (μάλλον διορθώθηκαν: έλεγχος και αφαίρεση),
       285 «τιμολόγιο που δημιουργείται πληρωμένο ανανεώνει» (ανοιχτό).
-- [ ] Τράπεζες και υπόλοιπα («πολύ αργότερα»): υπόλοιπα **PayPal/Stripe** στο dashboard (των registrars υπάρχει), port
-      του addon των emails της τράπεζας (PaymentsTrackingMatch), «Payments tracking» με δικό του ρόλο, σύνολα τραπεζών
-      μόνο για `*`, μέθοδος «τραπεζική κατάθεση».
+- [ ] Τράπεζες και υπόλοιπα (`payments-tracking.md`):
+  - **Τώρα:** ανάγνωση των emails των τραπεζών χωρίς να αλλάζει το mailbox, widget «Payments tracking» για το staff, και
+    «Bank totals» (τράπεζες, Stripe, PayPal) μόνο για admins.
+  - **Μετά:** αυτόματο matching με τιμολόγια (adversarial review).
+  - **Στο cut-over:** τα στοιχεία του mailbox στο gateway Bank transfer.
 - [x] ~~Μικροί κανόνες από τα hooks του myip~~ **έγιναν:** το email στο staff σε υπερπληρωμή υπήρχε ήδη («Payment needs
       attention», `RecordPaymentService::addCredit`)· η αυτόματη ακύρωση απλήρωτων «Add Funds» είναι η ρύθμιση
       `cronjob_add_funds_cancel` (0 = ποτέ, όπως το WHMCS· στο myip 30 στο cut-over). (Το email αναστολής με τον λόγο έγινε.)

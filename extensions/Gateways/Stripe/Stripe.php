@@ -208,6 +208,27 @@ class Stripe extends Gateway
         ]))->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
     }
 
+    /**
+     * What the account holds (Bank totals, owner 2026-10-24): each currency's available and pending, decimal strings.
+     *
+     * @return list<array{currency: string, available: string, pending: string}>
+     */
+    public function balance(): array
+    {
+        $balance = $this->request('get', '/balance');
+        $minor = fn (int $cents) => ($cents < 0 ? '-' : '') . intdiv(abs($cents), 100) . '.' . str_pad((string) (abs($cents) % 100), 2, '0', STR_PAD_LEFT);
+        $rows = [];
+        foreach (['available', 'pending'] as $kind) {
+            foreach ((array) ($balance->{$kind} ?? []) as $part) {
+                $currency = strtoupper((string) ($part->currency ?? ''));
+                $rows[$currency] ??= ['currency' => $currency, 'available' => '0.00', 'pending' => '0.00'];
+                $rows[$currency][$kind] = $minor((int) ($part->amount ?? 0));
+            }
+        }
+
+        return array_values($rows);
+    }
+
     public function supportsPaymentGroups(): bool
     {
         return true;
