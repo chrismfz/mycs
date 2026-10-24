@@ -19,6 +19,7 @@ parameters:
         - packages/nixpal-licensing/src/
         - packages/paypal-vault/src/
         - packages/ticket-mail/src/
+        - packages/ssl-tools/src/
 
     # Level 9 is the highest level
     level: 5

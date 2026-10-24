@@ -1,0 +1,23 @@
+{
+    "name": "mycs/ssl-tools",
+    "description": "Private keys (RSA 2048, EC P-256), CSRs, certificates and PKCS#12 with PHP's openssl: made, read and matched by their public key. Framework-free; never puts a key in a message.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3",
+        "ext-openssl": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\SslTools\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\SslTools\\Tests\\": "tests/"
+        }
+    }
+}
