@@ -6,6 +6,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Resources\ServiceCancellationResource\Pages\CreateServiceCancellation;
 use App\Admin\Resources\ServiceCancellationResource\Pages\EditServiceCancellation;
 use App\Admin\Resources\ServiceCancellationResource\Pages\ListServiceCancellations;
+use App\Models\Service;
 use App\Models\ServiceCancellation;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -75,10 +76,11 @@ class ServiceCancellationResource extends Resource
                 TextColumn::make('reason')
                     ->searchable(),
                 TextColumn::make('type'),
-                // When an end-of-period request ends its service (the cron, on this day).
+                // When an end-of-period request ends its service (the cron, on this day); none once it has ended.
                 TextColumn::make('service.expires_at')
                     ->label(__('Ends'))
-                    ->date(),
+                    ->date()
+                    ->state(fn (ServiceCancellation $record) => $record->type === 'end_of_period' && in_array($record->service?->status, Service::PAYING_STATUSES, true) ? $record->service->expires_at : null),
                 TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()

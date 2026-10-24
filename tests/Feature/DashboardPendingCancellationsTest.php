@@ -56,8 +56,8 @@ class DashboardPendingCancellationsTest extends TestCase
         return collect($stats)->keyBy(fn (Stat $stat) => (string) $stat->getLabel())->all();
     }
 
-    /** An end-of-period request for a service in $status that expires on $expires. */
-    private function request(string $status, ?string $expires): ServiceCancellation
+    /** A request ($type, end of period by default) for a service in $status that expires on $expires. */
+    private function request(string $status, ?string $expires, string $type = 'end_of_period'): ServiceCancellation
     {
         $product = $this->createProduct();
         $service = Service::factory()->create([
@@ -65,7 +65,8 @@ class DashboardPendingCancellationsTest extends TestCase
             'status' => $status, 'expires_at' => $expires, 'currency_code' => 'EUR', 'price' => 10.00, 'quantity' => 1,
         ]);
 
-        return ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
+        // Without its listener: an immediate one stays as if the queued job had failed.
+        return ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => $type, 'reason' => 'Leaving']));
     }
 
     public function test_counts_the_requests_whose_service_still_runs_and_those_ending_this_week(): void
@@ -115,6 +116,32 @@ class DashboardPendingCancellationsTest extends TestCase
 
         $request->service->update(['expires_at' => '2026-10-27']);
         $this->assertSame('1 ends within 7 days', (string) $this->stats()[__('Pending Cancellations')]->getDescription());
+    }
+
+    /** Review of #452: the subline is the cron's rule, plus an immediate request that did not go through (past due). */
+    public function test_ending_soon_is_what_the_cron_ends_or_an_immediate_one_left_over(): void
+    {
+        $this->staff(['*']);
+        $this->request(Service::STATUS_ACTIVE, '2027-06-01', 'immediate'); // its listener failed: past due already
+        $this->request(Service::STATUS_PENDING, '2026-10-24'); // never set up: the cron does not end it, staff do
+
+        $stat = $this->stats()[__('Pending Cancellations')];
+
+        $this->assertSame(['2', '1 ends within 7 days', 'warning'], [(string) $stat->getValue(), (string) $stat->getDescription(), $stat->getColor()]);
+    }
+
+    /** «Ends» only where the cron will end the service: not for an immediate request, nor once the service has ended. */
+    public function test_the_ends_column_only_for_a_pending_end_of_period_request(): void
+    {
+        $this->staff(['*']);
+        $endOfPeriod = $this->request(Service::STATUS_ACTIVE, '2026-12-31');
+        $immediate = $this->request(Service::STATUS_ACTIVE, '2026-12-15', 'immediate');
+        $ended = $this->request(Service::STATUS_CANCELLED, '2026-10-01');
+
+        Livewire::test(ListServiceCancellations::class)
+            ->assertTableColumnFormattedStateSet('service.expires_at', 'Dec 31, 2026', $endOfPeriod)
+            ->assertTableColumnFormattedStateNotSet('service.expires_at', 'Dec 15, 2026', $immediate)
+            ->assertTableColumnFormattedStateNotSet('service.expires_at', 'Oct 1, 2026', $ended);
     }
 
     public function test_gray_at_zero(): void

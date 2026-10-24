@@ -67,7 +67,9 @@ class Overview extends BaseWidget
     {
         $count = max(1, count($this->getCachedStats()));
 
-        return ['default' => 1, '@sm' => min(2, $count), '@2xl' => min(3, $count), '@4xl' => min(4, $count), '@5xl' => $count];
+        return ['default' => 1, '@sm' => min(2, $count), '@2xl' => min(3, $count), '@4xl' => min(4, $count), '@5xl' => $count,
+            // A browser without container queries: by the screen's width, as Filament's own default.
+            '!@md' => min(3, $count), '!@lg' => min(4, $count), '!@xl' => $count];
     }
 
     /** WHMCS's «Pending Orders» counter (Σ1-b2): always there, gray at zero. */
