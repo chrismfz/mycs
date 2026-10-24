@@ -25,6 +25,8 @@ final class BankAlert
         /** Our mail server vouches the bank sent it (see Authenticity). */
         public readonly bool $authentic,
         public readonly string $authenticity,
+        /** Which account: Eurobank's last digits («2261»), Piraeus's account name; null when the alert does not say. */
+        public readonly ?string $account = null,
     ) {}
 
     public function isCredit(): bool

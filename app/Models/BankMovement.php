@@ -25,9 +25,11 @@ class BankMovement extends Model
 
     public const HISTORY = 'history';
 
+    public const UNVERIFIED = 'unverified';
+
     public const BANKS = ['eurobank' => 'Eurobank', 'piraeus' => 'Πειραιώς'];
 
-    protected $fillable = ['bank', 'direction', 'amount', 'balance', 'reason', 'executed_at', 'message_key', 'message_id', 'folder',
+    protected $fillable = ['bank', 'direction', 'amount', 'balance', 'reason', 'executed_at', 'message_key', 'message_id', 'folder', 'account',
         'authentic', 'authenticity', 'status', 'acknowledged_by', 'acknowledged_at'];
 
     protected function casts(): array

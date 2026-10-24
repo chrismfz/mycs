@@ -22,10 +22,13 @@ return new class extends Migration
             $table->string('message_key', 64)->unique();
             $table->string('message_id')->nullable();
             $table->string('folder')->nullable();
+            // Which account it is about (Eurobank's last digits, Piraeus's account name): only ours count.
+            $table->string('account', 100)->nullable();
             $table->boolean('authentic')->default(false);
             $table->string('authenticity', 64)->nullable();
             // pending: for staff; acknowledged: staff saw to it; ignored: a configured reference (card settlements);
-            // history: already in the mailbox when the reading started (never matched to an invoice).
+            // history: already in the mailbox when the reading started (never matched to an invoice); unverified: not
+            // vouched for by our mail server, or about an account not ours (shown, never counted or matched).
             $table->string('status', 20)->default('pending');
             $table->foreignId('acknowledged_by')->nullable()->constrained('staff')->nullOnDelete();
             $table->timestamp('acknowledged_at')->nullable();

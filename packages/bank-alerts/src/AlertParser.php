@@ -37,22 +37,25 @@ final class AlertParser
             return null;
         }
         $values = fn (string $name) => array_map(fn ($h) => trim($h->getRawValue()), $message->getAllHeadersByName($name));
-        $verdict = Authenticity::verdict($email->authenticationResults, $values('ARC-Seal'), $values('ARC-Authentication-Results'),
-            $authservId, $sealer, $email->fromEmail);
+        $verdict = Authenticity::verdict($email->authenticationResults, $values('ARC-Seal'), $values('ARC-Message-Signature'),
+            $values('ARC-Authentication-Results'), $authservId, $sealer, $email->fromEmail);
 
         $fields = $bank === self::EUROBANK ? self::eurobank($email->body) : self::piraeus($email->body, $timezone);
         if ($fields === null) {
             return null;
         }
 
+        // The mail's own date (Eurobank says no other), as an instant in our time zone (review of #450).
+        $date = $email->date?->setTimezone(new DateTimeZone($timezone));
+
         return new BankAlert($bank, $fields['direction'], $fields['amount'], $fields['balance'], $fields['reason'],
-            $fields['executed_at'] ?? $email->date, $email->messageId, $verdict->authenticated, $verdict->reason);
+            $fields['executed_at'] ?? $date, $email->messageId, $verdict->authenticated, $verdict->reason, $fields['account']);
     }
 
-    /** @return array{direction: string, amount: string, balance: ?string, reason: string}|null */
+    /** @return array{direction: string, amount: string, balance: ?string, reason: string, account: ?string}|null */
     public static function eurobank(string $text): ?array
     {
-        if (preg_match('/(πιστώθηκε|χρεώθηκε)\s+με\s+([\d.,]+)\s*EUR/u', $text, $m) !== 1) {
+        if (preg_match('/(πιστώθηκε|χρεώθηκε)\s+με\s+([\d.,]+)\s*EUR\s+ο\s+λογαριασμός\s+σας(?:\s+με\s+τελευταία\s+ψηφία\s+\*(\d+))?/u', $text, $m) !== 1) {
             return null;
         }
         $amount = Amount::parse($m[2], ',');
@@ -62,10 +65,11 @@ final class AlertParser
         $reason = preg_match('/^\s*Αιτιολογία:[ \t]*(.*)$/mu', $text, $r) === 1 ? self::reason($r[1]) : '';
         $balance = preg_match('/^\s*Νέο υπόλοιπο:\s*(-?[\d.,]+)\s*EUR/mu', $text, $b) === 1 ? Amount::parse($b[1], ',') : null;
 
-        return ['direction' => $m[1] === 'πιστώθηκε' ? BankAlert::CREDIT : BankAlert::DEBIT, 'amount' => $amount, 'balance' => $balance, 'reason' => $reason];
+        return ['direction' => $m[1] === 'πιστώθηκε' ? BankAlert::CREDIT : BankAlert::DEBIT, 'amount' => $amount, 'balance' => $balance, 'reason' => $reason,
+            'account' => ($m[3] ?? '') !== '' ? $m[3] : null];
     }
 
-    /** @return array{direction: string, amount: string, balance: ?string, reason: string, executed_at: ?DateTimeImmutable}|null */
+    /** @return array{direction: string, amount: string, balance: ?string, reason: string, executed_at: ?DateTimeImmutable, account: ?string}|null */
     public static function piraeus(string $text, string $timezone = 'Europe/Athens'): ?array
     {
         $field = fn (string $label) => preg_match('/^\s*' . $label . ':[ \t]*(.*)$/mu', $text, $m) === 1 ? trim($m[1]) : null;
@@ -87,7 +91,7 @@ final class AlertParser
         }
 
         return ['direction' => $debit ? BankAlert::DEBIT : BankAlert::CREDIT, 'amount' => ltrim($amount, '-'), 'balance' => $balance,
-            'reason' => $reason, 'executed_at' => $executed];
+            'reason' => $reason, 'executed_at' => $executed, 'account' => $field('Λογαριασμός') ?: null];
     }
 
     /** One line, its spaces folded, its closing full stop dropped (Eurobank ends every line with one). */

@@ -49,7 +49,8 @@ class BankAlertsReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const SETTINGS = ['folders' => ['INBOX'], 'authserv_id' => 'mx.example.test', 'arc_sealer' => 'example.test', 'ignore' => []];
+    private const SETTINGS = ['folders' => ['INBOX'], 'authserv_id' => 'mx.example.test', 'arc_sealer' => 'example.test', 'ignore' => [],
+        'accounts' => ['eurobank' => ['0000']]]; // «Our accounts», required since the adversarial review of #450
 
     private function credit(string $amount, string $reason): string
     {

@@ -21,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use MyCS\BankAlerts\Tests\Fixtures;
+use MyCS\Extensions\Gateways\BankTransfer\BankTransfer;
 use Tests\TestCase;
 
 /** A mailbox in memory: folders of [uid => raw], their UIDVALIDITY; it records that nothing was ever changed in it. */
@@ -60,7 +61,8 @@ class BankAlertsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const SETTINGS = ['folders' => ['INBOX', 'Checked'], 'authserv_id' => 'mx.example.test', 'arc_sealer' => 'example.test', 'ignore' => ['0000000000']];
+    private const SETTINGS = ['folders' => ['INBOX', 'Checked'], 'authserv_id' => 'mx.example.test', 'arc_sealer' => 'example.test', 'ignore' => ['0000000000'],
+        'accounts' => ['eurobank' => ['0000'], 'piraeus' => ['ΟΨΕΩΣ ΕΤΑΙΡΙΩΝ Κ EXAMPLE']]];
 
     private function reader(FakeAlertMailbox $mailbox): AlertReader
     {
@@ -132,6 +134,29 @@ class BankAlertsTest extends TestCase
         $forged = BankMovement::query()->where('reason', 'FORGED')->sole();
         $this->assertFalse($forged->authentic);
         $this->assertSame('500.00', BankMovement::balances()['eurobank']['balance']);
+    }
+
+    public function test_an_unvouched_credit_or_one_about_another_account_is_unverified_and_the_banks_other_mails_are_passed(): void
+    {
+        $mailbox = new FakeAlertMailbox(['INBOX' => ['validity' => 1, 'messages' => []]]);
+        $this->reader($mailbox)->run();
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '10,00', 'UNVOUCHED', '1,00', ''));
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '10,00', 'THEIRS', '1,00', account: '9999'));
+        $mailbox->add('INBOX', Fixtures::forwardedByUs('eurobank.gr') . "From: eurobank@eurobank.gr\r\nSubject: News\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nΝέα προϊόντα για εσάς.\r\n");
+        $mailbox->add('INBOX', $this->credit('20,00', 'OURS'));
+
+        $summary = $this->reader($mailbox)->run();
+
+        $this->assertSame([4, 3, []], [$summary['read'], $summary['new'], $summary['errors']], 'the newsletter read and passed, no error');
+        $this->assertSame(['UNVOUCHED' => 'unverified', 'THEIRS' => 'unverified', 'OURS' => 'pending'],
+            BankMovement::query()->orderBy('id')->pluck('status', 'reason')->all());
+        $this->assertSame('not_our_account', BankMovement::query()->where('reason', 'THEIRS')->value('authenticity'));
+    }
+
+    public function test_our_accounts_as_the_gateway_takes_them(): void
+    {
+        $this->assertSame(['eurobank' => ['2261'], 'piraeus' => ['ΟΨΕΩΣ ΕΤΑΙΡΙΩΝ Κ EXAMPLE', 'SECOND']],
+            BankTransfer::accounts("Eurobank: 2261\r\npiraeus : ΟΨΕΩΣ ΕΤΑΙΡΙΩΝ Κ EXAMPLE\n\nnot a line\npiraeus: SECOND"));
     }
 
     public function test_the_command_does_nothing_until_it_is_set_up(): void

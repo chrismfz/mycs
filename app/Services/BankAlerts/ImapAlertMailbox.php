@@ -7,7 +7,11 @@ use DirectoryTree\ImapEngine\Mailbox;
 use DirectoryTree\ImapEngine\Message;
 use RuntimeException;
 
-/** The alerts mailbox over IMAP, read only: EXAMINE-free STATUS, and BODY.PEEK (leaveUnread) so no flag changes. */
+/**
+ * The alerts mailbox over IMAP, its messages untouched: fetched with BODY.PEEK (leaveUnread), so no \Seen; nothing moved,
+ * flagged, deleted or expunged (LOGOUT, never CLOSE). The library SELECTs the folder to fetch (not EXAMINE), which only
+ * clears the server's \Recent marks.
+ */
 final class ImapAlertMailbox implements AlertMailbox
 {
     private ?Mailbox $mailbox = null;

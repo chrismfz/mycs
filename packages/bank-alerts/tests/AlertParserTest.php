@@ -62,6 +62,27 @@ final class AlertParserTest extends TestCase
         $this->assertNull($this->parse('not a mail at all'));
     }
 
+    /** The banks' other mails (newsletters, notices, reminders, a password changed): no movement, whoever vouches for them. */
+    public function test_a_banks_other_mails_are_no_alerts(): void
+    {
+        $auth = Fixtures::forwardedByUs('eurobank.gr');
+        foreach (['Νέα προϊόντα για εσάς: δάνεια με χαμηλό επιτόκιο.', 'Ο κωδικός πρόσβασής σας στο e-Banking άλλαξε.',
+            'Υπενθύμιση: η κάρτα σας λήγει. Σας ενημερώνουμε ότι η συνδρομή σας ανανεώθηκε.',
+            'Σας ενημερώνουμε ότι πιστώθηκε με επιτυχία η αίτησή σας.'] as $text) {
+            $raw = $auth . "From: eurobank@eurobank.gr\r\nSubject: Eurobank\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{$text}\r\n";
+            $this->assertNull($this->parse($raw), $text);
+        }
+        $piraeus = Fixtures::forwardedByUs('piraeusbank.gr') . "From: Piraeus Alerts <IBankV2Email@piraeusbank.gr>\r\nSubject: Ενημέρωση\r\n"
+            . "Content-Type: text/html; charset=utf-8\r\n\r\n<html><body><p>Λογαριασμός: ΟΨΕΩΣ</p><p>Νέοι όροι χρήσης.</p></body></html>\r\n";
+        $this->assertNull($this->parse($piraeus));
+    }
+
+    public function test_the_account_the_alert_is_about(): void
+    {
+        $this->assertSame('0000', $this->parse(Fixtures::eurobank('πιστώθηκε', '10,00', 'X', '1,00'))?->account);
+        $this->assertSame('ΟΨΕΩΣ ΕΤΑΙΡΙΩΝ Κ EXAMPLE', $this->parse(Fixtures::piraeus('1.00 EUR (ΠΙ)', 'T', 'A', 'B', '1.00 EUR'))?->account);
+    }
+
     public function test_a_mail_our_server_does_not_vouch_for_is_not_authentic(): void
     {
         $direct = "Authentication-Results: mx.example.test; dmarc=fail header.from=eurobank.gr; spf=fail smtp.mailfrom=eurobank.gr\r\n";
@@ -80,7 +101,7 @@ final class AlertParserTest extends TestCase
         $theirs = str_replace('d=example.test;', 'd=attacker.example;', Fixtures::forwardedByUs('eurobank.gr'));
         $alert = $this->parse(Fixtures::eurobank('πιστώθηκε', '10,00', 'X', '1,00', $theirs));
         $this->assertFalse($alert?->authentic);
-        $this->assertSame('arc_first_seal_not_ours', $alert?->authenticity);
+        $this->assertSame('arc_seal_not_ours', $alert?->authenticity);
 
         // Our topmost result does not say arc=pass (a forged set breaks the chain): a «pass» below it counts for nothing.
         $broken = "Authentication-Results: mx.example.test; arc=fail\r\nAuthentication-Results: mx.example.test; dmarc=pass header.from=eurobank.gr\r\n"

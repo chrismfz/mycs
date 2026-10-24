@@ -10,13 +10,14 @@ final class Fixtures
     {
         return "Authentication-Results: mx.example.test;\r\n\tarc=pass (\"example.test:s=dkim:i=1\")\r\n"
             . "ARC-Seal: i=1; a=rsa-sha256; d=example.test; s=dkim; cv=none; t=1792740475;\r\n\tb=AAAA\r\n"
+            . "ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=example.test; s=dkim; t=1792740475;\r\n\th=from:subject:date; bh=AAAA; b=AAAA\r\n"
             . "ARC-Authentication-Results: i=1;\r\n\tmx.example.test;\r\n\tdkim={$result} header.d={$bankDomain} header.s=s1 header.b=AAAA;\r\n"
             . "\tdmarc={$result} (policy=reject) header.from={$bankDomain};\r\n\tspf={$result} smtp.mailfrom=alerts@{$bankDomain}\r\n";
     }
 
-    public static function eurobank(string $verb, string $amount, string $reason, string $balance, ?string $auth = null): string
+    public static function eurobank(string $verb, string $amount, string $reason, string $balance, ?string $auth = null, string $account = '0000'): string
     {
-        $text = "Αγαπητέ πελάτη,\n\n    Σας ενημερώνουμε ότι {$verb} με {$amount} EUR ο λογαριασμός σας με τελευταία ψηφία *0000.\n"
+        $text = "Αγαπητέ πελάτη,\n\n    Σας ενημερώνουμε ότι {$verb} με {$amount} EUR ο λογαριασμός σας με τελευταία ψηφία *{$account}.\n"
             . "    Αιτιολογία: {$reason}.\n    Νέο υπόλοιπο: {$balance} EUR.\n\n    Σημείωση:\n\n    Μην απαντάτε σε αυτό το μήνυμα.\n";
         $body = chunk_split(base64_encode((string) iconv('UTF-8', 'Windows-1253', $text)), 76, "\r\n");
         $subject = '=?Cp1253?B?' . base64_encode((string) iconv('UTF-8', 'Windows-1253', 'Ενημέρωση Eurobank: ' . ($verb === 'πιστώθηκε' ? 'Πίστωση' : 'Χρέωση') . ' λογαριασμού')) . '?=';

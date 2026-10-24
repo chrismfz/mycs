@@ -65,6 +65,9 @@ class BankTransfer extends Gateway
                 'description' => 'The name our server writes in Authentication-Results. Only a mail it vouches the bank sent counts for the balances and the matching.'],
             ['name' => 'alerts_arc_sealer', 'label' => 'Our ARC sealing domain', 'type' => 'text', 'required' => false, 'placeholder' => 'example.com',
                 'description' => 'When the alerts reach the mailbox through a forward inside our server (sieve redirect): the domain our server seals with.'],
+            ['name' => 'alerts_accounts', 'label' => 'Our accounts', 'type' => 'textarea', 'required' => false,
+                'placeholder' => "eurobank: 1234\npiraeus: ACCOUNT NAME AS THE ALERT SHOWS IT",
+                'description' => 'One per line, «bank: account» as the alerts name it (Eurobank: the last digits; Piraeus: the account\'s name). An alert about any other account (a genuine one, sent on to us) is never a payment of ours.'],
             ['name' => 'alerts_ignore', 'label' => 'Credits to ignore', 'type' => 'textarea', 'required' => false,
                 'description' => 'One per line: a credit whose reference contains it is not for staff (the card acquirer\'s settlements, e.g. its merchant id).'],
         ];
@@ -73,7 +76,7 @@ class BankTransfer extends Gateway
     /**
      * The alerts mailbox's settings, or null when reading is off or not set up.
      *
-     * @return array{host: string, port: int, encryption: string, username: string, password: string, folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>}|null
+     * @return array{host: string, port: int, encryption: string, username: string, password: string, folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts: array<string, list<string>>}|null
      */
     public function alertSettings(): ?array
     {
@@ -92,7 +95,25 @@ class BankTransfer extends Gateway
             'authserv_id' => trim((string) $this->config('alerts_authserv_id')),
             'arc_sealer' => trim((string) $this->config('alerts_arc_sealer')),
             'ignore' => $list($this->config('alerts_ignore'), "\n"),
+            'accounts' => self::accounts((string) $this->config('alerts_accounts')),
         ];
+    }
+
+    /**
+     * «eurobank: 1234» lines into each bank's accounts.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function accounts(string $lines): array
+    {
+        $accounts = [];
+        foreach (preg_split('/\R/', $lines) ?: [] as $line) {
+            if (preg_match('/^\s*(eurobank|piraeus)\s*:\s*(.+?)\s*$/iu', $line, $m) === 1) {
+                $accounts[strtolower($m[1])][] = $m[2];
+            }
+        }
+
+        return $accounts;
     }
 
     /** Offered only in a currency the accounts take (reviews of #287: never a USD invoice told to wire to EUR accounts). */

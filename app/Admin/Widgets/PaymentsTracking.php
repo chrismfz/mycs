@@ -43,24 +43,28 @@ class PaymentsTracking extends TableWidget
                         BankMovement::PENDING => '☐',
                         BankMovement::ACKNOWLEDGED => '✓',
                         BankMovement::IGNORED => '–',
+                        BankMovement::UNVERIFIED => '?',
                         default => '·',
                     })
                     ->tooltip(fn (BankMovement $record) => match ($record->status) {
                         BankMovement::PENDING => 'Pending: for staff',
                         BankMovement::ACKNOWLEDGED => 'Seen to by ' . ($record->acknowledgedBy->name ?? 'staff') . ' ' . $record->acknowledged_at?->diffForHumans(),
                         BankMovement::IGNORED => 'Ignored (a configured reference: card settlements)',
+                        BankMovement::UNVERIFIED => 'Unverified: not vouched for by our mail server, or not one of our accounts. Check it at the bank.',
                         default => 'In the mailbox before the reading started',
                     }),
                 TextColumn::make('amount')->label('Amount')->alignEnd()
                     ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €')
                     ->description(fn (BankMovement $record) => $record->bankName()),
                 TextColumn::make('reason')->label('Reference')->wrap()->searchable()
-                    ->description(fn (BankMovement $record) => $record->authentic ? null : '⚠ Not vouched for by our mail server: check it at the bank'),
+                    ->description(fn (BankMovement $record) => $record->authentic ? null
+                        : ($record->authenticity === 'not_our_account' ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
+                            : '⚠ Not vouched for by our mail server: check it at the bank')),
                 TextColumn::make('executed_at')->label('When')->dateTime('d/m/Y H:i')->sortable(),
             ])
             ->filters([
                 SelectFilter::make('status')->options([BankMovement::PENDING => 'Pending', BankMovement::ACKNOWLEDGED => 'Seen to',
-                    BankMovement::IGNORED => 'Ignored', BankMovement::HISTORY => 'History']),
+                    BankMovement::IGNORED => 'Ignored', BankMovement::UNVERIFIED => 'Unverified', BankMovement::HISTORY => 'History']),
                 SelectFilter::make('bank')->options(BankMovement::BANKS),
             ])
             ->recordActions([
@@ -68,7 +72,7 @@ class PaymentsTracking extends TableWidget
                     ->modalHeading('Invoices that match the payment')->modalSubmitAction(false)->modalCancelActionLabel('Close')
                     ->modalContent(fn (BankMovement $record) => new HtmlString(self::matchesHtml($record))),
                 Action::make('acknowledge')->label('')->icon('heroicon-o-check')->color('success')->tooltip('Seen to')
-                    ->visible(fn (BankMovement $record) => $record->status === BankMovement::PENDING && self::canUpdate())
+                    ->visible(fn (BankMovement $record) => in_array($record->status, [BankMovement::PENDING, BankMovement::UNVERIFIED], true) && self::canUpdate())
                     ->action(function (BankMovement $record) {
                         $record->update(['status' => BankMovement::ACKNOWLEDGED, 'acknowledged_by' => auth('staff')->id(), 'acknowledged_at' => now()]);
                         Notification::make()->success()->title('Marked seen to')->send();
@@ -89,11 +93,23 @@ class PaymentsTracking extends TableWidget
         preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d])|(?<![\d-])\d{3,9}(?![\d-])/', $movement->reason, $m);
         $tokens = array_values(array_unique($m[0]));
         $named = $tokens === [] ? collect() : Invoice::query()->with('client')
+            ->where('currency_code', 'EUR')
             ->where(fn (Builder $q) => $q->whereIn('number', $tokens)->orWhereIn('id', array_filter($tokens, 'ctype_digit')))
             ->limit(20)->get();
-        $amount = Invoice::query()->with(['client', 'items', 'transactions'])->where('status', Invoice::STATUS_UNPAID)->latest('id')->limit(1000)->get()
-            ->filter(fn (Invoice $invoice) => bccomp(number_format((float) $invoice->remaining, 2, '.', ''), (string) $movement->amount, 2) === 0)
-            ->take(20)->values();
+        // The bank's money is EUR: an invoice in another currency is no match (review of #450). Every unpaid one, read in
+        // chunks with what its total needs (no query per invoice).
+        $amount = collect();
+        Invoice::query()->with(['client', 'items', 'transactions', 'adjustmentNotes'])->where('status', Invoice::STATUS_UNPAID)
+            ->where('currency_code', 'EUR')->orderByDesc('id')
+            ->chunk(200, function ($invoices) use ($movement, $amount) {
+                foreach ($invoices as $invoice) {
+                    if (bccomp(number_format((float) $invoice->remaining, 2, '.', ''), (string) $movement->amount, 2) === 0) {
+                        $amount->push($invoice);
+                    }
+                }
+
+                return $amount->count() < 20;
+            });
 
         return ['named' => $named, 'amount' => $amount, 'tokens' => $tokens];
     }

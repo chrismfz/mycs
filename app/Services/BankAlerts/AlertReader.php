@@ -14,14 +14,18 @@ use Throwable;
  * - what a folder already held the first time it is read is history: it counts for the balances, never as a new
  *   payment for staff or the matching;
  * - one mail is one movement wherever it is (its Message-ID): moved from INBOX to another folder, it is not read again;
- * - a credit whose reference contains a configured text (the card acquirer's settlements) is ignored.
+ * - a credit whose reference contains a configured text (the card acquirer's settlements) is ignored;
+ * - an alert counts (authentic) only when our mail server vouches the bank sent it AND it is about one of our accounts
+ *   (a genuine alert about someone else's account, sent on to us, is no payment of ours); one that does not is
+ *   «unverified»: shown to staff, never in the balances or the matching;
+ * - one mail that cannot be read or stored is said and passed: it never stops the folder.
  */
 final class AlertReader
 {
     /** Mails read per folder and run: a first read of thousands is spread over a few runs. */
     public const BATCH = 300;
 
-    /** @param  array{folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>}  $settings */
+    /** @param  array{folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts?: array<string, list<string>>}  $settings */
     public function __construct(private readonly AlertMailbox $mailbox, private readonly array $settings) {}
 
     /** @return array{read: int, new: int, errors: list<string>} */
@@ -44,20 +48,33 @@ final class AlertReader
         $status = $this->mailbox->status($folder);
         $key = 'bank_alerts.cursor.' . $folder;
         $cursor = json_decode((string) Setting::query()->where('key', $key)->where('settingable_type', BankMovement::class)->value('value'), true);
-        if (!is_array($cursor) || ($cursor['validity'] ?? null) !== $status['validity']) {
-            // First sight of the folder (or it was made anew): what it holds now is history.
+        if (!is_array($cursor)) {
+            // First sight of the folder: what it holds now is history.
             $cursor = ['validity' => $status['validity'], 'last' => 0, 'history_until' => max(0, $status['next'] - 1)];
+        } elseif (($cursor['validity'] ?? null) !== $status['validity']) {
+            // The folder was made anew (an index rebuilt, a restore): all of it again, as new. What was read is known by
+            // its Message-ID; a credit not read yet must not become history (review of #450).
+            $cursor = ['validity' => $status['validity'], 'last' => 0, 'history_until' => 0];
         }
+        $save = function () use ($key, &$cursor) {
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => BankMovement::class, 'settingable_id' => null],
+                ['value' => json_encode($cursor), 'type' => 'string']);
+        };
         foreach ($this->mailbox->messages($folder, $cursor['last'] + 1, self::BATCH) as [$uid, $raw]) {
             $summary['read']++;
-            if ($this->store($raw, $folder, $uid <= $cursor['history_until'])) {
-                $summary['new']++;
+            try {
+                if ($this->store($raw, $folder, $uid <= $cursor['history_until'])) {
+                    $summary['new']++;
+                }
+            } catch (Throwable $e) {
+                // Said, and passed: one mail (a forged one too) never stops the folder (reviews of #450).
+                report($e);
+                $summary['errors'][] = "{$folder} UID {$uid}: " . mb_substr($e->getMessage(), 0, 300);
             }
             $cursor['last'] = max($cursor['last'], $uid);
+            $save(); // kept as it goes: a run cut short resumes after the last mail done
         }
-        // Kept apart from the global settings (never in config('settings.*')), as CronJob keeps its markers.
-        Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => BankMovement::class, 'settingable_id' => null],
-            ['value' => json_encode($cursor), 'type' => 'string']);
+        $save();
     }
 
     /** One mail: stored once; true when it was new and is a bank's alert. */
@@ -67,24 +84,41 @@ final class AlertReader
         if ($alert === null) {
             return false;
         }
-        $messageKey = hash('sha256', $alert->messageId !== null && $alert->messageId !== '' ? 'mid:' . $alert->messageId : 'raw:' . $raw);
+        $authentic = $alert->authentic && $this->ours($alert);
+        $authenticity = $alert->authentic && !$authentic ? 'not_our_account' : $alert->authenticity;
+        // One mail once, wherever it is; a vouched-for one never collides with an unvouched copy of its Message-ID (a
+        // forged mail sent first must not suppress the bank's own: adversarial review of #450).
+        $messageKey = hash('sha256', ($authentic ? 'authentic|' : 'unverified|')
+            . ($alert->messageId !== null && $alert->messageId !== '' ? 'mid:' . $alert->messageId : 'raw:' . $raw));
         $movement = BankMovement::query()->firstOrCreate(['message_key' => $messageKey], [
             'bank' => $alert->bank, 'direction' => $alert->direction, 'amount' => $alert->amount, 'balance' => $alert->balance,
             'reason' => $alert->reason, 'executed_at' => $alert->executedAt, 'message_id' => $alert->messageId !== null ? mb_substr($alert->messageId, 0, 255) : null,
-            'folder' => $folder, 'authentic' => $alert->authentic, 'authenticity' => mb_substr($alert->authenticity, 0, 64),
-            'status' => $this->status($alert, $history),
+            'folder' => $folder, 'account' => $alert->account !== null ? mb_substr($alert->account, 0, 100) : null,
+            'authentic' => $authentic, 'authenticity' => mb_substr($authenticity, 0, 64),
+            'status' => $this->status($alert, $authentic, $history),
         ]);
 
         return $movement->wasRecentlyCreated;
     }
 
-    private function status(BankAlert $alert, bool $history): string
+    /** Its account is one of ours for its bank (Bank transfer → «Our accounts»): none set, none is ours. */
+    private function ours(BankAlert $alert): bool
+    {
+        $ours = array_map(fn ($a) => mb_strtoupper(trim((string) $a)), $this->settings['accounts'][$alert->bank] ?? []);
+
+        return $alert->account !== null && in_array(mb_strtoupper(trim($alert->account)), $ours, true);
+    }
+
+    private function status(BankAlert $alert, bool $authentic, bool $history): string
     {
         if ($history) {
             return BankMovement::HISTORY;
         }
         if (!$alert->isCredit()) {
             return BankMovement::IGNORED; // a debit: for the balance only
+        }
+        if (!$authentic) {
+            return BankMovement::UNVERIFIED;
         }
         foreach ($this->settings['ignore'] as $text) {
             if (mb_stripos($alert->reason, $text) !== false) {
