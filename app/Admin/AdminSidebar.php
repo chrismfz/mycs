@@ -10,10 +10,12 @@ use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\OrderResource;
+use App\Admin\Resources\ServiceCancellationResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\Invoice;
+use App\Models\ServiceCancellation;
 use App\Support\AdminBadge;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -39,6 +41,8 @@ class AdminSidebar
         // Of those, the late ones (owner 2026-10-21), counted by their own scope, not the page's badge.
         [InvoiceResource::class, 'Overdue invoices', ['filters' => ['overdue' => ['isActive' => true]]], [Invoice::class, 'overdue', 'danger']],
         [ServiceResource::class, 'Pending services', ['filters' => ['status' => ['value' => 'pending']]]],
+        // Requests whose service still runs (owner 2026-10-25), the dashboard's card: the same count, one cache.
+        [ServiceCancellationResource::class, 'Pending cancellations', ['filters' => ['pending' => ['isActive' => true]]], [ServiceCancellation::class, 'pending', 'warning']],
         [ModuleActionResource::class, 'Pending module actions', []],
         [TicketQuarantineResource::class, 'Mail quarantine', []],
         [DomainResource::class, 'Domains to check', ['filters' => ['not_ours' => ['isActive' => true]]]],

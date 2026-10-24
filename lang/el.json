@@ -1267,5 +1267,6 @@
     ":count ends within 7 days|:count end within 7 days": ":count λήγει μέσα σε 7 ημέρες|:count λήγουν μέσα σε 7 ημέρες",
     "None ends within 7 days": "Καμία δεν λήγει μέσα σε 7 ημέρες",
     "Not handled yet": "Χωρίς χειρισμό ακόμη",
-    "Ends": "Λήγει"
+    "Ends": "Λήγει",
+    "Pending cancellations": "Ακυρώσεις σε αναμονή"
 }
