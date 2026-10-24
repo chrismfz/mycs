@@ -117,7 +117,8 @@ class Overview extends BaseWidget
             return null;
         }
         $pending = AdminBadge::count(ServiceCancellation::class . '.pending', fn () => ServiceCancellation::query()->pending()->count());
-        $soon = $pending === 0 ? 0 : AdminBadge::count('ServiceCancellation.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count());
+        // Never more than the pending ones: the two are cached apart (the sidebar fills the first on every page).
+        $soon = $pending === 0 ? 0 : min($pending, AdminBadge::count(ServiceCancellation::class . '.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count()));
 
         return Stat::make(__('Pending Cancellations'), (string) $pending)
             ->description(match (true) {
