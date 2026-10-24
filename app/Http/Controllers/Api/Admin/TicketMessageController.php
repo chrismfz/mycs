@@ -33,9 +33,9 @@ class TicketMessageController extends ApiController
     {
         // Fetch ticketMessages with pagination
         $ticketMessages = QueryBuilder::for(TicketMessage::class)
-            ->allowedFilters(['id', 'currency_code'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
+            ->allowedFilters('id', 'currency_code')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'currency_code')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the ticketMessages as a JSON response
@@ -64,7 +64,7 @@ class TicketMessageController extends ApiController
     public function show(GetTicketMessageRequest $request, TicketMessage $ticketMessage)
     {
         $ticketMessage = QueryBuilder::for(TicketMessage::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($ticketMessage->id);
 
         // Return the ticketMessage as a JSON response

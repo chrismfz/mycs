@@ -13,6 +13,7 @@ use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
+use App\Admin\Resources\ServiceResource\RelationManagers\SslVersionsRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
@@ -531,6 +532,7 @@ class ServiceResource extends Resource
         return [
             InvoicesRelationManager::class,
             LicenseAccessLogsRelationManager::class,
+            SslVersionsRelationManager::class,
             PropertiesRelationManager::class,
             ConfigOptionsRelationManager::class,
             EmailLogsRelationManager::class,

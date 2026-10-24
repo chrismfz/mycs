@@ -31,9 +31,9 @@ class OrderController extends ApiController
     {
         // Fetch orders with pagination
         $orders = QueryBuilder::for(Order::class)
-            ->allowedFilters(['id', 'currency_code'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
+            ->allowedFilters('id', 'currency_code')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'currency_code')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the orders as a JSON response
@@ -58,7 +58,7 @@ class OrderController extends ApiController
     public function show(GetOrderRequest $request, Order $order)
     {
         $order = QueryBuilder::for(Order::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($order->id);
 
         // Return the order as a JSON response

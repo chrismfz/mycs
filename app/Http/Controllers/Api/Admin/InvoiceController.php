@@ -32,9 +32,9 @@ class InvoiceController extends ApiController
     {
         // Fetch invoices with pagination
         $invoices = QueryBuilder::for(Invoice::class)
-            ->allowedFilters(['id', 'currency_code', 'client_id', 'status'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
+            ->allowedFilters('id', 'currency_code', 'client_id', 'status')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'currency_code')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the invoices as a JSON response
@@ -59,7 +59,7 @@ class InvoiceController extends ApiController
     public function show(GetInvoiceRequest $request, Invoice $invoice)
     {
         $invoice = QueryBuilder::for(Invoice::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($invoice->id);
 
         // Return the invoice as a JSON response

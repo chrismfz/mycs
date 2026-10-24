@@ -38,9 +38,9 @@ class ClientController extends ApiController
     public function index(GetClientsRequest $request)
     {
         $clients = QueryBuilder::for(Client::query()->with(['primaryContact', 'ownerGrant.user']))
-            ->allowedFilters(['id'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at'])
+            ->allowedFilters('id')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         return ClientResource::collection($clients);
@@ -74,7 +74,7 @@ class ClientController extends ApiController
     public function show(GetClientRequest $request, Client $client)
     {
         $client = QueryBuilder::for(Client::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($client->id);
 
         return new ClientResource($client);

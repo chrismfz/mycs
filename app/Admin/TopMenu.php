@@ -13,6 +13,7 @@ use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
+use App\Admin\Pages\SslChecker;
 use App\Admin\Pages\SystemCleanup;
 use App\Admin\Pages\WhoisLookup;
 use App\Admin\Resources\AdjustmentNoteResource;
@@ -129,6 +130,7 @@ class TopMenu
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],
             [WhoisLookup::class],
+            [SslChecker::class],
             [GrRegistry::class],
             [AuditResource::class, 'index', 'Activity Log'],
             [LoginAttemptResource::class, 'index', 'Login History'],

@@ -38,9 +38,9 @@ class ServiceController extends ApiController
     {
         // Fetch services with pagination
         $services = QueryBuilder::for(Service::class)
-            ->allowedFilters(['quantity', 'price', 'expires_at', 'subscription_id', 'status'])
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts(['id', 'created_at', 'updated_at', 'expires_at', 'status'])
+            ->allowedFilters('quantity', 'price', 'expires_at', 'subscription_id', 'status')
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
+            ->allowedSorts('id', 'created_at', 'updated_at', 'expires_at', 'status')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the services as a JSON response
@@ -65,7 +65,7 @@ class ServiceController extends ApiController
     public function show(GetServiceRequest $request, Service $service)
     {
         $service = QueryBuilder::for(Service::class)
-            ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
+            ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
             ->findOrFail($service->id);
 
         // Return the service as a JSON response
