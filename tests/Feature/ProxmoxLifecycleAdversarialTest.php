@@ -242,4 +242,28 @@ class ProxmoxLifecycleAdversarialTest extends TestCase
             ->assertCanSeeTableRecords([$outside])
             ->assertCanNotSeeTableRecords([$inside]);
     }
+
+    /**
+     * R2-1. The «sees nothing» refusal covers an empty list only. A token whose PVEAuditor on «/» was removed still lists
+     * the pool's guests (VM.Audit through /pool/mycs): a mapped VM that staff took out of the pool (docs: how MyCS is
+     * kept away from a VM) is then simply absent, and «Terminate: Destroy» marks it destroyed and reports the
+     * termination done, never asked. It keeps running, and is never looked up again.
+     */
+    public function test_a_destroy_of_a_guest_the_token_cannot_see_is_not_reported_done_though_it_sees_others(): void
+    {
+        $service = $this->mapped();
+        $this->vm = ['vmid' => 102, 'type' => 'qemu', 'node' => 'vega', 'name' => 'vps2', 'status' => 'running', 'pool' => 'mycs'];
+        $this->guestReads = 403; // VM 101 is outside the token's ACL now
+
+        $failed = false;
+        try {
+            ExtensionHelper::terminateServer($service);
+        } catch (Throwable) {
+            $failed = true;
+        }
+
+        $this->assertNotSame('destroyed', ProxmoxGuest::query()->where('vmid', 101)->sole()->status, 'never confirmed gone');
+        $this->assertTrue($failed || ModuleAction::query()->open()->where('service_id', $service->id)->exists(),
+            'a termination that did nothing is reported done: no failure, no task for staff');
+    }
 }
