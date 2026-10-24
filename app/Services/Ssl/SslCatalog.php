@@ -190,12 +190,16 @@ final class SslCatalog
      * D-6). A product priced in a currency the import cannot price (no rate) is refused, never left under its cost
      * unseen (ADV-11). Only sellable products.
      *
+     * A price staff typed (owner 2026-10-24) replaces the margin's for its currency and years, and is written even over a
+     * free or not-offered one: typed, it is staff's decision for it.
+     *
      * @param  list<array<string, mixed>>  $entries  as entries() made them, the ticked ones
+     * @param  array<int, array<string, array<int, string>>>  $typed  id => currency => years => price (ImportSsl checked them)
      * @return int products written
      */
-    public static function import(Server $server, array $entries, TldImportOptions $options, int $categoryId, bool $hidden): int
+    public static function import(Server $server, array $entries, TldImportOptions $options, int $categoryId, bool $hidden, array $typed = []): int
     {
-        return DB::transaction(function () use ($server, $entries, $options, $categoryId, $hidden) {
+        return DB::transaction(function () use ($server, $entries, $options, $categoryId, $hidden, $typed) {
             Server::query()->whereKey($server->id)->lockForUpdate()->first();
             $linked = self::linked($server);
             $byId = [];
@@ -207,6 +211,13 @@ final class SslCatalog
             $count = 0;
             foreach ($byId as $id => $entry) {
                 $prices = self::prices($entry, $options);
+                foreach ($typed[$id] ?? [] as $currency => $byYears) {
+                    foreach ($byYears as $years => $price) {
+                        if ($years >= 1 && $years <= $options->years && isset($entry['costs'][$years]) && TldPriceMath::isAmount($price) && bccomp($price, '0', 2) > 0) {
+                            $prices[$currency][$years] = ['price' => TldPriceMath::cents($price), 'cost' => $prices[$currency][$years]['cost'] ?? null, 'typed' => true];
+                        }
+                    }
+                }
                 if ($prices === []) {
                     continue;
                 }
@@ -232,7 +243,7 @@ final class SslCatalog
         });
     }
 
-    /** @param  array<string, array<int, array{price: string, cost: string}>>  $prices */
+    /** @param  array<string, array<int, array{price: string, cost: ?string, typed?: bool}>>  $prices */
     private static function reprice(Product $product, array $entry, array $prices, TldImportOptions $options): void
     {
         foreach (range(1, min($options->years, self::MAX_YEARS)) as $years) {
@@ -252,7 +263,7 @@ final class SslCatalog
                         continue;
                     }
                     $row = $plan->prices()->where('currency_code', $currency)->first();
-                    if ($row !== null && self::keeps($row->price === null ? null : (string) $row->price, $options)) {
+                    if ($row !== null && empty($byYears[$years]['typed']) && self::keeps($row->price === null ? null : (string) $row->price, $options)) {
                         continue; // a free or not-offered price is a decision (D-6)
                     }
                     $plan->prices()->updateOrCreate(['currency_code' => $currency], ['price' => $byYears[$years]['price']]);

@@ -188,7 +188,7 @@ class SslCatalogTest extends TestCase
         $page = $this->livewireAs($this->staff())->test(ImportSsl::class)
             ->fillForm(['server_id' => $this->server->id, 'category_id' => $this->category->id, 'margin_type' => 'percent', 'margin' => '30', 'rounding' => '.99', 'years' => 1])
             ->call('fetch')
-            ->assertSee('Positive SSL Wildcard')->assertSee('Code signing: not a website certificate')->assertSee('8.99')->assertSee('37.6%');
+            ->assertSee('Positive SSL Wildcard')->assertSee('Code signing: not a website certificate')->assertSee('8.99')->assertSee('37.7%'); // rounded, as the TLD import's grid (37.67%)
         $this->assertSame(0, Product::query()->count(), 'fetching writes nothing');
 
         $page->set('selected', [9, 58])->call('import');
