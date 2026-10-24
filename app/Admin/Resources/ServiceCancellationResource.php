@@ -6,6 +6,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Resources\ServiceCancellationResource\Pages\CreateServiceCancellation;
 use App\Admin\Resources\ServiceCancellationResource\Pages\EditServiceCancellation;
 use App\Admin\Resources\ServiceCancellationResource\Pages\ListServiceCancellations;
+use App\Models\Service;
 use App\Models\ServiceCancellation;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -15,6 +16,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
@@ -74,6 +76,11 @@ class ServiceCancellationResource extends Resource
                 TextColumn::make('reason')
                     ->searchable(),
                 TextColumn::make('type'),
+                // When an end-of-period request ends its service (the cron, on this day); none once it has ended.
+                TextColumn::make('service.expires_at')
+                    ->label(__('Ends'))
+                    ->date()
+                    ->state(fn (ServiceCancellation $record) => $record->type === 'end_of_period' && in_array($record->service?->status, Service::PAYING_STATUSES, true) ? $record->service->expires_at : null),
                 TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -84,7 +91,10 @@ class ServiceCancellationResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                // Not handled yet: the service still runs (ServiceCancellation::wherePending), the dashboard's card.
+                Filter::make('pending')
+                    ->label(__('Not handled yet'))
+                    ->query(fn (Builder $query) => ServiceCancellation::wherePending($query)),
             ])
             ->recordActions([
                 EditAction::make(),
