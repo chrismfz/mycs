@@ -12,6 +12,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\ForksWorkers;
 use Tests\TestCase;
 use Throwable;
 
@@ -24,6 +25,7 @@ use Throwable;
 class CodexReopenPaymentRaceReviewTest extends TestCase
 {
     use DatabaseTruncation;
+    use ForksWorkers;
 
     protected function beforeTruncatingDatabase(): void
     {
@@ -118,17 +120,16 @@ class CodexReopenPaymentRaceReviewTest extends TestCase
                         DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
                         $worker($dir);
                         DB::disconnect();
-                        exit(0);
+                        self::endWorker($dir, $index, 0);
                     } catch (Throwable $e) {
                         file_put_contents("$dir/error-$index", $e->getMessage());
-                        exit(1);
+                        self::endWorker($dir, $index, 1);
                     }
                 }
                 $pids[] = $pid;
             }
             foreach ($pids as $index => $pid) {
-                pcntl_waitpid($pid, $status);
-                $this->assertTrue(pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0,
+                $this->assertTrue($this->awaitWorker($pid, $dir, $index),
                     file_exists("$dir/error-$index") ? file_get_contents("$dir/error-$index") : 'Payment worker failed.');
             }
         } finally {

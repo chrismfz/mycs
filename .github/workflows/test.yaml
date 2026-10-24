@@ -12,6 +12,7 @@ permissions:
 jobs:
   test-sqlite:
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # a hung test fails the job, not after GitHub's 6 hours (#428)
     strategy:
       matrix:
         php: ['8.4']
@@ -60,6 +61,7 @@ jobs:
 
   test-mariadb:
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # a hung test fails the job, not after GitHub's 6 hours (#428)
     strategy:
       matrix:
         php: ['8.4']
