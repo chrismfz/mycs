@@ -52,8 +52,9 @@ class InvoiceSelectedItemsAction
 
     /**
      * The Summary's «With selected» (the owner, 2026-10-24, as WHMCS's): the rows ticked in its Products/Services and
-     * Domains tables, kept on the page as `selectedServices` and `selectedDomains`. Only this client's billable ones,
-     * each kind only for staff who may see it, whatever ids the browser sends.
+     * Domains tables, kept on the page as `selectedServices` and `selectedDomains`. Only this client's, each kind only
+     * for staff who may see it, whatever ids the browser sends; one that stopped being billable since the page was drawn
+     * comes back as skipped, with why (adversarial ADV449-2).
      */
     public static function forSummary(): Action
     {
@@ -62,16 +63,31 @@ class InvoiceSelectedItemsAction
             ->icon('heroicon-o-document-duplicate')
             ->authorize(fn (): bool => self::allowed())
             ->requiresConfirmation()
-            ->modalDescription(__('invoices.selected.help'))
+            ->modalDescription(fn ($livewire): string => __(':count selected', ['count' => count(self::ids($livewire->selectedServices)) + count(self::ids($livewire->selectedDomains))])
+                . '. ' . __('invoices.selected.help'))
             ->action(function (Client $record, $livewire): void {
-                $ids = fn (mixed $ticked): array => array_values(array_filter(array_map('intval', (array) $ticked)));
-                self::run(
-                    self::may('admin.services.viewAny') ? self::billableServices($record)->whereKey($ids($livewire->selectedServices))->get() : [],
-                    self::may('admin.domains.viewAny') ? self::billableDomains($record)->whereKey($ids($livewire->selectedDomains))->get() : [],
+                $processed = self::run(
+                    self::may('admin.services.viewAny') ? $record->services()->whereKey(self::ids($livewire->selectedServices))->with(['product', 'plan'])->get() : [],
+                    self::may('admin.domains.viewAny') ? $record->domains()->whereKey(self::ids($livewire->selectedDomains))->get() : [],
                 );
-                $livewire->selectedServices = [];
-                $livewire->selectedDomains = [];
+                // Kept when nothing was done (busy, nothing found): staff try again without ticking them anew (ADV449-4).
+                if ($processed) {
+                    $livewire->selectedServices = [];
+                    $livewire->selectedDomains = [];
+                }
             });
+    }
+
+    /**
+     * The ids the browser sent: positive whole numbers only, never a value coerced into one (ADV449-1: intval() makes
+     * an array or «1abc» into 1).
+     *
+     * @return list<int>
+     */
+    private static function ids(mixed $ticked): array
+    {
+        return array_values(array_unique(array_map('intval', array_filter((array) $ticked,
+            fn (mixed $id): bool => (is_int($id) && $id > 0) || (is_string($id) && ctype_digit($id) && (int) $id > 0)))));
     }
 
     /**
@@ -145,19 +161,20 @@ class InvoiceSelectedItemsAction
      * @param  iterable<Service>  $services
      * @param  iterable<Domain>  $domains
      */
-    private static function run(iterable $services, iterable $domains): void
+    /** @return bool whether the selection was gone through (false: nothing selected, or nothing could be done) */
+    private static function run(iterable $services, iterable $domains): bool
     {
         if (collect($services)->isEmpty() && collect($domains)->isEmpty()) {
             Notification::make()->warning()->title(__('invoices.selected.none'))->send();
 
-            return;
+            return false;
         }
         try {
             $result = (new InvoiceSelectedItems)->handle($services, $domains);
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('invoices.selected.nothing_billed'))->body(e($e->getMessage()))->send();
 
-            return;
+            return false;
         }
         $notification = $result['invoices'] === []
             ? Notification::make()->warning()->title(__('invoices.selected.nothing_billed'))
@@ -170,6 +187,8 @@ class InvoiceSelectedItemsAction
             $notification->body($body)->persistent();
         }
         $notification->send();
+
+        return true;
     }
 
     private static function serviceLabel(Service $service): string

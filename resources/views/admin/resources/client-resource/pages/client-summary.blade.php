@@ -217,7 +217,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left {{ $label }}">
-                        @if ($selectable['services'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['services'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedServices', $selectable['services']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
+                        @if ($selectable['services'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['services'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedServices', $selectable['services']) }}" x-bind:checked="($wire.selectedServices?.length ?? 0) === {{ count($selectable['services']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
                         <th class="py-2 pr-3">ID</th><th class="py-2 pr-3">{{ __('Product/Service') }}</th><th class="py-2 pr-3">{{ __('Amount') }}</th>
                         <th class="py-2 pr-3">{{ __('Billing Cycle') }}</th><th class="py-2 pr-3">{{ __('Signup Date') }}</th><th class="py-2 pr-3">{{ __('Next Due Date') }}</th><th class="py-2">{{ __('Status') }}</th>
                     </tr>
@@ -249,7 +249,7 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left {{ $label }}">
-                        @if ($selectable['domains'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['domains'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedDomains', $selectable['domains']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
+                        @if ($selectable['domains'] !== null)<th class="w-6 py-2 pr-2">@if ($selectable['domains'])<input type="checkbox" class="{{ $tick }}" x-data x-on:change="{{ $selectAll('selectedDomains', $selectable['domains']) }}" x-bind:checked="($wire.selectedDomains?.length ?? 0) === {{ count($selectable['domains']) }}" aria-label="{{ __('Select all') }}">@endif</th>@endif
                         <th class="py-2 pr-3">ID</th><th class="py-2 pr-3">{{ __('domains.domain') }}</th><th class="py-2 pr-3">{{ __('Registered') }}</th>
                         <th class="py-2 pr-3">{{ __('Expires') }}</th><th class="py-2 pr-3">{{ __('Auto renew') }}</th><th class="py-2">{{ __('Status') }}</th>
                     </tr>
