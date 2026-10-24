@@ -10,6 +10,7 @@ use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\CannedReply;
+use App\Models\McpProposal;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
@@ -17,6 +18,7 @@ use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
 use App\Models\TicketMessageAttachment;
+use App\Services\Mcp\Proposals;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
 use App\Support\Tickets\MergeTickets;
@@ -34,6 +36,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\TextSize;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\ValidationException;
@@ -137,6 +140,53 @@ class EditTicket extends EditRecord
                     ->success()
                     ->send();
             });
+    }
+
+    /**
+     * Replies an MCP agent drafted on this ticket (Proposals::TICKET_REPLY): shown above the reply box, text as written
+     * (escaped, links as plain text), never sent by themselves.
+     *
+     * Not a public method: Livewire answers those to the browser, whole models with their proposer (review of #423).
+     *
+     * @return Collection<int, McpProposal>
+     */
+    private function drafts(): Collection
+    {
+        $staff = Auth::guard('staff')->user();
+
+        return $staff instanceof Staff && $staff->hasPermission(Proposals::permission(Proposals::TICKET_REPLY)) && $this->record instanceof Ticket
+            ? Proposals::draftsFor($this->record->id) : collect();
+    }
+
+    /** @return array<string, mixed> */
+    protected function getViewData(): array
+    {
+        return ['drafts' => $this->drafts()];
+    }
+
+    /** Into the reply box, after what staff already wrote: staff change it and send it, or not. */
+    public function useDraft(int $id): void
+    {
+        $proposal = $this->drafts()->firstWhere('id', $id);
+        $staff = Auth::guard('staff')->user();
+        $text = $proposal !== null && $staff instanceof Staff ? Proposals::useDraft($proposal, $staff) : null;
+        if ($text === null) {
+            Notification::make()->warning()->title(__('This draft is no longer waiting.'))->send();
+
+            return;
+        }
+        $current = rtrim((string) ($this->data['message'] ?? ''));
+        $this->data['message'] = $current === '' ? $text : $current . "\n\n" . $text;
+        Notification::make()->success()->title(__('The draft is in the reply box: read it, change it, then send it.'))->send();
+    }
+
+    public function discardDraft(int $id): void
+    {
+        $proposal = $this->drafts()->firstWhere('id', $id);
+        $staff = Auth::guard('staff')->user();
+        if ($proposal !== null && $staff instanceof Staff) {
+            Proposals::reject($proposal, $staff);
+        }
     }
 
     // Save action

@@ -6,12 +6,14 @@ use App\Models\EmailLog;
 use App\Models\McpProposal;
 use App\Models\ModuleAction;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Services\Mail\MailAudit;
 use App\Services\Ops\NotFound;
 use App\Services\Ops\Scrub;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -39,11 +41,24 @@ final class Proposals
 
     public const RESEND_MAIL = 'resend_mail';
 
+    /**
+     * A reply an agent drafted on a ticket (owner 2026-10-24): never sent by approving it. Staff take it into the
+     * ticket's reply box from the ticket page («Use the draft»), change what they want and send it themselves.
+     */
+    public const TICKET_REPLY = 'ticket_reply';
+
+    /** Drafts waiting on one ticket at most. */
+    public const DRAFTS_PER_TICKET = 3;
+
+    /** A drafted reply's longest. */
+    public const DRAFT_MAX = 20000;
+
     /** The role permission each type needs, of who proposes and of who approves. */
     public const PERMISSIONS = [
         self::RETRY_MODULE_ACTION => 'admin.services.update',
         self::RESOLVE_MODULE_ACTION => 'admin.services.update',
         self::RESEND_MAIL => 'admin.email_logs.resend',
+        self::TICKET_REPLY => 'admin.tickets.update',
     ];
 
     /** @param array<string, mixed> $payload */
@@ -53,16 +68,22 @@ final class Proposals
             throw new InvalidArgumentException('Your role may not ask for this.');
         }
         [$payload, $summary] = self::check($type, $payload);
+        // Without format characters from a customer's subject: a bidi override reorders what staff read (re-review of #423).
+        $summary = (string) preg_replace('/\p{Cf}/u', '', $summary);
         // The same request, already waiting (whoever asked): one to approve. Who asks again follows it with `proposal`,
         // which shows what the caller may decide too (review R1).
         $open = McpProposal::query()->where('type', $type)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())
-            ->get()->first(fn (McpProposal $proposal) => $proposal->payload == $payload);
+            // The very same request: strict, never PHP's loose «100» == «1e2» (review of #423).
+            ->get()->first(fn (McpProposal $proposal) => json_encode($proposal->payload) === json_encode($payload));
         if ($open !== null) {
             return $open;
         }
         $pending = McpProposal::query()->where('proposed_by', $staff->id)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now());
         if ($pending->count() >= self::PENDING_PER_PROPOSER) {
             throw new InvalidArgumentException('Too many of your proposals are waiting: staff decide those first.');
+        }
+        if ($type === self::TICKET_REPLY && self::draftsFor((int) $payload['ticket_id'])->count() >= self::DRAFTS_PER_TICKET) {
+            throw new InvalidArgumentException('This ticket already has ' . self::DRAFTS_PER_TICKET . ' drafts waiting: staff use or discard those first.');
         }
 
         return McpProposal::query()->create(['type' => $type, 'payload' => $payload, 'summary' => $summary, 'proposed_by' => $staff->id,
@@ -74,6 +95,9 @@ final class Proposals
     {
         if (!$staff->hasPermission(self::permission($proposal->type))) {
             throw new InvalidArgumentException('Your role may not approve this.');
+        }
+        if ($proposal->type === self::TICKET_REPLY) {
+            throw new InvalidArgumentException('A drafted reply is never sent by approving it: open its ticket and use the draft.');
         }
         $proposal = self::decide($proposal, McpProposal::STATUS_APPROVED, $staff)
             ?? throw new InvalidArgumentException('It is no longer waiting (decided, or expired).');
@@ -88,6 +112,36 @@ final class Proposals
         }
 
         return $proposal->refresh();
+    }
+
+    /**
+     * A drafted reply into staff's hands: the proposal is done (used), and its text goes to the ticket's reply box, where
+     * staff change it and send it, or not. Null: someone decided first, or it expired.
+     */
+    public static function useDraft(McpProposal $proposal, Staff $staff): ?string
+    {
+        if ($proposal->type !== self::TICKET_REPLY || !$staff->hasPermission(self::permission($proposal->type))) {
+            throw new InvalidArgumentException('Your role may not use this draft.');
+        }
+        $decided = self::decide($proposal, McpProposal::STATUS_APPROVED, $staff);
+        if ($decided === null) {
+            return null;
+        }
+        $decided->update(['status' => McpProposal::STATUS_DONE, 'result' => 'Taken into the reply box by staff #' . $staff->id . ' (what was sent is the ticket\'s).']);
+
+        return (string) ($decided->payload['message'] ?? '');
+    }
+
+    /** @return Collection<int, McpProposal> the drafts still open on a ticket */
+    public static function draftsFor(int $ticketId): Collection
+    {
+        if (Ticket::query()->find($ticketId)?->isMerged() ?? true) {
+            return collect(); // merged since: its thread goes on in the other ticket
+        }
+
+        return McpProposal::query()->with('proposer')->where('type', self::TICKET_REPLY)->where('status', McpProposal::STATUS_PENDING)
+            ->where('expires_at', '>', now())->orderBy('id')->get()
+            ->filter(fn (McpProposal $proposal) => (int) ($proposal->payload['ticket_id'] ?? 0) === $ticketId)->values();
     }
 
     public static function reject(McpProposal $proposal, Staff $staff): void
@@ -156,6 +210,7 @@ final class Proposals
         return match ($type) {
             self::RETRY_MODULE_ACTION, self::RESOLVE_MODULE_ACTION => self::checkModuleAction($type, $payload),
             self::RESEND_MAIL => self::checkMail($payload),
+            self::TICKET_REPLY => self::checkTicketReply($payload),
             default => throw new InvalidArgumentException("Unknown proposal {$type}."),
         };
     }
@@ -225,6 +280,23 @@ final class Proposals
         return [['email_log_id' => $log->id, 'to' => $to, 'with_copies' => $copies], mb_substr(
             "Resend mail #{$log->id} «" . mb_strimwidth($log->subject, 0, 80, '…') . "» to {$to}" . ($to !== $log->to ? " (it went to {$log->to})" : '')
             . ($copies ? ', with its Cc/Bcc.' : '.'), 0, 500)];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private static function checkTicketReply(array $payload): array
+    {
+        $ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0)) ?? throw new NotFound('No such ticket.');
+        if ($ticket->isMerged()) {
+            throw new InvalidArgumentException("Ticket #{$ticket->id} was merged into another: draft there.");
+        }
+        // Without format characters (bidi overrides, zero-width): they can hide or reorder what a link says (review of #423).
+        $message = trim((string) preg_replace('/\p{Cf}/u', '', (string) ($payload['message'] ?? '')));
+        if ($message === '' || mb_strlen($message) > self::DRAFT_MAX) {
+            throw new InvalidArgumentException('The draft is empty, or longer than ' . self::DRAFT_MAX . ' characters.');
+        }
+
+        return [['ticket_id' => $ticket->id, 'message' => $message], mb_substr('Draft reply on ticket #' . $ticket->id . ' «'
+            . mb_strimwidth((string) $ticket->subject, 0, 80, '…') . '»: ' . mb_strimwidth($message, 0, 300, '…') . ' (used from the ticket page, never sent by approving)', 0, 500)];
     }
 
     /** @param array<string, mixed> $payload */

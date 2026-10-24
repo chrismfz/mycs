@@ -132,3 +132,8 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
 - **`server_test`** (Update Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
   stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
   gets MyCS locked out.
+
+- **Ticket reply drafts** (`propose_ticket_reply`, needs Update Tickets): the agent drafts a reply; staff see it on the
+  ticket's page above the reply box, its text as written (links as plain text), and «Use the draft» (into the reply box,
+  after what they already wrote: they change it and send it themselves) or «Discard». Approving it in MCP Proposals
+  sends nothing (the page offers «Open the ticket» instead). Nothing reaches a customer without a member of staff.

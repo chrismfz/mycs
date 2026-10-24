@@ -18,6 +18,7 @@ use App\Mcp\Tools\ProposalTool;
 use App\Mcp\Tools\ProposeResendMailTool;
 use App\Mcp\Tools\ProposeResolveModuleActionTool;
 use App\Mcp\Tools\ProposeRetryModuleActionTool;
+use App\Mcp\Tools\ProposeTicketReplyTool;
 use App\Mcp\Tools\RegistrarLogTool;
 use App\Mcp\Tools\ServerTestTool;
 use App\Mcp\Tools\ServiceTool;
@@ -50,6 +51,7 @@ use Laravel\Mcp\Server\Attributes\Version;
       the application errors; `audit_search` who changed what and when.
 
     - `server_test` checks a provisioning server's connection with its stored settings (changes nothing).
+    - `propose_ticket_reply` drafts a reply staff see on the ticket, change and send themselves: never sent from here.
     - `propose_*` tools only PROPOSE a change (retry or resolve a module action, resend a mail): staff approve or reject
       it in the admin (Other → MCP Proposals) within a day. Say it was proposed, never that it was done; `proposal`
       tells the outcome.
@@ -88,6 +90,7 @@ class MycsServer extends Server
         ProposeRetryModuleActionTool::class,
         ProposeResolveModuleActionTool::class,
         ProposeResendMailTool::class,
+        ProposeTicketReplyTool::class,
         ProposalTool::class,
     ];
 }

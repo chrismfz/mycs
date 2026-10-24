@@ -35,6 +35,25 @@ class TicketTool extends McpTool
         ];
     }
 
+    /**
+     * A ticket by its reference or id (`#123` is an id only). A number that is one ticket's id and another's reference
+     * is refused rather than guessed (review of #423: a draft on another customer's ticket).
+     */
+    public static function find(string $key): Ticket
+    {
+        $key = trim($key);
+        if (preg_match('/^#(\d+)$/', $key, $id) === 1) {
+            return Ticket::query()->find((int) $id[1]) ?? throw new NotFound("No ticket {$key}.");
+        }
+        $byReference = Ticket::query()->where('reference', $key)->first();
+        $byId = ctype_digit($key) ? Ticket::query()->find((int) $key) : null;
+        if ($byReference !== null && $byId !== null && !$byReference->is($byId)) {
+            throw new \InvalidArgumentException("{$key} is ticket #{$byId->id}'s id and ticket #{$byReference->id}'s reference: give #{$byId->id} for the id, or the reference.");
+        }
+
+        return $byReference ?? $byId ?? throw new NotFound("No ticket {$key}.");
+    }
+
     protected function permission(): string
     {
         return 'admin.tickets.viewAny';
@@ -51,9 +70,7 @@ class TicketTool extends McpTool
                 ->map(fn (Ticket $ticket) => ['id' => $ticket->id, 'reference' => $ticket->reference, 'subject' => Scrub::text($ticket->subject),
                     'status' => $ticket->status, 'department' => $ticket->department?->name, 'client_id' => $ticket->client_id, 'updated_at' => $ticket->updated_at?->toDateTimeString()])->all()];
         }
-        $ticket = Ticket::query()->with(['department', 'client', 'service.product', 'assignedTo', 'ccs'])
-            ->where(fn ($query) => $query->where('reference', $key)->when(ctype_digit($key), fn ($q) => $q->orWhere('id', (int) $key)))->first()
-            ?? throw new NotFound("No ticket {$key}.");
+        $ticket = self::find($key)->load(['department', 'client', 'service.product', 'assignedTo', 'ccs']);
         $shown = max(1, min(self::MAX_MESSAGES, (int) ($request->get('messages') ?? self::MESSAGES)));
         $messages = $ticket->messages()->with('attachments')->latest('id')->limit($shown)->get()->reverse()->values();
 
