@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d70b402619e8f534fa59ea9e31a6e859",
+    "content-hash": "435f5831d4d06fd1d745781e26cbe2f8",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -4842,6 +4842,41 @@
                 "MIT"
             ],
             "description": "Prices one order line in decimal: coupon discount, tax inclusive or exclusive, rounded to cents. Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/proxmox",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/proxmox",
+                "reference": "90806ceec2b952c26ddbe8025d2cf1d175c9a97b"
+            },
+            "require": {
+                "ext-json": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\Proxmox\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\Proxmox\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn. Framework-free.",
             "transport-options": {
                 "symlink": true,
                 "relative": true

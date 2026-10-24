@@ -1,0 +1,23 @@
+{
+    "name": "mycs/proxmox",
+    "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn. Framework-free.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\Proxmox\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\Proxmox\\Tests\\": "tests/"
+        }
+    }
+}

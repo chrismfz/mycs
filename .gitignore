@@ -23,7 +23,6 @@ yarn-error.log
 /.vscode
 extensions/Others/Pages
 extensions/Servers/LicenseManager
-extensions/Servers/Proxmox
 .DS_Store
 
 # Claude Code: per-machine overrides (template: .claude/settings.local.json.example)

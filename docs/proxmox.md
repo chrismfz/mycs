@@ -1,7 +1,40 @@
 # Proxmox VE
 
-Αναβολή του υπευθύνου (2026-10-23): το extension περιμένει το migration των υπαρχόντων VM. Εδώ μένουν τα ευρήματα
-και οι αποφάσεις, για όταν ξεκινήσει.
+Ξεκίνησε στις 2026-10-24 με μια φάση μόνο ανάγνωσης (PR 1, παρακάτω), που κάνει και το «πρώτα το migration»: κάθε VM
+του cluster αντιστοιχίζεται σε υπηρεσία ή σημειώνεται εσωτερικό. Οι ενέργειες (create, power, κονσόλα) έρχονται μετά.
+
+## PR 1: inventory, μόνο ανάγνωση (2026-10-24)
+- **Ένας server ανά cluster** (τύπος «Proxmox VE»), με έως 3 διευθύνσεις κόμβων (vega, pegasus…). Οποιοσδήποτε κόμβος
+  απαντά για όλο το cluster με το ίδιο token. Αν ο πρώτος δεν απαντά (ή απαντά 502/503/504), η κλήση πάει στον επόμενο, που μένει πρώτος
+  από εκεί και πέρα. Ένα token που απορρίπτεται δεν δοκιμάζεται αλλού. Ένα δεύτερο cluster ή ένας standalone κόμβος
+  είναι άλλος server· τα VMID είναι μοναδικά μόνο μέσα στο cluster τους.
+- Η σύνδεση είναι όπως των panels (`PanelConnection`): μόνο https, προς την IP του κόμβου αν δοθεί, self-signed
+  μόνο μαζί με IP, χωρίς redirects και χωρίς pins.
+- **Utilities → Proxmox Guests:** κάθε VM και container με VMID, κόμβο, κατάσταση, CPU/RAM/δίσκο, MACs (από το
+  config) και IPs (από τον guest agent, ή τις στατικές ενός container).
+  - Αντιστοίχιση σε υπηρεσία ή «Internal» με σημείωση· φίλτρο «Not mapped».
+  - Πρόταση υπηρεσίας από dedicated IP, MAC (στοιχεία μηχανής του Offline VM) ή όνομα = domain.
+  - Ένα guest που χάθηκε από το cluster μένει ως «gone», με την αντιστοίχισή του. Αν το VMID του το πάρει άλλο
+    μηχάνημα (άλλες MACs, ή άλλο όνομα όταν δεν υπάρχουν MACs), η αντιστοίχιση σβήνει και το guest ξαναγίνεται «Not mapped».
+  - Μια λίστα χωρίς κανένα guest, εκεί που υπήρχαν, θεωρείται token χωρίς δικαιώματα: δεν σημειώνεται τίποτα ως gone.
+- **Utilities → Proxmox Nodes:** οι κόμβοι με γραφήματα CPU, μνήμης, IO wait και δικτύου (ώρα, μέρα, εβδομάδα),
+  διαβασμένα ζωντανά, με cache ενός λεπτού.
+- `proxmox:sync` κάθε 15 λεπτά, και κουμπί «Read the clusters now». Ένα cluster που δεν διαβάζεται δεν σημειώνει
+  τίποτα ως gone. Τα δικαιώματα είναι αυτά των servers (`admin.servers.viewAny` / `update`).
+- Πρόσβαση: αρκεί ένα token με **PVEAuditor** στο `/`, που μόνο διαβάζει:
+
+```bash
+pveum user add mycs@pve --comment "MyCS control plane"
+pveum user token add mycs@pve api --privsep 1
+pveum acl modify / --roles PVEAuditor --users mycs@pve --tokens 'mycs@pve!api'
+```
+
+  Στο MyCS: Setup → Servers → New, τύπος «Proxmox VE». Συμπληρώνονται:
+  - η διεύθυνση και η IP κάθε κόμβου (`https://vega…:8006`, `https://pegasus…:8006`)·
+  - «Self-signed», αν το πιστοποιητικό είναι του Proxmox· τότε η IP κάθε κόμβου είναι υποχρεωτική·
+  - token ID `mycs@pve!api` και το secret του.
+
+  Η πρόσβαση για τις ενέργειες (ρόλος MyCS στο pool, παρακάτω) προστίθεται όταν έρθουν.
 
 ## Τι υπάρχει σήμερα (2026-10-23, μόνο ανάγνωση)
 - **WHMCS του myip:** module «Proxmox VE for WHMCS» (pvewhmcs, GPL, The-Network-Crew), μόνο ως αναφορά, όχι για
@@ -48,7 +81,7 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 Το secret του token τυπώνεται μία φορά και μπαίνει μόνο στη σύνδεση του server στο MyCS (κρυπτογραφημένο). Τα ονόματα
 των δικαιωμάτων αλλάζουν ανά έκδοση (στο PVE 9 το `VM.Monitor` έγινε `VM.GuestAgent.*`).
 
-## Σχέδιο (5 PRs, όταν ξεκινήσει)
+## Σχέδιο ενεργειών (μετά το PR 1)
 1. Extension: σύνδεση (token), create, suspend, unsuspend, terminate· κόμβος ανά προϊόν· τα πλάνα ως ρυθμίσεις
    προϊόντος· import από το `mod_pvewhmcs_vms`.
 2. Πελάτης: κατάσταση, start, shutdown, stop, reboot· γραφήματα CPU, RAM, δικτύου, δίσκου (RRD)· IP και MAC.

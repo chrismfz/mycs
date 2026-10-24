@@ -16,6 +16,7 @@
             <directory>packages/cnic/tests</directory>
             <directory>packages/gr-epp/tests</directory>
             <directory>packages/pricing/tests</directory>
+            <directory>packages/proxmox/tests</directory>
             <directory>packages/mail-template/tests</directory>
             <directory>packages/cardlink-eurobank/tests</directory>
             <directory>packages/domain-tools/tests</directory>
