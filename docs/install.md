@@ -91,4 +91,5 @@ composer install --no-dev --optimize-autoloader && npm ci && npm run build
 gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν το migrate άλλαξε δεδομένα
 php artisan optimize && php artisan up
 ```
-Τα snapshots είναι στον ίδιο server: δεν αντικαθιστούν τα backups εκτός server (ROADMAP Φάση 0).
+Τα snapshots είναι στον ίδιο server: δεν αντικαθιστούν τα backups εκτός server, που είναι το JetBackup του root.
+Το `APP_KEY` φυλάγεται και εκτός server (`decisions.md`, «Backups και `APP_KEY`»).
