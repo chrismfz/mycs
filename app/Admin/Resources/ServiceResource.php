@@ -381,7 +381,8 @@ class ServiceResource extends Resource
                             ->copyable(in_array($field['type'], ['mac', 'ip'], true))
                             ->columnSpan(in_array($field['type'], ['textarea'], true) ? 'full' : 1))->values()->all(),
                         Actions::make([Action::make('machine_edit')->label('Edit machine details')->icon('heroicon-o-pencil-square')->size('sm')->color('gray')
-                            ->alpineClickHandler("\$wire.mountAction('editMachine')")]),
+                            ->alpineClickHandler("\$wire.mountAction('editMachine')")
+                            ->visible(fn (Service $record) => (bool) auth()->user()?->can('update', $record))]),
                     ]),
                 // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
                 Section::make('License')

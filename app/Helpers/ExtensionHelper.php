@@ -1628,19 +1628,48 @@ class ExtensionHelper
     private static function offlineTask(Service $service, string $recorded, string $module, string $action): array
     {
         $what = trim(($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
-        ModuleAction::recordFailure($service, $recorded, $module,
-            new RuntimeException("By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this resolved.'));
-        if (ModuleAction::giveUp($service, $recorded)) {
-            NotificationHelper::sendSystemEmailNotification("By hand: {$recorded} service #{$service->id}", e(
-                "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
-                . 'then mark the task resolved in Pending Module Actions.'
-            ));
-        }
+        $now = now();
+        // A new task each time (review of #443: the old open row was reused and staff were not told); older open ones
+        // of this machine that the new one makes moot are closed.
+        ModuleAction::query()->open()->where('service_id', $service->id)->where('subject', ModuleAction::SUBJECT_BY_HAND)
+            ->whereIn('action', ModuleAction::BY_HAND_SUPERSEDES[$recorded] ?? [$recorded])
+            ->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by a newer task: {$recorded}", 'updated_at' => $now]);
+        ModuleAction::query()->create(['service_id' => $service->id, 'action' => $recorded, 'subject' => ModuleAction::SUBJECT_BY_HAND,
+            'module' => $module, 'status' => ModuleAction::STATUS_OPEN, 'attempts' => 1, 'last_attempt_at' => $now, 'given_up_at' => $now,
+            'last_error' => "By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.']);
+        // Its details in the mail too (a deleted service takes them with it: review R5); after commit, and a mail that
+        // fails never fails the action (R6).
+        $details = $service->properties()->get()->map(fn ($p) => ($p->name ?: $p->key) . ': ' . str_replace("\n", ', ', (string) $p->value))->implode("\n");
+        $id = $service->id;
+        DB::afterCommit(function () use ($id, $recorded, $what, $module, $details) {
+            try {
+                NotificationHelper::sendSystemEmailNotification("By hand: {$recorded} service #{$id}", nl2br(e(
+                    "Service #{$id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
+                    . 'then mark the task done in Pending Module Actions.' . ($details !== '' ? "\n\n{$details}" : '')
+                )));
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
         if ($action === 'createServer') {
             self::startCreated($service);
         }
 
         return [];
+    }
+
+    /** The service's machine has no API (OfflineServer): its server actions are staff's tasks. */
+    public static function isOffline(Service $service): bool
+    {
+        $server = $service->provisioningServer();
+        if ($server === null || blank($server->extension)) {
+            return false;
+        }
+        try {
+            return self::getExtension('server', $server->extension, $server->settings) instanceof OfflineServer;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**

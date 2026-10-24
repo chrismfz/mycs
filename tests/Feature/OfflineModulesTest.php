@@ -55,6 +55,7 @@ class OfflineModulesTest extends TestCase
         $this->assertSame(['suspend', 'OfflineDedicated'], [$task->action, $task->module]);
         $this->assertNotNull($task->given_up_at, 'no retry can do it: staff\'s at once');
         $this->assertStringContainsString('By hand: suspend', (string) $task->last_error);
+        $this->assertSame(ModuleAction::SUBJECT_BY_HAND, $task->subject);
         $this->assertStringContainsString('mars.example.test', (string) $task->last_error);
         $this->assertTrue(EmailLog::query()->where('subject', 'like', 'By hand: suspend service #' . $service->id . '%')->exists(), 'staff told once');
         $this->assertSame('suspended', $service->fresh()->status);
@@ -77,16 +78,16 @@ class OfflineModulesTest extends TestCase
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
             ->assertSee('Machine')
-            ->callAction('editMachine', ['rack' => 'A2', 'rack_unit' => '12', 'rack_height' => 2,
-                'ipmi_ip' => '10.0.0.204', 'ipmi_mac' => '50-9a-4c-a8-fd-00', 'mac' => 'aa:bb:cc:dd:ee:01, AA:BB:CC:DD:EE:02'])
-            ->assertHasNoActionErrors();
+            ->callAction('editMachine', ['machine_rack' => 'A2', 'machine_rack_unit' => '12', 'machine_rack_height' => 2,
+                'machine_ipmi_ip' => '10.0.0.204', 'machine_ipmi_mac' => '50-9a-4c-a8-fd-00', 'machine_mac' => 'aa:bb:cc:dd:ee:01, AA:BB:CC:DD:EE:02'])
+            ->assertHasNoActionErrors()->assertNotified();
 
         $props = $service->fresh()->properties->pluck('value', 'key');
         $this->assertSame(['A2', '12', '2', '10.0.0.204', '50:9A:4C:A8:FD:00', "AA:BB:CC:DD:EE:01\nAA:BB:CC:DD:EE:02"],
-            [$props['rack'], $props['rack_unit'], $props['rack_height'], $props['ipmi_ip'], $props['ipmi_mac'], $props['mac']]);
+            [$props['machine_rack'], $props['machine_rack_unit'], $props['machine_rack_height'], $props['machine_ipmi_ip'], $props['machine_ipmi_mac'], $props['machine_mac']]);
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->callAction('editMachine', ['ipmi_mac' => 'not-a-mac'])->assertHasActionErrors(['ipmi_mac']);
+            ->callAction('editMachine', ['machine_ipmi_mac' => 'not-a-mac'])->assertHasActionErrors(['machine_ipmi_mac']);
     }
 
     public function test_a_module_with_an_api_has_no_machine_section(): void

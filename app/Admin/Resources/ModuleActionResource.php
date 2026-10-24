@@ -100,7 +100,7 @@ class ModuleActionResource extends Resource
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null
-                        && $record->action !== OptionTasks::ACTION) // a staff task: done by hand, nothing to run
+                        && $record->action !== OptionTasks::ACTION && $record->subject !== ModuleAction::SUBJECT_BY_HAND) // a staff task: done by hand, nothing to run
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -182,7 +182,7 @@ class ModuleActionResource extends Resource
                         $sent = ContactPush::retryDomain((int) $record->domain_id);
                         Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
-                Action::make('resolve')->label(fn (ModuleAction $record) => match ($record->action) {
+                Action::make('resolve')->label(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done' : match ($record->action) {
                     ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Locked by hand' : 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
@@ -193,7 +193,7 @@ class ModuleActionResource extends Resource
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN || $record->onHold()) // «Done by hand» after «stop it» (ADV-4 of #306)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription(fn (ModuleAction $record) => match ($record->action) {
+                    ->modalDescription(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done on the machine by hand: closes it.' : match ($record->action) {
                         ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Its transfer lock was put on at the registrar by hand: closes it.' : 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',

@@ -68,6 +68,18 @@ class ModuleAction extends Model
     /** A domain's row for its transfer lock, to be put on again by hand (RenewAsTransfer::lockAtSource). */
     public const SUBJECT_RELOCK = 'relock';
 
+    /** A server action on a machine with no API (OfflineServer): a task for staff, never run (no Retry). */
+    public const SUBJECT_BY_HAND = 'by hand';
+
+    /** A newer task on the same machine makes these older ones moot (the machine goes where the newer one says). */
+    public const BY_HAND_SUPERSEDES = [
+        'create' => ['create'],
+        'suspend' => ['suspend', 'unsuspend'],
+        'unsuspend' => ['suspend', 'unsuspend'],
+        'terminate' => ['create', 'suspend', 'unsuspend', 'upgrade', 'terminate'],
+        'upgrade' => ['upgrade'],
+    ];
+
     /** The resolution of an order staff closed «stop it»: on hold, its unconfirmed request still for them to say. */
     public const CLOSED_ON_HOLD = 'closed, on hold';
 

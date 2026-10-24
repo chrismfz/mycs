@@ -21,13 +21,13 @@ class OfflineVm extends OfflineMachineServer
     public function serviceFields(): array
     {
         return [
-            ['name' => 'vm_id', 'label' => 'VM ID', 'type' => 'text', 'help' => 'Its ID at the provider or on the node.'],
-            ['name' => 'provider', 'label' => 'Provider / location', 'type' => 'text', 'help' => 'Hetzner, a node of ours, another provider.'],
-            ['name' => 'mac', 'label' => 'MAC address(es)', 'type' => 'mac', 'help' => 'One per line.'],
-            ['name' => 'ipv6', 'label' => 'IPv6', 'type' => 'textarea', 'help' => 'Addresses or prefixes, one per line.'],
-            ['name' => 'os', 'label' => 'Operating system', 'type' => 'text'],
-            ['name' => 'specs', 'label' => 'CPU / RAM / disk', 'type' => 'text'],
-            ['name' => 'console_url', 'label' => 'Console / provider panel', 'type' => 'text'],
+            ['name' => 'machine_vm_id', 'label' => 'VM ID', 'type' => 'text', 'help' => 'Its ID at the provider or on the node.'],
+            ['name' => 'machine_provider', 'label' => 'Provider / location', 'type' => 'text', 'help' => 'Hetzner, a node of ours, another provider.'],
+            ['name' => 'machine_mac', 'label' => 'MAC address(es)', 'type' => 'mac', 'help' => 'One per line.'],
+            ['name' => 'machine_ipv6', 'label' => 'IPv6', 'type' => 'textarea', 'help' => 'Addresses or prefixes, one per line.'],
+            ['name' => 'machine_os', 'label' => 'Operating system', 'type' => 'text'],
+            ['name' => 'machine_specs', 'label' => 'CPU / RAM / disk', 'type' => 'text'],
+            ['name' => 'machine_console_url', 'label' => 'Console / provider panel', 'type' => 'text'],
             ['name' => 'machine_notes', 'label' => 'Notes', 'type' => 'textarea'],
         ];
     }
