@@ -270,3 +270,109 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   email «ZoneCloud» στα προϊόντα licensing.
 - Δεν χρειάζονται: usage billing (δεν τιμολογήθηκε ποτέ), OAuth SSO, logs, caches των vendors, ο νεκρός
   `nixpal_license`, τα κενά quotes/affiliates/downloads.
+
+## Sweep του WHMCS του myip (2026-10-25, μόνο ανάγνωση)
+
+WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026. Μόνο οι διαφορές από τη nixpal (παραπάνω).
+
+### Σημαντικά
+- **Bug του importer:** το gateway του Eurobank λέγεται `eurobanklib` και δεν είναι στο `ImportFromWhmcs::GATEWAYS`.
+  Αφορά 3.338 πληρωμές, τον τρόπο πληρωμής 167 ενεργών υπηρεσιών και 474 domains. Χαρτογραφείται ως Cardlink. Το
+  `paypalpaymentspro` (2 πληρωμές του 2007) μένει χωρίς gateway.
+- **Hook `ExpiredDomains.php` στο WHMCS:** σβήνει **οριστικά** κάθε μέρα τα domains που είναι Expired, Cancelled ή
+  Transferred Away. Η αναμονή των 90 ημερών δεν δουλεύει, γιατί συγκρίνει string με int.
+  - 20 διαγραφές από 19/09 ως 21/10.
+  - 6.615 γραμμές τιμολογίων δείχνουν σε domains που δεν υπάρχουν πια. Μόνο τα 809 βρίσκονται στο `tbldomains_backup`.
+- **Νεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών στις
+  31 και των τιμολογίων στο terminate **δεν γίνονται σήμερα**. Πρόταση για το myip: `cronjob_add_funds_cancel = 0`, εκτός
+  αν ο υπεύθυνος το θέλει ενεργό.
+- **Το Ekdosi του devbox (84.54.49.31) διαβάζει το WHMCS της παραγωγής** μέσω `ekdosi_bridge/resolve.php`: 21.034 κλήσεις
+  σε 25 ημέρες.
+
+### Λείπουν ή θέλουν απόφαση (μόνο του myip, ή με άλλο όγκο)
+- **Ίδια κενά με τη nixpal, άλλος όγκος:**
+  - χώρα τιμολογίου: 16.581 τιμολόγια, ~810 εκτός GR·
+  - opt-out marketing: 344 `emailoptout`, `tblmarketing_consent` 829 (366 όχι). Το myip στέλνει campaigns: 24 έχουν
+    σταλεί, η μία σε 518 παραλήπτες·
+  - ιστορικό emails: 55.379·
+  - `tbldomainreminders`: 34.617·
+  - spam filters: 849, από τα οποία 1 με subject (δεν υπάρχει αντίστοιχο στη MyCS)·
+  - announcements: 5, συν 7 στον custom πίνακα `tblannouncementsEN`·
+  - αρχεία πελατών: 18·
+  - to-dos: 619 ανοιχτά.
+- **Τύποι γραμμών τιμολογίου:**
+  - Χωρίς κανόνα `reference_type` προς το παρόν: Addon 378, Upgrade 324, Setup 7, DomainAddonIDP 7, DomainAddonDNS 1,
+    PromoDomain 1.
+  - PromoHosting 117 → Service, όπως στη nixpal.
+  - Επίσης υπάρχουν manual 1.714, AddFunds 619 και mass pay 233.
+- **Ορφανά:**
+  - 1.344 γραμμές σε τιμολόγια που σβήστηκαν (~30,4 χιλ. €): παραλείπονται, με αναφορά.
+  - **340 πληρωμές σε τιμολόγια που σβήστηκαν** (19.892 €) και **63 χωρίς τιμολόγιο** (10.345 €): εισάγονται ως μη
+    κατανεμημένες, με σημείωση, αλλιώς τα σύνολα ανά gateway δεν βγαίνουν.
+  - Γραμμές σε υπηρεσίες ή domains που σβήστηκαν: εισάγονται με κενή αναφορά, ποτέ με «μάντεμα».
+- **Πίστωση:** το υπόλοιπο στον πελάτη είναι 2.687,52 € (23 πελάτες), το ledger αθροίζει 7.879,44 € και διαφωνούν σε
+  22 πελάτες. Πηγή αλήθειας είναι το υπόλοιπο, συν μια εγγραφή «άνοιγμα» στο ledger.
+- **Αρίθμηση:**
+  - number = id, max id **32.598** (τα docs έλεγαν 32.453/32.476)·
+  - ~11,7 χιλ. κενά από διαγραμμένα τιμολόγια, φυσιολογικά.
+- **Ακραίες τιμές:**
+  - 4 Paid χωρίς `datepaid`·
+  - 2 πληρωμές με ημερομηνία `0000-00-00`·
+  - 59 ενεργές δωρεάν υπηρεσίες με μηδενικό `nextduedate` → null.
+  - Status Fraud: 2 υπηρεσίες και 2 παραγγελίες → cancelled, με σημείωση.
+- **Client groups:**
+  - 1 ομάδα με ξεχωριστά τιμολόγια, 32 μέλη·
+  - 3 ομάδες με εξαίρεση από suspend/terminate·
+  - η MyCS έχει σήμερα μόνο έκπτωση ανά ομάδα, οπότε χρειάζονται flags στην ομάδα ή σε κάθε πελάτη.
+- **Flag ανά πελάτη «χωρίς υπενθυμίσεις overdue»** (`overideduenotices`): 18 πελάτες. **Λείπει** από τη MyCS.
+- **Ekdosi:**
+  - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα·
+  - `mod_timologia*`: αρχείο.
+- **Δεν έχουν extension στη MyCS:**
+  - TheSSLStore: 12 ενεργές υπηρεσίες. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
+  - Hetzner Cloud: 1 υπηρεσία. Γίνεται Offline VM.
+  - ngm: 1 υπηρεσία. Γίνεται Offline VM.
+- **Centova:** custom fields `port`, `username`, `sourcepassword` (μυστικό, κρυπτογραφείται), `servertype`, `sourcetype`,
+  `transferlimit`. Ο mailcow έχει 10 ενεργές.
+- **Domains, για το D6:**
+  - 1.565 additional fields: IDN script, entity types, CNIC EU/ES, grepp·
+  - 10 με DNSSEC·
+  - 1 ενεργό στον **enom**, 1 χωρίς status, 1 Grace χωρίς registrar: διορθώνονται με το χέρι·
+  - το migration domains (197 υποβλήθηκαν, 26 απέτυχαν) πρέπει να τελειώσει πριν από το cut-over.
+- **Ειδοποιήσεις Mattermost:** 5 κανόνες στο WHMCS. Η MyCS έχει μόνο Discord.
+- **Templates:** από τα custom, σε χρήση είναι μόνο το «Domain Transfer Complete» (54 τον χρόνο), που μεταφέρεται.
+- **Ιστορικό του `payments_tracking`** (2.318): εισάγεται ως history ή μένει μόνο σε αρχείο;
+- Αρχείο μόνο: quotes 14, CRM (mgCRM2) 555 leads, affiliates, ExpenseTracker.
+
+### Ρυθμίσεις που διαφέρουν από το settings-map
+- **Σαββατοκύριακο:** κρατιούνται μόνο τα **suspend** (Σάββατο, Κυριακή, Δευτέρα 00–09). Τα terminate τρέχουν κανονικά.
+- **ΦΠΑ:**
+  - δύο κανόνες, GR 24% και «All other» 24%·
+  - `TaxCustomInvoices` κλειστό, οπότε τα χειροκίνητα τιμολόγια δεν έχουν φόρο·
+  - `TaxDomains` ανοιχτό.
+- Επίσης:
+  - `CreditOnDowngrade` κλειστό·
+  - add funds από 1 ως 5.000 €, μέγιστο υπόλοιπο 10.000 €·
+  - `DomainSyncNextDueDate` ανοιχτό·
+  - 2FA υποχρεωτικό για τους admins·
+  - `AllowDomainsTwice` ανοιχτό.
+
+### Τι σπάει στο cut-over
+- **Cron του myipgr:**
+  - `cron.php`, κάθε 5 λεπτά·
+  - `pop.php`, κάθε 3 λεπτά·
+  - `bank-payments-logging.php`, κάθε 3 λεπτά.
+- **Ekdosi:** η παραγωγή (`resolve.php` 22.197 κλήσεις, `inbound.php` 82) γυρίζει στη MyCS. Του devbox σταματά.
+- **Site:**
+  - το `/api/domain-check.php` κάνει `require` το `init.php` του WHMCS, για GetTLDPricing και DomainWhois·
+  - `/clients/mydomainsearch.php`: 345 κλήσεις, από άγνωστο caller·
+  - `/clients/dl.php`: 206·
+  - `grwhoisapi/consumer.php` καλείται από τον ίδιο τον rigel.
+- **Gateways:**
+  - Eurobank: confirm/cancel μόνο για όσες πληρωμές βρίσκονται σε εξέλιξη τη στιγμή του cut-over·
+  - ppcpv webhook, όπως στη nixpal·
+  - Stripe webhook: 5 κλήσεις.
+- **Χάρτης 301:** το clients.myip.gr κάνει redirect στο `/clients/…`, και `/store/cpanel-hosting/*`, `cart.php`,
+  `/knowledgebase/tag/*` έχουν ακόμα κίνηση.
+- **API:** καμία κλήση από παραγωγή. Τρία credentials (ALL-ROLES, ekdosi, invoicer), που ανακαλούνται μετά.
+- **`/home/myipgr/eurobank_iris_debug.txt`:** debug log του gateway, 942 KB. Να ελεγχθεί τι κρατά και να σβηστεί.
