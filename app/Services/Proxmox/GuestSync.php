@@ -57,7 +57,7 @@ final class GuestSync
             $new += $row->exists ? 0 : 1;
             // A VMID reused by another machine (Proxmox gives the lowest free one): not the guest that was mapped.
             if ($row->exists && self::anotherMachine($row, $guest)) {
-                $row->fill(['service_id' => null, 'internal' => false, 'note' => null, 'macs' => null, 'ips' => null]);
+                $row->fill(['service_id' => null, 'internal' => false, 'note' => null, 'macs' => null, 'ips' => null, 'onboot_before_suspend' => null]);
             }
             $row->fill([
                 'type' => $guest->type, 'node' => $guest->node, 'pool' => $guest->pool, 'name' => $guest->name, 'status' => $guest->status,

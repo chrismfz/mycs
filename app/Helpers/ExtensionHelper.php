@@ -160,6 +160,9 @@ class ExtensionHelper
         $config = self::getConfig($record->type, $record->extension, array_merge($current, $values) ?: ['_' => null]);
 
         foreach ($config as $option) {
+            if (($option['type'] ?? null) === 'placeholder') {
+                continue; // a text on the form, not a setting
+            }
             $value = $values[$option['name']] ?? null;
             if ($skipNull && $value === null) {
                 continue;
@@ -1718,7 +1721,10 @@ class ExtensionHelper
             try {
                 $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
             } catch (LeftToStaff $e) {
-                // Done as far as the module goes, its last step staff's on purpose (Proxmox «Terminate: stop»).
+                // Done as far as the module goes, its last step staff's on purpose (Proxmox «Terminate: stop»): what a
+                // done action makes moot is closed as for one (review of #447).
+                ModuleAction::closeSuperseded($service, $recorded, "superseded by {$recorded} (left to staff)");
+
                 return self::staffTask($service, $recorded, (string) $server->extension, $action, $e->getMessage(),
                     "Service #{$service->id} ({$server->extension}): " . $e->getMessage());
             }

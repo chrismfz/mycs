@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\ProxmoxGuestResource\Pages\ListProxmoxGuests;
 use App\Models\ProxmoxGuest;
+use App\Models\Server;
 use App\Models\Service;
 use Carbon\CarbonInterface;
 use Filament\Actions\Action;
@@ -87,8 +88,14 @@ class ProxmoxGuestResource extends Resource
                 SelectFilter::make('server_id')->label('Cluster')->relationship('server', 'name', fn (Builder $query) => $query->where('extension', 'Proxmox')),
                 SelectFilter::make('node')->options(fn () => ProxmoxGuest::query()->whereNotNull('node')->distinct()->orderBy('node')->pluck('node', 'node')->all()),
                 TernaryFilter::make('outside_pool')->label('Mapped, outside the MyCS pool')
-                    ->queries(true: fn (Builder $query) => $query->whereNotNull('service_id')->where(fn ($q) => $q->whereNull('pool')->orWhere('pool', '!=', 'mycs')),
-                        false: fn (Builder $query) => $query),
+                    ->queries(true: fn (Builder $query) => $query->whereNotNull('service_id')->where(function (Builder $query) {
+                        // Each cluster's own pool setting (review of #447).
+                        $query->whereRaw('1 = 0');
+                        foreach (Server::query()->where('extension', 'Proxmox')->with('settings')->get() as $server) {
+                            $pool = trim((string) $server->settings->firstWhere('key', 'pool')?->value) ?: 'mycs';
+                            $query->orWhere(fn ($q) => $q->where('server_id', $server->id)->where(fn ($q) => $q->whereNull('pool')->orWhere('pool', '!=', $pool)));
+                        }
+                    }), false: fn (Builder $query) => $query),
                 TernaryFilter::make('gone')->label('Gone from the cluster')
                     ->queries(true: fn (Builder $query) => $query->whereNotNull('gone_at'), false: fn (Builder $query) => $query->whereNull('gone_at'))
                     ->default(false),
@@ -96,6 +103,7 @@ class ProxmoxGuestResource extends Resource
             ->recordActions([
                 Action::make('assign')->label('Service')->icon('ri-links-line')
                     ->authorize('update')
+                    ->hidden(fn (ProxmoxGuest $record) => $record->template) // a template is never a customer's VM
                     ->fillForm(fn (ProxmoxGuest $record) => ['service_id' => $record->service_id ?? $record->suggestedServiceId()])
                     ->schema([
                         Select::make('service_id')->label('Service')->required()->searchable()
@@ -104,7 +112,7 @@ class ProxmoxGuestResource extends Resource
                             ->helperText('Suggested from its IPs, MACs or name when one matches a service: check it.'),
                     ])
                     ->action(function (ProxmoxGuest $record, array $data) {
-                        $record->update(['service_id' => (int) $data['service_id'], 'internal' => false, 'note' => null]);
+                        $record->update(['service_id' => (int) $data['service_id'], 'internal' => false, 'note' => null, 'onboot_before_suspend' => null]);
                         Notification::make()->success()->title('Mapped')->send();
                     }),
                 Action::make('internal')->label('Internal')->icon('ri-home-gear-line')->color('gray')
@@ -112,14 +120,14 @@ class ProxmoxGuestResource extends Resource
                     ->fillForm(fn (ProxmoxGuest $record) => ['note' => $record->note])
                     ->schema([TextInput::make('note')->label('What it is')->maxLength(255)->placeholder('e.g. our DNS, a test VM')])
                     ->action(function (ProxmoxGuest $record, array $data) {
-                        $record->update(['service_id' => null, 'internal' => true, 'note' => $data['note'] ?? null]);
+                        $record->update(['service_id' => null, 'internal' => true, 'note' => $data['note'] ?? null, 'onboot_before_suspend' => null]);
                         Notification::make()->success()->title('Marked internal')->send();
                     }),
                 Action::make('unmap')->label('Clear')->icon('ri-link-unlink')->color('gray')
                     ->authorize('update')
                     ->visible(fn (ProxmoxGuest $record) => $record->service_id !== null || $record->internal)
                     ->requiresConfirmation()
-                    ->action(fn (ProxmoxGuest $record) => $record->update(['service_id' => null, 'internal' => false, 'note' => null])),
+                    ->action(fn (ProxmoxGuest $record) => $record->update(['service_id' => null, 'internal' => false, 'note' => null, 'onboot_before_suspend' => null])),
             ]);
     }
 

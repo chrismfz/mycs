@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServerResource\Pages\EditServer;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\EmailLog;
@@ -161,7 +162,7 @@ class ProxmoxLifecycleTest extends TestCase
 
         ExtensionHelper::terminateServer($service);
 
-        $this->assertSame(['POST nodes/vega/qemu/101/status/stop', 'DELETE nodes/vega/qemu/101?purge=1&destroy-unreferenced-disks=1'], $this->writes);
+        $this->assertSame(['POST nodes/vega/qemu/101/status/stop', 'DELETE nodes/vega/qemu/101?purge=1'], $this->writes);
         $guest = ProxmoxGuest::query()->sole();
         $this->assertSame('destroyed', $guest->status);
         $this->assertNotNull($guest->gone_at);
@@ -285,6 +286,17 @@ class ProxmoxLifecycleTest extends TestCase
         GuestSync::sync($service->provisioningServer());
 
         $this->assertSame('mycs', ProxmoxGuest::query()->sole()->pool);
+    }
+
+    public function test_the_servers_form_says_how_to_set_up_the_cluster_and_keeps_no_text_as_a_setting(): void
+    {
+        $service = $this->mapped();
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($staff)->test(EditServer::class, ['record' => $service->provisioningServer()->getRouteKey()])
+            ->assertSee('How to set it up on the cluster')->assertSee('pveum role add MyCSLifecycle');
+        $this->assertFalse($service->provisioningServer()->settings()->where('key', 'setup_help')->exists());
     }
 
     public function test_staff_power_buttons(): void

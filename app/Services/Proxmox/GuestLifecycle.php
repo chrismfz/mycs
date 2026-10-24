@@ -10,6 +10,7 @@ use Closure;
 use Illuminate\Support\Facades\Cache;
 use MyCS\Proxmox\Guest;
 use MyCS\Proxmox\ProxmoxClient;
+use MyCS\Proxmox\ProxmoxException;
 use RuntimeException;
 
 /**
@@ -21,6 +22,11 @@ use RuntimeException;
 final class GuestLifecycle
 {
     public const POWER = ['start', 'shutdown', 'reboot', 'stop'];
+
+    /** Seconds an action may wait for the cluster's tasks in all: under the server jobs' timeout (120 s), with room for the calls. */
+    public const WAIT_BUDGET = 80;
+
+    private int $waited = 0;
 
     /** @param  Closure(int): void|null  $sleep */
     public function __construct(
@@ -43,7 +49,10 @@ final class GuestLifecycle
             if ($onboot) {
                 $this->client->write('PUT', "{$path}/config", ['onboot' => 0]); // a node's reboot does not start it again
             }
-            if (($resource['status'] ?? '') === 'running') {
+            if (!in_array($resource['status'], ['running', 'stopped'], true)) {
+                throw new RuntimeException("VM {$row->vmid} is «{$resource['status']}» on the cluster: not suspended, tried again later.");
+            }
+            if ($resource['status'] === 'running') {
                 // A clean shutdown, stopped hard if it is not off within a minute.
                 $this->wait($this->client->write('POST', "{$path}/status/shutdown", ['timeout' => 60, 'forceStop' => 1]), 100, 'shutting down');
             }
@@ -84,7 +93,9 @@ final class GuestLifecycle
                 if (($resource['status'] ?? '') === 'running') {
                     $this->wait($this->client->write('POST', "{$path}/status/stop"), 60, 'stopping');
                 }
-                $this->wait($this->client->write('DELETE', "{$path}?purge=1&destroy-unreferenced-disks=1"), 100, 'being destroyed');
+                // purge: its disks and its place in backup jobs. Not destroy-unreferenced-disks: that removes every
+                // «vm-<vmid>-disk-*» on every storage, another cluster's 101 too on a shared one (adversarial of #447).
+                $this->wait($this->client->write('DELETE', "{$path}?purge=1"), 100, 'being destroyed');
             }
             $row->update(['status' => 'destroyed', 'gone_at' => now()]);
         }, destroying: true);
@@ -108,7 +119,7 @@ final class GuestLifecycle
             }
             $row->update(['status' => 'stopped']);
             $left = "VM {$row->vmid} ({$row->name}) on {$resource['node']} is stopped and kept: destroy it by hand on the cluster "
-                . "(qm destroy {$row->vmid} --purge), then mark this done. Once this is trusted, the server's «Terminate: Destroy» does it.";
+                . '(' . (($resource['type'] ?? 'qemu') === 'lxc' ? 'pct' : 'qm') . " destroy {$row->vmid} --purge), then mark this done. Once this is trusted, the server's «Terminate: Destroy» does it.";
         });
 
         throw new LeftToStaff((string) $left);
@@ -151,9 +162,20 @@ final class GuestLifecycle
         if ($row->gone_at !== null) {
             return [$row, null];
         }
-        $resource = $this->client->resource($row->vmid);
+        if ($row->template) {
+            throw new RuntimeException("VM {$row->vmid} is a template: MyCS never acts on one. Map the service to its VM.");
+        }
+        $listed = array_values(array_filter((array) $this->client->get('cluster/resources?type=vm'), 'is_array'));
+        if ($listed === []) {
+            // Not «gone»: a token that sees nothing (its ACL removed) would make every destroy a silent success.
+            throw new RuntimeException('The token sees no guest on the cluster: nothing done. Check its permissions (PVEAuditor on «/»).');
+        }
+        $resource = collect($listed)->first(fn (array $r) => (int) ($r['vmid'] ?? 0) === $row->vmid);
         if ($resource === null) {
             return [$row, null];
+        }
+        if (!empty($resource['template'])) {
+            throw new RuntimeException("VM {$row->vmid} is a template: MyCS never acts on one.");
         }
         if (($resource['pool'] ?? null) !== $this->pool) {
             throw new RuntimeException("VM {$row->vmid} is not in the pool «{$this->pool}»: MyCS does not act on it. Add it on the cluster: pvesh set /pools --poolid {$this->pool} --vms {$row->vmid}");
@@ -171,15 +193,36 @@ final class GuestLifecycle
             }
         }
 
+        $resource['status'] = $this->current($resource);
+
         return [$row, $resource];
+    }
+
+    /**
+     * Its state now: the cluster's list is a cache a few seconds old (a VM just stopped is listed running), so the
+     * guest's own status is read. A node that cannot say falls back to the list; a refusal (403) does not.
+     */
+    private function current(array $resource): string
+    {
+        try {
+            $status = (string) (((array) $this->client->get(ProxmoxClient::guestPath($resource) . '/status/current'))['status'] ?? '');
+        } catch (ProxmoxException $e) {
+            if ($e->getCode() === 403) {
+                throw $e;
+            }
+            $status = '';
+        }
+
+        return $status !== '' ? $status : (string) ($resource['status'] ?? '');
     }
 
     /** @param  Closure(ProxmoxGuest, array<string, mixed>|null): void  $do */
     private function locked(Service $service, Closure $do, bool $destroying = false): void
     {
         // One action on a service's guest at a time (a suspension and a payment's unsuspension racing).
-        $lock = Cache::lock("proxmox.guest.{$this->server->id}.{$service->id}", 300);
-        if (!$lock->block(30)) {
+        $this->waited = 0;
+        $lock = Cache::lock("proxmox.guest.{$this->server->id}.{$service->id}", 150);
+        if (!$lock->block(10)) {
             throw new RuntimeException("Another action on service #{$service->id}'s VM is running: tried again later.");
         }
         try {
@@ -195,7 +238,13 @@ final class GuestLifecycle
         if (!is_string($upid) || $upid === '') {
             return; // nothing to wait for (an older node answers null)
         }
-        if (!$this->client->waitTask($upid, $timeout, 2, $this->sleep)) {
+        $left = max(0, self::WAIT_BUDGET - $this->waited);
+        $sleep = $this->sleep ?? fn (int $seconds) => sleep($seconds);
+        $count = function (int $seconds) use ($sleep) {
+            $this->waited += $seconds;
+            $sleep($seconds);
+        };
+        if (!$this->client->waitTask($upid, min($timeout, $left), 2, $count)) {
             throw new RuntimeException("The VM is still {$doing} on the cluster: checked again on the next try.");
         }
     }

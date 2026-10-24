@@ -261,7 +261,18 @@ class ModuleAction extends Model
 
     private static function openFor(Service $service, string $action): ?self
     {
-        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->latest('id')->first();
+        // A module's own row: never a task for staff (its instructions overwritten by a later failure: review of #447).
+        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('subject')->latest('id')->first();
+    }
+
+    /** The open module failures that a done $action makes moot (a terminated service's failed suspension…), closed. */
+    public static function closeSuperseded(Service $service, string $action, string $resolution): void
+    {
+        if ((self::SUPERSEDES[$action] ?? []) !== []) {
+            $now = now();
+            self::query()->open()->where('service_id', $service->id)->whereNull('subject')->whereIn('action', self::SUPERSEDES[$action])
+                ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => $resolution, 'updated_at' => $now]);
+        }
     }
 
     public static function recordSuccess(Service $service, string $action, ?string $module): self
@@ -275,6 +286,9 @@ class ModuleAction extends Model
             self::query()->open()->where('service_id', $service->id)->whereIn('action', self::SUPERSEDES[$action])
                 ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by {$action}", 'updated_at' => $now]);
         }
+        // Staff's task for the same action, done by the module after all (a destroy once «Terminate: Destroy» is set).
+        self::query()->open()->where('service_id', $service->id)->where('action', $action)->where('subject', self::SUBJECT_BY_HAND)
+            ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => 'done by the module', 'updated_at' => $now]);
 
         return $row;
     }
@@ -300,7 +314,7 @@ class ModuleAction extends Model
                 $error ?? new RuntimeException('The job failed before the server answered.'));
         }
 
-        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('given_up_at')
+        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('subject')->whereNull('given_up_at')
             ->update(['given_up_at' => now(), 'updated_at' => now()]) > 0;
     }
 

@@ -89,7 +89,7 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
   μήνες απλήρωτο). Αν κάποιος το μετανιώσει, υπάρχουν τα backups του Proxmox. Η υπηρεσία μένει Terminated.
 - **Failsafe** (ο υπεύθυνος, 2026-10-24): η ρύθμιση «Terminate» του server έχει προεπιλογή **«Stop and leave to staff»**.
   - Το VM σταματά και δεν ξεκινά σε reboot του κόμβου.
-  - Το destroy γίνεται εργασία για το staff στα Pending Module Actions, με mail και την εντολή `qm destroy … --purge`.
+  - Το destroy γίνεται εργασία για το staff στα Pending Module Actions, με mail και την εντολή `qm destroy … --purge` (`pct` για container).
   - Όταν φανεί ότι όλα πάνε σωστά, το staff γυρίζει τη ρύθμιση σε «Destroy» από το UI (Setup → Servers).
 - **Όριο ασφάλειας:** η MyCS ενεργεί μόνο σε guest που είναι **και** στο pool `mycs` **και** αντιστοιχισμένο σε αυτή
   την υπηρεσία (Proxmox Guests). Ό,τι είναι Internal ή εκτός pool δεν το αγγίζει ποτέ.
@@ -141,6 +141,14 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
      - είναι το ίδιο μηχάνημα: οι MACs του ταιριάζουν, και για destroy πρέπει να υπάρχουν γνωστές MACs·
      - αν είναι ήδη destroyed ή gone, το VMID του δεν ξαναψάχνεται ποτέ.
    - Lock ανά υπηρεσία, ώστε ένα suspend και ένα unsuspend να μην τρέχουν μαζί.
+   - Η κατάσταση του VM διαβάζεται από το `status/current`, όχι από τη λίστα του cluster, που είναι cache λίγων
+     δευτερολέπτων. Ένα suspend σε VM που δεν είναι ούτε running ούτε stopped αρνείται.
+   - Templates: η MyCS δεν ενεργεί ποτέ σε αυτά, και δεν αντιστοιχίζονται σε υπηρεσία.
+   - Ένα token που δεν βλέπει κανένα guest δεν θεωρείται «όλα gone»: αν δεν το είχαμε, κάθε destroy θα περνούσε
+     σιωπηλά ως επιτυχία.
+   - Destroy με `purge=1`, χωρίς `destroy-unreferenced-disks`: αυτό σβήνει κάθε `vm-<vmid>-disk-*` σε κάθε storage, και σε
+     shared storage μπορεί να είναι δίσκοι άλλου cluster.
+   - Όλες οι αναμονές μιας ενέργειας χωρούν σε 80 δευτερόλεπτα, κάτω από το timeout του job (120 δευτερόλεπτα).
    - Τα κουμπιά Start και Reboot δεν εμφανίζονται όσο η υπηρεσία είναι suspended.
    - Η πρόσβαση της MyCS γίνεται ο ρόλος MyCS στο pool (εντολές παραπάνω).
    - Αγγίζει τον κύκλο ζωής, άρα θέλει **και adversarial review**.
