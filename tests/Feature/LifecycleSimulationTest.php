@@ -611,8 +611,9 @@ namespace Tests\Feature {
                         return; // EditService shows the error; nothing changes
                     }
                     if ($service->status === Service::STATUS_SUSPENDED) {
+                        $told = $service->toldOfSuspension();
                         $service->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
-                        if ($notify && $service->toldOfSuspension()) { // as EditService: only of a suspension told
+                        if ($notify && $told) { // as EditService: only of a suspension told
                             NotificationHelper::serverUnsuspendedNotification($service->client, $service, []);
                         } else {
                             $this->silent[$service->id][] = (string) now(); // staff chose not to tell

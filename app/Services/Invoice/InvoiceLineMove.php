@@ -67,7 +67,7 @@ final class InvoiceLineMove
         // A card charge on its way (taken, its webhook not here yet; or its outcome unknown): moved, the next run would
         // charge the other invoice in full and the late payment would land as credit, the card charged twice (sweep).
         if (SavedMethodCharge::onItsWay($invoice)) {
-            return __('Invoice :invoice has a card charge on its way: wait for it (a few minutes, or the gateway\'s answer).', ['invoice' => $label]);
+            return __('Invoice :invoice has a card charge on its way: wait for its outcome (minutes, or up to a day or three without the gateway\'s answer).', ['invoice' => $label]);
         }
         if ($invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)->exists()) {
             return __('Invoice :invoice has a credit note: void it first.', ['invoice' => $label]);

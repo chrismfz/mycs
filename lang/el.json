@@ -1183,5 +1183,5 @@
     "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε.",
     "No email sent": "Δεν στάλθηκε email",
     "The customer was never told of this suspension: no unsuspension email.": "Ο πελάτης δεν ενημερώθηκε ποτέ γι' αυτή την αναστολή: δεν στάλθηκε email επαναφοράς.",
-    "Invoice :invoice has a card charge on its way: wait for it (a few minutes, or the gateway's answer).": "Το τιμολόγιο :invoice έχει χρέωση κάρτας σε εξέλιξη: περιμένετε (λίγα λεπτά, ή την απάντηση του gateway)."
+    "Invoice :invoice has a card charge on its way: wait for its outcome (minutes, or up to a day or three without the gateway's answer).": "Το τιμολόγιο :invoice έχει χρέωση κάρτας σε εξέλιξη: περιμένετε το αποτέλεσμα (λίγα λεπτά, ή έως μία με τρεις μέρες χωρίς απάντηση του gateway)."
 }

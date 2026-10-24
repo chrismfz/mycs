@@ -446,8 +446,9 @@ class EditService extends EditRecord
                                     $sdata = self::onServer(fn () => ExtensionHelper::unsuspendServer($record));
                                     // Only suspended -> active: a pending or cancelled service is not revived.
                                     if ($record->status === Service::STATUS_SUSPENDED) {
+                                        $told = $record->toldOfSuspension(); // before: unsuspended, its suspension's date goes
                                         $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
-                                        if ($data['sendNotification'] && $record->toldOfSuspension()) {
+                                        if ($data['sendNotification'] && $told) {
                                             // WHMCS's «Service Unsuspension Notification» on a manual unsuspend too; only of a
                                             // suspension the customer was told of (the cron's job may not have run yet).
                                             NotificationHelper::serverUnsuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);

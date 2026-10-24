@@ -543,8 +543,15 @@ class Service extends Model implements Auditable
      */
     public function toldOfSuspension(): bool
     {
-        return EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
-            ->whereIn('template_key', ['server_suspended', 'server_unsuspended'])->latest('id')->value('template_key') === 'server_suspended';
+        $latest = EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
+            ->whereIn('template_key', ['server_suspended', 'server_unsuspended'])->latest('id')->value('template_key');
+        if ($latest !== null) {
+            return $latest === 'server_suspended';
+        }
+
+        // No mail of it in the log: pruned (90 days by default), or suspended before MyCS (imported). Told, unless the
+        // suspension is recent enough for its job to be still on its way (adversarial review of #434).
+        return $this->dunning_suspended_at === null || CarbonImmutable::parse($this->dunning_suspended_at)->lessThan(CarbonImmutable::now()->subDay());
     }
 
     /**
