@@ -41,9 +41,7 @@ class ReadBankAlerts extends Command
             $mailbox->disconnect();
         }
         $this->line("{$summary['read']} mail(s) read, {$summary['new']} new movement(s)");
-        // Then the knob's matching (Bank transfer → «Match credits to invoices automatically»).
-        if ($settings['auto_match']) {
-            $matched = PaymentMatcher::run($settings['match_days']);
+        if (($matched = self::match($settings)) !== null) {
             $this->line("{$matched['matched']} credit(s) matched to their invoice, {$matched['left']} left for staff");
         }
         foreach ($summary['errors'] as $error) {
@@ -51,6 +49,17 @@ class ReadBankAlerts extends Command
         }
 
         return $summary['errors'] === [] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The knob's matching after a read (Bank transfer → «Match credits to invoices automatically»): null when it is off.
+     *
+     * @param  array{auto_match: bool, match_days: int}  $settings
+     * @return array{matched: int, left: int}|null
+     */
+    public static function match(array $settings): ?array
+    {
+        return $settings['auto_match'] ? PaymentMatcher::run($settings['match_days']) : null;
     }
 
     /** Never the login or the password in an error staff read. */

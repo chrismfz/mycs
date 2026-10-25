@@ -7,16 +7,22 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\BankMovement;
 use App\Models\Invoice;
+use App\Models\InvoiceTransaction;
 use App\Services\Chat\ChatNotifier;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
  * The bank's credits matched to the invoices they pay (owner 2026-10-25, as our WHMCS addon PaymentsTrackingMatch did,
  * stricter): a credit that our mail server vouches for, about one of our accounts, still pending and recent, whose
- * reference names exactly one unpaid EUR invoice whose remaining is exactly its amount, is recorded on that invoice
- * through Bank transfer. Anything else stays for staff, with why. One credit is paid once, ever: its transaction id is
- * its own («bank-alert:<id>»), and it is matched under its row's lock.
+ * reference names exactly one invoice (of any status) and that one is unpaid, in EUR, with no payment on its way and
+ * exactly that amount left to pay, is recorded on it through Bank transfer. Anything else stays for staff, with why.
+ * - Each credit is tried once: once it is left for staff (its note written), it is theirs; it is never matched later,
+ *   when they may have recorded it by hand elsewhere (adversarial of #458).
+ * - One credit is paid once, ever: its transaction id is its own («bank-alert:<id>»), looked for before anything.
+ * - Locks as every payment: the credit's row, then the customer, then the invoice (RecordPaymentService::lockInvoice),
+ *   its balance read under them (reviews of #458: a deadlock against staff's payments, a stale balance).
  */
 final class PaymentMatcher
 {
@@ -27,7 +33,7 @@ final class PaymentMatcher
     {
         $result = ['matched' => 0, 'left' => 0];
         $credits = BankMovement::query()->credits()->where('status', BankMovement::PENDING)->where('authentic', true)
-            ->whereNull('invoice_id')->where('executed_at', '>=', now()->subDays(max(1, $days)))->orderBy('id')->pluck('id');
+            ->whereNull('invoice_id')->whereNull('match_note')->where('executed_at', '>=', now()->subDays(max(1, $days)))->orderBy('id')->pluck('id');
         foreach ($credits as $id) {
             try {
                 self::matchOne((int) $id) ? $result['matched']++ : $result['left']++;
@@ -40,48 +46,64 @@ final class PaymentMatcher
         return $result;
     }
 
-    /** One credit: matched and recorded, or left with its note. */
+    /** One credit: matched and recorded, or left for staff with its note. */
     public static function matchOne(int $id): bool
     {
         $matched = DB::transaction(function () use ($id) {
             $movement = BankMovement::query()->whereKey($id)->lockForUpdate()->first();
             if ($movement === null || $movement->status !== BankMovement::PENDING || !$movement->authentic || $movement->invoice_id !== null
-                || $movement->direction !== 'credit') {
+                || $movement->match_note !== null || $movement->direction !== 'credit') {
                 return null;
             }
-            $named = $movement->namedInvoices()->where('status', Invoice::STATUS_UNPAID)->where('currency_code', 'EUR')->limit(2)->pluck('id');
-            if ($named->count() !== 1) {
-                $movement->update(['match_note' => $named->isEmpty() ? 'No unpaid EUR invoice named in its reference' : 'Its reference names more than one unpaid invoice']);
+            $leave = function (string $why) use ($movement) {
+                $movement->update(['match_note' => mb_substr($why, 0, 150)]);
 
                 return null;
+            };
+            $transactionId = self::TRANSACTION_PREFIX . $movement->id;
+            if (InvoiceTransaction::query()->where('transaction_id', $transactionId)->exists()) {
+                return $leave('Already recorded once: staff');
             }
-            $invoice = Invoice::query()->whereKey($named->first())->lockForUpdate()->with(['items', 'transactions', 'adjustmentNotes'])->first();
-            if ($invoice === null || $invoice->status !== Invoice::STATUS_UNPAID) {
-                return null;
+            // Every invoice its reference names, whatever its status: a number paid already and another's id is no match.
+            $named = $movement->namedInvoices()->limit(2)->pluck('id');
+            if ($named->count() !== 1) {
+                return $leave($named->isEmpty() ? 'No invoice named in its reference' : 'Its reference names more than one invoice');
+            }
+            $invoice = (new RecordPaymentService)->lockInvoice($named->first())->withLockedBalance();
+            if ($invoice->status !== Invoice::STATUS_UNPAID) {
+                return $leave("Invoice {$invoice->number} is {$invoice->status}");
+            }
+            if ($invoice->currency_code !== 'EUR') {
+                return $leave("Invoice {$invoice->number} is in {$invoice->currency_code}");
+            }
+            if ($invoice->transactions->contains(fn (InvoiceTransaction $t) => $t->status === InvoiceTransactionStatus::Processing)) {
+                return $leave("Invoice {$invoice->number} has a payment on its way");
             }
             $remaining = number_format((float) $invoice->remaining, 2, '.', '');
             if (bccomp($remaining, (string) $movement->amount, 2) !== 0) {
-                $movement->update(['match_note' => mb_substr("Invoice {$invoice->number}: {$remaining} left to pay, not {$movement->amount}", 0, 150)]);
-
-                return null;
+                return $leave("Invoice {$invoice->number}: {$remaining} left to pay, not {$movement->amount}");
             }
-            $transaction = ExtensionHelper::addPayment($invoice, 'BankTransfer', (string) $movement->amount, null, self::TRANSACTION_PREFIX . $movement->id, currency: 'EUR');
-            if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded) {
-                $movement->update(['match_note' => 'The payment was not recorded: staff']);
-
-                return null;
+            $transaction = ExtensionHelper::addPayment($invoice, 'BankTransfer', (string) $movement->amount, null, $transactionId, currency: 'EUR');
+            if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || !$transaction->wasRecentlyCreated
+                || (int) $transaction->invoice_id !== (int) $invoice->id) {
+                return $leave('The payment was not recorded as expected: staff');
             }
             $movement->update(['status' => BankMovement::MATCHED, 'invoice_id' => $invoice->id, 'matched_at' => now(), 'acknowledged_at' => now(), 'match_note' => null]);
 
-            return [$movement, $invoice];
+            return [$movement->id, $invoice->id];
         });
         if ($matched === null) {
             return false;
         }
-        [$movement, $invoice] = $matched;
-        ChatNotifier::notify('payment_matched', fn () => '🏦 Payment auto matched: ' . number_format((float) $movement->amount, 2, ',', '.') . ' € ('
-            . $movement->bankName() . ') → ' . ChatNotifier::link('#' . ($invoice->number ?: $invoice->id),
-                InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')));
+        [$movementId, $invoiceId] = $matched;
+        // Read after the commit: a proforma took its number when paid.
+        ChatNotifier::notify('payment_matched', function () use ($movementId, $invoiceId) {
+            $movement = BankMovement::query()->findOrFail($movementId);
+            $invoice = Invoice::query()->findOrFail($invoiceId);
+
+            return '🏦 Payment auto matched: ' . number_format((float) $movement->amount, 2, ',', '.') . ' € (' . $movement->bankName() . ') → '
+                . ChatNotifier::link('#' . ($invoice->number ?: $invoice->id), InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin'));
+        });
 
         return true;
     }

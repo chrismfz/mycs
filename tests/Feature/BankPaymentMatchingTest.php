@@ -110,7 +110,7 @@ class BankPaymentMatchingTest extends TestCase
 
         $this->assertSame([BankMovement::PENDING, BankMovement::PENDING], [$two->fresh()->status, $none->fresh()->status]);
         $this->assertStringContainsString('more than one', (string) $two->fresh()->match_note);
-        $this->assertStringContainsString('No unpaid EUR invoice', (string) $none->fresh()->match_note);
+        $this->assertStringContainsString('No invoice named', (string) $none->fresh()->match_note);
         $this->assertSame(0, InvoiceTransaction::query()->count());
     }
 

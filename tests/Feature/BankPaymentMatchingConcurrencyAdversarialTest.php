@@ -11,10 +11,8 @@ use App\Models\InvoiceTransaction;
 use App\Models\User;
 use App\Services\BankAlerts\PaymentMatcher;
 use App\Services\Invoice\RecordPaymentService;
-use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\ForksWorkers;
 use Tests\TestCase;
@@ -57,18 +55,14 @@ class BankPaymentMatchingConcurrencyAdversarialTest extends TestCase
         $credit = BankMovement::query()->create(['bank' => 'eurobank', 'direction' => 'credit', 'amount' => '150.00', 'balance' => '1000.00',
             'reason' => '32999', 'executed_at' => now()->subHour(), 'message_key' => uniqid('', true), 'authentic' => true, 'status' => 'pending']);
 
+        // (Choreography adjusted when fixing ADV-6: with the customer locked first, the matcher can no longer hold the
+        // invoice while staff hold the customer. Staff hold the customer and are about to lock the invoice when the cron
+        // starts: in the old order the cron took the invoice and the two deadlocked; now the cron waits for the customer.)
         $this->race([
-            // A: the cron. Once it holds the invoice's lock, it waits until staff hold the customer's.
+            // A: the cron, started while staff hold the customer.
             function (string $dir) use ($credit) {
-                $signalled = false;
-                Event::listen(QueryExecuted::class, function (QueryExecuted $query) use ($dir, &$signalled) {
-                    if (!$signalled && str_contains($query->sql, 'from `invoices`') && str_contains($query->sql, 'for update')) {
-                        $signalled = true;
-                        touch("$dir/a-has-invoice");
-                        $this->waitFor("$dir/b-has-client");
-                        usleep(200_000);
-                    }
-                });
+                $this->waitFor("$dir/b-has-client");
+                touch("$dir/a-started");
                 PaymentMatcher::matchOne($credit->id);
             },
             // B: staff «Add payment» on the same customer: customer, then invoice (RecordPaymentService::lockInvoice).
@@ -76,15 +70,18 @@ class BankPaymentMatchingConcurrencyAdversarialTest extends TestCase
                 DB::transaction(function () use ($dir, $clientId, $invoice, $gateway) {
                     Client::lock($clientId);
                     touch("$dir/b-has-client");
-                    $this->waitFor("$dir/a-has-invoice");
+                    $this->waitFor("$dir/a-started");
+                    usleep(300_000); // the cron is taking its locks now
                     (new RecordPaymentService)->handle($invoice->id, $gateway, '150.00', enteredByStaff: true);
                 });
             },
         ]);
 
-        // Both finished (no deadlock victim): the invoice paid once by one of them, the other's money as credit.
+        // Both finished (no deadlock victim): staff paid it; the cron, after them, found it paid and left the credit.
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $this->assertGreaterThanOrEqual(1, InvoiceTransaction::query()->where('invoice_id', $invoice->id)->count());
+        $this->assertSame(1, InvoiceTransaction::query()->where('invoice_id', $invoice->id)->count(), 'paid once');
+        $this->assertSame(BankMovement::PENDING, $credit->fresh()->status, 'left for staff, with why');
+        $this->assertNotNull($credit->fresh()->match_note);
     }
 
     private function waitFor(string $file): void

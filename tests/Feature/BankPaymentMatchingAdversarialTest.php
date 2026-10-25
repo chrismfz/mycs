@@ -141,12 +141,14 @@ class BankPaymentMatchingAdversarialTest extends TestCase
     {
         $first = $this->invoice('32999', '50.00');
         $second = $this->invoice('33000', '50.00', status: 'draft'); // not open yet
-        $credit = $this->credit('32999 33000', '50.00');
+        // (Setup adjusted when fixing ADV-4: a reference naming two invoices is now ambiguous from the start; the reason
+        // names 32999 first, then 33000, to reach the same state.)
+        $credit = $this->credit('32999', '50.00');
         PaymentMatcher::run();
         $this->assertSame(Invoice::STATUS_PAID, $first->fresh()->status);
 
         DB::table('invoices')->where('id', $second->id)->update(['status' => 'unpaid']);
-        DB::table('bank_movements')->where('id', $credit->id)->update(['status' => 'pending', 'invoice_id' => null]);
+        DB::table('bank_movements')->where('id', $credit->id)->update(['status' => 'pending', 'invoice_id' => null, 'match_note' => null, 'reason' => '33000']);
         PaymentMatcher::run();
 
         $this->assertSame(1, InvoiceTransaction::query()->where('transaction_id', PaymentMatcher::TRANSACTION_PREFIX . $credit->id)->count(),

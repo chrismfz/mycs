@@ -54,30 +54,34 @@ class BankMovement extends Model
     }
 
     /**
-     * What its reference may name an invoice by: «2026-123» numbers and runs of 3 to 9 digits.
+     * What its reference may name an invoice by: «2026-123» numbers and runs of 3 to 9 digits, never part of a date
+     * («2026-10-25», «22.10.2026», «22/10/26»: reviews of #458).
      *
      * @return list<string>
      */
     public function invoiceTokens(): array
     {
-        preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d])|(?<![\d-])\d{3,9}(?![\d-])/', (string) $this->reason, $m);
+        $reason = (string) preg_replace('/(?<![\d])(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})(?![\d])/', ' ', (string) $this->reason);
+        preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d-])|(?<![\d-])\d{3,9}(?![\d-])/', $reason, $m);
 
         return array_values(array_unique($m[0]));
     }
 
     /**
-     * The invoices its reference names: by their number; by their id only when they have none (an id is no number the
-     * customer was given: never matched against another instance's numbering).
+     * The invoices its reference names, of any status and currency: by their number; by their id only when they have
+     * none, and only by a plain number («0110», a group of an IBAN, names no id: reviews of #458). An id is no number the
+     * customer was given: never matched against another instance's numbering.
      *
      * @return Builder<Invoice>
      */
     public function namedInvoices(): Builder
     {
         $tokens = $this->invoiceTokens();
+        $ids = array_values(array_filter($tokens, fn (string $t) => preg_match('/^[1-9]\d*$/', $t) === 1));
 
         return Invoice::query()->when($tokens === [], fn ($q) => $q->whereRaw('1 = 0'))
             ->where(fn (Builder $q) => $q->whereIn('number', $tokens)
-                ->orWhere(fn (Builder $q) => $q->where(fn ($n) => $n->whereNull('number')->orWhere('number', ''))->whereIn('id', array_filter($tokens, 'ctype_digit'))));
+                ->orWhere(fn (Builder $q) => $q->where(fn ($n) => $n->whereNull('number')->orWhere('number', ''))->whereIn('id', $ids)));
     }
 
     public function scopeCredits(Builder $query): void
