@@ -29,7 +29,7 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | # | Πού | Τι | Κατάσταση |
 |---|---|---|---|
 | **E1** | MyCS | Ρύθμιση «Ekdosi» (on/off, διεύθυνση, κοινό secret)· `POST /api/ekdosi` με HMAC και ops `ping`, `invoices`, `invoice`, `resolve`, `mark`· πίνακας `ekdosi_documents` (ΜΑΡΚ, κωδικός, κατάσταση, PDF)· `domains.contact_id` («Σχετική επαφή» στη σελίδα του domain) | **αυτό το PR** |
-| E2 | MyCS | Τα παραστατικά στη σελίδα του τιμολογίου (staff) και στο client area («Εκδοθέντα παραστατικά», με το PDF του Ekdosi)· στήλη/φίλτρο «Παραστατικό» στη λίστα τιμολογίων. Αντικαθιστά τα badges και το `issued-for-client` του plugin. Και: η διαγραφή τιμολογίου με παραστατικό απαντά με μήνυμα (σήμερα το FK τη σταματά με raw λάθος) | |
+| E2 | MyCS | Τα παραστατικά στη σελίδα του τιμολογίου (staff) και στο client area («Εκδοθέντα παραστατικά», με το PDF του Ekdosi)· στήλη/φίλτρο «Παραστατικό» στη λίστα τιμολογίων. Αντικαθιστά τα badges και το `issued-for-client` του plugin. Και: η διαγραφή τιμολογίου με παραστατικό απαντά με μήνυμα (σήμερα το FK τη σταματά με raw λάθος)· προειδοποίηση όταν το staff ακυρώνει ή κάνει refund τιμολόγιο με παραστατικό (θέλει πιστωτικό στο Ekdosi) | |
 | E3 | MyCS | `add_payment`: το Ekdosi γράφει πληρωμή για τιμολόγιο επί πιστώσει (`RecordPaymentService`, ίδιο `transaction_id` = ίδια πληρωμή, πληρωμένο = τίποτα). Θέλει adversarial review (χρήματα) | |
 | E4 | importer | `mod_ekdosi_contacts` → `contacts`· `mod_ekdosi_routing` → `services.contact_id` / `domains.contact_id`· `mod_ekdosi_invoice_marks` → `ekdosi_documents` (βλ. «Importer») | με τον κοινό importer |
 | K1 | Ekdosi | `MycsBillingSource` (Phase 1 του `docs/bridges-connectors.md` του Ekdosi)· καρτέλα «MyCS Bridge» με διεύθυνση MyCS + secret· feed στα ίδια «Εισερχόμενα» με σήμα «MyCS» | |
@@ -80,7 +80,7 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 - **`resolve`** `{invoice_id}`: μόνο οι αποδέκτες των γραμμών, όπως το `op=resolve` του plugin.
 - **`mark`** `{invoice_id, mark, fingerprint?, code?|invcode?, state?, pdf_url?}`: το write-back.
   - Ένα **νέο** παραστατικό γίνεται δεκτό μόνο για το τιμολόγιο όπως το διάβασε το Ekdosi. Το K1 στέλνει πίσω το
-    `mycs.fingerprint` που διάβασε (γραμμές, είδος, σύνολα, νόμισμα), και αν το τιμολόγιο άλλαξε απαντά 409
+    `mycs.fingerprint` που διάβασε (λογαριασμός, νόμισμα, γραμμές με είδος και σύνολο, ενεργά notes· όχι η πληρωμή), και αν το τιμολόγιο άλλαξε απαντά 409
     `invoice_changed`. Χωρίς fingerprint, πιάνονται μόνο το merge και το split.
   - Με 409 `invoice_changed` το Ekdosi έχει ήδη εκδώσει για κάτι που δεν υπάρχει πια: το ακυρώνει και ξαναδιαβάζει.
     Οι γραμμές που μετακινήθηκαν δεν έχουν παραστατικό, οπότε ξαναεμφανίζονται κανονικά.
@@ -98,8 +98,9 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
     ή κενά (όπου PHP και browser διαβάζουν άλλον host), χωρίς τμήματα `.`/`..` (και ως `%2e`), με το port του
     `ekdosi_url`.
 - Ένα τιμολόγιο με ενεργό παραστατικό **δεν γίνεται merge, split ή μεταφορά σε άλλον λογαριασμό**, ούτε draft
-  (`InvoiceLineMove::refusal`, `MoveToClient`), και **οι γραμμές του δεν αλλάζουν**: ούτε από το staff ή το API
-  (`InvoiceItemObserver`), ούτε από την εφαρμογή. Το sync τιμών (`ChangeOpenLine`) το αφήνει με γραμμή στο log, το fee
+  (`InvoiceLineMove::refusal`, `MoveToClient`), και **οι γραμμές, ο πελάτης, το νόμισμα και τα credit/debit notes του
+  δεν αλλάζουν**: ούτε από το staff ή το API (`InvoiceItemObserver`, `StaffLineEdit`, `InvoiceObserver`,
+  `AdjustmentNoteObserver`), ούτε από την εφαρμογή. Το sync τιμών (`ChangeOpenLine`) το αφήνει με γραμμή στο log, το fee
   grace/redemption δεν προστίθεται (ειδοποίηση στο staff), και η αυτόματη ακύρωση στο τέλος μιας υπηρεσίας
   (`CancelOpenInvoices`) το αφήνει στο staff. Αλλιώς οι γραμμές του θα ξαναέμπαιναν στα «Εισερχόμενα» (δεύτερο παραστατικό για την
   ίδια πώληση), ή ένα παραστατικό στο ΑΦΜ ενός πελάτη θα πήγαινε σε άλλον. Ακυρώνεται πρώτα στο Ekdosi.

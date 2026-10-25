@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Enums\AdjustmentNoteType;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
@@ -270,6 +271,34 @@ class EkdosiBridgeTest extends TestCase
         // Filed: its lines stay as they are, by staff, the API or the app.
         $this->expectException(DisplayException::class);
         $invoice->items()->create(['description' => 'Later still', 'quantity' => 1, 'price' => '1.00']);
+    }
+
+    /** Final review of #459: a filed invoice keeps its customer, currency and total; a note changes its fingerprint. */
+    public function test_a_filed_invoice_keeps_its_customer_currency_and_total(): void
+    {
+        $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+        $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '100.00']);
+        $read = $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.mycs.fingerprint');
+        $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -40, 'description' => 'Goodwill']);
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400001234567890', 'fingerprint' => $read])
+            ->assertStatus(409)->assertJsonPath('error', 'invoice_changed');
+        $again = $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.mycs.fingerprint');
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400001234567890', 'fingerprint' => $again])->assertOk();
+
+        $refused = 0;
+        foreach ([
+            fn () => $invoice->fresh()->update(['client_id' => User::factory()->create()->client()->id]),
+            fn () => $invoice->fresh()->update(['currency_code' => 'USD']),
+            fn () => $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'More']),
+        ] as $change) {
+            try {
+                $change();
+            } catch (DisplayException) {
+                $refused++;
+            }
+        }
+        $this->assertSame(3, $refused);
+        $this->assertSame([$this->client->id, 'EUR', 1], [(int) $invoice->fresh()->client_id, $invoice->fresh()->currency_code, $invoice->adjustmentNotes()->count()]);
     }
 
     public function test_the_write_back_refuses_what_does_not_add_up(): void

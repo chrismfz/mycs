@@ -2,6 +2,7 @@
 
 namespace App\Services\Ekdosi;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Domain;
@@ -117,7 +118,7 @@ final class EkdosiFeed
     }
 
     /**
-     * What Ekdosi read of the invoice, short: its lines (id, kind of item, total) and currency. Ekdosi sends it back with
+     * What Ekdosi read of the invoice, short: its account, currency, lines (id, kind of item, total) and active notes. Ekdosi sends it back with
      * the write-back, and a document is taken only for the invoice as it was read (R2-3 of #459).
      */
     public static function fingerprint(Invoice $invoice): string
@@ -125,7 +126,11 @@ final class EkdosiFeed
         $lines = $invoice->items->sortBy('id')->map(fn (InvoiceItem $item) => implode(':', [$item->id, $item->reference_type, $item->reference_id,
             $item->totalCents()]))->implode('|');
 
-        return substr(hash('sha256', $invoice->id . '|' . $invoice->currency_code . '|' . $lines), 0, 32);
+        // Its active credit and debit notes too: a note changes what is owed (final review of #459).
+        $notes = $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->sortBy('id')
+            ->map(fn ($note) => $note->id . ':' . (int) round((float) $note->amount * 100))->implode('|');
+
+        return substr(hash('sha256', $invoice->id . '|' . $invoice->client_id . '|' . $invoice->currency_code . '|' . $lines . '|' . $notes), 0, 32);
     }
 
     /** @return array<string, mixed> */

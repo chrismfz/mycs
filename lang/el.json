@@ -1299,5 +1299,7 @@
     "Who this domain is for, among the account's contacts: Ekdosi issues the document for its lines to this contact. Nothing is sent to the registrar.": "Για ποιον είναι το domain, από τις επαφές του λογαριασμού: το Ekdosi εκδίδει το παραστατικό για τις γραμμές του σε αυτή την επαφή. Τίποτα δεν στέλνεται στον registrar.",
     "Ekdosi": "Ekdosi",
     "Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.": "Το τιμολόγιο :invoice έχει παραστατικό από το Ekdosi: ακυρώστε το εκεί πρώτα.",
-    "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: οι γραμμές του μένουν όπως είναι. Ακυρώστε πρώτα το παραστατικό εκεί."
+    "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: οι γραμμές του μένουν όπως είναι. Ακυρώστε πρώτα το παραστατικό εκεί.",
+    "This invoice has a fiscal document from Ekdosi: it stays with its customer and currency. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: μένει στον πελάτη και στο νόμισμά του. Ακυρώστε πρώτα το παραστατικό εκεί.",
+    "This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: το σύνολό του μένει όπως εκδόθηκε. Ακυρώστε πρώτα το παραστατικό εκεί."
 }

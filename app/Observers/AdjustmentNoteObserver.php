@@ -6,6 +6,7 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Events\AdjustmentNote as AdjustmentNoteEvent;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 
 class AdjustmentNoteObserver
@@ -27,6 +28,10 @@ class AdjustmentNoteObserver
     {
         if ($note->isVoidableByStaff() && in_array(Invoice::query()->whereKey($note->invoice_id)->value('status'), Invoice::FROZEN_STATUSES, true)) {
             throw new DisplayException(__('A paid invoice keeps its total: set it back to unpaid to change its adjustment notes.'));
+        }
+        // Nor one Ekdosi issued its document for (final review of #459): its total is the document's.
+        if ($note->isVoidableByStaff() && EkdosiDocument::activeOn($note->invoice_id)) {
+            throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.'));
         }
     }
 

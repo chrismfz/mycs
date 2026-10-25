@@ -96,9 +96,14 @@ final class EkdosiDocuments
             return 'Merged into invoice ' . $invoice->merged_into_id . ': its lines are there.';
         }
         if ($fingerprint !== null) {
-            return hash_equals(EkdosiFeed::fingerprint($invoice->load('items')), $fingerprint) ? null : 'Its lines changed since it was read: read it again.';
+            // Locking reads: a plain one would see the snapshot opened before the locks were waited for, not a merge or a
+            // line change committed meanwhile (final review of #459).
+            $invoice->setRelation('items', $invoice->items()->lockForUpdate()->get());
+            $invoice->setRelation('adjustmentNotes', $invoice->adjustmentNotes()->lockForUpdate()->get());
+
+            return hash_equals(EkdosiFeed::fingerprint($invoice), $fingerprint) ? null : 'Its lines changed since it was read: read it again.';
         }
-        if (Invoice::query()->where('split_from_id', $invoice->id)->exists()) {
+        if (Invoice::query()->where('split_from_id', $invoice->id)->lockForUpdate()->exists()) {
             return 'Split since: part of its lines are on another invoice. Read it again (with its fingerprint).';
         }
 
