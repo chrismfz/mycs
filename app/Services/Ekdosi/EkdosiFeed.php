@@ -6,12 +6,14 @@ use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
 
 /**
@@ -59,7 +61,9 @@ final class EkdosiFeed
 
         $since = $this->date($since);
         if ($status === 'paid_unfiled' || $status === '') {
-            $query->where('status', Invoice::STATUS_PAID)->whereDoesntHave('ekdosiDocuments');
+            // Only an active document files it: one cancelled at AADE (to reissue it) brings it back (ADV-3).
+            $query->where('status', Invoice::STATUS_PAID)
+                ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE));
             if ($since !== null) {
                 // An invoice marked paid with no payment date: by its issue date, as the plugin.
                 $query->where(fn (Builder $q) => $q->where('paid_at', '>=', $since)
@@ -70,14 +74,14 @@ final class EkdosiFeed
             if ($own !== false) {
                 $query->where('status', $own);
             } elseif ($status !== 'All') {
-                throw new \InvalidArgumentException('status');
+                throw new BadBridgeArgument('status');
             }
             if ($since !== null) {
                 $query->where('created_at', '>=', $since);
             }
         }
 
-        $payloads = $query->offset($offset)->limit($limit)->with(self::RELATIONS)->get()
+        $payloads = $query->offset($offset)->limit($limit)->with(self::relations())->get()
             ->map(fn (Invoice $invoice) => $this->payload($invoice))->values()->all();
 
         return ['invoices' => $payloads, 'offset' => $offset, 'count' => count($payloads)];
@@ -86,7 +90,7 @@ final class EkdosiFeed
     /** One invoice by id, whatever its status (Ekdosi's «send to Ekdosi» of one invoice); null when there is none. */
     public function one(int $invoiceId): ?array
     {
-        $invoice = $invoiceId > 0 ? Invoice::query()->whereNotNull('client_id')->with(self::RELATIONS)->find($invoiceId) : null;
+        $invoice = $invoiceId > 0 ? Invoice::query()->whereNotNull('client_id')->with(self::relations())->find($invoiceId) : null;
 
         return $invoice === null ? null : $this->payload($invoice);
     }
@@ -94,12 +98,23 @@ final class EkdosiFeed
     /** Only the lines' recipients (the plugin's `op=resolve`); null when there is no such invoice. */
     public function routing(int $invoiceId): ?array
     {
-        $invoice = $invoiceId > 0 ? Invoice::query()->whereNotNull('client_id')->with(self::RELATIONS)->find($invoiceId) : null;
+        $invoice = $invoiceId > 0 ? Invoice::query()->whereNotNull('client_id')->with(self::relations())->find($invoiceId) : null;
 
         return $invoice === null ? null : ['status' => 'ok'] + $this->thirdParty($invoice);
     }
 
-    private const RELATIONS = ['client.primaryContact', 'items.reference', 'transactions.gateway', 'adjustmentNotes', 'ekdosiDocuments'];
+    /** @return array<int|string, mixed> what a page reads, at once (no query per line: review of #459) */
+    private static function relations(): array
+    {
+        return ['client.primaryContact', 'transactions.gateway', 'adjustmentNotes', 'ekdosiDocuments',
+            'items.reference' => fn (MorphTo $reference) => $reference->morphWith([
+                Service::class => ['product', 'contact'],
+                Domain::class => ['contact'],
+                ServiceUpgrade::class => ['service.contact'],
+                DomainOwnerChange::class => ['domain.contact'],
+            ]),
+        ];
+    }
 
     /** @return array<string, mixed> */
     private function payload(Invoice $invoice): array
@@ -221,18 +236,25 @@ final class EkdosiFeed
         $lines = [];
         $parties = [];
         foreach ($invoice->items->sortBy('id') as $item) {
+            // The service or domain the line is for: an upgrade's service, an owner change's domain.
             $reference = $item->reference;
-            $owner = $reference instanceof ServiceUpgrade ? $reference->service : $reference;
+            $owner = match (true) {
+                $reference instanceof ServiceUpgrade => $reference->service,
+                $reference instanceof DomainOwnerChange => $reference->domain,
+                default => $reference,
+            };
             $contact = $owner instanceof Service || $owner instanceof Domain ? $owner->contact : null;
-            // Only a contact of the invoice's account: one left from before a move is not a recipient.
-            if ($contact !== null && ((int) $contact->client_id !== (int) $invoice->client_id || $contact->id === $primaryId)) {
+            // Only a contact of the invoice's account, not archived: one left from before a move, or retired, is not a
+            // recipient (the account is).
+            if ($contact !== null && ((int) $contact->client_id !== (int) $invoice->client_id || $contact->id === $primaryId || $contact->archived_at !== null)) {
                 $contact = null;
             }
             $parties[$contact === null ? 'account' : 'contact:' . $contact->id] = true;
             $type = $this->type($item);
             $lines[] = [
                 'item_id' => $item->id,
-                'relid' => (int) ($item->reference_id ?? 0),
+                // As the plugin's routing: the service's or the domain's id (an upgrade's line names its service).
+                'relid' => (int) ($owner instanceof Service || $owner instanceof Domain ? $owner->id : ($item->reference_id ?? 0)),
                 'type' => $type,
                 'service_type' => $owner instanceof Domain ? 'domain' : ($owner instanceof Service ? 'hosting' : null),
                 'description' => (string) ($item->description ?? ''),
@@ -305,9 +327,20 @@ final class EkdosiFeed
             return null;
         }
         if (!preg_match('/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/', trim($value))) {
-            throw new \InvalidArgumentException('since');
+            throw new BadBridgeArgument('since');
+        }
+        // «2026-13-45» or «25:99» is no date (Carbon would roll it over, or throw its own message).
+        $value = trim($value);
+        $format = match (strlen($value)) {
+            10 => '!Y-m-d',
+            16 => '!Y-m-d H:i',
+            default => '!Y-m-d H:i:s',
+        };
+        $date = rescue(fn () => Carbon::createFromFormat($format, $value), false, false);
+        if (!$date instanceof Carbon || $date->format(substr($format, 1)) !== $value) {
+            throw new BadBridgeArgument('since');
         }
 
-        return Carbon::parse(trim($value));
+        return $date;
     }
 }

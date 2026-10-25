@@ -18,6 +18,7 @@ use App\Services\Clients\MoveToClient;
 use Filament\Actions\Exceptions\ActionNotResolvableException;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -184,6 +185,37 @@ class EkdosiBridgeTest extends TestCase
         $this->assertSame($contact->id, $domain->fresh()->contact_id);
     }
 
+    /** Review of #459: an archived contact is retired, the account is billed; and a page costs the same few queries. */
+    public function test_an_archived_contact_is_no_recipient_and_a_page_reads_in_a_few_queries(): void
+    {
+        $contact = Contact::query()->forceCreate(['client_id' => $this->client->id, 'company_name' => 'Παλιός πελάτης']);
+        $make = function () use ($contact) {
+            $service = Service::factory()->create(['client_id' => $this->client->id, 'contact_id' => $contact->id, 'currency_code' => 'EUR', 'price' => 10, 'quantity' => 1]);
+            $domain = Domain::factory()->create(['client_id' => $this->client->id, 'contact_id' => $contact->id]);
+            $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+            $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '10.00', 'reference_type' => Service::class, 'reference_id' => $service->id]);
+            $invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => '12.00', 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+            ExtensionHelper::addPayment($invoice->fresh(), 'BankTransfer', '22.00');
+        };
+        $make();
+        $queries = function () {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->bridge(['op' => 'invoices'])->assertOk();
+
+            return count(DB::getQueryLog());
+        };
+        $one = $queries();
+        foreach (range(1, 5) as $ignored) {
+            $make();
+        }
+        $this->assertSame($one, $queries(), 'six invoices read in as many queries as one');
+
+        $this->assertTrue($this->bridge(['op' => 'invoices'])->json('invoices.0.third_party.lines.0.routed'));
+        $contact->forceFill(['archived_at' => now()])->save();
+        $this->assertFalse($this->bridge(['op' => 'invoices'])->json('invoices.0.third_party.summary.multi_party'));
+    }
+
     public function test_a_domain_moved_to_another_account_leaves_its_related_contact(): void
     {
         $contact = Contact::query()->forceCreate(['client_id' => $this->client->id, 'company_name' => 'Κάτοχος']);
@@ -236,7 +268,8 @@ class EkdosiBridgeTest extends TestCase
     public function test_a_pdf_link_elsewhere_than_ekdosi_is_left_out(): void
     {
         $invoice = $this->paidInvoice();
-        foreach (['https://evil.example.test/p.pdf', 'http://ekdosi.example.test/p.pdf', 'javascript:alert(1)'] as $i => $url) {
+        foreach (['https://evil.example.test/p.pdf', 'http://ekdosi.example.test/ekdosi/p.pdf', 'javascript:alert(1)',
+            'https://ekdosi.example.test/elsewhere/p.pdf', 'https://ekdosi.example.test:8443/ekdosi/p.pdf'] as $i => $url) {
             $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '50000000000000' . $i, 'pdf_url' => $url])->assertOk();
         }
         $this->assertSame([null], EkdosiDocument::query()->pluck('pdf_url')->unique()->values()->all());

@@ -94,8 +94,8 @@ final class DomainContactActions
             ->action(function (Domain $record, array $data) {
                 abort_unless(self::can('admin.domains.update'), 403);
                 $id = filled($data['contact_id'] ?? null) ? (int) $data['contact_id'] : null;
-                // Only a contact of the domain's own account.
-                abort_if($id !== null && !Contact::query()->whereKey($id)->where('client_id', $record->client_id)->exists(), 422);
+                // Only a contact of the domain's own account, not archived (as the picker).
+                abort_if($id !== null && !Contact::query()->whereKey($id)->where('client_id', $record->client_id)->whereNull('archived_at')->exists(), 422);
                 $record->forceFill(['contact_id' => $id])->save();
                 $record->unsetRelation('contact');
                 Notification::make()->success()->title(__('Saved.'))->send();

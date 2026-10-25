@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ekdosi\BadBridgeArgument;
 use App\Services\Ekdosi\EkdosiDocuments;
 use App\Services\Ekdosi\EkdosiFeed;
 use Illuminate\Http\JsonResponse;
@@ -30,8 +31,9 @@ class EkdosiBridgeController extends Controller
             return response()->json(['error' => 'not_found'], 404);
         }
         $secret = (string) config('settings.ekdosi_secret', '');
-        if ($secret === '') {
-            return response()->json(['error' => 'secret_not_configured', 'message' => 'Set the shared secret in MyCS\'s settings first.'], 422);
+        // As the settings ask (32 at least): a short one stored some other way is no secret (adversarial review of #459).
+        if (strlen($secret) < 32) {
+            return response()->json(['error' => 'secret_not_configured', 'message' => 'Set the shared secret (32 characters at least) in MyCS\'s settings first.'], 422);
         }
         $raw = $request->getContent();
         if ($raw === '') {
@@ -81,7 +83,7 @@ class EkdosiBridgeController extends Controller
                 default:
                     return response()->json(['error' => 'unknown_op', 'message' => 'op must be ping, invoices, invoice, resolve or mark.'], 400);
             }
-        } catch (\InvalidArgumentException $e) {
+        } catch (BadBridgeArgument $e) {
             return response()->json(['error' => 'bad_request', 'message' => 'Invalid ' . $e->getMessage() . '.'], 400);
         } catch (\Throwable $e) {
             report($e);

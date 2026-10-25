@@ -6,6 +6,7 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Credit;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
@@ -60,6 +61,11 @@ final class InvoiceLineMove
         $label = '#' . ($invoice->number ?: $invoice->id);
         if ($invoice->status !== Invoice::STATUS_UNPAID) {
             return __('Invoice :invoice is not unpaid: only unpaid invoices are merged or split.', ['invoice' => $label]);
+        }
+        // Ekdosi issued a fiscal document for it (on credit): its lines elsewhere would come back to the Inbox and be
+        // issued twice, or carry a document in one account's ΑΦΜ to another account (ADV-2 of #459). Ekdosi cancels it first.
+        if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->where('state', EkdosiDocument::ACTIVE)->exists()) {
+            return __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]);
         }
         if ($invoice->hasPayments(lock: true)) {
             return __('Invoice :invoice has payments: refund or delete them first.', ['invoice' => $label]);

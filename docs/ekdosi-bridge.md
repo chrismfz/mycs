@@ -29,7 +29,7 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | # | Πού | Τι | Κατάσταση |
 |---|---|---|---|
 | **E1** | MyCS | Ρύθμιση «Ekdosi» (on/off, διεύθυνση, κοινό secret)· `POST /api/ekdosi` με HMAC και ops `ping`, `invoices`, `invoice`, `resolve`, `mark`· πίνακας `ekdosi_documents` (ΜΑΡΚ, κωδικός, κατάσταση, PDF)· `domains.contact_id` («Σχετική επαφή» στη σελίδα του domain) | **αυτό το PR** |
-| E2 | MyCS | Τα παραστατικά στη σελίδα του τιμολογίου (staff) και στο client area («Εκδοθέντα παραστατικά», με το PDF του Ekdosi)· στήλη/φίλτρο «Παραστατικό» στη λίστα τιμολογίων. Αντικαθιστά τα badges και το `issued-for-client` του plugin | |
+| E2 | MyCS | Τα παραστατικά στη σελίδα του τιμολογίου (staff) και στο client area («Εκδοθέντα παραστατικά», με το PDF του Ekdosi)· στήλη/φίλτρο «Παραστατικό» στη λίστα τιμολογίων. Αντικαθιστά τα badges και το `issued-for-client` του plugin. Και: η διαγραφή τιμολογίου με παραστατικό απαντά με μήνυμα (σήμερα το FK τη σταματά με raw λάθος) | |
 | E3 | MyCS | `add_payment`: το Ekdosi γράφει πληρωμή για τιμολόγιο επί πιστώσει (`RecordPaymentService`, ίδιο `transaction_id` = ίδια πληρωμή, πληρωμένο = τίποτα). Θέλει adversarial review (χρήματα) | |
 | E4 | importer | `mod_ekdosi_contacts` → `contacts`· `mod_ekdosi_routing` → `services.contact_id` / `domains.contact_id`· `mod_ekdosi_invoice_marks` → `ekdosi_documents` (βλ. «Importer») | με τον κοινό importer |
 | K1 | Ekdosi | `MycsBillingSource` (Phase 1 του `docs/bridges-connectors.md` του Ekdosi)· καρτέλα «MyCS Bridge» με διεύθυνση MyCS + secret· feed στα ίδια «Εισερχόμενα» με σήμα «MyCS» | |
@@ -42,7 +42,8 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 **MyCS** (Settings → Ekdosi, μόνο full admins):
 - `ekdosi_enabled`: κλειστό. Κλειστό σημαίνει ότι το endpoint απαντά 404 σε όλα.
 - `ekdosi_url`: η διεύθυνση του Ekdosi. Τα links PDF κρατιούνται μόνο όταν είναι σε αυτόν τον host, με https.
-- `ekdosi_secret`: κοινό και προς τις δύο κατευθύνσεις, ≥ 32 χαρακτήρες, κρυπτογραφημένο.
+- `ekdosi_secret`: κοινό και προς τις δύο κατευθύνσεις, ≥ 32 χαρακτήρες (και το endpoint απαντά 422 σε μικρότερο),
+  κρυπτογραφημένο.
 
 **Ekdosi («MyCS Bridge»):** διεύθυνση της MyCS, το ίδιο secret, ημερομηνία cut-over (`since`), οι προεπιλεγμένοι τύποι
 παραστατικών, ο διακόπτης auto-issue για τους γκρινιάρηδες και ο διακόπτης για την αποστολή πληρωμών. **Φεύγουν**, σε
@@ -81,7 +82,16 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   - Ο ίδιος ΜΑΡΚ ξανά ενημερώνει (κωδικό, PDF, `cancelled`)· ό,τι δεν στέλνεται μένει ως ήταν.
   - Ένα τιμολόγιο μπορεί να έχει πολλά παραστατικά (split σε αποδέκτες).
   - ΜΑΡΚ που υπάρχει ήδη σε άλλο τιμολόγιο → 409 `mark_on_another_invoice`· τιμολόγιο που δεν υπάρχει → 404.
-  - Τιμολόγιο με παραστατικό βγαίνει από το `paid_unfiled`.
+  - Τιμολόγιο με **ενεργό** παραστατικό βγαίνει από το `paid_unfiled`. Αν το μόνο του παραστατικό ακυρωθεί στην ΑΑΔΕ
+    (π.χ. για επανέκδοση σε σωστό ΑΦΜ), ξαναμπαίνει.
+  - Το `cancelled` είναι τελικό: ένα καθυστερημένο ή επαναλαμβανόμενο `active` δεν το γυρίζει πίσω (το body δεν έχει
+    timestamp, όπως και του plugin).
+  - Ο ΜΑΡΚ είναι αριθμός: τα μηδενικά μπροστά φεύγουν (`0400…` = `400…`), το `0` δεν γίνεται δεκτό.
+  - Το link PDF ξαναχτίζεται από τα μέρη του: μόνο https, μόνο ο host και το path του `ekdosi_url`, χωρίς userinfo, `\`
+    ή κενά (όπου PHP και browser διαβάζουν άλλον host).
+- Ένα τιμολόγιο με ενεργό παραστατικό **δεν γίνεται merge, split ή μεταφορά σε άλλον λογαριασμό**
+  (`InvoiceLineMove::refusal`). Αλλιώς οι γραμμές του θα ξαναέμπαιναν στα «Εισερχόμενα» (δεύτερο παραστατικό για την
+  ίδια πώληση), ή ένα παραστατικό στο ΑΦΜ ενός πελάτη θα πήγαινε σε άλλον. Ακυρώνεται πρώτα στο Ekdosi.
 
 **Payload τιμολογίου:** τα κλειδιά του `InvoiceFeed`:
 - τιμολόγιο: `invoiceid`, `userid`, `date`, `datepaid`, `subtotal`, `tax`, `total`, `credit`, `status`, `paymentmethod`,
@@ -101,6 +111,19 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   έχει), `recipient` (η κύρια επαφή με ΑΦΜ, ΔΟΥ, δραστηριότητα και `document_type`), `documents` (ό,τι έχει ήδη
   γράψει πίσω το Ekdosi).
 
+Για το K1 (από τα reviews του #459):
+- Το `total` μετρά και τα credit/debit notes, ενώ `subtotal` και `tax` όχι. Με notes, `subtotal + tax − credit ≠ total`
+  κατά `mycs.adjustments`. Το K1 το διαβάζει· αλλιώς ο έλεγχος συνέπειας του Ekdosi κρατά το τιμολόγιο (hold), που είναι
+  το ασφαλές.
+- `paymentmethod` = το gateway της τελευταίας πληρωμής, με τα ονόματα της MyCS (`banktransfer`, `stripe`, `paypal`,
+  `cardlink` …), όχι του WHMCS. Ο χάρτης πληρωμών του Ekdosi ξαναγίνεται στο cut-over. Τιμολόγιο πληρωμένο μόνο από
+  πίστωση: κενό.
+- Τα στοιχεία του αποδέκτη είναι τα **τωρινά** της επαφής (όπως στο plugin), όχι του snapshot της έκδοσης.
+- Η σελιδοποίηση είναι offset, όπως στο plugin: ό,τι πληρώνεται ή τιμολογείται όσο το Ekdosi διαβάζει σελίδες
+  μετακινεί τις επόμενες· όσα δεν φανούν, έρχονται στο επόμενο poll.
+- Τα τιμολόγια που έρχονται από τον importer έχουν σήμερα γραμμές domain/addon/upgrade χωρίς `reference_type`, άρα
+  `type ''`. Το E4 πρέπει να τις δένει, για να έχει το Ekdosi routing και κατηγορία εσόδων.
+
 Τύποι γραμμής (όπως στο WHMCS, για το routing και την κατηγορία εσόδων του Ekdosi):
 
 | Γραμμή | `type` |
@@ -119,9 +142,14 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   («Διαχωρισμός σε προσχέδια»), με τον αποδέκτη κάθε γραμμής έτοιμο.
 - **Domain:** νέα στήλη `domains.contact_id`, **όχι** ένας από τους ρόλους του registrar. Αν άλλαζε ο ρόλος billing,
   η αλλαγή θα έφευγε στο μητρώο (`PushContactJob`). Το staff την ορίζει στη σελίδα του domain (Contacts → «Σχετική
-  επαφή», με το `admin.domains.update`), μόνο από τις επαφές του ίδιου λογαριασμού. Σε μεταφορά του domain σε άλλο
+  επαφή», με το `admin.domains.update`), μόνο από τις επαφές του ίδιου λογαριασμού, όχι αρχειοθετημένες. Σε μεταφορά του domain σε άλλο
   λογαριασμό σβήνει, όπως της υπηρεσίας. Ο πελάτης δεν την αλλάζει ακόμα από το portal· όταν χρειαστεί, όπως της
   υπηρεσίας.
+
+- **Ποια γραμμή πού:** υπηρεσία και upgrade της → η επαφή της υπηρεσίας· domain και αλλαγή κατόχου του → η επαφή του
+  domain. Το `relid` στο `third_party.lines` είναι το id της υπηρεσίας ή του domain, όπως στο routing του plugin.
+- **Αρχειοθετημένη επαφή** δεν είναι αποδέκτης: τιμολογείται ο λογαριασμός. Το staff που αρχειοθετεί επαφή σε χρήση
+  αλλάζει πρώτα τη σχετική επαφή όπου θέλει άλλον αποδέκτη.
 
 ## Cut-over
 
