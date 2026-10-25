@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,11 @@ final class StaffLineEdit
             $invoice = (new RecordPaymentService)->lockInvoice($invoiceId);
             if ($changesAmounts) {
                 self::refuseWithPayments($invoice);
+                // A locking read after the locks (final review of #459): the observer's plain read would miss a document
+                // Ekdosi wrote back while this waited.
+                if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
+                    throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
+                }
             }
 
             return $change($invoice);

@@ -42,6 +42,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
+ * @property int|null $contact_id the related contact, who its lines are invoiced to by Ekdosi (not a registrar role)
  * @property int|null $registrant_contact_id
  * @property int|null $admin_contact_id
  * @property int|null $tech_contact_id
@@ -70,7 +71,7 @@ class Domain extends Model implements Auditable
         'client_id', 'order_id', 'epp_code', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
         'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'recurring_amount',
         'auto_renew', 'transfer_lock', 'id_protection', 'dns_management', 'email_forwarding', 'dnssec_enabled',
-        'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
+        'contact_id', 'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
         'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle',
         'registrar_domain_id', 'idn_script', 'last_synced_at', 'sync_error',
         'grace_days_override', 'grace_fee_override', 'redemption_days_override', 'redemption_fee_override', 'notes', 'meta',
@@ -206,6 +207,17 @@ class Domain extends Model implements Auditable
     public function techContact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'tech_contact_id');
+    }
+
+    /**
+     * Its related contact, as a service's (docs/accounts.md 3b): who its lines are invoiced to by Ekdosi
+     * (docs/ekdosi-bridge.md). Not one of the roles at the registrar: changing it changes nothing there.
+     *
+     * @return BelongsTo<Contact, $this>
+     */
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class);
     }
 
     /** @return BelongsTo<Contact, $this> */

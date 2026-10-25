@@ -7,6 +7,7 @@ use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\Domain;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Service;
@@ -417,6 +418,14 @@ final class RenewalBilling
         }
         if ($existing !== null && (int) $existing->invoice_id !== (int) $invoice->id) {
             return; // moved by staff: theirs to change
+        }
+        // Ekdosi issued its document for it: no line is added (R2-2 of #459); staff bill the fee by hand.
+        if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
+            if (Cache::add("domain-fee-notice:{$invoice->id}:{$kind}", true, now()->addDays(60))) {
+                $this->notices["invoices_created domain fee #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its renewal invoice #{$invoice->id} has a fiscal document from Ekdosi: the {$kind} ({$fee}) was not added, bill it by hand.");
+            }
+
+            return;
         }
         if ($invoice->hasPayments(lock: true)) {
             // Once per invoice and stage (review 11), not every night of the stage.

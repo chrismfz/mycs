@@ -280,7 +280,9 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   Αφορά 3.338 πληρωμές, τον τρόπο πληρωμής 167 ενεργών υπηρεσιών και 474 domains. Χαρτογραφείται ως Cardlink. Το
   `paypalpaymentspro` (2 πληρωμές του 2007) μένει χωρίς gateway.
 - **Hook `ExpiredDomains.php` στο WHMCS:** σβήνει **οριστικά** κάθε μέρα τα domains που είναι Expired, Cancelled ή
-  Transferred Away. Η αναμονή των 90 ημερών δεν δουλεύει, γιατί συγκρίνει string με int.
+  Transferred Away. Η αναμονή των 90 ημερών δεν δουλεύει, γιατί συγκρίνει string με int. **Απενεργοποιήθηκε
+  2026-10-25** (με έγκριση του υπευθύνου): το `add_hook` έγινε σχόλιο, το αρχείο μένει, αντίγραφο
+  `ExpiredDomains.php.bak-20261025`. Από τότε δεν χάνονται άλλα.
   - 20 διαγραφές από 19/09 ως 21/10.
   - 6.615 γραμμές τιμολογίων δείχνουν σε domains που δεν υπάρχουν πια. Μόνο τα 809 βρίσκονται στο `tbldomains_backup`.
 - **Νεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών στις
@@ -328,7 +330,9 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   Τα flags αυτά υπάρχουν πλέον και στις ομάδες (`client_groups.separate_invoices`, `dunning_exempt`,
   `no_overdue_reminders`), και ο importer τα παίρνει από το `tblclientgroups`.
 - **Ekdosi:**
-  - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα·
+  - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα
+    (`ekdosi-bridge.md` → «Importer»): οι επαφές γίνονται κανονικές `contacts`, το routing η σχετική επαφή της υπηρεσίας
+    ή του domain, τα marks `ekdosi_documents`·
   - `mod_timologia*`: αρχείο.
 - **Δεν έχουν extension στη MyCS:**
   - TheSSLStore: 12 ενεργές υπηρεσίες. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
