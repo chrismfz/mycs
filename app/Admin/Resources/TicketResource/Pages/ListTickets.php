@@ -36,9 +36,11 @@ class ListTickets extends ListRecords
             // Waiting on us: new and the customers' answers (docs/tickets.md §5).
             'open' => Tab::make('Awaiting us')
                 ->icon('heroicon-o-lock-open')
+                ->badge(fn () => Ticket::query()->whereIn('status', Ticket::AWAITING_STAFF)->count() ?: null)
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', Ticket::AWAITING_STAFF)),
             'answered' => Tab::make('Answered')
                 ->icon('heroicon-o-chat-bubble-left-right')
+                ->badge(fn () => Ticket::query()->where('status', Ticket::STATUS_ANSWERED)->count() ?: null)
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Ticket::STATUS_ANSWERED)),
             'on_hold' => Tab::make('On hold')
                 ->icon('heroicon-o-pause-circle')
