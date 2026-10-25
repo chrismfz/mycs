@@ -33,6 +33,7 @@ class CreateClient extends CreateRecord
             $client = Client::openFor($owner, grantedBy: $staff instanceof Staff ? $staff : null);
             $client->forceFill(['credit_auto_apply' => (bool) ($data['credit_auto_apply'] ?? true), 'tax_exempt' => (bool) ($data['tax_exempt'] ?? false),
                 'separate_invoices' => (bool) ($data['separate_invoices'] ?? false), 'auto_charge' => (bool) ($data['auto_charge'] ?? true),
+                'dunning_exempt' => (bool) ($data['dunning_exempt'] ?? false), 'no_overdue_reminders' => (bool) ($data['no_overdue_reminders'] ?? false),
                 'ignore_invoicing' => (bool) ($data['ignore_invoicing'] ?? false), 'immediate_invoicing' => (bool) ($data['immediate_invoicing'] ?? false),
                 'language' => Locales::allowed($data['language'] ?? null)])->save();
             // The account's details (PR 3a): what staff typed over what the owner gave.

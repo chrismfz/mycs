@@ -156,6 +156,15 @@ class ClientResource extends Resource
                             ->label(__('Separate invoices'))
                             ->helperText(__('One invoice per service renewal, instead of one per due date.'))
                             ->default(false),
+                        // WHMCS «Exempt from auto suspend/terminate» and «Disable overdue notices» (sweep of myip, 2026-10-25).
+                        Toggle::make('dunning_exempt')
+                            ->label(__('No automatic suspension or termination'))
+                            ->helperText(__('The cron never suspends or terminates this account\'s services for non-payment; staff still can. Also set on its group.'))
+                            ->default(false),
+                        Toggle::make('no_overdue_reminders')
+                            ->label(__('No overdue reminders'))
+                            ->helperText(__('No reminder after the due date (the one before it is still sent). Also set on its group.'))
+                            ->default(false),
                         // Decision 6 (PR C2): one saved method per account pays its renewals (WHMCS «Disable automatic card charging»).
                         Toggle::make('auto_charge')
                             ->label(__('Charge renewals automatically'))

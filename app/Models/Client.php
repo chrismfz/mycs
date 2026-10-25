@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Traits\HasProperties;
 use App\Observers\ClientObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,6 +43,8 @@ class Client extends Model implements Auditable
         'credit_auto_apply',
         'tax_exempt',
         'separate_invoices',
+        'dunning_exempt',
+        'no_overdue_reminders',
         'default_billing_agreement_id',
         'auto_charge',
         'client_group_id',
@@ -56,6 +59,8 @@ class Client extends Model implements Auditable
             'credit_auto_apply' => 'boolean',
             'tax_exempt' => 'boolean',
             'separate_invoices' => 'boolean',
+            'dunning_exempt' => 'boolean',
+            'no_overdue_reminders' => 'boolean',
             'auto_charge' => 'boolean',
             'ignore_invoicing' => 'boolean',
             'immediate_invoicing' => 'boolean',
@@ -190,6 +195,35 @@ class Client extends Model implements Auditable
     public function group(): BelongsTo
     {
         return $this->belongsTo(ClientGroup::class, 'client_group_id');
+    }
+
+    /** Its renewals are invoiced one per service: its own setting, or its group's (WHMCS). */
+    public function separatesInvoices(): bool
+    {
+        return $this->separate_invoices || (bool) $this->group?->separate_invoices;
+    }
+
+    /** The cron never suspends or terminates its services: its own setting, or its group's (WHMCS). */
+    public function dunningExempt(): bool
+    {
+        return $this->dunning_exempt || (bool) $this->group?->dunning_exempt;
+    }
+
+    /** It gets the overdue reminders (the ones before the due date are sent all the same): unless it or its group says no. */
+    public function remindedWhenOverdue(): bool
+    {
+        return !$this->no_overdue_reminders && !$this->group?->no_overdue_reminders;
+    }
+
+    /**
+     * The accounts a flag is set for, on the account or on its group, as a query on clients.
+     *
+     * @param  Builder<Client>  $query
+     * @return Builder<Client>
+     */
+    public static function whereFlag(Builder $query, string $flag): Builder
+    {
+        return $query->where(fn (Builder $q) => $q->where($flag, true)->orWhereHas('group', fn (Builder $g) => $g->where($flag, true)));
     }
 
     /** Its group's discount for pricing: null when none. */

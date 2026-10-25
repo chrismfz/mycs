@@ -333,7 +333,7 @@ final class RenewalBilling
         $key = match (true) {
             bccomp($price, '0', 2) <= 0 => null,
             $this->oneInvoicePerCustomer => implode('|', [$domain->client_id, $domain->currency_code]),
-            (bool) $domain->client->separate_invoices => null,
+            $domain->client->separatesInvoices() => null,
             default => implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]),
         };
         $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
@@ -458,7 +458,7 @@ final class RenewalBilling
         if ($this->oneInvoicePerCustomer) {
             return implode('|', [$service->client_id, $service->currency_code]);
         }
-        if ($service->client?->separate_invoices) {
+        if ($service->client?->separatesInvoices()) {
             return null;
         }
 

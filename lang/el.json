@@ -1267,5 +1267,12 @@
     ":count ends within 7 days|:count end within 7 days": ":count λήγει μέσα σε 7 ημέρες|:count λήγουν μέσα σε 7 ημέρες",
     "None ends within 7 days": "Καμία δεν λήγει μέσα σε 7 ημέρες",
     "Not handled yet": "Χωρίς χειρισμό ακόμη",
-    "Ends": "Λήγει"
+    "Ends": "Λήγει",
+    "No automatic suspension or termination": "Χωρίς αυτόματη αναστολή ή τερματισμό",
+    "No overdue reminders": "Χωρίς υπενθυμίσεις καθυστέρησης",
+    "No suspension": "Χωρίς αναστολή",
+    "The cron never suspends or terminates this account's services for non-payment; staff still can. Also set on its group.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες αυτού του λογαριασμού για μη πληρωμή· το προσωπικό μπορεί. Ορίζεται και στην ομάδα του.",
+    "No reminder after the due date (the one before it is still sent). Also set on its group.": "Καμία υπενθύμιση μετά τη λήξη (αυτή πριν από τη λήξη στέλνεται κανονικά). Ορίζεται και στην ομάδα του.",
+    "The cron never suspends or terminates its members' services for non-payment; staff still can.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες των μελών της για μη πληρωμή· το προσωπικό μπορεί.",
+    "No reminder after the due date (the one before it is still sent).": "Καμία υπενθύμιση μετά τη λήξη (αυτή πριν από τη λήξη στέλνεται κανονικά)."
 }
