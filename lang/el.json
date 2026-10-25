@@ -1276,5 +1276,16 @@
     "(group)": "(ομάδα)",
     "The cron never suspends or terminates this account's services for non-payment; staff still can. Also set on its group. Turned off, its overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες αυτού του λογαριασμού για μη πληρωμή· το προσωπικό μπορεί. Ορίζεται και στην ομάδα του. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες του αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
     "The cron never suspends or terminates its members' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες των μελών της για μη πληρωμή· το προσωπικό μπορεί. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες τους αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
-    "Pending cancellations": "Ακυρώσεις σε αναμονή"
+    "Pending cancellations": "Ακυρώσεις σε αναμονή",
+    "Incoming webhook URL": "Διεύθυνση incoming webhook",
+    "Tell of": "Ειδοποίηση για",
+    "Enabled": "Ενεργό",
+    "Send test": "Δοκιμαστικό μήνυμα",
+    "Mattermost: Integrations → Incoming Webhooks. Slack: an app's incoming webhook. Kept encrypted.": "Mattermost: Integrations → Incoming Webhooks. Slack: το incoming webhook μιας εφαρμογής. Αποθηκεύεται κρυπτογραφημένο.",
+    "MyCS: a test of «:name».": "MyCS: δοκιμή του «:name».",
+    "Customer reply to a ticket": "Απάντηση πελάτη σε ticket",
+    "Service suspended": "Αναστολή υπηρεσίας",
+    "Service unsuspended": "Επαναφορά υπηρεσίας",
+    "Service terminated": "Τερματισμός υπηρεσίας",
+    "Cancellation requested": "Αίτημα ακύρωσης"
 }

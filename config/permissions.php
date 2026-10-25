@@ -254,6 +254,13 @@ return [
                 'delete' => 'Delete Gateways',
                 'deleteAny' => 'Bulk Delete Gateways',
             ],
+            // Staff notifications to Mattermost/Slack (sweep of myip, 2026-10-25).
+            'chat_notifications' => [
+                'viewAny' => 'View Chat Notifications',
+                'create' => 'Create Chat Notifications',
+                'update' => 'Update Chat Notifications',
+                'delete' => 'Delete Chat Notifications',
+            ],
             'servers' => [
                 'create' => 'Create Servers',
                 'update' => 'Update Servers',

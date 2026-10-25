@@ -341,7 +341,11 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - 10 με DNSSEC·
   - 1 ενεργό στον **enom**, 1 χωρίς status, 1 Grace χωρίς registrar: διορθώνονται με το χέρι·
   - το migration domains (197 υποβλήθηκαν, 26 απέτυχαν) πρέπει να τελειώσει πριν από το cut-over.
-- **Ειδοποιήσεις Mattermost:** 5 κανόνες στο WHMCS. Η MyCS έχει μόνο Discord.
+- **Ειδοποιήσεις Mattermost:** 5 κανόνες στο WHMCS → Setup → Chat notifications.
+  - Ένα incoming webhook ανά κανόνα, για νέο ticket, απάντηση πελάτη, παραγγελία, πληρωμή, suspend, unsuspend,
+    terminate και ακύρωση.
+  - Στήνονται με το χέρι στο cut-over, με τα webhooks του Mattermost. Το «Payment auto matched» θα έρθει με το
+    matching των τραπεζών.
 - **Templates:** από τα custom, σε χρήση είναι μόνο το «Domain Transfer Complete» (54 τον χρόνο), που μεταφέρεται.
 - **Ιστορικό του `payments_tracking`** (2.318): εισάγεται ως history ή μένει μόνο σε αρχείο;
 - Αρχείο μόνο: quotes 14, CRM (mgCRM2) 555 leads, affiliates, ExpenseTracker.
