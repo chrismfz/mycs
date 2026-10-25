@@ -7,6 +7,7 @@ use App\Helpers\ExtensionHelper;
 use App\Jobs\SendChatNotification;
 use App\Models\BankMovement;
 use App\Models\ChatNotificationRule;
+use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -71,6 +72,32 @@ class BankPaymentMatchingTest extends TestCase
         $credit->refresh();
         $this->assertSame([BankMovement::MATCHED, $invoice->id], [$credit->status, $credit->invoice_id]);
         $this->assertNotNull($credit->matched_at);
+    }
+
+    /**
+     * The owner's case (2026-10-25): the customer sent the transfer's PDF, staff recorded the payment; the bank's alert
+     * comes the next day. Never a second payment, never credit: it stays for staff.
+     */
+    public function test_an_invoice_staff_already_recorded_paid_is_never_paid_again_nor_made_credit(): void
+    {
+        $invoice = $this->invoice('32999', '150.00');
+        ExtensionHelper::addPayment($invoice, 'BankTransfer', '150.00'); // staff, from the PDF
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $partly = $this->invoice('33000', '150.00');
+        ExtensionHelper::addPayment($partly, 'BankTransfer', '50.00'); // staff recorded a part
+        $credits = fn () => (string) Credit::query()->sum('amount');
+        $before = $credits();
+        $paid = $this->credit('ΕΜΒΑΣΜΑ 32999', '150.00');
+        $whole = $this->credit('ΕΜΒΑΣΜΑ 33000', '150.00');
+
+        PaymentMatcher::run();
+
+        $this->assertSame(1, InvoiceTransaction::query()->where('invoice_id', $invoice->id)->count(), 'no second payment');
+        $this->assertSame(1, InvoiceTransaction::query()->where('invoice_id', $partly->id)->count(), 'no payment beyond what is left');
+        $this->assertSame($before, $credits(), 'nothing made credit');
+        $this->assertSame([BankMovement::PENDING, BankMovement::PENDING], [$paid->fresh()->status, $whole->fresh()->status]);
+        $this->assertStringContainsString('is paid', (string) $paid->fresh()->match_note);
+        $this->assertStringContainsString('100.00 left to pay, not 150.00', (string) $whole->fresh()->match_note);
     }
 
     public function test_never_paid_twice_even_if_the_credit_is_put_back_to_pending(): void
