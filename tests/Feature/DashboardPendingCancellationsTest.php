@@ -161,7 +161,7 @@ class DashboardPendingCancellationsTest extends TestCase
         $this->request(Service::STATUS_ACTIVE, '2026-10-31');
         app()->setLocale('el');
 
-        $stat = $this->stats()['Εκκρεμείς ακυρώσεις'];
+        $stat = $this->stats()['Ακυρώσεις σε αναμονή'];
 
         $this->assertSame('2 λήγουν μέσα σε 7 ημέρες', (string) $stat->getDescription());
     }

@@ -108,15 +108,17 @@ class Overview extends BaseWidget
 
     /**
      * Cancellation requests not handled yet (owner 2026-10-24): their service still runs. Gray at zero; the list opens
-     * on those, and the subline says how many end within a week. Counted as the menu's badges are (AdminBadge).
+     * on those, and the subline says how many end within a week. Counted as the menu's badges are (AdminBadge), under
+     * the key of the sidebar's «Pending cancellations»: one count for both.
      */
     private function pendingCancellations(): ?Stat
     {
         if (!ServiceCancellationResource::canViewAny()) {
             return null;
         }
-        $pending = AdminBadge::count('ServiceCancellation.pending', fn () => ServiceCancellation::query()->pending()->count());
-        $soon = $pending === 0 ? 0 : AdminBadge::count('ServiceCancellation.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count());
+        $pending = AdminBadge::count(ServiceCancellation::class . '.pending', fn () => ServiceCancellation::query()->pending()->count());
+        // Never more than the pending ones: the two are cached apart (the sidebar fills the first on every page).
+        $soon = $pending === 0 ? 0 : min($pending, AdminBadge::count(ServiceCancellation::class . '.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count()));
 
         return Stat::make(__('Pending Cancellations'), (string) $pending)
             ->description(match (true) {
