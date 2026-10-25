@@ -571,6 +571,11 @@ class Service extends Model implements Auditable
      */
     public function stillOverdue(CarbonInterface $paidUntil): bool
     {
+        // An account exempt from the cron's suspensions (its own or its group's): nothing would suspend it again
+        // (reviews of #455).
+        if ($this->client?->dunningExempt()) {
+            return false;
+        }
         if (!config('settings.cronjob_suspend_enabled', true)) {
             return false;
         }

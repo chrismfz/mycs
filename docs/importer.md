@@ -324,7 +324,9 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - 1 ομάδα με ξεχωριστά τιμολόγια, 32 μέλη·
   - 3 ομάδες με εξαίρεση από suspend/terminate·
   - η MyCS έχει σήμερα μόνο έκπτωση ανά ομάδα, οπότε χρειάζονται flags στην ομάδα ή σε κάθε πελάτη.
-- **Flag ανά πελάτη «χωρίς υπενθυμίσεις overdue»** (`overideduenotices`): 18 πελάτες. **Λείπει** από τη MyCS.
+- **Flag ανά πελάτη «χωρίς υπενθυμίσεις overdue»** (`overideduenotices`): 18 πελάτες → `clients.no_overdue_reminders`.
+  Τα flags αυτά υπάρχουν πλέον και στις ομάδες (`client_groups.separate_invoices`, `dunning_exempt`,
+  `no_overdue_reminders`), και ο importer τα παίρνει από το `tblclientgroups`.
 - **Ekdosi:**
   - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα·
   - `mod_timologia*`: αρχείο.

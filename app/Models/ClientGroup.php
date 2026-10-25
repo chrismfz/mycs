@@ -23,11 +23,11 @@ class ClientGroup extends Model implements Auditable
 {
     use Traits\Auditable;
 
-    protected $fillable = ['name', 'colour', 'discount_percent'];
+    protected $fillable = ['name', 'colour', 'discount_percent', 'separate_invoices', 'dunning_exempt', 'no_overdue_reminders'];
 
     protected function casts(): array
     {
-        return ['discount_percent' => 'decimal:2'];
+        return ['discount_percent' => 'decimal:2', 'separate_invoices' => 'boolean', 'dunning_exempt' => 'boolean', 'no_overdue_reminders' => 'boolean'];
     }
 
     /** @return HasMany<Client, $this> */

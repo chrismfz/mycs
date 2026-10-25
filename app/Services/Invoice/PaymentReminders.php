@@ -84,6 +84,10 @@ class PaymentReminders
                 ->get();
             $this->known($overdue);
             foreach ($overdue as $invoice) {
+                // «Disable overdue notices» on the account or its group (WHMCS): the ones before the due date still go.
+                if (!$invoice->client->remindedWhenOverdue()) {
+                    continue;
+                }
                 $late = (int) $invoice->due_at->copy()->startOfDay()->diffInDays($today);
                 $reached = array_values(array_filter($days, fn (int $day) => $day <= $late));
                 $day = end($reached);
@@ -118,7 +122,7 @@ class PaymentReminders
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
             ->whereDoesntHave('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))
             ->whereHas('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
-            ->with(['client.primaryContact', 'client.ownerGrant.user', 'items.reference', 'transactions']);
+            ->with(['client.primaryContact', 'client.ownerGrant.user', 'client.group', 'items.reference', 'transactions']);
     }
 
     /** @var array<string, string> the latest due date each reminder went for, by «id|kind|days» */
@@ -231,6 +235,10 @@ class PaymentReminders
     private static function suspendOn(Invoice $invoice): ?string
     {
         if (!config('settings.cronjob_suspend_enabled', true)) {
+            return null;
+        }
+        // Never suspended by the cron (its account or its group exempt): no date to tell.
+        if ($invoice->client?->dunningExempt()) {
             return null;
         }
         $days = max(0, (int) config('settings.cronjob_order_suspend', 8));

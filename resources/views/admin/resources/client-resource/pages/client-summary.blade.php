@@ -95,7 +95,8 @@
             <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Payment method for renewals') }}</span><span class="text-right break-all">{{ $set['method'] ?? '—' }}</span></div>
             @foreach ([
                 'auto_charge' => __('Charge renewals automatically'), 'credit_auto_apply' => __('Credit pays open invoices automatically'),
-                'separate_invoices' => __('Separate invoices'), 'tax_exempt' => __('Tax exempt'),
+                'separate_invoices' => __('Separate invoices'), 'dunning_exempt' => __('No automatic suspension or termination'),
+                'no_overdue_reminders' => __('No overdue reminders'), 'tax_exempt' => __('Tax exempt'),
                 '' => __('Fiscal invoicing (Ekdosi)'), // a heading, not a setting
                 'ignore_invoicing' => __('Ignore invoicing'), 'immediate_invoicing' => __('Immediate invoicing'),
             ] as $field => $name)
@@ -106,7 +107,7 @@
                         {{-- On, with no method of its own: the cron charges nothing (review F3); a hint, as most pay by transfer. --}}
                         @if ($field === 'auto_charge' && $set['auto_charge'] && $set['method'] === null)<span class="{{ $label }}">{{ __('Yes, no method saved') }}</span>
                         @elseif ($set[$field] === ClientSummary::SETTING_DEFAULTS[$field])<span class="{{ $label }}">{{ $onOff($set[$field]) }}</span>
-                        @else<x-filament::badge color="warning">{{ $onOff($set[$field]) }}</x-filament::badge>@endif
+                        @else<x-filament::badge color="warning">{{ $onOff($set[$field]) }}@if (in_array($field, $set['from_group'] ?? [], true)) {{ __('(group)') }}@endif</x-filament::badge>@endif
                     </span></div>
                 @endif
             @endforeach

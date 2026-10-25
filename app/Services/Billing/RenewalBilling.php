@@ -145,6 +145,7 @@ final class RenewalBilling
             && $service->invoiceItems()->whereDate('period_start', $service->paidUntilBase()->toDateString())->whereNull('forgone_at')
                 ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED))->exists()
             && !(config('settings.cronjob_terminate_enabled', true)
+                && !$service->client?->dunningExempt() // nothing ends an exempt account's service (adversarial of #455)
                 && ($service->suspend_hold_until === null || CarbonImmutable::parse($service->suspend_hold_until)->startOfDay()->lessThan(CarbonImmutable::today()))
                 && $service->paidUntilBase()->lessThan(CarbonImmutable::today()->subDays(max(0, (int) config('settings.cronjob_order_terminate', 60)))));
         if ($service->status === 'suspended' && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
@@ -333,7 +334,7 @@ final class RenewalBilling
         $key = match (true) {
             bccomp($price, '0', 2) <= 0 => null,
             $this->oneInvoicePerCustomer => implode('|', [$domain->client_id, $domain->currency_code]),
-            (bool) $domain->client->separate_invoices => null,
+            $domain->client->separatesInvoices() => null,
             default => implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]),
         };
         $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
@@ -458,7 +459,7 @@ final class RenewalBilling
         if ($this->oneInvoicePerCustomer) {
             return implode('|', [$service->client_id, $service->currency_code]);
         }
-        if ($service->client?->separate_invoices) {
+        if ($service->client?->separatesInvoices()) {
             return null;
         }
 

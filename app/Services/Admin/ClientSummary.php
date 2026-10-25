@@ -37,6 +37,8 @@ class ClientSummary
         'auto_charge' => true,
         'credit_auto_apply' => true,
         'separate_invoices' => false,
+        'dunning_exempt' => false,
+        'no_overdue_reminders' => false,
         'tax_exempt' => false,
         'ignore_invoicing' => false,
         'immediate_invoicing' => false,
@@ -138,6 +140,12 @@ class ClientSummary
         foreach (self::SETTING_DEFAULTS as $field => $default) {
             $settings[$field] = (bool) ($client->{$field} ?? $default);
         }
+        // What holds, the account's or its group's (reviews of #455), and which come from the group only.
+        $own = ['separate_invoices' => $settings['separate_invoices'], 'dunning_exempt' => $settings['dunning_exempt'], 'no_overdue_reminders' => $settings['no_overdue_reminders']];
+        $settings['separate_invoices'] = $client->separatesInvoices();
+        $settings['dunning_exempt'] = $client->dunningExempt();
+        $settings['no_overdue_reminders'] = !$client->remindedWhenOverdue();
+        $settings['from_group'] = array_keys(array_filter($own, fn (bool $value, string $field) => !$value && $settings[$field], ARRAY_FILTER_USE_BOTH));
 
         return $settings;
     }

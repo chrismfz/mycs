@@ -1268,5 +1268,13 @@
     "None ends within 7 days": "Καμία δεν λήγει μέσα σε 7 ημέρες",
     "Not handled yet": "Χωρίς χειρισμό ακόμη",
     "Ends": "Λήγει",
+    "No automatic suspension or termination": "Χωρίς αυτόματη αναστολή ή τερματισμό",
+    "No overdue reminders": "Χωρίς υπενθυμίσεις καθυστέρησης",
+    "No suspension": "Χωρίς αναστολή",
+    "No reminder after the due date (the one before it is still sent). Also set on its group.": "Καμία υπενθύμιση μετά τη λήξη (αυτή πριν από τη λήξη στέλνεται κανονικά). Ορίζεται και στην ομάδα του.",
+    "No reminder after the due date (the one before it is still sent).": "Καμία υπενθύμιση μετά τη λήξη (αυτή πριν από τη λήξη στέλνεται κανονικά).",
+    "(group)": "(ομάδα)",
+    "The cron never suspends or terminates this account's services for non-payment; staff still can. Also set on its group. Turned off, its overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες αυτού του λογαριασμού για μη πληρωμή· το προσωπικό μπορεί. Ορίζεται και στην ομάδα του. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες του αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
+    "The cron never suspends or terminates its members' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες των μελών της για μη πληρωμή· το προσωπικό μπορεί. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες τους αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
     "Pending cancellations": "Ακυρώσεις σε αναμονή"
 }

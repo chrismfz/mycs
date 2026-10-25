@@ -9,9 +9,11 @@ use App\Models\ClientGroup;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\ColorColumn;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -48,6 +50,13 @@ class ClientGroupResource extends Resource
                 TextInput::make('discount_percent')->label(__('Discount (%)'))
                     ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)->required()
                     ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on domains, nor on a price kept by hand.')),
+                // WHMCS's group settings (sweep of myip, 2026-10-25): each holds for every member, whatever the member's own.
+                Toggle::make('separate_invoices')->label(__('Separate invoices'))
+                    ->helperText(__('One invoice per service renewal, instead of one per due date.')),
+                Toggle::make('dunning_exempt')->label(__('No automatic suspension or termination'))
+                    ->helperText(__('The cron never suspends or terminates its members\' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.')),
+                Toggle::make('no_overdue_reminders')->label(__('No overdue reminders'))
+                    ->helperText(__('No reminder after the due date (the one before it is still sent).')),
             ]);
     }
 
@@ -58,6 +67,7 @@ class ClientGroupResource extends Resource
                 ColorColumn::make('colour')->label(''),
                 TextColumn::make('name')->label(__('Name'))->searchable()->sortable(),
                 TextColumn::make('discount_percent')->label(__('Discount (%)'))->sortable(),
+                IconColumn::make('dunning_exempt')->label(__('No suspension'))->boolean()->toggleable(),
                 TextColumn::make('clients_count')->label(__('Clients'))->counts('clients')->sortable(),
             ])
             ->recordActions([EditAction::make()])
