@@ -50,7 +50,7 @@ class Show extends Component
         }
 
         // Load relations
-        $this->invoice->load('transactions', 'transactions.gateway', 'transactions.invoice', 'adjustmentNotes');
+        $this->invoice->load('transactions', 'transactions.gateway', 'transactions.invoice', 'adjustmentNotes', 'ekdosiDocuments');
 
         if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
             $this->showPayModal = false;

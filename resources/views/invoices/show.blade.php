@@ -187,6 +187,46 @@
                 </div>
             </div>
 
+            {{-- The fiscal documents Ekdosi issued from this invoice (docs/ekdosi-bridge.md, E2): the legal document is that one. --}}
+            @if ($invoice->ekdosiDocuments->isNotEmpty())
+            <div class="mt-12">
+                <h2 class="text-2xl font-bold">{{ __('invoices.fiscal_documents') }}</h2>
+                @if ($invoice->ekdosiDocuments->contains('state', \App\Models\EkdosiDocument::ACTIVE))
+                <p class="mt-1 text-sm text-base/70">{{ __('invoices.fiscal_documents_note') }}</p>
+                @endif
+                <div class="mt-4 overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-background border border-neutral rounded-lg">
+                            <tr>
+                                <th scope="col" class="p-4 text-xs font-semibold tracking-wider text-left uppercase rounded-l-lg">{{ __('invoices.fiscal_document') }}</th>
+                                <th scope="col" class="p-4 text-xs font-semibold tracking-wider text-left uppercase">{{ __('invoices.mark') }}</th>
+                                <th scope="col" class="p-4 text-xs font-semibold tracking-wider text-left uppercase">{{ __('invoices.date') }}</th>
+                                <th scope="col" class="p-4 text-xs font-semibold tracking-wider text-left uppercase">{{ __('invoices.status') }}</th>
+                                <th scope="col" class="p-4 text-xs font-semibold tracking-wider text-left uppercase rounded-r-lg"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($invoice->ekdosiDocuments->sortBy('id') as $document)
+                            <tr>
+                                <td class="p-4 font-normal whitespace-nowrap">{{ $document->code ?: '—' }}</td>
+                                <td class="p-4 font-mono text-sm whitespace-nowrap">{{ $document->mark }}</td>
+                                <td class="p-4 font-normal whitespace-nowrap">{{ $document->created_at?->format('d M Y') }}</td>
+                                <td class="p-4 font-normal whitespace-nowrap">
+                                    {{ $document->state === \App\Models\EkdosiDocument::CANCELLED ? __('invoices.document_cancelled') : __('invoices.document_active') }}
+                                </td>
+                                <td class="p-4 font-normal whitespace-nowrap">
+                                    @if ($document->pdf_url && $document->state !== \App\Models\EkdosiDocument::CANCELLED)
+                                    <a href="{{ $document->pdf_url }}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">{{ __('invoices.open_pdf') }}</a>
+                                    @endif
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @endif
+
             @if ($invoice->transactions->isNotEmpty())
             @php
                 $hasRefunds = $invoice->transactions->contains(fn ($transaction) => $transaction->refunded_amount > 0);

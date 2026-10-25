@@ -179,4 +179,13 @@ return [
     'more_lines' => '{1} +1 ακόμα|[2,*] +:count ακόμα',
     'due_on' => 'Λήγει στις :date',
     'overdue_since' => 'Ληξιπρόθεσμο από :date',
+
+    // The fiscal documents Ekdosi issued from an invoice (docs/ekdosi-bridge.md, E2).
+    'fiscal_documents' => 'Φορολογικά παραστατικά',
+    'fiscal_documents_note' => 'Το νόμιμο παραστατικό για αυτό το τιμολόγιο, εκδομένο και διαβιβασμένο στην ΑΑΔΕ.',
+    'fiscal_document' => 'Παραστατικό',
+    'mark' => 'ΜΑΡΚ',
+    'document_active' => 'Εκδόθηκε',
+    'document_cancelled' => 'Ακυρώθηκε',
+    'open_pdf' => 'PDF',
 ];

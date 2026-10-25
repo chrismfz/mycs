@@ -6,6 +6,7 @@ use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\EkdosiDocument;
 use App\Models\Service;
 use App\Services\Billing\ClientGroupPricing;
 
@@ -41,6 +42,10 @@ class ClientObserver
     {
         if ($client->hasMoneyHistory()) {
             throw new DisplayException(__('A customer with payments or account credit history cannot be deleted.'));
+        }
+        // An invoice Ekdosi issued a fiscal document from would be left with no customer (the key sets it null): kept (E2).
+        if (EkdosiDocument::query()->whereHas('invoice', fn ($query) => $query->where('client_id', $client->id))->exists()) {
+            throw new DisplayException(__('This customer has invoices with fiscal documents from Ekdosi: it cannot be deleted.'));
         }
         // Domains end by status and keep their history (docs/domains.md D-18): an account that has any is kept.
         if ($client->domains()->exists()) {

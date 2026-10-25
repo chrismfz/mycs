@@ -18,6 +18,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\TextInput;
@@ -130,6 +131,8 @@ class ViewInvoice extends ViewRecord
                 ->icon('heroicon-o-x-circle')
                 ->color('danger')
                 ->requiresConfirmation()
+                // A fiscal document from Ekdosi stands: staff are told before they cancel (E2).
+                ->modalDescription(fn (Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                 ->form([
                     TextInput::make('cancellation_reason')
                         ->label('Cancellation Reason')
@@ -140,7 +143,7 @@ class ViewInvoice extends ViewRecord
                     Radio::make('periods')
                         ->label('Its periods')
                         ->options(InvoiceResource::cancelPeriods())
-                        ->helperText(__('A duplicate with no payment on it: delete it instead.'))
+                        ->helperText(fn (Invoice $record): ?string => EkdosiNotice::forInvoice($record) === null ? __('A duplicate with no payment on it: delete it instead.') : null)
                         ->default('auto')
                         ->required(),
                 ])

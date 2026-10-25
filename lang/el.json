@@ -1366,5 +1366,17 @@
     "Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.": "Το τιμολόγιο :invoice έχει παραστατικό από το Ekdosi: ακυρώστε το εκεί πρώτα.",
     "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: οι γραμμές του μένουν όπως είναι. Ακυρώστε πρώτα το παραστατικό εκεί.",
     "This invoice has a fiscal document from Ekdosi: it stays with its customer and currency. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: μένει στον πελάτη και στο νόμισμά του. Ακυρώστε πρώτα το παραστατικό εκεί.",
-    "This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: το σύνολό του μένει όπως εκδόθηκε. Ακυρώστε πρώτα το παραστατικό εκεί."
+    "This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: το σύνολό του μένει όπως εκδόθηκε. Ακυρώστε πρώτα το παραστατικό εκεί.",
+    "Fiscal documents": "Παραστατικά",
+    "Fiscal document": "Παραστατικό",
+    "MARK": "ΜΑΡΚ",
+    "Issued": "Εκδόθηκε",
+    "No fiscal document yet": "Κανένα παραστατικό ακόμα",
+    "Ekdosi writes it back here when it issues the document.": "Το Ekdosi το γράφει εδώ όταν εκδώσει το παραστατικό.",
+    "It has a fiscal document from Ekdosi (:documents): cancelling or refunding here does not cancel it — issue a credit note in Ekdosi.": "Έχει παραστατικό από το Ekdosi (:documents): η ακύρωση ή η επιστροφή χρημάτων εδώ δεν το ακυρώνει — κόψε πιστωτικό στο Ekdosi.",
+    "PDF": "PDF",
+    "This invoice has a fiscal document from Ekdosi: it is kept. Cancel or refund it instead.": "Το τιμολόγιο έχει παραστατικό από το Ekdosi: κρατιέται. Ακύρωσέ το ή κάνε επιστροφή χρημάτων αντί για διαγραφή.",
+    "This customer has invoices with fiscal documents from Ekdosi: it cannot be deleted.": "Ο πελάτης έχει τιμολόγια με παραστατικά από το Ekdosi: δεν διαγράφεται.",
+    "Paid, not issued": "Πληρωμένο, χωρίς παραστατικό",
+    "Recorded": "Καταγράφηκε"
 }
