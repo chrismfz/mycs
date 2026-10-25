@@ -307,12 +307,43 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /**
+     * WHMCS's client groups, by their ids: name, colour, discount, «Exempt from suspend & terminate» and «Separate
+     * invoices» (sweep of myip, 2026-10-25). Returns the ids there are; none when WHMCS has no such table.
+     *
+     * @return array<int, true>
+     */
+    private function importClientGroups(): array
+    {
+        try {
+            $groups = $this->pdo->query('SELECT * FROM tblclientgroups')->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable) {
+            return [];
+        }
+        $ids = [];
+        foreach ($groups as $group) {
+            $on = fn (string $key) => in_array(strtolower(trim((string) ($group[$key] ?? ''))), ['on', '1', 'yes'], true);
+            DB::table('client_groups')->updateOrInsert(['id' => (int) $group['id']], [
+                'name' => mb_substr(trim((string) ($group['groupname'] ?? '')) ?: 'Group ' . $group['id'], 0, 255),
+                'colour' => ($group['groupcolour'] ?? '') !== '' ? $group['groupcolour'] : null,
+                'discount_percent' => number_format(max(0, min(100, (float) ($group['discountpercent'] ?? 0))), 2, '.', ''),
+                'dunning_exempt' => $on('susptermexempt'), 'separate_invoices' => $on('separateinvoices'),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $ids[(int) $group['id']] = true;
+        }
+        $this->info('Client groups: ' . count($ids) . '.');
+
+        return $ids;
+    }
+
     private function importUsers()
     {
         $this->importLogins();
+        $groups = $this->importClientGroups();
         $this->info('Importing accounts... (' . $this->count('tblclients') . ' records)');
 
-        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) use ($groups) {
             $data = [];
             $clients = [];
             $contacts = [];
@@ -335,6 +366,9 @@ class ImportFromWhmcs extends Command
                 $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at'],
                     'tax_exempt' => (bool) ($record['taxexempt'] ?? false), 'separate_invoices' => (bool) ($record['separateinvoices'] ?? false),
                     'auto_charge' => !($record['disableautocc'] ?? false),
+                    // «Disable overdue notices», and its group (sweep of myip, 2026-10-25).
+                    'no_overdue_reminders' => (bool) ($record['overideduenotices'] ?? false),
+                    'client_group_id' => isset($groups[(int) ($record['groupid'] ?? 0)]) ? (int) $record['groupid'] : null,
                     // Its mails' language (WHMCS «greek», «english», …; empty: the instance's).
                     'language' => Locales::fromWhmcs($record['language'] ?? null)];
 

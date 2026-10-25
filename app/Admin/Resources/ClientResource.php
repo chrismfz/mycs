@@ -159,7 +159,7 @@ class ClientResource extends Resource
                         // WHMCS «Exempt from auto suspend/terminate» and «Disable overdue notices» (sweep of myip, 2026-10-25).
                         Toggle::make('dunning_exempt')
                             ->label(__('No automatic suspension or termination'))
-                            ->helperText(__('The cron never suspends or terminates this account\'s services for non-payment; staff still can. Also set on its group.'))
+                            ->helperText(__('The cron never suspends or terminates this account\'s services for non-payment; staff still can. Also set on its group. Turned off, its overdue services are suspended on the next run, and terminated soon after if long overdue.'))
                             ->default(false),
                         Toggle::make('no_overdue_reminders')
                             ->label(__('No overdue reminders'))

@@ -54,7 +54,7 @@ class ClientGroupResource extends Resource
                 Toggle::make('separate_invoices')->label(__('Separate invoices'))
                     ->helperText(__('One invoice per service renewal, instead of one per due date.')),
                 Toggle::make('dunning_exempt')->label(__('No automatic suspension or termination'))
-                    ->helperText(__('The cron never suspends or terminates its members\' services for non-payment; staff still can.')),
+                    ->helperText(__('The cron never suspends or terminates its members\' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.')),
                 Toggle::make('no_overdue_reminders')->label(__('No overdue reminders'))
                     ->helperText(__('No reminder after the due date (the one before it is still sent).')),
             ]);

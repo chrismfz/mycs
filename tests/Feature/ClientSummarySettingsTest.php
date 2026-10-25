@@ -89,6 +89,7 @@ class ClientSummarySettingsTest extends TestCase
         $agreement = $this->agreement($this->client, 'Visa **** 4242');
         $this->client->forceFill(['language' => 'el', 'client_group_id' => $group->id, 'default_billing_agreement_id' => $agreement->id,
             'auto_charge' => false, 'credit_auto_apply' => false, 'separate_invoices' => true, 'tax_exempt' => true,
+            'dunning_exempt' => true, 'no_overdue_reminders' => true,
             'ignore_invoicing' => true, 'immediate_invoicing' => true])->save();
 
         $settings = ClientSummary::for($this->client->fresh(), $this->staff(['*']))['settings'];
