@@ -89,7 +89,8 @@ final class MoveToClient
             // Its contacts copied (each once, whatever roles it holds) and the roles pointing to the copies; the handles
             // stay as they are (written without the model, which would clear a role's handle with its contact).
             $copies = [];
-            $update = ['client_id' => $to->id];
+            // Its related contact is the old account's: it goes, as a service's (Ekdosi would bill the old account's contact).
+            $update = ['client_id' => $to->id, 'contact_id' => null];
             foreach (Domain::ROLES as $role) {
                 $id = $domain->{"{$role}_contact_id"};
                 if ($id === null) {

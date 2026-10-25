@@ -45,6 +45,7 @@
 | `templates.md` | Σύνταξη των templates email/ειδοποιήσεων (χωρίς Blade) και τιμές ανά ειδοποίηση |
 | `orders.md` | Παραγγελίες και τιμολόγηση γραμμής: ένα `PlaceOrderService`, ένα `OrderPricing` (Σ7) |
 | `importer.md` | WHMCS importer με 1:1 parity (πρότυπο: `migrate:firebird` του Ekdosi) |
+| `ekdosi-bridge.md` | Γέφυρα προς Ekdosi: κομμάτια (E1–E4, K1–K2), συμβόλαιο `/api/ekdosi`, ρυθμίσεις, cut-over, importer |
 | `open-questions.md` | Ανοιχτά ερωτήματα και σκέψεις |
 | `history/blesta-modules/` | Τα docs του blesta-modules (HANDOFF, licensing/zlic, Openprovider, importer Blesta, nixpal cut-over, ασφάλεια gateways, domain-tools) και το CLAUDE.md του |
 | `history/upstream-README.md` | Το README του upstream στο `5b69d45` |

@@ -1292,5 +1292,10 @@
     "Send test to me": "Δοκιμαστική αποστολή σε εμένα",
     "The texts on the form now, with made-up data, to :email, in each language.": "Τα κείμενα όπως είναι τώρα στη φόρμα, με δοκιμαστικά δεδομένα, στο :email, σε κάθε γλώσσα.",
     "Sent to :email": "Στάλθηκε στο :email",
-    "It does not render: :reason": "Δεν αποδίδεται: :reason"
+    "It does not render: :reason": "Δεν αποδίδεται: :reason",
+    "Related contact": "Σχετική επαφή",
+    "The account": "Ο λογαριασμός",
+    "Who the fiscal document for its lines is issued to.": "Σε ποιον εκδίδεται το παραστατικό για τις γραμμές του.",
+    "Who this domain is for, among the account's contacts: Ekdosi issues the document for its lines to this contact. Nothing is sent to the registrar.": "Για ποιον είναι το domain, από τις επαφές του λογαριασμού: το Ekdosi εκδίδει το παραστατικό για τις γραμμές του σε αυτή την επαφή. Τίποτα δεν στέλνεται στον registrar.",
+    "Ekdosi": "Ekdosi"
 }

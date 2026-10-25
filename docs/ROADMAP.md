@@ -175,9 +175,14 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 
 ### myip.gr (μετά τη nixpal)
 - [x] ~~Δύο επιλογές του πελάτη για το Ekdosi~~ **έγινε (feat/ekdosi-client-flags):** «Ignore invoicing» και «Immediate invoicing» στην καρτέλα του πελάτη (μόνο staff)· κρατιούνται, τις διαβάζει η γέφυρα όταν έρθει.
-- [ ] **Ekdosi bridge** και custom fields (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», «Γκρινιάρης»): **τελευταίο** (ο υπεύθυνος,
-      2026-10-21)· απλούστερο από το addon + API του WHMCS. Φορολογικά παραστατικά στο portal από το Ekdosi·
-      «Εισερχόμενα» χωρίς διπλά. (Στο WHMCS το staff ανοίγει τα «marks» του bridge ~20 φορές τη μέρα.)
+- [ ] **Ekdosi bridge**, σε κομμάτια (ο υπεύθυνος, 2026-10-25· `ekdosi-bridge.md`): ρύθμιση κλειστή by default,
+      «MyCS Bridge» στο Ekdosi με λιγότερες ρυθμίσεις, ένα «Εισερχόμενα». ΑΦΜ/ΔΟΥ/είδος παραστατικού από τις επαφές,
+      γκρινιάρης και ignore invoicing από τον πελάτη, αποδέκτης ανά γραμμή από τη σχετική επαφή υπηρεσίας/domain.
+  - [x] **E1 (feat/ekdosi-feed):** `POST /api/ekdosi` (HMAC, ops ping/invoices/invoice/resolve/mark) στο σχήμα του
+        plugin, `ekdosi_documents`, `domains.contact_id`, Settings → Ekdosi.
+  - [ ] E2 παραστατικά στο admin και στο client area· E3 `add_payment` (adversarial)· E4 στον importer.
+  - [ ] K1/K2 στο Ekdosi: `MycsBillingSource`, καρτέλα «MyCS Bridge», write-back. (Στο WHMCS το staff ανοίγει τα «marks»
+        του bridge ~20 φορές τη μέρα.)
 - [ ] Ειδοποιήσεις Mattermost· εύκολη επεξεργασία των κανόνων από το admin.
 
 ### Εκκρεμότητες του υπεύθυνου (όχι κώδικας)
