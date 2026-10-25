@@ -191,7 +191,9 @@
             @if ($invoice->ekdosiDocuments->isNotEmpty())
             <div class="mt-12">
                 <h2 class="text-2xl font-bold">{{ __('invoices.fiscal_documents') }}</h2>
+                @if ($invoice->ekdosiDocuments->contains('state', \App\Models\EkdosiDocument::ACTIVE))
                 <p class="mt-1 text-sm text-base/70">{{ __('invoices.fiscal_documents_note') }}</p>
+                @endif
                 <div class="mt-4 overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-background border border-neutral rounded-lg">

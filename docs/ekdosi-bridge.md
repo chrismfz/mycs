@@ -29,7 +29,7 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | # | Πού | Τι | Κατάσταση |
 |---|---|---|---|
 | **E1** | MyCS | Ρύθμιση «Ekdosi» (on/off, διεύθυνση, κοινό secret)· `POST /api/ekdosi` με HMAC και ops `ping`, `invoices`, `invoice`, `resolve`, `mark`· πίνακας `ekdosi_documents` (ΜΑΡΚ, κωδικός, κατάσταση, PDF)· `domains.contact_id` («Σχετική επαφή» στη σελίδα του domain) | **έγινε (#459)** |
-| **E2** | MyCS | Τα παραστατικά στο admin: καρτέλα «Παραστατικά» στο τιμολόγιο (κωδικός, ΜΑΡΚ, κατάσταση, PDF), στήλη και φίλτρο «Παραστατικό» στη λίστα (με τη γέφυρα ανοιχτή). Στο client area: «Φορολογικά παραστατικά» στη σελίδα του τιμολογίου, με το PDF του Ekdosi (όχι για ακυρωμένο). Προειδοποίηση στην ακύρωση και στο refund τιμολογίου με ενεργό παραστατικό («κόψε πιστωτικό στο Ekdosi»). Τιμολόγιο με παραστατικό δεν διαγράφεται (μήνυμα, όχι raw λάθος του FK) | **feat/ekdosi-documents** |
+| **E2** | MyCS | Τα παραστατικά στο admin: καρτέλα «Παραστατικά» στο τιμολόγιο (κωδικός, ΜΑΡΚ, κατάσταση, PDF, πότε καταγράφηκε), στήλη και φίλτρο «Εκδόθηκε / Πληρωμένο, χωρίς παραστατικό» στη λίστα (με τη γέφυρα ανοιχτή). Στο client area: «Φορολογικά παραστατικά» στη σελίδα του τιμολογίου, με το PDF του Ekdosi (όχι για ακυρωμένο). Προειδοποίηση («κόψε πιστωτικό στο Ekdosi») στην ακύρωση (λίστα, σελίδα, πεδίο κατάστασης) και στο refund. Τιμολόγιο με παραστατικό δεν διαγράφεται, ούτε ο πελάτης του (μήνυμα, όχι 500) | **feat/ekdosi-documents** |
 | E3 | MyCS | `add_payment`: το Ekdosi γράφει πληρωμή για τιμολόγιο επί πιστώσει (`RecordPaymentService`, ίδιο `transaction_id` = ίδια πληρωμή, πληρωμένο = τίποτα). Θέλει adversarial review (χρήματα) | |
 | E4 | importer | `mod_ekdosi_contacts` → `contacts`· `mod_ekdosi_routing` → `services.contact_id` / `domains.contact_id`· `mod_ekdosi_invoice_marks` → `ekdosi_documents` (βλ. «Importer») | με τον κοινό importer |
 | K1 | Ekdosi | `MycsBillingSource` (Phase 1 του `docs/bridges-connectors.md` του Ekdosi)· καρτέλα «MyCS Bridge» με διεύθυνση MyCS + secret· feed στα ίδια «Εισερχόμενα» με σήμα «MyCS» | |
@@ -150,6 +150,15 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | αλλαγή κατόχου | `DomainOwnerChange` |
 | add funds | `AddFunds` |
 | ελεύθερη γραμμή | `''` |
+
+### Χωρίς προειδοποίηση ακόμα (για το K2)
+Από το review του E2:
+- το «Cancel & Refund» μιας παραγγελίας (refund στο τιμολόγιό της);
+- η διαγραφή συναλλαγής, που ξαναγυρίζει πληρωμένο τιμολόγιο σε απλήρωτο;
+- τα refunds και τα chargebacks από τα gateways, που είναι αυτόματα.
+
+Το παραστατικό ισχύει σε όλες. Το Ekdosi πρέπει να μαθαίνει για αυτές με άλλον τρόπο (K2), αφού εδώ δεν υπάρχει staff
+να προειδοποιηθεί.
 
 ## Η «Σχετική επαφή» της υπηρεσίας και του domain
 

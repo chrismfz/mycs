@@ -16,6 +16,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
 use App\Support\EkdosiNotice;
+use Filament\Actions\DeleteAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -98,7 +99,8 @@ class EkdosiDocumentsUiTest extends TestCase
         $page = $this->livewireAs($this->staff())->test(ListInvoices::class);
 
         $page->assertTableColumnExists('ekdosi_document')->assertSee('ΤΠΥ423');
-        $page->filterTable('ekdosi_document', 'without')->assertCanSeeTableRecords([$waiting])->assertCanNotSeeTableRecords([$issued]);
+        $open = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $page->filterTable('ekdosi_document', 'without')->assertCanSeeTableRecords([$waiting])->assertCanNotSeeTableRecords([$issued, $open]);
         $page->filterTable('ekdosi_document', 'with')->assertCanSeeTableRecords([$issued])->assertCanNotSeeTableRecords([$waiting]);
     }
 
@@ -125,6 +127,27 @@ class EkdosiDocumentsUiTest extends TestCase
         $invoice = $this->paidInvoice();
 
         $this->asCustomer($this->user, $this->client)->get(route('invoices.show', $invoice))->assertOk()->assertDontSee(__('invoices.fiscal_documents'));
+    }
+
+    /** Review of #462: the admin's Delete says why, never a 500; a customer with such an invoice is not deleted. */
+    public function test_the_admin_delete_and_the_customers_delete_refuse_with_a_message(): void
+    {
+        $unpaid = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $unpaid->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '100.00']);
+        $this->document($unpaid);
+
+        $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $unpaid->getRouteKey()])
+            ->callAction(DeleteAction::class)
+            ->assertNotified(__('Invoice not deleted'));
+        $this->assertNotNull($unpaid->fresh());
+
+        try {
+            $this->client->delete();
+            $this->fail('the customer was deleted, its invoice left with no one');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('Ekdosi', $e->getMessage());
+        }
+        $this->assertSame($this->client->id, (int) $unpaid->fresh()->client_id);
     }
 
     public function test_staff_are_told_before_they_cancel_or_refund_and_the_invoice_is_never_deleted(): void

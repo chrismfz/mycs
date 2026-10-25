@@ -143,7 +143,7 @@ class ViewInvoice extends ViewRecord
                     Radio::make('periods')
                         ->label('Its periods')
                         ->options(InvoiceResource::cancelPeriods())
-                        ->helperText(__('A duplicate with no payment on it: delete it instead.'))
+                        ->helperText(fn (Invoice $record): ?string => EkdosiNotice::forInvoice($record) === null ? __('A duplicate with no payment on it: delete it instead.') : null)
                         ->default('auto')
                         ->required(),
                 ])

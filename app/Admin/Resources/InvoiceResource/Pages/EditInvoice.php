@@ -14,6 +14,7 @@ use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Invoice\RecordPaymentService;
@@ -235,6 +236,12 @@ class EditInvoice extends EditRecord
                     if ($record->hasPayments()) {
                         Notification::make()->danger()->title(__('Invoice not deleted'))
                             ->body(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'))->send();
+                        $action->cancel();
+                    }
+                    // Ekdosi issued a fiscal document from it (E2): kept, as the observer says — told here, not a 500.
+                    if (EkdosiDocument::query()->where('invoice_id', $record->id)->exists()) {
+                        Notification::make()->danger()->title(__('Invoice not deleted'))
+                            ->body(__('This invoice has a fiscal document from Ekdosi: it is kept. Cancel or refund it instead.'))->send();
                         $action->cancel();
                     }
                     if ($record->recordsForgonePeriod()) { // Δ3a: deleted, its period would be billed again

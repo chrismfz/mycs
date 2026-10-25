@@ -217,6 +217,8 @@ class InvoiceResource extends Resource
                                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
                                     ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
+                                    // Cancelled here too: the fiscal document from Ekdosi stands (E2).
+                                    ->helperText(fn (?Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                                     ->placeholder('Select the status of the invoice'),
                                 Select::make('currency_code')
                                     ->label('Currency')
@@ -374,7 +376,7 @@ class InvoiceResource extends Resource
                     ->label(__('Fiscal document'))
                     ->state(fn (Invoice $record): ?string => $record->ekdosiDocuments->map(fn (EkdosiDocument $document) => ($document->code ?: $document->mark)
                         . ($document->state === EkdosiDocument::CANCELLED ? ' ✗' : ''))->implode(', ') ?: null)
-                    ->tooltip(fn (Invoice $record): ?string => $record->ekdosiDocuments->map(fn (EkdosiDocument $document) => 'MARK ' . $document->mark)->implode(', ') ?: null)
+                    ->tooltip(fn (Invoice $record): ?string => $record->ekdosiDocuments->map(fn (EkdosiDocument $document) => __('MARK') . ' ' . $document->mark)->implode(', ') ?: null)
                     ->placeholder('—')
                     ->visible(fn (): bool => (bool) config('settings.ekdosi_enabled'))
                     ->toggleable(),
@@ -400,11 +402,13 @@ class InvoiceResource extends Resource
                 // Paid with no active fiscal document yet (E2): what Ekdosi has still to issue, or missed.
                 SelectFilter::make('ekdosi_document')
                     ->label(__('Fiscal document'))
-                    ->options(['with' => __('Issued'), 'without' => __('Not issued')])
+                    ->options(['with' => __('Issued'), 'without' => __('Paid, not issued')])
                     ->visible(fn (): bool => (bool) config('settings.ekdosi_enabled'))
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
                         'with' => $query->whereHas('ekdosiDocuments', fn (Builder $q) => $q->where('state', EkdosiDocument::ACTIVE)),
-                        'without' => $query->whereDoesntHave('ekdosiDocuments', fn (Builder $q) => $q->where('state', EkdosiDocument::ACTIVE)),
+                        // Paid (what Ekdosi should have issued from): not every open invoice.
+                        'without' => $query->where('status', Invoice::STATUS_PAID)
+                            ->whereDoesntHave('ekdosiDocuments', fn (Builder $q) => $q->where('state', EkdosiDocument::ACTIVE)),
                         default => $query,
                     }),
                 Filter::make('paid_not_applied')
@@ -432,7 +436,7 @@ class InvoiceResource extends Resource
                         Radio::make('periods')
                             ->label('Its periods')
                             ->options(self::cancelPeriods())
-                            ->helperText(__('A duplicate with no payment on it: delete it instead.'))
+                            ->helperText(fn (?Invoice $record): ?string => EkdosiNotice::forInvoice($record) === null ? __('A duplicate with no payment on it: delete it instead.') : null)
                             ->default('auto')
                             ->required(),
                     ])

@@ -43,13 +43,14 @@ class EkdosiDocumentsRelationManager extends RelationManager
                 TextColumn::make('code')->label(__('Document'))->placeholder('—'),
                 TextColumn::make('mark')->label(__('MARK'))->copyable()->fontFamily('mono'),
                 TextColumn::make('state')->label(__('Status'))->badge()
-                    ->formatStateUsing(fn (string $state): string => $state === EkdosiDocument::CANCELLED ? __('Cancelled') : __('Active'))
+                    ->formatStateUsing(fn (string $state): string => $state === EkdosiDocument::CANCELLED ? __('invoices.document_cancelled') : __('invoices.document_active'))
                     ->color(fn (string $state): string => $state === EkdosiDocument::CANCELLED ? 'danger' : 'success'),
                 TextColumn::make('pdf_url')->label(__('PDF'))
                     ->state(fn (EkdosiDocument $record): ?string => $record->pdf_url ? __('Open') : null)
                     ->url(fn (EkdosiDocument $record): ?string => $record->pdf_url, shouldOpenInNewTab: true)
                     ->placeholder('—'),
-                TextColumn::make('created_at')->label(__('Issued'))->dateTime(),
+                // When MyCS received it (the document's own date is on its PDF).
+                TextColumn::make('created_at')->label(__('Recorded'))->dateTime(),
                 TextColumn::make('updated_at')->label(__('Updated'))->since(),
             ])
             ->emptyStateHeading(__('No fiscal document yet'))
