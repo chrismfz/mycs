@@ -11,7 +11,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 
@@ -33,7 +32,7 @@ class PaymentsTracking extends TableWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(BankMovement::query()->credits()->with('acknowledgedBy'))
+            ->query(BankMovement::query()->credits()->with(['acknowledgedBy', 'invoice']))
             ->defaultSort('executed_at', 'desc')
             ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)
             ->recordClasses(fn (BankMovement $record) => $record->status === BankMovement::PENDING ? 'bg-warning-50 dark:bg-warning-500/10' : null)
@@ -44,10 +43,12 @@ class PaymentsTracking extends TableWidget
                         BankMovement::ACKNOWLEDGED => '✓',
                         BankMovement::IGNORED => '–',
                         BankMovement::UNVERIFIED => '?',
+                        BankMovement::MATCHED => '✓✓',
                         default => '·',
                     })
                     ->tooltip(fn (BankMovement $record) => match ($record->status) {
-                        BankMovement::PENDING => 'Pending: for staff',
+                        BankMovement::PENDING => 'Pending: for staff' . ($record->match_note ? ' (not matched: ' . $record->match_note . ')' : ''),
+                        BankMovement::MATCHED => 'Matched to invoice ' . ($record->invoice->number ?? '#' . $record->invoice_id) . ' and recorded on it ' . $record->matched_at?->diffForHumans(),
                         BankMovement::ACKNOWLEDGED => 'Seen to by ' . ($record->acknowledgedBy->name ?? 'staff') . ' ' . $record->acknowledged_at?->diffForHumans(),
                         BankMovement::IGNORED => 'Ignored (a configured reference: card settlements)',
                         BankMovement::UNVERIFIED => 'Unverified: not vouched for by our mail server, or not one of our accounts. Check it at the bank.',
@@ -64,7 +65,7 @@ class PaymentsTracking extends TableWidget
             ])
             ->filters([
                 SelectFilter::make('status')->options([BankMovement::PENDING => 'Pending', BankMovement::ACKNOWLEDGED => 'Seen to',
-                    BankMovement::IGNORED => 'Ignored', BankMovement::UNVERIFIED => 'Unverified', BankMovement::HISTORY => 'History']),
+                    BankMovement::MATCHED => 'Matched', BankMovement::IGNORED => 'Ignored', BankMovement::UNVERIFIED => 'Unverified', BankMovement::HISTORY => 'History']),
                 SelectFilter::make('bank')->options(BankMovement::BANKS),
             ])
             ->recordActions([
@@ -92,12 +93,9 @@ class PaymentsTracking extends TableWidget
      */
     public static function matches(BankMovement $movement): array
     {
-        preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d])|(?<![\d-])\d{3,9}(?![\d-])/', $movement->reason, $m);
-        $tokens = array_values(array_unique($m[0]));
-        $named = $tokens === [] ? collect() : Invoice::query()->with('client')
-            ->where('currency_code', 'EUR')
-            ->where(fn (Builder $q) => $q->whereIn('number', $tokens)->orWhereIn('id', array_filter($tokens, 'ctype_digit')))
-            ->limit(20)->get();
+        // The same rule as the automatic matching (PaymentMatcher): by number, by id only without one.
+        $tokens = $movement->invoiceTokens();
+        $named = $movement->namedInvoices()->with('client')->where('currency_code', 'EUR')->limit(20)->get();
         // The bank's money is EUR: an invoice in another currency is no match (review of #450). Every unpaid one, read in
         // chunks with what its total needs (no query per invoice).
         $amount = collect();

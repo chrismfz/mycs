@@ -6,6 +6,7 @@ use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Services\BankAlerts\AlertReader;
 use App\Services\BankAlerts\ImapAlertMailbox;
+use App\Services\BankAlerts\PaymentMatcher;
 use App\Support\Redact;
 use Illuminate\Console\Command;
 use MyCS\Extensions\Gateways\BankTransfer\BankTransfer;
@@ -40,6 +41,11 @@ class ReadBankAlerts extends Command
             $mailbox->disconnect();
         }
         $this->line("{$summary['read']} mail(s) read, {$summary['new']} new movement(s)");
+        // Then the knob's matching (Bank transfer → «Match credits to invoices automatically»).
+        if ($settings['auto_match']) {
+            $matched = PaymentMatcher::run($settings['match_days']);
+            $this->line("{$matched['matched']} credit(s) matched to their invoice, {$matched['left']} left for staff");
+        }
         foreach ($summary['errors'] as $error) {
             $this->error(self::scrub($error, $settings));
         }

@@ -24,6 +24,7 @@ class ChatNotificationRule extends Model implements Auditable
         'ticket_reply' => 'Customer reply to a ticket',
         'order_placed' => 'New order',
         'invoice_paid' => 'Invoice paid',
+        'payment_matched' => 'Bank payment matched to its invoice',
         'service_suspended' => 'Service suspended',
         'service_unsuspended' => 'Service unsuspended',
         'service_terminated' => 'Service terminated',

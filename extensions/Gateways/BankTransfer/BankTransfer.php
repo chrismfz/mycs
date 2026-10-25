@@ -68,6 +68,10 @@ class BankTransfer extends Gateway
             ['name' => 'alerts_accounts', 'label' => 'Our accounts', 'type' => 'textarea', 'required' => false,
                 'placeholder' => "eurobank: 1234\npiraeus: ACCOUNT NAME AS THE ALERT SHOWS IT",
                 'description' => 'One per line, «bank: account» as the alerts name it (Eurobank: the last digits; Piraeus: the account\'s name). An alert about any other account (a genuine one, sent on to us) is never a payment of ours.'],
+            ['name' => 'alerts_auto_match', 'label' => 'Match credits to invoices automatically', 'type' => 'checkbox', 'required' => false, 'default' => false,
+                'description' => 'A credit our mail server vouches for, about one of our accounts, whose reference names exactly one unpaid EUR invoice (its number) with exactly that amount left to pay, is recorded on it. Anything else stays for staff.'],
+            ['name' => 'alerts_match_days', 'label' => 'Match credits of the last (days)', 'type' => 'number', 'required' => false, 'default' => 7,
+                'description' => 'Older credits are never matched automatically (a folder read again must not pay old invoices).'],
             ['name' => 'alerts_ignore', 'label' => 'Credits to ignore', 'type' => 'textarea', 'required' => false,
                 'description' => 'One per line: a credit whose reference contains it is not for staff (the card acquirer\'s settlements, e.g. its merchant id).'],
         ];
@@ -76,7 +80,7 @@ class BankTransfer extends Gateway
     /**
      * The alerts mailbox's settings, or null when reading is off or not set up.
      *
-     * @return array{host: string, port: int, encryption: string, username: string, password: string, folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts: array<string, list<string>>}|null
+     * @return array{host: string, port: int, encryption: string, username: string, password: string, folders: list<string>, authserv_id: string, arc_sealer: string, ignore: list<string>, accounts: array<string, list<string>>, auto_match: bool, match_days: int}|null
      */
     public function alertSettings(): ?array
     {
@@ -96,6 +100,8 @@ class BankTransfer extends Gateway
             'arc_sealer' => trim((string) $this->config('alerts_arc_sealer')),
             'ignore' => $list($this->config('alerts_ignore'), "\n"),
             'accounts' => self::accounts((string) $this->config('alerts_accounts')),
+            'auto_match' => (bool) $this->config('alerts_auto_match'),
+            'match_days' => max(1, (int) ($this->config('alerts_match_days') ?: 7)),
         ];
     }
 
