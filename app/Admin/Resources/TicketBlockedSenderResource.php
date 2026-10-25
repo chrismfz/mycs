@@ -33,15 +33,15 @@ class TicketBlockedSenderResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
-            TextInput::make('value')->label('Address or @domain')->required()->maxLength(255)
-                ->regex('/^([^@\s]+@)?@?[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/')
+            TextInput::make('value')->label(__('Address or *@domain'))->required()->maxLength(255)
+                ->regex('/^(\*?@|[^@\s]+@)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/')
                 ->dehydrateStateUsing(fn (?string $state) => TicketBlockedSender::normalise((string) $state))
                 ->rules([fn (?TicketBlockedSender $record) => function (string $attribute, mixed $value, \Closure $fail) use ($record) {
                     if (TicketBlockedSender::query()->where('value', TicketBlockedSender::normalise((string) $value))->whereKeyNot($record?->id)->exists()) {
                         $fail('Already blocked.');
                     }
                 }])
-                ->helperText('maria@example.com, or @example.com for the whole domain (not its subdomains).'),
+                ->helperText(__('maria@example.com, or *@example.com for the whole domain (not its subdomains).')),
             TextInput::make('note')->label('Note')->maxLength(255),
         ]);
     }
@@ -50,10 +50,14 @@ class TicketBlockedSenderResource extends Resource
     {
         return $table
             ->defaultSort('id', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->with('createdBy'))
             ->columns([
-                TextColumn::make('value')->label('Sender')->searchable(),
-                TextColumn::make('note')->placeholder('—'),
-                TextColumn::make('created_at')->label('Since')->since(),
+                TextColumn::make('value')->label(__('Sender'))->searchable()
+                    ->formatStateUsing(fn (string $state) => TicketBlockedSender::display($state)),
+                TextColumn::make('note')->label(__('Note'))->placeholder('—')->wrap(),
+                // Who blocked it: staff by hand, from the quarantine or the ticket list (§6μ).
+                TextColumn::make('createdBy.name')->label(__('By'))->placeholder('—'),
+                TextColumn::make('created_at')->label(__('Since'))->since()->sortable(),
             ])
             ->recordActions([DeleteAction::make()->label('Unblock')]);
     }

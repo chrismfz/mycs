@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\TicketBlockedSenderResource\Pages\ManageTicketBlockedSenders;
 use App\Admin\Resources\TicketResource\Pages\ListTickets;
 use App\Models\Audit;
 use App\Models\Staff;
@@ -367,8 +368,10 @@ class TicketListTest extends TestCase
 
     // ---- independent review of #460 ----
 
-    public function test_a_free_mail_domain_is_never_blocked_whole(): void
+    /** No list of free mail providers (owner 2026-10-25): their domains are refused because customers log in there. */
+    public function test_a_free_mail_domain_is_refused_whole_when_a_customer_logs_in_there(): void
     {
+        User::factory()->create(['email' => 'customer@outlook.com']);
         $spam = $this->ticket(['guest_email' => 'spammer@Outlook.com']);
 
         $this->list()->selectTableRecords([$spam->id])
@@ -376,6 +379,23 @@ class TicketListTest extends TestCase
 
         $this->assertSame(0, TicketBlockedSender::query()->count());
         $this->assertNotNull($spam->fresh());
+    }
+
+    public function test_blocked_senders_show_who_blocked_from_which_tickets_and_take_star_at_domain(): void
+    {
+        $spam = $this->ticket(['guest_email' => 'promo@spam.example']);
+        $this->list()->selectTableRecords([$spam->id])->callAction(TestAction::make('blockAndDelete')->table()->bulk(), data: ['whole_domain' => true]);
+
+        $block = TicketBlockedSender::query()->sole();
+        $this->assertSame('@spam.example', $block->value);
+        $this->assertSame($this->staff->id, $block->created_by);
+        $this->assertStringContainsString('#' . $spam->reference, (string) $block->note);
+        $this->assertSame('@other.example', TicketBlockedSender::normalise('*@Other.example'));
+
+        $this->livewireAs($this->staff)->test(ManageTicketBlockedSenders::class)
+            ->assertSee('*@spam.example')->assertSee($this->staff->name)->assertSee('#' . $spam->reference)
+            ->callAction('create', data: ['value' => '*@third.example'])->assertHasNoActionErrors();
+        $this->assertTrue(TicketBlockedSender::blocks('anyone@third.example'));
     }
 
     public function test_deleting_removes_the_files_from_disk_but_not_a_file_another_message_names(): void

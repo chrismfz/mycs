@@ -1353,6 +1353,9 @@
     "Requestor": "Αιτών",
     "Last reply": "Τελευταία απάντηση",
     "Also deleted, merged into them: :numbers.": "Διαγράφονται επίσης, συγχωνευμένα σε αυτά: :numbers.",
-    "@:domain is a free mail provider: block the address, not the domain.": "Το @:domain είναι δωρεάν υπηρεσία email: μπλοκάρετε τη διεύθυνση, όχι το domain.",
-    "ID": "ID"
+    "ID": "ID",
+    "Address or *@domain": "Διεύθυνση ή *@domain",
+    "maria@example.com, or *@example.com for the whole domain (not its subdomains).": "maria@example.com, ή *@example.com για όλο το domain (όχι τα subdomains του).",
+    "Sender": "Αποστολέας",
+    "Since": "Από πότε"
 }

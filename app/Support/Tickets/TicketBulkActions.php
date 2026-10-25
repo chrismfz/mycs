@@ -12,6 +12,7 @@ use App\Models\TicketQuarantine;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use OwenIt\Auditing\Events\AuditCustom;
 
@@ -205,9 +206,6 @@ final class TicketBulkActions
             if ($wholeDomain) {
                 // The domain as a block holds it: its ASCII form, googlemail as gmail.
                 $domain = self::domainOf($sender);
-                if (in_array($domain, self::FREE_MAIL, true)) {
-                    return __('@:domain is a free mail provider: block the address, not the domain.', ['domain' => $domain]);
-                }
                 if (in_array($domain, $ourDomains, true)) {
                     return __('@:domain is our own domain.', ['domain' => $domain]);
                 }
@@ -238,8 +236,10 @@ final class TicketBulkActions
             $wholeDomain ? '@' . self::domainOf($sender) : $sender), $senders)));
 
         DB::transaction(function () use ($tickets, $staff, $senders, $values) {
+            // The note names the tickets deleted with it: Blocked Senders shows what each block came from.
+            $note = Str::limit(__('Blocked from the ticket list') . ': ' . $tickets->sortBy('id')->map(fn (Ticket $ticket) => '#' . $ticket->reference)->implode(', '), 250);
             foreach ($values as $value) {
-                TicketBlockedSender::query()->firstOrCreate(['value' => $value], ['note' => __('Blocked from the ticket list'), 'created_by' => $staff->id]);
+                TicketBlockedSender::query()->firstOrCreate(['value' => $value], ['note' => $note, 'created_by' => $staff->id]);
             }
             // Only the mail of what this action blocks: an earlier block's leftovers are another staff member's call.
             foreach (TicketQuarantine::query()->where('status', TicketQuarantine::PENDING)->whereNotNull('from_email')->get() as $pending) {
@@ -265,15 +265,6 @@ final class TicketBulkActions
 
         return $values;
     }
-
-    /**
-     * Free mail providers: their whole domain is never blocked from here, however few customers are there today.
-     *
-     * @var list<string>
-     */
-    private const FREE_MAIL = ['gmail.com', 'yahoo.com', 'yahoo.gr', 'ymail.com', 'hotmail.com', 'hotmail.gr', 'outlook.com', 'live.com',
-        'msn.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'gmx.de',
-        'mail.com', 'mail.ru', 'yandex.com', 'yandex.ru', 'zoho.com', 'otenet.gr', 'windowslive.com'];
 
     /**
      * @return list<string> our addresses (their base): a department's email or IMAP login, the address we mail from, and
