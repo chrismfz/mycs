@@ -9,6 +9,7 @@ use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Domain;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -63,6 +64,10 @@ class InvoiceObserver
     public function updating(Invoice $invoice): void
     {
         self::refuseUnknownStatus($invoice);
+        // Ekdosi issued its document in this account's ΑΦΜ and currency (final review of #459): it stays with them.
+        if ($invoice->isDirty(['client_id', 'currency_code']) && EkdosiDocument::activeOn($invoice->id, lock: true)) {
+            throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it stays with its customer and currency. Cancel the document there first.'));
+        }
         // A number given is the invoice's for good (Δ2; adversarial ADV-10 of #238). The importer writes rows directly.
         if ($invoice->isDirty('number') && $invoice->getOriginal('number') !== null && $invoice->getOriginal('number') !== '') {
             throw new DisplayException(__('An invoice keeps the number it was given.'));

@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\ClientNote;
 use App\Models\Contact;
 use App\Models\Domain;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
@@ -89,7 +90,8 @@ final class MoveToClient
             // Its contacts copied (each once, whatever roles it holds) and the roles pointing to the copies; the handles
             // stay as they are (written without the model, which would clear a role's handle with its contact).
             $copies = [];
-            $update = ['client_id' => $to->id];
+            // Its related contact is the old account's: it goes, as a service's (Ekdosi would bill the old account's contact).
+            $update = ['client_id' => $to->id, 'contact_id' => null];
             foreach (Domain::ROLES as $role) {
                 $id = $domain->{"{$role}_contact_id"};
                 if ($id === null) {
@@ -171,6 +173,8 @@ final class MoveToClient
             $orderMoves = $order !== null && $this->orderIsOnly($order, $item);
             if ($invoice->status === Invoice::STATUS_DRAFT) {
                 $why = match (true) {
+                    // A draft Ekdosi issued a document for (in one account's ΑΦΜ) stays with it (R2-4 of #459).
+                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]),
                     !$whole => __('clients.move.draft_split', ['invoices' => $label]),
                     $invoice->hasPayments(lock: true) => __('clients.move.paid_in_part', ['invoices' => $label]),
                     default => null,

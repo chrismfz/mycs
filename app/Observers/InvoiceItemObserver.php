@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Events\InvoiceItem as InvoiceItemEvent;
 use App\Exceptions\DisplayException;
 use App\Models\Domain;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Domains\DomainRenewalService;
@@ -23,6 +24,11 @@ class InvoiceItemObserver
     {
         if ($invoiceId !== null && in_array(Invoice::query()->whereKey($invoiceId)->value('status'), Invoice::FROZEN_STATUSES, true)) {
             throw new DisplayException(__('A paid invoice keeps its lines: set it back to unpaid first.'));
+        }
+        // Ekdosi issued its fiscal document (on credit): a line added, repriced or removed would reach no document, the
+        // invoice being filed once paid (R2-1/R2-2 of #459). Ekdosi cancels it first.
+        if (EkdosiDocument::activeOn($invoiceId)) {
+            throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
         }
     }
 

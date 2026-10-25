@@ -258,7 +258,7 @@ class DomainResource extends Resource
         ]);
 
         // Each role: its contact here, its handle (linked, or only at the registrar), and what staff do with it (D4c).
-        $contacts = Section::make(__('Contacts'))->columns(2)->schema(array_map(
+        $contacts = Section::make(__('Contacts'))->columns(2)->schema([...array_map(
             fn (string $role) => Group::make([
                 TextEntry::make("{$role}Contact.email")->label(__('domains.role.' . $role))
                     ->state(fn (Domain $record) => $record->{"{$role}Contact"}?->displayName() ?? '—')
@@ -273,7 +273,15 @@ class DomainResource extends Resource
                 Actions::make(DomainContactActions::for($role))->key("contacts_{$role}_actions")->alignStart(),
             ]),
             Domain::ROLES,
-        ));
+        ),
+            // Who Ekdosi invoices it to (docs/ekdosi-bridge.md): a contact of the account, not a role at the registrar.
+            Group::make([
+                TextEntry::make('contact.email')->label(__('Related contact'))
+                    ->state(fn (Domain $record) => $record->contact?->displayName() ?? __('The account'))
+                    ->helperText(__('Who the fiscal document for its lines is issued to.')),
+                Actions::make([DomainContactActions::related()])->key('contacts_related_actions')->alignStart(),
+            ]),
+        ]);
 
         // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel, under each registrar's
         // own labels (owner 2026-10-23: CentralNic's showed only its status), open, not folded.

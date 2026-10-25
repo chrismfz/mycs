@@ -1323,6 +1323,36 @@ class Settings
                     'validation' => 'regex:/{number}/',
                 ],
             ],
+            // The bridge to Ekdosi, the fiscal documents of a Greek instance (docs/ekdosi-bridge.md). Off: nothing answers.
+            'ekdosi' => [
+                [
+                    'name' => 'ekdosi_enabled',
+                    'permission' => '*',
+                    'label' => 'Ekdosi bridge',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Ekdosi reads the paid invoices into its Inbox and writes back the fiscal documents it issued from them (MARK, number, PDF). Off: the bridge answers nothing. Only one billing system feeds an Ekdosi company: turn it on at the cut-over, when WHMCS stops.',
+                ],
+                [
+                    'name' => 'ekdosi_url',
+                    'permission' => '*',
+                    'label' => 'Ekdosi address',
+                    'type' => 'text',
+                    'default' => '',
+                    'validation' => 'nullable|url:https',
+                    'description' => 'Ekdosi\'s address, e.g. https://invoicer.example.com/ekdosi. The links to its documents\' PDFs are kept only when they are on it.',
+                ],
+                [
+                    'name' => 'ekdosi_secret',
+                    'permission' => '*',
+                    'label' => 'Ekdosi shared secret',
+                    'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
+                    'validation' => 'nullable|min:32|max:255',
+                    'description' => 'The same secret as in Ekdosi\'s «MyCS Bridge». Every request is signed with it both ways (X-Webhook-Signature: sha256=…). At least 32 characters.',
+                ],
+            ],
             'other' => [
                 [
                     'name' => 'gateway_reference',

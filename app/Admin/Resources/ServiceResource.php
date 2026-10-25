@@ -350,14 +350,14 @@ class ServiceResource extends Resource
                             ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
                         Textarea::make('assigned_ips')->label('Assigned IPs')->placeholder('One per line')->rows(2),
-                        // The contact of the account it concerns (a domain's owner, a site's company): information
-                        // only; the invoice stays the account's (docs/accounts.md 3b).
+                        // The contact of the account it concerns (a domain's owner, a site's company): the invoice stays the
+                        // account's (docs/accounts.md 3b); Ekdosi issues the fiscal document for its lines to it (ekdosi-bridge.md).
                         Select::make('contact_id')->label('Related contact')->nullable()
                             // The form's account (create page, or a client changed on the form: review 3).
                             ->relationship('contact', 'id', fn (Builder $query, Get $get) => $query
                                 ->where('client_id', $get('client_id'))->whereNull('archived_at'))
                             ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->displayName() . ($contact->email ? " <{$contact->email}>" : ''))
-                            ->hintIcon(...$hint('Who this service is for, among the account\'s contacts. Information only: the invoice stays the account\'s.')),
+                            ->hintIcon(...$hint('Who this service is for, among the account\'s contacts. The invoice stays the account\'s; Ekdosi issues the fiscal document for its lines to this contact.')),
                         TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
                             ->hintIcon(...$hint('Shown to the customer while the service is suspended.')),
                         // The server's commands in one row, as WHMCS's «Module Commands»: each opens the page's own action

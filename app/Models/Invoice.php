@@ -608,6 +608,16 @@ class Invoice extends Model implements Auditable
         return $this->hasMany(InvoiceTransaction::class);
     }
 
+    /**
+     * The fiscal documents Ekdosi issued from it (docs/ekdosi-bridge.md).
+     *
+     * @return HasMany<EkdosiDocument, $this>
+     */
+    public function ekdosiDocuments(): HasMany
+    {
+        return $this->hasMany(EkdosiDocument::class);
+    }
+
     /** @return HasMany<AdjustmentNote, $this> */
     public function adjustmentNotes(): HasMany
     {

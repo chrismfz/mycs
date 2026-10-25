@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
@@ -112,6 +113,11 @@ final class CancelOpenInvoices
             return 'it holds money a gateway or a transfer paid (refund it or move it to credit, then cancel it).';
         }
 
+        // Ekdosi issued its fiscal document for it (on credit): cancelled here, nobody would issue its credit note there
+        // (R2 of #459). Staff decide: the document cancelled in Ekdosi, then this.
+        if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
+            return 'Ekdosi issued its fiscal document: cancel the document there first, then this invoice by hand.';
+        }
         $items = $invoice->items()->lockForUpdate()->get();
         // An imported WHMCS line keeps its relid but not its type (the importer maps only Hosting). A setup fee or a
         // promotion of a hosting has that hosting's id, and services keep their WHMCS ids: such a line goes with the
