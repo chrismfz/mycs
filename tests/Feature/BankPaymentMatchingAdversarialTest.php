@@ -2,14 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Widgets\PaymentsTracking;
 use App\Jobs\SendChatNotification;
 use App\Models\BankMovement;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\BankAlerts\PaymentMatcher;
 use App\Services\Invoice\RecordPaymentService;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -154,5 +158,72 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         $this->assertSame(1, InvoiceTransaction::query()->where('transaction_id', PaymentMatcher::TRANSACTION_PREFIX . $credit->id)->count(),
             'the same bank credit recorded on two customers\' invoices');
         $this->assertSame(Invoice::STATUS_UNPAID, $second->fresh()->status);
+    }
+
+    // ---- Round 2 (fixes at 5183ea0b) ----
+
+    /**
+     * R2-1. «Tried once» is keyed on match_note, but a null note does not mean «never seen by staff». A credit staff saw
+     * to before the matcher ever tried it (the knob was off, or it was IGNORED as a configured reference) has no note;
+     * staff recorded it by hand elsewhere and clicked ✓. «Back to pending» (reopen) clears the ✓ and leaves the note null,
+     * so the next run hands it to the matcher: the same 100 € recorded a second time on the invoice its reference names.
+     */
+    public function test_a_credit_staff_saw_to_and_reopened_is_not_matched_automatically(): void
+    {
+        $clientId = User::factory()->create()->client()->id;
+        $named = $this->invoice('32999', '100.00', $clientId);
+        $meant = $this->invoice('33000', '100.00', $clientId);
+        $credit = $this->credit('ΠΛΗΡΩΜΗ 32999', '100.00');
+        // Knob off at the time: staff recorded it by hand on 33000 (the customer said so) and saw to it.
+        (new RecordPaymentService)->handle($meant->id, $this->gateway, '100.00', enteredByStaff: true, paidAt: now());
+        $credit->update(['status' => BankMovement::ACKNOWLEDGED, 'acknowledged_at' => now()]);
+
+        // Later (knob on): staff reopen it, to look at it again.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(PaymentsTracking::class)->callTableAction('reopen', $credit);
+        $this->assertSame(BankMovement::PENDING, $credit->fresh()->status);
+
+        PaymentMatcher::run();
+
+        $this->assertSame('0.00', $this->received($named->id), 'a credit staff handled by hand is recorded again by the matcher');
+        $this->assertNotSame(BankMovement::MATCHED, $credit->fresh()->status);
+    }
+
+    /**
+     * R2-2. The same gap when the knob is turned on: every pending credit of the last N days with no note is matched on
+     * the first run, including those staff were already handling by hand (recorded, ✓ not yet clicked). Before the knob
+     * a pending credit with a hand-entered payment was harmless; the first run records it again.
+     */
+    public function test_turning_the_knob_on_does_not_match_credits_staff_already_recorded_by_hand(): void
+    {
+        $clientId = User::factory()->create()->client()->id;
+        $named = $this->invoice('32999', '100.00', $clientId);
+        $meant = $this->invoice('33000', '100.00', $clientId);
+        $credit = $this->credit('ΠΛΗΡΩΜΗ 32999', '100.00');
+        $credit->forceFill(['created_at' => now()->subDays(2), 'executed_at' => now()->subDays(2)])->save();
+        (new RecordPaymentService)->handle($meant->id, $this->gateway, '100.00', enteredByStaff: true, paidAt: now()->subDays(2));
+
+        PaymentMatcher::run(); // the knob's first run
+
+        $this->assertSame('0.00', $this->received($named->id), 'a credit staff recorded by hand two days ago is recorded again');
+    }
+
+    /**
+     * R2-3. The date rule strips «2026-10-25», «25/10/2026», «25.10.26», but not a year-first date with «/» or «.»
+     * («2026/10/25», «2026.10.25», as some banking apps write it): «2026» stays a token and names the open, number-less
+     * proforma whose id is 2026.
+     */
+    public function test_a_year_first_date_with_slashes_or_dots_names_no_invoice(): void
+    {
+        foreach (['ΠΛΗΡΩΜΗ 2026/10/25', 'ΠΛΗΡΩΜΗ 2026.10.25'] as $reason) {
+            $this->assertNotContains('2026', (new BankMovement(['reason' => $reason]))->invoiceTokens(), "«{$reason}» is a date");
+        }
+        $proforma = $this->invoice(null, '24.80', id: 2026);
+        $this->credit('ΠΛΗΡΩΜΗ 2026/10/25', '24.80');
+
+        PaymentMatcher::run();
+
+        $this->assertSame(Invoice::STATUS_UNPAID, $proforma->fresh()->status);
     }
 }
