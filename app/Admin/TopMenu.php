@@ -24,6 +24,7 @@ use App\Admin\Resources\BulkMailResource;
 use App\Admin\Resources\CannedReplyCategoryResource;
 use App\Admin\Resources\CannedReplyResource;
 use App\Admin\Resources\CategoryResource;
+use App\Admin\Resources\ChatNotificationRuleResource;
 use App\Admin\Resources\ClientGroupResource;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ConfigOptionResource;
@@ -162,6 +163,7 @@ class TopMenu
             [DomainTldResource::class, 'index', 'Domain Pricing'],
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
+            [ChatNotificationRuleResource::class, 'index', 'Chat Notifications'],
             [TicketDepartmentResource::class, 'index', 'Ticket Departments'],
             [StaffResource::class, 'index', 'Staff'],
             [RoleResource::class, 'index', 'Staff Roles'],
