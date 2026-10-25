@@ -29,6 +29,21 @@ class EkdosiDocument extends Model implements Auditable
 
     protected $fillable = ['invoice_id', 'mark', 'code', 'state', 'pdf_url'];
 
+    /**
+     * Whether Ekdosi issued an active fiscal document for this invoice: its lines then stay as they are (no merge, split,
+     * move, or line changed by staff, the API or the app), or they would reach no document, or a second one (#459).
+     * Locking (in a transaction): a write-back committed meanwhile is seen, and one coming waits (R2-8 of #459).
+     */
+    public static function activeOn(mixed $invoiceId, bool $lock = false): bool
+    {
+        if ($invoiceId === null) {
+            return false;
+        }
+        $query = static::query()->where('invoice_id', $invoiceId)->where('state', self::ACTIVE);
+
+        return ($lock ? $query->lockForUpdate() : $query)->exists();
+    }
+
     /** @return BelongsTo<Invoice, $this> */
     public function invoice(): BelongsTo
     {

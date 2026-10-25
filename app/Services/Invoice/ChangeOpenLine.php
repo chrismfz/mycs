@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoice;
 
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ServiceUpgrade;
@@ -23,6 +24,14 @@ class ChangeOpenLine
         return DB::transaction(function () use ($line, $change) {
             $invoice = (new RecordPaymentService)->lockInvoice($line->invoice_id);
             if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+                return false;
+            }
+            // Ekdosi issued its fiscal document: the line stays as issued (R2-2 of #459).
+            if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
+                PaymentsLog::warning('A line of an invoice with a fiscal document from Ekdosi keeps its price: the app would have changed it.', [
+                    'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
+                ]);
+
                 return false;
             }
             if ($invoice->hasPayments(lock: true)) {

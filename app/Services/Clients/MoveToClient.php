@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\ClientNote;
 use App\Models\Contact;
 use App\Models\Domain;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
@@ -172,6 +173,8 @@ final class MoveToClient
             $orderMoves = $order !== null && $this->orderIsOnly($order, $item);
             if ($invoice->status === Invoice::STATUS_DRAFT) {
                 $why = match (true) {
+                    // A draft Ekdosi issued a document for (in one account's ΑΦΜ) stays with it (R2-4 of #459).
+                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]),
                     !$whole => __('clients.move.draft_split', ['invoices' => $label]),
                     $invoice->hasPayments(lock: true) => __('clients.move.paid_in_part', ['invoices' => $label]),
                     default => null,

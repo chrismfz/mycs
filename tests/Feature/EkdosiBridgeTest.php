@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\Contact;
@@ -249,6 +250,26 @@ class EkdosiBridgeTest extends TestCase
         $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400001234567891'])->assertOk();
         $this->assertSame(2, $invoice->ekdosiDocuments()->count());
         $this->assertCount(2, $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.mycs.documents'));
+    }
+
+    /** R2-3 of #459: a new document is taken only for the invoice as Ekdosi read it (its fingerprint). */
+    public function test_a_document_for_an_invoice_changed_since_it_was_read_is_refused(): void
+    {
+        $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+        $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '100.00']);
+        $read = $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.mycs.fingerprint');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $read);
+
+        $invoice->items()->create(['description' => 'Added after', 'quantity' => 1, 'price' => '5.00']);
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400001234567890', 'fingerprint' => $read])
+            ->assertStatus(409)->assertJsonPath('error', 'invoice_changed');
+
+        $again = $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.mycs.fingerprint');
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400001234567890', 'fingerprint' => $again])->assertOk();
+
+        // Filed: its lines stay as they are, by staff, the API or the app.
+        $this->expectException(DisplayException::class);
+        $invoice->items()->create(['description' => 'Later still', 'quantity' => 1, 'price' => '1.00']);
     }
 
     public function test_the_write_back_refuses_what_does_not_add_up(): void

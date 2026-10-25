@@ -206,8 +206,12 @@ class EkdosiBridgeAdversarialRound2Test extends TestCase
         $status = $this->bridge(['op' => 'mark', 'invoice_id' => $a->id, 'mark' => '400001234567890'])->status();
 
         $this->assertNotSame(200, $status, 'the document covers 120.00 but the invoice is now 100.00; the 20.00 split off has no document');
+        // Fix of #459 (author): refused (409 invoice_changed), so Ekdosi knows the document it issued is for an invoice that
+        // no longer is (it cancels it); the split-off lines have no document, so once paid they are rightly offered.
+        $this->assertSame(409, $status);
         $this->pay($new, 'TX-R2-3b');
-        $this->assertNotContains($new->id, $this->inbox());
+        $this->assertContains($new->id, $this->inbox());
+        $this->assertSame(0, EkdosiDocument::query()->count());
     }
 
     /**

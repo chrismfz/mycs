@@ -64,7 +64,7 @@ final class InvoiceLineMove
         }
         // Ekdosi issued a fiscal document for it (on credit): its lines elsewhere would come back to the Inbox and be
         // issued twice, or carry a document in one account's ΑΦΜ to another account (ADV-2 of #459). Ekdosi cancels it first.
-        if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->where('state', EkdosiDocument::ACTIVE)->exists()) {
+        if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
             return __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]);
         }
         if ($invoice->hasPayments(lock: true)) {

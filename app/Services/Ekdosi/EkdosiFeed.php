@@ -116,6 +116,18 @@ final class EkdosiFeed
         ];
     }
 
+    /**
+     * What Ekdosi read of the invoice, short: its lines (id, kind of item, total) and currency. Ekdosi sends it back with
+     * the write-back, and a document is taken only for the invoice as it was read (R2-3 of #459).
+     */
+    public static function fingerprint(Invoice $invoice): string
+    {
+        $lines = $invoice->items->sortBy('id')->map(fn (InvoiceItem $item) => implode(':', [$item->id, $item->reference_type, $item->reference_id,
+            $item->totalCents()]))->implode('|');
+
+        return substr(hash('sha256', $invoice->id . '|' . $invoice->currency_code . '|' . $lines), 0, 32);
+    }
+
     /** @return array<string, mixed> */
     private function payload(Invoice $invoice): array
     {
@@ -170,6 +182,7 @@ final class EkdosiFeed
             'third_party' => $this->thirdParty($invoice),
             'mycs' => [
                 'source' => 'mycs',
+                'fingerprint' => self::fingerprint($invoice),
                 'ignore_invoicing' => (bool) ($client->ignore_invoicing ?? false),
                 'immediate_invoicing' => (bool) ($client->immediate_invoicing ?? false),
                 // Credit and debit notes on it (WHMCS has none): its total already counts them.

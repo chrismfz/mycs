@@ -17,7 +17,7 @@ use Illuminate\Http\Request;
  * - `invoices` {status, since, offset, limit}: the Inbox feed (EkdosiFeed::page);
  * - `invoice` {invoice_id}: one, whatever its status;
  * - `resolve` {invoice_id}: only its lines' recipients;
- * - `mark` {invoice_id, mark, code?, state?, pdf_url?}: the write-back (EkdosiDocuments).
+ * - `mark` {invoice_id, mark, fingerprint?, code?, state?, pdf_url?}: the write-back (EkdosiDocuments).
  *
  * Off in the settings: 404, as if there were nothing. The plugin's error codes: 400, 401, 404, 409, 422, 500.
  */
@@ -57,6 +57,10 @@ class EkdosiBridgeController extends Controller
                 case 'ping':
                     return response()->json(['status' => 'ok', 'source' => 'mycs', 'ops' => ['ping', 'invoices', 'invoice', 'resolve', 'mark']]);
                 case 'invoices':
+                    // Sent but not a date string: never the beginning of time instead of the cut-over (R2-7).
+                    if (array_key_exists('since', $body) && $body['since'] !== null && !is_string($body['since'])) {
+                        throw new BadBridgeArgument('since');
+                    }
                     $page = $feed->page(
                         is_string($body['status'] ?? null) ? $body['status'] : 'paid_unfiled',
                         is_string($body['since'] ?? null) ? $body['since'] : null,
