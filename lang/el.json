@@ -1262,7 +1262,7 @@
     "Choose an action": "Επιλέξτε ενέργεια",
     ":count selected": ":count επιλεγμένα",
     "Select all": "Επιλογή όλων",
-    "Pending Cancellations": "Εκκρεμείς ακυρώσεις",
+    "Pending Cancellations": "Ακυρώσεις σε αναμονή",
     "Nothing waiting": "Τίποτα σε αναμονή",
     ":count ends within 7 days|:count end within 7 days": ":count λήγει μέσα σε 7 ημέρες|:count λήγουν μέσα σε 7 ημέρες",
     "None ends within 7 days": "Καμία δεν λήγει μέσα σε 7 ημέρες",
@@ -1275,5 +1275,6 @@
     "No reminder after the due date (the one before it is still sent).": "Καμία υπενθύμιση μετά τη λήξη (αυτή πριν από τη λήξη στέλνεται κανονικά).",
     "(group)": "(ομάδα)",
     "The cron never suspends or terminates this account's services for non-payment; staff still can. Also set on its group. Turned off, its overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες αυτού του λογαριασμού για μη πληρωμή· το προσωπικό μπορεί. Ορίζεται και στην ομάδα του. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες του αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
-    "The cron never suspends or terminates its members' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες των μελών της για μη πληρωμή· το προσωπικό μπορεί. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες τους αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά."
+    "The cron never suspends or terminates its members' services for non-payment; staff still can. Turned off, their overdue services are suspended on the next run, and terminated soon after if long overdue.": "Το cron δεν αναστέλλει ούτε τερματίζει ποτέ τις υπηρεσίες των μελών της για μη πληρωμή· το προσωπικό μπορεί. Αν απενεργοποιηθεί, οι καθυστερημένες υπηρεσίες τους αναστέλλονται στο επόμενο τρέξιμο και, αν καθυστερούν πολύ, τερματίζονται λίγο μετά.",
+    "Pending cancellations": "Ακυρώσεις σε αναμονή"
 }
