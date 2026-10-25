@@ -59,7 +59,13 @@ class ReadBankAlerts extends Command
      */
     public static function match(array $settings): ?array
     {
-        return $settings['auto_match'] ? PaymentMatcher::run($settings['match_days']) : null;
+        if (!$settings['auto_match']) {
+            PaymentMatcher::stop();
+
+            return null;
+        }
+
+        return PaymentMatcher::run($settings['match_days']);
     }
 
     /** Never the login or the password in an error staff read. */

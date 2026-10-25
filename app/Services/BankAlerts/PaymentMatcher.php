@@ -8,8 +8,10 @@ use App\Helpers\ExtensionHelper;
 use App\Models\BankMovement;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\Setting;
 use App\Services\Chat\ChatNotifier;
 use App\Services\Invoice\RecordPaymentService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -28,12 +30,17 @@ final class PaymentMatcher
 {
     public const TRANSACTION_PREFIX = 'bank-alert:';
 
+    /** Since when the matching has been on: only credits read after it are matched (adversarial round 2 of #458). */
+    public const SINCE_KEY = 'bank_alerts.match_since';
+
     /** @return array{matched: int, left: int} */
     public static function run(int $days = 7): array
     {
         $result = ['matched' => 0, 'left' => 0];
+        $since = self::since();
         $credits = BankMovement::query()->credits()->where('status', BankMovement::PENDING)->where('authentic', true)
-            ->whereNull('invoice_id')->whereNull('match_note')->where('executed_at', '>=', now()->subDays(max(1, $days)))->orderBy('id')->pluck('id');
+            ->whereNull('invoice_id')->whereNull('match_note')->where('executed_at', '>=', now()->subDays(max(1, $days)))
+            ->where('created_at', '>=', $since)->orderBy('id')->pluck('id');
         foreach ($credits as $id) {
             try {
                 self::matchOne((int) $id) ? $result['matched']++ : $result['left']++;
@@ -44,6 +51,29 @@ final class PaymentMatcher
         }
 
         return $result;
+    }
+
+    /**
+     * When the matching was turned on, set on its first run: what was read before (staff may have recorded it by hand
+     * already) is never matched.
+     */
+    public static function since(): Carbon
+    {
+        $stored = Setting::query()->where('key', self::SINCE_KEY)->where('settingable_type', BankMovement::class)->value('value');
+        if (is_string($stored) && $stored !== '') {
+            return Carbon::parse($stored);
+        }
+        $now = now();
+        Setting::query()->updateOrCreate(['key' => self::SINCE_KEY, 'settingable_type' => BankMovement::class, 'settingable_id' => null],
+            ['value' => $now->toDateTimeString(), 'type' => 'string']);
+
+        return $now;
+    }
+
+    /** The matching turned off: turned on again, it starts afresh from then. */
+    public static function stop(): void
+    {
+        Setting::query()->where('key', self::SINCE_KEY)->where('settingable_type', BankMovement::class)->delete();
     }
 
     /** One credit: matched and recorded, or left for staff with its note. */

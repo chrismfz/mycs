@@ -75,14 +75,16 @@ class PaymentsTracking extends TableWidget
                 Action::make('acknowledge')->label('')->icon('heroicon-o-check')->color('success')->tooltip('Seen to')
                     ->visible(fn (BankMovement $record) => in_array($record->status, [BankMovement::PENDING, BankMovement::UNVERIFIED], true) && self::canUpdate())
                     ->action(function (BankMovement $record) {
-                        $record->update(['status' => BankMovement::ACKNOWLEDGED, 'acknowledged_by' => auth('staff')->id(), 'acknowledged_at' => now()]);
+                        // Staff's from now on: never matched automatically (adversarial round 2 of #458).
+                        $record->update(['status' => BankMovement::ACKNOWLEDGED, 'acknowledged_by' => auth('staff')->id(), 'acknowledged_at' => now(),
+                            'match_note' => $record->match_note ?? 'Seen to by staff']);
                         Notification::make()->success()->title('Marked seen to')->send();
                     }),
                 Action::make('reopen')->label('')->icon('heroicon-o-arrow-uturn-left')->color('gray')->tooltip('Back to pending')
                     ->visible(fn (BankMovement $record) => in_array($record->status, [BankMovement::ACKNOWLEDGED, BankMovement::IGNORED], true) && self::canUpdate())
                     // Back to what it was: pending only for a vouched-for credit of ours (adversarial round 2 of #450).
                     ->action(fn (BankMovement $record) => $record->update(['status' => $record->authentic ? BankMovement::PENDING : BankMovement::UNVERIFIED,
-                        'acknowledged_by' => null, 'acknowledged_at' => null])),
+                        'acknowledged_by' => null, 'acknowledged_at' => null, 'match_note' => $record->match_note ?? 'Reopened by staff'])),
             ]);
     }
 

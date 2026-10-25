@@ -61,7 +61,7 @@ class BankMovement extends Model
      */
     public function invoiceTokens(): array
     {
-        $reason = (string) preg_replace('/(?<![\d])(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})(?![\d])/', ' ', (string) $this->reason);
+        $reason = (string) preg_replace('/(?<![\d])(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}|\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})(?![\d])/', ' ', (string) $this->reason);
         preg_match_all('/(?<![\d-])\d{4}-\d{1,8}(?![\d-])|(?<![\d-])\d{3,9}(?![\d-])/', $reason, $m);
 
         return array_values(array_unique($m[0]));
