@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 /**
  * A sender whose mail is dropped (docs/tickets.md §3 Ε): an address, or a whole domain as `@example.com` (that domain
- * only, not its subdomains). No ticket, no reply joined, no quarantine.
+ *
+ * only, not its subdomains; staff may write it `*@example.com`). No ticket, no reply joined, no quarantine.
  */
 class TicketBlockedSender extends Model
 {
@@ -17,7 +20,9 @@ class TicketBlockedSender extends Model
 
     public static function normalise(string $value): string
     {
+        // «*@example.com» is how staff may write a domain: the same as @example.com.
         $value = strtolower(trim($value));
+        $value = str_starts_with($value, '*@') ? substr($value, 1) : $value;
 
         // An address as its mailbox (base), a domain as its ASCII form: a block holds however either is spelled.
         if (str_contains(ltrim($value, '@'), '@')) {
@@ -26,6 +31,18 @@ class TicketBlockedSender extends Model
         $domain = ltrim($value, '@');
 
         return '@' . (idn_to_ascii($domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $domain);
+    }
+
+    /** A domain written as staff read it, «*@example.com»; an address as it is. */
+    public static function display(string $value): string
+    {
+        return str_starts_with($value, '@') ? '*' . $value : $value;
+    }
+
+    /** The member of staff who blocked it. @return BelongsTo<Staff, $this> */
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'created_by');
     }
 
     public static function blocks(string $email): bool

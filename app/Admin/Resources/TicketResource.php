@@ -6,14 +6,13 @@ use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\TicketResource\Pages\CreateTicket;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\TicketResource\Pages\ListTickets;
+use App\Admin\Resources\TicketResource\TicketBulkActionsMenu;
+use App\Admin\Resources\TicketResource\TicketFilters;
 use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
 use App\Admin\Search\SearchTitle;
-use App\Models\Client;
-use App\Models\Staff;
 use App\Models\Ticket;
 use App\Support\AdminBadge;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\MarkdownEditor;
 use Filament\Forms\Components\Select;
@@ -22,13 +21,13 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\HtmlString;
 
 class TicketResource extends Resource
 {
@@ -94,13 +93,13 @@ class TicketResource extends Resource
         return $schema
             ->components([
                 TextInput::make('subject')
-                    ->label('Subject')
+                    ->label(__('Subject'))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
                     ->required(),
                 Select::make('status')
-                    ->label('Status')
+                    ->label(__('Status'))
                     ->options(Ticket::statusOptions())
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
@@ -108,7 +107,7 @@ class TicketResource extends Resource
                     ->default('open')
                     ->required(),
                 Select::make('priority')
-                    ->label('Priority')
+                    ->label(__('Priority'))
                     ->options([
                         'low' => 'Low',
                         'medium' => 'Medium',
@@ -120,7 +119,7 @@ class TicketResource extends Resource
                     ->default('medium')
                     ->required(),
                 Select::make('department_id')
-                    ->label('Department')
+                    ->label(__('Department'))
                     ->relationship('department', 'name', fn (Builder $query) => $query->orderBy('sort'))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
@@ -181,87 +180,127 @@ class TicketResource extends Resource
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
             // Its last reply's time, read with the rows (WHMCS «Last Reply»: the customer's or staff's, never an internal note).
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'department'])
-                ->withMax('publicMessages as last_reply_at', 'created_at'))
+            // Pinned ones first, whatever the sort (WHMCS «Pin», §6μ).
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'department', 'assignedTo'])
+                ->withMax('publicMessages as last_reply_at', 'created_at')
+                ->orderByRaw('pinned_at IS NULL'))
             ->columns([
+                // A pin when pinned, a flag in the priority's colour (as WHMCS).
+                TextColumn::make('marker')
+                    ->label('')
+                    ->state(fn (Ticket $record) => $record->priority)
+                    ->formatStateUsing(fn (Ticket $record) => self::marker($record))
+                    ->width('1%'),
                 TextColumn::make('id')
-                    ->label('ID')
-                    ->sortable(),
-                // The number the customer sees (docs/tickets.md §5).
-                TextColumn::make('reference')
-                    ->label('Number')
-                    ->searchable()
-                    ->toggleable(),
+                    ->label(__('ID'))
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('department.name')
+                    ->label(__('Department')),
+                // «#number – subject», one link; searched by either (and by id).
                 TextColumn::make('subject')
-                    ->searchable()
+                    ->label(__('Subject'))
+                    ->state(fn (Ticket $record) => '#' . $record->reference . ' – ' . $record->subject)
+                    ->url(fn (Ticket $record) => self::getUrl('edit', ['record' => $record]))
+                    ->color('primary')
+                    ->wrap()
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => $query
+                        ->where(fn (Builder $query) => self::whereContains($query, 'subject', $search))
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'reference', ltrim(trim($search), '#')))
+                        ->when(ctype_digit(trim($search)), fn (Builder $query) => $query->orWhere('id', (int) trim($search)))))
                     ->sortable(),
+                // Who opened it: the account, or the guest with a badge and the address under it (docs/tickets.md §3 Δ).
+                TextColumn::make('requestor')
+                    ->label(__('Requestor'))
+                    ->state(fn (Ticket $record) => $record->requesterName())
+                    ->formatStateUsing(fn (Ticket $record) => self::requestor($record))
+                    ->description(fn (Ticket $record) => $record->isGuest() ? $record->guest_email : __('Client') . ' #' . $record->client_id)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => ClientComponent::search($query, $search)
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'guest_email', $search))
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'guest_name', $search)))),
                 TextColumn::make('status')
+                    ->label(__('Status'))
                     ->sortable()
                     ->badge()
                     ->color(fn (Ticket $record) => Ticket::statusColor($record->status))
-                    ->formatStateUsing(fn (string $state) => Ticket::statusLabel($state)),
+                    ->formatStateUsing(fn (Ticket $record) => $record->isMerged() ? __('Merged') : Ticket::statusLabel($record->status)),
                 TextColumn::make('priority')
+                    ->label(__('Priority'))
                     ->sortable()
                     ->badge()
                     ->color(fn (Ticket $record) => Ticket::priorityColor($record->priority))
-                    ->formatStateUsing(fn (string $state) => ucfirst($state)),
-                TextColumn::make('department.name')
-                    ->label('Department'),
+                    ->formatStateUsing(fn (string $state) => self::priorityOptions()[$state] ?? ucfirst($state))
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('assignedTo.name')
+                    ->label(__('Assigned to'))
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 // How long since its last reply, as WHMCS shows it («8h 43m»; owner 2026-10-23): what waits longest is
                 // seen at once, and sorted by.
                 TextColumn::make('last_reply_at')
-                    ->label('Last Reply')
+                    ->label(__('Last reply'))
                     // Those with no reply yet (a merged one: its messages are its survivor's) last, either way (review).
                     ->sortable(query: fn (Builder $query, string $direction) => $query->orderByRaw('last_reply_at IS NULL')
                         ->orderBy('last_reply_at', $direction))
                     ->formatStateUsing(fn ($state) => self::sinceShort($state))
                     ->tooltip(fn (Ticket $record) => $record->last_reply_at ? Carbon::parse($record->last_reply_at)->format('d/m/Y H:i') : null),
-                // A guest's ticket names its guest (docs/tickets.md §3 Δ): no account behind it.
-                TextColumn::make('client.name')
-                    ->label('Client')
-                    ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
-                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => ClientComponent::search($query, $search)
-                        ->orWhere('guest_email', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%')
-                        ->orWhere('guest_name', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%'))),
             ])
-            ->filters([
-                // Searched, never every account loaded up front (one query per account before).
-                SelectFilter::make('client')
-                    ->label('Client')
-                    ->attribute('client_id')
-                    ->searchable()
-                    ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
-                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value))
-                    ->indicateUsing(fn ($data) => $data['value'] ? 'Client: ' . Client::find($data['value'])?->name : null),
-                SelectFilter::make('priority')
-                    ->options([
-                        'low' => 'Low',
-                        'medium' => 'Medium',
-                        'high' => 'High',
-                    ]),
-                SelectFilter::make('department_id')
-                    ->label('Department')
-                    ->relationship('department', 'name'),
-                // Tickets without an account (docs/tickets.md §3 Δ).
-                Filter::make('guest')
-                    ->label('Guests')
-                    ->query(fn (Builder $query) => $query->whereNull('client_id')),
-                SelectFilter::make('assigned_to')
-                    ->label('Assigned To')
-                    // It filters by the staff member assigned, not by the customer (AUTH-14).
-                    ->relationship('assignedTo', 'id')
-                    ->indicateUsing(fn ($data) => $data['value'] ? 'Assigned to: ' . Staff::find($data['value'])?->name : null)
-                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->name),
-            ])
+            ->filters(TicketFilters::make(), layout: FiltersLayout::AboveContentCollapsible)
+            ->filtersFormColumns(2)
             ->recordActions([
                 EditAction::make(),
             ])
             ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
+                BulkActionGroup::make(TicketBulkActionsMenu::make())->label(__('With selected')),
             ])
-            ->defaultSort('id', 'desc');
+            // As WHMCS: the latest reply first (pinned still on top), those without one last.
+            ->defaultSort(fn (Builder $query) => $query->orderByRaw('last_reply_at IS NULL')->orderBy('last_reply_at', 'desc')->orderBy('id', 'desc'));
+    }
+
+    /** @return array<string, string> */
+    public static function priorityOptions(): array
+    {
+        return ['low' => __('Low'), 'medium' => __('Medium'), 'high' => __('High')];
+    }
+
+    /**
+     * $column holds $text, case aside, its % and _ taken literally on MariaDB and SQLite alike (an explicit ESCAPE: SQLite
+     * has no default one). $column is ours, never the user's.
+     *
+     * @template TBuilder of Builder
+     *
+     * @param  TBuilder  $query
+     * @return TBuilder
+     */
+    public static function whereContains(Builder $query, string $column, string $text): Builder
+    {
+        return $query->whereRaw('LOWER(' . $column . ") LIKE ? ESCAPE '!'", ['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower(trim($text))) . '%']);
+    }
+
+    private static function marker(Ticket $record): HtmlString
+    {
+        $flag = match ($record->priority) {
+            'high' => 'text-danger-600',
+            'low' => 'text-gray-400',
+            default => 'text-warning-600',
+        };
+        $html = '<span class="inline-flex items-center gap-0.5">';
+        if ($record->pinned_at !== null) {
+            $html .= '<span title="' . e(__('Pinned')) . '">' . svg('ri-pushpin-fill', 'h-3.5 w-3.5 text-primary-600')->toHtml() . '</span>';
+        }
+        $html .= '<span title="' . e(self::priorityOptions()[$record->priority] ?? (string) $record->priority) . '">' . svg('ri-flag-fill', 'h-3.5 w-3.5 ' . $flag)->toHtml() . '</span>';
+
+        return new HtmlString($html . '</span>');
+    }
+
+    private static function requestor(Ticket $record): HtmlString
+    {
+        $name = e($record->requesterName() !== '' ? $record->requesterName() : ($record->guest_email ?? '—'));
+        if (!$record->isGuest()) {
+            return new HtmlString($name);
+        }
+
+        return new HtmlString($name . ' <span class="ms-1 rounded border border-gray-300 bg-gray-100 px-1 text-[10px] font-medium uppercase tracking-wide text-gray-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300">' . e(__('Guest')) . '</span>');
     }
 
     public static function getWidgets(): array

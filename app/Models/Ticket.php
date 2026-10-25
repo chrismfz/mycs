@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -20,6 +21,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  *
  * @property int|null $client_id
  * @property string|null $last_reply_at read with the list (withMax of its public messages)
+ * @property Carbon|null $pinned_at pinned to the top of staff's list (§6μ)
  */
 #[ObservedBy([TicketObserver::class])]
 class Ticket extends Model implements Auditable
@@ -101,7 +103,7 @@ class Ticket extends Model implements Auditable
     }
 
     /** Opened by a mail: whether our server vouched for its From (false: it may be forged); null otherwise. */
-    protected $casts = ['sender_vouched' => 'boolean'];
+    protected $casts = ['sender_vouched' => 'boolean', 'pinned_at' => 'datetime'];
 
     /** @return array<string, string> status => label, for staff */
     public static function statusOptions(): array
