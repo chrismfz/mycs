@@ -13,10 +13,12 @@ use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
+use App\Admin\Resources\InvoiceResource\RelationManagers\EkdosiDocumentsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
+use App\Models\EkdosiDocument;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -24,6 +26,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\AdminBadge;
+use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -320,7 +323,7 @@ class InvoiceResource extends Resource
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
             // Lines and payments too: whether an unpaid one is overdue reads them (Invoice::daysOverdue), not a query a row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions', 'adjustmentNotes', 'currency']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions', 'adjustmentNotes', 'currency', 'ekdosiDocuments']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -366,6 +369,15 @@ class InvoiceResource extends Resource
                     ->tooltip(fn (Invoice $record) => $record->latestEmailLog instanceof EmailLog ? $record->latestEmailLog->error : null)
                     ->placeholder('—')
                     ->toggleable(),
+                // The fiscal document Ekdosi issued from it (E2): its code, struck through when cancelled.
+                TextColumn::make('ekdosi_document')
+                    ->label(__('Fiscal document'))
+                    ->state(fn (Invoice $record): ?string => $record->ekdosiDocuments->map(fn (EkdosiDocument $document) => ($document->code ?: $document->mark)
+                        . ($document->state === EkdosiDocument::CANCELLED ? ' ✗' : ''))->implode(', ') ?: null)
+                    ->tooltip(fn (Invoice $record): ?string => $record->ekdosiDocuments->map(fn (EkdosiDocument $document) => 'MARK ' . $document->mark)->implode(', ') ?: null)
+                    ->placeholder('—')
+                    ->visible(fn (): bool => (bool) config('settings.ekdosi_enabled'))
+                    ->toggleable(),
             ])
             ->defaultSort(function (Builder $query): Builder {
                 return $query
@@ -385,6 +397,16 @@ class InvoiceResource extends Resource
                 Filter::make('mail_failed')
                     ->label('Last mail failed')
                     ->query(fn (Builder $query) => $query->whereHas('latestEmailLog', fn (Builder $query) => $query->where('status', EmailLog::STATUS_FAILED))),
+                // Paid with no active fiscal document yet (E2): what Ekdosi has still to issue, or missed.
+                SelectFilter::make('ekdosi_document')
+                    ->label(__('Fiscal document'))
+                    ->options(['with' => __('Issued'), 'without' => __('Not issued')])
+                    ->visible(fn (): bool => (bool) config('settings.ekdosi_enabled'))
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'with' => $query->whereHas('ekdosiDocuments', fn (Builder $q) => $q->where('state', EkdosiDocument::ACTIVE)),
+                        'without' => $query->whereDoesntHave('ekdosiDocuments', fn (Builder $q) => $q->where('state', EkdosiDocument::ACTIVE)),
+                        default => $query,
+                    }),
                 Filter::make('paid_not_applied')
                     ->label(__('Paid, not applied'))
                     ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
@@ -398,6 +420,8 @@ class InvoiceResource extends Resource
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->requiresConfirmation()
+                    // A fiscal document from Ekdosi stands: staff are told before they cancel (E2).
+                    ->modalDescription(fn (Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                     ->form([
                         TextInput::make('cancellation_reason')
                             ->label('Cancellation Reason')
@@ -444,6 +468,7 @@ class InvoiceResource extends Resource
             TransactionsRelationManager::class,
         ];
 
+        $relations[] = EkdosiDocumentsRelationManager::class;
         $relations[] = AdjustmentNotesRelationManager::class;
         $relations[] = MoneyEventsRelationManager::class;
         $relations[] = EmailLogsRelationManager::class;

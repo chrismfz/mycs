@@ -365,6 +365,10 @@ class InvoiceObserver
      */
     public function deleting(Invoice $invoice): void
     {
+        // Ekdosi issued a fiscal document from it: the invoice is that document's record (E2; the key refuses it anyway).
+        if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->exists()) {
+            throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it is kept. Cancel it instead.'));
+        }
         if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
         }

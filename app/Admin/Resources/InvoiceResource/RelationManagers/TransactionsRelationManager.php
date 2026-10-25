@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
+use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
@@ -129,7 +130,8 @@ class TransactionsRelationManager extends RelationManager
                     ->icon('heroicon-o-backward')
                     ->color('warning')
                     ->modalHeading(fn (InvoiceTransaction $record): string => __('invoices.refund_transaction', ['id' => $record->transaction_id ?? $record->id]))
-                    ->modalDescription(fn (InvoiceTransaction $record): string => __('invoices.refundable_amount', ['amount' => $record->formattedRefundableAmount]))
+                    ->modalDescription(fn (InvoiceTransaction $record): string => trim(__('invoices.refundable_amount', ['amount' => $record->formattedRefundableAmount])
+                        . ' ' . (EkdosiNotice::forInvoice($record->invoice) ?? '')))
                     ->form([
                         TextInput::make('amount')
                             ->label(__('invoices.amount'))

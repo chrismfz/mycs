@@ -180,4 +180,13 @@ return [
     'more_lines' => '{1} +1 more|[2,*] +:count more',
     'due_on' => 'Due on :date',
     'overdue_since' => 'Overdue since :date',
+
+    // The fiscal documents Ekdosi issued from an invoice (docs/ekdosi-bridge.md, E2).
+    'fiscal_documents' => 'Fiscal documents',
+    'fiscal_documents_note' => 'The legal document for this invoice, issued and filed with the tax authority (AADE).',
+    'fiscal_document' => 'Document',
+    'mark' => 'MARK',
+    'document_active' => 'Issued',
+    'document_cancelled' => 'Cancelled',
+    'open_pdf' => 'PDF',
 ];
