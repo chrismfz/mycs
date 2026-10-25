@@ -86,6 +86,7 @@ final class TicketBulkActionsMenu
                 ->requiresConfirmation()
                 ->modalHeading(fn (Collection $records) => __('Delete :count tickets?', ['count' => $records->count()]))
                 ->modalDescription(fn (Collection $records) => new HtmlString(e(self::numbers($records)) . '<br>' . e(self::requestorsLine($records)) . '<br>'
+                    . e(self::mergedLine($records))
                     . e(__('This cannot be undone: the tickets, their messages and files are deleted for good. Each is written to the audit log.'))))
                 ->modalSubmitActionLabel(fn (Collection $records) => __('Delete :count', ['count' => $records->count()]))
                 ->action(fn (Collection $records) => self::run($records, null,
@@ -101,6 +102,7 @@ final class TicketBulkActionsMenu
                 ->schema(fn (Collection $records) => [
                     Text::make(self::numbers($records)),
                     Text::make(self::sendersLine($records)),
+                    Text::make(self::mergedLine($records)),
                     Checkbox::make('whole_domain')->label(__('Block their whole domain (@domain), not only the address')),
                     Text::make(__('Their next mail is dropped: no ticket, no quarantine. Their mail waiting in the quarantine is dismissed. The tickets are deleted for good. Only guests\' tickets: a client\'s refuses the action.')),
                 ])
@@ -181,6 +183,18 @@ final class TicketBulkActionsMenu
             ->merge(app(TicketBulkActions::class)->senders($records))->filter()->unique()->values();
 
         return __('Requestors') . ': ' . $who->take(20)->implode(', ') . ($who->count() > 20 ? ' ' . __('and :count more', ['count' => $who->count() - 20]) : '') . '.';
+    }
+
+    /**
+     * The tickets merged into those selected, deleted with them (else they would come back as empty tickets).
+     *
+     * @param  Collection<int, Ticket>  $records
+     */
+    private static function mergedLine(Collection $records): string
+    {
+        $merged = app(TicketBulkActions::class)->mergedInto($records);
+
+        return $merged->isEmpty() ? '' : __('Also deleted, merged into them: :numbers.', ['numbers' => $merged->map(fn (Ticket $ticket) => '#' . $ticket->reference)->implode(', ')]) . ' ';
     }
 
     /** @param  Collection<int, Ticket>  $records */

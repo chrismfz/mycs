@@ -1351,5 +1351,8 @@
     "and :count more": "και :count ακόμη",
     "{1} 1 sender|[2,*] :count senders": "{1} 1 αποστολέα|[2,*] :count αποστολέων",
     "Requestor": "Αιτών",
-    "Last reply": "Τελευταία απάντηση"
+    "Last reply": "Τελευταία απάντηση",
+    "Also deleted, merged into them: :numbers.": "Διαγράφονται επίσης, συγχωνευμένα σε αυτά: :numbers.",
+    "@:domain is a free mail provider: block the address, not the domain.": "Το @:domain είναι δωρεάν υπηρεσία email: μπλοκάρετε τη διεύθυνση, όχι το domain.",
+    "ID": "ID"
 }

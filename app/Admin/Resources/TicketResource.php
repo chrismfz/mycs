@@ -93,13 +93,13 @@ class TicketResource extends Resource
         return $schema
             ->components([
                 TextInput::make('subject')
-                    ->label('Subject')
+                    ->label(__('Subject'))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
                     ->required(),
                 Select::make('status')
-                    ->label('Status')
+                    ->label(__('Status'))
                     ->options(Ticket::statusOptions())
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
@@ -107,7 +107,7 @@ class TicketResource extends Resource
                     ->default('open')
                     ->required(),
                 Select::make('priority')
-                    ->label('Priority')
+                    ->label(__('Priority'))
                     ->options([
                         'low' => 'Low',
                         'medium' => 'Medium',
@@ -119,7 +119,7 @@ class TicketResource extends Resource
                     ->default('medium')
                     ->required(),
                 Select::make('department_id')
-                    ->label('Department')
+                    ->label(__('Department'))
                     ->relationship('department', 'name', fn (Builder $query) => $query->orderBy('sort'))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
@@ -192,53 +192,53 @@ class TicketResource extends Resource
                     ->formatStateUsing(fn (Ticket $record) => self::marker($record))
                     ->width('1%'),
                 TextColumn::make('id')
-                    ->label('ID')
+                    ->label(__('ID'))
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('department.name')
-                    ->label('Department'),
+                    ->label(__('Department')),
                 // «#number – subject», one link; searched by either (and by id).
                 TextColumn::make('subject')
-                    ->label('Subject')
+                    ->label(__('Subject'))
                     ->state(fn (Ticket $record) => '#' . $record->reference . ' – ' . $record->subject)
                     ->url(fn (Ticket $record) => self::getUrl('edit', ['record' => $record]))
                     ->color('primary')
                     ->wrap()
                     ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => $query
-                        ->where('subject', 'like', '%' . self::escapeLike($search) . '%')
-                        ->orWhere('reference', 'like', '%' . self::escapeLike(ltrim(trim($search), '#')) . '%')
+                        ->where(fn (Builder $query) => self::whereContains($query, 'subject', $search))
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'reference', ltrim(trim($search), '#')))
                         ->when(ctype_digit(trim($search)), fn (Builder $query) => $query->orWhere('id', (int) trim($search)))))
                     ->sortable(),
                 // Who opened it: the account, or the guest with a badge and the address under it (docs/tickets.md §3 Δ).
                 TextColumn::make('requestor')
-                    ->label('Requestor')
+                    ->label(__('Requestor'))
                     ->state(fn (Ticket $record) => $record->requesterName())
                     ->formatStateUsing(fn (Ticket $record) => self::requestor($record))
                     ->description(fn (Ticket $record) => $record->isGuest() ? $record->guest_email : __('Client') . ' #' . $record->client_id)
                     ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => ClientComponent::search($query, $search)
-                        ->orWhere('guest_email', 'like', '%' . self::escapeLike($search) . '%')
-                        ->orWhere('guest_name', 'like', '%' . self::escapeLike($search) . '%'))),
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'guest_email', $search))
+                        ->orWhere(fn (Builder $query) => self::whereContains($query, 'guest_name', $search)))),
                 TextColumn::make('status')
-                    ->label('Status')
+                    ->label(__('Status'))
                     ->sortable()
                     ->badge()
                     ->color(fn (Ticket $record) => Ticket::statusColor($record->status))
                     ->formatStateUsing(fn (Ticket $record) => $record->isMerged() ? __('Merged') : Ticket::statusLabel($record->status)),
                 TextColumn::make('priority')
-                    ->label('Priority')
+                    ->label(__('Priority'))
                     ->sortable()
                     ->badge()
                     ->color(fn (Ticket $record) => Ticket::priorityColor($record->priority))
                     ->formatStateUsing(fn (string $state) => self::priorityOptions()[$state] ?? ucfirst($state))
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('assignedTo.name')
-                    ->label('Assigned to')
+                    ->label(__('Assigned to'))
                     ->placeholder('—')
                     ->toggleable(isToggledHiddenByDefault: true),
                 // How long since its last reply, as WHMCS shows it («8h 43m»; owner 2026-10-23): what waits longest is
                 // seen at once, and sorted by.
                 TextColumn::make('last_reply_at')
-                    ->label('Last reply')
+                    ->label(__('Last reply'))
                     // Those with no reply yet (a merged one: its messages are its survivor's) last, either way (review).
                     ->sortable(query: fn (Builder $query, string $direction) => $query->orderByRaw('last_reply_at IS NULL')
                         ->orderBy('last_reply_at', $direction))
@@ -263,9 +263,18 @@ class TicketResource extends Resource
         return ['low' => __('Low'), 'medium' => __('Medium'), 'high' => __('High')];
     }
 
-    public static function escapeLike(string $value): string
+    /**
+     * $column holds $text, case aside, its % and _ taken literally on MariaDB and SQLite alike (an explicit ESCAPE: SQLite
+     * has no default one). $column is ours, never the user's.
+     *
+     * @template TBuilder of Builder
+     *
+     * @param  TBuilder  $query
+     * @return TBuilder
+     */
+    public static function whereContains(Builder $query, string $column, string $text): Builder
     {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
+        return $query->whereRaw('LOWER(' . $column . ") LIKE ? ESCAPE '!'", ['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower(trim($text))) . '%']);
     }
 
     private static function marker(Ticket $record): HtmlString

@@ -13,11 +13,13 @@ use App\Models\TicketMessage;
 use App\Models\TicketMessageAttachment;
 use App\Models\TicketQuarantine;
 use App\Models\User;
+use App\Support\Tickets\TicketFiles;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Livewire\Features\SupportTesting\Testable;
 use Tests\TestCase;
 
@@ -361,5 +363,60 @@ class TicketListTest extends TestCase
         $this->assertSame(2, Ticket::query()->whereNull('merged_into_id')->count());
         $this->assertSame(0, TicketBlockedSender::query()->count());
         $this->assertSame(0, DB::table('tickets')->whereNotNull('pinned_at')->count());
+    }
+
+    // ---- independent review of #460 ----
+
+    public function test_a_free_mail_domain_is_never_blocked_whole(): void
+    {
+        $spam = $this->ticket(['guest_email' => 'spammer@Outlook.com']);
+
+        $this->list()->selectTableRecords([$spam->id])
+            ->callAction(TestAction::make('blockAndDelete')->table()->bulk(), data: ['whole_domain' => true])->assertNotified();
+
+        $this->assertSame(0, TicketBlockedSender::query()->count());
+        $this->assertNotNull($spam->fresh());
+    }
+
+    public function test_deleting_removes_the_files_from_disk_but_not_a_file_another_message_names(): void
+    {
+        $doomed = $this->ticket();
+        $kept = $this->ticket();
+        $dir = storage_path('app/' . TicketFiles::DIRECTORY);
+        File::ensureDirectoryExists($dir);
+        file_put_contents($dir . '/only-mine.txt', 'x');
+        file_put_contents($dir . '/shared.txt', 'x');
+        $mine = $doomed->messages()->first();
+        $theirs = $kept->messages()->first();
+        foreach ([[$mine, 'only-mine.txt'], [$mine, 'shared.txt'], [$theirs, 'shared.txt']] as [$message, $name]) {
+            TicketMessageAttachment::query()->create(['ticket_message_id' => $message->id, 'path' => TicketFiles::DIRECTORY . '/' . $name,
+                'filename' => $name, 'filesize' => 1, 'mime_type' => 'text/plain']);
+        }
+
+        $this->list()->selectTableRecords([$doomed->id])->callAction(TestAction::make('delete')->table()->bulk())->assertHasNoActionErrors();
+
+        $this->assertFileDoesNotExist($dir . '/only-mine.txt');
+        $this->assertFileExists($dir . '/shared.txt');
+        File::delete($dir . '/shared.txt');
+    }
+
+    public function test_a_merged_ticket_is_found_by_its_number(): void
+    {
+        $survivor = $this->ticket();
+        $merged = $this->ticket(['status' => Ticket::STATUS_CLOSED]);
+        $merged->forceFill(['merged_into_id' => $survivor->id])->save();
+
+        $this->list()->searchTable('#' . $merged->reference)->assertCanSeeTableRecords([$merged]);
+        $this->list()->filterTable('number', ['number' => $merged->reference])->assertCanSeeTableRecords([$merged]);
+        $this->list()->searchTable('Question')->assertCanNotSeeTableRecords([$merged]);
+    }
+
+    public function test_percent_and_underscore_are_searched_literally(): void
+    {
+        $offer = $this->ticket(['subject' => 'Get 50% off_now']);
+        $other = $this->ticket(['subject' => 'Get 500 offers']);
+
+        $this->list()->searchTable('50%')->assertCanSeeTableRecords([$offer])->assertCanNotSeeTableRecords([$other]);
+        $this->list()->filterTable('text', ['text' => 'off_now'])->assertCanSeeTableRecords([$offer])->assertCanNotSeeTableRecords([$other]);
     }
 }
