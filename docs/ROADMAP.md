@@ -181,7 +181,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   - [x] **E1 (feat/ekdosi-feed):** `POST /api/ekdosi` (HMAC, ops ping/invoices/invoice/resolve/mark) στο σχήμα του
         plugin, `ekdosi_documents`, `domains.contact_id`, Settings → Ekdosi.
   - [ ] E2 παραστατικά στο admin και στο client area· E3 `add_payment` (adversarial)· E4 στον importer.
-  - [ ] K1/K2 στο Ekdosi: `MycsBillingSource`, καρτέλα «MyCS Bridge», write-back. (Στο WHMCS το staff ανοίγει τα «marks»
+  - [ ] K1/K2 στο Ekdosi: `MycsBillingSource`, καρτέλα «MyCS Bridge», write-back.
+  - [ ] **Live δοκιμή άκρη-άκρη** (ο υπεύθυνος, 2026-10-25), όταν κλείσουν E1+K1, πριν το cut-over: το
+        `ekdosi.myip.gr` (πάροχος με DEV στοιχεία) απέναντι στη MyCS, με Chrome. Βλ. `ekdosi-bridge.md` → «Live δοκιμή». (Στο WHMCS το staff ανοίγει τα «marks»
         του bridge ~20 φορές τη μέρα.)
 - [ ] Ειδοποιήσεις Mattermost· εύκολη επεξεργασία των κανόνων από το admin.
 
