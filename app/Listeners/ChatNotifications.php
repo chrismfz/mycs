@@ -41,7 +41,7 @@ class ChatNotifications
             $new = $ticket->messages()->count() === 1;
             ChatNotifier::notify($new ? 'ticket_opened' : 'ticket_reply', fn () => ($new ? '🎫 New ticket ' : '💬 Customer reply on ')
                 . ChatNotifier::link('#' . $ticket->id . ' ' . $ticket->subject, TicketResource::getUrl('edit', ['record' => $ticket], panel: 'admin'))
-                . ' · ' . $ticket->requesterName() . ($ticket->department ? ' · ' . $ticket->department->name : ''));
+                . ' · ' . ChatNotifier::escape($ticket->requesterName()) . ($ticket->department ? ' · ' . ChatNotifier::escape($ticket->department->name) : ''));
         });
     }
 
@@ -52,7 +52,7 @@ class ChatNotifications
             $order = Order::query()->findOrFail($id);
 
             return '🛒 New order ' . ChatNotifier::link('#' . $order->id, OrderResource::getUrl('edit', ['record' => $order], panel: 'admin'))
-                . ' · ' . ($order->client->name ?? '') . ' · ' . $order->formattedTotal;
+                . ' · ' . ChatNotifier::escape($order->client->name ?? '') . ' · ' . $order->formattedTotal;
         }));
     }
 
@@ -63,7 +63,7 @@ class ChatNotifications
             $invoice = Invoice::query()->findOrFail($id);
 
             return '✅ Invoice ' . ChatNotifier::link('#' . ($invoice->number ?: $invoice->id), InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin'))
-                . ' paid · ' . ($invoice->client->name ?? '') . ' · ' . $invoice->formattedTotal;
+                . ' paid · ' . ChatNotifier::escape($invoice->client->name ?? '') . ' · ' . $invoice->formattedTotal;
         }));
     }
 
@@ -73,11 +73,13 @@ class ChatNotifications
         if (!array_key_exists('status', $event->changes)) {
             return;
         }
+        // The change this event is for, not the model as it is now (saved twice in one transaction: review of #456).
         $from = (string) ($event->original['status'] ?? '');
+        $to = (string) $event->changes['status'];
         $kind = match (true) {
-            $service->status === Service::STATUS_SUSPENDED => ['service_suspended', '⏸️ Suspended'],
-            $service->status === Service::STATUS_ACTIVE && $from === Service::STATUS_SUSPENDED => ['service_unsuspended', '▶️ Unsuspended'],
-            $service->status === Service::STATUS_TERMINATED => ['service_terminated', '⛔ Terminated'],
+            $to === Service::STATUS_SUSPENDED => ['service_suspended', '⏸️ Suspended'],
+            $to === Service::STATUS_ACTIVE && $from === Service::STATUS_SUSPENDED => ['service_unsuspended', '▶️ Unsuspended'],
+            $to === Service::STATUS_TERMINATED => ['service_terminated', '⛔ Terminated'],
             default => null,
         };
         if ($kind === null) {
@@ -88,7 +90,7 @@ class ChatNotifications
             $service = Service::query()->with('product', 'client')->findOrFail($id);
 
             return $kind[1] . ' ' . ChatNotifier::link('#' . $service->id . ' ' . ($service->product->name ?? '') . ($service->domain ? ' (' . $service->domain . ')' : ''),
-                ServiceResource::getUrl('edit', ['record' => $service], panel: 'admin')) . ' · ' . ($service->client->name ?? '');
+                ServiceResource::getUrl('edit', ['record' => $service], panel: 'admin')) . ' · ' . ChatNotifier::escape($service->client->name ?? '');
         }));
     }
 
@@ -100,7 +102,7 @@ class ChatNotifications
 
             return '🗑️ Cancellation requested (' . $type . ') '
                 . ChatNotifier::link('#' . $service->id . ' ' . ($service->product->name ?? ''), ServiceResource::getUrl('edit', ['record' => $service], panel: 'admin'))
-                . ' · ' . ($service->client->name ?? '') . (filled($reason) ? ' · «' . mb_substr((string) $reason, 0, 200) . '»' : '');
+                . ' · ' . ChatNotifier::escape($service->client->name ?? '') . (filled($reason) ? ' · «' . ChatNotifier::escape(mb_substr((string) $reason, 0, 200)) . '»' : '');
         }));
     }
 

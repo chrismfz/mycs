@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Support\Redact;
 use Illuminate\Database\Eloquent\Model;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A chat channel staff are told of events in (Mattermost or Slack incoming webhook; sweep of myip, 2026-10-25). The
@@ -10,8 +12,13 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @property list<string> $events
  */
-class ChatNotificationRule extends Model
+class ChatNotificationRule extends Model implements Auditable
 {
+    use Traits\Auditable;
+
+    /** Who pointed a channel where is audited; never the URL itself (review of #456). */
+    protected $auditExclude = ['webhook_url'];
+
     public const EVENTS = [
         'ticket_opened' => 'New ticket',
         'ticket_reply' => 'Customer reply to a ticket',
@@ -26,6 +33,13 @@ class ChatNotificationRule extends Model
     protected $fillable = ['name', 'webhook_url', 'events', 'enabled'];
 
     protected $hidden = ['webhook_url'];
+
+    protected static function booted(): void
+    {
+        // A URL added or changed: masked in every log from now on.
+        static::saved(fn () => Redact::forget());
+        static::deleted(fn () => Redact::forget());
+    }
 
     protected function casts(): array
     {

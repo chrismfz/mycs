@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\ChatNotificationRule;
 use App\Models\Setting;
 use Throwable;
 
@@ -70,6 +71,8 @@ final class Redact
         // A webhook's token is in its path (Discord, Slack): review R3.
         $text = (string) preg_replace('#(/api/webhooks/\d+/)[A-Za-z0-9_\-]+#', '$1' . self::MASK, $text);
         $text = (string) preg_replace('#(hooks\.slack\.com/services/)[A-Za-z0-9/]+#', '$1' . self::MASK, $text);
+        // Mattermost's incoming webhooks (/hooks/<key>; chat notifications, review of #456).
+        $text = (string) preg_replace('#(/hooks/)[A-Za-z0-9]{10,}#', '$1' . self::MASK, $text);
         // CentralNic Reseller (#297): its auth codes in an answer (property[AUTH][0] = …), its password in a request
         // (s_pw=…), an AUTH line of a command (plain or form-encoded).
         $text = (string) preg_replace('/(property\[(?:AUTH|[A-Z-]*AUTHCODE|X-SG-TRANSFER-OUT-CODE)\]\[\d+\]\s*=\s*)[^\r\n"\\\\]*/i', '$1' . self::MASK, $text);
@@ -103,6 +106,8 @@ final class Redact
         }
         try {
             self::$known = Setting::query()->where('encrypted', true)->get()->map(fn (Setting $setting) => $setting->value)
+                // The chat notifications' webhook URLs are secrets too (review of #456).
+                ->merge(ChatNotificationRule::query()->get()->map(fn (ChatNotificationRule $rule) => $rule->webhook_url))
                 ->filter(fn ($value) => is_string($value) && mb_strlen($value) >= 6)->unique()->values()->all();
             self::$knownAt = now()->getTimestamp();
         } catch (Throwable) {

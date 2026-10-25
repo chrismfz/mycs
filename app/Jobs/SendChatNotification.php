@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 /**
  * One message to one rule's incoming webhook ({"text": …}: Mattermost and Slack alike). The job carries the rule's id,
@@ -45,8 +46,13 @@ class SendChatNotification implements ShouldQueue
         if (!str_starts_with(strtolower(trim($url)), 'https://')) {
             throw new RuntimeException('The chat webhook must be an https:// URL.');
         }
-        $response = Http::withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(10)
-            ->asJson()->post(trim($url), ['text' => mb_substr($text, 0, 4000), 'username' => 'MyCS']);
+        try {
+            $response = Http::withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(10)
+                ->asJson()->post(trim($url), ['text' => mb_substr($text, 0, 4000), 'username' => 'MyCS']);
+        } catch (Throwable) {
+            // Its message names the URL (the secret): a fixed one instead, nothing chained (review of #456).
+            throw new RuntimeException('The chat could not be reached (connection failed or timed out).');
+        }
         if (!$response->successful()) {
             throw new RuntimeException('The chat answered HTTP ' . $response->status() . '.');
         }

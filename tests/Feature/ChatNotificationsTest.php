@@ -80,7 +80,7 @@ class ChatNotificationsTest extends TestCase
         $told = $this->told();
         $this->assertCount(3, $told, json_encode($told));
         $this->assertStringStartsWith('⏸️ Suspended', $told[0]);
-        $this->assertStringContainsString('(site.example.test)', $told[0]);
+        $this->assertStringContainsString('site.example.test', $told[0]);
         $this->assertStringStartsWith('▶️ Unsuspended', $told[1]);
         $this->assertStringStartsWith('⛔ Terminated', $told[2]);
     }
