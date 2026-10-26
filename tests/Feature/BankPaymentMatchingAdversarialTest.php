@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\BankAlerts\PaymentMatcher;
@@ -34,6 +35,10 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         parent::setUp();
         Queue::fake([SendChatNotification::class]);
         $this->gateway = Gateway::query()->create(['name' => 'Bank transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
+        // On since yesterday: the credits these tests make are read after it. Left to run() it is set to now(), at second
+        // precision, and a credit made in the second before is not matched (flaky in CI, run 40318787917).
+        Setting::query()->create(['key' => PaymentMatcher::SINCE_KEY, 'settingable_type' => BankMovement::class,
+            'value' => now()->subDay()->toDateTimeString(), 'type' => 'string']);
     }
 
     private function invoice(?string $number, string $price, ?int $clientId = null, ?int $id = null, string $status = 'unpaid'): Invoice
@@ -197,6 +202,9 @@ class BankPaymentMatchingAdversarialTest extends TestCase
      */
     public function test_turning_the_knob_on_does_not_match_credits_staff_already_recorded_by_hand(): void
     {
+        // The knob truly off (no match_since, not the setUp's), the clock frozen: since() is set by this first run.
+        PaymentMatcher::stop();
+        $this->freezeTime();
         $clientId = User::factory()->create()->client()->id;
         $named = $this->invoice('32999', '100.00', $clientId);
         $meant = $this->invoice('33000', '100.00', $clientId);
@@ -207,6 +215,7 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         PaymentMatcher::run(); // the knob's first run
 
         $this->assertSame('0.00', $this->received($named->id), 'a credit staff recorded by hand two days ago is recorded again');
+        $this->assertSame(now()->toDateTimeString(), PaymentMatcher::since()->toDateTimeString(), 'the first run stores when the knob was turned on');
     }
 
     /**
