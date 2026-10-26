@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Livewire\Services\Show;
 use App\Models\ClientUser;
 use App\Models\Server;
@@ -342,7 +343,7 @@ class NewTabLoginsTest extends TestCase
         $this->assertSame(0, $this->sessions());
 
         Auth::forgetGuards();
-        $staff = $this->staff(['admin.users.impersonate', 'admin.services.update']);
+        $staff = $this->staff(['admin.users.impersonate', 'admin.services.sso']);
         $this->withSession($session());
         $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect(self::PANEL);
         $audit = Audit::query()->where('event', 'panel_login')->sole();
@@ -364,6 +365,69 @@ class NewTabLoginsTest extends TestCase
         Session::put(['impersonating' => $other->id, CurrentClient::IMPERSONATING_KEY => $other->client()->id]);
 
         $page->call('$refresh')->assertStatus(419);
+    }
+
+    /** Review of #465: behind a proxy the request comes as http://; the link is checked on the forced root and scheme. */
+    public function test_a_link_through_a_proxy_that_passes_http_is_still_ours(): void
+    {
+        $this->staff();
+        URL::forceRootUrl('https://mycs.example');
+        URL::forceScheme('https');
+        $link = $this->panelLink();
+        $this->assertStringStartsWith('https://mycs.example/', $link);
+
+        $this->get('http://localhost' . parse_url($link, PHP_URL_PATH) . '?' . parse_url($link, PHP_URL_QUERY))->assertRedirect(self::PANEL);
+    }
+
+    /** Review of #465: a module whose actions come from its API, down for the moment, is a failure, not «not allowed». */
+    public function test_a_module_that_cannot_list_its_actions_says_it_failed(): void
+    {
+        $this->asOwner();
+        $this->service->server->update(['extension' => 'NoSuchModule']);
+
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect(route('services.show', $this->service));
+        $this->assertSame(__('services.cpanel.failed'), Session::get('notification')['message'] ?? null);
+        $this->assertSame(0, $this->sessions());
+    }
+
+    /** Review of #465: the admin's own components never get the client area's check (no 419 when staff change client). */
+    public function test_the_admins_components_go_on_when_staff_log_in_as_someone_else(): void
+    {
+        $this->staff();
+        Session::put(['impersonating' => $this->owner->id, CurrentClient::IMPERSONATING_KEY => $this->owner->client()->id]);
+        $page = Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()]);
+
+        Session::forget(['impersonating', CurrentClient::IMPERSONATING_KEY]);
+        $page->call('$refresh')->assertStatus(200);
+        Session::put(['impersonating' => User::factory()->create()->id]);
+        $page->call('$refresh')->assertStatus(200);
+    }
+
+    /** Review of #465: a page opened as the client answers 419 once staff left in another tab. */
+    public function test_a_page_opened_as_the_client_never_acts_after_leave(): void
+    {
+        $this->staff(['admin.users.impersonate']);
+        Session::put(['impersonating' => $this->owner->id, CurrentClient::IMPERSONATING_KEY => $this->service->client_id]);
+        Auth::guard('web')->setUser($this->owner);
+        Auth::shouldUse('web');
+        $page = Livewire::test(Show::class, ['service' => $this->service]);
+
+        Session::forget(['impersonating', CurrentClient::IMPERSONATING_KEY]);
+        $page->call('$refresh')->assertStatus(419);
+    }
+
+    /** Review of #465: a customer really logged in in the same browser stays so after the admin's pages. */
+    public function test_a_customer_really_logged_in_stays_so_after_the_admin(): void
+    {
+        $customer = User::factory()->create();
+        $this->actingAs($customer)->withSession($this->loginUser($customer, ['impersonating' => $this->owner->id]));
+        $this->staff();
+        $this->get('/sysadmin')->assertOk();
+        $this->assertNull(Auth::guard('web')->user());
+
+        Auth::guard('web')->forgetUser(); // a new request
+        $this->withSession(['impersonating' => null])->get('/dashboard')->assertOk();
+        $this->assertSame($customer->id, Auth::guard('web')->id());
     }
 
     public function test_url_generator_signs_with_the_staff_member(): void

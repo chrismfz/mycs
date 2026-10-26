@@ -33,7 +33,17 @@ class ServicePanelLoginController extends Controller
         if (!Show::loginMay($service, 'productsso')) {
             return $back(__('You do not have access to this area of the account.'));
         }
-        $call = $this->offered($service, (string) $request->input('function'), $request->filled('app') ? (string) $request->input('app') : null);
+        try {
+            // Strings only: `function[]=` is a refusal, not a 500 (ADV-3 of #465).
+            $function = $request->input('function');
+            $app = $request->input('app');
+            $call = is_string($function) && ($app === null || is_string($app)) ? $this->offered($service, $function, $app === '' ? null : $app) : null;
+        } catch (Throwable $e) {
+            // A module whose actions come from its server's API, down for the moment: not «not allowed» (review of #465).
+            report($e);
+
+            return $back(__('services.cpanel.failed'));
+        }
         if ($call === null) {
             return $back(__('This action is not allowed'));
         }
@@ -71,12 +81,7 @@ class ServicePanelLoginController extends Controller
      */
     private function offered(Service $service, string $function, ?string $app): ?array
     {
-        try {
-            $actions = (array) ExtensionHelper::getActions($service);
-        } catch (Throwable) {
-            return null;
-        }
-        foreach ($actions as $action) {
+        foreach ((array) ExtensionHelper::getActions($service) as $action) {
             if (!is_array($action)) {
                 continue;
             }

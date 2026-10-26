@@ -51,7 +51,8 @@ class Actor
         'contacts' => 'admin.clients.update',
         'affiliates' => 'admin.clients.update',
         'manageproducts' => 'admin.services.update',
-        'productsso' => 'admin.services.update',
+        // Into the service's panel: the admin's own «Log in to panel» permission (ADV-2 of #465), never less.
+        'productsso' => 'admin.services.sso',
         'managedomains' => null, // the domain pages ask for each change's own admin permission (staffMay, R2)
         'orders' => 'admin.orders.create',
         // Paying with the customer's own money (a saved card, the vault, the balance): the admin's «mark paid».

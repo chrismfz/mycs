@@ -32,7 +32,9 @@ final class StaffLink
     public static function refusal(Request $request): ?string
     {
         $staff = Auth::guard('staff')->id();
-        if (!URL::hasCorrectSignature($request) || $staff === null || (string) $request->query('by') !== (string) $staff) {
+        // The app's own check (AppServiceProvider), as the `signed` middleware's: the address rebuilt on the forced root
+        // and scheme it was signed with, not the one a proxy passed on (review of #465).
+        if (!URL::alternateHasCorrectSignature($request) || $staff === null || (string) $request->query('by') !== (string) $staff) {
             return self::FORGED;
         }
 

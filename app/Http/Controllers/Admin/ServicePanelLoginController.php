@@ -34,7 +34,8 @@ class ServicePanelLoginController extends Controller
 
             return redirect()->to($back);
         }
-        abort_unless(EditService::panelLoginOffered($service), 403);
+        // As from the service's page, which Filament opens only to staff who may edit it (ADV-1 of #465).
+        abort_unless(ServiceResource::canEdit($service) && EditService::panelLoginOffered($service), 403);
         try {
             $url = ExtensionHelper::callService($service, 'getLoginUrl', [null]);
         } catch (Throwable $e) {
