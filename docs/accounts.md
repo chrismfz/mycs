@@ -383,8 +383,8 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   άλλος πελάτης ή βγει σε άλλη καρτέλα, μια σελίδα του client area που άνοιξε ως ο προηγούμενος δεν ενεργεί ποτέ στον
   νέο: τα Livewire components κρατούν στο υπογεγραμμένο snapshot ως ποιον άνοιξαν και απαντούν 419 (reload)
   (`App\Support\ImpersonationSnapshot`). Το staff μέσα στο «Login as client» μπαίνει στο panel μιας υπηρεσίας μόνο με το
-  `admin.services.sso` (`productsso` → `admin.services.sso` στο `Actor::STAFF_PERMISSION_AS`, ADV-2 του #465· πριν ήταν
-  το `admin.services.update`), όπως στο «Log in to panel» του admin, που θέλει και δικαίωμα επεξεργασίας της υπηρεσίας.
+  `admin.services.sso` **και** το `admin.services.update` (`productsso` → και τα δύο στο `Actor::STAFF_PERMISSION_AS`,
+  ADV-2 και ADV2-1 του #465· πριν ήταν μόνο το `admin.services.update`), όσα θέλει και το «Log in to panel» του admin.
 - **Συνημμένα tickets στο admin:** δικό τους route στο panel (`filament.admin.ticket-attachments.show`), με τον guard του
   staff· το route του client area είναι των πελατών.
 - **LockSession** (κλείδωμα IP/agent) και στα Livewire requests του panel (persistent), όχι μόνο στις σελίδες του.

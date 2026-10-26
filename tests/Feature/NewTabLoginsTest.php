@@ -343,7 +343,7 @@ class NewTabLoginsTest extends TestCase
         $this->assertSame(0, $this->sessions());
 
         Auth::forgetGuards();
-        $staff = $this->staff(['admin.users.impersonate', 'admin.services.sso']);
+        $staff = $this->staff(['admin.users.impersonate', 'admin.services.sso', 'admin.services.update']);
         $this->withSession($session());
         $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect(self::PANEL);
         $audit = Audit::query()->where('event', 'panel_login')->sole();
