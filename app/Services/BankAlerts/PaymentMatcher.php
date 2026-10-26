@@ -40,7 +40,9 @@ final class PaymentMatcher
         $since = self::since();
         $credits = BankMovement::query()->credits()->where('status', BankMovement::PENDING)->where('authentic', true)
             ->whereNull('invoice_id')->whereNull('match_note')->where('executed_at', '>=', now()->subDays(max(1, $days)))
-            ->where('created_at', '>=', $since)->orderBy('id')->pluck('id');
+            // After since, strictly: created_at has second precision, and the first run sets since after its read, in
+            // the second that read's last credits were inserted. Those are from before the knob too (adversarial of #467).
+            ->where('created_at', '>', $since)->orderBy('id')->pluck('id');
         foreach ($credits as $id) {
             try {
                 self::matchOne((int) $id) ? $result['matched']++ : $result['left']++;
