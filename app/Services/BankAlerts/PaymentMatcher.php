@@ -11,6 +11,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\Setting;
 use App\Services\Chat\ChatNotifier;
 use App\Services\Invoice\RecordPaymentService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -30,19 +31,24 @@ final class PaymentMatcher
 {
     public const TRANSACTION_PREFIX = 'bank-alert:';
 
-    /** Since when the matching has been on: only credits read after it are matched (adversarial round 2 of #458). */
-    public const SINCE_KEY = 'bank_alerts.match_since';
+    /**
+     * Since which credit the matching has been on: only credits read after it (a higher id) are matched (adversarial
+     * round 2 of #458). An id, not a time: created_at has second precision, so a time could not tell the first run's
+     * read from what came after it in the same second (#468).
+     */
+    public const AFTER_KEY = 'bank_alerts.match_after_id';
+
+    /** Before #468 the same as a time, read once into AFTER_KEY. */
+    private const LEGACY_SINCE_KEY = 'bank_alerts.match_since';
 
     /** @return array{matched: int, left: int} */
     public static function run(int $days = 7): array
     {
         $result = ['matched' => 0, 'left' => 0];
-        $since = self::since();
+        $afterId = self::afterId();
         $credits = BankMovement::query()->credits()->where('status', BankMovement::PENDING)->where('authentic', true)
             ->whereNull('invoice_id')->whereNull('match_note')->where('executed_at', '>=', now()->subDays(max(1, $days)))
-            // After since, strictly: created_at has second precision, and the first run sets since after its read, in
-            // the second that read's last credits were inserted. Those are from before the knob too (adversarial of #467).
-            ->where('created_at', '>', $since)->orderBy('id')->pluck('id');
+            ->where('id', '>', $afterId)->orderBy('id')->pluck('id');
         foreach ($credits as $id) {
             try {
                 self::matchOne((int) $id) ? $result['matched']++ : $result['left']++;
@@ -56,26 +62,38 @@ final class PaymentMatcher
     }
 
     /**
-     * When the matching was turned on, set on its first run: what was read before (staff may have recorded it by hand
-     * already) is never matched.
+     * The last credit read before the matching was turned on, set on its first run (after that run's read): what was read
+     * until then (staff may have recorded it by hand already) is never matched.
      */
-    public static function since(): Carbon
+    public static function afterId(): int
     {
-        $stored = Setting::query()->where('key', self::SINCE_KEY)->where('settingable_type', BankMovement::class)->value('value');
-        if (is_string($stored) && $stored !== '') {
-            return Carbon::parse($stored);
+        $stored = self::setting(self::AFTER_KEY)->value('value');
+        if (is_numeric($stored)) {
+            return (int) $stored;
         }
-        $now = now();
-        Setting::query()->updateOrCreate(['key' => self::SINCE_KEY, 'settingable_type' => BankMovement::class, 'settingable_id' => null],
-            ['value' => $now->toDateTimeString(), 'type' => 'string']);
+        $before = BankMovement::query();
+        $legacy = self::setting(self::LEGACY_SINCE_KEY)->value('value');
+        if (is_string($legacy) && $legacy !== '') {
+            $before->where('created_at', '<=', Carbon::parse($legacy));
+        }
+        $afterId = (int) $before->max('id');
+        Setting::query()->updateOrCreate(['key' => self::AFTER_KEY, 'settingable_type' => BankMovement::class, 'settingable_id' => null],
+            ['value' => (string) $afterId, 'type' => 'string']);
+        self::setting(self::LEGACY_SINCE_KEY)->delete();
 
-        return $now;
+        return $afterId;
     }
 
-    /** The matching turned off: turned on again, it starts afresh from then. */
+    /** The matching turned off (or nothing reading for it): turned on again, it starts afresh from then. */
     public static function stop(): void
     {
-        Setting::query()->where('key', self::SINCE_KEY)->where('settingable_type', BankMovement::class)->delete();
+        Setting::query()->whereIn('key', [self::AFTER_KEY, self::LEGACY_SINCE_KEY])->where('settingable_type', BankMovement::class)->delete();
+    }
+
+    /** @return Builder<Setting> */
+    private static function setting(string $key): Builder
+    {
+        return Setting::query()->where('key', $key)->where('settingable_type', BankMovement::class);
     }
 
     /** One credit: matched and recorded, or left for staff with its note. */

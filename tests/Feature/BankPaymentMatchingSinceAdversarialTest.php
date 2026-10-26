@@ -116,7 +116,8 @@ class BankPaymentMatchingSinceAdversarialTest extends TestCase
         $this->travelTo(now()->startOfSecond()->addMicroseconds(700000)); // the same second, after since
         $invoice = $this->invoice('33001', '42.00');
         $credit = $this->credit('ΠΛΗΡΩΜΗ 33001', '42.00');
-        $this->assertSame(PaymentMatcher::since()->toDateTimeString(), $credit->fresh()->created_at->toDateTimeString(), 'read in since\'s second, after it');
+        // (Was: since() as a time, equal to this credit's created_at. Now an id watermark: #468.)
+        $this->assertGreaterThan(PaymentMatcher::afterId(), $credit->id, 'read in the second the knob was turned on, after it');
 
         $this->travel(3)->minutes();
         $this->assertSame(['matched' => 1, 'left' => 0], PaymentMatcher::run(), 'a credit read after the knob was turned on is never matched');

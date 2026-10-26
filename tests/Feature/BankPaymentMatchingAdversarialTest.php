@@ -35,10 +35,8 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         parent::setUp();
         Queue::fake([SendChatNotification::class]);
         $this->gateway = Gateway::query()->create(['name' => 'Bank transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
-        // On since yesterday: the credits these tests make are read after it. Left to run() it is set to now(), at second
-        // precision, and a credit made in the second before is not matched (flaky in CI, run 40318787917).
-        Setting::query()->create(['key' => PaymentMatcher::SINCE_KEY, 'settingable_type' => BankMovement::class,
-            'value' => now()->subDay()->toDateTimeString(), 'type' => 'string']);
+        // On before any credit: the credits these tests make are read after it (left to run(), the first run sets it).
+        Setting::query()->create(['key' => PaymentMatcher::AFTER_KEY, 'settingable_type' => BankMovement::class, 'value' => '0', 'type' => 'string']);
     }
 
     private function invoice(?string $number, string $price, ?int $clientId = null, ?int $id = null, string $status = 'unpaid'): Invoice
@@ -202,7 +200,7 @@ class BankPaymentMatchingAdversarialTest extends TestCase
      */
     public function test_turning_the_knob_on_does_not_match_credits_staff_already_recorded_by_hand(): void
     {
-        // The knob truly off (no match_since, not the setUp's), the clock frozen: since() is set by this first run.
+        // The knob truly off (not the setUp's watermark), the clock frozen: afterId() is set by this first run.
         PaymentMatcher::stop();
         $this->freezeTime();
         $clientId = User::factory()->create()->client()->id;
@@ -215,14 +213,14 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         PaymentMatcher::run(); // the knob's first run
 
         $this->assertSame('0.00', $this->received($named->id), 'a credit staff recorded by hand two days ago is recorded again');
-        $this->assertSame(now()->toDateTimeString(), PaymentMatcher::since()->toDateTimeString(), 'the first run stores when the knob was turned on');
+        $this->assertSame($credit->id, PaymentMatcher::afterId(), 'the first run stores the last credit read before the knob');
     }
 
     /**
-     * R2-2, the same second. The first run stores since after the read, and bank_movements.created_at has second precision:
-     * a credit that read inserted in the second since is set in was matched, while those from its earlier seconds were
-     * not. A first read with a backlog (more than a second over IMAP) recorded again what staff recorded by hand. A later
-     * read's credit is matched.
+     * R2-2, the same second (#468). The first run stored since as a time after its read, and bank_movements.created_at has
+     * second precision: a credit that read inserted in since's second was matched, while those from its earlier seconds
+     * were not. A first read with a backlog (more than a second over IMAP) recorded again what staff recorded by hand. A
+     * later read's credit is matched.
      */
     public function test_the_first_run_does_not_match_a_credit_read_in_the_same_second(): void
     {
@@ -245,6 +243,30 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         $this->credit('ΠΛΗΡΩΜΗ 33001', '42.00');
         $this->assertSame(['matched' => 1, 'left' => 0], PaymentMatcher::run(), 'a later read\'s credit is matched');
         $this->assertSame(Invoice::STATUS_PAID, $later->fresh()->status);
+    }
+
+    /**
+     * The watermark stored as a time before #468 is read once into an id: what was read up to that second stays staff's,
+     * what came after is matched, and the time is gone.
+     */
+    public function test_a_since_stored_as_a_time_becomes_the_last_credit_read_up_to_it(): void
+    {
+        PaymentMatcher::stop();
+        $this->freezeTime();
+        $before = $this->invoice('32999', '100.00');
+        $after = $this->invoice('33001', '42.00');
+        $old = $this->credit('ΠΛΗΡΩΜΗ 32999', '100.00');
+        $old->forceFill(['created_at' => now()->subMinutes(10)])->save();
+        Setting::query()->create(['key' => 'bank_alerts.match_since', 'settingable_type' => BankMovement::class,
+            'value' => now()->subMinutes(10)->toDateTimeString(), 'type' => 'string']);
+        $this->credit('ΠΛΗΡΩΜΗ 33001', '42.00');
+
+        $this->assertSame(['matched' => 1, 'left' => 0], PaymentMatcher::run());
+
+        $this->assertSame(Invoice::STATUS_UNPAID, $before->fresh()->status, 'read in since\'s second: before the knob');
+        $this->assertSame(Invoice::STATUS_PAID, $after->fresh()->status);
+        $this->assertSame($old->id, PaymentMatcher::afterId());
+        $this->assertFalse(Setting::query()->where('key', 'bank_alerts.match_since')->exists());
     }
 
     /**
