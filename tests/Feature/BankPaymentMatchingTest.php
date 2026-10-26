@@ -38,9 +38,8 @@ class BankPaymentMatchingTest extends TestCase
         parent::setUp();
         Queue::fake([SendChatNotification::class]);
         $this->gateway = Gateway::query()->create(['name' => 'Bank transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
-        // On since yesterday: the credits these tests make are read after it.
-        Setting::query()->create(['key' => PaymentMatcher::SINCE_KEY, 'settingable_type' => BankMovement::class,
-            'value' => now()->subDay()->toDateTimeString(), 'type' => 'string']);
+        // On before any credit: the credits these tests make are read after it (left to run(), the first run sets it).
+        Setting::query()->create(['key' => PaymentMatcher::AFTER_KEY, 'settingable_type' => BankMovement::class, 'value' => '0', 'type' => 'string']);
     }
 
     private function invoice(string $number, string $price = '150.00', string $currency = 'EUR', ?int $id = null): Invoice

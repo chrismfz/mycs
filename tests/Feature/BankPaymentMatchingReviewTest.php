@@ -35,10 +35,8 @@ class BankPaymentMatchingReviewTest extends TestCase
         $this->beforeApplicationDestroyed(fn () => $this->truncateDatabaseTables());
         Queue::fake([SendChatNotification::class]);
         Gateway::query()->create(['name' => 'Bank transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
-        // On since yesterday: the credits these tests make are read after it. Left to run() it is set to now(), at second
-        // precision, and a credit made in the second before is not matched (flaky in CI, run 40318787917).
-        Setting::query()->create(['key' => PaymentMatcher::SINCE_KEY, 'settingable_type' => BankMovement::class,
-            'value' => now()->subDay()->toDateTimeString(), 'type' => 'string']);
+        // On before any credit: the credits these tests make are read after it (left to run(), the first run sets it).
+        Setting::query()->create(['key' => PaymentMatcher::AFTER_KEY, 'settingable_type' => BankMovement::class, 'value' => '0', 'type' => 'string']);
     }
 
     private function invoice(?string $number, string $price, ?int $id = null): Invoice

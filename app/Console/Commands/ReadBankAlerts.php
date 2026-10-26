@@ -25,6 +25,8 @@ class ReadBankAlerts extends Command
         $extension = $gateway !== null ? ExtensionHelper::getExtension('gateway', 'BankTransfer', $gateway->settings) : null;
         $settings = $extension instanceof BankTransfer ? $extension->alertSettings() : null;
         if ($settings === null) {
+            // Nothing read, nothing matched: what staff record by hand meanwhile is read later, from before the knob (#468).
+            PaymentMatcher::stop();
             $this->line('Reading the bank alerts is off (Bank transfer gateway).');
 
             return self::SUCCESS;
