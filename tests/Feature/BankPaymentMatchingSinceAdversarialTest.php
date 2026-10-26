@@ -18,7 +18,8 @@ use Tests\TestCase;
 
 /**
  * Adversarial review of #468 (PaymentMatcher::since(), strictly after): ways the matcher still records a credit read
- * while it was not watching, or never matches one read after it was turned on.
+ * while it was not watching, or never matches one read after it was turned on. The docblocks describe the code as it was
+ * then (626c40d8, a time watermark); since 65052c06 the watermark is the last bank_movements.id read before the knob.
  */
 class BankPaymentMatchingSinceAdversarialTest extends TestCase
 {
