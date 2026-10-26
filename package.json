@@ -15,7 +15,7 @@
     },
     "dependencies": {
         "@alpinejs/anchor": "^3.17.5",
-        "altcha": "^3.4.1",
+        "altcha": "^3.5.0",
         "easymde": "^2.20.0"
     }
 }
