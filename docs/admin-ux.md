@@ -22,7 +22,11 @@ link που φτιάχτηκε πριν την αλλαγή δεν περνά τ
 Account, που ανοίγει την ίδια ενέργεια της σελίδας σε εκείνη την εντολή (`changeStatus`, ίδιοι έλεγχοι). Πάνω δεξιά:
 «Invoice next period», **«Log in to panel»** (το `getLoginUrl` του module, όπως ο πελάτης· δικό του δικαίωμα
 `admin.services.sso`, μόνο active/suspended, https χωρίς credentials στο URL, `panel_login` στο audit) και «More ▾» για τα
-υπόλοιπα.
+υπόλοιπα. Το «Log in to panel» ανοίγει σε **νέα καρτέλα** (owner 2026-10-26): link σε signed route
+(`filament.admin.sso.service`, `StaffLink`), όχι Livewire action· το ίδιο στο client area, όπου κάθε κουμπί `sso` ενός
+server module (`getActions`) και τα shortcuts του είναι φόρμα με CSRF και `target="_blank"` στο `services.panel-login`.
+Γενικό: κάθε module με `sso` κουμπί ή `getLoginUrl` το παίρνει χωρίς αλλαγή. Η μιας χρήσης διεύθυνση του panel δεν
+γράφεται πουθενά (ούτε στο audit), και το redirect έχει `no-store` και `Referrer-Policy: no-referrer`.
 
 ## Μενού
 **Topbar Menu (vaslv/filament-topbar-menu): όχι.** Είναι MIT και Filament 5, αλλά:

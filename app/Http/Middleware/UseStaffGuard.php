@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use App\Providers\Filament\AdminPanelProvider;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,9 +16,11 @@ class UseStaffGuard
     public function handle(Request $request, Closure $next): Response
     {
         Auth::shouldUse('staff');
-        // Back in the admin (a page, not the panel's Livewire requests): «Login as client» ends (AUTH-19).
-        if ($request->is(AdminPanelProvider::PATH, AdminPanelProvider::PATH . '/*')) {
-            $request->session()->forget('impersonating');
+        // «Login as client» (AUTH-19) goes on in its own tab while staff use the admin in this one (owner 2026-10-26):
+        // it no longer ends here, but the admin never sees the customer it set as the client area's login
+        // (ImpersonateMiddleware, on the panel's Livewire requests too); a customer really logged in stays so.
+        if ($request->hasSession() && $request->session()->has('impersonating')) {
+            Auth::guard('web')->forgetUser();
         }
 
         return $next($request);

@@ -7,8 +7,8 @@ use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
-use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Models\Client;
+use App\Support\StaffLink;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -41,13 +41,9 @@ class EditClient extends EditRecord
             ->label(__('Login as client'))
             ->icon('heroicon-o-arrow-right-end-on-rectangle')
             ->disabled(fn (Client $record) => $record->owner() === null)
-            ->action(function (Client $record, Page $livewire) {
-                $owner = $record->owner();
-                if ($owner !== null) {
-                    EditUser::impersonate($owner, $record);
-                    $livewire->redirect('/dashboard');
-                }
-            })
+            // A link in a new tab (owner 2026-10-26): the admin page stays; its signed route starts it (LoginAsClientController).
+            ->url(fn (Client $record) => $record->owner() === null ? null : StaffLink::to('filament.admin.login-as.client', ['client' => $record->id]))
+            ->openUrlInNewTab()->extraAttributes(['rel' => 'noopener noreferrer'])
             ->hidden(fn () => !Auth::guard('staff')->user()?->hasPermission('admin.users.impersonate'));
     }
 

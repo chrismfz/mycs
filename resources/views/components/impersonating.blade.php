@@ -4,10 +4,12 @@
             {{ __('You are currently impersonating') }}: 
             <strong>{{  auth()->user()->name }}</strong>
         </p>
-        <a href="/{{ \App\Providers\Filament\AdminPanelProvider::PATH }}/users/{{ auth()->user()->id }}/edit">
-            <x-button.primary>
+        {{-- A form (CSRF): the admin's pages no longer end it, since it has its own tab (owner 2026-10-26). --}}
+        <form method="POST" action="{{ route('impersonation.leave') }}">
+            @csrf
+            <x-button.primary type="submit">
                 {{ __('Leave') }}
             </x-button.primary>
-        </a>
+        </form>
     </div>
 @endif

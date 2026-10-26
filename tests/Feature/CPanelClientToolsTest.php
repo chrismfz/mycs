@@ -93,9 +93,10 @@ class CPanelClientToolsTest extends TestCase
 
     public function test_webmail_and_a_shortcut_open_signed_in(): void
     {
-        $page = $this->page();
-        $page->call('goto', 'getWebmailUrl')->assertRedirectContains('webmail');
-        $page->call('openShortcut', 'Email_Accounts')->assertRedirectContains('Email_Accounts');
+        // Forms of the page into a new tab (owner 2026-10-26): ServicePanelLoginController.
+        $this->page();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWebmailUrl'])->assertRedirectContains('webmail');
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Email_Accounts'])->assertRedirectContains('Email_Accounts');
 
         [$webmail, $shortcut] = $this->sent('create_user_session');
         $this->assertSame(['webmaild', 'cpaneld', 'Email_Accounts'], [$webmail['service'], $shortcut['service'], $shortcut['app']]);
@@ -103,7 +104,8 @@ class CPanelClientToolsTest extends TestCase
 
     public function test_a_shortcut_not_offered_is_never_asked(): void
     {
-        $this->page()->call('openShortcut', 'Evil_App')->assertNoRedirect();
+        $this->page();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Evil_App'])->assertRedirect(route('services.show', $this->service));
 
         $this->assertSame([], $this->sent('create_user_session'));
     }
@@ -115,7 +117,7 @@ class CPanelClientToolsTest extends TestCase
 
         $page = $this->page($viewer);
         $this->assertSame([], $page->get('shortcuts'));
-        $page->call('openShortcut', 'Email_Accounts')->assertNoRedirect();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Email_Accounts'])->assertRedirect(route('services.show', $this->service));
         $this->assertSame([], $this->sent('create_user_session'));
     }
 

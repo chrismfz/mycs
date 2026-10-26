@@ -5,7 +5,9 @@ use App\Http\Controllers\AnnouncementUnsubscribeController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\KnowledgebaseRedirectController;
+use App\Http\Controllers\LeaveImpersonationController;
 use App\Http\Controllers\OfferController;
+use App\Http\Controllers\ServicePanelLoginController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\SslFileController;
 use App\Http\Controllers\TicketAttachmentController;
@@ -104,6 +106,9 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
     Route::get('/services/{service}/ssl/{version}/{file}', [SslFileController::class, 'download'])->name('services.ssl.file')
         ->whereIn('file', SslVersion::FILES)->middleware('can:view,service');
     Route::post('/services/{service}/ssl/{version}/pfx', [SslFileController::class, 'pfx'])->name('services.ssl.pfx')->middleware('can:view,service');
+    // Into the service's panel, signed in, in a new tab (owner 2026-10-26): a form of its page, CSRF, never a link.
+    Route::post('/services/{service}/panel-login', ServicePanelLoginController::class)->name('services.panel-login')
+        ->middleware(['can:view,service', 'throttle:20,1']);
     // The customer's domains (D7-2).
     Route::get('/domains', Domains\Index::class)->name('domains')->middleware('client.can:domains');
     Route::get('/domains/{domain}', Domains\Show::class)->name('domains.show')->middleware('can:view,domain');
@@ -114,6 +119,8 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
 });
 
 Route::group(['middleware' => ['web', 'auth']], function () {
+    // «Leave» of «Login as client» (AUTH-19): a form, CSRF; back to the admin.
+    Route::post('/impersonation/leave', LeaveImpersonationController::class)->name('impersonation.leave');
     Route::get('/account', Client\Account::class)->name('account');
     Route::get('/account/security', Client\Security::class)->name('account.security');
     Route::get('/account/credits', Client\Credits::class)->name('account.credits')->middleware('client.can:invoices');

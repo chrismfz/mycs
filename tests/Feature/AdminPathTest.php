@@ -46,10 +46,11 @@ class AdminPathTest extends TestCase
         $this->actingAs($staff, 'staff')->get('/sysadmin/clients')->assertOk();
     }
 
-    public function test_back_in_the_admin_a_login_as_client_ends(): void
+    /** «Login as client» has its own tab (owner 2026-10-26): the admin's pages leave it on. */
+    public function test_back_in_the_admin_a_login_as_client_goes_on_in_its_tab(): void
     {
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
 
-        $this->actingAs($staff, 'staff')->withSession(['impersonating' => 5])->get('/sysadmin')->assertOk()->assertSessionMissing('impersonating');
+        $this->actingAs($staff, 'staff')->withSession(['impersonating' => 5])->get('/sysadmin')->assertOk()->assertSessionHas('impersonating', 5);
     }
 }

@@ -29,6 +29,7 @@ use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\LicenseKeyMask;
 use App\Support\Redact;
+use App\Support\StaffLink;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -52,10 +53,6 @@ use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
 use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
-use OwenIt\Auditing\Events\AuditCustom;
-use Throwable;
-
-use function Livewire\store;
 
 class EditService extends EditRecord
 {
@@ -172,45 +169,6 @@ class EditService extends EditRecord
             && rescue(fn () => ExtensionHelper::hasFunction($server, 'getLoginUrl'), false, false);
     }
 
-    /**
-     * Signed in at its panel (the module's getLoginUrl, as the customer's «Log in»), and who did it in its audit. This
-     * page's service only, and only through its action: not a Livewire method anyone may call with another id (ADV-1 of
-     * #400).
-     */
-    protected function loginToPanel(): void
-    {
-        $record = $this->getRecord();
-        abort_unless($record instanceof Service && self::panelLoginOffered($record), 403);
-        try {
-            $url = ExtensionHelper::callService($record, 'getLoginUrl', [null]);
-        } catch (Throwable $e) {
-            // A redirect a module queued before it failed goes nowhere (as the client area's, ADV-2 of #323).
-            store($this)->set('redirect', null);
-            report($e);
-            Notification::make()->danger()->title('Could not sign in to its panel')->body(mb_substr($e->getMessage(), 0, 200))->send();
-
-            return;
-        }
-        // Only an http(s) address of a host, never `javascript:` or one with credentials in it (as the client area's); nor
-        // one a module queued itself (ADV-3 of #400).
-        $pending = store($this)->get('redirect');
-        if (is_string($pending) && Show::panelUrl($pending) === null) {
-            store($this)->set('redirect', null);
-        }
-        $url = is_string($url) ? Show::panelUrl($url) : null;
-        if ($url === null) {
-            Notification::make()->danger()->title('Could not sign in to its panel')->send();
-
-            return;
-        }
-        $record->auditEvent = 'panel_login';
-        $record->isCustomEvent = true;
-        $record->auditCustomOld = [];
-        $record->auditCustomNew = ['staff_id' => Auth::guard('staff')->id(), 'server_id' => $record->provisioningServer()?->id, 'username' => $record->username];
-        event(new AuditCustom($record));
-        $this->redirect($url);
-    }
-
     protected function getHeaderActions(): array
     {
         /** @var Service $record */
@@ -223,9 +181,11 @@ class EditService extends EditRecord
             // Its Proxmox VM's power (one mapped in Proxmox Guests).
             ProxmoxPower::group($record),
             // Into its panel, signed in, as WHMCS's «Log in to panel» (owner 2026-10-23): its own permission, audited.
+            // A link in a new tab (owner 2026-10-26): the admin page stays; its signed route signs in (ServicePanelLoginController).
             Action::make('loginToPanel')->label('Log in to panel')->icon('heroicon-o-arrow-top-right-on-square')->color('gray')
                 ->visible(fn (Service $record) => self::panelLoginOffered($record))
-                ->action(fn () => $this->loginToPanel()),
+                ->url(fn (Service $record) => StaffLink::to('filament.admin.sso.service', ['service' => $record->id]))
+                ->openUrlInNewTab()->extraAttributes(['rel' => 'noopener noreferrer']),
             // The rest behind «More» (owner 2026-10-23: eight buttons on one line); the server's commands are also in the
             // form's Account, one button each.
             ActionGroup::make([

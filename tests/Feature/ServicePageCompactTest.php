@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Models\ServiceUsage;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\StaffLink;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -90,8 +91,11 @@ class ServicePageCompactTest extends TestCase
     {
         $staff = $this->staff();
 
+        // A link into a new tab (owner 2026-10-26), whose signed route signs in.
         Livewire::test(EditService::class, ['record' => $this->service->getRouteKey()])->assertActionVisible('loginToPanel')
-            ->callAction('loginToPanel')->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
+            ->assertActionShouldOpenUrlInNewTab('loginToPanel');
+        $this->get(StaffLink::to('filament.admin.sso.service', ['service' => $this->service->id]))
+            ->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
 
         $this->assertSame('zonecl', $this->sessions[0]['user'] ?? null);
         $this->assertSame('cpaneld', $this->sessions[0]['service'] ?? null);

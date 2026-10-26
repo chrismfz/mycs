@@ -373,9 +373,16 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 - **API keys:** `api_keys.staff_id` (cascade: φεύγουν με το μέλος)· κλάδεμα στα δικαιώματά του, τίποτα όταν
   απενεργοποιηθεί.
 - **«Login as client»** (AUTH-19): μόνο με `admin.users.impersonate`, καταγράφεται ως audit `impersonated` στον πελάτη με
-  causer το μέλος του staff· η «Αποσύνδεση» στο client area γυρίζει στο admin, και κάθε σελίδα του admin το τερματίζει.
-  Τρέχει πριν από το `auth` του client area (priority list στο `bootstrap/app.php`), γιατί το staff δεν είναι συνδεδεμένο
-  στον guard `web`.
+  causer το μέλος του staff· η «Αποσύνδεση» και το «Leave» (φόρμα με CSRF, `impersonation.leave`) στο client area
+  γυρίζουν στο admin. Τρέχει πριν από το `auth` του client area (priority list στο `bootstrap/app.php`), γιατί το staff
+  δεν είναι συνδεδεμένο στον guard `web`.
+  **Σε νέα καρτέλα (owner 2026-10-26):** το κουμπί είναι link (`target="_blank"`) σε signed route του panel
+  (`filament.admin.login-as.client|user`, `App\Support\StaffLink`: υπογραφή, μία ώρα, μόνο για το μέλος που το έφτιαξε·
+  ληγμένο → πίσω στη σελίδα με μήνυμα). Το session είναι ένα για τις δύο καρτέλες, άρα οι σελίδες του admin **δεν** το
+  τερματίζουν πια· το admin όμως δεν βλέπει ποτέ τον πελάτη ως login του `web` (`UseStaffGuard`). Αν το staff μπει ως
+  άλλος πελάτης ή βγει σε άλλη καρτέλα, μια σελίδα του client area που άνοιξε ως ο προηγούμενος δεν ενεργεί ποτέ στον
+  νέο: τα Livewire components κρατούν στο υπογεγραμμένο snapshot ως ποιον άνοιξαν και απαντούν 419 (reload)
+  (`App\Support\ImpersonationSnapshot`).
 - **Συνημμένα tickets στο admin:** δικό τους route στο panel (`filament.admin.ticket-attachments.show`), με τον guard του
   staff· το route του client area είναι των πελατών.
 - **LockSession** (κλείδωμα IP/agent) και στα Livewire requests του panel (persistent), όχι μόνο στις σελίδες του.

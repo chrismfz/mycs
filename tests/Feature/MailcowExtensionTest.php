@@ -189,7 +189,9 @@ class MailcowExtensionTest extends TestCase
         $this->made();
         $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
 
-        Livewire::test(Show::class, ['service' => $this->service])->call('goto', 'getLoginUrl')->assertRedirectContains('/domainadmin/');
+        // Its form into a new tab (owner 2026-10-26).
+        Livewire::test(Show::class, ['service' => $this->service])->assertSee(route('services.panel-login', $this->service), false);
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirectContains('/domainadmin/');
 
         $this->assertSame('cdnet', $this->sent('/api/v1/add/sso/domain-admin')[0]['username']);
     }

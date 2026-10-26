@@ -340,7 +340,9 @@ class CentovaCastExtensionTest extends TestCase
 
         $page = Livewire::test(Show::class, ['service' => $this->service]);
         $page->assertSee('stream.test:9250')->assertSee('radio');
-        $page->call('goto', 'getLoginUrl')->assertRedirect(self::API . '/login/index.php');
+        // Its form into a new tab (owner 2026-10-26).
+        $page->assertSee(route('services.panel-login', $this->service), false)->assertSee('target="_blank"', false);
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect(self::API . '/login/index.php');
     }
 
     public function test_html_entities_in_an_answer_are_read_as_their_characters(): void

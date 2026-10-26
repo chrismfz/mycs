@@ -26,6 +26,7 @@ use App\Support\BootFailure;
 use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
+use App\Support\ImpersonationSnapshot;
 use App\Support\StaffSessions;
 use Closure;
 use Dedoc\Scramble\Scramble;
@@ -236,6 +237,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A client area page acts only as the customer it was opened as («Login as client» in its own tab).
+        ImpersonationSnapshot::register();
         // The staff guard: Laravel's session guard with a __Host- «remember me» cookie (StaffSessionGuard).
         Auth::extend('staff-session', function ($app, string $name, array $config) {
             $guard = new StaffSessionGuard($name, Auth::createUserProvider($config['provider'] ?? null), $app['session.store'],

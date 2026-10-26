@@ -70,14 +70,15 @@ class PanelUrlTest extends TestCase
     public function test_a_panel_link_that_is_not_a_web_page_is_refused(string $answer): void
     {
         $this->answer = $answer;
-        $page = $this->page();
+        $this->page();
 
-        $page->call('goto', 'getWebmailUrl')->assertNoRedirect();
-        $page->call('openShortcut', 'Email_Accounts')->assertNoRedirect();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWebmailUrl'])->assertRedirect(route('services.show', $this->service));
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Email_Accounts'])->assertRedirect(route('services.show', $this->service));
     }
 
     public function test_a_panel_link_opens_as_before(): void
     {
-        $this->page()->call('goto', 'getWebmailUrl')->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
+        $this->page();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWebmailUrl'])->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
     }
 }
