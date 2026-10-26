@@ -95,14 +95,13 @@ class EkdosiAddPaymentAdversarialRound2Test extends TestCase
         $invoice = $this->onCredit();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '124.00', transactionId: 'ekdosi:pay-9', status: InvoiceTransactionStatus::Failed);
 
-        $this->pay($invoice, '124.00', 'pay-9')->assertOk();
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-
-        $retry = $this->pay($invoice, '124.00', 'pay-9');
-        $this->assertSame(200, $retry->status(), 'the retry of a recorded payment answered ' . $retry->getContent());
-        $retry->assertJsonPath('note', 'already_recorded');
-        $this->assertNull(InvoiceTransaction::query()->where('transaction_id', 'ekdosi:pay-9')->sole()->gateway_id,
-            'Ekdosi\'s money is recorded as the bank transfer\'s');
+        // Fix of #464 (author), the reviewer's suggested fix: a gateway's transaction with this id is never taken over —
+        // a 409 transid_conflict, every time (shown in Ekdosi, for a human), never recorded as the bank transfer's.
+        $this->pay($invoice, '124.00', 'pay-9')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
+        $this->pay($invoice, '124.00', 'pay-9')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $this->assertSame(InvoiceTransactionStatus::Failed, InvoiceTransaction::query()->where('transaction_id', 'ekdosi:pay-9')->sole()->status,
+            'the bank transfer\'s record is untouched');
     }
 
     /**
@@ -115,10 +114,10 @@ class EkdosiAddPaymentAdversarialRound2Test extends TestCase
         $invoice = $this->onCredit();
         ExtensionHelper::addProcessingPayment($invoice, null, '124.00', transactionId: 'ekdosi:pay-p');
 
-        $response = $this->pay($invoice, '124.00', 'pay-p');
-
-        $this->assertSame(200, $response->status(), 'answered ' . $response->getContent());
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        // Fix of #464 (author), the reviewer's other option: the docs now say a processing one is never completed; it is
+        // a 409 transid_conflict (permanent, for a human), not the transient payment_on_its_way.
+        $this->pay($invoice, '124.00', 'pay-p')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     /**

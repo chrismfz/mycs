@@ -128,9 +128,14 @@ class EkdosiAddPaymentAdversarialTest extends TestCase
         $invoice = $this->onCredit();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '124.00', transactionId: 'ekdosi:pay-9', status: InvoiceTransactionStatus::Failed);
 
-        $response = $this->pay($invoice, '124.00', 'pay-9');
-
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'answered ' . $response->getContent() . ' but the invoice is still unpaid');
+        // Fix of #464 round 2 (author): this fixture's transaction is a BankTransfer's — never taken over (R2-1). What
+        // ADV-2 asked holds: no false «already_recorded», a 409 the operator sees.
+        $this->pay($invoice, '124.00', 'pay-9')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
+        // Ekdosi's own failed one (no gateway) is completed.
+        $own = $this->onCredit();
+        ExtensionHelper::addPayment($own, null, '124.00', transactionId: 'ekdosi:pay-10', status: InvoiceTransactionStatus::Failed);
+        $response = $this->pay($own, '124.00', 'pay-10');
+        $this->assertSame(Invoice::STATUS_PAID, $own->fresh()->status, 'answered ' . $response->getContent() . ' but the invoice is still unpaid');
     }
 
     /**

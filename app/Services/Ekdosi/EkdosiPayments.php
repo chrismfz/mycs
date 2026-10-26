@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\PaymentsLog;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,7 +35,7 @@ final class EkdosiPayments
     {
         // An int, or a string of digits: never `true` or `1.0` read as invoice 1 (ADV-4 of #464).
         $sent = $body['invoice_id'] ?? null;
-        $invoiceId = is_int($sent) || (is_string($sent) && preg_match('/^[1-9]\d{0,18}$/', $sent)) ? (int) $sent : false;
+        $invoiceId = is_int($sent) || (is_string($sent) && preg_match('/^[1-9]\d{0,18}$/D', $sent)) ? (int) $sent : false;
         $amount = is_string($body['amount'] ?? null) || is_int($body['amount'] ?? null) || is_float($body['amount'] ?? null) ? trim((string) $body['amount']) : '';
         $transId = is_string($body['transid'] ?? null) || is_int($body['transid'] ?? null) ? trim((string) $body['transid']) : '';
         if ($invoiceId === false || $invoiceId < 1 || !preg_match('/^\d{1,13}(\.\d{1,2})?$/', $amount) || bccomp($amount, '0', 2) <= 0
@@ -54,8 +55,15 @@ final class EkdosiPayments
             if ($earlier->contains(fn (InvoiceTransaction $t) => $t->transaction_id !== $transactionId)) {
                 return [409, ['error' => 'transid_conflict', 'message' => 'A payment with a near-identical transid (case or accents) exists: use a distinct one.']];
             }
-            // The same payment again (a retry): only a succeeded Ekdosi one on this invoice (ADV-2: a failed or processing
-            // one with this id is not money; RecordPaymentService completes it below).
+            // Only Ekdosi's own (no gateway) are this payment: a gateway's with this id is another's money (R2-1), and a
+            // processing one is never taken over (R2-2) — a conflict for a human, never «done» or completed.
+            if ($earlier->contains(fn (InvoiceTransaction $t) => $t->gateway_id !== null
+                && !($t->status === InvoiceTransactionStatus::Succeeded && (int) $t->invoice_id !== (int) $invoice->id))
+                || $earlier->contains(fn (InvoiceTransaction $t) => $t->status === InvoiceTransactionStatus::Processing)) {
+                return [409, ['error' => 'transid_conflict', 'message' => 'Another payment (a gateway\'s, or one still processing) has this transid.']];
+            }
+            // The same payment again (a retry): a succeeded Ekdosi one on this invoice. A failed one (ADV-2) is not money:
+            // RecordPaymentService completes it below.
             $done = $earlier->first(fn (InvoiceTransaction $t) => $t->status === InvoiceTransactionStatus::Succeeded);
             if ($done !== null) {
                 return (int) $done->invoice_id === (int) $invoice->id && $done->gateway_id === null
@@ -121,6 +129,10 @@ final class EkdosiPayments
     /** What staff must look at: the payments log, and the system mail after the commit (as RecordPaymentService). */
     private static function tell(string $message, int $invoiceId, string $transactionId): void
     {
+        // Once per payment: a retry of the same transid (a lost answer, a sync run again) is not told again (R2-3).
+        if (!Cache::add('ekdosi-payment-told:' . sha1($transactionId), true, now()->addDays(90))) {
+            return;
+        }
         PaymentsLog::warning($message, ['invoice_id' => $invoiceId, 'transaction_id' => $transactionId, 'source' => 'ekdosi']);
         DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
     }
