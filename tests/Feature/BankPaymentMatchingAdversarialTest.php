@@ -202,6 +202,9 @@ class BankPaymentMatchingAdversarialTest extends TestCase
      */
     public function test_turning_the_knob_on_does_not_match_credits_staff_already_recorded_by_hand(): void
     {
+        // The knob truly off (no match_since, not the setUp's), the clock frozen: since() is set by this first run.
+        PaymentMatcher::stop();
+        $this->freezeTime();
         $clientId = User::factory()->create()->client()->id;
         $named = $this->invoice('32999', '100.00', $clientId);
         $meant = $this->invoice('33000', '100.00', $clientId);
@@ -212,6 +215,7 @@ class BankPaymentMatchingAdversarialTest extends TestCase
         PaymentMatcher::run(); // the knob's first run
 
         $this->assertSame('0.00', $this->received($named->id), 'a credit staff recorded by hand two days ago is recorded again');
+        $this->assertSame(now()->toDateTimeString(), PaymentMatcher::since()->toDateTimeString(), 'the first run stores when the knob was turned on');
     }
 
     /**
