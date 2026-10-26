@@ -144,12 +144,14 @@ class EkdosiAddPaymentAdversarialTest extends TestCase
         $this->requireRowLocks();
         $invoice = $this->onCredit();
 
+        // Fix of #464 (author), the reviewer's own alternative: a near-identical transid is refused (409), never taken
+        // for the same payment and lost behind «already_recorded». Ekdosi's transids are «ekdosi-paid:<n>».
         $this->pay($invoice, '24.00', 'ABC-1')->assertOk()->assertJsonPath('amount', '24.00');
-        $this->pay($invoice, '30.00', 'abc-1')->assertOk();
+        $this->pay($invoice, '30.00', 'abc-1')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
         $this->pay($invoice, '10.00', 'café')->assertOk()->assertJsonPath('amount', '10.00');
-        $this->pay($invoice, '10.00', 'cafe')->assertOk();
+        $this->pay($invoice, '10.00', 'cafe')->assertStatus(409)->assertJsonPath('error', 'transid_conflict');
 
-        $this->assertSame('74.00', $this->paid($invoice), 'four different payments: 24 + 30 + 10 + 10');
+        $this->assertSame('34.00', $this->paid($invoice), 'never two payments taken for one, nor one lost silently');
     }
 
     /**
@@ -161,7 +163,9 @@ class EkdosiAddPaymentAdversarialTest extends TestCase
         $one = $this->onCredit('124.00', ['id' => 1]);
 
         $this->bridge(['op' => 'add_payment', 'invoice_id' => true, 'amount' => '10.00', 'transid' => 'bool'])->assertStatus(400);
-        $this->bridge(['op' => 'add_payment', 'invoice_id' => 1.0, 'amount' => '10.00', 'transid' => 'float'])->assertStatus(400);
+        // Fix of #464 (author): PHP's json_encode writes 1.0 as `1` — on the wire a plain integer, rightly invoice 1. A real
+        // float is what reaches the bridge as one.
+        $this->bridge(['op' => 'add_payment', 'invoice_id' => 1.5, 'amount' => '10.00', 'transid' => 'float'])->assertStatus(400);
         $this->assertSame('0.00', $this->paid($one));
     }
 

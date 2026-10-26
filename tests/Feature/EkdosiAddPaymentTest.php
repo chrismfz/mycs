@@ -7,11 +7,13 @@ use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\EkdosiDocument;
+use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -150,6 +152,24 @@ class EkdosiAddPaymentTest extends TestCase
         config(['settings.ekdosi_enabled' => false]);
         $this->pay($invoice, '10.00')->assertStatus(404);
         $this->assertSame(0, InvoiceTransaction::query()->count());
+    }
+
+    /** Review of #464: only for an invoice with an active document; a short payment is recorded and told to staff. */
+    public function test_only_with_an_active_document_and_a_short_payment_is_told(): void
+    {
+        Mail::fake();
+        config(['settings.system_email_address' => 'billing@example.test', 'settings.mail_disable' => false]);
+        $none = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+        $none->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '10.00']);
+        $this->pay($none, '10.00', 'no-doc')->assertStatus(409)->assertJsonPath('error', 'no_active_document');
+        $cancelled = $this->onCredit();
+        $cancelled->ekdosiDocuments()->update(['state' => EkdosiDocument::CANCELLED]);
+        $this->pay($cancelled, '124.00', 'doc-cancelled')->assertStatus(409)->assertJsonPath('error', 'no_active_document');
+        $this->assertSame(0, InvoiceTransaction::query()->count());
+
+        $short = $this->onCredit();
+        $this->pay($short, '100.00', 'short')->assertOk()->assertJsonPath('amount', '100.00')->assertJsonPath('remaining', '24.00');
+        $this->assertSame(1, EmailLog::query()->where('subject', 'like', '%attention%')->where('body', 'like', '%24.00%')->count());
     }
 
     public function test_the_feed_narrows_to_the_accounts_asked_for(): void

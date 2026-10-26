@@ -4,9 +4,12 @@ namespace App\Services\Ekdosi;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -29,7 +32,9 @@ final class EkdosiPayments
      */
     public function record(array $body): array
     {
-        $invoiceId = filter_var($body['invoice_id'] ?? null, FILTER_VALIDATE_INT);
+        // An int, or a string of digits: never `true` or `1.0` read as invoice 1 (ADV-4 of #464).
+        $sent = $body['invoice_id'] ?? null;
+        $invoiceId = is_int($sent) || (is_string($sent) && preg_match('/^[1-9]\d{0,18}$/', $sent)) ? (int) $sent : false;
         $amount = is_string($body['amount'] ?? null) || is_int($body['amount'] ?? null) || is_float($body['amount'] ?? null) ? trim((string) $body['amount']) : '';
         $transId = is_string($body['transid'] ?? null) || is_int($body['transid'] ?? null) ? trim((string) $body['transid']) : '';
         if ($invoiceId === false || $invoiceId < 1 || !preg_match('/^\d{1,13}(\.\d{1,2})?$/', $amount) || bccomp($amount, '0', 2) <= 0
@@ -43,15 +48,34 @@ final class EkdosiPayments
 
         return DB::transaction(function () use ($invoiceId, $amount, $transactionId) {
             $invoice = (new RecordPaymentService)->lockInvoice($invoiceId)->withLockedBalance();
-            // The same payment again (a retry): answered as done, on its own invoice only.
-            $earlier = InvoiceTransaction::query()->where('transaction_id', $transactionId)->lockForUpdate()->first();
-            if ($earlier !== null) {
-                return (int) $earlier->invoice_id === (int) $invoice->id
-                    ? [200, ['status' => 'ok', 'note' => 'already_recorded', 'amount' => self::money($earlier->amount)]]
-                    : [409, ['error' => 'transid_on_another_invoice', 'invoice_id' => (int) $earlier->invoice_id]];
+            // Every transaction with this id, as the database compares it (on MariaDB without case or accents).
+            $earlier = InvoiceTransaction::query()->where('transaction_id', $transactionId)->lockForUpdate()->get();
+            // Another id that only the collation calls the same («ABC-1» / «abc-1»): never taken as this payment (ADV-3).
+            if ($earlier->contains(fn (InvoiceTransaction $t) => $t->transaction_id !== $transactionId)) {
+                return [409, ['error' => 'transid_conflict', 'message' => 'A payment with a near-identical transid (case or accents) exists: use a distinct one.']];
+            }
+            // The same payment again (a retry): only a succeeded Ekdosi one on this invoice (ADV-2: a failed or processing
+            // one with this id is not money; RecordPaymentService completes it below).
+            $done = $earlier->first(fn (InvoiceTransaction $t) => $t->status === InvoiceTransactionStatus::Succeeded);
+            if ($done !== null) {
+                return (int) $done->invoice_id === (int) $invoice->id && $done->gateway_id === null
+                    ? [200, ['status' => 'ok', 'note' => 'already_recorded', 'amount' => self::money($done->amount), 'remaining' => self::money($invoice->remaining)]]
+                    : [409, ['error' => 'transid_on_another_invoice', 'invoice_id' => (int) $done->invoice_id]];
+            }
+            if ($earlier->contains(fn (InvoiceTransaction $t) => (int) $t->invoice_id !== (int) $invoice->id)) {
+                return [409, ['error' => 'transid_on_another_invoice', 'invoice_id' => (int) $earlier->first()->invoice_id]];
+            }
+            // Only for an invoice Ekdosi issued an active document from (review of #464): with none, or one cancelled,
+            // Ekdosi would hold money for a sale MyCS would offer it again to issue.
+            if (!$invoice->ekdosiDocuments()->where('state', EkdosiDocument::ACTIVE)->exists()) {
+                return [409, ['error' => 'no_active_document', 'message' => 'The invoice has no active fiscal document from Ekdosi.']];
             }
             if ($invoice->status === Invoice::STATUS_PAID) {
-                return [200, ['status' => 'ok', 'note' => 'already_settled']];
+                // Paid here already (a gateway, a transfer): Ekdosi's money is not recorded — staff are told (ADV-1).
+                self::tell("Ekdosi reported a payment of {$amount} € ({$transactionId}) for invoice #" . ($invoice->number ?: $invoice->id)
+                    . ', already paid here: it was not recorded. The customer may have paid twice.', $invoice->id, $transactionId);
+
+                return [200, ['status' => 'ok', 'note' => 'already_settled', 'remaining' => '0.00']];
             }
             if ($invoice->status !== Invoice::STATUS_UNPAID) {
                 return [409, ['error' => 'invoice_not_payable', 'message' => 'The invoice is ' . $invoice->status . '.']];
@@ -64,18 +88,41 @@ final class EkdosiPayments
             }
             $remaining = number_format((float) $invoice->remaining, 2, '.', '');
             if (bccomp($remaining, '0', 2) <= 0) {
-                return [200, ['status' => 'ok', 'note' => 'already_settled']];
+                self::tell("Ekdosi reported a payment of {$amount} € ({$transactionId}) for invoice #" . ($invoice->number ?: $invoice->id)
+                    . ', which owes nothing: it was not recorded.', $invoice->id, $transactionId);
+
+                return [200, ['status' => 'ok', 'note' => 'already_settled', 'remaining' => '0.00']];
             }
             // What is left, at most: never account credit (the plugin's cap).
             $pay = bccomp($amount, $remaining, 2) > 0 ? $remaining : bcadd($amount, '0', 2);
             $transaction = ExtensionHelper::addPayment($invoice, null, $pay, null, $transactionId, currency: 'EUR');
-            if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || !$transaction->wasRecentlyCreated
+            // A new one, or the failed/processing one with this id completed (ADV-2).
+            if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded
+                || !($transaction->wasRecentlyCreated || $earlier->contains('id', $transaction->id))
                 || (int) $transaction->invoice_id !== (int) $invoice->id) {
                 throw new \RuntimeException('The Ekdosi payment of invoice ' . $invoice->id . ' was not recorded as expected.');
             }
+            $capped = $pay !== bcadd($amount, '0', 2);
+            $left = bcsub($remaining, $pay, 2);
+            // Money that does not add up is told, never silent (review of #464): more than was owed (the part over is
+            // not recorded), or less (the invoice stays unpaid here, its reminders go on).
+            if ($capped) {
+                self::tell("Ekdosi reported a payment of {$amount} € ({$transactionId}) for invoice #" . ($invoice->number ?: $invoice->id)
+                    . ", which owed {$remaining} €: {$pay} € was recorded, " . bcsub($amount, $pay, 2) . ' € was not.', $invoice->id, $transactionId);
+            } elseif (bccomp($left, '0', 2) > 0) {
+                self::tell("Ekdosi reported a payment of {$pay} € ({$transactionId}) for invoice #" . ($invoice->number ?: $invoice->id)
+                    . ": recorded; {$left} € is still owed here.", $invoice->id, $transactionId);
+            }
 
-            return [200, ['status' => 'ok', 'amount' => $pay, 'capped' => $pay !== bcadd($amount, '0', 2)]];
+            return [200, ['status' => 'ok', 'amount' => $pay, 'capped' => $capped, 'remaining' => $left]];
         });
+    }
+
+    /** What staff must look at: the payments log, and the system mail after the commit (as RecordPaymentService). */
+    private static function tell(string $message, int $invoiceId, string $transactionId): void
+    {
+        PaymentsLog::warning($message, ['invoice_id' => $invoiceId, 'transaction_id' => $transactionId, 'source' => 'ekdosi']);
+        DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
     }
 
     private static function money(mixed $amount): string

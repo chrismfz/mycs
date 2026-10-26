@@ -48,9 +48,9 @@ final class EkdosiFeed
      * One page, newest first. `paid_unfiled` (the Inbox): paid, no document from Ekdosi yet, since the payment date
      * `$since` (an invoice paid after the cut-over shows up whenever it was issued). The others by status and issue date.
      *
+     * @param  list<int>|null  $userIds  only these accounts (E3: the unpaid invoices of «τιμολόγιο πριν την πληρωμή»)
      * @return array{invoices: list<array<string, mixed>>, offset: int, count: int}
      */
-    /** @param  list<int>|null  $userIds  only these accounts (E3: the unpaid invoices of «τιμολόγιο πριν την πληρωμή») */
     public function page(string $status, ?string $since, int $offset, int $limit, ?array $userIds = null): array
     {
         $offset = max(0, $offset);
