@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\BankAlerts\PaymentMatcher;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
@@ -34,6 +35,10 @@ class BankPaymentMatchingReviewTest extends TestCase
         $this->beforeApplicationDestroyed(fn () => $this->truncateDatabaseTables());
         Queue::fake([SendChatNotification::class]);
         Gateway::query()->create(['name' => 'Bank transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
+        // On since yesterday: the credits these tests make are read after it. Left to run() it is set to now(), at second
+        // precision, and a credit made in the second before is not matched (flaky in CI, run 40318787917).
+        Setting::query()->create(['key' => PaymentMatcher::SINCE_KEY, 'settingable_type' => BankMovement::class,
+            'value' => now()->subDay()->toDateTimeString(), 'type' => 'string']);
     }
 
     private function invoice(?string $number, string $price, ?int $id = null): Invoice
