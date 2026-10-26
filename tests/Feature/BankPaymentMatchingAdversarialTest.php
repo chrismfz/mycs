@@ -219,6 +219,35 @@ class BankPaymentMatchingAdversarialTest extends TestCase
     }
 
     /**
+     * R2-2, the same second. The first run stores since after the read, and bank_movements.created_at has second precision:
+     * a credit that read inserted in the second since is set in was matched, while those from its earlier seconds were
+     * not. A first read with a backlog (more than a second over IMAP) recorded again what staff recorded by hand. A later
+     * read's credit is matched.
+     */
+    public function test_the_first_run_does_not_match_a_credit_read_in_the_same_second(): void
+    {
+        PaymentMatcher::stop();
+        $this->travelTo(now()->startOfSecond()->addMicroseconds(500000));
+        $clientId = User::factory()->create()->client()->id;
+        $named = $this->invoice('32999', '100.00', $clientId);
+        $meant = $this->invoice('33000', '100.00', $clientId);
+        $credit = $this->credit('ΠΛΗΡΩΜΗ 32999', '100.00'); // read by this first run, created_at = now at second precision
+        (new RecordPaymentService)->handle($meant->id, $this->gateway, '100.00', enteredByStaff: true, paidAt: now()->subDays(2));
+
+        $this->assertSame(['matched' => 0, 'left' => 0], PaymentMatcher::run(), 'the knob\'s first run');
+
+        $this->assertSame('0.00', $this->received($named->id), 'a credit read in the second the knob was turned on is recorded');
+        $this->assertSame(BankMovement::PENDING, $credit->fresh()->status);
+        $this->assertNull($credit->fresh()->match_note, 'staff\'s, untouched');
+
+        $this->travel(5)->minutes();
+        $later = $this->invoice('33001', '42.00');
+        $this->credit('ΠΛΗΡΩΜΗ 33001', '42.00');
+        $this->assertSame(['matched' => 1, 'left' => 0], PaymentMatcher::run(), 'a later read\'s credit is matched');
+        $this->assertSame(Invoice::STATUS_PAID, $later->fresh()->status);
+    }
+
+    /**
      * R2-3. The date rule strips «2026-10-25», «25/10/2026», «25.10.26», but not a year-first date with «/» or «.»
      * («2026/10/25», «2026.10.25», as some banking apps write it): «2026» stays a token and names the open, number-less
      * proforma whose id is 2026.
