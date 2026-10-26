@@ -183,7 +183,12 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   - [x] **E2 (feat/ekdosi-documents):** τα παραστατικά στο τιμολόγιο (admin και client area), στήλη/φίλτρο στη λίστα,
         προειδοποίηση σε ακύρωση/refund, χωρίς διαγραφή τιμολογίου με παραστατικό.
   - [x] K1 στο Ekdosi (chrismfz/ekdosi#701): «MyCS Bridge».
-  - [ ] E3 `add_payment` (adversarial)· K2 (πληρωμές προς τη MyCS, ΜΑΡΚ για split)· E4 στον importer.
+  - [x] **E3 (#464):** `add_payment` (adversarial, 2 γύροι)· **K2 στο Ekdosi (chrismfz/ekdosi#702):** πληρωμές
+        προς τη MyCS, ΜΑΡΚ για split, `mycs:watch-reversals` (ειδοποίηση όταν τιμολόγιο με παραστατικό γίνει
+        refunded/cancelled/unpaid στη MyCS· ό,τι κόπηκε μένει, πιστωτικό αν χρειαστεί).
+  - [ ] **E4 στον importer — πύλη του cut-over:** τα `mod_ekdosi_invoice_marks` του WHMCS γίνονται
+        `ekdosi_documents`. Χωρίς αυτά, πληρωμή από το Ekdosi σε τιμολόγιο της εποχής WHMCS (πίστωση χρόνου)
+        παίρνει `no_active_document` και ο γκρινιάρης ξαναζητά έκδοση για ό,τι έχει ήδη κοπεί.
   - [ ] **Live δοκιμή άκρη-άκρη** (ο υπεύθυνος, 2026-10-25), όταν κλείσουν E1+K1, πριν το cut-over: το
         `ekdosi.myip.gr` (πάροχος με DEV στοιχεία) απέναντι στη MyCS, με Chrome. Βλ. `ekdosi-bridge.md` → «Live δοκιμή». (Στο WHMCS το staff ανοίγει τα «marks»
         του bridge ~20 φορές τη μέρα.)
