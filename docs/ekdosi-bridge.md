@@ -30,7 +30,7 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 |---|---|---|---|
 | **E1** | MyCS | Ρύθμιση «Ekdosi» (on/off, διεύθυνση, κοινό secret)· `POST /api/ekdosi` με HMAC και ops `ping`, `invoices`, `invoice`, `resolve`, `mark`· πίνακας `ekdosi_documents` (ΜΑΡΚ, κωδικός, κατάσταση, PDF)· `domains.contact_id` («Σχετική επαφή» στη σελίδα του domain) | **έγινε (#459)** |
 | **E2** | MyCS | Τα παραστατικά στο admin: καρτέλα «Παραστατικά» στο τιμολόγιο (κωδικός, ΜΑΡΚ, κατάσταση, PDF, πότε καταγράφηκε), στήλη και φίλτρο «Εκδόθηκε / Πληρωμένο, χωρίς παραστατικό» στη λίστα (με τη γέφυρα ανοιχτή). Στο client area: «Φορολογικά παραστατικά» στη σελίδα του τιμολογίου, με το PDF του Ekdosi (όχι για ακυρωμένο). Προειδοποίηση («κόψε πιστωτικό στο Ekdosi») στην ακύρωση (λίστα, σελίδα, πεδίο κατάστασης) και στο refund. Τιμολόγιο με παραστατικό δεν διαγράφεται, ούτε ο πελάτης του (μήνυμα, όχι 500) | **feat/ekdosi-documents** |
-| E3 | MyCS | `add_payment`: το Ekdosi γράφει πληρωμή για τιμολόγιο επί πιστώσει (`RecordPaymentService`, ίδιο `transaction_id` = ίδια πληρωμή, πληρωμένο = τίποτα). Θέλει adversarial review (χρήματα) | |
+| **E3** | MyCS | `op=add_payment`: το Ekdosi γράφει πληρωμή για τιμολόγιο επί πιστώσει, μία φορά (`ekdosi:<transid>`), ποτέ πάνω από το υπόλοιπο (ποτέ πίστωση), μόνο σε απλήρωτο EUR χωρίς πληρωμή σε εξέλιξη· `userids` στο `op=invoices` (τα απλήρωτα των πελατών «τιμολόγιο πριν την πληρωμή»). Independent + adversarial review (χρήματα) | **feat/ekdosi-add-payment** |
 | E4 | importer | `mod_ekdosi_contacts` → `contacts`· `mod_ekdosi_routing` → `services.contact_id` / `domains.contact_id`· `mod_ekdosi_invoice_marks` → `ekdosi_documents` (βλ. «Importer») | με τον κοινό importer |
 | K1 | Ekdosi | `MycsBillingSource` (Phase 1 του `docs/bridges-connectors.md` του Ekdosi)· καρτέλα «MyCS Bridge» με διεύθυνση MyCS + secret· feed στα ίδια «Εισερχόμενα» με σήμα «MyCS» | |
 | K2 | Ekdosi | Write-back ΜΑΡΚ/κωδικού/PDF στη MyCS (`op=mark`)· sync πληρωμών· auto-issue για τους γκρινιάρηδες (`mycs.immediate_invoicing`) | |
@@ -66,18 +66,46 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | 401 `invalid_signature` | η υπογραφή λείπει ή δεν ταιριάζει |
 | 400 `empty_body`, `bad_request`, `unknown_op` | λάθος αίτημα |
 | 413 `body_too_large` | body πάνω από 64 KB |
+| 404 `invoice_not_found` | το τιμολόγιο δεν υπάρχει (ή δεν έχει πελάτη) — διαφέρει από το 404 `not_found` της κλειστής γέφυρας |
+| 409 `mark_on_another_invoice`, `invoice_changed` | `mark`: ο ΜΑΡΚ είναι άλλου τιμολογίου· merge/split μετά την ανάγνωση |
+| 409 `invoice_not_payable`, `no_active_document`, `transid_on_another_invoice`, `transid_conflict` | `add_payment`: μόνιμα, θέλουν άνθρωπο |
+| 409 `payment_on_its_way` | `add_payment`: προσωρινό, ξαναδοκιμάζεται |
+| 200 με `note` `already_settled` / `already_recorded` | `add_payment`: επιτυχία (τίποτα δεν χρειάζεται) |
 | 500 `query_failed` | εσωτερικό λάθος (η λεπτομέρεια μόνο στο log) |
 
 - **`ping`** → `{status: ok, source: mycs, ops: [...]}`. Το Ekdosi ελέγχει έτσι πριν γυρίσει μια εταιρεία στη MyCS.
-- **`invoices`** `{status?, since?, offset?, limit?}`:
+- **`invoices`** `{status?, since?, offset?, limit?, userids?}`:
   - `status` = `paid_unfiled` (default, τα «Εισερχόμενα»): πληρωμένα που δεν έχουν ακόμα παραστατικό από το Ekdosi,
     με `since` την ημερομηνία πληρωμής (χωρίς ημερομηνία πληρωμής μετρά η έκδοση);
   - ή `Paid`, `Unpaid`, `Cancelled`, `Refunded`, `Draft`, `All`, με `since` την ημερομηνία έκδοσης;
   - newest first, `limit` ≤ 200;
-  - οι πελάτες με «ignore invoicing» δεν εμφανίζονται ποτέ.
+  - οι πελάτες με «ignore invoicing» δεν εμφανίζονται ποτέ;
+  - `userids` (E3): μόνο αυτοί οι λογαριασμοί, λίστα από έως 1000 **ακέραιους** (τα απλήρωτα των πελατών «τιμολόγιο πριν
+    την πληρωμή»)· οτιδήποτε άλλο 400, ποτέ «όλοι».
 - **`invoice`** `{invoice_id}`: ένα τιμολόγιο, σε οποιαδήποτε κατάσταση και με τη σημαία `ignore_invoicing`· αποφασίζει
   το Ekdosi.
 - **`resolve`** `{invoice_id}`: μόνο οι αποδέκτες των γραμμών, όπως το `op=resolve` του plugin.
+- **`add_payment`** `{invoice_id, amount, transid, gateway?, date?}` (E3): πληρωμή που πήρε το Ekdosi για τιμολόγιο
+  που έκοψε επί πιστώσει, όπως το `op=add_payment` του plugin.
+  - Μόνο για τιμολόγιο με **ενεργό** παραστατικό από το Ekdosi· αλλιώς 409 `no_active_document`.
+  - Μία φορά: η συναλλαγή είναι `ekdosi:<transid>` (χωρίς gateway). Η ίδια, πετυχημένη, ξανά απαντά `already_recorded`·
+    σε άλλο τιμολόγιο 409 `transid_on_another_invoice`. Μια αποτυχημένη του Ekdosi (χωρίς gateway) με αυτό το id
+    δεν είναι χρήματα: ολοκληρώνεται. Μια του gateway, ή μια σε εξέλιξη, με αυτό το id → 409 `transid_conflict` (ποτέ δεν
+    παίρνει τη θέση της). Κάθε ειδοποίηση στο staff γίνεται μία φορά ανά transid. Transid που διαφέρει μόνο σε πεζά/κεφαλαία ή τόνους από υπάρχον (η MariaDB τα συγκρίνει ίσα) →
+    409 `transid_conflict`, ποτέ σιωπηλά «το ίδιο».
+  - Ποτέ πάνω από το υπόλοιπο: το ποσό κόβεται εκεί (`capped`), οπότε δεν γίνεται ποτέ πίστωση λογαριασμού. Η απάντηση
+    λέει και το `remaining`.
+  - **Ό,τι δεν ταιριάζει λέγεται στο staff** (payments log και mail «Payment needs attention»): ποσό πάνω από το
+    υπόλοιπο (το επιπλέον δεν καταγράφεται), πληρωμή για τιμολόγιο ήδη πληρωμένο εδώ (ίσως διπλή πληρωμή), και
+    πληρωμή μικρότερη από το υπόλοιπο (το τιμολόγιο μένει απλήρωτο, οι υπενθυμίσεις συνεχίζουν).
+  - Πληρωμένο τιμολόγιο → 200 `already_settled` (ο πελάτης πλήρωσε ήδη εδώ). Draft, ακυρωμένο, refunded, άλλο νόμισμα, ή
+    με πληρωμή σε εξέλιξη → 409.
+  - Με τα κλειδώματα των πληρωμών (πελάτης, τιμολόγιο) και κλειδωμένη ανάγνωση του υπολοίπου.
+  - Το `amount` είναι κείμενο ή αριθμός, έως 2 δεκαδικά· το `invoice_id` ακέραιος ή ψηφία (όχι `true`). `date` και
+    `gateway` γίνονται δεκτά για συμβατότητα με το plugin, αλλά δεν χρησιμοποιούνται.
+  - Δύο ταυτόχρονες με το ίδιο transid: η μία καταγράφεται, η άλλη παίρνει deadlock (500) και στην επανάληψη
+    `already_recorded`/409 (adversarial #464, MariaDB). Στο ημερολόγιο χρημάτων καταγράφεται ως `manual` (χωρίς δική
+    του πηγή ακόμα).
 - **`mark`** `{invoice_id, mark, fingerprint?, code?|invcode?, state?, pdf_url?}`: το write-back (το Ekdosi δεν στέλνει fingerprint).
   - **Ό,τι κόπηκε είναι οριστικό** (ο υπεύθυνος, 2026-10-25): η MyCS στέλνει ό,τι θεωρεί για κόψιμο, το Ekdosi
     αποφασίζει, και ένα παραστατικό ισχύει ό,τι κι αν άλλαξε μετά στη MyCS (αν χρειαστεί, πιστωτικό στο Ekdosi). Γι' αυτό

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Ekdosi\BadBridgeArgument;
 use App\Services\Ekdosi\EkdosiDocuments;
 use App\Services\Ekdosi\EkdosiFeed;
+use App\Services\Ekdosi\EkdosiPayments;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -17,7 +18,8 @@ use Illuminate\Http\Request;
  * - `invoices` {status, since, offset, limit}: the Inbox feed (EkdosiFeed::page);
  * - `invoice` {invoice_id}: one, whatever its status;
  * - `resolve` {invoice_id}: only its lines' recipients;
- * - `mark` {invoice_id, mark, fingerprint?, code?, state?, pdf_url?}: the write-back (EkdosiDocuments).
+ * - `mark` {invoice_id, mark, fingerprint?, code?, state?, pdf_url?}: the write-back (EkdosiDocuments);
+ * - `add_payment` {invoice_id, amount, transid}: a payment Ekdosi received for an invoice issued on credit (EkdosiPayments).
  *
  * Off in the settings: 404, as if there were nothing. The plugin's error codes: 400, 401, 404, 409, 422, 500.
  */
@@ -25,7 +27,7 @@ class EkdosiBridgeController extends Controller
 {
     private const MAX_BODY = 65536;
 
-    public function __invoke(Request $request, EkdosiFeed $feed, EkdosiDocuments $documents): JsonResponse
+    public function __invoke(Request $request, EkdosiFeed $feed, EkdosiDocuments $documents, EkdosiPayments $payments): JsonResponse
     {
         if (!config('settings.ekdosi_enabled')) {
             return response()->json(['error' => 'not_found'], 404);
@@ -55,7 +57,7 @@ class EkdosiBridgeController extends Controller
         try {
             switch ($body['op'] ?? null) {
                 case 'ping':
-                    return response()->json(['status' => 'ok', 'source' => 'mycs', 'ops' => ['ping', 'invoices', 'invoice', 'resolve', 'mark']]);
+                    return response()->json(['status' => 'ok', 'source' => 'mycs', 'ops' => ['ping', 'invoices', 'invoice', 'resolve', 'mark', 'add_payment']]);
                 case 'invoices':
                     // Sent but not a date string: never the beginning of time instead of the cut-over (R2-7).
                     if (array_key_exists('since', $body) && $body['since'] !== null && !is_string($body['since'])) {
@@ -66,6 +68,7 @@ class EkdosiBridgeController extends Controller
                         is_string($body['since'] ?? null) ? $body['since'] : null,
                         (int) (filter_var($body['offset'] ?? 0, FILTER_VALIDATE_INT) ?: 0),
                         (int) (filter_var($body['limit'] ?? 100, FILTER_VALIDATE_INT) ?: 100),
+                        $this->userIds($body),
                     );
 
                     return response()->json(['status' => 'ok'] + $page);
@@ -84,8 +87,12 @@ class EkdosiBridgeController extends Controller
                     [$status, $answer] = $documents->record($body);
 
                     return response()->json($answer, $status);
+                case 'add_payment':
+                    [$status, $answer] = $payments->record($body);
+
+                    return response()->json($answer, $status);
                 default:
-                    return response()->json(['error' => 'unknown_op', 'message' => 'op must be ping, invoices, invoice, resolve or mark.'], 400);
+                    return response()->json(['error' => 'unknown_op', 'message' => 'op must be ping, invoices, invoice, resolve, mark or add_payment.'], 400);
             }
         } catch (BadBridgeArgument $e) {
             return response()->json(['error' => 'bad_request', 'message' => 'Invalid ' . $e->getMessage() . '.'], 400);
@@ -95,5 +102,31 @@ class EkdosiBridgeController extends Controller
             // Nothing of the inside to the caller: the log has it.
             return response()->json(['error' => 'query_failed'], 500);
         }
+    }
+
+    /**
+     * `userids`: only these accounts (E3), a list of up to 1000 ids; absent, all. Anything else is a 400, never all.
+     *
+     * @param  array<string, mixed>  $body
+     * @return list<int>|null
+     */
+    private function userIds(array $body): ?array
+    {
+        if (!array_key_exists('userids', $body) || $body['userids'] === null) {
+            return null;
+        }
+        $ids = $body['userids'];
+        if (!is_array($ids) || !array_is_list($ids) || count($ids) > 1000) {
+            throw new BadBridgeArgument('userids');
+        }
+        $out = [];
+        foreach ($ids as $id) {
+            if (!is_int($id) || $id < 1) {
+                throw new BadBridgeArgument('userids');
+            }
+            $out[] = $id;
+        }
+
+        return $out;
     }
 }

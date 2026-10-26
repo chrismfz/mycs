@@ -48,9 +48,10 @@ final class EkdosiFeed
      * One page, newest first. `paid_unfiled` (the Inbox): paid, no document from Ekdosi yet, since the payment date
      * `$since` (an invoice paid after the cut-over shows up whenever it was issued). The others by status and issue date.
      *
+     * @param  list<int>|null  $userIds  only these accounts (E3: the unpaid invoices of «τιμολόγιο πριν την πληρωμή»)
      * @return array{invoices: list<array<string, mixed>>, offset: int, count: int}
      */
-    public function page(string $status, ?string $since, int $offset, int $limit): array
+    public function page(string $status, ?string $since, int $offset, int $limit, ?array $userIds = null): array
     {
         $offset = max(0, $offset);
         $limit = $limit < 1 ? 100 : min($limit, self::MAX_LIMIT);
@@ -59,6 +60,9 @@ final class EkdosiFeed
             ->whereNotNull('client_id')
             ->whereHas('client', fn (Builder $client) => $client->where('ignore_invoicing', false))
             ->orderByDesc('id');
+        if ($userIds !== null) {
+            $query->whereIn('client_id', $userIds);
+        }
 
         $since = $this->date($since);
         if ($status === 'paid_unfiled' || $status === '') {
