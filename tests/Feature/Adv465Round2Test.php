@@ -157,7 +157,7 @@ class Adv465Round2Test extends TestCase
 
         $this->get(preg_replace('/expires=\d+/', 'expires=' . ($query['expires'] + 86400), $link))->assertForbidden();
         $this->get($link . '&signature=x')->assertForbidden();
-        $this->get(url(str_replace('/services/' . $this->service->id . '/', '/services/%' . bin2hex((string) $this->service->id) . '/', $path)) . '?' . parse_url($link, PHP_URL_QUERY))->assertForbidden();
+        $this->get(url(str_replace('/services/' . $this->service->id . '/', '/services/' . implode(array_map(fn (string $digit) => '%' . bin2hex($digit), str_split((string) $this->service->id))) . '/', $path)) . '?' . parse_url($link, PHP_URL_QUERY))->assertForbidden();
         $reordered = url($path) . '?expires=' . $query['expires'] . '&by=' . $query['by'] . '&signature=' . $query['signature'];
         $this->get($reordered)->assertForbidden();
 
