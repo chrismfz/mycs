@@ -5,6 +5,8 @@ namespace App\Providers\Filament;
 use App\Admin\Auth\AppAuthentication;
 use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
+use App\Http\Controllers\Admin\LoginAsClientController;
+use App\Http\Controllers\Admin\ServicePanelLoginController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\EnsureStaffTwoFactor;
@@ -198,6 +200,14 @@ class AdminPanelProvider extends PanelProvider
             ->authenticatedRoutes(function () {
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
                     ->name('ticket-attachments.show')->middleware([EnsureStaffTwoFactor::class, 'can:view,attachment']);
+                // Opened in a new tab from the panel's pages (owner 2026-10-26), by a signed link for its staff member
+                // (StaffLink, checked by each): «Log in to panel» and «Login as client».
+                Route::get('services/{service}/panel-login', ServicePanelLoginController::class)->name('sso.service')
+                    ->middleware(EnsureStaffTwoFactor::class);
+                Route::get('clients/{client}/login-as', [LoginAsClientController::class, 'client'])->name('login-as.client')
+                    ->middleware(EnsureStaffTwoFactor::class);
+                Route::get('users/{user}/login-as', [LoginAsClientController::class, 'user'])->name('login-as.user')
+                    ->middleware(EnsureStaffTwoFactor::class);
             });
 
         try {

@@ -51,7 +51,7 @@ class ImpersonationPermissionsTest extends TestCase
 
     public function test_staff_with_the_admin_permission_act_as_before(): void
     {
-        $this->impersonate(['admin.services.update', 'admin.invoices.update', 'admin.clients.update']);
+        $this->impersonate(['admin.services.update', 'admin.services.sso', 'admin.invoices.update', 'admin.clients.update']);
 
         $this->assertTrue(CurrentClient::allows('manageproducts'));
         $this->assertTrue(CurrentClient::allows('productsso'));

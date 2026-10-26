@@ -155,7 +155,16 @@
                 <div class="mt-2 flex flex-row gap-2 flex-wrap">
                     @foreach ($buttons as $button)
                     <!-- If the button has a function then call it when clicked -->
-                    @if (isset($button['function']))
+                    @if (isset($button['function']) && !empty($button['sso']))
+                    {{-- Into the panel, signed in, in a new tab (owner 2026-10-26): a form, CSRF (ServicePanelLoginController). --}}
+                    <form method="POST" action="{{ route('services.panel-login', $service) }}" target="_blank" rel="noopener noreferrer">
+                        @csrf
+                        <input type="hidden" name="function" value="{{ $button['function'] }}">
+                        <x-button.primary class="h-fit !w-fit">
+                            {{ $button['label'] }}
+                        </x-button.primary>
+                    </form>
+                    @elseif (isset($button['function']))
                     <x-button.primary class="h-fit !w-fit" wire:click="goto('{{ $button['function'] }}')">
                         {{ $button['label'] }}
                     </x-button.primary>

@@ -94,13 +94,15 @@ namespace Tests\Feature {
         {
             $this->answer = $answer;
             $page = $this->page()->call('goto', 'openPanel');
-
             $this->assertStringNotContainsStringIgnoringCase('javascript:', (string) ($page->effects['redirect'] ?? ''));
+            // Its form into a new tab (owner 2026-10-26): a controller, where redirect() is no Livewire effect.
+            $this->post(route('services.panel-login', $this->service), ['function' => 'openPanel'])->assertRedirect(route('services.show', $this->service));
         }
 
         public function test_a_panel_returned_through_redirect_away_still_opens(): void
         {
-            $this->page()->call('goto', 'openPanel')->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
+            $this->page();
+            $this->post(route('services.panel-login', $this->service), ['function' => 'openPanel'])->assertRedirect('https://orion.test:2083/cpsess1/login/?session=x');
         }
     }
 }

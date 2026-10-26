@@ -154,14 +154,19 @@ class StaffSplitAdversarialTest extends TestCase
      * group, which the panel's routes do not use, so its /admin branch is dead: the flag stays, and the next visit to
      * the client area (Exit Admin, hours later) is still as the customer.
      */
-    public function test_returning_to_the_admin_ends_login_as_client(): void
+    /**
+     * The admin in another tab no longer ends «Login as client» (owner 2026-10-26: it has its own tab), but the admin
+     * never sees the customer as the client area's login.
+     */
+    public function test_the_admin_keeps_login_as_client_but_never_sees_the_customer(): void
     {
         $customer = User::factory()->create();
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
 
         $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/sysadmin');
 
-        $this->assertFalse(Session::has('impersonating'), 'still logged in as the client after going back to the admin');
+        $this->assertTrue(Session::has('impersonating'), 'the admin tab ended the client tab');
+        $this->assertNull(Auth::guard('web')->user(), 'the admin saw the customer');
     }
 
     /**

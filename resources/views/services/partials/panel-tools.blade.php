@@ -4,11 +4,16 @@
     <h4 class="text-lg font-semibold">{{ __('services.cpanel.shortcuts_title') }}</h4>
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3">
         @foreach($shortcuts as $shortcut)
-        <button type="button" wire:click="openShortcut(@js($shortcut['app']))" wire:loading.attr="disabled"
-            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-primary/5 text-center">
-            <x-dynamic-component :component="'ri-' . $shortcut['icon']" class="size-7 text-primary" aria-hidden="true" />
-            <span class="text-sm">{{ $shortcut['label'] }}</span>
-        </button>
+        {{-- In a new tab (owner 2026-10-26): a form, CSRF (ServicePanelLoginController). --}}
+        <form method="POST" action="{{ route('services.panel-login', $service) }}" target="_blank" rel="noopener noreferrer" class="contents">
+            @csrf
+            <input type="hidden" name="function" value="getLoginUrl">
+            <input type="hidden" name="app" value="{{ $shortcut['app'] }}">
+            <button type="submit" class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-primary/5 text-center">
+                <x-dynamic-component :component="'ri-' . $shortcut['icon']" class="size-7 text-primary" aria-hidden="true" />
+                <span class="text-sm">{{ $shortcut['label'] }}</span>
+            </button>
+        </form>
         @endforeach
     </div>
 </div>

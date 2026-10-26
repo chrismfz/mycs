@@ -76,9 +76,9 @@ namespace Tests\Feature {
         public function test_a_script_stored_before_the_shortcut_fails_is_not_redirected_to(): void
         {
             $this->answer = 'javascript://%0aalert(document.domain)';
-            $page = $this->page()->call('openShortcut', 'Email_Accounts');
-
-            $this->assertStringNotContainsStringIgnoringCase('javascript:', (string) ($page->effects['redirect'] ?? ''));
+            $this->page();
+            // Its form into a new tab (owner 2026-10-26): the failure sends the tab back to the service.
+            $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Email_Accounts'])->assertRedirect(route('services.show', $this->service));
         }
     }
 }

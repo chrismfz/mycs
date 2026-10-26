@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Support\CurrentClient;
+use App\Support\StaffLink;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -190,7 +191,9 @@ class ClientSplitTest extends TestCase
         $client = $owner->client();
         $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.users.impersonate'])->create();
 
-        $this->livewireAs($staff)->test(EditClient::class, ['record' => $client->getRouteKey()])->callAction('impersonate');
+        // A link into a new tab (owner 2026-10-26), whose signed route starts it.
+        $this->livewireAs($staff)->test(EditClient::class, ['record' => $client->getRouteKey()])->assertActionShouldOpenUrlInNewTab('impersonate');
+        $this->actingAs($staff, 'staff')->get(StaffLink::to('filament.admin.login-as.client', ['client' => $client->id]))->assertRedirect('/dashboard');
 
         $this->assertSame($owner->id, Session::get('impersonating'));
     }
@@ -203,7 +206,7 @@ class ClientSplitTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.users.impersonate'])->create();
         $this->assertNotSame(CurrentClient::defaultFor($owner)?->id, $second->id, 'precondition: not the default account');
 
-        $this->livewireAs($staff)->test(EditClient::class, ['record' => $second->getRouteKey()])->callAction('impersonate');
+        $this->actingAs($staff, 'staff')->get(StaffLink::to('filament.admin.login-as.client', ['client' => $second->id]))->assertRedirect('/dashboard');
         $this->actingAs($staff)->withSession(Session::all())->get(route('dashboard'))->assertOk();
 
         $this->assertSame($second->id, CurrentClient::id());

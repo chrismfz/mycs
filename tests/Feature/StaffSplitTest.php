@@ -18,6 +18,7 @@ use App\Models\TicketMessage;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Support\Actor;
+use App\Support\StaffLink;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -170,8 +171,9 @@ class StaffSplitTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.update', 'admin.users.impersonate'])->create();
 
         $this->actingAs($staff);
-        Livewire::test(EditUser::class, ['record' => $customer->getRouteKey()])
-            ->callAction('impersonate');
+        // A link into a new tab (owner 2026-10-26), whose signed route starts it.
+        Livewire::test(EditUser::class, ['record' => $customer->getRouteKey()])->assertActionShouldOpenUrlInNewTab('impersonate');
+        $this->actingAs($staff, 'staff')->get(StaffLink::to('filament.admin.login-as.user', ['user' => $customer->id]))->assertRedirect('/dashboard');
 
         $this->assertSame($customer->id, Session::get('impersonating'));
         $audit = Audit::query()->where('auditable_type', $customer->getMorphClass())->where('auditable_id', $customer->id)
@@ -183,9 +185,10 @@ class StaffSplitTest extends TestCase
         $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/dashboard')->assertOk();
         $this->assertSame($customer->id, Auth::guard('web')->id());
 
-        // Back in the admin, it ends.
+        // The admin in its own tab: it goes on (owner 2026-10-26), and the admin never sees the customer.
         $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/sysadmin')->assertOk();
-        $this->assertFalse(Session::has('impersonating'));
+        $this->assertTrue(Session::has('impersonating'));
+        $this->assertNull(Auth::guard('web')->user());
 
         Auth::guard('web')->setUser($customer);
         Auth::shouldUse('web');

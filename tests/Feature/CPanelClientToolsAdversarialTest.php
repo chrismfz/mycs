@@ -108,7 +108,7 @@ class CPanelClientToolsAdversarialTest extends TestCase
         $page = $this->page();
         $this->service->update(['status' => Service::STATUS_SUSPENDED]);
 
-        $page->call('openShortcut', 'Email_Accounts')->assertNoRedirect();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl', 'app' => 'Email_Accounts'])->assertRedirect(route('services.show', $this->service));
 
         $this->assertSame([], $this->sent('create_user_session'));
     }
@@ -120,6 +120,7 @@ class CPanelClientToolsAdversarialTest extends TestCase
         $this->service->update(['status' => Service::STATUS_SUSPENDED]);
 
         $page->call('goto', 'getWebmailUrl')->assertNoRedirect();
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWebmailUrl'])->assertRedirect(route('services.show', $this->service));
 
         $this->assertSame([], $this->sent('create_user_session'));
     }

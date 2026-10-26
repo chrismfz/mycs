@@ -334,11 +334,15 @@ class Show extends Component
 
             return;
         }
-        // A server's buttons manage the service (`manageproducts`); one marked as a single sign-on into its panel
-        // needs `productsso` (WHMCS names, docs/accounts.md, PR 2b).
+        // A server's buttons manage the service (`manageproducts`). One marked as a single sign-on into its panel is a
+        // form of the page into a new tab (ServicePanelLoginController, owner 2026-10-26), never this tab's redirect.
         $button = collect($this->buttons)->firstWhere('function', $function);
-        $allowed = !empty($button['sso']) ? $this->ownsWith('productsso') : Gate::allows('update', $this->service);
-        if (!$allowed) {
+        if (!empty($button['sso'])) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
+        if (!Gate::allows('update', $this->service)) {
             $this->notify(__('You do not have access to this area of the account.'), 'error');
 
             return;
@@ -392,39 +396,6 @@ class Show extends Component
         }
 
         return $url;
-    }
-
-    /**
-     * A shortcut into the panel (WHMCS's «Quick Shortcuts»): `productsso`, one of those offered, signed in on that page.
-     */
-    public function openShortcut(string $app)
-    {
-        // Active now, not only when the page opened (ADV-1 of #318: suspended since).
-        if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
-            $this->notify(__('services.cpanel.failed'), 'error');
-
-            return;
-        }
-        if (!in_array($app, array_column($this->shortcuts, 'app'), true) || !$this->ownsWith('productsso')) {
-            $this->notify(__('You do not have access to this area of the account.'), 'error');
-
-            return;
-        }
-        try {
-            $url = ExtensionHelper::callService($this->service, 'getLoginUrl', [$app]);
-        } catch (Exception $e) {
-            // A redirect asked for before the failure goes nowhere (ADV-2 of #323).
-            store($this)->set('redirect', null);
-            report($e);
-            $this->notify(__('services.cpanel.failed'), 'error');
-
-            return;
-        }
-        if (!$this->refusedPendingRedirect() && is_string($url) && ($url = self::panelUrl($url)) !== null) {
-            $this->redirect($url);
-        } else {
-            $this->notify(__('services.cpanel.failed'), 'error');
-        }
     }
 
     /**
@@ -808,6 +779,15 @@ class Show extends Component
     /** The login may do this on the service's account (staff in «Login as client» may do all). */
     private function ownsWith(string $permission): bool
     {
+        return self::loginMay($this->service, $permission);
+    }
+
+    /**
+     * The client area's login may do this on the service's account; staff in «Login as client» only what they may in
+     * the admin (SA-5).
+     */
+    public static function loginMay(Service $service, string $permission): bool
+    {
         $user = Auth::guard('web')->user();
         if (!$user instanceof User) {
             return false;
@@ -816,7 +796,7 @@ class Show extends Component
             return Actor::staffMayAs($permission); // only what they may do in the admin (SA-5)
         }
 
-        return (bool) ClientUser::query()->where('client_id', $this->service->client_id)->where('user_id', $user->id)
+        return (bool) ClientUser::query()->where('client_id', $service->client_id)->where('user_id', $user->id)
             ->whereNull('revoked_at')->first()?->allows($permission);
     }
 

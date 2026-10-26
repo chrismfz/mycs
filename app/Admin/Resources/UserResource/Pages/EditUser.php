@@ -8,6 +8,7 @@ use App\Admin\Resources\UserResource;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\CurrentClient;
+use App\Support\StaffLink;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -37,10 +38,9 @@ class EditUser extends EditRecord
             Action::make('impersonate')
                 ->label(__('Login as client'))
                 ->icon('heroicon-o-arrow-right-end-on-rectangle')
-                ->action(function (User $record) {
-                    self::impersonate($record);
-                    $this->redirect('/dashboard');
-                })
+                // A link in a new tab (owner 2026-10-26): its signed route starts it (LoginAsClientController).
+                ->url(fn (User $record) => StaffLink::to('filament.admin.login-as.user', ['user' => $record->id]))
+                ->openUrlInNewTab()->extraAttributes(['rel' => 'noopener noreferrer'])
                 ->hidden(fn () => !Auth::guard('staff')->user()?->hasPermission('admin.users.impersonate')),
             AuditAction::make(),
         ];

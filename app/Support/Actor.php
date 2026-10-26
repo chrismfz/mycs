@@ -35,7 +35,7 @@ class Actor
     }
 
     /**
-     * The admin permission each of an account's permissions takes for staff in «Login as client» (security audit SA-5):
+     * The admin permission (or all of a list) each of an account's permissions takes for staff in «Login as client» (SA-5):
      * they do there only what they may do in the admin, as the domains page already had it (R2).
      */
     public const STAFF_PERMISSION_AS = [
@@ -51,7 +51,9 @@ class Actor
         'contacts' => 'admin.clients.update',
         'affiliates' => 'admin.clients.update',
         'manageproducts' => 'admin.services.update',
-        'productsso' => 'admin.services.update',
+        // Into the service's panel: what the admin's «Log in to panel» takes, its own permission and the service's edit
+        // right (ADV-2 of #465, ADV2-1 of its round 2), never less.
+        'productsso' => ['admin.services.sso', 'admin.services.update'],
         'managedomains' => null, // the domain pages ask for each change's own admin permission (staffMay, R2)
         'orders' => 'admin.orders.create',
         // Paying with the customer's own money (a saved card, the vault, the balance): the admin's «mark paid».
@@ -77,9 +79,14 @@ class Actor
         if (!array_key_exists($permission, self::STAFF_PERMISSION_AS)) {
             return false; // none listed: not theirs to use
         }
-        $admin = self::STAFF_PERMISSION_AS[$permission];
+        // One admin permission, or all of a list.
+        foreach ((array) self::STAFF_PERMISSION_AS[$permission] as $admin) {
+            if (!$staff->hasPermission($admin)) {
+                return false;
+            }
+        }
 
-        return $admin === null || $staff->hasPermission($admin);
+        return true;
     }
 
     public static function impersonating(): bool
