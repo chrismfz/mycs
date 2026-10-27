@@ -12,9 +12,6 @@ use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
 use Illuminate\Contracts\Auth\Authenticatable;
-use Illuminate\Foundation\Testing\DatabaseTruncation;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
@@ -28,29 +25,6 @@ use Random\Randomizer;
 abstract class TestCase extends BaseTestCase
 {
     protected bool $seed = true;
-
-    /** A DatabaseTruncation test ran in this process and left its rows committed (setUpTraits). */
-    private static bool $truncatedRowsLeft = false;
-
-    /**
-     * A DatabaseTruncation test truncates before it runs, not after: its rows stay committed, and on MariaDB (where those
-     * tests run) every RefreshDatabase test after it in the same process ran on top of them, inside its transaction. The
-     * cron of a later test then billed, suspended and mailed those services too (BillingCursorFuzzTest drew other numbers
-     * and ran another simulation, CI of #482). The first RefreshDatabase test after one migrates afresh instead.
-     */
-    protected function setUpTraits()
-    {
-        $uses = class_uses_recursive(static::class);
-        if (self::$truncatedRowsLeft && isset($uses[RefreshDatabase::class])) {
-            RefreshDatabaseState::$migrated = false;
-            self::$truncatedRowsLeft = false;
-        }
-        if (isset($uses[DatabaseTruncation::class])) {
-            self::$truncatedRowsLeft = true;
-        }
-
-        return parent::setUpTraits();
-    }
 
     protected function setUp(): void
     {
@@ -104,8 +78,8 @@ abstract class TestCase extends BaseTestCase
     /**
      * Seeds the simulation's own generator: the same seed replays the same run. Not mt_srand(): the global generator is
      * shared with the code under test and its libraries (Faker in every factory, dompdf for each PDF it renders, one
-     * mt_rand() and four rand()), so a run that rendered one more PDF, or created a row one more time, drew different
-     * numbers from then on (BillingCursorFuzzTest, CI of #482: a seed 1 that never ran locally).
+     * mt_rand() and four rand()), so whatever made them draw once more (what ran before in the process) shifted every
+     * number after it (BillingCursorFuzzTest, CI of #482: a seed 1 that never ran locally).
      */
     protected function seedRandom(int $seed): void
     {

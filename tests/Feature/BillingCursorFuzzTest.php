@@ -33,7 +33,7 @@ use Throwable;
  * FUZZ_SEEDS="1,2,3" or FUZZ_SEEDS="1-200" overrides the seed list. On failure the seed and event log print.
  * A seed replays the same run, given the same FUZZ_SEEDS list (the seeds run before it leave their rows): every choice
  * comes from the test's own generator (TestCase::seedRandom), never the global mt_rand() the app and its libraries draw
- * from too, and the database holds no rows of an earlier test (TestCase::setUpTraits).
+ * from too.
  * A payment on a cancelled invoice no longer revives it (PR 2a, docs/payments.md), so every violation fails
  * the run; FUZZ_LENIENT=1 counts those that involve one as KNOWN instead (the pre-2a behaviour).
  */
@@ -457,7 +457,10 @@ class BillingCursorFuzzTest extends TestCase
             if (in_array($l['status'], ['cancelled', 'refunded'], true)) {
                 continue;
             }
-            foreach ($live as $o) {
+            // ... nor, a line the cron billed, a period given up on (Δ3a: the cron bills past one, never into it; adversarial
+            // ADV-484-1). A payment's renewal sees live lines only (as paid-until does): it may pay a period given up on.
+            $given = $action === 'cron' ? array_filter($after['lines'], fn ($o) => $o['forgone'] && $o['s'] !== null) : [];
+            foreach (array_merge($live, $given) as $o) {
                 if ($o['id'] !== $id && $o['s'] < $l['e'] && $l['s'] < $o['e']) {
                     $msg = "I4 new line #$id [{$l['s']},{$l['e']}) overlaps live #{$o['id']} [{$o['s']},{$o['e']}) {$o['status']} (after $action)";
                     $r = $this->knownOr($msg, [$o['id']], $revivedInvolved);
@@ -470,7 +473,11 @@ class BillingCursorFuzzTest extends TestCase
             // I6 one billing cycle per line; a hole shorter than a cycle (it ends where the next live
             // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. So is one
             // that ends where a period given up on starts (Δ3a: the cron bills on past it, never into it).
-            $hole = collect($after['lines'])->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']
+            // A hole is shorter than the cycle it cuts (ADV-484-2): it ends before a whole one would (the start's day a cycle
+            // on, or the billing day if that is later in the month).
+            $target = CarbonImmutable::parse($l['s'])->addMonthsNoOverflow($this->months);
+            $cycleEnd = $target->setDay(max($target->day, min($this->anchor, $target->daysInMonth)))->toDateString();
+            $hole = $l['e'] < $cycleEnd && collect($after['lines'])->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']
                 && ($o['forgone'] || !in_array($o['status'], ['cancelled', 'refunded'], true)));
             $bad = $hole ? null : $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
             if ($bad !== null) {

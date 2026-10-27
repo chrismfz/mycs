@@ -672,7 +672,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         }
                         break;
                     case 5:
-                        $processing = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing->value)->inRandomOrder()->first();
+                        $processing = ($rows = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing->value)->orderBy('id')->get())->isEmpty() ? null : $this->pickOne($rows);
                         if ($processing) {
                             ExtensionHelper::addPayment($processing->invoice_id, 'Stripe', $processing->amount, null, $processing->transaction_id);
                             $log[] = "complete {$processing->transaction_id}";
@@ -692,15 +692,15 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         $this->assertSweptClean($users, $log);
                         break;
                     case 10:
-                        $transaction = InvoiceTransaction::query()->inRandomOrder()->first();
+                        $transaction = ($rows = InvoiceTransaction::query()->orderBy('id')->get())->isEmpty() ? null : $this->pickOne($rows);
                         if ($transaction) {
                             (new RecordPaymentService)->deleteTransaction($transaction, allowNegativeCredit: true);
                             $log[] = "delete txn {$transaction->id}";
                         }
                         break;
                     case 11:
-                        $transaction = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)
-                            ->whereNotNull('gateway_id')->inRandomOrder()->first();
+                        $transaction = ($rows = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)
+                            ->whereNotNull('gateway_id')->orderBy('id')->get())->isEmpty() ? null : $this->pickOne($rows);
                         if ($transaction && $transaction->refundable_amount > 0) {
                             ExtensionHelper::refundLocally($transaction, round(min((float) $transaction->refundable_amount, $this->rand(1, 30)), 2));
                             $log[] = "refund {$transaction->id}";
