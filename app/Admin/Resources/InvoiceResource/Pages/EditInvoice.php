@@ -60,7 +60,7 @@ class EditInvoice extends EditRecord
                     }
                     // Any reason the form locks the amounts now (the same one that leaves them out of this save): said, never
                     // dropped without a word (R2-1 of #483: a cancelled invoice that a payment reached meanwhile).
-                    if (($reason = InvoiceResource::linesKeepAmounts($this->record)) !== null) {
+                    if (($reason = InvoiceResource::linesKeepAmounts($invoice)) !== null) {
                         throw new DisplayException($reason);
                     }
                 }
