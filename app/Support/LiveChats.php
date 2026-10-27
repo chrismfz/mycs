@@ -254,14 +254,18 @@ class LiveChats
         if (!self::isOperator($staff)) {
             return self::NO_ALERTS;
         }
-        $queue = self::queue($staff);
-        $newest = $queue->sortByDesc('id')->first();
-        $mine = LiveChat::query()->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)->pluck('id');
+        // Light, every 10 seconds on every admin tab (review of #479): counts and ids, never the customers' rows. A chat
+        // whose operator left counts in the title (waiting()) but rings no new alert: it is not a new chat.
+        $departments = self::departmentsOf($staff);
+        $newest = LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', $departments)
+            ->with('department:id,name')->orderByDesc('id')->first(['id', 'department_id']);
+        $mine = LiveChat::query()->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)
+            ->whereIn('department_id', $departments)->pluck('id');
         $message = $mine->isEmpty() ? null : LiveChatMessage::query()->whereIn('chat_id', $mine)
             ->where('author_type', LiveChatMessage::CLIENT)->orderByDesc('id')->first(['id', 'chat_id']);
 
         return [
-            'waiting' => $queue->count(),
+            'waiting' => self::waiting($staff),
             'chat_latest' => (int) $newest?->id,
             'chat_title' => $newest === null ? '' : __('New chat: :department', ['department' => (string) $newest->department?->name]),
             'message_latest' => (int) $message?->id,

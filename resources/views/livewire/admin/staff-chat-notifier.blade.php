@@ -74,7 +74,7 @@
             // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
             this.timer = setInterval(() => this.front(), 5000);
             this.observer = new MutationObserver(() => this.check());
-            this.observer.observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
+            this.observer.observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total', 'data-waiting', 'data-chat-latest', 'data-msg-latest'] });
         },
         away() { return document.visibilityState !== 'visible' || !document.hasFocus() },
         title() {
@@ -97,7 +97,7 @@
             const key = this.key() + channel;
             const alerted = this.store(key);
             // The tab's own memory guards too: whatever storage says, a tab never rings twice for one message.
-            window.mycsChatRung ??= {};
+            if (typeof window.mycsChatRung !== 'object' || window.mycsChatRung === null) window.mycsChatRung = {};
             const rung = window.mycsChatRung[channel] ?? 0;
             if (alerted === null) { this.store(key, String(latest)); window.mycsChatRung[channel] = Math.max(rung, latest); return }
             if (!latest || latest <= Math.max(Number(alerted), rung)) return;

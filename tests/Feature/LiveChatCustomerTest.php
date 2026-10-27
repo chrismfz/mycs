@@ -495,4 +495,32 @@ class LiveChatCustomerTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/primary-\d{2,3}/', $view);
         $this->assertStringContainsString('bg-primary px-4', $view);
     }
+
+    /** Review of #479: the alert re-checks whenever a poll changes any of its counts or ids, not only the staff chat's. */
+    public function test_the_alert_watches_every_count_and_id_it_carries(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+        preg_match('/attributeFilter: \[([^\]]*)\]/', $view, $filter);
+        preg_match_all('/(data-[a-z-]*(?:latest|total|waiting))="/', $view, $attributes);
+
+        foreach (array_unique($attributes[1]) as $attribute) {
+            $this->assertStringContainsString("'{$attribute}'", $filter[1] ?? '', "{$attribute} is watched");
+        }
+    }
+
+    /** Review of #479: a member unlisted from a department is no longer told of its customers' messages. */
+    public function test_the_message_alert_is_limited_to_the_members_departments(): void
+    {
+        $support = $this->department();
+        $operator = $this->online($this->operator($support));
+        [$user, $client] = $this->customer();
+        LiveChats::start($user, $support->id, 'hi');
+        $chat = LiveChat::query()->sole();
+        LiveChats::claim($operator, $chat);
+        $this->asCustomer($user, $client);
+        LiveChats::postAsCustomer($user, $chat, 'still there?');
+        $support->chatStaff()->detach($operator->id);
+
+        $this->assertSame(0, LiveChats::alerts($operator)['message_latest']);
+    }
 }
