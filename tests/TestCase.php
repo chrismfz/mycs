@@ -18,6 +18,9 @@ use Illuminate\Support\Once;
 use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
 use Livewire\Livewire;
 use Livewire\LivewireManager;
+use LogicException;
+use Random\Engine\Mt19937;
+use Random\Randomizer;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -69,13 +72,38 @@ abstract class TestCase extends BaseTestCase
         SettingsProvider::reload();
     }
 
+    /** The seeded simulations' own generator (seedRandom). */
+    private ?Randomizer $random = null;
+
     /**
-     * One of $items, picked with mt_rand (seeded simulations): Collection::random() uses Random\Randomizer, a CSPRNG
-     * that mt_srand() does not seed, so a seed did not replay the same run.
+     * Seeds the simulation's own generator: the same seed replays the same run. Not mt_srand(): the global generator is
+     * shared with the code under test and its libraries (Faker in every factory, dompdf for each PDF it renders, one
+     * mt_rand() and four rand()), so whatever made them draw once more (what ran before in the process) shifted every
+     * number after it (BillingCursorFuzzTest, CI of #482: a seed 1 that never ran locally).
+     */
+    protected function seedRandom(int $seed): void
+    {
+        $this->random = new Randomizer(new Mt19937($seed));
+    }
+
+    /** A number in [$min, $max] from the simulation's generator (seedRandom first). */
+    protected function rand(int $min, int $max): int
+    {
+        return ($this->random ?? throw new LogicException('seedRandom() first'))->getInt($min, $max);
+    }
+
+    /** $items in an order from the simulation's generator: shuffle() draws from the global one. */
+    protected function shuffled(array $items): array
+    {
+        return ($this->random ?? throw new LogicException('seedRandom() first'))->shuffleArray($items);
+    }
+
+    /**
+     * One of $items, picked with the simulation's generator: Collection::random() uses a CSPRNG that no seed replays.
      */
     protected function pickOne(Collection $items): mixed
     {
-        return $items->values()->get(mt_rand(0, $items->count() - 1));
+        return $items->values()->get($this->rand(0, $items->count() - 1));
     }
 
     //

@@ -168,52 +168,52 @@ class MoneyTrailAdversarialTest extends TestCase
      */
     private function fuzz(int $seed, int $steps): void
     {
-        mt_srand($seed);
+        $this->seedRandom($seed);
         $svc = new RecordPaymentService;
         $users = [$this->user, User::factory()->create()];
         $invoices = [];
         $log = [];
         $n = 0;
         for ($i = 0; $i < 4; $i++) {
-            $invoices[] = $this->invoiceFor($users[mt_rand(0, 1)], mt_rand(100, 20000), mt_rand(0, 3) === 0)->id;
+            $invoices[] = $this->invoiceFor($users[$this->rand(0, 1)], $this->rand(100, 20000), $this->rand(0, 3) === 0)->id;
         }
 
         for ($step = 0; $step < $steps; $step++) {
-            $roll = mt_rand(1, 100);
-            $invoiceId = $invoices[array_rand($invoices)];
+            $roll = $this->rand(1, 100);
+            $invoiceId = $invoices[$this->rand(0, count($invoices) - 1)];
             $invoice = Invoice::query()->find($invoiceId);
             $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             try {
                 if ($roll <= 8) {
-                    $invoices[] = $this->invoiceFor($users[mt_rand(0, 1)], mt_rand(100, 20000), mt_rand(0, 2) === 0)->id;
+                    $invoices[] = $this->invoiceFor($users[$this->rand(0, 1)], $this->rand(100, 20000), $this->rand(0, 2) === 0)->id;
                     $op = 'new invoice #' . end($invoices);
                 } elseif ($roll <= 45) {
                     $remaining = max(0, self::cents($invoice->fresh()->remaining));
-                    $cents = match (mt_rand(0, 3)) {
-                        0 => $remaining > 0 ? $remaining : mt_rand(1, 5000),
-                        1 => $remaining + mt_rand(1, 5000),
-                        2 => mt_rand(1, max(1, $remaining)),
-                        default => mt_rand(1, 20000),
+                    $cents = match ($this->rand(0, 3)) {
+                        0 => $remaining > 0 ? $remaining : $this->rand(1, 5000),
+                        1 => $remaining + $this->rand(1, 5000),
+                        2 => $this->rand(1, max(1, $remaining)),
+                        default => $this->rand(1, 20000),
                     };
-                    $gateway = mt_rand(0, 4) === 0 ? null : 'Stripe';
-                    $status = match (mt_rand(0, 9)) {
+                    $gateway = $this->rand(0, 4) === 0 ? null : 'Stripe';
+                    $status = match ($this->rand(0, 9)) {
                         0 => InvoiceTransactionStatus::Failed,
                         1, 2 => InvoiceTransactionStatus::Processing,
                         default => InvoiceTransactionStatus::Succeeded,
                     };
                     $txid = 'fz' . $seed . '-' . (++$n);
-                    if ($transactions->isNotEmpty() && mt_rand(0, 3) === 0) { // replay / processing → succeeded
+                    if ($transactions->isNotEmpty() && $this->rand(0, 3) === 0) { // replay / processing → succeeded
                         $old = $this->pickOne($transactions);
                         if ($old->transaction_id !== null) {
                             $txid = $old->transaction_id;
                             $gateway = $old->gateway_id === null ? null : 'Stripe';
-                            $invoiceId = mt_rand(0, 1) ? $old->invoice_id : $invoiceId;
+                            $invoiceId = $this->rand(0, 1) ? $old->invoice_id : $invoiceId;
                         }
                     }
                     ExtensionHelper::addPayment($invoiceId, $gateway, $cents / 100, null, $txid, $status, currency: 'USD');
                     $op = "pay #{$invoiceId} {$cents}c {$status->value} " . ($gateway ?? 'staff') . " {$txid}";
                 } elseif ($roll <= 58) {
-                    $covers = (bool) mt_rand(0, 1);
+                    $covers = (bool) $this->rand(0, 1);
                     $t = $svc->payWithCredit($invoiceId, $covers);
                     $op = "payWithCredit #{$invoiceId}" . ($covers ? ' onlyIfCovers' : '') . ' -> ' . ($t?->id ?? 'none');
                 } elseif ($roll <= 66) {
@@ -233,7 +233,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     } else {
                         $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
-                        $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
+                        $cents = $this->rand(0, 1) ? $max : $this->rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
                         ExtensionHelper::refundLocally($t, $cents / 100);
                     }

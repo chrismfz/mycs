@@ -163,7 +163,7 @@ class CreditLedgerAdversarialTest extends TestCase
      */
     private function fuzz(int $seed, int $steps): void
     {
-        mt_srand($seed);
+        $this->seedRandom($seed);
         $svc = new RecordPaymentService;
         $ledger = new CreditLedger;
         $token = $this->apiToken();
@@ -174,32 +174,32 @@ class CreditLedgerAdversarialTest extends TestCase
         $log = [];
         $n = 0;
         for ($i = 0; $i < 4; $i++) {
-            $invoices[] = $this->invoiceFor($users[mt_rand(0, 1)], mt_rand(100, 20000), $currencies[mt_rand(0, 1)], mt_rand(0, 3) === 0)->id;
+            $invoices[] = $this->invoiceFor($users[$this->rand(0, 1)], $this->rand(100, 20000), $currencies[$this->rand(0, 1)], $this->rand(0, 3) === 0)->id;
         }
 
         for ($step = 0; $step < $steps; $step++) {
-            $roll = mt_rand(1, 100);
-            $invoiceId = $invoices[array_rand($invoices)];
+            $roll = $this->rand(1, 100);
+            $invoiceId = $invoices[$this->rand(0, count($invoices) - 1)];
             $invoice = Invoice::query()->find($invoiceId);
             $transactions = InvoiceTransaction::query()->orderBy('id')->get();
-            $user = $users[mt_rand(0, 1)];
-            $currency = $currencies[mt_rand(0, 1)];
+            $user = $users[$this->rand(0, 1)];
+            $currency = $currencies[$this->rand(0, 1)];
             $op = 'op';
             try {
                 if ($roll <= 6) {
-                    $invoices[] = $this->invoiceFor($user, mt_rand(100, 20000), $currency, mt_rand(0, 2) === 0)->id;
+                    $invoices[] = $this->invoiceFor($user, $this->rand(100, 20000), $currency, $this->rand(0, 2) === 0)->id;
                     $op = 'new invoice #' . end($invoices);
                 } elseif ($roll <= 30) {
                     $remaining = max(0, self::cents($invoice->fresh()->remaining));
-                    $cents = match (mt_rand(0, 3)) {
-                        0 => $remaining > 0 ? $remaining : mt_rand(1, 5000),
-                        1 => $remaining + mt_rand(1, 5000),
-                        2 => mt_rand(1, max(1, $remaining)),
-                        default => mt_rand(1, 20000),
+                    $cents = match ($this->rand(0, 3)) {
+                        0 => $remaining > 0 ? $remaining : $this->rand(1, 5000),
+                        1 => $remaining + $this->rand(1, 5000),
+                        2 => $this->rand(1, max(1, $remaining)),
+                        default => $this->rand(1, 20000),
                     };
-                    $status = mt_rand(0, 9) === 0 ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded;
+                    $status = $this->rand(0, 9) === 0 ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded;
                     $txid = 'cl' . $seed . '-' . (++$n);
-                    if ($transactions->isNotEmpty() && mt_rand(0, 4) === 0) {
+                    if ($transactions->isNotEmpty() && $this->rand(0, 4) === 0) {
                         $old = $this->pickOne($transactions);
                         if ($old->transaction_id !== null) {
                             $txid = $old->transaction_id;
@@ -210,7 +210,7 @@ class CreditLedgerAdversarialTest extends TestCase
                     ExtensionHelper::addPayment($invoiceId, 'Stripe', $cents / 100, null, $txid, $status, currency: $invoice->currency_code);
                     $op = "pay #{$invoiceId} {$cents}c {$status->value} {$txid}";
                 } elseif ($roll <= 38) {
-                    $t = $svc->payWithCredit($invoiceId, (bool) mt_rand(0, 1));
+                    $t = $svc->payWithCredit($invoiceId, (bool) $this->rand(0, 1));
                     $op = "payWithCredit #{$invoiceId} -> " . ($t?->id ?? 'none');
                 } elseif ($roll <= 42) {
                     $sources = $transactions->filter(fn ($t) => $t->status === InvoiceTransactionStatus::Succeeded && self::cents($t->credited_amount) > 0);
@@ -227,7 +227,7 @@ class CreditLedgerAdversarialTest extends TestCase
                     if ($refundable->isNotEmpty()) {
                         $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
-                        $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
+                        $cents = $this->rand(0, 1) ? $max : $this->rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
                         ExtensionHelper::refundLocally($t, $cents / 100);
                     }
@@ -239,10 +239,10 @@ class CreditLedgerAdversarialTest extends TestCase
                         $svc->deleteTransaction($t);
                     }
                 } elseif ($roll <= 67) {
-                    $cents = mt_rand(1, 8000);
+                    $cents = $this->rand(1, 8000);
                     $reason = 'adv-staff-' . $seed . '-' . (++$n);
                     $reasons[] = $reason;
-                    if (mt_rand(0, 1)) {
+                    if ($this->rand(0, 1)) {
                         $ledger->add($user->client()->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $reason);
                         $op = "staff add {$user->id} {$currency} {$cents}c";
                     } else {
@@ -254,11 +254,11 @@ class CreditLedgerAdversarialTest extends TestCase
                     $reasons[] = $reason;
                     $row = Credit::query()->where('client_id', $user->client()->id)->where('currency_code', $currency)->first();
                     if ($row === null) {
-                        $amount = mt_rand(0, 3) === 0 ? 0 : mt_rand(1, 9000) / 100;
+                        $amount = $this->rand(0, 3) === 0 ? 0 : $this->rand(1, 9000) / 100;
                         $status = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
                             ['client_id' => $user->client()->id, 'currency_code' => $currency, 'amount' => $amount, 'reason' => $reason])->status();
                         $op = "api store {$user->id} {$currency} {$amount} -> {$status}";
-                    } elseif (mt_rand(0, 3) === 0) {
+                    } elseif ($this->rand(0, 3) === 0) {
                         $before = self::cents($row->amount);
                         $status = $this->withToken($token)->deleteJson(route('api.v1.admin.credits.destroy', $row->id))->status();
                         $op = "api destroy {$row->id} ({$before}c) -> {$status}";
@@ -267,7 +267,7 @@ class CreditLedgerAdversarialTest extends TestCase
                             $this->assertNotNull(Credit::query()->find($row->id));
                         }
                     } else {
-                        $amount = mt_rand(0, 4) === 0 ? 0 : mt_rand(0, 9000) / 100;
+                        $amount = $this->rand(0, 4) === 0 ? 0 : $this->rand(0, 9000) / 100;
                         $before = self::cents($row->amount);
                         $events = MoneyEvent::query()->count();
                         $status = $this->withToken($token)->putJson(route('api.v1.admin.credits.update', $row->id),
@@ -284,7 +284,7 @@ class CreditLedgerAdversarialTest extends TestCase
                     }
                 } elseif ($roll <= 90) {
                     $snapshot = Credit::query()->orderBy('id')->get(['id', 'client_id', 'currency_code', 'amount'])->toArray();
-                    $write = (bool) mt_rand(0, 1);
+                    $write = (bool) $this->rand(0, 1);
                     $code = Artisan::call('mycs:credits-check', $write ? ['--write' => true] : []);
                     $op = 'credits-check' . ($write ? ' --write' : '') . " -> {$code}";
                     $this->assertSame(0, $code, "C5 the check found a difference that should not exist. {$op}\n" . Artisan::output());

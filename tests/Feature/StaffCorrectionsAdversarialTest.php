@@ -518,48 +518,48 @@ class StaffCorrectionsAdversarialTest extends TestCase
      */
     private function fuzz(int $seed, int $steps): void
     {
-        mt_srand($seed);
+        $this->seedRandom($seed);
         $svc = new RecordPaymentService;
         $users = [$this->user, User::factory()->create()];
         $invoices = [];
         $log = [];
         $n = 0;
         for ($i = 0; $i < 4; $i++) {
-            $invoices[] = $this->invoice(mt_rand(100, 20000) / 100, referenceType: mt_rand(0, 4) === 0 ? Credit::class : null, user: $users[mt_rand(0, 1)])->id;
+            $invoices[] = $this->invoice($this->rand(100, 20000) / 100, referenceType: $this->rand(0, 4) === 0 ? Credit::class : null, user: $users[$this->rand(0, 1)])->id;
         }
 
         for ($step = 0; $step < $steps; $step++) {
             $before = $this->snapshot();
-            $invoiceId = $invoices[array_rand($invoices)];
+            $invoiceId = $invoices[$this->rand(0, count($invoices) - 1)];
             $invoice = Invoice::query()->find($invoiceId);
             $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             $kind = 'other';
             $refused = false;
-            $roll = mt_rand(1, 100);
+            $roll = $this->rand(1, 100);
             try {
                 if ($roll <= 6) {
-                    $invoices[] = $this->invoice(mt_rand(100, 20000) / 100, referenceType: mt_rand(0, 4) === 0 ? Credit::class : null, user: $users[mt_rand(0, 1)])->id;
+                    $invoices[] = $this->invoice($this->rand(100, 20000) / 100, referenceType: $this->rand(0, 4) === 0 ? Credit::class : null, user: $users[$this->rand(0, 1)])->id;
                     $op = 'new invoice #' . end($invoices);
                 } elseif ($roll <= 22) {
                     $remaining = max(0, self::cents($invoice->fresh()->remaining));
-                    $cents = [$remaining ?: mt_rand(1, 5000), $remaining + mt_rand(1, 5000), mt_rand(1, max(1, $remaining))][mt_rand(0, 2)];
+                    $cents = [$remaining ?: $this->rand(1, 5000), $remaining + $this->rand(1, 5000), $this->rand(1, max(1, $remaining))][$this->rand(0, 2)];
                     $txid = 'g' . $seed . '-' . (++$n);
-                    $status = mt_rand(0, 5) === 0 ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded;
+                    $status = $this->rand(0, 5) === 0 ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded;
                     ExtensionHelper::addPayment($invoiceId, 'Stripe', $cents / 100, null, $txid, $status, currency: 'USD');
                     $op = "gateway pay #{$invoiceId} {$cents}c {$status->value} {$txid}";
                 } elseif ($roll <= 40) {
                     $kind = 'markpaid';
                     $remaining = max(0, self::cents($invoice->fresh()->remaining));
-                    $cents = [$remaining ?: mt_rand(1, 5000), $remaining + mt_rand(1, 3000), mt_rand(1, max(1, $remaining))][mt_rand(0, 2)];
-                    $txid = mt_rand(0, 2) === 0 ? null : 'm' . $seed . '-' . (++$n);
-                    if ($transactions->isNotEmpty() && mt_rand(0, 3) === 0) {
+                    $cents = [$remaining ?: $this->rand(1, 5000), $remaining + $this->rand(1, 3000), $this->rand(1, max(1, $remaining))][$this->rand(0, 2)];
+                    $txid = $this->rand(0, 2) === 0 ? null : 'm' . $seed . '-' . (++$n);
+                    if ($transactions->isNotEmpty() && $this->rand(0, 3) === 0) {
                         $txid = $this->pickOne($transactions)->transaction_id ?? $txid; // replay
                     }
-                    $reopen = (bool) mt_rand(0, 1);
+                    $reopen = (bool) $this->rand(0, 1);
                     $op = "markPaid #{$invoiceId} ({$invoice->status}) {$cents}c tx={$txid}" . ($reopen ? ' reopen' : '');
-                    $svc->recordByStaff($invoice, null, $cents / 100, $txid, paidAt: Carbon::parse('2026-10-0' . mt_rand(1, 9)), reopen: $reopen);
+                    $svc->recordByStaff($invoice, null, $cents / 100, $txid, paidAt: Carbon::parse('2026-10-0' . $this->rand(1, 9)), reopen: $reopen);
                 } elseif ($roll <= 48) {
-                    $t = $svc->payWithCredit($invoiceId, (bool) mt_rand(0, 1));
+                    $t = $svc->payWithCredit($invoiceId, (bool) $this->rand(0, 1));
                     $op = "payWithCredit #{$invoiceId} -> " . ($t?->id ?? 'none');
                 } elseif ($roll <= 56) {
                     $refundable = $transactions->filter(fn ($t) => $t->status === InvoiceTransactionStatus::Succeeded
@@ -569,7 +569,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     } else {
                         $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
-                        $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
+                        $cents = $this->rand(0, 1) ? $max : $this->rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
                         ExtensionHelper::refundLocally($t, $cents / 100);
                     }
@@ -578,7 +578,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                         $op = 'delete: none';
                     } else {
                         $t = $this->pickOne($transactions);
-                        $allow = (bool) mt_rand(0, 1);
+                        $allow = (bool) $this->rand(0, 1);
                         $kind = $allow ? 'delete-allow' : 'delete';
                         $op = "delete tx{$t->id} ({$t->status->value}, {$t->amount}, cred {$t->credited_amount})" . ($allow ? ' allowNegative' : '');
                         $svc->deleteTransaction($t, $allow);
@@ -599,7 +599,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     $op = "flip paid #{$invoiceId} ({$invoice->status}, remaining {$invoice->fresh()->remaining})";
                     $invoice->update(['status' => 'paid']);
                 } elseif ($roll <= 93) {
-                    $cents = -mt_rand(1, 5000);
+                    $cents = -$this->rand(1, 5000);
                     $this->note($invoice, $cents / 100);
                     $op = "note #{$invoiceId} {$cents}c";
                 } else {

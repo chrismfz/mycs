@@ -256,7 +256,7 @@ namespace Tests\Feature {
             if (getenv('SIM_SEEDS') === false) {
                 $this->markTestSkipped('The lifecycle simulation runs on demand: SIM_SEEDS=1-4 bin/test --serial tests/Feature/LifecycleSimulationTest.php');
             }
-            mt_srand($seed);
+            $this->seedRandom($seed);
             if ($strict) {
                 // The other settings: suspend only with an overdue invoice, keep overdue invoices of ended services as a debt,
                 // card retries on days 1, 3, 5 and stopped after 3 declines.
@@ -264,7 +264,7 @@ namespace Tests\Feature {
                     'settings.cronjob_end_keeps_overdue_days' => 10]);
             }
             $this->windowed = $windowed;
-            $this->cronAt = ['00:05', '03:00', '14:00', '22:00'][mt_rand(0, 3)];
+            $this->cronAt = ['00:05', '03:00', '14:00', '22:00'][$this->rand(0, 3)];
             config([
                 'settings.cronjob_order_suspend' => self::SUSPEND, 'settings.cronjob_order_terminate' => self::TERMINATE,
                 'settings.cronjob_terminate_min_suspended_days' => self::MIN_SUSPENDED, 'settings.cronjob_invoice' => 7,
@@ -330,17 +330,17 @@ namespace Tests\Feature {
                     }
                 }
                 if ($persona === 'credit') {
-                    (new CreditLedger)->add($client->id, 'USD', mt_rand(1500, 4000), MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'opening');
+                    (new CreditLedger)->add($client->id, 'USD', $this->rand(1500, 4000), MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'opening');
                 }
                 $this->clients[$client->id] = ['persona' => $persona, 'client' => $client, 'user' => $user];
-                $n = mt_rand(1, 10) <= 7 ? 1 : 2;
+                $n = $this->rand(1, 10) <= 7 ? 1 : 2;
                 for ($k = 0; $k < $n; $k++) {
-                    $year = mt_rand(1, 6) === 1;
+                    $year = $this->rand(1, 6) === 1;
                     $product = $year ? $yearly : $monthly;
-                    $expires = $start->addDays(mt_rand(-2, 35))->toDateString();
+                    $expires = $start->addDays($this->rand(-2, 35))->toDateString();
                     $service = Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
                         'server_id' => $server->id, 'status' => 'active', 'expires_at' => $expires, 'currency_code' => 'USD',
-                        'price' => $year ? 100.00 : [10.00, 15.00, 7.50][mt_rand(0, 2)], 'quantity' => 1]);
+                        'price' => $year ? 100.00 : [10.00, 15.00, 7.50][$this->rand(0, 2)], 'quantity' => 1]);
                     SimServer::$state[$service->id] = 'active';
                     $this->event($service->id, "created ({$persona}, " . ($year ? 'yearly' : 'monthly') . " {$service->price}, expires {$expires})");
                 }
@@ -378,10 +378,10 @@ namespace Tests\Feature {
             }
             $ids = array_keys($this->clients);
             for ($i = 0; $i < 7; $i++) {
-                $clientId = $ids[mt_rand(0, count($ids) - 1)];
+                $clientId = $ids[$this->rand(0, count($ids) - 1)];
                 // Due the same day as one of its services half the time: one invoice for both (PR C).
                 $same = Service::query()->where('client_id', $clientId)->first();
-                $expires = mt_rand(0, 1) === 1 && $same ? CarbonImmutable::parse($same->expires_at) : $start->addDays(mt_rand(5, 40));
+                $expires = $this->rand(0, 1) === 1 && $same ? CarbonImmutable::parse($same->expires_at) : $start->addDays($this->rand(5, 40));
                 $rid = (string) (900000 + $i);
                 $sld = "sim{$i}x{$clientId}";
                 $this->registrar[$rid] = ['id' => (int) $rid, 'status' => 'ACT', 'expiration_date' => $expires->format('Y-m-d') . ' 10:00:00',
@@ -397,9 +397,9 @@ namespace Tests\Feature {
 
         private function day(CarbonImmutable $day): void
         {
-            $missed = mt_rand(1, 100) <= 4;
-            $twice = !$missed && mt_rand(1, 100) <= 4;
-            SimServer::$down = mt_rand(1, 100) <= 3;
+            $missed = $this->rand(1, 100) <= 4;
+            $twice = !$missed && $this->rand(1, 100) <= 4;
+            SimServer::$down = $this->rand(1, 100) <= 3;
             if ($missed) {
                 $this->missedDays[$day->toDateString()] = true;
                 $this->note("{$day->toDateString()} the daily cron does not run (server down)");
@@ -411,10 +411,10 @@ namespace Tests\Feature {
             // Customer and staff events at their own hours.
             $events = [];
             foreach ($this->clients as $id => $c) {
-                $events[] = [mt_rand(8, 21), mt_rand(0, 59), 'customer', $id];
+                $events[] = [$this->rand(8, 21), $this->rand(0, 59), 'customer', $id];
             }
             foreach (['staff_unsuspend', 'staff_move', 'cancel_invoice', 'delete_invoice', 'refund', 'credit_add', 'cancel_request', 'cancel_request'] as $kind) {
-                $events[] = [mt_rand(9, 18), mt_rand(0, 59), $kind, null];
+                $events[] = [$this->rand(9, 18), $this->rand(0, 59), $kind, null];
             }
             for ($h = 0; $h < 24; $h++) {
                 foreach ($events as [$eh, $em, $kind, $who]) {
@@ -435,7 +435,7 @@ namespace Tests\Feature {
                     }
                 }
                 // The worker: mostly on time; now and then an hour late.
-                if (mt_rand(1, 100) > 10) {
+                if ($this->rand(1, 100) > 10) {
                     $this->at($day->setTime($h, 59), fn () => $this->work());
                 }
             }
@@ -498,14 +498,14 @@ namespace Tests\Feature {
                     // Declined from now for 3..12 days.
                     $open = $this->openInvoices($clientId)->first();
                     if ($open !== null) {
-                        SimPay::$acceptFrom[$clientId] = CarbonImmutable::today()->addDays(mt_rand(3, 12))->toDateString();
+                        SimPay::$acceptFrom[$clientId] = CarbonImmutable::today()->addDays($this->rand(3, 12))->toDateString();
                         $this->clientEvent($clientId, 'card declines until ' . SimPay::$acceptFrom[$clientId]);
                     }
                 } elseif ($persona === 'card_decline' && SimPay::$acceptFrom[$clientId] < CarbonImmutable::today()->subDays(20)->toDateString()) {
                     unset(SimPay::$acceptFrom[$clientId]); // a new run of declines later
                 }
                 // card_never: staff take a transfer after the suspension, now and then.
-                if ($persona === 'card_never' && mt_rand(1, 100) <= 4) {
+                if ($persona === 'card_never' && $this->rand(1, 100) <= 4) {
                     $this->payOldest($clientId, 'transfer (staff Add Payment)', staff: true, overpay: false);
                 }
 
@@ -518,34 +518,34 @@ namespace Tests\Feature {
             $late = (int) CarbonImmutable::parse($invoice->due_at)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
             switch ($persona) {
                 case 'bank_prompt':
-                    if ($late >= mt_rand(-3, 1)) {
-                        $this->payInvoice($invoice, $invoice->remaining, mt_rand(0, 1) === 1 ? 'gateway' : 'staff_mark', 'on time');
+                    if ($late >= $this->rand(-3, 1)) {
+                        $this->payInvoice($invoice, $invoice->remaining, $this->rand(0, 1) === 1 ? 'gateway' : 'staff_mark', 'on time');
                     }
                     break;
                 case 'bank_late':
-                    if ($late >= mt_rand(6, 25) && mt_rand(1, 3) === 1) {
-                        $this->payInvoice($invoice, $invoice->remaining, ['gateway', 'staff_mark', 'staff_add'][mt_rand(0, 2)], "late {$late}d");
+                    if ($late >= $this->rand(6, 25) && $this->rand(1, 3) === 1) {
+                        $this->payInvoice($invoice, $invoice->remaining, ['gateway', 'staff_mark', 'staff_add'][$this->rand(0, 2)], "late {$late}d");
                     }
                     break;
                 case 'partial':
-                    if ($late >= 0 && $invoice->remaining >= $invoice->total && mt_rand(1, 2) === 1) {
+                    if ($late >= 0 && $invoice->remaining >= $invoice->total && $this->rand(1, 2) === 1) {
                         $this->payInvoice($invoice, round($invoice->remaining / 2, 2), 'staff_mark', 'half');
-                    } elseif ($late >= 7 && mt_rand(1, 3) === 1) {
+                    } elseif ($late >= 7 && $this->rand(1, 3) === 1) {
                         $this->payInvoice($invoice, $invoice->remaining, 'gateway', "rest, {$late}d late");
                     }
                     break;
                 case 'double':
-                    if ($late >= -1 && mt_rand(1, 2) === 1) {
+                    if ($late >= -1 && $this->rand(1, 2) === 1) {
                         $amount = $invoice->remaining;
                         $this->payInvoice($invoice, $amount, 'gateway', 'first of two');
                         // Pays it again: a second transfer staff record, or the same webhook replayed.
-                        mt_rand(0, 1) === 1
+                        $this->rand(0, 1) === 1
                             ? $this->payInvoice($invoice->fresh(), $amount, 'staff_add', 'second (overpayment)')
                             : $this->replay($invoice);
                     }
                     break;
                 case 'credit':
-                    if ($late >= 10 && mt_rand(1, 4) === 1) {
+                    if ($late >= 10 && $this->rand(1, 4) === 1) {
                         $this->payInvoice($invoice, $invoice->remaining, 'gateway', "late {$late}d");
                     }
                     break;
@@ -590,7 +590,7 @@ namespace Tests\Feature {
 
         private function staff(string $kind): void
         {
-            $roll = mt_rand(1, 100);
+            $roll = $this->rand(1, 100);
             switch ($kind) {
                 case 'staff_unsuspend': // the morning digest: a good customer's service brought back
                     if ($roll > 35) {
@@ -600,8 +600,8 @@ namespace Tests\Feature {
                     if ($service === null) {
                         return;
                     }
-                    $hold = mt_rand(0, 1) === 1 ? CarbonImmutable::today()->addDays(mt_rand(1, 10))->toDateString() : null;
-                    $notify = mt_rand(0, 1) === 1;
+                    $hold = $this->rand(0, 1) === 1 ? CarbonImmutable::today()->addDays($this->rand(1, 10))->toDateString() : null;
+                    $notify = $this->rand(0, 1) === 1;
                     // EditService «Unsuspend server», then (with a hold) the form's «Do not suspend until».
                     try {
                         ExtensionHelper::unsuspendServer($service);
@@ -633,7 +633,7 @@ namespace Tests\Feature {
                     if ($service === null) {
                         return;
                     }
-                    $delta = mt_rand(1, 10) * (mt_rand(0, 2) === 0 ? -1 : 1);
+                    $delta = $this->rand(1, 10) * ($this->rand(0, 2) === 0 ? -1 : 1);
                     $to = CarbonImmutable::parse($service->expires_at)->addDays($delta)->toDateString();
                     $service->applyStaffChanges(['expires_at' => $to]);
                     $this->gapsAllowed[$service->id] = true;
@@ -648,7 +648,7 @@ namespace Tests\Feature {
                     if ($invoice === null) {
                         return;
                     }
-                    $mode = ['auto', 'keep', 'give_up'][mt_rand(0, 2)];
+                    $mode = ['auto', 'keep', 'give_up'][$this->rand(0, 2)];
                     $invoice->keep_periods_billable = match ($mode) {
                         'keep' => true, 'give_up' => false, default => null,
                     };
@@ -685,8 +685,8 @@ namespace Tests\Feature {
                     if ($payment === null) {
                         return;
                     }
-                    $amount = mt_rand(0, 1) === 1 ? (float) $payment->refundable_amount : round((float) $payment->refundable_amount / 2, 2);
-                    $toCredit = mt_rand(0, 1) === 1;
+                    $amount = $this->rand(0, 1) === 1 ? (float) $payment->refundable_amount : round((float) $payment->refundable_amount / 2, 2);
+                    $toCredit = $this->rand(0, 1) === 1;
                     $toCredit ? ExtensionHelper::refundToCredit($payment, $amount) : ExtensionHelper::refundLocally($payment, $amount);
                     $invoice = $payment->invoice->fresh();
                     foreach ($this->servicesOf($invoice) as $sid) {
@@ -701,8 +701,8 @@ namespace Tests\Feature {
                     if ($roll > 4) {
                         return;
                     }
-                    $clientId = array_keys($this->clients)[mt_rand(0, count($this->clients) - 1)];
-                    $cents = mt_rand(300, 3000);
+                    $clientId = array_keys($this->clients)[$this->rand(0, count($this->clients) - 1)];
+                    $cents = $this->rand(300, 3000);
                     (new CreditLedger)->add($clientId, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'sim');
                     $this->clientEvent($clientId, now() . ' staff add credit ' . ($cents / 100));
                     break;
@@ -714,7 +714,7 @@ namespace Tests\Feature {
                     if ($service === null) {
                         return;
                     }
-                    $type = mt_rand(0, 2) === 0 ? 'immediate' : 'end_of_period';
+                    $type = $this->rand(0, 2) === 0 ? 'immediate' : 'end_of_period';
                     ServiceCancellation::create(['service_id' => $service->id, 'type' => $type, 'reason' => 'sim']);
                     $this->event($service->id, now() . " customer asks to cancel ({$type})");
                     break;
