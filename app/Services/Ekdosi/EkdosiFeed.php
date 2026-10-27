@@ -74,7 +74,9 @@ final class EkdosiFeed
             // active. `since` by when they asked.
             $query->whereNotNull('ekdosi_requested_at')
                 ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])
-                ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE));
+                ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE))
+                // An unpaid «add funds» owes nothing (review of #478).
+                ->whereNot(fn (Builder $addFunds) => Invoice::whereAddFunds($addFunds->where('status', Invoice::STATUS_UNPAID)));
             if ($since !== null) {
                 $query->where('ekdosi_requested_at', '>=', $since);
             }

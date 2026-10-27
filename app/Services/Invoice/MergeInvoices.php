@@ -66,6 +66,8 @@ final class MergeInvoices
             if ($issued !== null && $target->created_at !== null && $issued->lt($target->created_at)) {
                 Invoice::query()->whereKey($target->id)->update(['created_at' => $issued]);
             }
+            // A request to Ekdosi (E5) was for the target's own lines: with others merged in, staff send it again (review of #478).
+            Invoice::query()->whereKey($target->id)->update(['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]);
             foreach ($sources as $source) {
                 $source->keep_periods_billable = true; // nothing left on it to give up on
                 $source->merged_into_id = $target->id;

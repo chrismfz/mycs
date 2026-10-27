@@ -64,6 +64,16 @@ class InvoiceObserver
     public function updating(Invoice $invoice): void
     {
         self::refuseUnknownStatus($invoice);
+        // «Send to Ekdosi» (E5) asked for this invoice of this account as it stood: cancelled, refunded or moved to another
+        // account, the request is gone, and a reopened invoice is not sent again unasked (adversarial ADV-2, ADV-4 of #478).
+        // In the database, not by the model: the request is written by a query, so a model loaded before it says null.
+        if ($invoice->exists && ($invoice->isDirty('client_id')
+            || ($invoice->isDirty('status') && !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true)))) {
+            Invoice::query()->whereKey($invoice->id)->whereNotNull('ekdosi_requested_at')
+                ->update(['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]);
+            $invoice->setRawAttributes(array_merge($invoice->getAttributes(), ['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]));
+            $invoice->syncOriginalAttributes(['ekdosi_requested_at', 'ekdosi_requested_by']);
+        }
         // Ekdosi issued its document in this account's ΑΦΜ and currency (final review of #459): it stays with them.
         if ($invoice->isDirty(['client_id', 'currency_code']) && EkdosiDocument::activeOn($invoice->id, lock: true)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it stays with its customer and currency. Cancel the document there first.'));

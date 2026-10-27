@@ -27,7 +27,9 @@ class SendToEkdosi
     {
         return $invoice->client_id !== null
             && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true)
-            && !EkdosiDocument::activeOn($invoice->id);
+            && !EkdosiDocument::activeOn($invoice->id)
+            // An unpaid «add funds» owes nothing: no document on credit for it (review of #478).
+            && !($invoice->status === Invoice::STATUS_UNPAID && Invoice::whereAddFunds(Invoice::query()->whereKey($invoice->id))->exists());
     }
 
     public static function make(): Action
@@ -53,7 +55,7 @@ class SendToEkdosi
             ->label(__('Withdraw from Ekdosi'))
             ->icon('heroicon-o-arrow-uturn-left')
             ->color('gray')
-            ->visible(fn (Invoice $record): bool => $record->ekdosi_requested_at !== null && !EkdosiDocument::activeOn($record->id))
+            ->visible(fn (Invoice $record): bool => $record->ekdosi_requested_at !== null)
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->requiresConfirmation()
             ->modalDescription(__('Ekdosi stops listing it. One it has read already stays in its inbox: archive it there.'))
@@ -88,12 +90,16 @@ class SendToEkdosi
         $staffId = Auth::guard('staff')->id();
         $changed = 0;
         foreach ($invoices as $invoice) {
-            if (!self::eligible($invoice)) {
+            // Withdrawn whatever became of it (cancelled, refunded meanwhile: review of #478); sent only when eligible.
+            if ($send && !self::eligible($invoice)) {
                 continue;
             }
             $query = Invoice::query()->whereKey($invoice->id);
             $done = $send
-                ? $query->whereNull('ekdosi_requested_at')->update(['ekdosi_requested_at' => now(), 'ekdosi_requested_by' => $staffId])
+                // As it is now, not as the model loaded it: cancelled or moved meanwhile, nothing (adversarial ADV-3 of #478).
+                ? $query->whereNull('ekdosi_requested_at')->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])
+                    ->where('client_id', $invoice->client_id)
+                    ->update(['ekdosi_requested_at' => now(), 'ekdosi_requested_by' => $staffId])
                 : $query->whereNotNull('ekdosi_requested_at')->update(['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]);
             if ($done === 0) {
                 continue;

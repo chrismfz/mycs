@@ -6,12 +6,14 @@ use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Models\Client;
+use App\Models\Credit;
 use App\Models\EkdosiDocument;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Invoice\MergeInvoices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use OwenIt\Auditing\Models\Audit;
@@ -157,5 +159,50 @@ class EkdosiSendToEkdosiTest extends TestCase
     public function test_ping_tells_ekdosi_the_feed_has_requested(): void
     {
         $this->assertContains('requested', $this->bridge(['op' => 'ping'])->assertOk()->json('statuses'));
+    }
+
+    public function test_an_unpaid_add_funds_invoice_is_never_sent(): void
+    {
+        $this->actingAs($this->staff(), 'staff');
+        $topUp = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $topUp->items()->create(['description' => 'Add Funds', 'quantity' => 1, 'price' => '50.00', 'reference_type' => Credit::class]);
+
+        $this->assertSame(0, SendToEkdosi::request([$topUp->fresh()], true), 'nothing is owed: no document on credit');
+        Invoice::query()->whereKey($topUp->id)->update(['ekdosi_requested_at' => now()]); // set by any other way
+        $this->assertSame([], $this->feed('requested'));
+    }
+
+    public function test_requested_reads_since_when_staff_asked(): void
+    {
+        $this->actingAs($this->staff(), 'staff');
+        $old = $this->invoice();
+        $new = $this->invoice();
+        SendToEkdosi::request([$old, $new], true);
+        Invoice::query()->whereKey($old->id)->update(['ekdosi_requested_at' => now()->subDays(10)]);
+
+        $ids = array_map(fn (array $invoice) => (int) $invoice['invoiceid'],
+            $this->bridge(['op' => 'invoices', 'status' => 'requested', 'since' => now()->subDay()->toDateString()])->assertOk()->json('invoices'));
+
+        $this->assertSame([$new->id], $ids);
+    }
+
+    public function test_a_merge_takes_the_request_off_its_target(): void
+    {
+        $this->actingAs($this->staff(), 'staff');
+        $target = $this->invoice();
+        $source = $this->invoice();
+        SendToEkdosi::request([$target], true);
+
+        app(MergeInvoices::class)->handle($target->id, [$source->id]);
+
+        $this->assertNull($target->fresh()->ekdosi_requested_at, 'it bills lines nobody asked a document for');
+    }
+
+    public function test_the_bulk_action_is_hidden_without_the_bridge(): void
+    {
+        config(['settings.ekdosi_enabled' => false]);
+        $this->invoice();
+
+        $this->livewireAs($this->staff())->test(ListInvoices::class)->assertTableBulkActionHidden('sendToEkdosi');
     }
 }
