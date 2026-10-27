@@ -15,7 +15,36 @@
   οι παραγγελίες, τα **tickets** (πλήρες port), το provisioning (cPanel με resellers και χρήση, mailcow, Centova Cast,
   **SSL μέσω Openprovider**, licensing της nixpal), τα domains (Openprovider, CNIC, Μητρώο .gr με δικό μας EPP), τα
   βασικά reports, το portal, el/en, σκλήρυνση ασφαλείας (2FA staff υποχρεωτικό). Σύνοψη στο «Έγινε».
-- **Τι λείπει για να μπει η nixpal:** ο importer με parity (9), η παραγωγή στον orion (8) και το runbook (10).
+- **Τι λείπει για να μπει η nixpal (2026-10-27):** ο importer με parity (9), η παραγωγή στον orion (8) και το runbook
+  (10). Πριν τον importer: το unique `transaction_id` και το test 285 (παρακάτω, «Πριν τον importer»).
+
+## Πριν τον importer (υπεύθυνος, 2026-10-27)
+- [ ] **Unique `payments.transaction_id`** (adversarial). Μετρήθηκε (μόνο SELECT): nixpal **0** διπλά, 24 κενά· myip
+      **1** (ένα έμβασμα μοιρασμένο σε 4 τιμολόγια), 8.350 κενά. Τα κενά γίνονται null (το unique δεν τα πιάνει)· ένα
+      διπλό στο import παίρνει δικό μας επίθεμα (π.χ. `<transid>#<id πληρωμής WHMCS>`) και το αρχικό μένει στη σημείωση.
+- [ ] **Incomplete tests χρημάτων** (`BillingCursorMoneyTest`, ελέγχθηκαν 2026-10-27): το 224 (downgrade ληξιπρόθεσμης)
+      **περνά ήδη**· το 173 έχει παλιά προϋπόθεση (το downgrade δεν αλλάζει πια την τιμή της ανοιχτής ανανέωσης,
+      #326), ξαναγράφεται για τη σημερινή συμπεριφορά· το **285** (τιμολόγιο που δημιουργείται πληρωμένο δεν ανανεώνει)
+      είναι **ανοιχτό**, μικρό PR, με το ιστορικό του importer αδρανές. Τα 4 του `InvoiceNumberingAdversarialTest`
+      (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό `invoicenum`) κλείνουν **μέσα** στον importer.
+- [ ] **Μαζί, μέσω Chrome** (υπεύθυνος + Claude): το webhook του PayPal ppcpv της nixpal (σήμερα στο
+      `/modules/gateways/callback/paypal_ppcpv.php`, που δεν υπάρχει στο `routes/legacy.php`: ξαναδηλώνεται στο
+      `/extensions/paypal/webhook` ή forwarder) και το endpoint του Stripe στο dashboard (0 webhooks σε 24 ημέρες).
+- [ ] **Υπενθυμίσεις overdue της nixpal:** σήμερα 3 emails τις ημέρες 0, 1, 2 (το κενό 3ο το WHMCS το διαβάζει ως 0).
+      Πρόταση: `cronjob_overdue_reminders` = `1,3,7` (suspend στις 8: η τελευταία λέει «αναστέλλεται αύριο»). Περιμένει
+      το ΟΚ του υπευθύνου.
+- Αποφασίστηκαν (2026-10-27):
+  - **Ιστορικό emails:** ο τελευταίος χρόνος του `tblemails` στα `email_logs`, και στο cut-over
+    `cronjob_delete_email_logs` = 365 (default 90: αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα tickets
+    έρχονται όλα (#256).
+  - **Polling των tickets:** IMAP αντί για POP3, εντάξει.
+  - **Welcome emails και αρχεία πελατών από τη βάση:** τα templates των προϊόντων (ZoneCloud, άδειες agent/node) από το
+    `tblemailtemplates`, μετατροπή των Smarty μεταβλητών στις δικές μας (`templates.md`), και τα `tblclientsfiles` με τα
+    αρχεία τους· στον importer, όχι με το χέρι.
+  - **Αυτόματη ακύρωση στις 60 ημέρες:** δεν χρειάζεται ρύθμιση. Το terminate (60 στη nixpal) ακυρώνει τα ανοιχτά
+    τιμολόγια της υπηρεσίας (`CancelOpenInvoices::onServiceEnd`, `cronjob_end_keeps_overdue` off· tests
+    `ForgonePeriodTest`, `ServiceTerminatedAdversarialTest`)· όσα κρατούν χρήματα μένουν με ειδοποίηση στο staff. Μένει
+    ανοιχτό ό,τι δεν ανήκει σε υπηρεσία (χειροκίνητο τιμολόγιο· τα «Add Funds» έχουν το `cronjob_add_funds_cancel`).
 
 ## Επόμενα, με σειρά (εγκρίθηκε 2026-10-20, ενημέρωση 2026-10-23)
 Η σειρά οδηγεί στο cut-over της nixpal. Ο importer (9) μπαίνει στο τελικό στάδιο, για να ετοιμάζει και τα του myip
@@ -71,8 +100,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
 - [ ] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap):
-  - **Έγινε:** inventory μόνο ανάγνωσης (#446).
-  - **Τώρα:** κύκλος ζωής (suspend = stop, terminate = destroy, power από το admin).
+  - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447).
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`.
   - **Μετά το cut-over:** client area, IP pools, create από πλάνο, reinstall, κονσόλα noVNC.
 - [x] ~~ngm (1), Hetzner (1): χειροκίνητα προϊόντα~~ **έγινε (feat/offline-modules):** modules «Offline VM» και «Offline Dedicated Server» χωρίς API· τα στοιχεία της μηχανής (VM ID, πάροχος, MAC, IPv6· rack, U, IPMI IP και MAC, serial, θύρα switch/PDU) στην υπηρεσία, κάθε ενέργεια εργασία του staff στα Pending Module Actions. Επόμενο, αν χρειαστεί: η τρέχουσα IP του IPMI από τα DHCP leases του MikroTik με το MAC του.
@@ -80,9 +108,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       (το create υπάρχει, #114)· αργότερα, αν χρειαστεί, διαχείριση email/domains μέσα από το MyCS.
 - [ ] SSL: live δοκιμή με πραγματική παραγγελία (PositiveSSL 6,53 €), με έγκριση του υπευθύνου. Οι 12 του TheSSLStore
       γίνονται νέες παραγγελίες στο Openprovider στη λήξη τους (οι 2 RapidSSL → PositiveSSL).
-- [ ] SSL vault (`ssl-vault.md`, υπεύθυνος 2026-10-24): κλειδί και CSR από το MyCS, φύλαξη κλειδιού, CSR,
-      πιστοποιητικού και αλυσίδας, λήψεις και `.pfx`, reissue με ίδιο ή νέο κλειδί (PR 1)· εργαλεία ελέγχου και σελίδα
-      Utilities (PR 2)· εγκατάσταση στο cPanel αργότερα.
+- [x] ~~SSL vault~~ **έγινε (#437, #438):** κλειδί/CSR από το MyCS, εκδόσεις, εργαλεία ελέγχου και SSL Checker. Μένει
+      η εγκατάσταση στο cPanel, αργότερα.
 - [ ] mailcow: δοκιμή live στο mymail (με άδεια και το API key).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
@@ -109,9 +136,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [ ] Tests incomplete: `BillingCursorMoneyTest` γραμμές 173 και 224 (μάλλον διορθώθηκαν: έλεγχος και αφαίρεση),
       285 «τιμολόγιο που δημιουργείται πληρωμένο ανανεώνει» (ανοιχτό).
 - [ ] Τράπεζες και υπόλοιπα (`payments-tracking.md`):
-  - **Τώρα:** ανάγνωση των emails των τραπεζών χωρίς να αλλάζει το mailbox, widget «Payments tracking» για το staff, και
-    «Bank totals» (τράπεζες, Stripe, PayPal) μόνο για admins.
-  - **Μετά:** αυτόματο matching με τιμολόγια (adversarial review).
+  - **Έγινε:** emails των τραπεζών, widgets «Payments tracking» και «Bank totals» (#450), matching με τιμολόγια (#458,
+    #467, #468).
   - **Στο cut-over:** τα στοιχεία του mailbox στο gateway Bank transfer.
 - [x] ~~Μικροί κανόνες από τα hooks του myip~~ **έγιναν:** το email στο staff σε υπερπληρωμή υπήρχε ήδη («Payment needs
       attention», `RecordPaymentService::addCredit`)· η αυτόματη ακύρωση απλήρωτων «Add Funds» είναι η ρύθμιση
@@ -192,12 +218,13 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   - [ ] **Live δοκιμή άκρη-άκρη** (ο υπεύθυνος, 2026-10-25), όταν κλείσουν E1+K1, πριν το cut-over: το
         `ekdosi.myip.gr` (πάροχος με DEV στοιχεία) απέναντι στη MyCS, με Chrome. Βλ. `ekdosi-bridge.md` → «Live δοκιμή». (Στο WHMCS το staff ανοίγει τα «marks»
         του bridge ~20 φορές τη μέρα.)
-- [ ] Ειδοποιήσεις Mattermost· εύκολη επεξεργασία των κανόνων από το admin.
+- [x] ~~Ειδοποιήσεις Mattermost~~ **έγινε (#456):** Mattermost ή Slack.
 
 ### Εκκρεμότητες του υπεύθυνου (όχι κώδικας)
 - [ ] cdnet.gr: auto renew off στο WHMCS (ανανεώνεται πια από το MyCS).
-- [ ] Το .in της nixpal σε grace· 2 domains του myip με `serverHold`· ο διακόπτης «μεταφορά αντί για ανανέωση» του CNIC
-      κλειστός ως ότου τον ανοίξεις· η nixpal θέλει δική της σύνδεση CNIC ή μεταφορά των 4 domains της πριν το cut-over.
+- [ ] Το .in της nixpal σε grace· 2 domains του myip με `serverHold`. Τα 4 domains της nixpal στο CNIC: η «μεταφορά αντί
+      για ανανέωση» υπάρχει (#303, #304)· στο cut-over ανοίγει ο διακόπτης της (κλειστός ως τότε).
+- [ ] Πριν το cut-over: `paypal_legacy_receivers` (PayPal της nixpal) και μήνυμα στους 3 πελάτες με συνδρομή (γραμμή 7).
 - [ ] Το hook `invoicepaid.php` στο rigel (ξεχασμένο debug που γράφει το επώνυμο του πελάτη σε αρχείο): να σβηστεί μαζί
       με το αρχείο.
 - [ ] Σβήσιμο των branches που έχουν γίνει merge (~63, από αυτά 15 `adv/*`).
