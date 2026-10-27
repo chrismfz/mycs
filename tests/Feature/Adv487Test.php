@@ -80,7 +80,7 @@ class Adv487Test extends TestCase
 
         $this->assertSame(0, $lines[$zero->id]['taxed']);
         $this->assertSame(EuVat::REASON_NOT_TAXABLE, $lines[$zero->id]['tax_reason'] ?? null);
-        $this->assertArrayHasKey('tax_reason', $lines[$taxed->id]);
-        $this->assertNull($lines[$taxed->id]['tax_reason']);
+        // R2-1 of #487: no key on a taxed line, so a staged row with none at 0% reads unchanged to Ekdosi's re-read.
+        $this->assertArrayNotHasKey('tax_reason', $lines[$taxed->id]);
     }
 }
