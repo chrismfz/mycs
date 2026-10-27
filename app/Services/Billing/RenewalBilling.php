@@ -169,6 +169,15 @@ final class RenewalBilling
         if ($periodStart->greaterThanOrEqualTo($billUntil)) {
             return 0;
         }
+        // A period given up on starts inside the next one (staff moved the date back behind it): nothing is billed or renewed
+        // up to it, as for one at the due date itself; staff are told. It billed the days up to it, and the service was
+        // suspended there anyway (owner, 2026-10-27). Before a change of cycle or a coupon is used up (adversarial ADV-486-1).
+        if (($givenUp = $service->givenUpAhead($lines, $billed)) !== null) {
+            $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id}: a period given up on starts {$givenUp->period_start->toDateString()}, "
+                . (int) $periodStart->diffInDays($givenUp->period_start) . " days after its due date {$periodStart->toDateString()}: nothing billed. Reopen that invoice, or move the service's date over the gap.");
+
+            return 0;
+        }
         // A change of cycle «from the next renewal» (SVC-14b): this period is the first of the plan set to come, at its
         // price. One no longer of the service's product (staff moved it since) is dropped.
         if ($service->next_plan_id !== null) {

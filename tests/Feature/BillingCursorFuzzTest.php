@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -471,14 +472,13 @@ class BillingCursorFuzzTest extends TestCase
             }
 
             // I6 one billing cycle per line; a hole shorter than a cycle (it ends where the next live
-            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. So is one
-            // that ends where a period given up on starts (Δ3a: the cron bills on past it, never into it).
+            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. Never one that
+            // ends where a period given up on starts: nothing is billed up to it (owner, 2026-10-27).
             // A hole is shorter than the cycle it cuts (ADV-484-2): it ends before a whole one would (the start's day a cycle
             // on, or the billing day if that is later in the month).
             $target = CarbonImmutable::parse($l['s'])->addMonthsNoOverflow($this->months);
             $cycleEnd = $target->setDay(max($target->day, min($this->anchor, $target->daysInMonth)))->toDateString();
-            $hole = $l['e'] < $cycleEnd && collect($after['lines'])->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']
-                && ($o['forgone'] || !in_array($o['status'], ['cancelled', 'refunded'], true)));
+            $hole = $l['e'] < $cycleEnd && collect($live)->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']);
             $bad = $hole ? null : $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
             if ($bad !== null) {
                 return "I6 line #$id [{$l['s']},{$l['e']}) $bad (after $action)";
@@ -804,12 +804,14 @@ class BillingCursorFuzzTest extends TestCase
     }
 
     /**
-     * I6 (the CI failure of 2026-10-27, PR #482, seed 1): the cron bills [11-24, 12-24), staff cancel it (given up on,
-     * Δ3a) and move the date back to 11-15. The cron bills the hole up to the period given up on, prorated, and not
-     * into it. Not a bug: the checker counted only live lines as the end of a hole; it now counts those given up on too.
+     * The CI failure of 2026-10-27 (PR #482, seed 1): the cron bills [11-24, 12-24), staff cancel it (given up on, Δ3a) and
+     * move the date back to 11-15. The cron billed the 9 days up to the period given up on (3.00), and the service was
+     * suspended there anyway. Owner's decision (2026-10-27): nothing is billed, staff are told, as for a period given up
+     * on at the due date itself.
      */
-    public function test_min_a_hole_before_a_period_given_up_on_is_billed_alone(): void
+    public function test_min_a_hole_before_a_period_given_up_on_is_not_billed_and_staff_are_told(): void
     {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         Carbon::setTestNow('2027-11-20 10:00:00');
         $service = $this->fixedService('2027-11-24');
         Artisan::call('app:cron-job'); // bills [11-24, 12-24)
@@ -819,18 +821,11 @@ class BillingCursorFuzzTest extends TestCase
         Carbon::setTestNow('2027-11-22 10:00:00');
         Artisan::call('app:cron-job');
 
-        $line = $this->pendingLine($service);
-        $this->assertSame(['2027-11-15', '2027-11-24'], [$line->period_start->toDateString(), $line->period_end->toDateString()]);
-        $this->assertSame('3.00', (string) $line->price); // 9 of November's 30 days
-
-        $this->pay($line->invoice);
-        Carbon::setTestNow('2027-11-29 10:00:00');
-        Artisan::call('app:cron-job');
-
-        // Paid until the period given up on, and nothing billed past it: the suspension rules take it from there.
-        $this->assertSame('2027-11-24', $service->fresh()->expires_at->toDateString());
         $this->assertSame(0, InvoiceItem::query()->where('reference_id', $service->id)->where('reference_type', Service::class)
-            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->count());
+            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->count(), 'the 9 days before the period given up on were billed');
+        $this->assertSame('2027-11-15', $service->fresh()->expires_at->toDateString());
+        $this->assertTrue(EmailLog::query()->where('subject', 'like', '%needs staff attention%')
+            ->where('body', 'like', "%Service #{$service->id}: a period given up on starts 2027-11-24, 9 days after its due date 2027-11-15%")->exists());
     }
 
     /**
