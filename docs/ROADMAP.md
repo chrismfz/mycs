@@ -16,7 +16,7 @@
   **SSL μέσω Openprovider**, licensing της nixpal), τα domains (Openprovider, CNIC, Μητρώο .gr με δικό μας EPP), τα
   βασικά reports, το portal, el/en, σκλήρυνση ασφαλείας (2FA staff υποχρεωτικό). Σύνοψη στο «Έγινε».
 - **Τι λείπει για να μπει η nixpal (2026-10-27):** ο importer με parity (9), η παραγωγή στον orion (8) και το runbook
-  (10). Πριν τον importer: το test 285 (παρακάτω, «Πριν τον importer»).
+  (10). Πριν τον importer: βλ. «Πριν τον importer» παρακάτω.
 
 ## Πριν τον importer (υπεύθυνος, 2026-10-27)
 - [x] ~~Unique `transaction_id`~~ **όχι (υπεύθυνος, 2026-10-27):** το idempotency μένει **ανά πελάτη**
@@ -24,11 +24,12 @@
       γράψει την ίδια αναφορά εμβάσματος σε δύο πελάτες. Ένα global unique θα το απέρριπτε (δοκιμάστηκε: σπάνε δύο
       σκόπιμα tests). Μετρήθηκε (μόνο SELECT): nixpal **0** διπλά, myip **1** (ένα έμβασμα σε 4 τιμολόγια)· ο importer
       τα φέρνει όπως είναι.
-- [ ] **Incomplete tests χρημάτων** (`BillingCursorMoneyTest`, ελέγχθηκαν 2026-10-27): το 224 (downgrade ληξιπρόθεσμης)
-      **περνά ήδη**· το 173 έχει παλιά προϋπόθεση (το downgrade δεν αλλάζει πια την τιμή της ανοιχτής ανανέωσης,
-      #326), ξαναγράφεται για τη σημερινή συμπεριφορά· το **285** (τιμολόγιο που δημιουργείται πληρωμένο δεν ανανεώνει)
-      είναι **ανοιχτό**, μικρό PR, με το ιστορικό του importer αδρανές. Τα 4 του `InvoiceNumberingAdversarialTest`
-      (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό `invoicenum`) κλείνουν **μέσα** στον importer.
+- [x] ~~Incomplete tests χρημάτων (`BillingCursorMoneyTest`)~~ **έκλεισαν (2026-10-27):** το «downgrade ληξιπρόθεσμης»
+      περνά και τρέχει πια· τα άλλα δύο έφυγαν, γιατί το σενάριό τους δεν υπάρχει πια: γραμμή τιμολογίου με πληρωμή
+      κρατά την τιμή της (R9, `ChangeOpenLine`· `UpgradeLifecycleTest`) και τιμολόγιο δεν δημιουργείται ποτέ paid (MT-1c,
+      `StaffCorrectionsAdversarialTest::test_an_invoice_is_never_created_paid`). Τα 4 του
+      `InvoiceNumberingAdversarialTest` (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό
+      `invoicenum`) κλείνουν **μέσα** στον importer.
 - [ ] **Μαζί, μέσω Chrome** (υπεύθυνος + Claude): το webhook του PayPal ppcpv της nixpal (σήμερα στο
       `/modules/gateways/callback/paypal_ppcpv.php`, που δεν υπάρχει στο `routes/legacy.php`: ξαναδηλώνεται στο
       `/extensions/paypal/webhook` ή forwarder) και το endpoint του Stripe στο dashboard (0 webhooks σε 24 ημέρες).
@@ -135,8 +136,6 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       not applied: protected days», 30, από 1 έως 365).
 - [ ] Πληρωμές: fallback του Stripe (#1260 του
       upstream)· SEPA (υπάρχει κώδικας, όχι δοκιμή). (Η ανοχή υπογραφής του Stripe, PAY-14, έγινε: #341.)
-- [ ] Tests incomplete: `BillingCursorMoneyTest` γραμμές 173 και 224 (μάλλον διορθώθηκαν: έλεγχος και αφαίρεση),
-      285 «τιμολόγιο που δημιουργείται πληρωμένο ανανεώνει» (ανοιχτό).
 - [ ] Τράπεζες και υπόλοιπα (`payments-tracking.md`):
   - **Έγινε:** emails των τραπεζών, widgets «Payments tracking» και «Bank totals» (#450), matching με τιμολόγια (#458,
     #467, #468).
