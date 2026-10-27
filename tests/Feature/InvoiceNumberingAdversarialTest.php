@@ -258,9 +258,7 @@ class InvoiceNumberingAdversarialTest extends TestCase
      */
     public function test_after_import_no_number_is_skipped(): void
     {
-        // Author's note (findings of #238): the importer waits until the tickets are rewritten in another session (ROADMAP
-        // «Επόμενα» 6, 2026-10-20); this finding is fixed there, not in #238.
-        $this->markTestIncomplete('Importer: ROADMAP «Επόμενα» 6.');
+        // Fixed in #477 (the importer writes the highest id, not one past it).
         $this->settings(['invoice_number_format' => ['{number}', 'string']]);
         $pdo = $this->whmcs();
         $this->whmcsInvoice($pdo, 900, 'Paid', '900');

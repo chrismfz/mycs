@@ -6,6 +6,7 @@ use App\Classes\Settings;
 use App\Models\Currency;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\TicketDepartment;
 use App\Providers\SettingsProvider;
 use Illuminate\Database\Seeder;
 
@@ -46,6 +47,14 @@ class DatabaseSeeder extends Seeder
                 'suffix' => '',
                 'format' => '1,000.00',
             ]);
+        }
+
+        // The two departments a new install starts with (the migration that made them a table wrote them first); one
+        // renamed or removed by staff is left as it is.
+        if (!TicketDepartment::query()->exists()) {
+            foreach (['Support', 'Sales'] as $sort => $name) {
+                TicketDepartment::query()->create(['name' => $name, 'sort' => $sort]);
+            }
         }
 
         SettingsProvider::flushCache();

@@ -115,7 +115,8 @@ class ImportMassPayTest extends TestCase
 
         $this->import();
 
-        $this->assertSame(901, (int) Setting::query()->where('key', 'invoice_number')->value('value'));
+        // The counter holds the last number given: 900, the parent's id, so the next new invoice is 901 (ADV-2 of #477).
+        $this->assertSame(900, (int) Setting::query()->where('key', 'invoice_number')->value('value'));
     }
 
     public function test_a_cancelled_parent_is_dropped_and_its_children_stay_as_they_are(): void
