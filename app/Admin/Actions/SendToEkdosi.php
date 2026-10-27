@@ -2,6 +2,7 @@
 
 namespace App\Admin\Actions;
 
+use App\Models\Credit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use Filament\Actions\Action;
@@ -28,8 +29,8 @@ class SendToEkdosi
         return $invoice->client_id !== null
             && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true)
             && !EkdosiDocument::activeOn($invoice->id)
-            // An unpaid «add funds» owes nothing: no document on credit for it (review of #478).
-            && !($invoice->status === Invoice::STATUS_UNPAID && Invoice::whereAddFunds(Invoice::query()->whereKey($invoice->id))->exists());
+            // An unpaid credit purchase owes nothing: no document on credit for it, with a discount line too (R2-2 of #478).
+            && !($invoice->status === Invoice::STATUS_UNPAID && $invoice->items()->where('reference_type', Credit::class)->exists());
     }
 
     public static function make(): Action

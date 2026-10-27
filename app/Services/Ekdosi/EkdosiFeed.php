@@ -75,8 +75,9 @@ final class EkdosiFeed
             $query->whereNotNull('ekdosi_requested_at')
                 ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])
                 ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE))
-                // An unpaid «add funds» owes nothing (review of #478).
-                ->whereNot(fn (Builder $addFunds) => Invoice::whereAddFunds($addFunds->where('status', Invoice::STATUS_UNPAID)));
+                // An unpaid credit purchase owes nothing, with a discount line too (review of #478, R2-2).
+                ->whereNot(fn (Builder $credit) => $credit->where('status', Invoice::STATUS_UNPAID)
+                    ->whereHas('items', fn (Builder $items) => $items->where('reference_type', Credit::class)));
             if ($since !== null) {
                 $query->where('ekdosi_requested_at', '>=', $since);
             }

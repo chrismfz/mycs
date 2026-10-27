@@ -9,6 +9,7 @@ use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\LineTax;
 
 /**
@@ -53,6 +54,8 @@ class InvoiceItemObserver
      */
     public function created(InvoiceItem $invoice): void
     {
+        // A request to Ekdosi (E5) was for the lines as they stood: another line, staff send it again (R2-3 of #478).
+        EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Created($invoice));
     }
 
@@ -90,6 +93,12 @@ class InvoiceItemObserver
      */
     public function updated(InvoiceItem $invoice): void
     {
+        if ($invoice->wasChanged([...self::MONEY_FIELDS, 'description', 'invoice_id'])) {
+            EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
+            if ($invoice->wasChanged('invoice_id')) {
+                EkdosiRequest::forget((int) $invoice->getOriginal('invoice_id'), 'lines_changed');
+            }
+        }
         event(new InvoiceItemEvent\Updated($invoice));
     }
 
@@ -103,6 +112,7 @@ class InvoiceItemObserver
      */
     public function deleted(InvoiceItem $invoice): void
     {
+        EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Deleted($invoice));
     }
 }

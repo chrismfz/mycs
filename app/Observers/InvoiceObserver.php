@@ -14,6 +14,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
+use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\InvoiceItemReference;
@@ -64,16 +65,6 @@ class InvoiceObserver
     public function updating(Invoice $invoice): void
     {
         self::refuseUnknownStatus($invoice);
-        // «Send to Ekdosi» (E5) asked for this invoice of this account as it stood: cancelled, refunded or moved to another
-        // account, the request is gone, and a reopened invoice is not sent again unasked (adversarial ADV-2, ADV-4 of #478).
-        // In the database, not by the model: the request is written by a query, so a model loaded before it says null.
-        if ($invoice->exists && ($invoice->isDirty('client_id')
-            || ($invoice->isDirty('status') && !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true)))) {
-            Invoice::query()->whereKey($invoice->id)->whereNotNull('ekdosi_requested_at')
-                ->update(['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]);
-            $invoice->setRawAttributes(array_merge($invoice->getAttributes(), ['ekdosi_requested_at' => null, 'ekdosi_requested_by' => null]));
-            $invoice->syncOriginalAttributes(['ekdosi_requested_at', 'ekdosi_requested_by']);
-        }
         // Ekdosi issued its document in this account's ΑΦΜ and currency (final review of #459): it stays with them.
         if ($invoice->isDirty(['client_id', 'currency_code']) && EkdosiDocument::activeOn($invoice->id, lock: true)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it stays with its customer and currency. Cancel the document there first.'));
@@ -288,6 +279,13 @@ class InvoiceObserver
      */
     public function updated(Invoice $invoice): void
     {
+        // «Send to Ekdosi» (E5) asked for this invoice as it stood: cancelled, refunded, made a draft, moved to another
+        // account or currency, the request is gone, and one reopened is not sent again unasked (ADV-2/ADV-4, R2-4 of #478).
+        // After the row is written, under its lock: a request landing meanwhile sees the new status (R2-5).
+        if ($invoice->wasChanged(['client_id', 'currency_code'])
+            || ($invoice->wasChanged('status') && !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true))) {
+            EkdosiRequest::forget((int) $invoice->id, $invoice->wasChanged('status') ? 'status_' . $invoice->status : 'moved');
+        }
         // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
         // Never issued (owner 2026-10-20, Δ2): a draft, or a proforma still without its number; nothing to credit. An
         // issued one keeps its note, numbered or not (number = id with the column empty, an import; its number read from
