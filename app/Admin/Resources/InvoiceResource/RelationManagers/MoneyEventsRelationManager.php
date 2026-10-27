@@ -8,6 +8,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Livewire\Attributes\On;
 
 /**
  * «Κινήσεις» (docs/money-trail.md §3, MT-1d): everything that moved money on this invoice, from the journal, and its
@@ -16,6 +17,10 @@ use Illuminate\Database\Eloquent\Model;
 class MoneyEventsRelationManager extends RelationManager
 {
     protected static string $relationship = 'moneyEvents';
+
+    /** A payment recorded from the page's header: render again, with its movement. */
+    #[On(TransactionsRelationManager::PAYMENTS_CHANGED)]
+    public function paymentsChanged(): void {}
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {

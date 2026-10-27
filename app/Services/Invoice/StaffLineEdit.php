@@ -58,12 +58,14 @@ final class StaffLineEdit
 
     /**
      * Money on it: a payment processing, or succeeded ones less what was refunded or moved to credit (adversarial A2/A3:
-     * once refunded in full, as the refusal tells staff to, its lines change again). Read locked.
+     * once refunded in full, as the refusal tells staff to, its lines change again). Read locked under the payment
+     * locks; unlocked for the form, which only shows it (InvoiceResource::linesKeepAmounts()).
      */
-    private static function holdsMoney(Invoice $invoice): bool
+    public static function holdsMoney(Invoice $invoice, bool $lock = true): bool
     {
-        return $invoice->transactions()->whereIn('status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
-            ->lockForUpdate()->get(['id', 'status', 'amount', 'refunded_amount', 'credited_amount'])
+        $payments = $invoice->transactions()->whereIn('status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value]);
+
+        return ($lock ? $payments->lockForUpdate() : $payments)->get(['id', 'status', 'amount', 'refunded_amount', 'credited_amount'])
             ->contains(fn ($payment) => $payment->status === InvoiceTransactionStatus::Processing
                 || RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
                     - RecordPaymentService::toCents($payment->credited_amount) > 0);

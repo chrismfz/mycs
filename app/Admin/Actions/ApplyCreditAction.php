@@ -2,6 +2,7 @@
 
 namespace App\Admin\Actions;
 
+use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -76,6 +77,8 @@ class ApplyCreditAction
                 if ($livewire instanceof EditRecord) {
                     $livewire->refreshFormData(['status']);
                 }
+                // The tables below (transactions, movements) are their own components: they show it at once.
+                $livewire->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED);
                 Notification::make()->success()->title(__('Credit applied: :amount', ['amount' => number_format((float) $transaction->amount, 2, '.', '')]))->send();
             });
     }

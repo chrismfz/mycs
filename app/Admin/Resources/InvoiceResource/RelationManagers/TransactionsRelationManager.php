@@ -30,10 +30,21 @@ use Filament\Tables\Table;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\On;
 
 class TransactionsRelationManager extends RelationManager
 {
+    /**
+     * A payment recorded, refunded or deleted, from the page's header (Mark Paid, credit, close as paid) or from this table:
+     * the other tables and the page (its status, its locked lines) show it at once.
+     */
+    public const PAYMENTS_CHANGED = 'invoice-payments-changed';
+
     protected static string $relationship = 'transactions';
+
+    /** A payment recorded from the page's header: render again, with it (live test of 2026-10-27). */
+    #[On(self::PAYMENTS_CHANGED)]
+    public function paymentsChanged(): void {}
 
     protected function canModifyTransactions(): bool
     {
@@ -122,7 +133,8 @@ class TransactionsRelationManager extends RelationManager
                         }
 
                         return $transaction;
-                    }),
+                    })
+                    ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
             ])
             ->recordActions([
                 Action::make('refund')
@@ -176,6 +188,7 @@ class TransactionsRelationManager extends RelationManager
                             };
 
                             $this->notifyRefundResult(true);
+                            $this->dispatch(self::PAYMENTS_CHANGED);
 
                             $action->success();
                         } catch (\Exception $e) {
@@ -194,14 +207,16 @@ class TransactionsRelationManager extends RelationManager
                 DeleteAction::make()
                     ->visible(fn (): bool => $this->canModifyTransactions())
                     ->schema([DeleteInvoiceTransaction::negativeCreditField()])
-                    ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false))),
+                    ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false)))
+                    ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
                         ->visible(fn (): bool => $this->canModifyTransactions())
                         // One by one through the service, never a mass query delete (credit, money trail).
-                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record))),
+                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record)))
+                        ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
                 ]),
             ]);
     }
