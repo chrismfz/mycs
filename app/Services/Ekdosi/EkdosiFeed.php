@@ -29,7 +29,8 @@ use Illuminate\Support\Carbon;
  * - per line, besides WHMCS's net `amount`: quantity, unit price, VAT rate and amount, total. `taxtype` is always
  *   Exclusive: the amounts are net and the VAT is given, nothing to guess.
  *
- * Read only. An account with «ignore invoicing» is never in the feed; one invoice asked for by id comes, with the flag.
+ * Read only. An account with «ignore invoicing» is never in the feed, but for an invoice staff sent (`requested`, E5);
+ * one invoice asked for by id comes, with the flag.
  */
 final class EkdosiFeed
 {
@@ -58,14 +59,29 @@ final class EkdosiFeed
 
         $query = Invoice::query()
             ->whereNotNull('client_id')
-            ->whereHas('client', fn (Builder $client) => $client->where('ignore_invoicing', false))
             ->orderByDesc('id');
+        // «Send to Ekdosi» (E5): what staff asked for comes whatever the account's «ignore invoicing».
+        if ($status !== 'requested') {
+            $query->whereHas('client', fn (Builder $client) => $client->where('ignore_invoicing', false));
+        }
         if ($userIds !== null) {
             $query->whereIn('client_id', $userIds);
         }
 
         $since = $this->date($since);
-        if ($status === 'paid_unfiled' || $status === '') {
+        if ($status === 'requested') {
+            // Staff asked Ekdosi for a document (E5), paid or not (an unpaid one is issued on credit): until one is
+            // active. `since` by when they asked.
+            $query->whereNotNull('ekdosi_requested_at')
+                ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])
+                ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE))
+                // An unpaid credit purchase owes nothing, with a discount line too (review of #478, R2-2).
+                ->whereNot(fn (Builder $credit) => $credit->where('status', Invoice::STATUS_UNPAID)
+                    ->whereHas('items', fn (Builder $items) => $items->where('reference_type', Credit::class)));
+            if ($since !== null) {
+                $query->where('ekdosi_requested_at', '>=', $since);
+            }
+        } elseif ($status === 'paid_unfiled' || $status === '') {
             // Only an active document files it: one cancelled at AADE (to reissue it) brings it back (ADV-3).
             $query->where('status', Invoice::STATUS_PAID)
                 ->whereDoesntHave('ekdosiDocuments', fn (Builder $documents) => $documents->where('state', EkdosiDocument::ACTIVE));
@@ -194,6 +210,8 @@ final class EkdosiFeed
                 'fingerprint' => self::fingerprint($invoice),
                 'ignore_invoicing' => (bool) ($client->ignore_invoicing ?? false),
                 'immediate_invoicing' => (bool) ($client->immediate_invoicing ?? false),
+                // Staff's «Send to Ekdosi» (E5): when they asked, or null. Never issued unattended.
+                'requested_at' => $invoice->ekdosi_requested_at?->format('Y-m-d H:i:s'),
                 // Credit and debit notes on it (WHMCS has none): its total already counts them.
                 'adjustments' => $this->money($statement['adjustments']),
                 'recipient' => $primary === null ? null : $this->contact($primary),

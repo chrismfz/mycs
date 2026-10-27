@@ -74,6 +74,11 @@ final class EkdosiDocuments
                     $document->fill(array_filter(['code' => $code, 'state' => $state, 'pdf_url' => $pdfUrl], fn ($value) => $value !== null && $value !== ''));
                     $created = !$document->exists;
                     $document->save();
+                    // Its document issued, a «Send to Ekdosi» (E5) is done: one cancelled at AADE later is not asked for
+                    // again on the old request (R3-2 of #478); staff send it again.
+                    if ($created && $document->state === EkdosiDocument::ACTIVE) {
+                        EkdosiRequest::forget($invoiceId, 'issued');
+                    }
 
                     return [200, ['status' => 'ok', 'created' => $created, 'invoice_id' => $invoiceId, 'mark' => $mark, 'state' => $document->state]];
                 }, 3);

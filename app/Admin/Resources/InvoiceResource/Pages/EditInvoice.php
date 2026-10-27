@@ -7,6 +7,7 @@ use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
+use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Actions\SetAutoCharge;
 use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Concerns\RemembersRecent;
@@ -254,6 +255,8 @@ class EditInvoice extends EditRecord
             SplitInvoiceAction::make(),
             SetAutoCharge::disable(),
             SetAutoCharge::enable(),
+            SendToEkdosi::make(),
+            SendToEkdosi::withdraw(),
             Action::make('pdf')
                 ->label('Download PDF')
                 ->action(function (Invoice $invoice) {

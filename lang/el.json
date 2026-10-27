@@ -1245,7 +1245,7 @@
     "Clear typed prices": "Καθαρισμός χειροκίνητων τιμών",
     ":count typed prices have no known cost (no exchange rate) and are written as typed.": ":count χειροκίνητες τιμές δεν έχουν γνωστό κόστος (καμία ισοτιμία) και γράφονται όπως γράφτηκαν.",
     "Fiscal invoicing (Ekdosi)": "Φορολογική τιμολόγηση (Ekdosi)",
-    "Kept for the Ekdosi bridge: nothing reads them yet.": "Κρατιούνται για τη γέφυρα με το Ekdosi: δεν τα διαβάζει τίποτα ακόμα.",
+    "What Ekdosi reads through the bridge: «Ignore» keeps this account's invoices out of its inbox (Send to Ekdosi on an invoice sends one all the same); «Immediate» lets Ekdosi issue them unattended.": "Τα διαβάζει το Ekdosi μέσω της γέφυρας: το «Ignore» κρατά τα τιμολόγια του λογαριασμού έξω από τα εισερχόμενά του (το «Send to Ekdosi» σε ένα τιμολόγιο το στέλνει παρ' όλα αυτά)· το «Immediate» αφήνει το Ekdosi να τα εκδίδει μόνο του.",
     "Ignore invoicing": "Χωρίς τιμολόγηση",
     "As Ekdosi's «Ignore invoicing» for this customer.": "Όπως το «Ignore invoicing» του Ekdosi για αυτόν τον πελάτη.",
     "Immediate invoicing": "Άμεση τιμολόγηση",
@@ -1412,5 +1412,17 @@
     "Take over": "Ανάληψη από εμένα",
     "no operator": "χωρίς operator",
     "View": "Προβολή",
-    "Taken over by :name from :from.": "Ανάληψη από :name, αντί για :from."
+    "Taken over by :name from :from.": "Ανάληψη από :name, αντί για :from.",
+    "Send to Ekdosi": "Αποστολή στο Ekdosi",
+    "Withdraw from Ekdosi": "Απόσυρση από το Ekdosi",
+    "Ekdosi stops listing it. One it has read already stays in its inbox: archive it there.": "Το Ekdosi σταματά να το βλέπει. Αν το έχει ήδη διαβάσει, μένει στα εισερχόμενά του: αρχειοθέτησέ το εκεί.",
+    "Ekdosi lists them for a document, also those of accounts with «ignore invoicing»; an unpaid one is issued on credit. Drafts, cancelled and refunded invoices and those with a document already are left out.": "Το Ekdosi τα βλέπει για έκδοση, και όσα είναι λογαριασμών με «ignore invoicing»· ένα απλήρωτο εκδίδεται επί πιστώσει. Τα προσχέδια, τα ακυρωμένα, τα επιστραμμένα και όσα έχουν ήδη παραστατικό μένουν έξω.",
+    "Ekdosi lists it for a document at its next read, and staff there issue it.": "Το Ekdosi το βλέπει για έκδοση στην επόμενη ανάγνωση, και το εκδίδει το staff εκεί.",
+    "It is not paid: Ekdosi issues it on credit, and its payment closes it later.": "Δεν είναι πληρωμένο: το Ekdosi το εκδίδει επί πιστώσει, και η πληρωμή του το κλείνει αργότερα.",
+    "Its account has «ignore invoicing»: this invoice goes all the same.": "Ο λογαριασμός του έχει «ignore invoicing»: αυτό το τιμολόγιο πηγαίνει παρ' όλα αυτά.",
+    "Nothing to change": "Τίποτα για αλλαγή",
+    "Already asked for, or not one Ekdosi issues (a draft, cancelled, refunded, or with a document already).": "Έχει ήδη ζητηθεί, ή δεν είναι κάτι που εκδίδει το Ekdosi (προσχέδιο, ακυρωμένο, επιστραμμένο, ή με παραστατικό ήδη).",
+    "Sent to Ekdosi": "Στάλθηκε στο Ekdosi",
+    "Withdrawn from Ekdosi": "Αποσύρθηκε από το Ekdosi",
+    ":count of :selected invoices": ":count από :selected τιμολόγια"
 }
