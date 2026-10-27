@@ -234,7 +234,9 @@ final class EkdosiFeed
             'relid' => (int) ($item->reference_id ?? 0),
             'description' => (string) ($item->description ?? ''),
             'amount' => $this->money($item->net()),
-            'taxed' => (int) (bool) $item->taxed,
+            // As WHMCS's: tax applies at the invoice's rate. A line ticked but billed at 0% (a product that is not taxable,
+            // an exempt account, LineTax) is not: Ekdosi would put 24% on it (live test of 2026-10-27).
+            'taxed' => (int) ((bool) $item->taxed && (float) $item->tax_rate > 0),
             'whmcs_product_id' => (int) ($product->id ?? 0),
             'whmcs_group_id' => (int) ($product->category_id ?? 0),
             'quantity' => (int) $item->quantity,
