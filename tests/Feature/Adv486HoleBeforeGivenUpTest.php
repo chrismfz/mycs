@@ -10,6 +10,8 @@ use App\Models\Price;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Support\CurrentClient;
+use App\Support\Portal\UpcomingRenewals;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -258,5 +260,63 @@ class Adv486HoleBeforeGivenUpTest extends TestCase
 
         $this->assertSame('2027-12-24', $service->fresh()->expires_at->toDateString());
         $this->assertSame(0, $this->lines($service, 'unpaid')->count());
+    }
+
+    // ------------------------------------------------------------------ independent review of #486
+
+    /**
+     * R-486-1: with a dunning window the daily run (before it opens) does not suspend, and the hourly run left the service
+     * to the daily one because its period looked «not billed yet» (periodUnbilled). Nothing is ever billed now: never
+     * suspended, never terminated.
+     */
+    public function test_rev_with_a_dunning_window_the_service_is_still_suspended(): void
+    {
+        [$service] = $this->holeBeforeGivenUp();
+        config(['settings.cronjob_time' => '03:00', 'settings.cronjob_dunning_days' => [1, 2, 3, 4, 5], 'settings.cronjob_dunning_from' => '10:00']);
+
+        for ($day = Carbon::parse('2027-11-21'); $day->lte(Carbon::parse('2027-12-03')); $day->addDay()) {
+            Carbon::setTestNow($day->copy()->setTime(3, 0));
+            Artisan::call('app:cron-job');
+            Carbon::setTestNow($day->copy()->setTime(10, 5));
+            Artisan::call('app:cron-job', ['--dunning-only' => true]);
+        }
+
+        $this->assertNotSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'active 18 days past its date, with nothing to pay');
+    }
+
+    /**
+     * R-486-2: a period given up on and a live (paid) one start the same day ahead: the hole before the live one is billed,
+     * whichever line comes first.
+     */
+    public function test_rev_a_live_period_starting_with_one_given_up_on_still_bills_the_hole(): void
+    {
+        [$service, $givenUp] = $this->holeBeforeGivenUp();
+        $service->fresh()->update(['expires_at' => '2027-11-24']);
+        $again = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $again->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
+            'quantity' => 1, 'price' => 10.00, 'period_start' => '2027-11-24', 'period_end' => '2027-12-24']);
+        $this->pay($again);
+        $service->fresh()->update(['expires_at' => '2027-11-15']);
+
+        Carbon::setTestNow('2027-11-22 10:00:00');
+        Artisan::call('app:cron-job');
+
+        $line = $this->lines($service, 'unpaid')->first();
+        $this->assertNotNull($line, 'the hole before the paid [11-24, 12-24) was not billed');
+        $this->assertSame(['2027-11-15', '2027-11-24'], [$line->period_start->toDateString(), $line->period_end->toDateString()]);
+    }
+
+    /** R-486-4: the client area does not promise renewals the billing will never make. */
+    public function test_rev_upcoming_renewals_promise_nothing_before_a_period_given_up_on(): void
+    {
+        $this->holeBeforeGivenUp(); // still active on 11-20, before the cron suspends it
+        $this->actingAs($this->user);
+        session()->put(CurrentClient::SESSION_KEY, $this->user->client()->id);
+
+        $control = $this->service('2027-12-10');
+        $items = collect((new UpcomingRenewals($this->user->client()))->months())->flatMap(fn (array $month) => $month['items']);
+        $this->assertContains('10/12/2027', $items->pluck('date')->all(), 'precondition: a plain service is listed');
+        $items = $items->reject(fn (array $item) => str_starts_with($item['date'], '10/'))->values();
+        $this->assertSame([], $items->pluck('date')->all(), 'renewals promised that the billing will never make');
     }
 }
