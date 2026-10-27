@@ -189,4 +189,9 @@ return [
     'document_active' => 'Issued',
     'document_cancelled' => 'Cancelled',
     'open_pdf' => 'PDF',
+    // «My documents» (E2b): every document of the account.
+    'my_documents' => 'My documents',
+    'my_documents_note' => 'The legal documents (invoices, receipts) issued for your payments and filed with the tax authority (AADE).',
+    'from_invoice' => 'From',
+    'no_documents' => 'No documents yet.',
 ];

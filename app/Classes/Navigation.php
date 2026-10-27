@@ -3,6 +3,7 @@
 namespace App\Classes;
 
 use App\Helpers\EventHelper;
+use App\Livewire\Invoices\Documents;
 use App\Models\Category;
 use App\Models\DomainTld;
 use App\Models\KbArticle;
@@ -191,6 +192,14 @@ class Navigation
                     'separator' => true,
                     'condition' => Auth::check() && CurrentClient::allows('invoices'),
                     'priority' => 30,
+                ],
+                [
+                    // «Τα παραστατικά μου» (E2b): with the Ekdosi bridge on and a document to show.
+                    'name' => __('invoices.my_documents'),
+                    'url' => route('documents'),
+                    'icon' => 'ri-file-list-3',
+                    'condition' => Auth::check() && CurrentClient::allows('invoices') && Documents::shown(),
+                    'priority' => 31,
                 ],
                 [
                     'name' => __('navigation.tickets'),
