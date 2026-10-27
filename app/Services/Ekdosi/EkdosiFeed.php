@@ -242,6 +242,9 @@ final class EkdosiFeed
             'quantity' => (int) $item->quantity,
             'unit_price' => $this->money($item->price),
             'tax_rate' => (string) ($item->tax_rate ?? '0'),
+            // Why a line went without tax (EuVat: exempt, not_taxable, reverse_charge, outside_eu): Ekdosi's exemption
+            // category for it, not the tenant's one for all (adversarial ADV-1 of #487). Null on a taxed line.
+            'tax_reason' => (bool) $item->taxed && (float) $item->tax_rate > 0 ? null : ($item->tax_reason ?: null),
             'tax_amount' => $this->money($item->tax_amount),
             'total' => $this->money($item->total()),
             'period_start' => $item->period_start?->format('Y-m-d'),

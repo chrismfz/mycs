@@ -62,4 +62,20 @@ class EkdosiFeedTaxedTest extends TestCase
         $this->assertSame(0, $lines[$untaxed->id]['taxed']);
         $this->assertSame('24', rtrim(rtrim((string) $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->json('invoice.taxrate'), '0'), '.'));
     }
+
+    /** Review of #487: a tax-exempt account bills every line at 0%: all untaxed, and no rate in the header. */
+    public function test_an_exempt_accounts_lines_all_go_untaxed(): void
+    {
+        $this->client->forceFill(['tax_exempt' => true])->save();
+        $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => now()->addWeek()]);
+        $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '10.00']);
+        $invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => '5.00']);
+        ExtensionHelper::addPayment($invoice->fresh(), 'BankTransfer', (string) $invoice->fresh()->total, transactionId: 'TX-2');
+
+        $payload = $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->assertOk()->json('invoice');
+
+        $this->assertSame([0, 0], array_column($payload['items']['item'], 'taxed'));
+        $this->assertSame('0', $payload['taxrate']);
+        $this->assertSame('0.00', $payload['tax']);
+    }
 }

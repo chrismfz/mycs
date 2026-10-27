@@ -146,7 +146,12 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   `currencycode`;
 - στοιχεία πελάτη: από την κύρια επαφή;
 - `customfields`: πάντα `[]`;
-- `items.item[]` με `type`, `relid`, `amount` (καθαρό), `whmcs_product_id`/`whmcs_group_id` (προϊόν/κατηγορία);
+- `items.item[]` με `type`, `relid`, `amount` (καθαρό), `taxed`, `whmcs_product_id`/`whmcs_group_id` (προϊόν/κατηγορία).
+  `taxed` = τσεκαρισμένο **και** συντελεστής > 0, δηλαδή η γραμμή χρεώθηκε ΦΠΑ (όπως το WHMCS: «ΦΠΑ με τον συντελεστή
+  του τιμολογίου»). Γραμμή 0% (μη φορολογητέο προϊόν, απαλλαγή, αντίστροφη χρέωση) πάει `taxed: 0` και το Ekdosi την
+  κρατά για να διαλέξει άνθρωπος την αιτία απαλλαγής (#487). `tax_reason` λέει γιατί (`exempt`, `not_taxable`,
+  `reverse_charge`, `outside_eu`, `docs/eu-vat.md`), null σε γραμμή με ΦΠΑ· το Ekdosi θα το αντιστοιχίσει σε κατηγορία
+  απαλλαγής (μέχρι τότε η μία της εταιρείας);
 - `transactions`.
 
 Μαζί με αυτά, ό,τι το WHMCS δεν έδινε:
