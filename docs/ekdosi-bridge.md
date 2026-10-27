@@ -73,13 +73,16 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 | 200 με `note` `already_settled` / `already_recorded` | `add_payment`: επιτυχία (τίποτα δεν χρειάζεται) |
 | 500 `query_failed` | εσωτερικό λάθος (η λεπτομέρεια μόνο στο log) |
 
-- **`ping`** → `{status: ok, source: mycs, ops: [...]}`. Το Ekdosi ελέγχει έτσι πριν γυρίσει μια εταιρεία στη MyCS.
+- **`ping`** → `{status: ok, source: mycs, ops: [...], statuses: [paid_unfiled, requested]}`. Το Ekdosi ελέγχει έτσι
+  πριν γυρίσει μια εταιρεία στη MyCS· το `statuses` λέει αν η MyCS έχει ήδη το `requested` (E5).
 - **`invoices`** `{status?, since?, offset?, limit?, userids?}`:
   - `status` = `paid_unfiled` (default, τα «Εισερχόμενα»): πληρωμένα που δεν έχουν ακόμα παραστατικό από το Ekdosi,
     με `since` την ημερομηνία πληρωμής (χωρίς ημερομηνία πληρωμής μετρά η έκδοση);
   - ή `Paid`, `Unpaid`, `Cancelled`, `Refunded`, `Draft`, `All`, με `since` την ημερομηνία έκδοσης;
   - newest first, `limit` ≤ 200;
-  - οι πελάτες με «ignore invoicing» δεν εμφανίζονται ποτέ;
+  - ή `requested` (E5): ό,τι έστειλε το staff με «Send to Ekdosi», απλήρωτο ή πληρωμένο, ώσπου να έχει ενεργό
+    παραστατικό· **και** λογαριασμών με «ignore invoicing»· `since` η ώρα που ζητήθηκε;
+  - οι πελάτες με «ignore invoicing» δεν εμφανίζονται ποτέ, εκτός από το `requested`;
   - `userids` (E3): μόνο αυτοί οι λογαριασμοί, λίστα από έως 1000 **ακέραιους** (τα απλήρωτα των πελατών «τιμολόγιο πριν
     την πληρωμή»)· οτιδήποτε άλλο 400, ποτέ «όλοι».
 - **`invoice`** `{invoice_id}`: ένα τιμολόγιο, σε οποιαδήποτε κατάσταση και με τη σημαία `ignore_invoicing`· αποφασίζει
@@ -151,7 +154,8 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
 - `third_party` πάντα, στο σχήμα του `resolve`. Κάθε γραμμή έχει την επαφή της υπηρεσίας ή του domain της (ενός
   upgrade, της υπηρεσίας του) όταν αυτή **δεν** είναι η κύρια επαφή του λογαριασμού. Επαφή άλλου λογαριασμού
   (υπόλοιπο μετά από μεταφορά) δεν μετρά. Το `is_receipt` βγαίνει από το `document_type` της επαφής.
-- `mycs`: `source`, `ignore_invoicing`, `immediate_invoicing`, `adjustments` (credit/debit notes, που το WHMCS δεν
+- `mycs`: `source`, `ignore_invoicing`, `immediate_invoicing`, `requested_at` (E5: πότε το έστειλε το staff, ή null),
+  `adjustments` (credit/debit notes, που το WHMCS δεν
   έχει), `recipient` (η κύρια επαφή με ΑΦΜ, ΔΟΥ, δραστηριότητα και `document_type`), `documents` (ό,τι έχει ήδη
   γράψει πίσω το Ekdosi).
 
@@ -214,6 +218,24 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   1. ο importer φέρνει τα `mod_ekdosi_invoice_marks` (E4), ώστε τα τιμολογημένα να μη ξαναμπούν στο feed;
   2. ανοίγει η ρύθμιση της MyCS;
   3. στο Ekdosi η εταιρεία γυρίζει από «WHMCS Bridge» σε «MyCS Bridge», με το ίδιο `since`.
+
+## E5: «Send to Ekdosi» (υπεύθυνος, 2026-10-27)
+
+Όπως το κουμπί του plugin πάνω από τα invoices στο WHMCS. Το staff ζητά από το Ekdosi παραστατικό για ένα τιμολόγιο
+που το feed αφήνει έξω:
+- πελάτη με «ignore invoicing»·
+- **απλήρωτο**, όταν ο πελάτης θέλει πρώτα το παραστατικό και μετά πληρώνει. Το Ekdosi το κόβει επί πιστώσει και η
+  πληρωμή το κλείνει αργότερα με τον συγχρονισμό (`add_payment` / K2).
+
+Στη MyCS: «Send to Ekdosi» στο τιμολόγιο (edit και view) και μαζικά στη λίστα, «Withdraw from Ekdosi» για να το πάρει
+πίσω. Μόνο τιμολόγια unpaid ή paid, με πελάτη, χωρίς ενεργό παραστατικό· όχι drafts, ακυρωμένα ή επιστραμμένα.
+Δικαίωμα `admin.invoices.update`. Κρατιούνται ποιος και πότε (`invoices.ekdosi_requested_at` / `_by`) και κάθε
+αλλαγή στο audit του τιμολογίου (`ekdosi_requested`, `ekdosi_request_withdrawn`). Το feed `requested` το δείχνει ώσπου
+να υπάρξει ενεργό παραστατικό· ένα που έχει ήδη διαβάσει το Ekdosi μένει στα εισερχόμενά του και αρχειοθετείται εκεί.
+
+Το Ekdosi (K3) διαβάζει το `requested` και το βάζει στα Εισερχόμενα· **ποτέ** δεν το εκδίδει αυτόματα (ούτε ο
+γκρινιάρης). Το webhook `invoice-paid` του plugin μένει κλειστό για εταιρείες με πηγή τη MyCS (`source_is_mycs`): η MyCS
+δεν σπρώχνει, το Ekdosi διαβάζει.
 
 ## Live δοκιμή (πριν το cut-over)
 

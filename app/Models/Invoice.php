@@ -192,6 +192,9 @@ class Invoice extends Model implements Auditable
         'finish_pending_at' => 'immutable_datetime',
         // Staff keep it from the cron's charge of the saved method (PR H2b).
         'no_auto_charge' => 'boolean',
+        // Staff asked Ekdosi for its document (E5, «Send to Ekdosi»): the feed's `requested`.
+        'ekdosi_requested_at' => 'immutable_datetime',
+        'ekdosi_requested_by' => 'integer',
     ];
 
     public bool $send_create_email = true;

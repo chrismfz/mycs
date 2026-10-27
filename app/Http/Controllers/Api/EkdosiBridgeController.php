@@ -57,7 +57,9 @@ class EkdosiBridgeController extends Controller
         try {
             switch ($body['op'] ?? null) {
                 case 'ping':
-                    return response()->json(['status' => 'ok', 'source' => 'mycs', 'ops' => ['ping', 'invoices', 'invoice', 'resolve', 'mark', 'add_payment']]);
+                    return response()->json(['status' => 'ok', 'source' => 'mycs', 'ops' => ['ping', 'invoices', 'invoice', 'resolve', 'mark', 'add_payment'],
+                        // The feed's statuses beyond the plugin's: E5's «Send to Ekdosi».
+                        'statuses' => ['paid_unfiled', 'requested']]);
                 case 'invoices':
                     // Sent but not a date string: never the beginning of time instead of the cut-over (R2-7).
                     if (array_key_exists('since', $body) && $body['since'] !== null && !is_string($body['since'])) {
