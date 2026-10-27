@@ -1083,8 +1083,9 @@ class ImportFromWhmcs extends Command
             DB::table('invoices')->insert($data);
         });
 
-        // Set invoice number in settings to highest imported invoice number + 1. A Mass Pay parent (not imported, PR F3)
-        // keeps its id too: a new invoice never takes the number a customer quotes for one.
+        // The counter holds the last number given (InvoiceNumberListener: +1, then used): the highest imported id, so the
+        // next is one past it, none skipped (adversarial ADV-2 of #477). A Mass Pay parent (not imported, PR F3) keeps its id
+        // too: a new invoice never takes the number a customer quotes for one.
         $highestInvoiceNumber = max((int) DB::table('invoices')->max('id'), (int) $this->pdo->query('SELECT MAX(id) FROM tblinvoices')->fetchColumn());
         // DDL commits an open transaction (MySQL/MariaDB): only outside one, as the importer runs.
         if ((DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') && DB::transactionLevel() === 0) {
@@ -1092,7 +1093,7 @@ class ImportFromWhmcs extends Command
         }
         Setting::updateOrCreate(
             ['key' => 'invoice_number'],
-            ['value' => $highestInvoiceNumber + 1]
+            ['value' => $highestInvoiceNumber]
         );
     }
 

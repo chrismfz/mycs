@@ -27,9 +27,9 @@
 - [x] ~~Incomplete tests χρημάτων (`BillingCursorMoneyTest`)~~ **έκλεισαν (2026-10-27):** το «downgrade ληξιπρόθεσμης»
       περνά και τρέχει πια· τα άλλα δύο έφυγαν, γιατί το σενάριό τους δεν υπάρχει πια: γραμμή τιμολογίου με πληρωμή
       κρατά την τιμή της (R9, `ChangeOpenLine`· `UpgradeLifecycleTest`) και τιμολόγιο δεν δημιουργείται ποτέ paid (MT-1c,
-      `StaffCorrectionsAdversarialTest::test_an_invoice_is_never_created_paid`). Τα 4 του
-      `InvoiceNumberingAdversarialTest` (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό
-      `invoicenum`) κλείνουν **μέσα** στον importer.
+      `StaffCorrectionsAdversarialTest::test_an_invoice_is_never_created_paid`). Από τα 4 του
+      `InvoiceNumberingAdversarialTest` το «χωρίς χαμένο αριθμό» έκλεισε στο #477 (ο importer γράφει το μεγαλύτερο id,
+      όχι +1)· τα άλλα 3 (myip number = id, μετρητής nixpal χωρίς άλμα, διπλό `invoicenum`) κλείνουν **μέσα** στον importer.
 - [x] ~~Webhooks PayPal ppcpv και Stripe μέσω Chrome~~ **ελέγχθηκαν (2026-10-27):** τίποτα πριν το cut-over· στο
       cut-over νέο webhook PayPal προς τη MyCS (με τα disputes, Webhook ID στο gateway), το Stripe το φτιάχνει η MyCS
       μόνη της, και σβήνονται τα παλιά. Το Stripe του WHMCS ακούει μόνο αλλαγές κάρτας: γι' αυτό τα 0 webhooks.
@@ -39,7 +39,8 @@
       `settings-map.md`.
 - [x] ~~Τα δεδομένα των migrations στους seeders~~ **έγινε (chore/seed-what-migrations-write):** templates (ήταν ήδη ίδια),
       τμήματα tickets (Support, Sales), και οι μετρητές `invoice_number`/`credit_note_number` από 0 (με 1, σε νέα
-      εγκατάσταση το πρώτο πιστωτικό έπαιρνε τον αριθμό 2). Φύλακας: `SeedersCoverMigrationDataTest`.
+      εγκατάσταση το πρώτο πιστωτικό έπαιρνε τον αριθμό 2· migration για όσες στήθηκαν πριν). Φύλακας:
+      `SeedersCoverMigrationDataTest`, σε κάθε πίνακα και στήλη.
 - [ ] **Squash των migrations (~216)** σε `schema:dump` (MariaDB και SQLite), **μετά** από Ekdosi, review του payments
       tracking, mailcow, cPanel resellers, Proxmox, Centova (υπεύθυνος, 2026-10-27). Έλεγχος: βάση από τα παλιά migrations
       + seed απέναντι σε βάση από το dump + seed, σχήμα και κάθε γραμμή ίδια.

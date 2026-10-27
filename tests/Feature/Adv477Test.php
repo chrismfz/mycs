@@ -13,7 +13,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PDO;
-use ReflectionClassConstant;
 use ReflectionMethod;
 use ReflectionProperty;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -109,7 +108,12 @@ class Adv477Test extends TestCase
      */
     public function test_the_guard_compares_every_table_and_column_a_fresh_install_fills(): void
     {
-        $guarded = (new ReflectionClassConstant(SeedersCoverMigrationDataTest::class, 'TABLES'))->getValue();
+        // What the guard compares, as it reads it (since the fix: every table, every column but ids and timestamps).
+        $guard = new SeedersCoverMigrationDataTest('guard');
+        $guarded = [];
+        foreach ((new ReflectionMethod($guard, 'rows'))->invoke($guard) as $name => $rows) {
+            $guarded[$name] = array_keys((array) json_decode($rows[0], true));
+        }
         $missing = [];
         foreach (Schema::getTableListing() as $table) {
             $table = str_contains($table, '.') ? explode('.', $table)[1] : $table;
