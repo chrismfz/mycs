@@ -421,4 +421,24 @@ class LiveChatCustomerTest extends TestCase
         $this->asStaff($reader);
         Livewire::test(ChatQueue::class)->assertSee(__('View'))->assertDontSee(__('Take'));
     }
+
+    /** Re-review of #475: a take-over leaves a note for the staff, which the customer does not see. */
+    public function test_a_take_over_leaves_a_staff_only_note(): void
+    {
+        $support = $this->department();
+        $taker = $this->online($this->operator($support));
+        $colleague = $this->operator($support);
+        [$user, $client] = $this->customer();
+        LiveChats::start($user, $support->id, 'hi');
+        $chat = LiveChat::query()->sole();
+        LiveChats::claim($taker, $chat);
+        $taker->forceFill(['active' => false])->save();
+        $this->assertTrue(LiveChats::claim($colleague, $chat->fresh()));
+
+        $note = __('Taken over by :name from :from.', ['name' => $colleague->name, 'from' => $taker->name]);
+        $this->asStaff($colleague);
+        Livewire::test(CustomerChat::class, ['chatId' => $chat->id])->assertSee($note);
+        $this->asCustomer($user, $client);
+        Livewire::test(ChatBubble::class)->call('toggle')->assertSee('hi')->assertDontSee($note);
+    }
 }

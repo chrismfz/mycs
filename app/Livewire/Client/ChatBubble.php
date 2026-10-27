@@ -3,6 +3,7 @@
 namespace App\Livewire\Client;
 
 use App\Models\LiveChat;
+use App\Models\LiveChatMessage;
 use App\Models\User;
 use App\Support\CurrentClient;
 use App\Support\LiveChats;
@@ -80,7 +81,8 @@ class ChatBubble extends Component
         return view('livewire.client.chat-bubble', [
             'may' => $shown,
             'chat' => $chat,
-            'messages' => $chat ? LiveChats::messages($chat) : collect(),
+            // The staff's notes (a take-over) are not the customer's (F20).
+            'messages' => $chat ? LiveChats::messages($chat)->reject(fn ($message) => $message->author_type === LiveChatMessage::SYSTEM)->values() : collect(),
             'departments' => $departments,
             // Asked again on start: the cached list may be up to AVAILABILITY_TTL seconds old.
             'available' => $this->open && $chat === null && $this->department !== null && in_array($this->department, $available, true),

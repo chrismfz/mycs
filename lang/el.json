@@ -1411,5 +1411,6 @@
     "The operator of this chat can no longer answer it.": "Ο operator αυτού του chat δεν μπορεί πια να απαντήσει.",
     "Take over": "Ανάληψη από εμένα",
     "no operator": "χωρίς operator",
-    "View": "Προβολή"
+    "View": "Προβολή",
+    "Taken over by :name from :from.": "Ανάληψη από :name, αντί για :from."
 }

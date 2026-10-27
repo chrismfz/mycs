@@ -190,12 +190,40 @@ class LiveChats
      */
     public static function orphaned(LiveChat $chat): bool
     {
-        if ($chat->status !== LiveChat::ACTIVE) {
-            return false;
-        }
-        $operator = $chat->assigned_to === null ? null : Staff::query()->find($chat->assigned_to);
+        return in_array($chat->id, self::orphanedIds(new Collection([$chat])), true);
+    }
 
-        return !self::canReply($operator, $chat);
+    /**
+     * The orphaned ones of a set of chats, in three queries however many there are (re-review of #475: the queue polls
+     * every 5 seconds): their operators with their roles, and those operators' departments.
+     *
+     * @param  Collection<int, LiveChat>  $chats
+     * @return list<int>
+     */
+    private static function orphanedIds(Collection $chats): array
+    {
+        $active = $chats->filter(fn (LiveChat $chat) => $chat->status === LiveChat::ACTIVE);
+        if ($active->isEmpty()) {
+            return [];
+        }
+        $ids = $active->pluck('assigned_to')->filter()->unique()->values()->all();
+        $operators = Staff::query()->with('role')->whereKey($ids)->get()->keyBy('id');
+        $departments = DB::table('live_chat_department_staff')->whereIn('staff_id', $ids)->get(['staff_id', 'ticket_department_id'])
+            ->groupBy('staff_id')->map(fn ($rows) => $rows->pluck('ticket_department_id')->map(fn ($id) => (int) $id)->all());
+
+        return $active->filter(function (LiveChat $chat) use ($operators, $departments) {
+            $operator = $chat->assigned_to === null ? null : $operators->get($chat->assigned_to);
+
+            return !($operator instanceof Staff && self::isOperator($operator) && $operator->hasPermission('admin.chats.reply')
+                && in_array($chat->department_id, $departments->get($operator->id, []), true));
+        })->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+    }
+
+    /** @return Collection<int, LiveChat> active chats of the member's departments held by someone else */
+    private static function othersActive(Staff $staff): Collection
+    {
+        return LiveChat::query()->where('status', LiveChat::ACTIVE)->whereIn('department_id', self::departmentsOf($staff))
+            ->where(fn ($query) => $query->whereNull('assigned_to')->orWhere('assigned_to', '!=', $staff->id))->get();
     }
 
     /** @return Collection<int, LiveChat> chats waiting in the member's departments, and those whose operator left, oldest first */
@@ -204,18 +232,23 @@ class LiveChats
         if (!self::isOperator($staff)) {
             return new Collection;
         }
-        $chats = LiveChat::query()->with(['client', 'department:id,name'])->whereIn('status', [LiveChat::WAITING, LiveChat::ACTIVE])
-            ->whereIn('department_id', self::departmentsOf($staff))->oldest('id')->get();
+        $waiting = LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', self::departmentsOf($staff))->get();
+        $others = self::othersActive($staff);
+        $orphans = self::orphanedIds($others);
+        $chats = $waiting->merge($others->filter(fn (LiveChat $chat) => in_array($chat->id, $orphans, true)))->sortBy('id')->values();
 
-        return $chats->filter(fn (LiveChat $chat) => $chat->status === LiveChat::WAITING || ($chat->assigned_to !== $staff->id && self::orphaned($chat)))->values();
+        return $chats->load(['client', 'department:id,name']);
     }
 
-    /** How many wait in the member's departments: the menu's badge, on every admin page, as one count. */
+    /** How many wait in the member's departments, and how many have no operator: the menu's badge, as the queue counts them. */
     public static function waiting(Staff $staff): int
     {
-        return self::isOperator($staff)
-            ? LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', self::departmentsOf($staff))->count()
-            : 0;
+        if (!self::isOperator($staff)) {
+            return 0;
+        }
+
+        return LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', self::departmentsOf($staff))->count()
+            + count(self::orphanedIds(self::othersActive($staff)));
     }
 
     /** @return Collection<int, LiveChat> the member's own active chats */
@@ -250,8 +283,14 @@ class LiveChats
         }
         $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE);
         $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
+        if ($query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) !== 1) {
+            return false;
+        }
+        // A note for the staff only (F20): who took it over, from whom (re-review of #475).
+        $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'staff_id' => $staff->id,
+            'body' => __('Taken over by :name from :from.', ['name' => $staff->name, 'from' => (string) ($chat->operator->name ?? __('no operator'))])]);
 
-        return $query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) === 1;
+        return true;
     }
 
     /** The operator's message, in a chat they took. Null when sent; else what to tell them. */
@@ -271,7 +310,7 @@ class LiveChats
             return __('Too many messages, wait a moment.');
         }
 
-        return self::write($chat, ['author_type' => LiveChatMessage::STAFF, 'staff_id' => $staff->id, 'body' => $body], participant: false);
+        return self::write($chat, ['author_type' => LiveChatMessage::STAFF, 'staff_id' => $staff->id, 'body' => $body], participant: false, operator: $staff->id);
     }
 
     /** The operator closes the chat they took, or one of their department whose operator left. */
@@ -311,12 +350,16 @@ class LiveChats
      *
      * @param  array<string, mixed>  $message
      */
-    private static function write(LiveChat $chat, array $message, bool $participant): ?string
+    private static function write(LiveChat $chat, array $message, bool $participant, ?int $operator = null): ?string
     {
-        return DB::transaction(function () use ($chat, $message, $participant) {
+        return DB::transaction(function () use ($chat, $message, $participant, $operator) {
             $locked = LiveChat::query()->whereKey($chat->id)->lockForUpdate()->first();
             if ($locked === null || !$locked->isOpen()) {
                 return __('This chat is closed.');
+            }
+            // Still theirs under the lock: a take-over in between wins (re-review of #475).
+            if ($operator !== null && $locked->assigned_to !== $operator) {
+                return __('You may not write here.');
             }
             $locked->messages()->create($message);
             if ($participant) {

@@ -20,6 +20,10 @@
         x-data x-init="$el.scrollTop = $el.scrollHeight">
         @foreach ($messages as $message)
         @php $client = $message->author_type === \App\Models\LiveChatMessage::CLIENT; @endphp
+        @if ($message->author_type === \App\Models\LiveChatMessage::SYSTEM)
+        <p class="text-center text-xs text-gray-500 dark:text-gray-400">{{ $message->body }} · {{ $message->created_at?->format('d/m H:i') }}</p>
+        @continue
+        @endif
         <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
             <div class="text-xs text-gray-500 dark:text-gray-400">
                 {{-- Which login of the account writes (G11), not only the account. --}}
