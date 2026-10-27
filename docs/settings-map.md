@@ -112,7 +112,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Domain Renewal Notices (`DomainRenewalNotices`) | 60,30,15,10,5 | 30,7,-3 | ✓ `domain_reminder_days` (D7-1· **default `30,7,1,-3`** και για τις δύο, ICANN ERRP· αρνητικές = μετά τη λήξη· κενό = καμία· `domains.md` §2b) |
 | Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (όχι στο WHMCS· **default 0 = ποτέ**, ιδιοκτήτης 2026-10-19: παραγγελία ακυρώνει μόνο το staff· N ημέρες = ακυρώνει όσες μένουν απλήρωτες χωρίς καμία πληρωμή, BIL-12) |
 | Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **P:** `cronjob_payment_reminder` (default 6, 0 = off)· με αποθηκευμένο τρόπο πληρωμής ή συνδρομή φεύγει το «payment due» (WHMCS «Credit Card Payment Due») |
-| First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **P:** `cronjob_overdue_reminders` (λίστα ημερών, default «1,2», κενό = off): ένα template, η τελευταία λέει πότε αναστέλλεται· μία φορά η καθεμία (`invoice_reminders`) |
+| First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— (στην πράξη 0/1/2) → **1,3,7** στο MyCS (υπεύθυνος 2026-10-27: suspend στις 8, η τελευταία λέει «αναστέλλεται αύριο») | **P:** `cronjob_overdue_reminders` (λίστα ημερών, default «1,2», κενό = off): ένα template, η τελευταία λέει πότε αναστέλλεται· μία φορά η καθεμία (`invoice_reminders`) |
 | Add Late Fee Days (`AddLateFeeDays`) | 5 (Percentage, ποσό κενό) | 0 | **Ν** (δεν χρησιμοποιείται στην πράξη) |
 | Enable Auto Cancellation (unpaid invoices) | off | off | — |
 | Cancellation Requests (`AutoCancellationRequests`) | on | on | **M** (#61), πάντα on |

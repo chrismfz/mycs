@@ -251,9 +251,22 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 - **Αυτόματη ακύρωση απλήρωτων στις 60 ημέρες:** στη nixpal είναι ενεργή (2 τιμολόγια σε 12 μήνες) και η MyCS δεν έχει
   αντίστοιχη ρύθμιση. Πιθανότατα δεν χρειάζεται, γιατί συμπίπτει με το terminate στις 60.
 - **Ιστορικό emails πελατών:** `tblemails`, 13.059. Είτε οι τελευταίοι 12–24 μήνες στα `email_logs`, είτε μόνο αρχείο.
-- **Webhook του PayPal (ppcpv):** σήμερα πηγαίνει στο `/modules/gateways/callback/paypal_ppcpv.php`, που δεν υπάρχει στο
-  `routes/legacy.php`. Είτε ξαναδηλώνεται στο `/extensions/paypal/webhook`, είτε μπαίνει forwarder. Για το Stripe:
-  0 webhooks σε 24 ημέρες, να ελεγχθεί το endpoint στο dashboard του Stripe.
+- **Webhooks (ελέγχθηκαν στα dashboards, υπεύθυνος + Claude, 2026-10-27).** Τίποτα δεν αλλάζει πριν το cut-over: ένα
+  δεύτερο webhook από τώρα θα έστελνε live events σε διεύθυνση που ακόμα δεν εξυπηρετεί κανείς, ή αργότερα σε ένα
+  δοκιμαστικό MyCS που θα κατέγραφε πραγματικές πληρωμές.
+  - **PayPal** (app «MyApp_WHMCS»): ένα webhook, `clients.nixpal.com/modules/gateways/callback/paypal_ppcpv.php`, με
+    Payment capture completed/declined/denied/pending/refunded/reversed και Vault payment-token created/deleted.
+    **Στο cut-over:** νέο webhook στην ίδια app προς `https://<host του MyCS>/extensions/paypal/webhook`, με τα ίδια
+    events **και** `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (τα disputes, `payments.md`)· το Webhook ID
+    του μπαίνει στο gateway PayPal της MyCS (υποχρεωτικό: με αυτό ελέγχεται η υπογραφή). Μετά σβήνεται το παλιό.
+  - **Stripe** (λογαριασμός Nixpal): ένα endpoint, `clients.nixpal.com/modules/gateways/callback/stripe.php`, API
+    2019-09-09, μόνο 4 events αλλαγής κάρτας (`customer.card.updated`, `customer.source.updated`,
+    `customer.bank_account.updated`, `payment_method.updated`). Γι' αυτό 0 deliveries: το WHMCS επιβεβαιώνει τις
+    πληρωμές σύγχρονα. **Στο cut-over:** τίποτα με το χέρι· η MyCS φτιάχνει το δικό της endpoint
+    (`/extensions/stripe/webhook`, 14 events μαζί με τα disputes) όταν σωθεί το gateway Stripe με τα live κλειδιά,
+    και κρατά το signing secret. Μετά σβήνεται το παλιό.
+  - Ο host της MyCS της nixpal (`mycs.nixpal.com` ή το ίδιο το `clients.nixpal.com`) αποφασίζεται στο runbook· το
+    `zlic.php` μένει στο `clients.nixpal.com` όπως και να 'χει (`licensing.md`).
 
 ### Για το runbook (γραμμή 10)
 - **Πάγωμα:** σταματούν **πρώτα** τα cron του clnixpal, `crons/cron.php` και `crons/pop.php`, και τα δύο κάθε 5 λεπτά.

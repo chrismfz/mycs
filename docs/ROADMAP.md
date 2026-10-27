@@ -30,12 +30,13 @@
       `StaffCorrectionsAdversarialTest::test_an_invoice_is_never_created_paid`). Τα 4 του
       `InvoiceNumberingAdversarialTest` (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό
       `invoicenum`) κλείνουν **μέσα** στον importer.
-- [ ] **Μαζί, μέσω Chrome** (υπεύθυνος + Claude): το webhook του PayPal ppcpv της nixpal (σήμερα στο
-      `/modules/gateways/callback/paypal_ppcpv.php`, που δεν υπάρχει στο `routes/legacy.php`: ξαναδηλώνεται στο
-      `/extensions/paypal/webhook` ή forwarder) και το endpoint του Stripe στο dashboard (0 webhooks σε 24 ημέρες).
-- [ ] **Υπενθυμίσεις overdue της nixpal:** σήμερα 3 emails τις ημέρες 0, 1, 2 (το κενό 3ο το WHMCS το διαβάζει ως 0).
-      Πρόταση: `cronjob_overdue_reminders` = `1,3,7` (suspend στις 8: η τελευταία λέει «αναστέλλεται αύριο»). Περιμένει
-      το ΟΚ του υπευθύνου.
+- [x] ~~Webhooks PayPal ppcpv και Stripe μέσω Chrome~~ **ελέγχθηκαν (2026-10-27):** τίποτα πριν το cut-over· στο
+      cut-over νέο webhook PayPal προς τη MyCS (με τα disputes, Webhook ID στο gateway), το Stripe το φτιάχνει η MyCS
+      μόνη της, και σβήνονται τα παλιά. Το Stripe του WHMCS ακούει μόνο αλλαγές κάρτας: γι' αυτό τα 0 webhooks.
+      `importer.md` → «Webhooks».
+- [x] ~~Υπενθυμίσεις overdue της nixpal~~ **αποφασίστηκε (υπεύθυνος, 2026-10-27):** `cronjob_overdue_reminders` = `1,3,7`
+      στο cut-over (σήμερα 3 emails τις ημέρες 0, 1, 2· suspend στις 8, η τελευταία λέει «αναστέλλεται αύριο»).
+      `settings-map.md`.
 - Αποφασίστηκαν (2026-10-27):
   - **Ιστορικό emails:** ο τελευταίος χρόνος του `tblemails` στα `email_logs`, και στο cut-over
     `cronjob_delete_email_logs` = 365 (default 90: αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα tickets
