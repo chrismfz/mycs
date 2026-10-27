@@ -21,7 +21,8 @@ class SeedersCoverMigrationDataTest extends TestCase
     private function rows(): array
     {
         $rows = [];
-        foreach (Schema::getTables() as $table) {
+        // This database's tables only: on MariaDB getTables() lists every database the user sees (the parallel tests' too).
+        foreach (Schema::getTables(Schema::getCurrentSchemaName()) as $table) {
             $name = $table['name'];
             if ($name === 'migrations' || str_starts_with($name, 'sqlite_')) {
                 continue;

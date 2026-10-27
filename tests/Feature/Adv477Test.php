@@ -115,8 +115,7 @@ class Adv477Test extends TestCase
             $guarded[$name] = array_keys((array) json_decode($rows[0], true));
         }
         $missing = [];
-        foreach (Schema::getTableListing() as $table) {
-            $table = str_contains($table, '.') ? explode('.', $table)[1] : $table;
+        foreach (Schema::getTableListing(Schema::getCurrentSchemaName(), false) as $table) {
             if ($table === 'migrations' || DB::table($table)->count() === 0) {
                 continue;
             }
