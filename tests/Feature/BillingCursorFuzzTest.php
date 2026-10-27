@@ -472,14 +472,13 @@ class BillingCursorFuzzTest extends TestCase
             }
 
             // I6 one billing cycle per line; a hole shorter than a cycle (it ends where the next live
-            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. So is one
-            // that ends where a period given up on starts (Δ3a: the cron bills on past it, never into it).
+            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. Never one that
+            // ends where a period given up on starts: nothing is billed up to it (owner, 2026-10-27).
             // A hole is shorter than the cycle it cuts (ADV-484-2): it ends before a whole one would (the start's day a cycle
             // on, or the billing day if that is later in the month).
             $target = CarbonImmutable::parse($l['s'])->addMonthsNoOverflow($this->months);
             $cycleEnd = $target->setDay(max($target->day, min($this->anchor, $target->daysInMonth)))->toDateString();
-            $hole = $l['e'] < $cycleEnd && collect($after['lines'])->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']
-                && ($o['forgone'] || !in_array($o['status'], ['cancelled', 'refunded'], true)));
+            $hole = $l['e'] < $cycleEnd && collect($live)->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']);
             $bad = $hole ? null : $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
             if ($bad !== null) {
                 return "I6 line #$id [{$l['s']},{$l['e']}) $bad (after $action)";

@@ -203,6 +203,18 @@ final class RenewalBilling
             $service->save();
         }
 
+        // A period given up on starts inside the next one (staff moved the date back behind it): nothing is billed or renewed
+        // up to it, as for one at the due date itself; staff are told. It billed the days up to it, and the service was
+        // suspended there anyway (owner, 2026-10-27).
+        $next = $billed->first(fn ($line) => $line->period_start->greaterThan($periodStart));
+        $cycleEnd = $service->periodEnd($periodStart, $lines);
+        if ($next !== null && !$lines->contains('id', $next->id) && ($cycleEnd === null || $next->period_start->lessThan($cycleEnd))) {
+            $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id}: a period given up on starts {$next->period_start->toDateString()}, "
+                . (int) $periodStart->diffInDays($next->period_start) . " days after its due date {$periodStart->toDateString()}: nothing billed. Reopen that invoice, or move the service's date over the gap.");
+
+            return 0;
+        }
+
         // If service price is 0, immediately activate next period
         if ($service->price <= 0) {
             (new RenewServiceService)->handle($service);
