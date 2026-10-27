@@ -25,8 +25,8 @@
       σκόπιμα tests). Μετρήθηκε (μόνο SELECT): nixpal **0** διπλά, myip **1** (ένα έμβασμα σε 4 τιμολόγια)· ο importer
       τα φέρνει όπως είναι.
 - [x] ~~Incomplete tests χρημάτων (`BillingCursorMoneyTest`)~~ **έκλεισαν (2026-10-27):** το «downgrade ληξιπρόθεσμης»
-      περνά και τρέχει πια· τα άλλα δύο έφυγαν, γιατί το σενάριό τους δεν υπάρχει πια: το downgrade δεν αλλάζει την
-      ανοιχτή ανανέωση (#326) και τιμολόγιο δεν δημιουργείται ποτέ paid (MT-1c,
+      περνά και τρέχει πια· τα άλλα δύο έφυγαν, γιατί το σενάριό τους δεν υπάρχει πια: γραμμή τιμολογίου με πληρωμή
+      κρατά την τιμή της (R9, `ChangeOpenLine`· `UpgradeLifecycleTest`) και τιμολόγιο δεν δημιουργείται ποτέ paid (MT-1c,
       `StaffCorrectionsAdversarialTest::test_an_invoice_is_never_created_paid`). Τα 4 του
       `InvoiceNumberingAdversarialTest` (myip number = id, μετρητής nixpal χωρίς άλμα, χωρίς χαμένο αριθμό, διπλό
       `invoicenum`) κλείνουν **μέσα** στον importer.

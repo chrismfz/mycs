@@ -163,8 +163,8 @@ class BillingCursorMoneyTest extends TestCase
     }
 
     // «A downgrade that drops a part-paid renewal below the paid amount» (incomplete since the fork) left on 2026-10-27:
-    // a downgrade no longer reprices the open renewal (#326: the unused days become credit), and a total brought below
-    // what was paid is closed by staff with «Close as paid» (InvoiceResource, 2b).
+    // a line of an invoice with a payment on it keeps its price (R9, ChangeOpenLine; UpgradeLifecycleTest), and a total
+    // staff bring below what was paid is flagged (MoneyCheck open_settled) and closed with «Close as paid» (2b).
 
     /**
      * The cron's upgrade_invoices_updated step sets the price of EVERY line on the upgrade's invoice to the
