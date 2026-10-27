@@ -31,8 +31,9 @@ use Throwable;
  * customers (suspend/terminate), zero-price months. Invariants I1..I7 are checked after every step.
  *
  * FUZZ_SEEDS="1,2,3" or FUZZ_SEEDS="1-200" overrides the seed list. On failure the seed and event log print.
- * A seed replays the same run (choices use mt_rand, TestCase::pickOne), given the same FUZZ_SEEDS list: the
- * factories' Faker unique() keeps state from the seeds run before it.
+ * A seed replays the same run, given the same FUZZ_SEEDS list (the seeds run before it leave their rows): every choice
+ * comes from the test's own generator (TestCase::seedRandom), never the global mt_rand() the app and its libraries draw
+ * from too, and the database holds no rows of an earlier test (TestCase::setUpTraits).
  * A payment on a cancelled invoice no longer revives it (PR 2a, docs/payments.md), so every violation fails
  * the run; FUZZ_LENIENT=1 counts those that involve one as KNOWN instead (the pre-2a behaviour).
  */
@@ -134,13 +135,14 @@ class BillingCursorFuzzTest extends TestCase
             fwrite(STDERR, "\n" . $f . "\n");
         }
 
-        $this->assertSame([], array_map(fn ($f) => strtok($f, "\n"), $failures), $summary);
+        // The failures and their event logs in the message too: a parallel run (CI) does not show STDERR.
+        $this->assertSame([], array_map(fn ($f) => strtok($f, "\n"), $failures), $summary . implode("\n\n", $failures));
     }
 
     /** @return array{0: ?string, 1: int} */
     private function runSeed(int $seed): array
     {
-        mt_srand($seed);
+        $this->seedRandom($seed);
         $this->log = [];
         $this->free = [];
         $this->revived = [];
@@ -151,23 +153,25 @@ class BillingCursorFuzzTest extends TestCase
         $this->unit = $yearly ? 'year' : 'month';
         $this->months = $yearly ? 12 : 1;
         $day = match ($seed % 4) {
-            1 => 31, 2 => 30, 3 => 29, default => mt_rand(1, 28),
+            1 => 31, 2 => 30, 3 => 29, default => $this->rand(1, 28),
         };
-        $history = mt_rand(1, 10) <= 7;
+        $history = $this->rand(1, 10) <= 7;
 
         if ($yearly && $day === 29) {
             $expires = CarbonImmutable::parse('2028-02-29');
         } else {
-            $month = CarbonImmutable::create(2027, mt_rand(1, 12), 1);
+            $month = CarbonImmutable::create(2027, $this->rand(1, 12), 1);
             $expires = $month->setDay(min($day, $month->daysInMonth));
         }
-        // Without a history line the billing day can only be the expiry's own day.
-        $this->anchor = $history ? $day : $expires->day;
-        if (!$history && $expires->day !== $day) {
-            $day = $expires->day;
-        }
+        $prev = $expires->subMonthsNoOverflow($this->months);
+        $prev = $prev->setDay(min($day, $prev->daysInMonth));
+        // The billing day is what the dates show: without a history line the expiry's own day; with one, the later of
+        // its two days (one may be clamped). Both clamped (a yearly service on the 30th or 31st, renewed in February):
+        // nothing says it was not the 28th (seeds 314, 414 of 21-420, before seedRandom).
+        $this->anchor = $history ? max($prev->day, $expires->day) : $expires->day;
+        $day = $this->anchor;
 
-        Carbon::setTestNow($expires->subDays(mt_rand(0, 10))->setTime(10, 0));
+        Carbon::setTestNow($expires->subDays($this->rand(0, 10))->setTime(10, 0));
         $product = $this->createProduct();
         Plan::query()->whereKey($product->plan->id)->update(['billing_unit' => $this->unit, 'billing_period' => 1]);
         $this->service = Service::factory()->create([
@@ -181,8 +185,6 @@ class BillingCursorFuzzTest extends TestCase
         ]);
         $this->maxStaff = $expires->toDateString();
         if ($history) {
-            $prev = $expires->subMonthsNoOverflow($this->months);
-            $prev = $prev->setDay(min($this->anchor, $prev->daysInMonth));
             $this->invoiceFor($prev->toDateString(), $expires->toDateString(), 'paid');
         }
         $this->knownItems = $this->itemIds();
@@ -196,24 +198,24 @@ class BillingCursorFuzzTest extends TestCase
 
         while (CarbonImmutable::now()->lessThan($horizon)) {
             $n++;
-            Carbon::setTestNow(CarbonImmutable::now()->addDays($yearly ? mt_rand(10, 25) : mt_rand(3, 7)));
+            Carbon::setTestNow(CarbonImmutable::now()->addDays($yearly ? $this->rand(10, 25) : $this->rand(3, 7)));
             $silent = $silentUntil !== null && CarbonImmutable::now()->lessThan($silentUntil);
-            if (!$silent && mt_rand(1, 100) <= 3) {
-                $silentUntil = CarbonImmutable::now()->addDays(mt_rand(8, 45));
+            if (!$silent && $this->rand(1, 100) <= 3) {
+                $silentUntil = CarbonImmutable::now()->addDays($this->rand(8, 45));
                 $this->note('customer goes silent until ' . $silentUntil->toDateString());
             }
 
             $actions = ['cron'];
-            if (!$silent && mt_rand(1, 100) <= 60) {
+            if (!$silent && $this->rand(1, 100) <= 60) {
                 $actions[] = 'pay_oldest';
             }
-            if (mt_rand(1, 100) <= 30) {
+            if ($this->rand(1, 100) <= 30) {
                 $actions[] = $this->pick([
                     'pay_random' => 4, 'pay_twice' => 2, 'pay_cancelled' => 1, 'cancel' => 3, 'staff_move' => 3,
                     'manual_line' => 2, 'reverse_pay' => 2, 'price_toggle' => 2, 'repay' => 1, 'cancel_paid' => 1,
                 ]);
             }
-            shuffle($actions);
+            $actions = $this->shuffled($actions);
 
             foreach ($actions as $action) {
                 try {
@@ -315,7 +317,7 @@ class BillingCursorFuzzTest extends TestCase
                 if ($s->isEnded() || $s->expires_at === null) {
                     return null;
                 }
-                $delta = mt_rand(1, mt_rand(0, 3) ? 40 : 75) * (mt_rand(0, 1) ? 1 : -1);
+                $delta = $this->rand(1, $this->rand(0, 3) ? 40 : 75) * ($this->rand(0, 1) ? 1 : -1);
                 $target = CarbonImmutable::parse($s->expires_at)->addDays($delta)->toDateString();
                 $s->update(['expires_at' => $target]);
                 $after = $this->service->fresh()->expires_at->toDateString();
@@ -466,8 +468,10 @@ class BillingCursorFuzzTest extends TestCase
             }
 
             // I6 one billing cycle per line; a hole shorter than a cycle (it ends where the next live
-            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated.
-            $hole = collect($live)->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']);
+            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated. So is one
+            // that ends where a period given up on starts (Δ3a: the cron bills on past it, never into it).
+            $hole = collect($after['lines'])->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']
+                && ($o['forgone'] || !in_array($o['status'], ['cancelled', 'refunded'], true)));
             $bad = $hole ? null : $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
             if ($bad !== null) {
                 return "I6 line #$id [{$l['s']},{$l['e']}) $bad (after $action)";
@@ -580,6 +584,7 @@ class BillingCursorFuzzTest extends TestCase
                 'status' => $item->invoice->status,
                 's' => $item->period_start?->toDateString(),
                 'e' => $item->period_end?->toDateString(),
+                'forgone' => $item->forgone_at !== null,
             ];
         }
 
@@ -610,7 +615,7 @@ class BillingCursorFuzzTest extends TestCase
 
     private function pick(array $weights): string
     {
-        $r = mt_rand(1, array_sum($weights));
+        $r = $this->rand(1, array_sum($weights));
         foreach ($weights as $k => $w) {
             if (($r -= $w) <= 0) {
                 return $k;
@@ -657,7 +662,7 @@ class BillingCursorFuzzTest extends TestCase
     /**
      * A payment through the app's payment path (journaled, MT-1a): what is left, or, on an invoice with nothing left (a
      * cancelled one), its lines' total: that money becomes credit and the invoice stays as it is (pay_cancelled). Ids
-     * from a counter, not from mt_rand, so a recorded seed replays the same random sequence. Returns the payment's id.
+     * from a counter, not from the generator, so a recorded seed replays the same random sequence. Returns the payment's id.
      */
     private function pay(Invoice $invoice, ?string $id = null): string
     {
@@ -789,6 +794,53 @@ class BillingCursorFuzzTest extends TestCase
         $line = $this->pendingLine($service);
         $this->assertFalse($line->period_end->greaterThan('2027-07-22'),
             "billed [{$line->period_start->toDateString()}, {$line->period_end->toDateString()}) over the paid [2027-07-22, 2027-08-22); status=" . $service->fresh()->status);
+    }
+
+    /**
+     * I6 (the CI failure of 2026-10-27, PR #482, seed 1): the cron bills [11-24, 12-24), staff cancel it (given up on,
+     * Δ3a) and move the date back to 11-15. The cron bills the hole up to the period given up on, prorated, and not
+     * into it. Not a bug: the checker counted only live lines as the end of a hole; it now counts those given up on too.
+     */
+    public function test_min_a_hole_before_a_period_given_up_on_is_billed_alone(): void
+    {
+        Carbon::setTestNow('2027-11-20 10:00:00');
+        $service = $this->fixedService('2027-11-24');
+        Artisan::call('app:cron-job'); // bills [11-24, 12-24)
+        $this->pendingLine($service)->invoice->update(['status' => 'cancelled']);
+        $service->fresh()->update(['expires_at' => '2027-11-15']);
+
+        Carbon::setTestNow('2027-11-22 10:00:00');
+        Artisan::call('app:cron-job');
+
+        $line = $this->pendingLine($service);
+        $this->assertSame(['2027-11-15', '2027-11-24'], [$line->period_start->toDateString(), $line->period_end->toDateString()]);
+        $this->assertSame('3.00', (string) $line->price); // 9 of November's 30 days
+
+        $this->pay($line->invoice);
+        Carbon::setTestNow('2027-11-29 10:00:00');
+        Artisan::call('app:cron-job');
+
+        // Paid until the period given up on, and nothing billed past it: the suspension rules take it from there.
+        $this->assertSame('2027-11-24', $service->fresh()->expires_at->toDateString());
+        $this->assertSame(0, InvoiceItem::query()->where('reference_id', $service->id)->where('reference_type', Service::class)
+            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->count());
+    }
+
+    /**
+     * I6 (seeds 314, 414 of 21-420, before seedRandom): a yearly service whose dates are all in February shows the 28th
+     * as its billing day, whatever day it was sold on; its next year ends on the 28th, in a leap year too. Not a bug: the
+     * checker took the day it had drawn (the 30th) as the billing day; it now takes the one its dates show.
+     */
+    public function test_min_a_yearly_february_period_keeps_the_day_its_dates_show(): void
+    {
+        Carbon::setTestNow('2027-02-25 10:00:00');
+        $service = $this->fixedService('2027-02-28', unit: 'year');
+        $this->invoiceFor('2026-02-28', '2027-02-28', 'paid', $service);
+
+        Artisan::call('app:cron-job');
+
+        $line = $this->pendingLine($service);
+        $this->assertSame(['2027-02-28', '2028-02-28'], [$line->period_start->toDateString(), $line->period_end->toDateString()]);
     }
 
     /**

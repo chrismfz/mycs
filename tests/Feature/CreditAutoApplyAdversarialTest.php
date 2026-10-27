@@ -628,7 +628,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
     #[DataProvider('seeds')]
     public function test_fuzz(int $seed): void
     {
-        mt_srand($seed);
+        $this->seedRandom($seed);
         $this->watchCreditPayments();
         $users = [$this->user, User::factory()->create()];
         $subscriptionService = $this->service(['subscription_id' => 'I-FUZZ']);
@@ -638,12 +638,12 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $log = [];
 
         for ($step = 0; $step < 45; $step++) {
-            $user = $users[mt_rand(0, 1)];
-            $op = mt_rand(0, 13);
+            $user = $users[$this->rand(0, 1)];
+            $op = $this->rand(0, 13);
             try {
                 switch ($op) {
                     case 0: case 1:
-                        $kind = mt_rand(0, 5);
+                        $kind = $this->rand(0, 5);
                         [$ref, $refId] = match ($kind) {
                             0 => [Credit::class, null],
                             1 => [Service::class, $user->is($this->user) ? $subscriptionService->id : null],
@@ -653,21 +653,21 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         if ($ref === Service::class && $refId === null) {
                             $ref = null;
                         }
-                        $invoices[] = $this->invoice(mt_rand(1, 60), (mt_rand(-20, 20)) . ' days', $ref, $refId, $user, mt_rand(0, 6) === 0 ? 'EUR' : 'USD');
+                        $invoices[] = $this->invoice($this->rand(1, 60), ($this->rand(-20, 20)) . ' days', $ref, $refId, $user, $this->rand(0, 6) === 0 ? 'EUR' : 'USD');
                         $log[] = 'new invoice ' . end($invoices)->id;
                         break;
                     case 2: case 3:
                         if ($invoices) {
-                            $invoice = $invoices[array_rand($invoices)];
-                            $amount = mt_rand(1, 80);
+                            $invoice = $invoices[$this->rand(0, count($invoices) - 1)];
+                            $amount = $this->rand(1, 80);
                             ExtensionHelper::addPayment($invoice->id, 'Stripe', $amount, null, 'pi_f' . (++$txn), currency: $invoice->currency_code);
                             $log[] = "pay {$amount} on {$invoice->id}";
                         }
                         break;
                     case 4:
                         if ($invoices) {
-                            $invoice = $invoices[array_rand($invoices)];
-                            ExtensionHelper::addPayment($invoice->id, 'Stripe', mt_rand(1, 50), null, 'pi_f' . (++$txn), InvoiceTransactionStatus::Processing, currency: $invoice->currency_code);
+                            $invoice = $invoices[$this->rand(0, count($invoices) - 1)];
+                            ExtensionHelper::addPayment($invoice->id, 'Stripe', $this->rand(1, 50), null, 'pi_f' . (++$txn), InvoiceTransactionStatus::Processing, currency: $invoice->currency_code);
                             $log[] = "processing on {$invoice->id}";
                         }
                         break;
@@ -679,7 +679,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         }
                         break;
                     case 6:
-                        $this->giveCredit(mt_rand(1, 6000), $user, mt_rand(0, 4) === 0 ? 'EUR' : 'USD');
+                        $this->giveCredit($this->rand(1, 6000), $user, $this->rand(0, 4) === 0 ? 'EUR' : 'USD');
                         $log[] = 'credit +';
                         break;
                     case 7:
@@ -702,18 +702,18 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         $transaction = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)
                             ->whereNotNull('gateway_id')->inRandomOrder()->first();
                         if ($transaction && $transaction->refundable_amount > 0) {
-                            ExtensionHelper::refundLocally($transaction, round(min((float) $transaction->refundable_amount, mt_rand(1, 30)), 2));
+                            ExtensionHelper::refundLocally($transaction, round(min((float) $transaction->refundable_amount, $this->rand(1, 30)), 2));
                             $log[] = "refund {$transaction->id}";
                         }
                         break;
                     case 12:
                         if ($invoices) {
-                            (new CreditAutoApply)->toInvoice($invoices[array_rand($invoices)]->id);
+                            (new CreditAutoApply)->toInvoice($invoices[$this->rand(0, count($invoices) - 1)]->id);
                             $log[] = 'toInvoice';
                         }
                         break;
                     case 13:
-                        config(['settings.credits_auto_use' => mt_rand(0, 3) !== 0]);
+                        config(['settings.credits_auto_use' => $this->rand(0, 3) !== 0]);
                         $log[] = 'auto_use ' . var_export(config('settings.credits_auto_use'), true);
                         break;
                 }
