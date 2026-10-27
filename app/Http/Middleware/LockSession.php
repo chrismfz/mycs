@@ -23,7 +23,21 @@ class LockSession
         }
 
         // The admin panel runs on the staff guard (UseStaffGuard): its rules are the admin's.
-        $isAdmin = auth()->getDefaultDriver() === 'staff';
+        if ($resp = $this->refuses($request, auth()->getDefaultDriver() === 'staff' ? 'admin' : 'client')) {
+            return $resp;
+        }
+
+        return $next($request);
+    }
+
+    /**
+     * The session checked by one side's rules: a redirect, the session logged out, when its address or browser is not
+     * the one it started with. Also for staff in «Login as client» with the admin's rules (ImpersonateMiddleware, SEC-1
+     * of the review of #465): it is the staff member's session.
+     */
+    public function refuses(Request $request, string $role): ?Response
+    {
+        $setting = config('settings.session_validation', 'none');
 
         $ipModes = [
             'admin' => ['ip_admin', 'ip_both', 'ip_user_agent_admin', 'ip_user_agent_both'],
@@ -35,8 +49,6 @@ class LockSession
             'client' => ['user_agent_client', 'user_agent', 'ip_user_agent_client', 'ip_user_agent_both'],
         ];
 
-        $role = $isAdmin ? 'admin' : 'client';
-
         if (in_array($setting, $ipModes[$role], true)) {
             if ($resp = $this->checkAndStore($request->session(), 'login_ip', $request->ip(), $request)) {
                 return $resp;
@@ -44,12 +56,12 @@ class LockSession
         }
 
         if (in_array($setting, $uaModes[$role], true)) {
-            if ($resp = $this->checkAndStore($request->session(), 'login_ua', hash('sha256', $request->header('User-Agent')), $request)) {
+            if ($resp = $this->checkAndStore($request->session(), 'login_ua', hash('sha256', (string) $request->header('User-Agent')), $request)) {
                 return $resp;
             }
         }
 
-        return $next($request);
+        return null;
     }
 
     private function checkAndStore(Session $session, string $key, string $value, $request)
