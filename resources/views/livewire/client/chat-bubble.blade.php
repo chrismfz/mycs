@@ -31,7 +31,7 @@
                 <div class="text-xs opacity-60">
                     {{ $mine ? __('You') : ($customer ? \App\Support\LiveChats::loginName($message->user) : \App\Support\LiveChats::operatorName($message->staff)) }} · {{ $message->created_at?->format('H:i') }}
                 </div>
-                <div @class(['mt-0.5 max-w-[85%] rounded-lg px-3 py-2 break-words', 'bg-primary-600/10' => $customer, 'bg-background-secondary' => !$customer])>{!! \App\Support\ChatText::render($message->body) !!}</div>
+                <div @class(['mt-0.5 max-w-[85%] rounded-lg px-3 py-2 break-words', 'bg-primary/15' => $customer, 'bg-background-secondary' => !$customer])>{!! \App\Support\ChatText::render($message->body) !!}</div>
             </div>
             @endforeach
         </div>
@@ -74,7 +74,7 @@
     </div>
     @endif
     <button type="button" wire:click="toggle" x-on:click="remember(!$wire.open)"
-        class="rounded-full bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:opacity-90">
+        class="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg hover:opacity-90">
         {{ __('Chat') }}
     </button>
     @endif

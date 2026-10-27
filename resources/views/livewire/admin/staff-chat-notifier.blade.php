@@ -9,6 +9,10 @@
 <div wire:poll.10s.keep-alive hidden
     data-staff="{{ $staffId }}" data-total="{{ $news['total'] }}" data-latest="{{ $news['latest'] }}"
     data-title="{{ $news['title'] }}" data-url="{{ $url }}" data-page="{{ $page }}"
+    {{-- Customers' chats (step 3α): a new chat waiting in the member's departments, a new message in their own chats. --}}
+    data-waiting="{{ $customers['waiting'] }}"
+    data-chat-latest="{{ $customers['chat_latest'] }}" data-chat-title="{{ $customers['chat_title'] }}" data-chat-url="{{ $page }}"
+    data-msg-latest="{{ $customers['message_latest'] }}" data-msg-title="{{ $customers['message_title'] }}" data-msg-url="{{ $customers['message_url'] }}"
     x-data="{
         key() { return 'mycs-chat-alerted-' + this.$el.dataset.staff },
         timer: null,
@@ -70,31 +74,39 @@
             // A quiet poll changes nothing, so the front mark is kept fresh by a timer of its own (re-review of #382).
             this.timer = setInterval(() => this.front(), 5000);
             this.observer = new MutationObserver(() => this.check());
-            this.observer.observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total'] });
+            this.observer.observe(this.$el, { attributes: true, attributeFilter: ['data-latest', 'data-total', 'data-waiting', 'data-chat-latest', 'data-msg-latest'] });
         },
         away() { return document.visibilityState !== 'visible' || !document.hasFocus() },
         title() {
-            const total = Number(this.$el.dataset.total);
+            const total = Number(this.$el.dataset.total) + Number(this.$el.dataset.waiting ?? 0);
             const bare = document.title.replace(/^\(\d+\+?\) /, '');
             document.title = total > 0 ? '(' + (total > 99 ? '99+' : total) + ') ' + bare : bare;
         },
         check() {
             this.title();
-            const onPage = this.onPage();
             // The Live chat page marks itself in front, and unmarks itself as soon as it is not.
             this.front();
-            const latest = Number(this.$el.dataset.latest);
-            const alerted = this.store(this.key());
+            const d = this.$el.dataset;
+            // Three channels, each with its own last id (ids of different tables never compare): the staff's chat, a new
+            // customer's chat waiting, a new message of a customer in the member's own chats.
+            this.ring('', Number(d.latest), d.title, d.url);
+            this.ring('-waiting', Number(d.chatLatest), d.chatTitle, d.chatUrl);
+            this.ring('-customer', Number(d.msgLatest), d.msgTitle, d.msgUrl);
+        },
+        ring(channel, latest, title, url) {
+            const key = this.key() + channel;
+            const alerted = this.store(key);
             // The tab's own memory guards too: whatever storage says, a tab never rings twice for one message.
-            window.mycsChatRung ??= 0;
-            if (alerted === null) { this.store(this.key(), String(latest)); window.mycsChatRung = Math.max(window.mycsChatRung, latest); return }
-            if (!latest || latest <= Math.max(Number(alerted), window.mycsChatRung)) return;
-            this.store(this.key(), String(latest));
-            window.mycsChatRung = latest;
-            if (onPage && !this.away()) return;
+            if (typeof window.mycsChatRung !== 'object' || window.mycsChatRung === null) window.mycsChatRung = {};
+            const rung = window.mycsChatRung[channel] ?? 0;
+            if (alerted === null) { this.store(key, String(latest)); window.mycsChatRung[channel] = Math.max(rung, latest); return }
+            if (!latest || latest <= Math.max(Number(alerted), rung)) return;
+            this.store(key, String(latest));
+            window.mycsChatRung[channel] = latest;
+            if (this.onPage() && !this.away()) return;
             // Another tab has the Live chat page in front: the member is reading there.
             if (Date.now() - Number(this.store('mycs-chat-front') ?? 0) < 15000) return;
-            window.mycsChatAlert?.(this.$el.dataset.title, this.$el.dataset.url, this.away());
+            window.mycsChatAlert?.(title, url, this.away());
         },
     }"
     x-on:livewire:navigated.document="title()"

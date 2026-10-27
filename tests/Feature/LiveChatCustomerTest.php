@@ -6,6 +6,7 @@ use App\Admin\Pages\LiveChat as LiveChatPage;
 use App\Enums\StaffPresenceStatus;
 use App\Livewire\Admin\ChatQueue;
 use App\Livewire\Admin\CustomerChat;
+use App\Livewire\Admin\StaffChatNotifier;
 use App\Livewire\Client\ChatBubble;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -440,5 +441,86 @@ class LiveChatCustomerTest extends TestCase
         Livewire::test(CustomerChat::class, ['chatId' => $chat->id])->assertSee($note);
         $this->asCustomer($user, $client);
         Livewire::test(ChatBubble::class)->call('toggle')->assertSee('hi')->assertDontSee($note);
+    }
+
+    /** Owner 2026-10-27: a new customer's chat rings for the department's operators, on every admin page (F21). */
+    public function test_a_waiting_chat_and_a_customer_message_reach_the_operators_alert_without_names_or_words(): void
+    {
+        $support = $this->department('Support');
+        $operator = $this->online($this->operator($support));
+        $other = $this->operator($this->department('Sales'));
+        [$user, $client] = $this->customer();
+        LiveChats::start($user, $support->id, 'my secret problem');
+        $chat = LiveChat::query()->sole();
+
+        $this->asStaff($operator);
+        $html = Livewire::test(StaffChatNotifier::class)->html();
+        $this->assertStringContainsString('data-waiting="1"', $html);
+        $this->assertStringContainsString('data-chat-latest="' . $chat->id . '"', $html);
+        $this->assertStringContainsString(e(__('New chat: :department', ['department' => 'Support'])), $html);
+        $this->assertStringNotContainsString('my secret problem', $html);
+        $this->assertStringNotContainsString(e($client->name), $html);
+
+        LiveChats::claim($operator, $chat);
+        $this->asCustomer($user, $client);
+        LiveChats::postAsCustomer($user, $chat, 'are you there?');
+        $this->asStaff($operator);
+        $html = Livewire::test(StaffChatNotifier::class)->html();
+        $this->assertStringContainsString(e(__('New message in a customer chat')), $html);
+        $this->assertStringContainsString(e(LiveChatPage::getUrl(['chat' => $chat->id])), $html);
+        $this->assertStringNotContainsString('are you there', $html);
+
+        $this->asStaff($other);
+        $html = Livewire::test(StaffChatNotifier::class)->html();
+        $this->assertStringContainsString('data-waiting="0"', $html);
+        $this->assertStringContainsString('data-msg-latest="0"', $html);
+    }
+
+    /** An operator without the staff chat still gets the alert on every admin page. */
+    public function test_an_operator_without_the_staff_chat_has_the_alert_on_admin_pages(): void
+    {
+        $support = $this->department();
+        $operator = Staff::factory()->create(['role_id' => Role::create(['name' => 'C' . uniqid(), 'permissions' => ['admin.chats.view', 'admin.chats.reply']])->id]);
+        $support->chatStaff()->attach($operator->id);
+        $this->asStaff($operator);
+
+        $this->get('/sysadmin')->assertOk()->assertSee('admin.staff-chat-notifier', false);
+    }
+
+    /** Owner 2026-10-27: the bubble was white on white; the client theme has no numbered primary shades. */
+    public function test_the_bubble_uses_the_client_themes_colours(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/client/chat-bubble.blade.php'));
+
+        $this->assertDoesNotMatchRegularExpression('/primary-\d{2,3}/', $view);
+        $this->assertStringContainsString('bg-primary px-4', $view);
+    }
+
+    /** Review of #479: the alert re-checks whenever a poll changes any of its counts or ids, not only the staff chat's. */
+    public function test_the_alert_watches_every_count_and_id_it_carries(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+        preg_match('/attributeFilter: \[([^\]]*)\]/', $view, $filter);
+        preg_match_all('/(data-[a-z-]*(?:latest|total|waiting))="/', $view, $attributes);
+
+        foreach (array_unique($attributes[1]) as $attribute) {
+            $this->assertStringContainsString("'{$attribute}'", $filter[1] ?? '', "{$attribute} is watched");
+        }
+    }
+
+    /** Review of #479: a member unlisted from a department is no longer told of its customers' messages. */
+    public function test_the_message_alert_is_limited_to_the_members_departments(): void
+    {
+        $support = $this->department();
+        $operator = $this->online($this->operator($support));
+        [$user, $client] = $this->customer();
+        LiveChats::start($user, $support->id, 'hi');
+        $chat = LiveChat::query()->sole();
+        LiveChats::claim($operator, $chat);
+        $this->asCustomer($user, $client);
+        LiveChats::postAsCustomer($user, $chat, 'still there?');
+        $support->chatStaff()->detach($operator->id);
+
+        $this->assertSame(0, LiveChats::alerts($operator)['message_latest']);
     }
 }
