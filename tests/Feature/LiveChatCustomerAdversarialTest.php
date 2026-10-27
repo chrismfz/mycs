@@ -21,6 +21,7 @@ use App\Support\StaffPresence;
 use Filament\Facades\Filament;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use PDO;
 use ReflectionMethod;
@@ -255,5 +256,54 @@ class LiveChatCustomerAdversarialTest extends TestCase
         $helper = ClientUser::query()->where('client_id', 300)->where('user_id', 8)->sole();
         $this->assertTrue($helper->allows('tickets'));
         $this->assertTrue($helper->allows('chat'), 'the same rule as the migration: `tickets` brings `chat`');
+    }
+
+    /**
+     * Round 2 (6fb93c8b): queue() now loads every active chat of the member's departments and, for each one not theirs,
+     * runs orphaned(): Staff::find, then canReply for that operator (2FA, role, departmentsOf...). The queue polls every
+     * 5 seconds on each operator's page, so the queries grow with the chats in progress. They should not.
+     */
+    public function test_the_queue_poll_does_not_grow_with_the_active_chats_of_colleagues(): void
+    {
+        $support = $this->department();
+        $me = $this->operator($support);
+        $holding = function (int $count) use ($support): void {
+            for ($i = 0; $i < $count; $i++) {
+                $colleague = $this->operator($support);
+                LiveChat::query()->create([
+                    'client_id' => User::factory()->create()->client()->id, 'department_id' => $support->id,
+                    'status' => LiveChat::ACTIVE, 'assigned_to' => $colleague->id,
+                ]);
+            }
+        };
+        $queries = function () use ($me): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->assertCount(0, LiveChats::queue($me->fresh()), 'healthy chats of colleagues are not in my queue');
+            $count = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $count;
+        };
+
+        $holding(1);
+        $one = $queries();
+        $holding(9);
+        $ten = $queries();
+
+        $this->assertLessThanOrEqual($one + 2, $ten, "queue(): {$one} queries with 1 active chat, {$ten} with 10 (N+1 through orphaned())");
+    }
+
+    /**
+     * Round 2: the queue lists an orphaned chat («no operator»), but the menu badge (LiveChats::waiting) counts only
+     * `waiting`: a colleague on another admin page is never told that a customer is now writing to no one.
+     */
+    public function test_the_badge_counts_an_orphaned_chat_as_the_queue_does(): void
+    {
+        [$chat, $taker, $colleague] = $this->startedAndTaken();
+        $taker->forceFill(['active' => false])->save();
+
+        $this->assertCount(1, LiveChats::queue($colleague));
+        $this->assertSame(1, LiveChats::waiting($colleague), 'the badge and the queue agree');
     }
 }
