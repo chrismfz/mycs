@@ -162,31 +162,9 @@ class BillingCursorMoneyTest extends TestCase
         $this->assertSame('10.00', (string) $this->serviceLines($service)->sole()->price);
     }
 
-    /**
-     * The renewal (10.00, Oct 15 - Nov 15) is part-paid (6.00, e.g. credits). The customer downgrades to a
-     * 5.00 plan: ServiceUpgradeService rewrites the pending line to 5.00. Paid 6.00 >= total 5.00, but the
-     * "paid" switch only runs on a new transaction: the invoice stays pending, the period is never granted
-     * and the service is suspended. Ledger: money in 6.00, days granted 0 (expected one period + 1.00 over).
-     */
-    public function test_a_downgrade_that_drops_a_part_paid_renewal_below_the_paid_amount_still_renews(): void
-    {
-        $this->markTestIncomplete('Known since the fork, fixed in PR 2 (payments): re-check the invoice balance after a line price changes.');
-
-        $service = $this->service();
-        $renewal = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
-        $this->pay($renewal, 6.00);
-        $cheap = $this->product(5.00);
-        $downgrade = ServiceUpgrade::create([
-            'service_id' => $service->id, 'plan_id' => $cheap->plan->id, 'product_id' => $cheap->product->id,
-            'status' => 'pending', 'invoice_id' => null,
-        ]);
-
-        (new ServiceUpgradeService)->handle($downgrade);
-
-        $this->assertSame('5.00', (string) $renewal->items()->sole()->price);
-        $this->assertSame('paid', $renewal->fresh()->status, 'paid 6.00 on a 5.00 invoice, still pending');
-        $this->assertSame('2026-11-15', $this->expires($service));
-    }
+    // «A downgrade that drops a part-paid renewal below the paid amount» (incomplete since the fork) left on 2026-10-27:
+    // a downgrade no longer reprices the open renewal (#326: the unused days become credit), and a total brought below
+    // what was paid is closed by staff with «Close as paid» (InvoiceResource, 2b).
 
     /**
      * The cron's upgrade_invoices_updated step sets the price of EVERY line on the upgrade's invoice to the
@@ -221,8 +199,6 @@ class BillingCursorMoneyTest extends TestCase
      */
     public function test_a_downgrade_of_an_overdue_service_credits_nothing_for_unpaid_days(): void
     {
-        $this->markTestIncomplete('Known since the fork, fixed in the plan/cycle change PR (ROADMAP Phase 1): prorate only days left before the expiry.');
-
         $service = $this->service(['expires_at' => '2026-09-22', 'suspend_hold_until' => '2026-12-31']);
         $this->invoiceFor($service, '2026-09-22', '2026-10-22'); // the unpaid renewal
         $cheap = $this->product(5.00);
@@ -274,22 +250,9 @@ class BillingCursorMoneyTest extends TestCase
         $this->assertSame('2026-11-12', $this->expires($service), 'one payment, two months');
     }
 
-    /**
-     * An invoice created already "paid" (admin API: invoice then items, or a paid status at creation) runs
-     * no ProcessPaidInvoiceService: the service line is never renewed and never gets a period.
-     * Ledger: money in 10.00, days granted 0. (docs/billing-cursor.md lists it under "Τι σπάει"; no PR
-     * in the plan owns it. A fix must keep the WHMCS importer's paid history inert.)
-     */
-    public function test_an_invoice_created_paid_renews_its_service_line(): void
-    {
-        $this->markTestIncomplete('Known since the fork, fixed in PR 2 (payments): an invoice created as paid must renew (not the WHMCS import).');
-
-        $service = $this->service();
-        $invoice = $this->invoiceFor($service, null, null, 'paid');
-        $invoice->transactions()->create(['amount' => 10.00]);
-
-        $this->assertSame('2026-11-15', $this->expires($service), 'paid invoice, no time granted');
-    }
+    // «An invoice created paid renews its service line» (incomplete since the fork) left on 2026-10-27: an invoice is
+    // never created paid (MT-1c, InvoiceObserver::creating; StaffCorrectionsAdversarialTest::
+    // test_an_invoice_is_never_created_paid), so paid always follows a recorded payment.
 
     // ---------------------------------------------------------------- invariants expected to hold
 
