@@ -40,7 +40,10 @@ class ImpersonateMiddleware
         }
         $hash = $request->session()->get('password_hash_staff');
         $guard = Auth::guard('staff');
-        if (is_string($hash) && $guard instanceof SessionGuard && !hash_equals($guard->hashPasswordForCookie($staff->getAuthPassword()), $hash)) {
+        // Either form Laravel's AuthenticateSession accepts: its HMAC, or the raw hash Filament's profile stores right
+        // after staff change their own password (review of #469).
+        if (is_string($hash) && $guard instanceof SessionGuard && !hash_equals($guard->hashPasswordForCookie($staff->getAuthPassword()), $hash)
+            && !hash_equals((string) $staff->getAuthPassword(), $hash)) {
             app(Logout::class)->execute();
 
             return redirect('/');

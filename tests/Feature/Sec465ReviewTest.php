@@ -110,4 +110,16 @@ class Sec465ReviewTest extends TestCase
         $this->get('/dashboard');
         $this->assertNotSame($this->owner->id, Auth::guard('web')->id(), 'the impersonation outlived the staff password change');
     }
+
+    /** Review of #469: staff who change their own password keep their «Login as client» (Filament stores the raw hash then). */
+    public function test_their_own_new_password_keeps_login_as_client(): void
+    {
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.users.impersonate'])->create();
+        $staff->update(['password' => Hash::make('a-new-Password-123')]);
+        $this->impersonatingStaff(['password_hash_staff' => $staff->refresh()->getAuthPassword()], $staff);
+
+        $this->get('/dashboard')->assertOk();
+        $this->assertSame($this->owner->id, Auth::guard('web')->id());
+        $this->assertAuthenticatedAs($staff, 'staff');
+    }
 }
