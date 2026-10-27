@@ -2,6 +2,7 @@
 
 namespace App\Admin\Actions;
 
+use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -68,6 +69,8 @@ class CloseInvoiceAsPaid
                 if ($livewire instanceof EditRecord) {
                     $livewire->refreshFormData(['status']);
                 }
+                // The tables below (transactions, movements) are their own components: they show it at once.
+                $livewire->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED);
                 Notification::make()->success()->title(__('Invoice paid'))->send();
             });
     }

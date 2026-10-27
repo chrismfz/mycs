@@ -30,10 +30,18 @@ use Filament\Tables\Table;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\On;
 
 class TransactionsRelationManager extends RelationManager
 {
+    /** Sent by the page's payment actions (Mark Paid, credit, close as paid): the tables below show the payment at once. */
+    public const PAYMENTS_CHANGED = 'invoice-payments-changed';
+
     protected static string $relationship = 'transactions';
+
+    /** A payment recorded from the page's header: render again, with it (live test of 2026-10-27). */
+    #[On(self::PAYMENTS_CHANGED)]
+    public function paymentsChanged(): void {}
 
     protected function canModifyTransactions(): bool
     {

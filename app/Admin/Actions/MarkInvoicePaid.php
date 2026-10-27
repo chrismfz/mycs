@@ -2,6 +2,7 @@
 
 namespace App\Admin\Actions;
 
+use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Enums\AdjustmentNoteStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Gateway;
@@ -97,6 +98,8 @@ class MarkInvoicePaid
                 if ($livewire instanceof EditRecord) {
                     $livewire->refreshFormData(['status']);
                 }
+                // The tables below (transactions, movements) are their own components: they show it at once.
+                $livewire->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED);
                 Notification::make()->success()
                     ->title($record->status === Invoice::STATUS_PAID ? __('Invoice paid') : __('Payment recorded'))
                     ->send();

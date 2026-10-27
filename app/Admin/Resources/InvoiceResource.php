@@ -26,6 +26,7 @@ use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use App\Support\AdminBadge;
 use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
@@ -141,6 +142,39 @@ class InvoiceResource extends Resource
         return 'warning';
     }
 
+    /**
+     * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): paid or
+     * refunded, a fiscal document from Ekdosi, or payments on an open one. Null while they can change. Read once per state
+     * of the invoice: the form asks for every line.
+     */
+    public static function linesKeepAmounts(?Invoice $invoice): ?string
+    {
+        if ($invoice === null || !$invoice->exists) {
+            return null;
+        }
+
+        return self::linesKeepAmountsAt($invoice->getKey() . '|' . $invoice->status . '|' . $invoice->updated_at?->getTimestamp(), $invoice);
+    }
+
+    /** Once per request and state of the invoice (`$state`). */
+    private static function linesKeepAmountsAt(string $state, Invoice $invoice): ?string
+    {
+        return once(fn (): ?string => match (true) {
+            in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
+            EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
+            in_array($invoice->status, Invoice::OPEN_STATUSES, true) && StaffLineEdit::holdsMoney($invoice, false) => __('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'),
+            default => null,
+        });
+    }
+
+    /** The invoice of the page a line's field is on (inside the repeater, `$record` is the line). */
+    private static function pageInvoice(mixed $livewire): ?Invoice
+    {
+        $record = is_object($livewire) && method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
+
+        return $record instanceof Invoice ? $record : null;
+    }
+
     /** Its issue date may change while it is a draft or unpaid (INV-17). */
     public static function issueDateEditable(Invoice $invoice): bool
     {
@@ -241,6 +275,12 @@ class InvoiceResource extends Resource
                     ->label('Items')
                     ->columnSpanFull()
                     ->addActionLabel(__('Add line'))
+                    // Its lines keep their amounts (paid, a fiscal document, payments on it): the form says so and offers no
+                    // change the Save would refuse; descriptions still change (live test of 2026-10-27).
+                    ->hint(fn (?Invoice $record): ?string => self::linesKeepAmounts($record))
+                    ->hintColor('warning')
+                    ->addable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)
+                    ->deletable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)
                     ->table([
                         TableColumn::make(__('Select'))->hiddenHeaderLabel()->width('2.5rem'),
                         TableColumn::make(__('Description'))->markAsRequired(),
@@ -279,7 +319,8 @@ class InvoiceResource extends Resource
                             ->default(1)
                             // Stored and billed as a whole number (adversarial A1 of PR B): «0.99996» would bill nothing.
                             ->minValue(1)
-                            ->rule('regex:/^\d+(\.0+)?$/'),
+                            ->rule('regex:/^\d+(\.0+)?$/')
+                            ->disabled(fn ($livewire): bool => self::linesKeepAmounts(self::pageInvoice($livewire)) !== null),
                         TextInput::make('price')
                             ->label('Price (before tax)')
                             ->hiddenLabel()
@@ -291,12 +332,14 @@ class InvoiceResource extends Resource
                                     $money($input, '.', '', 2)
                                 JS
                             ))
-                            ->extraInputAttributes(['class' => 'text-end tabular-nums']),
+                            ->extraInputAttributes(['class' => 'text-end tabular-nums'])
+                            ->disabled(fn ($livewire): bool => self::linesKeepAmounts(self::pageInvoice($livewire)) !== null),
                         // Δ1: the price is net; the line adds the account's tax when taxed (rate kept from when it was made).
                         Checkbox::make('taxed')
                             ->label('Taxed')
                             ->hiddenLabel()
-                            ->default(true),
+                            ->default(true)
+                            ->disabled(fn ($livewire): bool => self::linesKeepAmounts(self::pageInvoice($livewire)) !== null),
                         // As the line was saved (net × quantity, its own rounding): worked out again on Save, never here.
                         TextEntry::make('amount')
                             ->hiddenLabel()

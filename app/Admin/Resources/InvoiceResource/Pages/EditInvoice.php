@@ -174,6 +174,10 @@ class EditInvoice extends EditRecord
     protected function afterSave(): void
     {
         $this->statusWhenLoaded = $this->data['status'] ?? null;
+        // A request to Ekdosi that the save took off (its lines, its status: EkdosiRequest::forget writes the table, not
+        // this model): the header offers «Send to Ekdosi» again, not «Withdraw» (live test of 2026-10-27).
+        $this->record->forceFill(Invoice::query()->whereKey($this->record->getKey())
+            ->first(['ekdosi_requested_at', 'ekdosi_requested_by'])?->getAttributes() ?? [])->syncOriginal();
     }
 
     public function mount(int|string $record): void
