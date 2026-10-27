@@ -163,14 +163,14 @@ class InvoiceResource extends Resource
      */
     private static function linesKeepAmountsAt(string $state, Invoice $invoice): ?string
     {
-        return once(fn (): ?string => $state === '' ? null : match (true) {
+        return once(fn (): ?string => $state !== '' ? match (true) {
             in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
             // A cancelled one too: owing nothing, a repricing only matters reopened, and the reopening Save refuses it
             // (adversarial ADV-3 of #483).
             in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_CANCELLED], true) && StaffLineEdit::holdsMoney($invoice, false) => __('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'),
             default => null,
-        });
+        } : null);
     }
 
     /** The invoice of the page a line's field is on (inside the repeater, `$record` is the line). */

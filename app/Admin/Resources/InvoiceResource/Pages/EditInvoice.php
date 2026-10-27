@@ -58,6 +58,11 @@ class EditInvoice extends EditRecord
                     if (EkdosiDocument::activeOn($invoice->getKey(), true)) {
                         throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
                     }
+                    // Any reason the form locks the amounts now (the same one that leaves them out of this save): said, never
+                    // dropped without a word (R2-1 of #483: a cancelled invoice that a payment reached meanwhile).
+                    if (($reason = InvoiceResource::linesKeepAmounts($this->record)) !== null) {
+                        throw new DisplayException($reason);
+                    }
                 }
                 parent::save($shouldRedirect, $shouldSendSavedNotification);
             });
@@ -186,8 +191,12 @@ class EditInvoice extends EditRecord
     public function paymentsChanged(): void
     {
         $this->record->refresh();
-        $this->refreshFormData(['status']);
-        $this->statusWhenLoaded = $this->data['status'] ?? null;
+        // A status staff chose and have not saved stays: their Save then meets the «changed meanwhile» guard if the
+        // payment changed it (R2-2 of #483).
+        if (($this->data['status'] ?? null) === $this->statusWhenLoaded) {
+            $this->refreshFormData(['status']);
+            $this->statusWhenLoaded = $this->data['status'] ?? null;
+        }
     }
 
     protected function afterSave(): void
