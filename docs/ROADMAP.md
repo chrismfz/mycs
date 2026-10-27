@@ -37,6 +37,12 @@
 - [x] ~~Υπενθυμίσεις overdue της nixpal~~ **αποφασίστηκε (υπεύθυνος, 2026-10-27):** `cronjob_overdue_reminders` = `1,3,7`
       στο cut-over (σήμερα 3 emails τις ημέρες 0, 1, 2· suspend στις 8, η τελευταία λέει «αναστέλλεται αύριο»).
       `settings-map.md`.
+- [x] ~~Τα δεδομένα των migrations στους seeders~~ **έγινε (chore/seed-what-migrations-write):** templates (ήταν ήδη ίδια),
+      τμήματα tickets (Support, Sales), και οι μετρητές `invoice_number`/`credit_note_number` από 0 (με 1, σε νέα
+      εγκατάσταση το πρώτο πιστωτικό έπαιρνε τον αριθμό 2). Φύλακας: `SeedersCoverMigrationDataTest`.
+- [ ] **Squash των migrations (~216)** σε `schema:dump` (MariaDB και SQLite), **μετά** από Ekdosi, review του payments
+      tracking, mailcow, cPanel resellers, Proxmox, Centova (υπεύθυνος, 2026-10-27). Έλεγχος: βάση από τα παλιά migrations
+      + seed απέναντι σε βάση από το dump + seed, σχήμα και κάθε γραμμή ίδια.
 - Αποφασίστηκαν (2026-10-27):
   - **Ιστορικό emails:** ο τελευταίος χρόνος του `tblemails` στα `email_logs`, και στο cut-over
     `cronjob_delete_email_logs` = 365 (default 90: αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα tickets
