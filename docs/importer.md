@@ -265,8 +265,7 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
     πληρωμές σύγχρονα. **Στο cut-over:** τίποτα με το χέρι· η MyCS φτιάχνει το δικό της endpoint
     (`/extensions/stripe/webhook`, 14 events μαζί με τα disputes) όταν σωθεί το gateway Stripe με τα live κλειδιά,
     και κρατά το signing secret. Μετά σβήνεται το παλιό.
-  - Ο host της MyCS της nixpal (`mycs.nixpal.com` ή το ίδιο το `clients.nixpal.com`) αποφασίζεται στο runbook· το
-    `zlic.php` μένει στο `clients.nixpal.com` όπως και να 'χει (`licensing.md`).
+  - Host: η MyCS παίρνει το `clients.nixpal.com` (παρακάτω, «Host και gateways»).
 
 ### Για το runbook (γραμμή 10)
 - **Πάγωμα:** σταματούν **πρώτα** τα cron του clnixpal, `crons/cron.php` και `crons/pop.php`, και τα δύο κάθε 5 λεπτά.
@@ -283,6 +282,36 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   email «ZoneCloud» στα προϊόντα licensing.
 - Δεν χρειάζονται: usage billing (δεν τιμολογήθηκε ποτέ), OAuth SSO, logs, caches των vendors, ο νεκρός
   `nixpal_license`, τα κενά quotes/affiliates/downloads.
+
+#### Host και gateways την ημέρα του cut-over (υπεύθυνος, 2026-10-27)
+Η MyCS στήνεται στον orion ως `mycs.nixpal.com`, γίνεται το import εκεί, και μετά **παίρνει το `clients.nixpal.com`**.
+Ο λόγος: όλοι οι agents, nodes και controllers του ZoneCloud ελέγχουν την άδειά τους στο
+`clients.nixpal.com/zlic.php`, γραμμένο μέσα τους· η διεύθυνση δεν αλλάζει, αλλάζει μόνο τι απαντά. Έτσι και όλα τα άλλα παλιά URLs (`zlic.php`, IPN του PayPal στο `/modules/gateways/callback/paypal.php`, knowledgebase, store)
+φτάνουν κατευθείαν στη MyCS, χωρίς forwarders. Με τη σειρά:
+
+1. **Πριν:** η MyCS στο `mycs.nixpal.com` (ίδιος server), πάγωμα του WHMCS (πρώτα τα cron), import και parity.
+2. **Host:** στο WHM «Modify Account» το `clients.nixpal.com` γίνεται `old-clients.nixpal.com` (το WHMCS μένει εκεί ως
+   αρχείο, χωρίς cron). Το `mycs.nixpal.com` γίνεται `clients.nixpal.com`: vhost/alias, SSL (AutoSSL), `APP_URL` στο
+   `.env`, `php artisan config:cache`. Έλεγχος: `clients.nixpal.com/health`, ένα `zlic.php` με fixture.
+3. **Μετά τον host, ποτέ πριν:** τα webhooks παίρνουν το `APP_URL` της στιγμής· με το παλιό θα έδειχναν στο
+   `mycs.nixpal.com`.
+4. **Μαζί μέσω Chrome (υπεύθυνος + Claude):**
+   - **PayPal** — developer.paypal.com → Apps & Credentials (Live) → «MyApp_WHMCS»:
+     1. Add webhook: `https://clients.nixpal.com/extensions/paypal/webhook`, events: Payment capture
+        completed/declined/denied/pending/refunded/reversed, Vault payment-token created/deleted, **Customer dispute
+        created/resolved**.
+     2. Το **Webhook ID** του νέου → MyCS, Gateways → PayPal → «Webhook ID». Client ID/Secret της ίδιας app (τα βάζει ο
+        υπεύθυνος στη φόρμα). Save.
+     3. Delete το παλιό webhook (`.../callback/paypal_ppcpv.php`).
+     4. Settings → «PayPal accounts of the WHMCS era» (`paypal_legacy_receivers`): email και merchant id του PayPal
+        της nixpal (για τα IPN των παλιών συνδρομών).
+   - **Stripe** — λογαριασμός Nixpal:
+     1. MyCS, Gateways → Stripe: τα live κλειδιά (ο υπεύθυνος στη φόρμα), Save. Η MyCS φτιάχνει μόνη της το endpoint
+        `https://clients.nixpal.com/extensions/stripe/webhook` (14 events, με τα disputes) και κρατά το secret.
+     2. Workbench → Webhooks: έλεγχος ότι το νέο είναι εκεί και Active· Delete το παλιό (`.../callback/stripe.php`).
+5. **Δοκιμή:** μία μικρή πραγματική πληρωμή με κάθε gateway σε δοκιμαστικό τιμολόγιο (και refund), με έγκριση του
+   υπευθύνου· στο gateway log της MyCS φαίνονται `recorded` και το webhook.
+6. **Μετά:** μήνυμα στους 3 πελάτες με παλιές συνδρομές PayPal (γραμμή 7 του ROADMAP).
 
 ## Sweep του WHMCS του myip (2026-10-25, μόνο ανάγνωση)
 
