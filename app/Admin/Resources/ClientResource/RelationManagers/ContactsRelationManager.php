@@ -56,7 +56,7 @@ class ContactsRelationManager extends RelationManager
             ->recordTitleAttribute('email')
             ->modifyQueryUsing(fn (Builder $query) => $query->orderByDesc('primary_of_client_id')->orderBy('id'))
             ->columns([
-                TextColumn::make('name')->label(__('Name'))->state(fn (Contact $record) => $record->displayName()),
+                TextColumn::make('name')->label(__('Name'))->state(fn (Contact $record) => $record->label()),
                 TextColumn::make('email')->label(__('Email')),
                 TextColumn::make('tax_id')->label(__('Tax ID'))->placeholder('—'),
                 TextColumn::make('country')->label(__('Country'))->placeholder('—'),

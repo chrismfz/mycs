@@ -19,7 +19,7 @@
         @forelse($contacts as $contact)
         <div class="bg-background-secondary border border-neutral rounded-lg p-4 flex flex-wrap items-center justify-between gap-2" wire:key="contact-{{ $contact->id }}">
             <div>
-                <div class="font-semibold">{{ $contact->displayName() }}</div>
+                <div class="font-semibold">{{ $contact->label() }}</div>
                 <div class="text-sm text-base/70">{{ $contact->email }}</div>
                 <div class="text-xs text-base/50">{{ implode(', ', $contact->addressLines()) }}</div>
                 @if ($uses[$contact->id]->isNotEmpty())

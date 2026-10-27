@@ -119,7 +119,7 @@
                 <label class="text-sm flex flex-col gap-1">{{ __('domains.order.registrant') }}
                     <select wire:model="registrant" class="bg-background border border-neutral rounded px-2 py-1">
                         @foreach ($this->registrantOptions() as $contact)
-                        <option value="{{ $contact->id }}">{{ $contact->displayName() }}@if (!$contact->isCompleteFor('domain')) ({{ __('domains.order.incomplete') }})@endif</option>
+                        <option value="{{ $contact->id }}">{{ $contact->label() }}@if (!$contact->isCompleteFor('domain')) ({{ __('domains.order.incomplete') }})@endif</option>
                         @endforeach
                     </select>
                     <a href="{{ route('account.contacts') }}" class="text-xs underline" wire:navigate>{{ __('domains.order.manage_contacts') }}</a>

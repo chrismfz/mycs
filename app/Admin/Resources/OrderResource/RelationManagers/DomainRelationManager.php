@@ -25,7 +25,7 @@ class DomainRelationManager extends RelationManager
                 TextColumn::make('fqdn')->label(__('Domain')),
                 TextColumn::make('status')->label(__('Status'))->badge(),
                 TextColumn::make('years')->label(__('Period')),
-                TextColumn::make('registrant')->label(__('Owner'))->state(fn (Domain $record) => $record->registrantContact?->displayName()),
+                TextColumn::make('registrant')->label(__('Owner'))->state(fn (Domain $record) => $record->registrantContact?->label()),
                 TextColumn::make('epp_code')->label(__('EPP code'))->placeholder('—')->fontFamily('mono')->copyable()
                     ->visible(fn () => (bool) auth()->user()?->hasPermission('admin.domains.epp'))
                     ->state(fn (Domain $record) => $record->epp_code),
