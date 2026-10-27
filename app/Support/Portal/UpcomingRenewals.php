@@ -96,6 +96,10 @@ final class UpcomingRenewals
 
         $rows = [];
         foreach ($services as $service) {
+            // A period given up on just ahead (the date moved back behind it): the billing bills nothing (review R-486-4).
+            if ($service->givenUpAhead(...$service->billedPeriodLines()) !== null) {
+                continue;
+            }
             $service->setRelation('client', $this->client);
             $start = CarbonImmutable::parse($service->expires_at)->startOfDay();
             $first = true;

@@ -844,6 +844,31 @@ class Service extends Model implements Auditable
         return [$live, $billed];
     }
 
+    /**
+     * A period given up on (Δ3a) that starts inside the next one to bill, with no live period starting the same day:
+     * staff moved the date back behind it. Nothing is billed or renewed up to it (owner, 2026-10-27), and its overdue
+     * period is not «waiting to be billed» either (CronJob::periodUnbilled). Null otherwise.
+     *
+     * @param  Collection<int, InvoiceItem>  $lines  live (billedPeriodLines)
+     * @param  Collection<int, InvoiceItem>  $billed  live and given up on (billedPeriodLines)
+     */
+    public function givenUpAhead(Collection $lines, Collection $billed): ?InvoiceItem
+    {
+        $start = $this->nextPeriodStart($billed);
+        $ahead = $billed->filter(fn (InvoiceItem $line) => $line->period_start->greaterThan($start));
+        if ($ahead->isEmpty()) {
+            return null;
+        }
+        $first = $ahead->min(fn (InvoiceItem $line) => $line->period_start->timestamp);
+        $there = $ahead->filter(fn (InvoiceItem $line) => $line->period_start->timestamp === $first);
+        if ($there->contains(fn (InvoiceItem $line) => $lines->contains('id', $line->id))) {
+            return null; // a live period starts there: the hole before it is billed
+        }
+        $end = $this->periodEnd($start, $lines);
+
+        return $end === null || $there->first()->period_start->lessThan($end) ? $there->first() : null;
+    }
+
     /** @return BelongsTo<Server, $this> the server this account lives on (WHMCS's tblhosting.server) */
     public function server(): BelongsTo
     {

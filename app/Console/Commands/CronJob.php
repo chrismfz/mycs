@@ -948,9 +948,11 @@ class CronJob extends Command
         if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
             return false;
         }
-        [, $billed] = $service->billedPeriodLines();
+        [$lines, $billed] = $service->billedPeriodLines();
 
-        return $service->nextPeriodStart($billed)->toDateString() === $service->paidUntilBase()->toDateString();
+        // Nothing will be billed before a period given up on (RenewalBilling): not waiting for a bill (review R-486-1).
+        return $service->nextPeriodStart($billed)->toDateString() === $service->paidUntilBase()->toDateString()
+            && $service->givenUpAhead($lines, $billed) === null;
     }
 
     /**
