@@ -1426,5 +1426,6 @@
     "Already asked for, or not one Ekdosi issues (a draft, cancelled, refunded, or with a document already).": "Έχει ήδη ζητηθεί, ή δεν είναι κάτι που εκδίδει το Ekdosi (προσχέδιο, ακυρωμένο, επιστραμμένο, ή με παραστατικό ήδη).",
     "Sent to Ekdosi": "Στάλθηκε στο Ekdosi",
     "Withdrawn from Ekdosi": "Αποσύρθηκε από το Ekdosi",
-    ":count of :selected invoices": ":count από :selected τιμολόγια"
+    ":count of :selected invoices": ":count από :selected τιμολόγια",
+    "Customers waiting": "Πελάτες σε αναμονή"
 }
