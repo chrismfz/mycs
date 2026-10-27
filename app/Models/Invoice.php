@@ -113,9 +113,21 @@ class Invoice extends Model implements Auditable
             // A plain comparison, not whereDate: due_at is a date, and DATE(due_at) could use no index.
             ->where('due_at', '<', today()->toDateString())
             ->whereDoesntHave('transactions', fn ($transactions) => $transactions->where('status', InvoiceTransactionStatus::Processing))
-            // «Add funds»: it has lines and every one is credit.
-            ->whereNot(fn ($addFunds) => $addFunds->whereHas('items')
-                ->whereDoesntHave('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class))));
+            ->whereNot(fn ($addFunds) => self::whereAddFunds($addFunds));
+    }
+
+    /**
+     * «Add funds»: it has lines and every one is credit (a credit purchase: unpaid, nothing is owed).
+     *
+     * @template TQuery of Builder
+     *
+     * @param  TQuery  $query
+     * @return TQuery
+     */
+    public static function whereAddFunds(Builder $query): Builder
+    {
+        return $query->whereHas('items')
+            ->whereDoesntHave('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)));
     }
 
     /** How many days past its due date an overdue invoice is (whereOverdue's rule, on its loaded lines); 0 when it is not. */
@@ -192,6 +204,9 @@ class Invoice extends Model implements Auditable
         'finish_pending_at' => 'immutable_datetime',
         // Staff keep it from the cron's charge of the saved method (PR H2b).
         'no_auto_charge' => 'boolean',
+        // Staff asked Ekdosi for its document (E5, «Send to Ekdosi»): the feed's `requested`.
+        'ekdosi_requested_at' => 'immutable_datetime',
+        'ekdosi_requested_by' => 'integer',
     ];
 
     public bool $send_create_email = true;

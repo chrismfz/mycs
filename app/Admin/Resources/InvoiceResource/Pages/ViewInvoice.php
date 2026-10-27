@@ -6,6 +6,7 @@ use App\Admin\Actions\ApplyCreditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
+use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Actions\SetAutoCharge;
 use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Concerns\RemembersRecent;
@@ -123,6 +124,8 @@ class ViewInvoice extends ViewRecord
             SplitInvoiceAction::make(),
             SetAutoCharge::disable(),
             SetAutoCharge::enable(),
+            SendToEkdosi::make(),
+            SendToEkdosi::withdraw(),
             Action::make('cancel')
                 // Cancelling writes off what the customer owes: only staff who may change invoices (R1 of #84; this
                 // page opens to anyone who may view them).

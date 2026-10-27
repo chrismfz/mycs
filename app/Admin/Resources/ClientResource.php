@@ -179,7 +179,7 @@ class ClientResource extends Resource
                     ->columns(2),
                 // Ekdosi's two choices of the account (owner 2026-10-24): staff only, kept now for the bridge to come.
                 Section::make(__('Fiscal invoicing (Ekdosi)'))
-                    ->description(__('Kept for the Ekdosi bridge: nothing reads them yet.'))
+                    ->description(__('What Ekdosi reads through the bridge: «Ignore» keeps this account\'s invoices out of its inbox (Send to Ekdosi on an invoice sends one all the same); «Immediate» lets Ekdosi issue them unattended.'))
                     ->schema([
                         Toggle::make('ignore_invoicing')
                             ->label(__('Ignore invoicing'))

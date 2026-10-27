@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
+use App\Services\Ekdosi\EkdosiRequest;
 
 class AdjustmentNoteObserver
 {
@@ -32,6 +33,19 @@ class AdjustmentNoteObserver
         // Nor one Ekdosi issued its document for (final review of #459): its total is the document's.
         if ($note->isVoidableByStaff() && EkdosiDocument::activeOn($note->invoice_id)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.'));
+        }
+    }
+
+    /** A note changes what is owed: a request to Ekdosi (E5) was for the total as it stood (R3-1 of #478). */
+    public function created(AdjustmentNote $adjustmentNote): void
+    {
+        EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
+    }
+
+    public function updated(AdjustmentNote $adjustmentNote): void
+    {
+        if ($adjustmentNote->wasChanged('status')) {
+            EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
         }
     }
 
