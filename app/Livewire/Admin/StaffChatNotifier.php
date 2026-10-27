@@ -4,6 +4,7 @@ namespace App\Livewire\Admin;
 
 use App\Admin\Pages\LiveChat;
 use App\Models\Staff;
+use App\Support\LiveChats;
 use App\Support\StaffChat;
 use Illuminate\View\View;
 use Livewire\Component;
@@ -26,6 +27,7 @@ class StaffChatNotifier extends Component
             'news' => $news,
             'url' => LiveChat::getUrl($news['with'] !== null ? ['with' => $news['with']] : []),
             'page' => LiveChat::getUrl(),
+            'customers' => $staff instanceof Staff ? LiveChats::alerts($staff) : LiveChats::NO_ALERTS,
         ]);
     }
 }

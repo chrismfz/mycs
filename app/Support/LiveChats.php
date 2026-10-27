@@ -240,6 +240,36 @@ class LiveChats
         return $chats->load(['client', 'department:id,name']);
     }
 
+    public const NO_ALERTS = ['waiting' => 0, 'chat_latest' => 0, 'chat_title' => '', 'message_latest' => 0, 'message_title' => '', 'message_url' => ''];
+
+    /**
+     * What the alert on every admin page may say of customers' chats (F21: never a customer's name or words): how many
+     * wait in the member's departments, the newest one's id and department, and the newest customer message in the
+     * member's own chats.
+     *
+     * @return array{waiting: int, chat_latest: int, chat_title: string, message_latest: int, message_title: string, message_url: string}
+     */
+    public static function alerts(Staff $staff): array
+    {
+        if (!self::isOperator($staff)) {
+            return self::NO_ALERTS;
+        }
+        $queue = self::queue($staff);
+        $newest = $queue->sortByDesc('id')->first();
+        $mine = LiveChat::query()->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)->pluck('id');
+        $message = $mine->isEmpty() ? null : LiveChatMessage::query()->whereIn('chat_id', $mine)
+            ->where('author_type', LiveChatMessage::CLIENT)->orderByDesc('id')->first(['id', 'chat_id']);
+
+        return [
+            'waiting' => $queue->count(),
+            'chat_latest' => (int) $newest?->id,
+            'chat_title' => $newest === null ? '' : __('New chat: :department', ['department' => (string) $newest->department?->name]),
+            'message_latest' => (int) $message?->id,
+            'message_title' => $message === null ? '' : __('New message in a customer chat'),
+            'message_url' => $message === null ? '' : \App\Admin\Pages\LiveChat::getUrl(['chat' => $message->chat_id]),
+        ];
+    }
+
     /** How many wait in the member's departments, and how many have no operator: the menu's badge, as the queue counts them. */
     public static function waiting(Staff $staff): int
     {

@@ -1412,5 +1412,7 @@
     "Take over": "Ανάληψη από εμένα",
     "no operator": "χωρίς operator",
     "View": "Προβολή",
-    "Taken over by :name from :from.": "Ανάληψη από :name, αντί για :from."
+    "Taken over by :name from :from.": "Ανάληψη από :name, αντί για :from.",
+    "New chat: :department": "Νέο chat: :department",
+    "New message in a customer chat": "Νέο μήνυμα σε chat πελάτη"
 }
