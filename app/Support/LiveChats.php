@@ -281,16 +281,19 @@ class LiveChats
         if (!self::orphaned($chat)) {
             return false;
         }
-        $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE);
-        $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
-        if ($query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) !== 1) {
-            return false;
-        }
-        // A note for the staff only (F20): who took it over, from whom (re-review of #475).
-        $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'staff_id' => $staff->id,
-            'body' => __('Taken over by :name from :from.', ['name' => $staff->name, 'from' => (string) ($chat->operator->name ?? __('no operator'))])]);
 
-        return true;
+        // The take-over and its note for the staff (F20) together, or neither (re-review of #475).
+        return DB::transaction(function () use ($staff, $chat) {
+            $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE);
+            $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
+            if ($query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) !== 1) {
+                return false;
+            }
+            $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'staff_id' => $staff->id,
+                'body' => __('Taken over by :name from :from.', ['name' => $staff->name, 'from' => (string) ($chat->operator->name ?? __('no operator'))])]);
+
+            return true;
+        });
     }
 
     /** The operator's message, in a chat they took. Null when sent; else what to tell them. */
@@ -330,6 +333,18 @@ class LiveChats
     public static function messages(LiveChat $chat): \Illuminate\Support\Collection
     {
         return $chat->messages()->with(['staff:id,first_name,last_name,email', 'user:id,first_name,last_name,email'])->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
+    }
+
+    /**
+     * The messages a customer may see, oldest first: never the staff's notes (F20), filtered in the query so a later
+     * reader on the customer's side (the history of step 3γ) cannot forget it, and notes take no room in the window.
+     *
+     * @return \Illuminate\Support\Collection<int, LiveChatMessage>
+     */
+    public static function customerMessages(LiveChat $chat): \Illuminate\Support\Collection
+    {
+        return $chat->messages()->with(['staff:id,first_name', 'user:id,first_name'])->where('author_type', '!=', LiveChatMessage::SYSTEM)
+            ->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
     }
 
     /** The account's other login, as the customer sees it: the first name only. */
