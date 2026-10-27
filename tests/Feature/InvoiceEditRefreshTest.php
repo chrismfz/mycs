@@ -117,4 +117,49 @@ class InvoiceEditRefreshTest extends TestCase
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $open->getKey()]);
         $page->assertFormFieldIsEnabled('items.' . array_key_first($page->get('data.items')) . '.price');
     }
+
+    /** Review of #483: the lock follows the invoice saved in the same response (the memo keyed on its state). */
+    public function test_reopening_by_save_unlocks_the_lines_at_once(): void
+    {
+        $invoice = $this->invoice();
+        $invoice->items()->first()->update(['price' => '0.00']);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+
+        $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
+        $line = array_key_first($page->get('data.items'));
+        $page->assertFormFieldIsDisabled("items.{$line}.price")
+            ->set('data.status', Invoice::STATUS_UNPAID)->call('save')->assertHasNoErrors();
+
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $page->assertFormFieldIsEnabled("items.{$line}.price")
+            ->assertDontSee(__('A paid invoice keeps its lines: set it back to unpaid first.'));
+    }
+
+    /** Review of #483: a payment deleted in the table tells the page and the other tables. */
+    public function test_the_transactions_table_tells_the_page_when_a_payment_goes(): void
+    {
+        $invoice = $this->invoice();
+        ExtensionHelper::addPayment($invoice, 'BankTransfer', '100.00', transactionId: 'TX-GONE');
+        $payment = $invoice->transactions()->sole();
+
+        $this->livewireAs($this->staff())
+            ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
+            ->callTableAction('delete', $payment)
+            ->assertDispatched(TransactionsRelationManager::PAYMENTS_CHANGED);
+    }
+
+    /** Review of #483: told, the page reads the invoice again: its status, and its lines locked by a payment made below. */
+    public function test_the_page_reads_the_invoice_again_when_told(): void
+    {
+        $invoice = $this->invoice();
+        $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
+        $line = array_key_first($page->get('data.items'));
+        $page->assertFormFieldIsEnabled("items.{$line}.price");
+
+        ExtensionHelper::addPayment($invoice, 'BankTransfer', '100.00', transactionId: 'TX-BELOW');
+
+        $page->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED)
+            ->assertSet('data.status', Invoice::STATUS_PAID)
+            ->assertFormFieldIsDisabled("items.{$line}.price");
+    }
 }

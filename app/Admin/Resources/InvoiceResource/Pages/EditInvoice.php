@@ -13,6 +13,7 @@ use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\InvoiceResource;
+use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
 use App\Models\EkdosiDocument;
@@ -26,6 +27,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\On;
 
 class EditInvoice extends EditRecord
 {
@@ -51,6 +53,11 @@ class EditInvoice extends EditRecord
                 if ($this->linesChangeAmounts()) {
                     // Also when this save reopens it (cancelled → unpaid): the status it will have, not only the stored one.
                     StaffLineEdit::refuseWithPayments($invoice, $this->data['status'] ?? null);
+                    // A document issued while the form was open: the form now locks the amounts and would drop the change
+                    // without a word (the observer never sees it); refused, as before the lock (adversarial ADV-1 of #483).
+                    if (EkdosiDocument::activeOn($invoice->getKey(), true)) {
+                        throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
+                    }
                 }
                 parent::save($shouldRedirect, $shouldSendSavedNotification);
             });
@@ -169,6 +176,18 @@ class EditInvoice extends EditRecord
         }
 
         return $day->isToday() ? now() : $day;
+    }
+
+    /**
+     * A payment recorded, refunded or deleted in the tables below (review of #483): the page reads the invoice again, its
+     * status and whether its lines keep their amounts, as after Mark Paid.
+     */
+    #[On(TransactionsRelationManager::PAYMENTS_CHANGED)]
+    public function paymentsChanged(): void
+    {
+        $this->record->refresh();
+        $this->refreshFormData(['status']);
+        $this->statusWhenLoaded = $this->data['status'] ?? null;
     }
 
     protected function afterSave(): void

@@ -156,13 +156,19 @@ class InvoiceResource extends Resource
         return self::linesKeepAmountsAt($invoice->getKey() . '|' . $invoice->status . '|' . $invoice->updated_at?->getTimestamp(), $invoice);
     }
 
-    /** Once per request and state of the invoice (`$state`). */
+    /**
+     * Once per request and state of the invoice: once() keys on what the closure uses, so it uses `$state` (review of
+     * #483). A part payment changes neither status nor (within the second) updated_at: a page shows it from its next
+     * request, as the payment actions make it do (TransactionsRelationManager::PAYMENTS_CHANGED).
+     */
     private static function linesKeepAmountsAt(string $state, Invoice $invoice): ?string
     {
-        return once(fn (): ?string => match (true) {
+        return once(fn (): ?string => $state === '' ? null : match (true) {
             in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
-            in_array($invoice->status, Invoice::OPEN_STATUSES, true) && StaffLineEdit::holdsMoney($invoice, false) => __('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'),
+            // A cancelled one too: owing nothing, a repricing only matters reopened, and the reopening Save refuses it
+            // (adversarial ADV-3 of #483).
+            in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_CANCELLED], true) && StaffLineEdit::holdsMoney($invoice, false) => __('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'),
             default => null,
         });
     }
