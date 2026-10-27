@@ -389,4 +389,36 @@ class LiveChatCustomerTest extends TestCase
         $this->assertSame(['invoices'], $noTickets->fresh()->permissions);
         $this->assertSame(['admin.tickets.viewAny', 'admin.chats.view', 'admin.chats.reply'], $role->fresh()->permissions);
     }
+
+    /** Review of #475: a chat whose operator left shows in a colleague's queue, to take over. */
+    public function test_a_chat_whose_operator_left_is_in_the_colleagues_queue_to_take_over(): void
+    {
+        $support = $this->department();
+        $taker = $this->online($this->operator($support));
+        $colleague = $this->operator($support);
+        [$user, $client] = $this->customer();
+        LiveChats::start($user, $support->id, 'hi');
+        $chat = LiveChat::query()->sole();
+        LiveChats::claim($taker, $chat);
+        $taker->forceFill(['active' => false])->save();
+
+        $this->asStaff($colleague);
+        Livewire::test(ChatQueue::class)->assertSee($client->name)->assertSee(__('Take over'))->call('claim', $chat->id);
+        $this->assertSame($colleague->id, $chat->fresh()->assigned_to);
+        $this->assertNull(LiveChats::postAsStaff($colleague, $chat, 'I am taking this over'));
+    }
+
+    /** Review of #475: a member who only reads chats gets no «Take». */
+    public function test_a_member_without_reply_sees_the_queue_without_take(): void
+    {
+        $support = $this->department();
+        $this->online($this->operator($support));
+        $reader = Staff::factory()->create(['role_id' => Role::create(['name' => 'V' . uniqid(), 'permissions' => ['admin.chats.view']])->id]);
+        $support->chatStaff()->attach($reader->id);
+        [$user] = $this->customer();
+        LiveChats::start($user, $support->id, 'hi');
+
+        $this->asStaff($reader);
+        Livewire::test(ChatQueue::class)->assertSee(__('View'))->assertDontSee(__('Take'));
+    }
 }

@@ -22,12 +22,16 @@
             x-data x-init="$el.scrollTop = $el.scrollHeight"
             x-on:livewire:navigated.document="$el.scrollTop = $el.scrollHeight">
             @foreach ($messages as $message)
-            @php $mine = $message->author_type === \App\Models\LiveChatMessage::CLIENT; @endphp
-            <div @class(['flex flex-col', 'items-end' => $mine, 'items-start' => !$mine])>
+            @php
+                $customer = $message->author_type === \App\Models\LiveChatMessage::CLIENT;
+                // «You» only for this login's own messages; another login of the account by its first name (review of #475).
+                $mine = $customer && $message->user_id === auth('web')->id();
+            @endphp
+            <div @class(['flex flex-col', 'items-end' => $customer, 'items-start' => !$customer])>
                 <div class="text-xs opacity-60">
-                    {{ $mine ? __('You') : \App\Support\LiveChats::operatorName($message->staff) }} · {{ $message->created_at?->format('H:i') }}
+                    {{ $mine ? __('You') : ($customer ? \App\Support\LiveChats::loginName($message->user) : \App\Support\LiveChats::operatorName($message->staff)) }} · {{ $message->created_at?->format('H:i') }}
                 </div>
-                <div @class(['mt-0.5 max-w-[85%] rounded-lg px-3 py-2 break-words', 'bg-primary-600/10' => $mine, 'bg-background-secondary' => !$mine])>{!! \App\Support\ChatText::render($message->body) !!}</div>
+                <div @class(['mt-0.5 max-w-[85%] rounded-lg px-3 py-2 break-words', 'bg-primary-600/10' => $customer, 'bg-background-secondary' => !$customer])>{!! \App\Support\ChatText::render($message->body) !!}</div>
             </div>
             @endforeach
         </div>

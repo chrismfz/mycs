@@ -94,10 +94,8 @@ class LiveChats
         if (self::openChatOf($clientId) !== null) {
             return __('A chat of this account is already open.');
         }
-        // Counted first, then checked (F13).
-        $key = 'live-chat-start:' . $user->id;
-        RateLimiter::hit($key, 600);
-        if (RateLimiter::attempts($key) > self::STARTS_PER_10_MINUTES) {
+        // Counted first, then checked (F13), per account: every login of it shares the limit (§3 Ε, review of #475).
+        if (self::over('live-chat-start:' . $clientId, 600, self::STARTS_PER_10_MINUTES)) {
             return __('Too many chats started, wait a few minutes.');
         }
 
@@ -131,9 +129,7 @@ class LiveChats
         if ($body === null) {
             return __('The message is empty.');
         }
-        $key = 'live-chat:' . $user->id;
-        RateLimiter::hit($key, 60);
-        if (RateLimiter::attempts($key) > self::PER_MINUTE) {
+        if (self::over('live-chat:' . $chat->client_id, 60, self::PER_MINUTE)) {
             return __('Too many messages, wait a moment.');
         }
 
@@ -188,15 +184,38 @@ class LiveChats
         return false;
     }
 
-    /** @return Collection<int, LiveChat> chats waiting in the member's departments, oldest first */
+    /**
+     * An active chat whose operator can no longer answer it (left, unlisted, lost the permission, deleted): a colleague of
+     * the department takes it over or closes it, so the customer is never left writing to no one (review of #475).
+     */
+    public static function orphaned(LiveChat $chat): bool
+    {
+        if ($chat->status !== LiveChat::ACTIVE) {
+            return false;
+        }
+        $operator = $chat->assigned_to === null ? null : Staff::query()->find($chat->assigned_to);
+
+        return !self::canReply($operator, $chat);
+    }
+
+    /** @return Collection<int, LiveChat> chats waiting in the member's departments, and those whose operator left, oldest first */
     public static function queue(Staff $staff): Collection
     {
         if (!self::isOperator($staff)) {
             return new Collection;
         }
-
-        return LiveChat::query()->with(['client', 'department:id,name'])->where('status', LiveChat::WAITING)
+        $chats = LiveChat::query()->with(['client', 'department:id,name'])->whereIn('status', [LiveChat::WAITING, LiveChat::ACTIVE])
             ->whereIn('department_id', self::departmentsOf($staff))->oldest('id')->get();
+
+        return $chats->filter(fn (LiveChat $chat) => $chat->status === LiveChat::WAITING || ($chat->assigned_to !== $staff->id && self::orphaned($chat)))->values();
+    }
+
+    /** How many wait in the member's departments: the menu's badge, on every admin page, as one count. */
+    public static function waiting(Staff $staff): int
+    {
+        return self::isOperator($staff)
+            ? LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', self::departmentsOf($staff))->count()
+            : 0;
     }
 
     /** @return Collection<int, LiveChat> the member's own active chats */
@@ -210,16 +229,29 @@ class LiveChats
             ->where('assigned_to', $staff->id)->whereIn('department_id', self::departmentsOf($staff))->oldest('id')->get();
     }
 
-    /** The member takes a waiting chat. True when it is theirs; two at once, one wins (F16). */
+    /**
+     * The member takes a waiting chat, or takes over one whose operator left. True when it is theirs; two at once, one
+     * wins (F16): the update holds only while the chat is still as it was read.
+     */
     public static function claim(Staff $staff, LiveChat $chat): bool
     {
+        $chat->refresh();
         if (!self::canReply($staff, $chat)) {
             return false;
         }
-        $taken = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::WAITING)->whereNull('assigned_to')
-            ->update(['status' => LiveChat::ACTIVE, 'assigned_to' => $staff->id, 'updated_at' => now()]);
+        if ($chat->status === LiveChat::WAITING) {
+            $taken = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::WAITING)->whereNull('assigned_to')
+                ->update(['status' => LiveChat::ACTIVE, 'assigned_to' => $staff->id, 'updated_at' => now()]);
 
-        return $taken === 1;
+            return $taken === 1;
+        }
+        if (!self::orphaned($chat)) {
+            return false;
+        }
+        $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE);
+        $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
+
+        return $query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) === 1;
     }
 
     /** The operator's message, in a chat they took. Null when sent; else what to tell them. */
@@ -242,10 +274,11 @@ class LiveChats
         return self::write($chat, ['author_type' => LiveChatMessage::STAFF, 'staff_id' => $staff->id, 'body' => $body], participant: false);
     }
 
-    /** The operator closes the chat they took. */
+    /** The operator closes the chat they took, or one of their department whose operator left. */
     public static function closeAsStaff(Staff $staff, LiveChat $chat): bool
     {
-        if (!self::canReply($staff, $chat) || $chat->assigned_to !== $staff->id) {
+        $chat->refresh();
+        if (!self::canReply($staff, $chat) || ($chat->assigned_to !== $staff->id && !self::orphaned($chat))) {
             return false;
         }
 
@@ -257,7 +290,13 @@ class LiveChats
     /** @return \Illuminate\Support\Collection<int, LiveChatMessage> the latest messages, oldest first */
     public static function messages(LiveChat $chat): \Illuminate\Support\Collection
     {
-        return $chat->messages()->with('staff:id,first_name,last_name,email')->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
+        return $chat->messages()->with(['staff:id,first_name,last_name,email', 'user:id,first_name,last_name,email'])->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
+    }
+
+    /** The account's other login, as the customer sees it: the first name only. */
+    public static function loginName(?User $user): string
+    {
+        return $user === null ? __('Another login') : (trim((string) $user->first_name) ?: __('Another login'));
     }
 
     /** What the customer sees of an operator: the first name only. */
@@ -286,6 +325,14 @@ class LiveChats
 
             return null;
         });
+    }
+
+    /** Counted first, then checked (F13). */
+    private static function over(string $key, int $seconds, int $limit): bool
+    {
+        RateLimiter::hit($key, $seconds);
+
+        return RateLimiter::attempts($key) > $limit;
     }
 
     private static function close(LiveChat $chat): bool

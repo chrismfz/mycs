@@ -8,9 +8,13 @@
             <li class="flex items-center gap-2 text-sm">
                 <span class="min-w-0 flex-1">
                     <span class="block truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->client?->name ?? __('Customer') }}</span>
-                    <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }} · {{ $chat->created_at?->diffForHumans(short: true) }}</span>
+                    <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }} · {{ $chat->created_at?->diffForHumans(short: true) }}@if ($chat->status === \App\Models\LiveChat::ACTIVE) · {{ __('no operator') }}@endif</span>
                 </span>
-                <x-filament::button size="xs" wire:click="claim({{ (int) $chat->id }})">{{ __('Take') }}</x-filament::button>
+                @if ($reply)
+                <x-filament::button size="xs" wire:click="claim({{ (int) $chat->id }})">{{ $chat->status === \App\Models\LiveChat::ACTIVE ? __('Take over') : __('Take') }}</x-filament::button>
+                @else
+                <x-filament::button size="xs" color="gray" wire:click="$dispatch('customer-chat-open', { chat: {{ (int) $chat->id }} })">{{ __('View') }}</x-filament::button>
+                @endif
             </li>
             @empty
             <li class="text-xs text-gray-500 dark:text-gray-400">{{ __('No one is waiting.') }}</li>

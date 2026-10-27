@@ -1406,5 +1406,10 @@
     "Close this chat?": "Να κλείσει αυτό το chat;",
     "Close chat": "Κλείσιμο chat",
     "Only the operator who took this chat writes in it.": "Σε αυτό το chat γράφει μόνο όποιος το ανέλαβε.",
-    "Live chat for customers": "Live chat για πελάτες"
+    "Live chat for customers": "Live chat για πελάτες",
+    "Another login": "Άλλος χρήστης του λογαριασμού",
+    "The operator of this chat can no longer answer it.": "Ο operator αυτού του chat δεν μπορεί πια να απαντήσει.",
+    "Take over": "Ανάληψη από εμένα",
+    "no operator": "χωρίς operator",
+    "View": "Προβολή"
 }

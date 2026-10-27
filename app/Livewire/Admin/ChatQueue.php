@@ -35,6 +35,8 @@ class ChatQueue extends Component
 
         return view('livewire.admin.chat-queue', [
             'operator' => LiveChats::isOperator($staff),
+            // Without `admin.chats.reply` the member only reads: no «Take» (review of #475).
+            'reply' => (bool) $staff?->hasPermission('admin.chats.reply'),
             'queue' => $staff ? LiveChats::queue($staff) : collect(),
             'mine' => $staff ? LiveChats::mine($staff) : collect(),
         ]);

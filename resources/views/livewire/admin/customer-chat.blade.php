@@ -22,7 +22,8 @@
         @php $client = $message->author_type === \App\Models\LiveChatMessage::CLIENT; @endphp
         <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
             <div class="text-xs text-gray-500 dark:text-gray-400">
-                {{ $client ? ($chat->client?->name ?? __('Customer')) : ($message->staff?->name ?? __('System')) }} · {{ $message->created_at?->format('d/m H:i') }}
+                {{-- Which login of the account writes (G11), not only the account. --}}
+                {{ $client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System')) }} · {{ $message->created_at?->format('d/m H:i') }}
             </div>
             <div @class([
                 'mt-0.5 max-w-[85%] rounded-lg px-3 py-2 text-sm break-words',
@@ -36,6 +37,12 @@
     @error('body') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror
     @if ($chat->status === \App\Models\LiveChat::WAITING && $canReply)
     <x-filament::button wire:click="claim">{{ __('Take') }}</x-filament::button>
+    @elseif ($canReply && \App\Support\LiveChats::orphaned($chat))
+    <p class="text-xs text-warning-600">{{ __('The operator of this chat can no longer answer it.') }}</p>
+    <div class="flex gap-2">
+        <x-filament::button wire:click="claim">{{ __('Take over') }}</x-filament::button>
+        <x-filament::button color="gray" wire:click="close" wire:confirm="{{ __('Close this chat?') }}">{{ __('Close chat') }}</x-filament::button>
+    </div>
     @elseif ($chat->status === \App\Models\LiveChat::ACTIVE && $canReply && $chat->assigned_to === $me?->id)
     <form wire:submit="send" class="flex flex-col gap-1">
         <div class="flex items-end gap-2">

@@ -70,7 +70,7 @@ class LiveChat extends Page
     public static function getNavigationBadge(): ?string
     {
         $staff = Auth::user();
-        $unread = $staff instanceof Staff ? StaffChat::unread($staff) + LiveChats::queue($staff)->count() : 0;
+        $unread = $staff instanceof Staff ? StaffChat::unread($staff) + LiveChats::waiting($staff) : 0;
 
         return match (true) {
             $unread === 0 => null,
