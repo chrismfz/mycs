@@ -56,6 +56,7 @@ class Actor
         'productsso' => ['admin.services.sso', 'admin.services.update'],
         'managedomains' => null, // the domain pages ask for each change's own admin permission (staffMay, R2)
         'orders' => 'admin.orders.create',
+        // `chat` is never listed: staff do not chat as the customer (docs/livechat.md F9), so staffMayAs('chat') is false.
         // Paying with the customer's own money (a saved card, the vault, the balance): the admin's «mark paid».
         'pay' => 'admin.invoices.update',
     ];

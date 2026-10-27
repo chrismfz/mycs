@@ -449,6 +449,10 @@ class ImportFromWhmcs extends Command
             $owner = (bool) $row['owner'] && !isset($seen['owner:' . $client]);
             $seen['owner:' . $client] = $seen['owner:' . $client] ?? $owner;
             $listed = array_values(array_intersect(ClientUser::PERMISSIONS, array_map('trim', explode(',', (string) ($row['permissions'] ?? '')))));
+            // WHMCS has no live chat: a login that opens tickets may chat too, as the migration gave it here (review of #475).
+            if (in_array('tickets', $listed, true) && !in_array('chat', $listed, true)) {
+                $listed[] = 'chat';
+            }
             $date = fn ($value) => $value === null || $value === '' || str_starts_with((string) $value, '0000') ? null : $value;
             $grants[] = [
                 'client_id' => $client, 'user_id' => $user, 'owner' => $owner, 'owner_of_client_id' => $owner ? $client : null,

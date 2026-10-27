@@ -54,6 +54,15 @@ class TicketDepartment extends Model implements Auditable
             [$this->email, str_contains((string) $this->imap_username, '@') ? $this->imap_username : null])));
     }
 
+    /**
+     * Staff who answer its live chats (docs/livechat.md F3): a list of its own, apart from the mail notifications. A
+     * department with no one here takes no chats. @return BelongsToMany<Staff, $this>
+     */
+    public function chatStaff(): BelongsToMany
+    {
+        return $this->belongsToMany(Staff::class, 'live_chat_department_staff');
+    }
+
     /** Staff told of its new tickets and replies (when the ticket is assigned to no one). @return BelongsToMany<Staff, $this> */
     public function notifyStaff(): BelongsToMany
     {

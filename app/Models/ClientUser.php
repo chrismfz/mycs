@@ -25,7 +25,7 @@ class ClientUser extends Pivot
 
     /** The WHMCS permission names: an owner, or a grant with NULL permissions, has them all. */
     public const PERMISSIONS = ['profile', 'contacts', 'products', 'manageproducts', 'productsso', 'domains', 'managedomains',
-        'invoices', 'quotes', 'tickets', 'affiliates', 'emails', 'orders'];
+        'invoices', 'quotes', 'tickets', 'affiliates', 'emails', 'orders', 'chat'];
 
     protected $fillable = ['client_id', 'user_id', 'owner', 'owner_of_client_id', 'permissions', 'granted_by', 'granted_at', 'revoked_at', 'last_login_at'];
 

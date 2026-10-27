@@ -113,6 +113,8 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
     {
         return $this->ticketMessages()->exists()
             || StaffMessage::query()->where('staff_id', $this->id)->exists()
+            || LiveChatMessage::query()->where('staff_id', $this->id)->exists()
+            || LiveChat::query()->where('assigned_to', $this->id)->exists()
             || MoneyEvent::query()->where('actor_type', $this->getMorphClass())->where('actor_id', $this->id)->exists();
     }
 

@@ -91,7 +91,8 @@ class ImportLoginsTest extends TestCase
         $this->assertSame(300, (int) $owner->owner_of_client_id);
         $helper = ClientUser::query()->where('client_id', 300)->where('user_id', 8)->sole();
         $this->assertFalse($helper->owner);
-        $this->assertSame(['invoices', 'tickets'], $helper->permissions, 'WHMCS\'s names, an unknown one left out');
+        // `chat` with `tickets`: WHMCS has no live chat, and a login that opens tickets may chat (review of #475).
+        $this->assertSame(['invoices', 'tickets', 'chat'], $helper->permissions, 'WHMCS\'s names, an unknown one left out');
         $this->assertTrue($helper->allows('invoices'));
         $this->assertFalse($helper->allows('products'));
     }

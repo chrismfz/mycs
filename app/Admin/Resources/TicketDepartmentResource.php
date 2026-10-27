@@ -55,6 +55,10 @@ class TicketDepartmentResource extends Resource
                     Select::make('notifyStaff')->label('Notify')->multiple()->relationship('notifyStaff', 'email')->preload()
                         ->getOptionLabelFromRecordUsing(fn (Staff $staff) => "{$staff->name} <{$staff->email}>")
                         ->helperText('Staff mailed of its new tickets and customers\' replies, when the ticket is assigned to no one (then its staff member is). Only staff who may see tickets.'),
+                    // Who answers its live chats (docs/livechat.md F3): no one listed, no chat in this department.
+                    Select::make('chatStaff')->label('Live chat')->multiple()->relationship('chatStaff', 'email')->preload()
+                        ->getOptionLabelFromRecordUsing(fn (Staff $staff) => "{$staff->name} <{$staff->email}>")
+                        ->helperText('Staff who answer this department\'s live chats, and see them. No one listed: customers cannot chat with this department.'),
                 ]),
                 Section::make(__('Mailbox'))->columns(2)
                     ->description('Read every 5 minutes when «Read the mailbox» is on. A reply joins a ticket only by our mail\'s Message-ID and only from the ticket\'s owner; anything else waits in Tickets → Mail Quarantine.')

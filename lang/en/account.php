@@ -178,6 +178,7 @@ return [
         'affiliates' => 'View and manage the affiliate account',
         'emails' => 'View emails',
         'orders' => 'Place new orders',
+        'chat' => 'Chat live with support',
     ],
     'accounts' => 'Switch account',
     'accounts_description' => 'The accounts your login can manage. Pick the one to work on.',
