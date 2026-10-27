@@ -523,4 +523,29 @@ class LiveChatCustomerTest extends TestCase
 
         $this->assertSame(0, LiveChats::alerts($operator)['message_latest']);
     }
+
+    /** Owner 2026-10-27: the reminder of a waiting chat rings for an «Available» member only. */
+    public function test_the_reminder_follows_the_members_status(): void
+    {
+        $operator = $this->online($this->operator($this->department()));
+        $this->asStaff($operator);
+        $this->assertStringContainsString('data-available="1"', Livewire::test(StaffChatNotifier::class)->html());
+
+        StaffPresence::setStatus($operator, StaffPresenceStatus::Busy);
+        $this->asStaff($operator->fresh());
+        $this->assertStringContainsString('data-available="0"', Livewire::test(StaffChatNotifier::class)->html());
+    }
+
+    /** Owner 2026-10-27: «Customers waiting» in the sidebar of every admin page, fed by the alert's own count. */
+    public function test_the_sidebar_shows_customers_waiting_from_the_alerts_count(): void
+    {
+        $operator = $this->online($this->operator($this->department()));
+        $this->asStaff($operator);
+
+        $this->get('/sysadmin')->assertOk()->assertSee('mycs-chat-waiting', false)->assertSee(__('Customers waiting'));
+        $notifier = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+        $sidebar = (string) file_get_contents(resource_path('views/filament/admin/sidebar-work.blade.php'));
+        $this->assertStringContainsString("new CustomEvent('mycs-chat-waiting'", $notifier);
+        $this->assertStringContainsString('x-on:mycs-chat-waiting.window=', $sidebar);
+    }
 }
