@@ -282,8 +282,10 @@ class InvoiceObserver
         // «Send to Ekdosi» (E5) asked for this invoice as it stood: cancelled, refunded, made a draft, moved to another
         // account or currency, the request is gone, and one reopened is not sent again unasked (ADV-2/ADV-4, R2-4 of #478).
         // After the row is written, under its lock: a request landing meanwhile sees the new status (R2-5).
+        // Any change of status but its payment (unpaid → paid): a paid one set back to unpaid would be issued on credit, which
+        // staff never confirmed (R3-3).
         if ($invoice->wasChanged(['client_id', 'currency_code'])
-            || ($invoice->wasChanged('status') && !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true))) {
+            || ($invoice->wasChanged('status') && !($invoice->getOriginal('status') === Invoice::STATUS_UNPAID && $invoice->status === Invoice::STATUS_PAID))) {
             EkdosiRequest::forget((int) $invoice->id, $invoice->wasChanged('status') ? 'status_' . $invoice->status : 'moved');
         }
         // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
