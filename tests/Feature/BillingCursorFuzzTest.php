@@ -859,4 +859,63 @@ class BillingCursorFuzzTest extends TestCase
         $this->assertSame('cancelled', $invoice->fresh()->status);
         $this->assertSame('2026-10-15', $service->fresh()->expires_at->toDateString());
     }
+
+    // =====================================================================================  adversarial review of #484
+    // The checker itself, fed a step's before/after state by hand: what the simulation would let through.
+
+    /**
+     * Sets the checker up for a monthly service paid until $expires, the lines given as [id => [s, e, status, forgone]].
+     *
+     * @param  array<int, array{0: string, 1: string, 2: string, 3: bool}>  $before
+     * @param  array<int, array{0: string, 1: string, 2: string, 3: bool}>  $after
+     * @return array{0: array, 1: array}
+     */
+    private function advStates(string $expires, array $before, array $after): array
+    {
+        $this->unit = 'month';
+        $this->months = 1;
+        $this->anchor = (int) substr($expires, 8, 2);
+        $this->staffMoved = true;
+        $this->maxStaff = $expires;
+        $this->free = [];
+        $this->revived = [];
+        $lines = fn (array $rows) => collect($rows)->map(fn ($r, $id) => ['id' => $id, 'inv' => $id, 'status' => $r[2],
+            's' => $r[0], 'e' => $r[1], 'forgone' => $r[3]])->all();
+
+        return [
+            ['expires' => $expires, 'status' => 'active', 'lines' => $lines($before)],
+            ['expires' => $expires, 'status' => 'active', 'lines' => $lines($after)],
+        ];
+    }
+
+    /**
+     * ADV-484-1. Δ3a: «the cron bills on past a period given up on, never into it» (docs/billing-cursor.md, this PR).
+     * No invariant checks it: I4 compares a new line with live lines only, and a cancelled or refunded one is not live.
+     * A cron that billed a whole month over the period given up on (the customer pays again for days staff gave up) passes
+     * every check, with the old checker and the new one alike.
+     */
+    public function test_adv_checker_flags_a_cron_line_billed_into_a_period_given_up_on(): void
+    {
+        $forgone = ['2027-11-24', '2027-12-24', 'cancelled', true];
+        [$before, $after] = $this->advStates('2027-11-15', [1 => $forgone], [1 => $forgone, 2 => ['2027-11-15', '2027-12-15', 'unpaid', false]]);
+
+        $this->assertNotNull($this->check('cron', $before, $after, false, false, false),
+            'a cron line [11-15, 12-15) over the given-up [11-24, 12-24) passed every invariant');
+    }
+
+    /**
+     * ADV-484-2. The I6 hole exemption (a line that ends where another starts) skips badPeriod() altogether: it no longer
+     * checks that the hole is shorter than a cycle. This PR widens it to lines given up on, so a cron line of 40 days that
+     * ends where a cancelled renewal starts now passes I6 (the app's own rule only prorates a hole SHORTER than a period,
+     * RenewalBilling::billRenewal). The same gap was there for live lines before.
+     */
+    public function test_adv_checker_flags_a_hole_line_longer_than_a_cycle(): void
+    {
+        $forgone = ['2027-11-24', '2027-12-24', 'cancelled', true];
+        [$before, $after] = $this->advStates('2027-10-15', [1 => $forgone], [1 => $forgone, 2 => ['2027-10-15', '2027-11-24', 'unpaid', false]]);
+
+        $violation = $this->check('cron', $before, $after, false, false, false);
+        $this->assertNotNull($violation, 'a 40-day cron line [10-15, 11-24) passed I6 as a «hole»');
+        $this->assertStringStartsWith('I6', $violation);
+    }
 }
