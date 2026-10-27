@@ -188,4 +188,9 @@ return [
     'document_active' => 'Εκδόθηκε',
     'document_cancelled' => 'Ακυρώθηκε',
     'open_pdf' => 'PDF',
+    // «Τα παραστατικά μου» (E2b): every document of the account.
+    'my_documents' => 'Τα παραστατικά μου',
+    'my_documents_note' => 'Τα νόμιμα παραστατικά (τιμολόγια, αποδείξεις) που εκδόθηκαν για τις πληρωμές σου και διαβιβάστηκαν στην ΑΑΔΕ.',
+    'from_invoice' => 'Από το',
+    'no_documents' => 'Δεν υπάρχουν ακόμα παραστατικά.',
 ];
