@@ -1,5 +1,6 @@
 <div class="container mt-14 space-y-4">
-    <x-navigation.breadcrumb />
+    {{-- Its own way back: the menu shows it only once there is a document (review of #482). --}}
+    <x-navigation.breadcrumb :trail="[['name' => __('invoices.my_documents')]]" />
 
     <p class="text-sm text-base/70">{{ __('invoices.my_documents_note') }}</p>
 

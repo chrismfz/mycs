@@ -36,7 +36,7 @@ class Documents extends Component
     public function render()
     {
         return view('invoices.documents', [
-            'documents' => self::of(CurrentClient::model()->id)->with('invoice.currency')
+            'documents' => self::of(CurrentClient::model()->id)->with(['invoice.currency', 'invoice.items', 'invoice.adjustmentNotes'])
                 ->orderByDesc('id')->paginate(config('settings.pagination')),
         ])->layoutData([
             'title' => __('invoices.my_documents'),
