@@ -72,8 +72,9 @@ class ViewDomain extends ViewRecord
 
     private static function contactLabel(Contact $contact): string
     {
-        return trim(($contact->company_name ? $contact->company_name . ' · ' : '') . $contact->first_name . ' ' . $contact->last_name)
-            . ' <' . $contact->email . '> #' . $contact->client_id;
+        $name = trim(($contact->company_name ? $contact->company_name . ' · ' : '') . $contact->first_name . ' ' . $contact->last_name) ?: $contact->label();
+
+        return $name . ($contact->email && $name !== $contact->email ? ' <' . $contact->email . '>' : '') . ' #' . $contact->client_id;
     }
 
     private static function lastDeclaration(Domain $record): ?DomainOwnerChange
@@ -502,7 +503,7 @@ class ViewDomain extends ViewRecord
                     ->fillForm(fn (Domain $record) => collect(Domain::ROLES)->mapWithKeys(fn ($role) => [$role => $record->{"{$role}_contact_id"}])->all())
                     ->schema(fn (Domain $record) => array_map(
                         fn (string $role) => Select::make($role)->label(__('domains.role.' . $role))->required($role === 'registrant')
-                            ->options(Contact::query()->where('client_id', $record->client_id)->get()->mapWithKeys(fn (Contact $c) => [$c->id => $c->displayName()])->all()),
+                            ->options(Contact::query()->where('client_id', $record->client_id)->get()->mapWithKeys(fn (Contact $c) => [$c->id => $c->label()])->all()),
                         Domain::ROLES,
                     ))
                     ->modalDescription(__('A contact changed gets a new handle at the registrar, with the account contact\'s details.'))

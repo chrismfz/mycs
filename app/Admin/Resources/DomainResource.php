@@ -261,7 +261,7 @@ class DomainResource extends Resource
         $contacts = Section::make(__('Contacts'))->columns(2)->schema([...array_map(
             fn (string $role) => Group::make([
                 TextEntry::make("{$role}Contact.email")->label(__('domains.role.' . $role))
-                    ->state(fn (Domain $record) => $record->{"{$role}Contact"}?->displayName() ?? '—')
+                    ->state(fn (Domain $record) => $record->{"{$role}Contact"}?->label() ?? '—')
                     ->helperText(function (Domain $record) use ($role) {
                         $service = app(DomainManagementService::class);
                         $handle = $service->handleFor($record, $role);
@@ -277,7 +277,7 @@ class DomainResource extends Resource
             // Who Ekdosi invoices it to (docs/ekdosi-bridge.md): a contact of the account, not a role at the registrar.
             Group::make([
                 TextEntry::make('contact.email')->label(__('Related contact'))
-                    ->state(fn (Domain $record) => $record->contact?->displayName() ?? __('The account'))
+                    ->state(fn (Domain $record) => $record->contact?->label() ?? __('The account'))
                     ->helperText(__('Who the fiscal document for its lines is issued to.')),
                 Actions::make([DomainContactActions::related()])->key('contacts_related_actions')->alignStart(),
             ]),

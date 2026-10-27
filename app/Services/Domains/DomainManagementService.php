@@ -693,7 +693,7 @@ class DomainManagementService
         [$first, $last] = $person !== '' ? array_pad(preg_split('/\s+/u', $person, 2) ?: [], 2, '') : ['', ''];
 
         if ($first === '' && $last === '' && $org === '') {
-            $last = (string) $record->email; // a contact is never nameless (displayName)
+            $last = (string) $record->email; // the registry needs a name: the email when it has none (Contact::label() names it in lists)
         }
         $cut = fn (?string $value, int $length = 255) => $value === null || trim($value) === '' ? null : mb_substr(trim($value), 0, $length);
         $contact = new Contact;

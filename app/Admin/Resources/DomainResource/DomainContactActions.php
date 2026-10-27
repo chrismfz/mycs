@@ -55,7 +55,7 @@ final class DomainContactActions
                         // A new account contact needs the account permission too (review).
                         ->options((self::can('admin.clients.update') ? ['new' => __('A new contact of the account, from the registrar\'s record')] : [])
                             + Contact::query()->where('client_id', $record->client_id)->whereNull('archived_at')->get()
-                                ->mapWithKeys(fn (Contact $c) => [$c->id => $c->displayName()])->all())
+                                ->mapWithKeys(fn (Contact $c) => [$c->id => $c->label()])->all())
                         // The contact this account already linked to this handle on another domain, if any.
                         ->default(fn () => self::alreadyLinked($record, (string) self::service()->handleFor($record, $role))),
                 ])
@@ -88,7 +88,7 @@ final class DomainContactActions
                 Select::make('contact_id')->label(__('Related contact'))->searchable()->nullable()
                     ->placeholder(__('The account'))
                     ->options(Contact::query()->where('client_id', $record->client_id)->whereNull('archived_at')->get()
-                        ->mapWithKeys(fn (Contact $c) => [$c->id => $c->displayName() . ($c->email ? " <{$c->email}>" : '')])->all()),
+                        ->mapWithKeys(fn (Contact $c) => [$c->id => $c->label() . ($c->email && $c->label() !== $c->email ? " <{$c->email}>" : '')])->all()),
             ])
             ->modalDescription(__('Who this domain is for, among the account\'s contacts: Ekdosi issues the document for its lines to this contact. Nothing is sent to the registrar.'))
             ->action(function (Domain $record, array $data) {

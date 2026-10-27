@@ -356,7 +356,7 @@ class ServiceResource extends Resource
                             // The form's account (create page, or a client changed on the form: review 3).
                             ->relationship('contact', 'id', fn (Builder $query, Get $get) => $query
                                 ->where('client_id', $get('client_id'))->whereNull('archived_at'))
-                            ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->displayName() . ($contact->email ? " <{$contact->email}>" : ''))
+                            ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->label() . ($contact->email && $contact->label() !== $contact->email ? " <{$contact->email}>" : ''))
                             ->hintIcon(...$hint('Who this service is for, among the account\'s contacts. The invoice stays the account\'s; Ekdosi issues the fiscal document for its lines to this contact.')),
                         TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
                             ->hintIcon(...$hint('Shown to the customer while the service is suspended.')),

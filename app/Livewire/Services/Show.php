@@ -825,11 +825,11 @@ class Show extends Component
         $options = [];
         if ($canEditContact) {
             $options = $this->service->client->contacts()->active()->orderBy('id')->get()
-                ->mapWithKeys(fn ($contact) => [$contact->id => $contact->displayName()])->all();
+                ->mapWithKeys(fn ($contact) => [$contact->id => $contact->label()])->all();
             // The one it has, archived since: shown as it is (else the select would read «None»).
             $current = $this->service->contact;
             if ($current !== null && !isset($options[$current->id])) {
-                $options[$current->id] = $current->displayName() . ' (' . __('services.related_contact_archived') . ')';
+                $options[$current->id] = $current->label() . ' (' . __('services.related_contact_archived') . ')';
             }
         }
 

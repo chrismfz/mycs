@@ -83,8 +83,9 @@ class Show extends Component
         return Contact::query()->where('client_id', $this->domain->client_id)
             ->where(fn ($q) => $q->whereNull('archived_at')->orWhereIn('id', $now))
             ->orderBy('first_name')->orderBy('last_name')->get()
-            ->mapWithKeys(fn (Contact $c) => [$c->id => trim(trim($c->first_name . ' ' . $c->last_name) . ($c->company_name ? ' · ' . $c->company_name : ''))
-                . ($emails ? ' <' . $c->email . '>' : '')])
+            // A contact known by its tax id only is named by it (Contact::label(), review of #485), never blank.
+            ->mapWithKeys(fn (Contact $c) => [$c->id => ($name = trim(trim($c->first_name . ' ' . $c->last_name) . ($c->company_name ? ' · ' . $c->company_name : '')) ?: $c->label())
+                . ($emails && $c->email && $name !== $c->email ? ' <' . $c->email . '>' : '')])
             ->all();
     }
 

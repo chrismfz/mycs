@@ -12,6 +12,6 @@
 @elseif($canSeeContact && $service->contact)
 <div class="flex items-center text-base">
     <span class="mr-2">{{ __('services.related_contact') }}:</span>
-    <span class="text-base/50">{{ $service->contact->displayName() }}</span>
+    <span class="text-base/50">{{ $service->contact->label() }}</span>
 </div>
 @endif

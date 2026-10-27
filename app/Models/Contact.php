@@ -172,6 +172,19 @@ class Contact extends Model implements Auditable
     }
 
     /**
+     * How a list or a page names it: its name, else its tax id (a company entered by its ΑΦΜ only, the rest filled in
+     * by Ekdosi from the registry: live test of 2026-10-27), its EU VAT number, its email, its number. Never blank: a
+     * select with a blank option refused it as invalid. The account's name and the invoice keep displayName().
+     */
+    public function label(): string
+    {
+        return $this->displayName()
+            ?: ($this->tax_id ? __('invoices.tax_id_line', ['tax_id' => $this->tax_id])
+            : ($this->vat_number ? __('invoices.vat_number_line', ['vat_number' => $this->vat_number])
+            : ((string) $this->email ?: '#' . $this->id)));
+    }
+
+    /**
      * The fields a role needs that are empty (`invoice` follows the contact's document type: a receipt needs less).
      *
      * @return array<int, string>
