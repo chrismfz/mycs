@@ -86,6 +86,10 @@
             </div>
         </div>
         <x-impersonating />
+        {{-- The live chat's bubble, for a login that may chat (docs/livechat.md §7); never on a private link's page. --}}
+        @if (!$privateLink && auth('web')->check() && \App\Support\LiveChats::customerMay(auth('web')->user()))
+        @livewire('client.chat-bubble', key('mycs-chat-bubble'))
+        @endif
     </div>
     @livewireScriptConfig
     @unless ($privateLink)

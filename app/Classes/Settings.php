@@ -480,6 +480,16 @@ class Settings
                     'default' => false,
                 ],
                 // Mail to tickets: a mailbox per department, under Configuration → Ticket Departments (docs/tickets.md, A2).
+                [
+                    // Live chat with customers (docs/livechat.md, step 3α): off until the owner turns it on; who answers is
+                    // each department's «Live chat» list.
+                    'name' => 'livechat_enabled',
+                    'label' => 'Live chat for customers',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'A «Chat» bubble in the client area, for logins with the «chat» permission. Who answers is set per department (Configuration → Ticket Departments → Live chat); a department with no one listed takes no chats.',
+                ],
             ],
 
             // The Automation tab: WHMCS's Automation Settings, its sections and wording (docs/settings-map.md). The

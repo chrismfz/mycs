@@ -36,7 +36,7 @@ class RoleResource extends Resource
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-shield-user-fill';
 
     /** Ticked in a new role's form (docs/livechat.md §7β, §7γ). */
-    public const DEFAULT_PERMISSIONS = ['admin.staff_online.view', 'admin.staff_chat.view', 'admin.staff_chat.post'];
+    public const DEFAULT_PERMISSIONS = ['admin.staff_online.view', 'admin.staff_chat.view', 'admin.staff_chat.post', 'admin.chats.view', 'admin.chats.reply'];
 
     /** @return array<string, string> the permissions a role's form offers: the app's and its extensions' */
     public static function permissionOptions(): array

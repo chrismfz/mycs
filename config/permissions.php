@@ -322,6 +322,11 @@ return [
                 'view' => 'View the Staff Chat',
                 'post' => 'Write in the Staff Chat',
             ],
+            // Live chat with customers (docs/livechat.md, step 3α): in the departments that list the member (F3).
+            'chats' => [
+                'view' => 'View customers\' live chats',
+                'reply' => 'Answer customers\' live chats',
+            ],
             'widgets' => [
                 'revenue' => 'View Revenue Widget',
                 'overview' => 'View Overview Widget',

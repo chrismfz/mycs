@@ -20,11 +20,23 @@
         <x-filament::button size="sm" color="gray" x-on:click="test()">{{ __('Test notification') }}</x-filament::button>
     </div>
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        <x-filament::section :heading="__('Team')" class="lg:col-span-1">
-            @livewire('admin.staff-team', key('mycs-staff-team'))
-        </x-filament::section>
+        <div class="flex flex-col gap-6 lg:col-span-1">
+            {{-- Customers' chats in the member's departments (docs/livechat.md §7α, step 3α). --}}
+            @if (\App\Support\LiveChats::isOperator(auth('staff')->user()))
+            <x-filament::section :heading="__('Customers')">
+                @livewire('admin.chat-queue', key('mycs-chat-queue'))
+            </x-filament::section>
+            @endif
+            <x-filament::section :heading="__('Team')">
+                @livewire('admin.staff-team', key('mycs-staff-team'))
+            </x-filament::section>
+        </div>
         <x-filament::section class="lg:col-span-3">
-            @livewire('admin.staff-room', key('mycs-staff-room'))
+            @if ($chat)
+            @livewire('admin.customer-chat', ['chatId' => $chat], key('mycs-customer-chat-' . $chat))
+            @else
+            @livewire('admin.staff-room', ['with' => $staffWith], key('mycs-staff-room'))
+            @endif
         </x-filament::section>
     </div>
 </x-filament-panels::page>
