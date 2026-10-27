@@ -75,7 +75,7 @@
     --}}
     <a href="{{ \App\Admin\Pages\LiveChat::getUrl() }}" wire:navigate x-data="{ waiting: window.mycsChatWaiting ?? 0 }"
         x-on:mycs-chat-waiting.window="waiting = $event.detail" x-show="waiting > 0" x-cloak
-        class="mycs-chat-waiting mx-3 flex items-center justify-between gap-2 rounded-lg bg-danger-600 px-3 py-2 text-sm font-semibold text-white shadow animate-pulse hover:bg-danger-500">
+        class="mycs-chat-waiting mx-3 flex items-center justify-between gap-2 rounded-lg bg-danger-600 px-3 py-2 text-sm font-semibold text-white shadow motion-safe:animate-pulse hover:bg-danger-500">
         <span>{{ __('Customers waiting') }}</span>
         <span class="rounded-full bg-white/25 px-2 text-xs" x-text="waiting"></span>
     </a>

@@ -547,5 +547,8 @@ class LiveChatCustomerTest extends TestCase
         $sidebar = (string) file_get_contents(resource_path('views/filament/admin/sidebar-work.blade.php'));
         $this->assertStringContainsString("new CustomEvent('mycs-chat-waiting'", $notifier);
         $this->assertStringContainsString('x-on:mycs-chat-waiting.window=', $sidebar);
+        // Review of #480: the reminder follows the same count as the link, a chat whose operator left included.
+        $this->assertStringContainsString("if (!(Number(d.waiting) > 0) || d.available !== '1' || this.reading()) return;", $notifier);
+        $this->assertStringContainsString('if (Date.now() - reminded < 5000) times = 0;', $notifier);
     }
 }
