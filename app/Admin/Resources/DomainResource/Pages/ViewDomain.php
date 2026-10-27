@@ -72,8 +72,9 @@ class ViewDomain extends ViewRecord
 
     private static function contactLabel(Contact $contact): string
     {
-        return trim(($contact->company_name ? $contact->company_name . ' · ' : '') . $contact->first_name . ' ' . $contact->last_name)
-            . ' <' . $contact->email . '> #' . $contact->client_id;
+        $name = trim(($contact->company_name ? $contact->company_name . ' · ' : '') . $contact->first_name . ' ' . $contact->last_name) ?: $contact->label();
+
+        return $name . ($contact->email && $name !== $contact->email ? ' <' . $contact->email . '>' : '') . ' #' . $contact->client_id;
     }
 
     private static function lastDeclaration(Domain $record): ?DomainOwnerChange
