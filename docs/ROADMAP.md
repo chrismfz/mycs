@@ -121,7 +121,14 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       γίνονται νέες παραγγελίες στο Openprovider στη λήξη τους (οι 2 RapidSSL → PositiveSSL).
 - [x] ~~SSL vault~~ **έγινε (#437, #438):** κλειδί/CSR από το MyCS, εκδόσεις, εργαλεία ελέγχου και SSL Checker. Μένει
       η εγκατάσταση στο cPanel, αργότερα.
-- [ ] mailcow: δοκιμή live στο mymail (με άδεια και το API key).
+- [x] ~~mailcow: δοκιμή live στο mymail~~ **έγινε (2026-10-28, με άδεια του υπεύθυνου):** server #8, κρυφό προϊόν #41
+      «mailcow test (hidden)» (χωρίς restart του SOGo, terminate = delete), υπηρεσία #8 με το `mycs-test.myip.gr`: create
+      (domain με όρια, DKIM, domain admin), suspend (admin κλειδωμένος, μαρκαρισμένος), unsuspend, κωδικός, SSO στο
+      domain admin, χρήση, upgrade (όρια), terminate (domain και admin διαγράφηκαν): όλα εντάξει.
+- [ ] mailcow, συνέχεια (υπεύθυνος, 2026-10-28): **Utilities → Mail Domains** (domains και mailboxes κάθε server, χρήση,
+      αντιστοίχιση με υπηρεσία, όπως τα Proxmox Guests: feat/mailcow-inventory)· στη σελίδα της υπηρεσίας, για staff και
+      πελάτη, οδηγός DNS με έλεγχο (MX, SPF, DKIM, DMARC, autodiscover) και τα mailboxes με quota και χρήση· μετά το
+      ίδιο για τους λογαριασμούς του cPanel. Όχι πρόσθετα mailboxes ως config options (μόνο όριο χώρου).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

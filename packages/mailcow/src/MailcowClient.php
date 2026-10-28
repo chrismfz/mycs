@@ -165,6 +165,45 @@ final class MailcowClient
 
     // ---- reading ---------------------------------------------------------------------
 
+    /**
+     * Every domain on the server, as mailcow lists them (an inventory: read only).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listDomains()
+    {
+        return $this->listOf('/api/v1/get/domain/all', 'domain_name');
+    }
+
+    /**
+     * Every mailbox on the server, with its quota and use (an inventory: read only).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listMailboxes()
+    {
+        return $this->listOf('/api/v1/get/mailbox/all', 'username');
+    }
+
+    /**
+     * A list of rows, each with its key field; anything else (an error, a message) is no list: thrown, so that a failed
+     * read is never taken for an empty server.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function listOf($path, $key)
+    {
+        $rows = $this->get($path);
+        if ($rows === [] || $rows === null) {
+            return [];
+        }
+        if (!is_array($rows) || array_values($rows) !== $rows || array_filter($rows, fn ($row) => !is_array($row) || !isset($row[$key])) !== []) {
+            throw new MailcowException("mailcow: unexpected answer for {$path}");
+        }
+
+        return $rows;
+    }
+
     /** Every domain admin (one request; check many usernames against it in memory). */
     public function getDomainAdmins()
     {

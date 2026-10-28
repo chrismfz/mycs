@@ -168,4 +168,21 @@ final class MailcowClientTest extends TestCase
         $this->expectException(MailcowException::class);
         $this->client($http)->issueSsoToken('exampl');
     }
+
+    public function test_lists_the_domains_and_mailboxes_and_never_takes_an_error_for_an_empty_server()
+    {
+        $http = (new FakeTransport)
+            ->queue(200, [['domain_name' => 'example.org', 'mboxes_in_domain' => 2]])
+            ->queue(200, [['username' => 'a@example.org', 'quota_used' => 10]])
+            ->queue(200, [])
+            ->queue(200, ['type' => 'error', 'msg' => 'access denied']);
+        $client = $this->client($http);
+
+        $this->assertSame('example.org', $client->listDomains()[0]['domain_name']);
+        $this->assertSame('https://mail.example.net/api/v1/get/domain/all', $http->requests[0]['url']);
+        $this->assertSame('a@example.org', $client->listMailboxes()[0]['username']);
+        $this->assertSame([], $client->listDomains());
+        $this->expectException(MailcowException::class);
+        $client->listMailboxes();
+    }
 }
