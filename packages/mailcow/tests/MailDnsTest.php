@@ -111,4 +111,21 @@ final class MailDnsTest extends TestCase
         $spf->check('example.org');
         $this->assertLessThan(25, $lookups, 'a: and mx: terms spend the 10 too');
     }
+
+    /** Round 3 of #494: dual CIDR, and what a receiver takes for a permerror is never a ✓. */
+    public function test_dual_cidr_and_a_permerror_is_never_ok()
+    {
+        $spf = fn (array $dns) => $this->check($dns + ['MX example.org' => ['mail.example.net']])['spf'];
+
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 mx//64 -all']])['status']);
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 a:mail.example.net//64 -all'], 'A mail.example.net' => ['192.0.2.25']])['status']);
+
+        $chain = ['TXT example.org' => ['v=spf1 include:i1.test ip4:192.0.2.25 -all']];
+        foreach (range(1, 12) as $i) {
+            $chain["TXT i{$i}.test"] = ['v=spf1 include:i' . ($i + 1) . '.test -all'];
+        }
+        $this->assertSame(['fail', 'spf_error'], [$spf($chain)['status'], $spf($chain)['note']], 'past the 10 inside an include');
+        $this->assertSame('fail', $spf(['TXT example.org' => ['v=spf1 include:nospf.test mx -all']])['status']);
+        $this->assertSame('fail', $spf(['TXT example.org' => ['v=spf1 ip4:192.0.2.25/33 mx -all']])['status']);
+    }
 }

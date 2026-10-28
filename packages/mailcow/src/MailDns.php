@@ -10,7 +10,7 @@ namespace Nixpal\Mailcow;
  * The resolver is given a name and a type (MX, TXT, CNAME, A) and returns the records: MX and CNAME as their target, TXT
  * as its text, A as its address (strings); none, an empty list. Each name and type is looked up once per check, and SPF
  * spends at most the 10 lookups RFC 7208 allows, so a domain's DNS can never make it ask without end. A row's note
- * is a code: other_mx, spf_many, spf_not_ours, dkim_none, dkim_other, dmarc_many.
+ * is a code: other_mx, spf_many, spf_not_ours, spf_error, dkim_none, dkim_other, dmarc_many.
  */
 final class MailDns
 {
@@ -43,6 +43,9 @@ final class MailDns
 
     const SPF_LOOKUPS = 10;
 
+    /** @var bool the SPF cannot be evaluated (a receiver's permerror): too many lookups, an include with no one record, a bad term */
+    private $permerror = false;
+
     /**
      * @param  callable(string, string): list<string>  $resolve
      * @param  string  $mailHost  the server's hostname (its MX target)
@@ -69,6 +72,7 @@ final class MailDns
         $domain = self::host($domain);
         $this->memo = [];
         $this->spfLookups = 0;
+        $this->permerror = false;
         $rows = [$this->mx($domain), $this->spf($domain), $this->dkim($domain), $this->dmarc($domain)];
         foreach (['autodiscover', 'autoconfig'] as $name) {
             $rows[] = $this->alias($name, $domain);
@@ -108,10 +112,10 @@ final class MailDns
         if (count($records) > 1) {
             return self::row('spf', 'TXT', $domain, $expected, $records, self::FAIL, true, 'spf_many');
         }
-        $ok = $this->spfCovers($records[0], $domain);
+        $ok = $this->spfCovers($records[0], $domain) && !$this->permerror;
 
-        return self::row('spf', 'TXT', $domain, $expected, $records, $ok ? self::OK : self::WARN, true,
-            $ok ? null : 'spf_not_ours');
+        return self::row('spf', 'TXT', $domain, $expected, $records, $ok ? self::OK : ($this->permerror ? self::FAIL : self::WARN), true,
+            $ok ? null : ($this->permerror ? 'spf_error' : 'spf_not_ours'));
     }
 
     /**
@@ -138,8 +142,8 @@ final class MailDns
             $qualifier = in_array($term[0], ['+', '-', '~', '?'], true) ? $term[0] : '+';
             $term = ltrim($term, '+-~?');
             [$mechanism, $value] = array_pad(explode(':', $term, 2), 2, null);
-            $mechanism = (string) preg_replace('#/\d+(//\d+)?$#', '', $mechanism);
-            $target = $value === null ? $domain : (string) preg_replace('#/\d+(//\d+)?$#', '', $value);
+            $mechanism = (string) preg_replace('#(/\d+)?(//\d+)?$#', '', $mechanism);
+            $target = $value === null ? $domain : (string) preg_replace('#(/\d+)?(//\d+)?$#', '', $value);
             if ($mechanism === 'all') {
                 return $qualifier === '+'; // so a redirect is never followed when there is an «all»
             }
@@ -156,6 +160,9 @@ final class MailDns
             } elseif ($mechanism === 'include') {
                 $matches = $value !== null && $this->included($value);
             }
+            if ($this->permerror) {
+                return false; // a receiver stops here: no pass, whatever follows (round 3 of #494)
+            }
             if ($matches) {
                 return $qualifier === '+';
             }
@@ -170,15 +177,24 @@ final class MailDns
     /** One of the RFC's 10 lookups spent; false when none is left. */
     private function spend(): bool
     {
-        return ++$this->spfLookups <= self::SPF_LOOKUPS;
+        if (++$this->spfLookups > self::SPF_LOOKUPS) {
+            $this->permerror = true;
+        }
+
+        return !$this->permerror;
     }
 
     /** An included or redirected domain's SPF (one record) lets our server send. */
     private function included(string $domain): bool
     {
         $records = self::spfRecords($this->lookup($domain, 'TXT'));
+        if (count($records) !== 1) {
+            $this->permerror = true; // an include or redirect with no one SPF record
 
-        return count($records) === 1 && $this->spfCovers($records[0], $domain);
+            return false;
+        }
+
+        return $this->spfCovers($records[0], $domain);
     }
 
     /** One of our IPv4 addresses within «a.b.c.d» or «a.b.c.d/n». */
@@ -186,10 +202,12 @@ final class MailDns
     {
         [$network, $bits] = array_pad(explode('/', $value, 2), 2, '32');
         $net = ip2long($network);
-        $bits = (int) $bits;
-        if ($net === false || $bits < 0 || $bits > 32) {
+        if ($net === false || !ctype_digit((string) $bits) || (int) $bits > 32) {
+            $this->permerror = true;
+
             return false;
         }
+        $bits = (int) $bits;
         $mask = $bits === 0 ? 0 : (-1 << (32 - $bits)) & 0xFFFFFFFF;
         foreach ($this->serverIps as $ip) {
             $long = ip2long($ip);
