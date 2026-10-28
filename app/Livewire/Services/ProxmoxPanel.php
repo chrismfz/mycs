@@ -46,7 +46,10 @@ class ProxmoxPanel extends Component
 
     private const KEEP_STATE_PENDING = 4;
 
-    /** Which state each action needs (ADV-502-R2-4: a VM paused, or migrating, is not powered by a crafted call). */
+    /**
+     * Which state each action needs (ADV-502-R2-4: a VM paused, migrating or locked, read from its qmpstatus and lock, is
+     * not powered by a crafted call).
+     */
     private const NEEDS = ['start' => 'stopped', 'shutdown' => 'running', 'reboot' => 'running', 'stop' => 'running'];
 
     public function mount(): void
@@ -63,7 +66,7 @@ class ProxmoxPanel extends Component
         $key = 'proxmox-power:' . $this->service->id;
         // Taken before the action, not after: a second request meanwhile (a double click, two tabs) is refused
         // (ADV-502-R2-2); given back as 10 seconds if the action fails.
-        if (!RateLimiter::attempt($key, 1, fn () => true, 30)) {
+        if (RateLimiter::hit($key, 30) > 1) { // the hit itself is the check: two requests at once, one passes
             $this->notify(__('services.proxmox.too_soon'), 'error');
 
             return;
@@ -73,12 +76,8 @@ class ProxmoxPanel extends Component
         try {
             // No guest (unmapped since the page opened) is «not done», never told sent nor audited (ADV-502-2).
             $extension ?? throw new \RuntimeException("Service #{$this->service->id} has no Proxmox guest to act on.");
-            $lifecycle = $extension->lifecycle($this->service);
-            $status = $lifecycle->state($this->service)['status'];
-            if ($status !== self::NEEDS[$action]) {
-                throw new \RuntimeException("VM is «{$status}»: «{$action}» needs it «" . self::NEEDS[$action] . '».');
-            }
-            $lifecycle->power($this->service, $action);
+            // Its state checked under the guest's lock, with the service still active (round 3 of #502).
+            $extension->lifecycle($this->service)->power($this->service, $action, self::NEEDS[$action]);
         } catch (Throwable $e) {
             report($e);
             RateLimiter::clear($key);

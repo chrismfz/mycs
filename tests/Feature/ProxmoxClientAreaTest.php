@@ -10,6 +10,7 @@ use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Proxmox\GuestLifecycle;
 use App\Support\Sparkline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -38,6 +39,9 @@ class ProxmoxClientAreaTest extends TestCase
 
     private bool $writeDown = false;
 
+    /** @var array<string, mixed> more of status/current (qmpstatus, lock) */
+    private array $current = [];
+
     private int $maxdisk = 64424509440;
 
     /** @var list<string> the graphs' timeframes asked */
@@ -63,7 +67,7 @@ class ProxmoxClientAreaTest extends TestCase
                 $path === 'nodes/vega/qemu/101/config' => Http::response(['data' => ['net0' => 'virtio=BC:24:11:00:00:01,bridge=vmbr0']]),
                 $path === 'nodes/vega/qemu/101/status/current' => $this->currentDown ? Http::response(['data' => null], 500)
                     : Http::response(['data' => ['status' => $this->vm['status'], 'cpu' => 0.25, 'cpus' => 2,
-                        'mem' => 1073741824, 'maxmem' => 4294967296, 'maxdisk' => $this->maxdisk, 'uptime' => 93784]]),
+                        'mem' => 1073741824, 'maxmem' => 4294967296, 'maxdisk' => $this->maxdisk, 'uptime' => 93784] + $this->current]),
                 $path === 'nodes/vega/qemu/101/rrddata' => tap(Http::response(['data' => [
                     ['time' => 1, 'cpu' => 0.1, 'mem' => 1, 'maxmem' => 4, 'netin' => 100, 'netout' => 50, 'diskread' => 10, 'diskwrite' => 5],
                     ['time' => 2, 'cpu' => 0.4, 'mem' => 2, 'maxmem' => 4, 'netin' => 300, 'netout' => 80, 'diskread' => 20, 'diskwrite' => 15],
@@ -204,9 +208,45 @@ class ProxmoxClientAreaTest extends TestCase
         $this->writeDown = true;
         $page->call('power', 'reboot')->assertDispatched('notify');
         $this->writeDown = false;
-        $this->travel(11)->seconds();
+        $this->writes = [];
+        $this->travel(5)->seconds();
+        $page->call('power', 'reboot'); // inside the 10 seconds: refused
+        $this->assertSame([], $this->writes, 'a failure holds the next try 10 seconds');
+        $this->travel(6)->seconds();
         $this->writes = [];
         $page->call('power', 'reboot');
         $this->assertSame(['POST nodes/vega/qemu/101/status/reboot'], $this->writes);
+    }
+
+    /**
+     * Round 3 of #502: a qemu VM paused, or locked (migrating, backed up), is «running» to Proxmox with its qmpstatus or
+     * lock apart: told unknown and never powered; and under the guest's lock the service must still be active (a
+     * suspension's job run meanwhile).
+     */
+    public function test_a_paused_or_locked_vm_is_not_powered_and_a_suspended_service_never_under_the_lock(): void
+    {
+        $service = $this->vps();
+        foreach ([['qmpstatus' => 'paused'], ['qmpstatus' => 'running', 'lock' => 'migrate']] as $i => $current) {
+            Cache::flush();
+            $this->current = $current;
+            Livewire::actingAs($this->owner($service))->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+                ->assertSee(__('services.proxmox.status.unknown'))->assertDontSee(__('services.proxmox.power.stop'))
+                ->call('power', 'stop');
+            $this->assertSame([], $this->writes, "case {$i}: not powered");
+        }
+
+        $this->current = [];
+        $server = $service->provisioningServer();
+        $extension = ExtensionHelper::getExtension('server', 'Proxmox', $server->settings);
+        $lifecycle = new GuestLifecycle($extension->client(), $server, 'mycs', fn () => null);
+        $service->update(['status' => 'suspended']); // as the cron leaves it before its job runs
+        try {
+            $lifecycle->power($service, 'start', 'stopped');
+            $this->fail('a suspended service\'s VM was started under the lock');
+        } catch (\RuntimeException) {
+        }
+        $this->assertSame([], $this->writes);
+        $lifecycle->power($service, 'shutdown'); // staff's buttons: no such check
+        $this->assertSame(['POST nodes/vega/qemu/101/status/shutdown'], $this->writes);
     }
 }

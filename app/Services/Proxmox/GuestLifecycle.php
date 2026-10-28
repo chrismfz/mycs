@@ -135,15 +135,40 @@ final class GuestLifecycle
     }
 
     /** Staff's power buttons: the task is started, not waited for. */
-    public function power(Service $service, string $action): void
+    public function power(Service $service, string $action, ?string $needs = null): void
     {
         if (!in_array($action, self::POWER, true)) {
             throw new RuntimeException("Unknown power action «{$action}».");
         }
-        $this->locked($service, function (ProxmoxGuest $row, ?array $resource) use ($action) {
+        $this->locked($service, function (ProxmoxGuest $row, ?array $resource) use ($action, $needs, $service) {
             $resource ?? throw new RuntimeException("VM {$row->vmid} is no longer on the cluster.");
+            // The customer's: checked under the lock, the service still active and the VM as the action needs it (a
+            // suspension's job may have run while this waited: round 3 of #502).
+            if ($needs !== null) {
+                if ($service->fresh()?->status !== Service::STATUS_ACTIVE) {
+                    throw new RuntimeException("Service #{$service->id} is no longer active: VM {$row->vmid} not powered.");
+                }
+                $status = $this->effective((string) $resource['status']);
+                if ($status !== $needs) {
+                    throw new RuntimeException("VM {$row->vmid} is «{$status}»: «{$action}» needs it «{$needs}».");
+                }
+            }
             $this->client->write('POST', ProxmoxClient::guestPath($resource) . "/status/{$action}");
         });
+    }
+
+    /**
+     * Its state as the customer is told it: a qemu VM paused (or suspended to RAM) is «running» to Proxmox with its
+     * qmpstatus apart, and one migrating or backed up is «running» with a lock (round 3 of #502).
+     */
+    private function effective(string $status): string
+    {
+        if ($status === 'running' && isset($this->current['lock']) && (string) $this->current['lock'] !== '') {
+            return 'locked';
+        }
+        $qmp = (string) ($this->current['qmpstatus'] ?? '');
+
+        return $status === 'running' && $qmp !== '' && $qmp !== 'running' ? $qmp : $status;
     }
 
     /**
@@ -177,7 +202,7 @@ final class GuestLifecycle
         $state = [
             'vmid' => $row->vmid,
             'name' => $row->name,
-            'status' => $resource['status'] ?? null,
+            'status' => $resource === null ? null : $this->effective((string) $resource['status']),
             'uptime' => (int) $number('uptime'),
             'cpu' => (float) $number('cpu'),
             'cpus' => $size('cpus', $row->cpus),
