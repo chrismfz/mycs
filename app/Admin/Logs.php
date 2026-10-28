@@ -59,7 +59,8 @@ final class Logs
         $sort = 0;
         foreach (self::ITEMS as $group => $entries) {
             foreach ($entries as [$class, $label]) {
-                if (!$class::canAccess()) {
+                // A log shown only under a setting (Error/HTTP Logs, while debugging) stays out here too (review, 2026-10-28).
+                if (!$class::canAccess() || !$class::shouldRegisterNavigation()) {
                     continue;
                 }
                 $resource = is_subclass_of($class, Resource::class);
@@ -74,5 +75,23 @@ final class Logs
         }
 
         return $items;
+    }
+
+    /** @return list<class-string> every log page: each has its place in the top menu through «Utilities → Logs» */
+    public static function classes(): array
+    {
+        return array_values(array_unique(array_column(array_merge(...array_values(self::ITEMS)), 0)));
+    }
+
+    /** Where «Utilities → Logs» leads (owner 2026-10-28): the first log this staff member may open, none if none. */
+    public static function first(): ?NavigationItem
+    {
+        return self::navigation()[0] ?? null;
+    }
+
+    /** Whether the page open is one of the logs. */
+    public static function isCurrent(): bool
+    {
+        return collect(self::navigation())->contains(fn (NavigationItem $item) => $item->isActive());
     }
 }
