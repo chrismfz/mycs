@@ -152,9 +152,16 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
    - Τα κουμπιά Start και Reboot δεν εμφανίζονται όσο η υπηρεσία είναι suspended.
    - Η πρόσβαση της MyCS γίνεται ο ρόλος MyCS στο pool (εντολές παραπάνω).
    - Αγγίζει τον κύκλο ζωής, άρα θέλει **και adversarial review**.
-2. [ ] **PR 3, client area:**
-   - Ο πελάτης βλέπει κατάσταση, IP/MAC και γραφήματα (CPU, RAM, δίκτυο, δίσκος).
-   - Κάνει start, shutdown, reboot και hard stop, αλλά όχι όσο είναι suspended.
+2. [x] **PR 3, client area:**
+   - Ο πελάτης βλέπει κατάσταση, CPU/RAM/δίσκο, uptime, IP/MAC και γραφήματα (CPU, RAM, δίκτυο, δίσκος· ώρα, μέρα,
+     εβδομάδα, από το `rrddata`), ζωγραφισμένα στον server χωρίς βιβλιοθήκη γραφημάτων.
+   - Κάνει start, shutdown, reboot και hard stop (με επιβεβαίωση, μία ενέργεια ανά 30'' ανά VM, στο audit), αλλά όχι
+     όσο είναι suspended. Όλα περνούν από τους ίδιους ελέγχους του `GuestLifecycle::guest()` (ένα VM, στο pool, το ίδιο
+     μηχάνημα): ένα VM που δεν αγγίζει η MyCS ούτε φαίνεται. Η ανάγνωση κρατιέται 60''.
+   - Ο πελάτης μπορεί να ξεκινήσει VM που σταμάτησε το staff όσο η υπηρεσία είναι active (υπεύθυνος 2026-10-28): για
+     abuse το staff κάνει suspend την υπηρεσία, και τότε δεν υπάρχουν κουμπιά.
+   - **Create (υπεύθυνος 2026-10-28):** χωρίς cloud-init templates (εγκατάσταση από .iso), και το πρώτο create γίνεται
+     χειροκίνητα, γιατί η MAC μπαίνει στο MikroTik (gw1-snc) κατά των αλλαγών IP. Το Β4 ξανασυζητιέται.
 3. [ ] **PR 4, IP pools στη MyCS:** IPv4 (και IPv6 prefix) με gateway και mask, δέσμευση και αποδέσμευση ανά
    υπηρεσία, import του pool του WHMCS. Χωρίς αυτά δεν γίνεται create.
 4. [ ] **PR 5, create από πλάνο και αλλαγή πακέτου:**

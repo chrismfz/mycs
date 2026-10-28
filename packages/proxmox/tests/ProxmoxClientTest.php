@@ -124,4 +124,13 @@ final class ProxmoxClientTest extends TestCase
 
         $this->assertCount(2, $this->client($http)->nodeRrd('vega'));
     }
+
+    public function test_a_guests_graph_at_its_node_and_only_a_known_timeframe(): void
+    {
+        $http = new FakeTransport(['nodes/pegasus/qemu/101/rrddata?timeframe=day&cf=AVERAGE' => [200, [['time' => 1, 'cpu' => 0.1], 'junk']]]);
+
+        $this->assertSame([['time' => 1, 'cpu' => 0.1]], $this->client($http)->guestRrd(['node' => 'pegasus', 'type' => 'qemu', 'vmid' => 101], 'day'));
+        $this->expectException(ProxmoxException::class);
+        $this->client($http)->guestRrd(['node' => 'pegasus', 'vmid' => 101], 'year&x=1');
+    }
 }

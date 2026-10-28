@@ -191,6 +191,10 @@
     @if (in_array($service->status, ['active', 'suspended'], true) && \App\Models\MailcowDomain::forService($service))
         <livewire:services.mail-setup :service="$service" :key="'mail-setup-' . $service->id" />
     @endif
+    {{-- A VPS on Proxmox: its own panel (owner 2026-10-28). --}}
+    @if (in_array($service->status, ['active', 'suspended'], true) && \App\Admin\Resources\ServiceResource\ProxmoxPower::guest($service))
+        <livewire:services.proxmox-panel :service="$service" :key="'proxmox-panel-' . $service->id" />
+    @endif
     @include('services.partials.panel-tools')
     @include('services.partials.ssl')
 
