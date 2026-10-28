@@ -35,7 +35,11 @@ final class AlertReader
     public function run(): array
     {
         $summary = ['read' => 0, 'new' => 0, 'errors' => []];
-        $this->recheckAccounts();
+        try {
+            $this->recheckAccounts();
+        } catch (Throwable $e) {
+            $summary['errors'][] = 'Our accounts: ' . $e->getMessage(); // never keeps the folders from being read (review of #491)
+        }
         foreach ($this->settings['folders'] as $folder) {
             try {
                 $this->folder($folder, $summary);
@@ -122,37 +126,56 @@ final class AlertReader
         return preg_match('/SQLSTATE\[22[0-9A-Z]{3}\]/', $e->getMessage()) === 1;
     }
 
-    /** Its account is one of ours for its bank (Bank transfer → «Our accounts»): none set, none is ours. */
     /**
-     * An account set as ours after its alerts were read (owner 2026-10-28: the second Piraeus account): its vouched-for
-     * movements, kept as «not one of our accounts», now count. As if read now: history stays history, a debit ignored, a
-     * credit staff have not seen to is for them (or ignored by the configured texts); what staff did stays. Its key
-     * becomes a vouched-for one's, so the same mail read again is not a second movement.
+     * «Our accounts» changed after alerts were read (owner 2026-10-28: the second Piraeus account), both ways:
+     * - an account set as ours: its vouched-for movements, kept as «not one of our accounts», now count. History stays
+     *   history, a debit ignored, what staff did stays; a credit staff have not seen to is theirs to see to, never matched
+     *   (they were told to check it at the bank and may have recorded it by hand: adversarial review of #491);
+     * - an account taken out (set by mistake): its movements no longer count, and a credit not yet matched is unverified.
+     * The key follows, so the same mail read again is no second movement; a movement with no Message-ID cannot rebuild its
+     * key and stays as it is (review of #491).
      */
     private function recheckAccounts(): void
     {
-        foreach ($this->settings['accounts'] ?? [] as $bank => $accounts) {
-            $ours = array_map(fn ($a) => mb_strtoupper(trim((string) $a)), $accounts);
-            BankMovement::query()->where('bank', $bank)->where('authenticity', 'not_our_account')->whereNotNull('account')
-                ->lazyById()->each(function (BankMovement $movement) use ($ours) {
-                    if (!in_array(mb_strtoupper(trim((string) $movement->account)), $ours, true)) {
-                        return;
-                    }
-                    $status = $movement->status;
-                    if ($status === BankMovement::UNVERIFIED) {
-                        $status = array_filter($this->settings['ignore'], fn ($text) => mb_stripos($movement->reason, $text) !== false) !== []
-                            ? BankMovement::IGNORED : BankMovement::PENDING;
-                    }
-                    $key = $movement->message_id !== null && mb_strlen($movement->message_id) < 255
-                        ? hash('sha256', 'authentic|mid:' . $movement->message_id) : $movement->message_key;
-                    if ($key !== $movement->message_key && BankMovement::query()->where('message_key', $key)->exists()) {
-                        return; // the bank's own copy is already a movement: this one stays as it is
-                    }
-                    $movement->update(['authentic' => true, 'authenticity' => 'account_added_later', 'status' => $status, 'message_key' => $key]);
-                });
+        foreach (array_keys(BankMovement::BANKS) as $bank) {
+            $ours = array_map(fn ($a) => mb_strtoupper(trim((string) $a)), $this->settings['accounts'][$bank] ?? []);
+            $isOurs = fn (?string $account) => $account !== null && in_array(mb_strtoupper(trim($account)), $ours, true);
+            // The few accounts the bank's movements name, compared here as ours() does (a database's UPPER is not mb_strtoupper).
+            $accounts = fn (bool $authentic) => BankMovement::query()->where('bank', $bank)->where('authentic', $authentic)
+                ->when(!$authentic, fn ($q) => $q->where('authenticity', 'not_our_account'))
+                ->whereNotNull('account')->distinct()->pluck('account');
+
+            $added = $accounts(false)->filter($isOurs)->values()->all();
+            $removed = $accounts(true)->reject($isOurs)->values()->all();
+            BankMovement::query()->where('bank', $bank)->where('authenticity', 'not_our_account')->whereIn('account', $added)
+                ->whereNotNull('message_id')->lazyById()->each(fn (BankMovement $movement) => $this->recount($movement, true));
+            BankMovement::query()->where('bank', $bank)->where('authentic', true)->whereIn('account', $removed)
+                ->lazyById()->each(fn (BankMovement $movement) => $this->recount($movement, false));
         }
     }
 
+    private function recount(BankMovement $movement, bool $ours): void
+    {
+        $changes = ['authentic' => $ours, 'authenticity' => $ours ? 'account_added_later' : 'not_our_account'];
+        if ($ours && $movement->status === BankMovement::UNVERIFIED) {
+            $changes['status'] = array_filter($this->settings['ignore'], fn ($text) => mb_stripos($movement->reason, $text) !== false) !== []
+                ? BankMovement::IGNORED : BankMovement::PENDING;
+            $changes['match_note'] = 'Its account was set as ours later: see to it by hand';
+        } elseif (!$ours && $movement->status === BankMovement::PENDING && $movement->invoice_id === null) {
+            $changes['status'] = BankMovement::UNVERIFIED;
+        }
+        if ($movement->message_id !== null) {
+            $key = hash('sha256', ($ours ? 'authentic|' : 'unverified|') . 'mid:' . $movement->message_id);
+            if (BankMovement::query()->where('message_key', $key)->whereKeyNot($movement->id)->exists()) {
+                return; // that mail's other copy is a movement already: this one stays as it is
+            }
+            $changes['message_key'] = $key;
+        }
+        // Only as it was read: staff seeing to it meanwhile keep what they did (review of #491).
+        BankMovement::query()->whereKey($movement->id)->where('status', $movement->status)->where('authentic', $movement->authentic)->update($changes);
+    }
+
+    /** Its account is one of ours for its bank (Bank transfer → «Our accounts»): none set, none is ours. */
     private function ours(BankAlert $alert): bool
     {
         $ours = array_map(fn ($a) => mb_strtoupper(trim((string) $a)), $this->settings['accounts'][$alert->bank] ?? []);
