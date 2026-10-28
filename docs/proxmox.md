@@ -98,7 +98,7 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 
 ### Α. Τα υπάρχοντα VM στη MyCS (μαζί με τον importer, πριν από το cut-over του myip)
 1. [x] **Inventory (PR 1, #446):** όλα τα guests του cluster στη λίστα (28 στις 2026-10-24, 27 χωρίς το template).
-2. [ ] **Pool στη λίστα (PR 2):** η στήλη «In MyCS pool» διαβάζεται από το `/cluster/resources`. Για όσα είναι
+2. [x] **Pool στη λίστα (PR 2, #447):** η στήλη «In MyCS pool» διαβάζεται από το `/cluster/resources`. Για όσα είναι
    αντιστοιχισμένα αλλά εκτός pool, η σελίδα δίνει έτοιμη την εντολή `pvesh set /pools --poolid mycs --vms …`, που την τρέχει
    ο υπεύθυνος. Το token της MyCS δεν παίρνει δικαίωμα να αλλάζει pools.
 3. [ ] **Importer (γραμμή 9 του ROADMAP):**
@@ -130,7 +130,7 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
 - Το create (Β4) θα χρειαστεί τον πλήρη ρόλο της ενότητας «Πρόσβαση του MyCS».
 
 ### Β. Full provisioning (PRs)
-1. [ ] **PR 2, κύκλος ζωής** (`GuestLifecycle`):
+1. [x] **PR 2, κύκλος ζωής** (`GuestLifecycle`, #447):
    - Suspend, unsuspend και terminate όπως στις αποφάσεις, πάνω στο όριο ασφάλειας.
    - Start, shutdown, reboot και stop από τη σελίδα της υπηρεσίας στο admin.
    - Οι εργασίες του Proxmox (UPID) περιμένονται μέσα στο job. Μια αποτυχία πάει στα Pending Module Actions, όπως

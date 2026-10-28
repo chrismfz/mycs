@@ -115,7 +115,10 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`.
   - **Μετά το cut-over:** client area, IP pools, create από πλάνο, reinstall, κονσόλα noVNC.
 - [x] ~~ngm (1), Hetzner (1): χειροκίνητα προϊόντα~~ **έγινε (feat/offline-modules):** modules «Offline VM» και «Offline Dedicated Server» χωρίς API· τα στοιχεία της μηχανής (VM ID, πάροχος, MAC, IPv6· rack, U, IPMI IP και MAC, serial, θύρα switch/PDU) στην υπηρεσία, κάθε ενέργεια εργασία του staff στα Pending Module Actions. Επόμενο, αν χρειαστεί: η τρέχουσα IP του IPMI από τα DHCP leases του MikroTik με το MAC του.
-- [ ] cPanel: root token στους servers του myip πριν τους resellers· συμφιλίωση κατάστασης μετά από job του server
+- [x] ~~Συμφιλίωση κατάστασης cPanel~~ **έγινε:** «Differs» στο Hosting Accounts (φίλτρο) και στη σελίδα της υπηρεσίας:
+      active εδώ/suspended εκεί, suspended εδώ/active εκεί, ended εδώ/υπάρχει ακόμα εκεί (μόνο αφού ο server διαβαστεί
+      μετά την αλλαγή της υπηρεσίας).
+- [ ] cPanel: root token στους servers του myip πριν τους resellers
       (το create υπάρχει, #114)· αργότερα, αν χρειαστεί, διαχείριση email/domains μέσα από το MyCS.
 - [ ] SSL: live δοκιμή με πραγματική παραγγελία (PositiveSSL 6,53 €), με έγκριση του υπευθύνου. Οι 12 του TheSSLStore
       γίνονται νέες παραγγελίες στο Openprovider στη λήξη τους (οι 2 RapidSSL → PositiveSSL).

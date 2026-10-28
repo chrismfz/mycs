@@ -6,6 +6,7 @@ use App\Admin\Resources\CpanelAccountResource\Pages\ListCpanelAccounts;
 use App\Admin\Resources\ServiceResource;
 use App\Livewire\Services\Show as ServiceShow;
 use App\Models\CpanelAccount;
+use App\Models\ModuleAction;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
@@ -34,6 +35,9 @@ class CpanelInventoryTest extends TestCase
 
     private bool $down = false;
 
+    /** Run as the server answers listaccts (a service changed while it is read). */
+    private ?\Closure $whileListing = null;
+
     private Server $server;
 
     protected function setUp(): void
@@ -61,7 +65,7 @@ class CpanelInventoryTest extends TestCase
             $ok = fn (array $data = []) => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => $data]);
 
             return match (true) {
-                str_ends_with($call, '/listaccts') => $ok(['acct' => $this->accounts]),
+                str_ends_with($call, '/listaccts') => tap($ok(['acct' => $this->accounts]), fn () => $this->whileListing && ($this->whileListing)()),
                 str_ends_with($call, '/showbw') => $this->bandwidthDown ? Http::response(['metadata' => ['result' => 0, 'reason' => 'denied']])
                     : $ok(['acct' => [['user' => 'alpha', 'totalbytes' => 5 * 1073741824, 'limit' => 10 * 1073741824], ['user' => 'gone1', 'totalbytes' => 1, 'deleted' => 1]]]),
                 str_ends_with($call, '/listresellers') => $ok(['reseller' => ['resel1']]),
@@ -256,5 +260,105 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame('demo', $client->fresh()->note, 'an action grouped still works');
         $group = collect($this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->instance()->getTable()->getRecordActions())->sole();
         $this->assertInstanceOf(ActionGroup::class, $group, 'the actions in one menu');
+    }
+
+    /**
+     * Owner 2026-10-28: an account whose state differs from its service's (active here, suspended there; suspended here,
+     * active there; ended here, still there) is flagged, on the list (a filter, its «No» a real negative) and the
+     * service's page; one that agrees, is pending, gone or never read is not.
+     */
+    public function test_an_account_whose_state_differs_from_its_service_is_flagged_and_one_that_agrees_is_not(): void
+    {
+        $this->accounts[2]['suspended'] = 1;                    // client1 suspended on the server
+        $this->accounts[] = ['user' => 'agree1', 'owner' => 'root', 'suspended' => 0];
+        $this->accounts[] = ['user' => 'agree2', 'owner' => 'root', 'suspended' => 1];
+        $this->accounts[] = ['user' => 'new1', 'owner' => 'root', 'suspended' => 1];
+        $paying = $this->service('client1');                    // active here
+        $unpaid = $this->service('alpha', 'suspended');         // suspended here, active there
+        $this->service('agree1');                               // active and active
+        $this->service('agree2', 'suspended');                  // suspended and suspended
+        $this->service('new1', 'pending');                      // pending: never
+        $ended = $this->service('sub1', 'terminated');          // ended here, still there
+        $this->travel(2)->seconds();                            // the services older than the read
+        AccountSync::sync($this->server);
+        $row = fn (string $user) => CpanelAccount::query()->where('user', $user)->sole();
+        $row('sub1')->update(['service_id' => $ended->id]);     // a reseller's customer, mapped by hand
+        $gone = CpanelAccount::query()->create(['server_id' => $this->server->id, 'user' => 'old1', 'service_id' => $this->service('old1', 'terminated')->id,
+            'last_seen_at' => now(), 'gone_at' => now()]);
+        $unread = CpanelAccount::query()->create(['server_id' => $this->server->id, 'user' => 'unread1', 'service_id' => $this->service('unread1', 'terminated')->id]);
+
+        $this->assertSame('suspended_on_server', $row('client1')->differs());
+        $this->assertSame('active_on_server', $row('alpha')->differs());
+        $this->assertSame('ended_here', $row('sub1')->differs());
+        foreach (['agree1', 'agree2', 'new1', 'resel1'] as $user) {
+            $this->assertNull($row($user)->differs(), $user);
+        }
+        $this->assertNull($gone->differs());
+        $this->assertNull($unread->differs());
+
+        $differing = [$row('client1'), $row('alpha'), $row('sub1')];
+        $agreeing = [$row('agree1'), $row('agree2'), $row('new1'), $row('resel1'), $unread];
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
+            ->assertTableColumnStateSet('state', 'Differs', $row('client1'))
+            ->filterTable('differs', true)->assertCanSeeTableRecords($differing)->assertCanNotSeeTableRecords($agreeing);
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
+            ->filterTable('differs', false)->assertCanSeeTableRecords($agreeing)->assertCanNotSeeTableRecords($differing);
+        $this->assertContains(CpanelAccount::DIFFERS['suspended_on_server'], ServiceResource::summaryLine($paying->fresh())['serverState']);
+
+        // MyCS unsuspends it after the read: not «differs» until the server is read again.
+        $this->travel(1)->minutes();
+        $unpaid->update(['status' => 'active']);
+        $this->assertNull($row('alpha')->differs(), 'changed since the read: wait for the next one');
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('differs', true)->assertCanNotSeeTableRecords([$row('alpha')]);
+    }
+
+    /**
+     * Review of «Differs»: no false flag from MyCS's own job (open in Pending Module Actions), nor from a reseller's
+     * suspension reaching its customer; a service imported with no date is compared; the read is stamped as it began.
+     */
+    public function test_differs_skips_an_open_job_and_a_resellers_cascade_and_compares_an_undated_import(): void
+    {
+        $this->accounts[2]['suspended'] = 1;                    // client1
+        $this->accounts[3]['suspended'] = 1;                    // sub1, its reseller resel1 suspended
+        $client = $this->service('client1');
+        $sub = $this->service('sub1');
+        $undated = $this->service('alpha', 'suspended');
+        $this->travel(1)->minutes();
+        AccountSync::sync($this->server);
+        CpanelAccount::query()->where('user', 'sub1')->update(['service_id' => $sub->id]);
+        Service::query()->whereKey($undated->id)->update(['updated_at' => null]); // as the importer leaves a 0000-00-00 regdate
+        $row = fn (string $user) => CpanelAccount::query()->where('user', $user)->sole();
+
+        $this->assertSame('active_on_server', $row('alpha')->differs(), 'no date: older than any read');
+        $this->assertNull($row('sub1')->differs(), 'suspended with its reseller: not to unsuspend');
+        $this->assertSame('suspended_on_server', $row('client1')->differs());
+        ModuleAction::query()->create(['service_id' => $client->id, 'action' => 'unsuspend', 'status' => ModuleAction::STATUS_COMPLETED]);
+        $this->assertSame('suspended_on_server', $row('client1')->differs(), 'a job done long ago explains nothing');
+        ModuleAction::query()->create(['service_id' => $client->id, 'action' => 'unsuspend', 'status' => ModuleAction::STATUS_OPEN]);
+        $this->assertNull($row('client1')->differs(), 'MyCS\'s own unsuspend is open: already to handle');
+
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('differs', true)
+            ->assertCanSeeTableRecords([$row('alpha')])->assertCanNotSeeTableRecords([$row('sub1'), $row('client1')]);
+    }
+
+    /** Review of «Differs»: a service suspended while the server was being read is newer than the read, never flagged. */
+    public function test_a_service_changed_while_the_server_is_read_is_not_flagged(): void
+    {
+        $alpha = $this->service('alpha');
+        $this->whileListing = function () use ($alpha) {
+            $this->travel(5)->seconds();
+            $alpha->update(['status' => 'suspended']); // MyCS's suspend, as the server still lists it active
+            $this->travel(5)->seconds();
+        };
+        AccountSync::sync($this->server);
+        $this->assertNull(CpanelAccount::query()->where('user', 'alpha')->sole()->differs(), 'read stamped as it began');
+
+        // Round 2: in the read's own second too (timestamps kept to the second).
+        $this->travel(1)->minutes();
+        $alpha->update(['status' => 'active']);
+        $this->travel(1)->minutes();
+        $this->whileListing = fn () => $alpha->update(['status' => 'suspended']);
+        AccountSync::sync($this->server);
+        $this->assertNull(CpanelAccount::query()->where('user', 'alpha')->sole()->differs(), 'changed in the read\'s own second');
     }
 }
