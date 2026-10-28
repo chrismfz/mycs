@@ -192,8 +192,6 @@ class ProxmoxConsoleAdversarialTest extends TestCase
             stream_set_blocking($browser, false);
             stream_set_chunk_size($browser, 1 << 20);
         }
-        gc_collect_cycles();
-        $before = memory_get_usage();
         $pending = 0;
         for ($i = 0; $i < 3000 && $this->relay->count() === 4; $i++) {
             foreach ($sides as [$browser]) {
@@ -201,13 +199,15 @@ class ProxmoxConsoleAdversarialTest extends TestCase
             }
             $this->relay->tick(0.001);
             $pending = max($pending, array_sum(array_map(fn (array $c) => strlen($c['cout']), $this->consoles())));
-            if ($before + $pending > 128 << 20) {
+            if ($pending > 128 << 20) {
                 break;
             }
         }
 
-        $this->assertLessThan(128 << 20, $before + $pending, sprintf('%.0f MB of pongs held for browsers that read nothing, on top of the %.0f MB '
-            . 'of a booted app: past php-cli\'s 128M', $pending / 1048576, $before / 1048576));
+        // What the relay holds, not the test process: a CI worker is at 200 MB before this test (setup adapted: the
+        // assertion first added this process's own memory). Four consoles, each held at its MAX_PENDING and a read.
+        $this->assertLessThan(4 * (ConsoleRelay::MAX_PENDING + (1 << 20)), $pending, sprintf('%.0f MB of pongs held for browsers that read nothing',
+            $pending / 1048576));
     }
 
     /**
