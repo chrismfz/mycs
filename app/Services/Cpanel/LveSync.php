@@ -2,6 +2,7 @@
 
 namespace App\Services\Cpanel;
 
+use App\Console\Commands\SyncCpanelLve;
 use App\Helpers\ExtensionHelper;
 use App\Models\CpanelAccount;
 use App\Models\CpanelLveSample;
@@ -21,6 +22,11 @@ final class LveSync
     /** Readings kept this long (the peak is of the last 24 hours). */
     public const KEEP_HOURS = 48;
 
+    public static function lockName(int $serverId): string
+    {
+        return "cpanel.lve.{$serverId}";
+    }
+
     /** Every server's old readings, a disabled or failing one's too (review of #497). */
     public static function prune(): int
     {
@@ -34,7 +40,8 @@ final class LveSync
         if (!$extension instanceof CPanel) {
             throw new \InvalidArgumentException("{$server->name} is not a cPanel server.");
         }
-        $lock = Cache::lock("cpanel.lve.{$server->id}", 3600);
+        // Shorter than the hour between runs (a child killed past its time never releases it: review 2 of #497).
+        $lock = Cache::lock(self::lockName($server->id), SyncCpanelLve::SERVER_TIMEOUT + 60);
         if (!$lock->get()) {
             throw new RuntimeException("{$server->name} is being read already: try again later.");
         }

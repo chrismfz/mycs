@@ -7,8 +7,8 @@ use App\Services\Cpanel\AccountSync;
 use App\Services\Cpanel\LveSync;
 use App\Support\Redact;
 use Illuminate\Console\Command;
-use Illuminate\Process\Exceptions\ProcessTimedOutException;
 use Illuminate\Process\Pool;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
 use Throwable;
 
@@ -26,6 +26,9 @@ class SyncCpanelLve extends Command
     /** A server's read given this long (one call an account, a few hundred accounts). */
     public const SERVER_TIMEOUT = 3000;
 
+    /** The parent's own deadline for a child (SERVER_TIMEOUT; a test sets it shorter). */
+    public static int $deadline = self::SERVER_TIMEOUT;
+
     public function handle(): int
     {
         $servers = AccountSync::servers()->when($this->option('server') !== null, fn ($c) => $c->where('id', (int) $this->option('server')));
@@ -35,7 +38,10 @@ class SyncCpanelLve extends Command
             return self::FAILURE;
         }
         $failed = $servers->count() > 1 ? $this->inParallel($servers->pluck('id')->all()) : $this->read($servers->first());
-        LveSync::prune();
+        // The parent's, or a run by hand of all: never each child's (nine deletes at once: review 2 of #497).
+        if ($this->option('server') === null) {
+            LveSync::prune();
+        }
 
         return $failed ? self::FAILURE : self::SUCCESS;
     }
@@ -64,39 +70,54 @@ class SyncCpanelLve extends Command
     }
 
     /**
-     * Each server in its own `cpanel:lve --server=`, all at once; their lines told here. True when one failed.
+     * Each server in its own `cpanel:lve --server=`, all at once, watched together (each one's output read as it comes,
+     * none waiting on another's: review 2 of #497); one past its time stopped, named, and its lock let go. Their lines
+     * told here. True when one failed.
      *
      * @param  list<int>  $ids
      */
     private function inParallel(array $ids): bool
     {
-        try {
-            $results = Process::pool(function (Pool $pool) use ($ids) {
-                foreach ($ids as $id) {
-                    $pool->as((string) $id)->path(base_path())->timeout(self::SERVER_TIMEOUT)
-                        ->command([PHP_BINARY, 'artisan', 'cpanel:lve', '--server=' . $id]);
+        $pool = Process::pool(function (Pool $pool) use ($ids) {
+            foreach ($ids as $id) {
+                $pool->as((string) $id)->path(base_path())->forever()
+                    ->command([PHP_BINARY, 'artisan', 'cpanel:lve', '--server=' . $id]);
+            }
+        })->start();
+        $started = microtime(true);
+        $stopped = [];
+        while ($pool->running()->isNotEmpty()) {
+            if (microtime(true) - $started >= self::$deadline) {
+                foreach ($pool as $id => $process) {
+                    if ($process->running()) {
+                        $process->stop(5);
+                        $stopped[] = (string) $id;
+                        Cache::lock(LveSync::lockName((int) $id))->forceRelease();
+                    }
                 }
-            })->start()->wait();
-        } catch (ProcessTimedOutException $e) {
-            // A server's read past its time (the others' readings are saved by their own processes).
-            report($e);
-            $this->error('A server\'s read took longer than ' . self::SERVER_TIMEOUT . ' seconds: stopped.');
 
-            return true;
+                break;
+            }
+            usleep(200_000);
         }
 
+        $names = Server::query()->whereIn('id', $ids)->pluck('name', 'id');
         $failed = false;
-        $byServer = $results->collect();
-        foreach ($ids as $id) {
-            $result = $byServer->get((string) $id);
-            if ($result === null) {
+        foreach ($pool as $id => $process) {
+            $name = $names[(int) $id] ?? "Server {$id}";
+            if (in_array((string) $id, $stopped, true)) {
+                report(new \RuntimeException("cpanel:lve: {$name}'s read took longer than " . self::$deadline . ' seconds: stopped.'));
+                $this->error("{$name}: its read took longer than " . self::$deadline . ' seconds: stopped.');
+                $failed = true;
+
                 continue;
             }
+            $result = $process->wait();
             foreach (array_filter(explode("\n", trim($result->output() . "\n" . $result->errorOutput()))) as $line) {
                 $result->successful() ? $this->line($line) : $this->error($line);
             }
             if (!$result->successful() && trim($result->output() . $result->errorOutput()) === '') {
-                $this->error("Server {$id}: its read stopped (exit {$result->exitCode()})"); // a timeout says nothing itself
+                $this->error("{$name}: its read stopped (exit {$result->exitCode()})");
             }
             $failed = $failed || !$result->successful();
         }

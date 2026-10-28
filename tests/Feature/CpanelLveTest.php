@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\CpanelAccountResource;
 use App\Admin\Resources\CpanelAccountResource\Pages\ListCpanelAccounts;
 use App\Admin\Resources\ServiceResource;
+use App\Console\Commands\SyncCpanelLve;
 use App\Livewire\Services\Show as ServiceShow;
 use App\Models\CpanelAccount;
 use App\Models\CpanelLveSample;
@@ -17,6 +18,7 @@ use App\Services\Cpanel\LveSync;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Tests\TestCase;
@@ -240,7 +242,7 @@ class CpanelLveTest extends TestCase
         $old = CpanelLveSample::query()->create(['cpanel_account_id' => $this->account('alpha')->id, 'sampled_at' => now()->subHours(50), 'cpu' => 1]);
         Process::fake([
             "*--server={$this->server->id}*" => Process::result('Rigel: 2 account(s) read'),
-            "*--server={$second->id}*" => Process::result(errorOutput: 'Orion: refused', exitCode: 1),
+            "*--server={$second->id}*" => Process::result(output: 'Orion: refused', exitCode: 1),
         ]);
 
         $this->artisan('cpanel:lve')->expectsOutput('Rigel: 2 account(s) read')->expectsOutput('Orion: refused')->assertExitCode(1);
@@ -249,5 +251,27 @@ class CpanelLveTest extends TestCase
         Process::assertRanTimes(fn ($process) => str_contains(implode(' ', (array) $process->command), "--server={$second->id}"), 1);
         $this->assertSame([], $this->asked, 'nothing read in the parent itself');
         $this->assertNull($old->fresh(), 'old readings pruned by the parent');
+    }
+
+    /** Review 2 of #497: a child past its time is stopped and named, its lock let go; the others' lines are still told; children never prune. */
+    public function test_a_child_past_its_time_is_stopped_named_and_its_lock_let_go(): void
+    {
+        $second = Server::query()->create(['name' => 'Orion', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        Cache::lock(LveSync::lockName($second->id), 3000)->get(); // as the killed child leaves it
+        SyncCpanelLve::$deadline = 0;
+        Process::fake([
+            "*--server={$this->server->id}*" => Process::result('Rigel: 2 account(s) read'),
+            "*--server={$second->id}*" => Process::describe()->output('Orion: …')->iterations(1000),
+        ]);
+        try {
+            $this->artisan('cpanel:lve')->expectsOutput('Orion: its read took longer than 0 seconds: stopped.')->assertExitCode(1);
+        } finally {
+            SyncCpanelLve::$deadline = SyncCpanelLve::SERVER_TIMEOUT;
+        }
+        $this->assertTrue(Cache::lock(LveSync::lockName($second->id), 10)->get(), 'its lock let go for the next hour');
+
+        $old = CpanelLveSample::query()->create(['cpanel_account_id' => $this->account('alpha')->id, 'sampled_at' => now()->subHours(50), 'cpu' => 1]);
+        $this->artisan('cpanel:lve', ['--server' => $this->server->id])->assertExitCode(0);
+        $this->assertNotNull($old->fresh(), 'a child (--server) does not prune');
     }
 }
