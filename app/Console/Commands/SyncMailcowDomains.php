@@ -19,6 +19,11 @@ class SyncMailcowDomains extends Command
     {
         $failed = false;
         $servers = DomainSync::servers()->when($this->option('server'), fn ($c, $id) => $c->where('id', (int) $id));
+        if ($this->option('server') && $servers->isEmpty()) {
+            $this->error('No enabled mailcow server with that id.'); // review of #492: never a silent success
+
+            return self::FAILURE;
+        }
         foreach ($servers as $server) {
             /** @var Server $server */
             try {

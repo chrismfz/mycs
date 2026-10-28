@@ -190,4 +190,58 @@ class MailcowInventoryTest extends TestCase
             ->assertActionHidden('refresh');
         $this->livewireAs($this->staff([]))->test(ListMailcowDomains::class)->assertForbidden();
     }
+
+    /** Review of #492: a domain gone and back for another customer is not the old customer's any more. */
+    public function test_a_domain_gone_and_back_for_another_customer_is_mapped_anew(): void
+    {
+        $old = $this->service('example.org');
+        DomainSync::sync($this->server);
+        $this->assertSame($old->id, MailcowDomain::query()->where('domain', 'example.org')->value('service_id'));
+        $saved = $this->domains;
+        $this->domains = [$saved[1]];
+        DomainSync::sync($this->server);
+        $old->update(['status' => 'terminated']);
+        $new = $this->service('example.org');
+
+        $this->domains = $saved;
+        DomainSync::sync($this->server);
+
+        $this->assertSame($new->id, MailcowDomain::query()->where('domain', 'example.org')->value('service_id'));
+    }
+
+    /** Review of #492: an unpaid order, or a service whose admin is not the domain's, claims no domain already there. */
+    public function test_a_pending_order_or_another_admins_service_claims_nothing(): void
+    {
+        $this->service('example.org', 'pending');
+        $theirs = $this->service('ours.test');
+        $theirs->update(['username' => 'someone']);
+        $this->domains[1]['domain_admins'] = ['oursadmin'];
+
+        DomainSync::sync($this->server);
+
+        $this->assertSame(0, MailcowDomain::query()->whereNotNull('service_id')->count());
+        $theirs->update(['username' => 'oursadmin']);
+        DomainSync::sync($this->server);
+        $this->assertSame($theirs->id, MailcowDomain::query()->where('domain', 'ours.test')->value('service_id'), 'its admin: its domain');
+    }
+
+    /** Review of #492: a gone domain keeps no addresses or names; a mailbox that only cannot log in still receives mail. */
+    public function test_a_gone_domain_keeps_no_mailboxes_and_a_receive_only_mailbox_is_active(): void
+    {
+        $this->mailboxes[1]['active_int'] = 2;
+        DomainSync::sync($this->server);
+        $this->assertTrue(MailcowMailbox::query()->where('address', 'old@example.org')->value('active'));
+
+        $this->domains = [$this->domains[1]];
+        $this->mailboxes = [];
+        DomainSync::sync($this->server);
+
+        $this->assertSame(0, MailcowMailbox::query()->count());
+        $this->assertNotNull(MailcowDomain::query()->where('domain', 'example.org')->value('gone_at'));
+    }
+
+    public function test_one_server_asked_that_is_none_fails(): void
+    {
+        $this->artisan('mailcow:sync', ['--server' => 999])->assertExitCode(1);
+    }
 }

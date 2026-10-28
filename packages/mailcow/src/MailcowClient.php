@@ -165,7 +165,6 @@ final class MailcowClient
 
     // ---- reading ---------------------------------------------------------------------
 
-    /** Every domain admin (one request; check many usernames against it in memory). */
     /**
      * Every domain on the server, as mailcow lists them (an inventory: read only).
      *
@@ -198,13 +197,14 @@ final class MailcowClient
         if ($rows === [] || $rows === null) {
             return [];
         }
-        if (!is_array($rows) || !array_is_list($rows) || array_filter($rows, fn ($row) => !is_array($row) || !isset($row[$key])) !== []) {
+        if (!is_array($rows) || array_values($rows) !== $rows || array_filter($rows, fn ($row) => !is_array($row) || !isset($row[$key])) !== []) {
             throw new MailcowException("mailcow: unexpected answer for {$path}");
         }
 
         return $rows;
     }
 
+    /** Every domain admin (one request; check many usernames against it in memory). */
     public function getDomainAdmins()
     {
         $rows = $this->get('/api/v1/get/domain-admin/all');
