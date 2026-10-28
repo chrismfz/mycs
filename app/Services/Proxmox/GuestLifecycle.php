@@ -158,6 +158,31 @@ final class GuestLifecycle
     }
 
     /**
+     * A console for the customer (docs/proxmox.md, B6): the guest checked as for power (one VM, in the pool, the same
+     * machine), the service active and the VM running; its VNC proxy and the websocket path to it.
+     *
+     * @return array{vmid: int, base: string, path: string, port: int, ticket: string}
+     */
+    public function console(Service $service): array
+    {
+        $console = null;
+        $this->locked($service, function (ProxmoxGuest $row, ?array $resource) use ($service, &$console) {
+            $resource ?? throw new RuntimeException("VM {$row->vmid} is no longer on the cluster.");
+            if ($service->fresh()?->status !== Service::STATUS_ACTIVE) {
+                throw new RuntimeException("Service #{$service->id} is not active: no console of VM {$row->vmid}.");
+            }
+            if (($status = $this->effective((string) $resource['status'])) !== 'running') {
+                throw new RuntimeException("VM {$row->vmid} is «{$status}»: a console needs it running.");
+            }
+            $proxy = $this->client->vncProxy($resource);
+            $console = ['vmid' => $row->vmid, 'base' => $proxy['base'], 'path' => '/api2/json/' . ProxmoxClient::guestPath($resource) . '/vncwebsocket',
+                'port' => $proxy['port'], 'ticket' => $proxy['ticket']];
+        });
+
+        return $console ?? throw new RuntimeException("No console of service #{$service->id}'s VM.");
+    }
+
+    /**
      * Its state as the customer is told it: a qemu VM paused (or suspended to RAM) is «running» to Proxmox with its
      * qmpstatus apart, and one migrating or backed up is «running» with a lock (round 3 of #502).
      */

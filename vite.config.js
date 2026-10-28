@@ -9,6 +9,7 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/js/easymde-entry.js',
                 'resources/js/altcha-entry.js',
+                'resources/js/console-entry.js',
                 'resources/css/app.css',
                 'resources/css/filament/admin/theme.css',
             ],

@@ -40,11 +40,12 @@ class Proxmox extends Server
         <p class="text-gray-500">The second command prints the token's secret once: paste it below, nowhere else. PVEAuditor only reads.</p></div>
         <div><p class="font-medium">2. Suspend, start, terminate: only the VMs in the pool</p>
         <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
-        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate"
+        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"
         pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
         pvesh set /pools --poolid mycs --vms 101,102</pre>
         <p class="text-gray-500">PowerMgmt stops and starts, Config.Options turns «start at boot» off while suspended, Allocate destroys
-        (only with «Terminate: Destroy»). A customer's VM goes in the pool once mapped (Utilities → Proxmox Guests → «Pool
+        (only with «Terminate: Destroy»), Console opens the customer's console (on a role made before: <code>pveum role modify
+        MyCSLifecycle -privs "…"</code> with the whole list above). A customer's VM goes in the pool once mapped (Utilities → Proxmox Guests → «Pool
         command» lists them); our own VMs stay out, and MyCS never touches them.</p></div>
         </div>
         </details>
@@ -91,6 +92,35 @@ class Proxmox extends Server
 
         return new ProxmoxClient(new PanelTransport($ips, (bool) $this->config('self_signed')), array_keys($ips),
             trim((string) $this->config('token_id')), trim((string) $this->config('token_secret')));
+    }
+
+    /**
+     * Where the console relay opens a guest's websocket (docs/proxmox.md, B6): one of this cluster's nodes, as its client
+     * reaches it (its IP when set, a self-signed certificate only with that IP: PanelConnection), and the token's header.
+     *
+     * @return array{host: string, port: int, ip: string|null, self_signed: bool, authorization: string}
+     */
+    public function websocketTarget(string $base): array
+    {
+        foreach ([['host', 'ip'], ['node2_host', 'node2_ip'], ['node3_host', 'node3_ip']] as [$host, $ip]) {
+            if (rtrim(trim((string) $this->config($host)), '/') !== $base || $base === '') {
+                continue;
+            }
+            $parts = parse_url($base);
+            if (!is_array($parts) || strtolower($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') === '') {
+                throw new RuntimeException('A node\'s address must start with https://.');
+            }
+            $address = trim((string) $this->config($ip)) ?: (filter_var(trim($parts['host'], '[]'), FILTER_VALIDATE_IP) ? trim($parts['host'], '[]') : null);
+            $selfSigned = (bool) $this->config('self_signed');
+            if ($selfSigned && $address === null) {
+                throw new RuntimeException('A self-signed certificate needs the node\'s IP: set it in the server\'s settings.');
+            }
+
+            return ['host' => trim($parts['host'], '[]'), 'port' => (int) ($parts['port'] ?? 8006), 'ip' => $address, 'self_signed' => $selfSigned,
+                'authorization' => 'PVEAPIToken=' . trim((string) $this->config('token_id')) . '=' . trim((string) $this->config('token_secret'))];
+        }
+
+        throw new RuntimeException('Not a node of this cluster.');
     }
 
     /** Suspend = stop (owner 2026-10-24): a clean shutdown, then a hard stop; not started again by a node's reboot. */

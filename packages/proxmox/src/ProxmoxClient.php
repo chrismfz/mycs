@@ -187,6 +187,28 @@ final class ProxmoxClient
         return null;
     }
 
+    /** The node asked first now: the last one that answered (a console's websocket goes where its proxy was made). */
+    public function base(): string
+    {
+        return $this->bases[0];
+    }
+
+    /**
+     * A VNC proxy for a guest's console (docs/proxmox.md, B6), to open as a websocket within seconds: its port and
+     * ticket (the VNC password too), and the node that made it.
+     *
+     * @return array{port: int, ticket: string, base: string}
+     */
+    public function vncProxy(array $resource): array
+    {
+        $data = $this->write('POST', self::guestPath($resource) . '/vncproxy', ['websocket' => 1]);
+        if (!is_array($data) || !isset($data['port'], $data['ticket']) || !is_numeric($data['port']) || !is_string($data['ticket']) || $data['ticket'] === '') {
+            throw new ProxmoxException('The cluster made no VNC proxy (no port or ticket).');
+        }
+
+        return ['port' => (int) $data['port'], 'ticket' => $data['ticket'], 'base' => $this->base()];
+    }
+
     /** «nodes/{node}/{qemu|lxc}/{vmid}», a guest's API path. */
     public static function guestPath(array $resource): string
     {
