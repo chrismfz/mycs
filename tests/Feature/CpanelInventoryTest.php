@@ -12,6 +12,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Cpanel\AccountSync;
+use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -248,10 +249,12 @@ class CpanelInventoryTest extends TestCase
         $client->update(['internal' => true, 'note' => 'our own demo site for the sales team']);
 
         $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
-            ->assertSee('Suspended')->assertDontSee('Mail suspended')
+            ->assertTableColumnStateSet('state', 'Suspended', $reseller)->assertDontSee('Mail suspended')
             ->assertSee('Internal: our own demo...')
             ->assertSee('our own demo site for the sales team') // whole, on hover
             ->callTableAction('internal', $client, data: ['note' => 'demo'])->assertHasNoTableActionErrors();
-        $this->assertSame('demo', $client->fresh()->note, 'the actions still work from the menu');
+        $this->assertSame('demo', $client->fresh()->note, 'an action grouped still works');
+        $group = collect($this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->instance()->getTable()->getRecordActions())->sole();
+        $this->assertInstanceOf(ActionGroup::class, $group, 'the actions in one menu');
     }
 }
