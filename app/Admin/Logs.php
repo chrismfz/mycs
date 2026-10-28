@@ -75,4 +75,22 @@ final class Logs
 
         return $items;
     }
+
+    /** @return list<class-string> every log page: each has its place in the top menu through «Utilities → Logs» */
+    public static function classes(): array
+    {
+        return array_values(array_unique(array_column(array_merge(...array_values(self::ITEMS)), 0)));
+    }
+
+    /** Where «Utilities → Logs» leads (owner 2026-10-28): the first log this staff member may open, none if none. */
+    public static function first(): ?NavigationItem
+    {
+        return self::navigation()[0] ?? null;
+    }
+
+    /** Whether the page open is one of the logs. */
+    public static function isCurrent(): bool
+    {
+        return collect(self::navigation())->contains(fn (NavigationItem $item) => $item->isActive());
+    }
 }

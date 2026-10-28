@@ -5,7 +5,6 @@ namespace App\Admin;
 use App\Admin\Clusters\Extensions;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Clusters\Services;
-use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
 use App\Admin\Pages\GrRegistry;
@@ -19,7 +18,6 @@ use App\Admin\Pages\SystemCleanup;
 use App\Admin\Pages\WhoisLookup;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
-use App\Admin\Resources\Audits\AuditResource;
 use App\Admin\Resources\BulkMailResource;
 use App\Admin\Resources\CannedReplyCategoryResource;
 use App\Admin\Resources\CannedReplyResource;
@@ -32,22 +30,15 @@ use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
 use App\Admin\Resources\DomainRegistrarConnectionResource;
-use App\Admin\Resources\DomainRegistrarLogResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainTldResource;
-use App\Admin\Resources\EmailLogResource;
-use App\Admin\Resources\ErrorLogResource;
 use App\Admin\Resources\ExtensionResource;
-use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\GatewayResource;
-use App\Admin\Resources\HttpLogResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
 use App\Admin\Resources\KbArticleResource;
 use App\Admin\Resources\KbCategoryResource;
 use App\Admin\Resources\LicenseResource;
-use App\Admin\Resources\LoginAttemptResource;
-use App\Admin\Resources\McpCallResource;
 use App\Admin\Resources\McpOauthGrantResource;
 use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
@@ -131,22 +122,15 @@ class TopMenu
             [IncomeReport::class],
         ],
         'Utilities' => [
-            [EmailLogResource::class, 'index', 'Email Message Log'],
+            // All the logs behind one line (owner 2026-10-28): it opens the first, and each log lists them all on its left.
+            [Logs::class, 'index', 'Logs'],
             [WhoisLookup::class],
             [SslChecker::class],
             [GrRegistry::class],
-            [AuditResource::class, 'index', 'Activity Log'],
-            [LoginAttemptResource::class, 'index', 'Login History'],
-            [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
             [ProxmoxNodes::class],
-            [DomainRegistrarLogResource::class, 'index', 'Registrar Log'],
-            [FailedJobResource::class, 'index', 'Failed Jobs'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
-            [McpCallResource::class, 'index', 'MCP Calls'],
-            [ErrorLogResource::class, 'index', 'Error Logs'],
-            [HttpLogResource::class, 'index', 'HTTP Logs'],
             [SystemCleanup::class],
         ],
         'Setup' => [
@@ -178,7 +162,7 @@ class TopMenu
      * Pages that hide themselves while a setting is off (debugging; immutable invoices): their own
      * shouldRegisterNavigation() decides here too, as in the sidebar (review of #276).
      */
-    public const CONDITIONAL = [ErrorLogResource::class, HttpLogResource::class, AdjustmentNoteResource::class];
+    public const CONDITIONAL = [AdjustmentNoteResource::class];
 
     /**
      * What the panel registers but needs no line here, and why. Anything else not in MENU (an extension's page) goes to
@@ -201,11 +185,15 @@ class TopMenu
     public static function groups(): array
     {
         $groups = [];
+        $logsAt = null;
         foreach (self::MENU as $label => $entries) {
             $items = [];
             foreach ($entries as $entry) {
                 if ($item = self::item(...$entry)) {
-                    $item['active'] = self::isCurrent($item['url']);
+                    $item['active'] = $entry[0] !== Logs::class && self::isCurrent($item['url']);
+                    if ($entry[0] === Logs::class) {
+                        $logsAt = [count($groups), count($items)];
+                    }
                     $items[] = $item;
                 }
             }
@@ -234,13 +222,20 @@ class TopMenu
             $groups[] = ['label' => 'Addons', 'active' => collect($addons)->contains('active', true), 'items' => $addons];
         }
 
+        // «Logs» is current on any log, unless the log has its own line too (Gateway Log under Billing): one group lit.
+        if ($logsAt !== null && !collect($groups)->contains('active', true) && Logs::isCurrent()) {
+            $groups[$logsAt[0]]['active'] = $groups[$logsAt[0]]['items'][$logsAt[1]]['active'] = true;
+        }
+
         return $groups;
     }
 
     /** @return list<class-string> the panel's resources and pages with neither a line in MENU nor a reason in NOT_IN_MENU */
     public static function unlisted(): array
     {
-        $listed = collect(self::MENU)->flatten(1)->map(fn (array $entry) => $entry[0])->merge(array_keys(self::NOT_IN_MENU))->unique()->all();
+        $listed = collect(self::MENU)->flatten(1)->map(fn (array $entry) => $entry[0])->merge(array_keys(self::NOT_IN_MENU))
+            // A log is reached through «Logs»: listed there, or it has no way to it (TopMenuCoverageTest).
+            ->merge(Logs::classes())->unique()->all();
         $panel = Filament::getPanel('admin');
 
         return array_values(array_filter([...$panel->getResources(), ...$panel->getPages()], fn (string $class) => !in_array($class, $listed, true)));
@@ -273,6 +268,11 @@ class TopMenu
      */
     private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array
     {
+        if ($class === Logs::class) {
+            $first = Logs::first();
+
+            return $first ? ['label' => $label ?? 'Logs', 'url' => (string) $first->getUrl()] : null;
+        }
         if (in_array($class, self::CONDITIONAL, true) && !$class::shouldRegisterNavigation()) {
             return null;
         }
