@@ -5,12 +5,14 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\IpPoolResource\Pages\CreateIpPool;
 use App\Admin\Resources\IpPoolResource\Pages\EditIpPool;
 use App\Admin\Resources\IpPoolResource\Pages\ListIpPools;
+use App\Admin\Resources\IpPoolResource\Pages\ViewIpPool;
 use App\Admin\Resources\IpPoolResource\RelationManagers\AddressesRelationManager;
 use App\Models\IpAddress;
 use App\Models\IpPool;
 use App\Models\Server;
 use Closure;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -70,15 +72,14 @@ class IpPoolResource extends Resource
                     IpRange::network($value);
                 }))
                 ->dehydrateStateUsing(fn (?string $state) => filled($state) ? IpRange::network($state) : null)
-                ->live(onBlur: true)
-                ->afterStateUpdated(function (?string $state, Get $get, callable $set) {
-                    if ((int) $get('family') === 4 && filled($state) && blank($get('prefix'))) {
-                        rescue(fn () => $set('prefix', (int) explode('/', IpRange::network($state))[1]), report: false);
-                    }
-                }),
-            TextInput::make('prefix')->label(fn (Get $get) => (int) $get('family') === 6 ? 'Prefix length a service' : 'Prefix length (mask)')
-                ->numeric()->integer()->required()->minValue(1)->maxValue(fn (Get $get) => (int) $get('family') === 6 ? 128 : 32)
-                ->helperText(fn (Get $get) => (int) $get('family') === 6 ? 'e.g. 64: each service gets a /64.' : 'The mask the customer sets, e.g. 24 (255.255.255.0).'),
+                ->live(onBlur: true),
+            // IPv4: the network's own (IpPool::booted). IPv6: each service's prefix, kept once it has prefixes (ADV-505-2).
+            TextInput::make('prefix')->label('Prefix length a service')
+                ->visible(fn (Get $get) => (int) $get('family') === 6)
+                ->numeric()->integer()->required(fn (Get $get) => (int) $get('family') === 6)->maxValue(128)
+                ->minValue(fn (Get $get) => filled($get('network')) ? rescue(fn () => (int) explode('/', IpRange::network((string) $get('network')))[1], 1, false) : 1)
+                ->disabled(fn (?IpPool $record) => $record?->addresses()->exists() ?? false)
+                ->helperText('e.g. 64: each service gets a /64. At least the network\'s length.'),
             TextInput::make('gateway')->label('Gateway')->ip()->maxLength(45)
                 ->rule($valid(function (string $value, Get $get) {
                     if (IpRange::isV4($value) !== ((int) $get('family') === 4)) {
@@ -86,6 +87,10 @@ class IpPoolResource extends Resource
                     }
                     if (filled($get('network')) && !IpRange::contains((string) $get('network'), $value)) {
                         throw new InvalidArgumentException('Not in the network.');
+                    }
+                    // Never an address a customer holds, or may be given (ADV-505-5).
+                    if (($conflict = IpPool::gatewayConflict($value)) !== null) {
+                        throw new InvalidArgumentException($conflict);
                     }
                 })),
             TextInput::make('nameservers')->label('DNS servers')->placeholder('Comma or space separated')->maxLength(191)
@@ -123,7 +128,7 @@ class IpPoolResource extends Resource
                 TextColumn::make('held_count')->label('Held by ended')->badge()->color(fn ($state) => $state > 0 ? 'warning' : 'gray')
                     ->tooltip('Addresses still with a terminated or cancelled service: release them on the pool\'s page.'),
             ])
-            ->recordActions([EditAction::make()])
+            ->recordActions([ViewAction::make(), EditAction::make()])
             ->toolbarActions([]);
     }
 
@@ -137,6 +142,7 @@ class IpPoolResource extends Resource
         return [
             'index' => ListIpPools::route('/'),
             'create' => CreateIpPool::route('/create'),
+            'view' => ViewIpPool::route('/{record}'),
             'edit' => EditIpPool::route('/{record}/edit'),
         ];
     }

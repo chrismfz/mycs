@@ -15,14 +15,14 @@ use OwenIt\Auditing\Events\AuditCustom;
  * Gives a service an address of a pool and takes it back (docs/proxmox.md, B3). Each change is one conditional update:
  * of two at once (two staff, two tabs) only one gets the address, on any database. The one released longest ago is given
  * first, so an address just freed is not on another customer's VM the next minute. The service's dedicated IP follows its
- * first IPv4; each change is audited on the service.
+ * first IPv4 (and its next one when that goes); each change is audited on the service.
  */
 final class IpAllocator
 {
     /** An address of the pool, or that one; refused when none is free. */
     public static function assign(Service $service, IpPool $pool, ?IpAddress $address = null): IpAddress
     {
-        if (in_array($service->status, IpAddress::ENDED, true)) {
+        if (in_array($service->status, Service::ENDED_STATUSES, true)) {
             throw new DisplayException("Service #{$service->id} has ended: it is given no address.");
         }
         if ($address !== null && $address->ip_pool_id !== $pool->id) {
@@ -33,6 +33,12 @@ final class IpAllocator
             ->orderByRaw('released_at is not null')->orderBy('released_at')->orderBy('id')->limit(20)->pluck('id');
         foreach ($candidates as $id) {
             $claimed = DB::transaction(function () use ($id, $service) {
+                // Its status as the row has it now, under its lock: a model loaded before its termination gets nothing
+                // (ADV-505-8).
+                $status = Service::query()->whereKey($service->id)->lockForUpdate()->value('status');
+                if ($status === null || in_array($status, Service::ENDED_STATUSES, true)) {
+                    throw new DisplayException("Service #{$service->id} has ended: it is given no address.");
+                }
                 $won = IpAddress::query()->whereKey($id)->tap(fn ($q) => IpAddress::whereFree($q))
                     ->update(['service_id' => $service->id, 'assigned_at' => now(), 'released_at' => null, 'updated_at' => now()]) === 1;
                 if ($won) {
@@ -68,7 +74,9 @@ final class IpAllocator
             $done = IpAddress::query()->whereKey($address->id)->where('service_id', $serviceId)
                 ->update(['service_id' => null, 'assigned_at' => null, 'released_at' => now(), 'updated_at' => now()]) === 1;
             if ($done) {
-                Service::query()->whereKey($serviceId)->where('dedicated_ip', $address->address)->update(['dedicated_ip' => null]);
+                // The dedicated IP passes to its next IPv4 of the pools, if it still has one (ADV-505-9).
+                $next = IpAddress::query()->where('service_id', $serviceId)->where('address', 'not like', '%:%')->orderBy('assigned_at')->orderBy('id')->value('address');
+                Service::query()->whereKey($serviceId)->where('dedicated_ip', $address->address)->update(['dedicated_ip' => $next]);
             }
 
             return $done;
@@ -100,5 +108,6 @@ final class IpAllocator
         $service->auditCustomOld = [];
         $service->auditCustomNew = ['address' => $address->address, 'pool' => $address->ip_pool_id, 'staff_id' => Auth::guard('staff')->id()];
         event(new AuditCustom($service));
+        $service->isCustomEvent = false; // a later save of this model is audited as itself
     }
 }

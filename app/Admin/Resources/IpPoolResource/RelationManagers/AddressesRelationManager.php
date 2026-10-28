@@ -128,7 +128,9 @@ class AddressesRelationManager extends RelationManager
                         ->visible(fn (IpAddress $record) => self::canManage() && $record->reserved)
                         ->requiresConfirmation()
                         ->action(fn (IpAddress $record) => self::attempt(fn () => IpAllocator::reserve($record, false), 'Free')),
-                    DeleteAction::make()->visible(fn (IpAddress $record) => self::canManage() && $record->service_id === null),
+                    // Only one no service holds as it is deleted (review of #505: a tab giving it meanwhile).
+                    DeleteAction::make()->visible(fn (IpAddress $record) => self::canManage() && $record->service_id === null)
+                        ->using(fn (IpAddress $record) => IpAddress::query()->whereKey($record->id)->whereNull('service_id')->delete() === 1),
                 ]),
             ])
             ->toolbarActions([]);

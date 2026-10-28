@@ -50,13 +50,53 @@ class IpPool extends Model
     }
 
     /**
-     * Addresses added to the pool, one a line: an address, a range («a.b.c.d-a.b.c.e») or a network («a.b.c.0/27», its
-     * hosts); an IPv6 pool's, prefixes (the pool's length when none is given). Each in the pool's network and family; the
-     * gateway never. One already in a pool (this or another) is skipped, not moved.
+     * Its IPv4 prefix is its network's (review of #505: a mask other than the network's tells customers a wrong one); its
+     * gateway is kept normalized, as the addresses are.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (IpPool $pool) {
+            if ($pool->family === 4 && filled($pool->network)) {
+                $pool->prefix = (int) explode('/', IpRange::network((string) $pool->network))[1];
+            }
+            if (filled($pool->gateway)) {
+                $pool->gateway = IpRange::normalize((string) $pool->gateway);
+            }
+        });
+    }
+
+    /**
+     * Why a gateway cannot be this pool's: it is an address of a pool, not reserved, or inside a prefix of one (ADV-505-5:
+     * edited onto an address a customer holds, two machines on one address).
+     */
+    public static function gatewayConflict(string $gateway): ?string
+    {
+        $gateway = IpRange::normalize($gateway);
+        $taken = IpAddress::query()->where('address', $gateway)->first();
+        if ($taken !== null && !$taken->reserved) {
+            return "{$gateway} is an address of the pool «{$taken->pool->name}»" . ($taken->service_id ? ", service #{$taken->service_id}'s" : '') . ': reserve it first.';
+        }
+        if (!IpRange::isV4($gateway)) {
+            foreach (IpAddress::query()->where('address', 'like', '%/%')->get() as $prefix) {
+                if (IpRange::contains($prefix->address, $gateway)) {
+                    return "{$gateway} is inside {$prefix->address}, a prefix of the pool «{$prefix->pool->name}».";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Addresses added to the pool, one a line: an address, a range («a.b.c.d-a.b.c.e») or a network («a.b.c.64/27»: its
+     * addresses); an IPv6 pool's, prefixes (the pool's length when none is given). Each in the pool's network and family.
+     * A range or a network leaves out the gateway and the network's own network and broadcast addresses; a single one of
+     * these is refused (ADV-505-4). An IPv6 prefix overlapping one of any pool is refused (ADV-505-2); one already in a
+     * pool, as it is, is skipped, not moved.
      *
      * @return array{added: int, skipped: list<string>}
      *
-     * @throws InvalidArgumentException a line that is none of these, or out of the pool's network
+     * @throws InvalidArgumentException a line that is none of these, or out of the pool's network: nothing is added
      */
     public function add(string $lines): array
     {
@@ -74,12 +114,16 @@ class IpPool extends Model
         $wanted = array_values(array_unique($wanted));
         $taken = IpAddress::query()->whereIn('address', $wanted)->pluck('address')->all();
         $new = array_values(array_diff($wanted, $taken));
+        if ($this->family === 6) {
+            $this->refuseOverlaps($new);
+        }
+        $added = 0;
         foreach (array_chunk($new, 500) as $chunk) {
-            IpAddress::query()->insertOrIgnore(array_map(fn (string $address) => ['ip_pool_id' => $this->id, 'address' => $address,
+            $added += IpAddress::query()->insertOrIgnore(array_map(fn (string $address) => ['ip_pool_id' => $this->id, 'address' => $address,
                 'reserved' => false, 'created_at' => now(), 'updated_at' => now()], $chunk));
         }
 
-        return ['added' => count($new), 'skipped' => array_values($taken)];
+        return ['added' => $added, 'skipped' => array_values($taken)];
     }
 
     /** @return list<string> */
@@ -90,27 +134,59 @@ class IpPool extends Model
             if ((int) explode('/', $prefix)[1] !== $this->prefix) {
                 throw new InvalidArgumentException("{$line}: this pool gives /{$this->prefix} prefixes.");
             }
-            $addresses = [$prefix];
-        } elseif (str_contains($line, '-')) {
-            [$from, $to] = array_map('trim', explode('-', $line, 2));
-            $addresses = IpRange::range($from, $to, $this->gateway);
-        } elseif (str_contains($line, '/')) {
-            $addresses = IpRange::hosts($line, $this->gateway);
-        } else {
-            $addresses = [IpRange::normalize($line)];
-        }
-        foreach ($addresses as $address) {
-            if (IpRange::isV4($address) !== ($this->family === 4)) {
-                throw new InvalidArgumentException("{$address} is not IPv{$this->family}.");
+            if (IpRange::isV4($prefix) || IpRange::contains('::ffff:0:0/96', $prefix)) {
+                // An IPv4-mapped address is another spelling of an IPv4 one (ADV-505-11).
+                throw new InvalidArgumentException("{$line} is not IPv6.");
             }
-            if (filled($this->network) && !IpRange::contains($this->network, $address)) {
+            if (filled($this->network) && !IpRange::contains((string) $this->network, $prefix)) {
+                throw new InvalidArgumentException("{$prefix} is not in {$this->network}.");
+            }
+            if (filled($this->gateway) && IpRange::contains($prefix, (string) $this->gateway)) {
+                throw new InvalidArgumentException("{$prefix} holds the pool's gateway.");
+            }
+
+            return [$prefix];
+        }
+        $single = !str_contains($line, '-') && !str_contains($line, '/');
+        $addresses = match (true) {
+            str_contains($line, '-') => IpRange::range(...array_map('trim', explode('-', $line, 2))),
+            str_contains($line, '/') => IpRange::range(...IpRange::bounds($line)),
+            default => [IpRange::normalize($line)],
+        };
+        $out = [];
+        foreach ($addresses as $address) {
+            if (!IpRange::isV4($address)) {
+                throw new InvalidArgumentException("{$address} is not IPv4.");
+            }
+            if (filled($this->network) && !IpRange::contains((string) $this->network, $address)) {
                 throw new InvalidArgumentException("{$address} is not in {$this->network}.");
             }
-            if ($address === $this->gateway) {
-                throw new InvalidArgumentException("{$address} is the pool's gateway.");
+            $edges = $this->prefix < 31 ? IpRange::bounds(IpRange::networkOf($address, $this->prefix)) : [];
+            $reason = match (true) {
+                $address === $this->gateway => 'the pool\'s gateway',
+                in_array($address, $edges, true) => "the /{$this->prefix} network's " . ($address === $edges[0] ? 'network' : 'broadcast') . ' address',
+                default => null,
+            };
+            if ($reason === null) {
+                $out[] = $address;
+            } elseif ($single) {
+                throw new InvalidArgumentException("{$address} is {$reason}.");
             }
         }
 
-        return $addresses;
+        return $out;
+    }
+
+    /** @param list<string> $prefixes */
+    private function refuseOverlaps(array $prefixes): void
+    {
+        $existing = IpAddress::query()->where('address', 'like', '%/%')->pluck('address')->all();
+        foreach ($prefixes as $i => $prefix) {
+            foreach ([...$existing, ...array_slice($prefixes, 0, $i)] as $other) {
+                if (IpRange::overlaps($prefix, $other)) {
+                    throw new InvalidArgumentException("{$prefix} overlaps {$other}, already in a pool.");
+                }
+            }
+        }
     }
 }

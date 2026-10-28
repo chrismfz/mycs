@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\IpPoolResource;
 use App\Admin\Resources\IpPoolResource\Pages\CreateIpPool;
 use App\Admin\Resources\IpPoolResource\Pages\EditIpPool;
+use App\Admin\Resources\IpPoolResource\Pages\ViewIpPool;
 use App\Admin\Resources\IpPoolResource\RelationManagers\AddressesRelationManager;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
@@ -263,5 +264,52 @@ class IpPoolTest extends TestCase
         $again = (new WhmcsIpPoolImport($whmcs))->run();
         $this->assertSame([0, 0, 0], [$again['pools'], $again['addresses'], $again['given']]);
         $this->assertSame([], $again['conflicts']);
+    }
+
+    /** Review of #505, 2 and 3: an IPv4 pool's mask is its network's, whatever is sent. */
+    public function test_an_ipv4_pools_mask_is_its_networks(): void
+    {
+        $pool = $this->pool(['network' => '192.0.2.0/24', 'prefix' => 28], null);
+        $this->assertSame(24, $pool->prefix);
+
+        $pool->update(['prefix' => 16]);
+        $this->assertSame(24, $pool->fresh()->prefix);
+    }
+
+    /** Review of #505, 5: a block of a wider pool keeps its edge addresses; only the pool's own network and broadcast go. */
+    public function test_a_block_of_a_wider_pool_keeps_its_edges(): void
+    {
+        $pool = $this->pool(['network' => '192.0.2.0/24', 'prefix' => 24], null);
+
+        $this->assertSame(32, $pool->add('192.0.2.64/27')['added']);
+        $this->assertSame(2, $pool->add('192.0.2.0/30')['added'], '.0 the network\'s, .1 the gateway');
+        $this->assertFalse($pool->addresses()->whereIn('address', ['192.0.2.0', '192.0.2.1'])->exists());
+    }
+
+    /** Review of #505, 10: staff who may only read see a pool's addresses. */
+    public function test_a_reader_sees_a_pools_addresses(): void
+    {
+        $pool = $this->pool();
+        $reader = $this->staff(['admin.servers.viewAny']);
+
+        $this->actingAs($reader, 'staff');
+        $this->get(IpPoolResource::getUrl('view', ['record' => $pool]))->assertOk();
+        $this->livewireAs($reader)->test(AddressesRelationManager::class, ['ownerRecord' => $pool, 'pageClass' => ViewIpPool::class])
+            ->assertCanSeeTableRecords($pool->addresses()->get())->assertSee('192.0.2.2');
+        $this->get(IpPoolResource::getUrl('edit', ['record' => $pool]))->assertForbidden();
+    }
+
+    /** Review of #505, 12: an address given while its delete was open is not deleted. */
+    public function test_an_address_given_meanwhile_is_not_deleted(): void
+    {
+        $pool = $this->pool(add: '192.0.2.2');
+        $address = $pool->addresses()->sole();
+        $staff = $this->staff();
+        $page = $this->livewireAs($staff)->test(AddressesRelationManager::class, ['ownerRecord' => $pool, 'pageClass' => EditIpPool::class])
+            ->mountTableAction('delete', $address);
+        IpAllocator::assign($this->service(), $pool, $address);
+
+        $page->callMountedTableAction();
+        $this->assertTrue($address->fresh()?->service_id !== null);
     }
 }

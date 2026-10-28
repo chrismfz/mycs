@@ -29,7 +29,7 @@ class IpAddress extends Model
     public const HELD = 'held';
 
     /** A service in these is done with its address. */
-    public const ENDED = [Service::STATUS_TERMINATED, Service::STATUS_CANCELLED];
+    public const ENDED = Service::ENDED_STATUSES;
 
     protected $fillable = ['ip_pool_id', 'address', 'service_id', 'reserved', 'note', 'assigned_at', 'released_at'];
 

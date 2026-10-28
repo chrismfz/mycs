@@ -28,7 +28,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('ip_pool_id')->constrained('ip_pools')->cascadeOnDelete();
             $table->string('address', 49)->unique();
-            $table->foreignId('service_id')->nullable()->constrained('services')->nullOnDelete();
+            $table->foreignId('service_id')->nullable()->constrained('services')->restrictOnDelete(); // released first (ServiceObserver)
             $table->boolean('reserved')->default(false);
             $table->string('note', 191)->nullable();
             $table->timestamp('assigned_at')->nullable();

@@ -16,8 +16,9 @@ use Throwable;
 /**
  * The IP pools of WHMCS's Proxmox module (docs/proxmox.md, A5): its pools (mod_pvewhmcs_ip_pools, with their gateway),
  * their addresses (mod_pvewhmcs_ip_addresses, with their mask) and which VPS holds which (mod_pvewhmcs_vms, by service
- * id: the services are imported with the same ids). Re-runnable: a pool is matched by its WHMCS id and kept as staff left
- * it, an address already here is not moved, one already given is not given again. Read-only on WHMCS.
+ * id: the services are imported with the same ids). Re-runnable: a pool brought before is kept as staff left it (its
+ * addresses too), an address already here is not moved, one given or released here is not given again. An odd row is
+ * told, never the end of the run. Read-only on WHMCS.
  */
 final class WhmcsIpPoolImport
 {
@@ -35,14 +36,26 @@ final class WhmcsIpPoolImport
         $clusters = Server::query()->where('extension', 'Proxmox')->pluck('id');
         $addresses = $this->whmcs->query('SELECT pool_id, ipaddress, mask FROM mod_pvewhmcs_ip_addresses ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
         foreach ($this->whmcs->query('SELECT id, title, gateway FROM mod_pvewhmcs_ip_pools ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (IpPool::query()->where('whmcs_id', (int) $row['id'])->exists()) {
+                continue; // brought before: kept as staff left it, its addresses with it (ADV-505-7)
+            }
             $rows = array_values(array_filter($addresses, fn (array $a) => (int) $a['pool_id'] === (int) $row['id']));
             $pool = $this->pool($row, $rows, $clusters->count() === 1 ? (int) $clusters->first() : null);
             if ($pool === null) {
                 continue;
             }
-            $result = $pool->add(implode("\n", array_filter(array_map(fn (array $a) => trim((string) $a['ipaddress']), $rows),
-                fn (string $ip) => $ip !== '' && $ip !== trim((string) $row['gateway']))));
-            $this->counts['addresses'] += $result['added'];
+            // One a time: an odd one is told, the rest come (ADV-505-6).
+            foreach ($rows as $address) {
+                $ip = trim((string) $address['ipaddress']);
+                if ($ip === '' || $ip === $pool->gateway) {
+                    continue;
+                }
+                try {
+                    $this->counts['addresses'] += $pool->add($ip)['added'];
+                } catch (InvalidArgumentException $e) {
+                    $this->counts['conflicts'][] = "Pool «{$pool->name}»: {$e->getMessage()}";
+                }
+            }
         }
         if ($this->hasTable('mod_pvewhmcs_vms')) {
             $this->assignments();
@@ -51,27 +64,34 @@ final class WhmcsIpPoolImport
         return $this->counts;
     }
 
-    /** @param list<array{pool_id: mixed, ipaddress: mixed, mask: mixed}> $rows */
+    /**
+     * Its network from the gateway (else its first address) at the mask most of its addresses have; a /32 (routed
+     * addresses) has none. A mask wider than /16 is not believed: staff set that pool up by hand.
+     *
+     * @param  list<array{pool_id: mixed, ipaddress: mixed, mask: mixed}>  $rows
+     */
     private function pool(array $row, array $rows, ?int $serverId): ?IpPool
     {
-        if ($existing = IpPool::query()->where('whmcs_id', (int) $row['id'])->first()) {
-            return $existing;
-        }
         $gateway = trim((string) $row['gateway']);
-        $sample = $rows[0] ?? null;
+        $gateway = filter_var($gateway, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false ? $gateway : null;
+        $masks = array_count_values(array_map(fn (array $a) => trim((string) $a['mask']), $rows));
+        arsort($masks);
         try {
-            $prefix = IpRange::prefix((string) ($sample['mask'] ?? ''));
-            $network = IpRange::networkOf(trim((string) ($sample['ipaddress'] ?? $gateway)), $prefix);
-        } catch (InvalidArgumentException) {
-            $this->counts['conflicts'][] = "Pool «{$row['title']}»: no address with a mask to tell its network; add it by hand.";
+            $prefix = IpRange::prefix((string) (array_key_first($masks) ?? ''));
+            if ($prefix < 16 || $prefix > 32) {
+                throw new InvalidArgumentException("a /{$prefix} mask");
+            }
+            $from = $gateway ?? trim((string) ($rows[0]['ipaddress'] ?? ''));
+            $network = $prefix === 32 ? null : IpRange::networkOf($from, $prefix);
+        } catch (InvalidArgumentException $e) {
+            $this->counts['conflicts'][] = "Pool «{$row['title']}»: no network to tell from its addresses ({$e->getMessage()}); set it up by hand.";
 
             return null;
         }
         $this->counts['pools']++;
 
         return IpPool::query()->create(['whmcs_id' => (int) $row['id'], 'name' => (string) $row['title'], 'family' => 4, 'network' => $network,
-            'prefix' => $prefix, 'gateway' => filter_var($gateway, FILTER_VALIDATE_IP) ? $gateway : null, 'server_id' => $serverId,
-            'note' => 'From WHMCS (pvewhmcs).']);
+            'prefix' => $prefix, 'gateway' => $gateway, 'server_id' => $serverId, 'note' => 'From WHMCS (pvewhmcs).']);
     }
 
     /** Each VPS's address from mod_pvewhmcs_vms, to its service; never one given to another (told, for staff). */
@@ -96,6 +116,9 @@ final class WhmcsIpPoolImport
             }
             if ($address->service_id === $service->id) {
                 continue;
+            }
+            if ($address->released_at !== null) {
+                continue; // staff released it here: WHMCS no longer says who holds it (ADV-505-7)
             }
             if ($address->service_id !== null || $address->reserved) {
                 $this->counts['conflicts'][] = "{$ip}: WHMCS gives it to service #{$service->id}, here it is " . ($address->reserved ? 'reserved' : "service #{$address->service_id}'s") . '.';

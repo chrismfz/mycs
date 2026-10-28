@@ -108,16 +108,45 @@ final class IpRange
         return (string) long2ip($prefix === 0 ? 0 : (0xFFFFFFFF << (32 - $prefix)) & 0xFFFFFFFF);
     }
 
-    /** Whether an address (or a prefix's own address) is in a network, of the same family. */
+    /**
+     * Whether an address, or a whole prefix, is in a network of the same family: a prefix wider than the network is not
+     * (ADV-505-10).
+     */
     public static function contains(string $cidr, string $address): bool
     {
         [$network, $length] = self::split($cidr);
-        $address = explode('/', $address, 2)[0];
+        $parts = explode('/', $address, 2);
+        $address = $parts[0];
         if (filter_var($address, FILTER_VALIDATE_IP) === false || self::isV4($network) !== self::isV4($address)) {
+            return false;
+        }
+        if (isset($parts[1]) && (!ctype_digit($parts[1]) || (int) $parts[1] < $length)) {
             return false;
         }
 
         return self::masked((string) inet_pton($address), $length) === self::masked((string) inet_pton($network), $length);
+    }
+
+    /** Whether two networks (or prefixes) share an address: one holds the other. */
+    public static function overlaps(string $a, string $b): bool
+    {
+        return self::contains($a, $b) || self::contains($b, $a);
+    }
+
+    /**
+     * An IPv4 network's first and last address (its network and broadcast address, below /31).
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function bounds(string $cidr): array
+    {
+        [$address, $length] = self::split(self::network($cidr));
+        if (!self::isV4($address)) {
+            throw new InvalidArgumentException('Only an IPv4 network has a broadcast address.');
+        }
+        $first = (int) ip2long($address);
+
+        return [(string) long2ip($first), (string) long2ip($first + (2 ** (32 - $length)) - 1)];
     }
 
     /** The address on its own, normalized (an IPv6 one compressed, in lower case); a prefix keeps its length. */

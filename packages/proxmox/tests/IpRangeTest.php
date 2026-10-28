@@ -87,4 +87,13 @@ class IpRangeTest extends TestCase
         $this->assertSame('192.0.2.64/27', IpRange::networkOf('192.0.2.77', 27));
         $this->assertSame('2001:db8:5::/48', IpRange::networkOf('2001:db8:5:9::1', 48));
     }
+
+    public function test_a_prefix_wider_than_the_network_is_not_in_it_and_overlaps_are_seen(): void
+    {
+        $this->assertFalse(IpRange::contains('2001:db8::/48', '2001:db8::/32'));
+        $this->assertTrue(IpRange::contains('2001:db8::/48', '2001:db8:0:5::/64'));
+        $this->assertTrue(IpRange::overlaps('2001:db8::/56', '2001:db8:0:5::/64'));
+        $this->assertFalse(IpRange::overlaps('2001:db8:0:1::/64', '2001:db8:0:2::/64'));
+        $this->assertSame(['192.0.2.64', '192.0.2.95'], IpRange::bounds('192.0.2.64/27'));
+    }
 }
