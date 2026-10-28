@@ -92,6 +92,23 @@ final class WhmcsIpPoolImport
 
             return null;
         }
+        // Over a network a pool already has (two WHMCS pools on one /24): its addresses go to that pool; over part of
+        // one: brought without a network, for staff to look at (round 3 of #505: the form refuses two over one network).
+        if ($network !== null) {
+            foreach (IpPool::query()->where('family', 4)->whereNotNull('network')->get() as $other) {
+                if ($other->network === $network) {
+                    $this->counts['conflicts'][] = "Pool «{$row['title']}»: on {$network}, as the pool «{$other->name}»: its addresses go there.";
+
+                    return $other;
+                }
+                if (IpRange::overlaps((string) $other->network, $network)) {
+                    $this->counts['conflicts'][] = "Pool «{$row['title']}»: {$network} overlaps the pool «{$other->name}» ({$other->network}): brought without a network, check it.";
+                    $network = null;
+
+                    break;
+                }
+            }
+        }
         $this->counts['pools']++;
 
         return IpPool::query()->create(['whmcs_id' => (int) $row['id'], 'name' => (string) $row['title'], 'family' => 4, 'network' => $network,

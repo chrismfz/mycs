@@ -25,10 +25,10 @@ final class PoolAddresses
             ->visible(fn (Service $record) => self::canManage() && !in_array($record->status, IpAddress::ENDED, true) && IpPool::query()->exists())
             ->schema([
                 Select::make('pool')->label('Pool')->required()->live()
-                    ->options(fn () => IpPool::query()->withCount(['addresses as free_count' => fn ($q) => IpAddress::whereFree($q)])->orderBy('name')->get()
+                    ->options(fn () => IpPool::query()->withCount(['addresses as free_count' => fn ($q) => IpAddress::whereGivable($q)])->orderBy('name')->get()
                         ->mapWithKeys(fn (IpPool $pool) => [$pool->id => "{$pool->name} ({$pool->free_count} free)"])),
                 Select::make('address')->label('Address')->placeholder('The next free one')->searchable()
-                    ->options(fn (Get $get) => $get('pool') ? IpAddress::query()->where('ip_pool_id', $get('pool'))->tap(fn ($q) => IpAddress::whereFree($q))
+                    ->options(fn (Get $get) => $get('pool') ? IpAddress::query()->where('ip_pool_id', $get('pool'))->tap(fn ($q) => IpAddress::whereGivable($q))
                         ->orderBy('id')->limit(500)->pluck('address', 'id') : []),
             ])
             ->action(function (Service $record, array $data, $livewire) {

@@ -52,7 +52,7 @@ class AddressesRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('address')
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client'])->orderBy('id'))
-            ->paginated([25, 50, 100, 'all'])
+            ->paginated([25, 50, 100])
             ->columns([
                 TextColumn::make('address')->fontFamily('mono')->searchable()->copyable(),
                 TextColumn::make('state')->badge()->state(fn (IpAddress $record) => self::STATES[$record->state()])
@@ -69,8 +69,8 @@ class AddressesRelationManager extends RelationManager
                     ->url(fn (IpAddress $record) => $record->service_id ? ServiceResource::getUrl('edit', ['record' => $record->service_id]) : null),
                 TextColumn::make('seen')->label('Seen on')->badge()->placeholder('—')
                     ->state(fn (IpAddress $record) => array_map(fn (ProxmoxGuest $guest) => 'VM ' . $guest->vmid . ' ' . $guest->name, $record->seenOn()) ?: null)
-                    ->color(fn (IpAddress $record) => self::mismatch($record) !== null ? 'danger' : 'gray')
-                    ->tooltip(fn (IpAddress $record) => self::mismatch($record)),
+                    ->color(fn (IpAddress $record) => $this->mismatchOf($record) !== null ? 'danger' : 'gray')
+                    ->tooltip(fn (IpAddress $record) => $this->mismatchOf($record)),
                 TextColumn::make('assigned_at')->label('Since')->since()->placeholder('—')->toggleable(),
                 TextColumn::make('released_at')->label('Released')->since()->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
             ])
@@ -107,7 +107,7 @@ class AddressesRelationManager extends RelationManager
             ->recordActions([
                 ActionGroup::make([
                     Action::make('assign')->label('Give to a service')->icon('heroicon-o-link')
-                        ->visible(fn (IpAddress $record) => self::canManage() && $record->state() === IpAddress::FREE)
+                        ->visible(fn (IpAddress $record) => self::canManage() && $record->state() === IpAddress::FREE && !isset($this->forbidden()['v4'][$record->address]))
                         ->schema([
                             Select::make('service_id')->label('Service')->required()->searchable()
                                 ->getSearchResultsUsing(fn (string $search) => self::services($search))
@@ -152,6 +152,23 @@ class AddressesRelationManager extends RelationManager
         }
 
         return null;
+    }
+
+    /** @var array{v4: array<string, string>, gateways6: list<string>}|null */
+    private ?array $forbidden = null;
+
+    /** @return array{v4: array<string, string>, gateways6: list<string>} IpPool::forbidden(), once a request */
+    private function forbidden(): array
+    {
+        return $this->forbidden ??= IpPool::forbidden();
+    }
+
+    /** @var array<int, string|null> each row's, once a request */
+    private array $mismatches = [];
+
+    private function mismatchOf(IpAddress $address): ?string
+    {
+        return array_key_exists($address->id, $this->mismatches) ? $this->mismatches[$address->id] : ($this->mismatches[$address->id] = self::mismatch($address));
     }
 
     private function pool(): IpPool

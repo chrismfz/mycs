@@ -312,4 +312,52 @@ class IpPoolTest extends TestCase
         $page->callMountedTableAction();
         $this->assertTrue($address->fresh()?->service_id !== null);
     }
+
+    private function whmcsWith(string $sql): PDO
+    {
+        $whmcs = new PDO('sqlite::memory:');
+        $whmcs->exec('CREATE TABLE mod_pvewhmcs_ip_pools (id INTEGER PRIMARY KEY, title TEXT, gateway TEXT)');
+        $whmcs->exec('CREATE TABLE mod_pvewhmcs_ip_addresses (id INTEGER PRIMARY KEY, pool_id INTEGER, ipaddress TEXT, mask TEXT)');
+        $whmcs->exec('CREATE TABLE mod_pvewhmcs_vms (id INTEGER PRIMARY KEY, ipaddress TEXT, v6prefix TEXT)');
+        $whmcs->exec($sql);
+
+        return $whmcs;
+    }
+
+    /** Round 3 of #505: an imported routed pool (no network) is saved from its page, its DNS added. */
+    public function test_an_imported_routed_pool_is_saved_with_its_dns(): void
+    {
+        (new WhmcsIpPoolImport($this->whmcsWith("INSERT INTO mod_pvewhmcs_ip_pools VALUES (1, 'Routed', '192.0.2.1');
+            INSERT INTO mod_pvewhmcs_ip_addresses VALUES (1, 1, '198.51.100.7', '255.255.255.255')")))->run();
+        $pool = IpPool::query()->sole();
+        $this->assertSame([null, 32, 1], [$pool->network, $pool->prefix, $pool->addresses()->count()]);
+
+        $this->livewireAs($this->staff())->test(EditIpPool::class, ['record' => $pool->getRouteKey()])
+            ->fillForm(['nameservers' => '192.0.2.53'])->call('save')->assertHasNoFormErrors();
+        $this->assertSame('192.0.2.53', $pool->fresh()->nameservers);
+    }
+
+    /** Round 3 of #505: two WHMCS pools on one /24 are one pool here, saved from its page as any other. */
+    public function test_two_whmcs_pools_on_one_network_are_one_pool(): void
+    {
+        $counts = (new WhmcsIpPoolImport($this->whmcsWith("INSERT INTO mod_pvewhmcs_ip_pools VALUES (1, 'A', '192.0.2.1'), (2, 'B', '192.0.2.1');
+            INSERT INTO mod_pvewhmcs_ip_addresses VALUES (1, 1, '192.0.2.10', '255.255.255.0'), (2, 2, '192.0.2.20', '255.255.255.0')")))->run();
+
+        $pool = IpPool::query()->sole();
+        $this->assertSame(['192.0.2.10', '192.0.2.20'], $pool->addresses()->orderBy('id')->pluck('address')->all());
+        $this->assertStringContainsString('as the pool «A»', implode(' ', $counts['conflicts']));
+        $this->livewireAs($this->staff())->test(EditIpPool::class, ['record' => $pool->getRouteKey()])
+            ->fillForm(['name' => 'Cloud'])->call('save')->assertHasNoFormErrors();
+    }
+
+    /** Round 3 of #505: an address another pool never gives is not counted free, and says why. */
+    public function test_an_address_another_pool_forbids_is_not_free_and_says_why(): void
+    {
+        $routed = $this->pool(['name' => 'Routed', 'network' => null, 'prefix' => 32, 'gateway' => null], '192.0.2.255');
+        $this->pool(['name' => 'LAN', 'network' => '192.0.2.0/24', 'prefix' => 24], null);
+
+        $this->assertSame(0, IpAddress::whereGivable(IpAddress::query())->count());
+        $this->expectExceptionMessage('the broadcast address of the pool «LAN»');
+        IpAllocator::assign($this->service(), $routed, $routed->addresses()->sole());
+    }
 }

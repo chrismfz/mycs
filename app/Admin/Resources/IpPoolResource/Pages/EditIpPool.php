@@ -6,11 +6,18 @@ use App\Admin\Resources\IpPoolResource;
 use App\Models\IpPool;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 class EditIpPool extends EditRecord
 {
     protected static string $resource = IpPoolResource::class;
+
+    /** Under the pools' write lock (IpPool::writing). */
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        return IpPool::writing(fn () => parent::handleRecordUpdate($record, $data));
+    }
 
     protected function getHeaderActions(): array
     {

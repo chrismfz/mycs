@@ -6,11 +6,18 @@ use App\Admin\Resources\IpPoolResource;
 use App\Models\IpPool;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
 class CreateIpPool extends CreateRecord
 {
     protected static string $resource = IpPoolResource::class;
+
+    /** Under the pools' write lock (IpPool::writing). */
+    protected function handleRecordCreation(array $data): Model
+    {
+        return IpPool::writing(fn () => parent::handleRecordCreation($data));
+    }
 
     /** An IPv4 pool with its network's hosts at once (the toggle), the gateway left out. */
     protected function afterCreate(): void

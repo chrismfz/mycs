@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 use MyCS\Proxmox\IpRange;
 
@@ -64,6 +65,10 @@ class IpPool extends Model
             }
             if (filled($pool->gateway)) {
                 $pool->gateway = IpRange::normalize((string) $pool->gateway);
+                // Checked again as it is written, under the pools' lock (the form's rule ran before it: round 3 of #505).
+                if ($pool->isDirty('gateway') && ($conflict = self::gatewayConflict((string) $pool->gateway)) !== null) {
+                    throw new InvalidArgumentException($conflict);
+                }
             }
         });
     }
@@ -102,6 +107,26 @@ class IpPool extends Model
      * @throws InvalidArgumentException a line that is none of these, or out of the pool's network: nothing is added
      */
     public function add(string $lines): array
+    {
+        return self::writing(fn () => $this->addLocked($lines));
+    }
+
+    /**
+     * One write of the pools at a time (round 3 of #505): what add() and a gateway's change check (overlaps, gateways,
+     * edges) is read and written under it, so two tabs never pass the same check.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $write
+     * @return T
+     */
+    public static function writing(\Closure $write): mixed
+    {
+        return Cache::lock('ip-pools.write', 60)->block(15, $write);
+    }
+
+    /** @return array{added: int, skipped: list<string>} */
+    private function addLocked(string $lines): array
     {
         $this->forbidden = self::forbidden();
         $wanted = [];
@@ -193,7 +218,7 @@ class IpPool extends Model
         $overlap = IpRange::firstOverlap([...$existing, ...$prefixes]);
         if ($overlap !== null) {
             [$a, $b] = in_array($overlap[1], $prefixes, true) ? $overlap : array_reverse($overlap);
-            throw new InvalidArgumentException("{$b} overlaps {$a}, already in a pool.");
+            throw new InvalidArgumentException(in_array($a, $prefixes, true) ? "{$b} overlaps {$a}, both in this list." : "{$b} overlaps {$a}, already in a pool.");
         }
     }
 

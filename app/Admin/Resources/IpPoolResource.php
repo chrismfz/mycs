@@ -61,7 +61,8 @@ class IpPoolResource extends Resource
                 ->required()->live()->disabledOn('edit')
                 ->afterStateUpdated(fn ($state, callable $set) => $set('prefix', (int) $state === 6 ? 64 : null)),
             TextInput::make('network')->label('Network')->placeholder(fn (Get $get) => (int) $get('family') === 6 ? '2001:db8::/48' : '192.0.2.0/24')
-                ->maxLength(49)->required(fn (Get $get) => (int) $get('family') === 4)
+                // Required of a new IPv4 pool; an imported routed one (a /32, no network) is still saved (round 3 of #505).
+                ->maxLength(49)->required(fn (Get $get, string $operation) => $operation === 'create' && (int) $get('family') === 4)
                 ->helperText('Its addresses must be in it.')
                 // Kept while it has addresses: they were checked against it.
                 ->disabled(fn (?IpPool $record) => $record?->addresses()->exists() ?? false)
@@ -74,6 +75,9 @@ class IpPoolResource extends Resource
                             throw new InvalidArgumentException('Not of the pool\'s family.');
                         }
                         $network = IpRange::network((string) $value);
+                        if ($record !== null && $network === $record->network) {
+                            return; // as it was: an imported pool saved again (round 3 of #505)
+                        }
                         // Two pools never over one network: each would give the other's addresses (round 2 of #505).
                         $others = IpPool::query()->whereNotNull('network')->where('family', (int) $get('family'))
                             ->when($record?->id, fn ($q, $id) => $q->whereKeyNot($id))->get();
@@ -132,7 +136,7 @@ class IpPoolResource extends Resource
             ->defaultSort('name')
             ->modifyQueryUsing(fn ($query) => $query->with('server')->withCount([
                 'addresses',
-                'addresses as free_count' => fn ($q) => IpAddress::whereFree($q),
+                'addresses as free_count' => fn ($q) => IpAddress::whereGivable($q),
                 'addresses as held_count' => fn ($q) => IpAddress::whereHeld($q),
             ]))
             ->columns([

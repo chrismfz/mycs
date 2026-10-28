@@ -62,6 +62,10 @@ final class IpAllocator
             }
         }
 
+        if ($address !== null && ($why = self::notGiven($address->address)) !== null) {
+            throw new DisplayException("{$address->address} is {$why}: it is never given."); // round 3 of #505
+        }
+
         throw new DisplayException($address !== null ? "{$address->address} is no longer free." : "No free address in {$pool->name}.");
     }
 
@@ -99,9 +103,22 @@ final class IpAllocator
     {
         // A gateway, or a prefix holding one, stays reserved: «back to the pool» would give the router's address
         // (ADV-505-R2-1).
-        if (!$reserved && ($why = self::notGiven($address->address)) !== null) {
-            throw new DisplayException("{$address->address} is {$why}: it stays reserved.");
+        if (!$reserved) {
+            // Under the pools' write lock: a gateway saved meanwhile is seen (round 3 of #505).
+            IpPool::writing(function () use ($address) {
+                if (($why = self::notGiven($address->address)) !== null) {
+                    throw new DisplayException("{$address->address} is {$why}: it stays reserved.");
+                }
+                self::setReserved($address, false, null);
+            });
+
+            return;
         }
+        self::setReserved($address, true, $note);
+    }
+
+    private static function setReserved(IpAddress $address, bool $reserved, ?string $note): void
+    {
         $query = IpAddress::query()->whereKey($address->id)->whereNull('service_id');
         $done = $query->update(['reserved' => $reserved, 'note' => $note ?? $address->note, 'updated_at' => now()]) === 1;
         if (!$done) {

@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -66,6 +65,12 @@ class IpAddress extends Model
         return $query->whereNull('service_id')->where('reserved', false);
     }
 
+    /** Free and none of a pool's gateway, network or broadcast address: what is given (round 3 of #505). */
+    public static function whereGivable(Builder $query): Builder
+    {
+        return self::whereFree($query)->whereNotIn('address', array_keys(IpPool::forbidden()['v4']));
+    }
+
     /** Still a service's that ended. */
     public static function whereHeld(Builder $query): Builder
     {
@@ -74,24 +79,45 @@ class IpAddress extends Model
 
     /**
      * The guests this address is seen on (proxmox:sync's read of their agents and configs); a prefix, any address of it.
-     * Every guest read once a request: a pool's list asks it of each row.
+     * The guests are read once a request, into a map by address: a pool's list asks it of each row (round 3 of #505).
      *
      * @return list<ProxmoxGuest>
      */
     public function seenOn(): array
     {
-        $prefix = str_contains($this->address, '/');
+        [$byAddress, $v6] = self::guests();
+        if (!str_contains($this->address, '/')) {
+            return $byAddress[$this->address] ?? [];
+        }
+        $seen = [];
+        foreach ($v6 as [$ip, $guest]) {
+            if (IpRange::contains($this->address, $ip) && !in_array($guest, $seen, true)) {
+                $seen[] = $guest;
+            }
+        }
 
-        return self::guests()->filter(fn (ProxmoxGuest $guest) => collect((array) $guest->ips)->contains(function ($ip) use ($prefix) {
-            $ip = explode('/', (string) $ip, 2)[0];
-
-            return $prefix ? IpRange::contains($this->address, $ip) : $ip === $this->address;
-        }))->values()->all();
+        return $seen;
     }
 
-    /** @return Collection<int, ProxmoxGuest> */
-    private static function guests(): Collection
+    /** @return array{0: array<string, list<ProxmoxGuest>>, 1: list<array{0: string, 1: ProxmoxGuest}>} */
+    private static function guests(): array
     {
-        return once(fn () => ProxmoxGuest::query()->whereNotNull('ips')->whereNull('gone_at')->get());
+        return once(function () {
+            $byAddress = [];
+            $v6 = [];
+            foreach (ProxmoxGuest::query()->whereNotNull('ips')->whereNull('gone_at')->get() as $guest) {
+                foreach ((array) $guest->ips as $ip) {
+                    $ip = explode('/', (string) $ip, 2)[0];
+                    if (!in_array($guest, $byAddress[$ip] ?? [], true)) {
+                        $byAddress[$ip][] = $guest;
+                    }
+                    if (str_contains($ip, ':')) {
+                        $v6[] = [$ip, $guest];
+                    }
+                }
+            }
+
+            return [$byAddress, $v6];
+        });
     }
 }
