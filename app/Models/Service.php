@@ -1155,6 +1155,12 @@ class Service extends Model implements Auditable
             ->whereColumn('live.id', 'service_hosted_domains.service_id')->whereIn('live.status', [self::STATUS_ACTIVE, self::STATUS_SUSPENDED]));
     }
 
+    /** @return HasMany<IpAddress, $this> the addresses it holds from the IP pools (docs/proxmox.md, B3) */
+    public function ipAddresses(): HasMany
+    {
+        return $this->hasMany(IpAddress::class);
+    }
+
     /** @return HasOne<ServiceUsage, $this> its usage as its server last told it (services:usage) */
     public function usage(): HasOne
     {

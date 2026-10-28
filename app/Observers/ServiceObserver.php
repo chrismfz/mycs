@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
+use App\Models\IpAddress;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Service\OptionTasks;
@@ -216,6 +217,16 @@ class ServiceObserver
         if ($status !== null && !in_array($status, Service::STATUSES, true)) {
             throw new \LogicException("Unknown service status «{$status}»: one of " . implode(', ', Service::STATUSES) . '.');
         }
+    }
+
+    /**
+     * Its addresses of the IP pools go back, released now (ADV-505-1): one deleted with it waits its turn as any other
+     * released, never first in line while still set on the old VM. The foreign key refuses a delete that skips this.
+     */
+    public function deleting(Service $service): void
+    {
+        IpAddress::query()->where('service_id', $service->id)
+            ->update(['service_id' => null, 'assigned_at' => null, 'released_at' => now(), 'updated_at' => now()]);
     }
 
     /**

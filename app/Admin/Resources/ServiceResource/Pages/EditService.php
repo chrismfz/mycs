@@ -10,6 +10,7 @@ use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\OfflineMachine;
+use App\Admin\Resources\ServiceResource\PoolAddresses;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -180,6 +181,8 @@ class EditService extends EditRecord
             OfflineMachine::editAction()->visible(fn (Service $record) => OfflineMachine::fields($record) !== []),
             // Its Proxmox VM's power (one mapped in Proxmox Guests).
             ProxmoxPower::group($record),
+            // Its addresses from the IP pools (docs/proxmox.md, B3).
+            ActionGroup::make([PoolAddresses::assign(), PoolAddresses::release()])->label('IPs')->icon('ri-git-merge-line')->button()->color('gray'),
             // Into its panel, signed in, as WHMCS's «Log in to panel» (owner 2026-10-23): its own permission, audited.
             // A link in a new tab (owner 2026-10-26): the admin page stays; its signed route signs in (ServicePanelLoginController).
             Action::make('loginToPanel')->label('Log in to panel')->icon('heroicon-o-arrow-top-right-on-square')->color('gray')

@@ -5,6 +5,7 @@ namespace App\Livewire\Services;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
+use App\Models\IpAddress;
 use App\Models\ProxmoxGuest;
 use App\Models\Service;
 use App\Services\Proxmox\GuestLifecycle;
@@ -143,6 +144,14 @@ class ProxmoxPanel extends Component
             'vm' => $vm,
             'pending' => $pending,
             'canPower' => $this->service->status === Service::STATUS_ACTIVE && $this->allowed('update'),
+            // Its addresses from the IP pools, with what the installer asks (an ISO install sets them by hand: B3).
+            'network' => $vm === null ? [] : $this->service->ipAddresses()->with('pool')->orderBy('id')->get()->map(fn (IpAddress $ip) => [
+                'address' => $ip->address,
+                'prefix' => str_contains($ip->address, '/') ? null : $ip->pool->prefix,
+                'netmask' => str_contains($ip->address, '/') ? null : $ip->pool->netmask(),
+                'gateway' => $ip->pool->gateway,
+                'dns' => $ip->pool->nameserverList(),
+            ])->all(),
         ]);
     }
 

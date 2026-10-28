@@ -39,6 +39,7 @@ use App\Admin\Resources\ExtensionResource;
 use App\Admin\Resources\GatewayResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
+use App\Admin\Resources\IpPoolResource;
 use App\Admin\Resources\KbArticleResource;
 use App\Admin\Resources\KbCategoryResource;
 use App\Admin\Resources\LicenseResource;
@@ -135,6 +136,7 @@ class TopMenu
             [GrRegistry::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
+            [IpPoolResource::class, 'index', 'IP Pools'],
             [ProxmoxNodes::class],
             [CpanelAccountResource::class, 'index', 'Hosting Accounts'],
             [MailcowDomainResource::class, 'index', 'Mail Domains'],

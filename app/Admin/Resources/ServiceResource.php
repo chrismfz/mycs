@@ -11,6 +11,7 @@ use App\Admin\Resources\ServiceResource\OfflineMachine;
 use App\Admin\Resources\ServiceResource\Pages\CreateService;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
+use App\Admin\Resources\ServiceResource\PoolAddresses;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
@@ -61,6 +62,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 use Throwable;
 
 class ServiceResource extends Resource
@@ -352,6 +354,11 @@ class ServiceResource extends Resource
                             ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
                         Textarea::make('assigned_ips')->label('Assigned IPs')->placeholder('One per line')->rows(2),
+                        // Given from the IP pools (header «IPs»): the address, its mask and gateway.
+                        TextEntry::make('pool_addresses')->label('From the IP pools')->fontFamily('mono')
+                            ->state(fn (?Service $record) => $record ? PoolAddresses::summary($record) : null)
+                            ->formatStateUsing(fn (?string $state) => $state === null ? null : new HtmlString(nl2br(e($state))))
+                            ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record !== null && $record->ipAddresses()->exists()),
                         // The contact of the account it concerns (a domain's owner, a site's company): the invoice stays the
                         // account's (docs/accounts.md 3b); Ekdosi issues the fiscal document for its lines to it (ekdosi-bridge.md).
                         Select::make('contact_id')->label('Related contact')->nullable()
