@@ -95,19 +95,26 @@ class BankMovement extends Model
     }
 
     /**
-     * Each bank's balance as its latest authentic alert says it, with when.
+     * Each bank's balance: the sum of its accounts', each as its latest authentic alert says it (two accounts at
+     * Piraeus, owner 2026-10-28: the bank's latest alert alone showed one of them), with the latest of their when.
      *
-     * @return array<string, array{balance: string, at: Carbon|null}>
+     * @return array<string, array{balance: string, at: Carbon|null, accounts: array<string, string>}>
      */
     public static function balances(): array
     {
         $balances = [];
         foreach (array_keys(self::BANKS) as $bank) {
-            $latest = self::query()->where('bank', $bank)->where('authentic', true)->whereNotNull('balance')
-                ->orderByDesc('executed_at')->orderByDesc('id')->first();
-            if ($latest !== null) {
-                $balances[$bank] = ['balance' => (string) $latest->balance, 'at' => $latest->executed_at];
+            $accounts = self::query()->where('bank', $bank)->where('authentic', true)->whereNotNull('balance')
+                ->orderByDesc('executed_at')->orderByDesc('id')->get(['account', 'balance', 'executed_at'])
+                ->unique(fn (self $m) => mb_strtoupper(trim((string) $m->account)));
+            if ($accounts->isEmpty()) {
+                continue;
             }
+            $balances[$bank] = [
+                'balance' => $accounts->reduce(fn (string $sum, self $m) => bcadd($sum, (string) $m->balance, 2), '0.00'),
+                'at' => $accounts->first()->executed_at,
+                'accounts' => $accounts->mapWithKeys(fn (self $m) => [(string) $m->account => (string) $m->balance])->all(),
+            ];
         }
 
         return $balances;

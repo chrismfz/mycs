@@ -153,6 +153,53 @@ class BankAlertsTest extends TestCase
         $this->assertSame('not_our_account', BankMovement::query()->where('reason', 'THEIRS')->value('authenticity'));
     }
 
+    /** Two accounts at one bank (Piraeus, owner 2026-10-28): its balance is both accounts', each by its latest alert. */
+    public function test_a_banks_balance_is_the_sum_of_its_accounts(): void
+    {
+        $settings = self::SETTINGS;
+        $settings['accounts']['eurobank'] = ['0000', '9999'];
+        $mailbox = new FakeAlertMailbox(['INBOX' => ['validity' => 1, 'messages' => []]]);
+        (new AlertReader($mailbox, $settings))->run();
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '10,00', 'A OLD', '100,00'));
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '10,00', 'B', '2.000,00', account: '9999'));
+        $mailbox->add('INBOX', Fixtures::eurobank('χρεώθηκε', '5,00', 'A NEW', '95,00'));
+        (new AlertReader($mailbox, $settings))->run();
+
+        $balance = BankMovement::balances()['eurobank'];
+        $this->assertSame('2095.00', $balance['balance']);
+        $this->assertEqualsCanonicalizing(['0000' => '95.00', '9999' => '2000.00'], $balance['accounts']);
+    }
+
+    /**
+     * An account set as ours after its alerts were read (the second Piraeus account, owner 2026-10-28): the next run counts
+     * them, as if read now; what staff did stays; the same mail read again is no second movement.
+     */
+    public function test_an_account_set_as_ours_later_counts_its_movements_from_the_next_run(): void
+    {
+        $mailbox = new FakeAlertMailbox(['INBOX' => ['validity' => 1, 'messages' => [1 => Fixtures::eurobank('πιστώθηκε', '1,00', 'B HISTORY', '500,00', account: '9999')]]]);
+        $this->reader($mailbox)->run();
+        $credit = Fixtures::eurobank('πιστώθηκε', '20,00', 'B PAYMENT 32000', '520,00', account: '9999');
+        $mailbox->add('INBOX', $credit);
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '30,00', 'B WLGR 0000000000', '550,00', account: '9999'));
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '40,00', 'B SEEN', '590,00', account: '9999'));
+        $mailbox->add('INBOX', Fixtures::eurobank('πιστώθηκε', '50,00', 'B UNVOUCHED', '640,00', '', account: '9999'));
+        $this->reader($mailbox)->run();
+        BankMovement::query()->where('reason', 'B SEEN')->update(['status' => BankMovement::ACKNOWLEDGED]);
+        $this->assertArrayNotHasKey('eurobank', BankMovement::balances());
+
+        $settings = self::SETTINGS;
+        $settings['accounts']['eurobank'] = ['0000', '9999'];
+        (new AlertReader($mailbox, $settings))->run();
+
+        $this->assertSame(['B HISTORY' => 'history', 'B PAYMENT 32000' => 'pending', 'B WLGR 0000000000' => 'ignored', 'B SEEN' => 'acknowledged',
+            'B UNVOUCHED' => 'unverified'], BankMovement::query()->orderBy('id')->pluck('status', 'reason')->all());
+        $this->assertFalse(BankMovement::query()->where('reason', 'B UNVOUCHED')->value('authentic'), 'not vouched for: still not');
+        $this->assertSame('590.00', BankMovement::balances()['eurobank']['balance'], 'the latest vouched-for one');
+
+        (new AlertReader($mailbox, $settings))->store($credit, 'Checked', false);
+        $this->assertSame(1, BankMovement::query()->where('reason', 'B PAYMENT 32000')->count(), 'read again: the same movement');
+    }
+
     public function test_a_mail_that_keeps_failing_for_another_cause_is_passed_after_its_attempts(): void
     {
         BankMovement::creating(function (BankMovement $movement) {
