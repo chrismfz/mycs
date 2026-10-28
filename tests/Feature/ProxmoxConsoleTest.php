@@ -35,6 +35,8 @@ class ProxmoxConsoleTest extends TestCase
 
     private bool $vncDenied = false;
 
+    private float $now = 1000.0;
+
     /** @var list<string> */
     private array $writes = [];
 
@@ -165,7 +167,7 @@ class ProxmoxConsoleTest extends TestCase
 
         return $this->relay = new ConsoleRelay('127.0.0.1:0', self::ORIGIN, '/console/ws', fn (array $ticket) => [
             'stream' => stream_socket_client('tcp://' . $address), 'host' => 'vega.example.test', 'port' => 8006, 'authorization' => 'PVEAPIToken=mycs@pve!api=s3cret',
-        ]);
+        ], null, fn () => $this->now, fn () => true);
     }
 
     /** @return resource the node's side, once the relay connected it */
@@ -327,6 +329,29 @@ class ProxmoxConsoleTest extends TestCase
 
         fwrite($browser, WebSocket::encode(WebSocket::BINARY, str_repeat('k', ConsoleRelay::MAX_CLIENT_FRAME + 1), true));
         $this->read($browser, 0.5);
+        $this->assertSame(0, $this->relay->count());
+    }
+
+    /** Round 2 of #506: a console whose browser reads nothing gives its slot back after BACKED seconds. */
+    public function test_a_browser_that_reads_nothing_gives_its_slot_back(): void
+    {
+        $this->relay();
+        $browser = $this->browser($this->ticket($this->vps()));
+        $node = $this->nodeSide();
+        $request = $this->read($node);
+        preg_match('/Sec-WebSocket-Key: (\S+)/', $request, $m);
+        fwrite($node, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " . WebSocket::accept($m[1]) . "\r\n\r\n");
+        $this->read($browser);
+        stream_set_blocking($node, false);
+        $screen = str_repeat(WebSocket::encode(WebSocket::BINARY, str_repeat('s', 65000), false), 16);
+        for ($i = 0; $i < 300 && $this->relay->count() === 1; $i++) {
+            @fwrite($node, $screen); // and the browser never reads
+            $this->relay->tick(0.002);
+            if ($i === 150) {
+                $this->now += ConsoleRelay::BACKED + 1;
+            }
+        }
+
         $this->assertSame(0, $this->relay->count());
     }
 }

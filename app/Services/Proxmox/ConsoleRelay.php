@@ -46,6 +46,15 @@ final class ConsoleRelay
 
     public const RECHECK = 30;
 
+    /** A console whose browser (or node) reads nothing is kept this long, its slot with it (round 2 of #506). */
+    public const BACKED = 60;
+
+    /** A closing console's last bytes are written this long, at most (ADV-506-R2-3). */
+    public const CLOSING = 5;
+
+    /** A recheck that fails (the database down) this many times in a row closes the console; once is «unknown». */
+    public const RECHECK_FAILURES = 3;
+
     /** A side's unsent bytes past this: the other side is not read until it drains. */
     public const MAX_PENDING = 2 * 1024 * 1024;
 
@@ -125,11 +134,16 @@ final class ConsoleRelay
     {
         $read = count($this->consoles) < self::MAX_CONNECTIONS + 1 ? [$this->server] : [];
         $write = [];
+        // Over BUDGET, only the consoles holding more than their share stop being read, not every one (ADV-506-R2-2).
         $full = $this->buffered() > self::BUDGET;
         $again = false; // a stream left with bytes read next turn without waiting
-        foreach ($this->consoles as $c) {
-            $backed = strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING;
-            if (!$full && !$backed && !$c['closing']) {
+        $readable = []; // the consoles read this turn: a leftover (`more`) is read only for them (ADV-506-R2-1)
+        foreach ($this->consoles as $id => $c) {
+            $backed = strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING
+                || ($full && self::held($c) > intdiv(self::BUDGET, self::MAX_CONNECTIONS));
+            $this->consoles[$id]['backed_since'] = $backed ? ($c['backed_since'] ?? ($this->clock)()) : null;
+            if (!$backed && !$c['closing']) {
+                $readable[$id] = true;
                 $read[] = $c['client'];
                 // A TLS handshake under way waits on the node's answer: readable, once its first step is sent.
                 if ($c['upstream'] !== null && ($c['state'] !== 'connecting' || $c['tls_started'])) {
@@ -158,7 +172,7 @@ final class ConsoleRelay
             }
         }
         foreach ($this->consoles as $id => $c) {
-            $this->guarded($id, function () use ($id, $c, $read, $write) {
+            $this->guarded($id, function () use ($id, $c, $read, $write, $readable) {
                 if ($c['state'] === 'connecting' && (in_array($c['upstream'], $write, true) || in_array($c['upstream'], $read, true))) {
                     $this->handshakeTls($id);
                 }
@@ -166,7 +180,7 @@ final class ConsoleRelay
                     if ($side === 'upstream' && $c['state'] === 'connecting') {
                         continue;
                     }
-                    if ($c[$side] !== null && isset($this->consoles[$id]) && (in_array($c[$side], $read, true) || $c['more'])) {
+                    if ($c[$side] !== null && isset($readable[$id], $this->consoles[$id]) && (in_array($c[$side], $read, true) || $c['more'])) {
                         $this->readFrom($id, $side);
                     }
                 }
@@ -191,12 +205,13 @@ final class ConsoleRelay
 
     private function buffered(): int
     {
-        $total = 0;
-        foreach ($this->consoles as $c) {
-            $total += strlen($c['cin']) + strlen($c['uin']) + strlen($c['cout']) + strlen($c['uout']);
-        }
+        return array_sum(array_map(fn (array $c) => self::held($c), $this->consoles));
+    }
 
-        return $total;
+    /** @param  array<string, mixed>  $c */
+    private static function held(array $c): int
+    {
+        return strlen($c['cin']) + strlen($c['uin']) + strlen($c['cout']) + strlen($c['uout']);
     }
 
     private function accept(): void
@@ -215,7 +230,7 @@ final class ConsoleRelay
         $now = ($this->clock)();
         $this->consoles[(int) $client] = ['client' => $client, 'upstream' => null, 'state' => 'handshake', 'cin' => '', 'uin' => '', 'cout' => '',
             'uout' => '', 'since' => $now, 'last' => $now, 'checked' => $now, 'accept' => null, 'key' => null, 'protocol' => null, 'closing' => false,
-            'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false];
+            'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false, 'closing_at' => null, 'failures' => 0, 'backed_since' => null];
     }
 
     private function readFrom(int $id, string $side): void
@@ -356,7 +371,8 @@ final class ConsoleRelay
             return;
         }
         $c['ticket'] = $ticket;
-        $open = count(array_filter($this->consoles, fn (array $o) => ($o['ticket']['service_id'] ?? null) === $ticket['service_id'] && !$o['closing']));
+        // Closing ones too: one that never drains holds its slot until CLOSING ends it (ADV-506-R2-3).
+        $open = count(array_filter($this->consoles, fn (array $o) => ($o['ticket']['service_id'] ?? null) === $ticket['service_id']));
         if ($open > self::PER_SERVICE) {
             $this->refuse($id, 429, 'service #' . $ticket['service_id'] . ' has ' . self::PER_SERVICE . ' consoles open (ADV-506-6)');
 
@@ -419,6 +435,7 @@ final class ConsoleRelay
             $c['uout'] .= WebSocket::encode(WebSocket::CLOSE, $payload, true);
         }
         $c['closing'] = true;
+        $c['closing_at'] ??= ($this->clock)();
     }
 
     private function refuse(int $id, int $status, string $why): void
@@ -427,6 +444,7 @@ final class ConsoleRelay
         $this->consoles[$id]['cout'] .= "HTTP/1.1 {$status} {$text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         $this->consoles[$id]['uout'] = '';
         $this->consoles[$id]['closing'] = true;
+        $this->consoles[$id]['closing_at'] ??= ($this->clock)();
         $this->consoles[$id]['why'] = $why;
     }
 
@@ -459,6 +477,8 @@ final class ConsoleRelay
         foreach ($this->consoles as $id => $c) {
             $this->guarded($id, function () use ($id, $c, $now) {
                 $reason = match (true) {
+                    $c['closing'] && $now - $c['closing_at'] > self::CLOSING => $c['why'] ?? 'closed (its last bytes not read)',
+                    $c['backed_since'] !== null && $now - $c['backed_since'] > self::BACKED => 'a side reads nothing',
                     $c['state'] !== 'open' && $now - $c['since'] > self::HANDSHAKE => 'no handshake in time',
                     $now - $c['last'] > self::IDLE => 'idle',
                     $now - $c['since'] > self::MAX_SESSION => 'its time is up',
@@ -467,7 +487,15 @@ final class ConsoleRelay
                 // Still the customer's to keep (ADV-506-4, 5): asked again every RECHECK seconds.
                 if ($reason === null && $c['state'] === 'open' && $now - $c['checked'] >= self::RECHECK) {
                     $this->consoles[$id]['checked'] = $now;
-                    if (!($this->allowed)($c['ticket'])) {
+                    try {
+                        $allowed = ($this->allowed)($c['ticket']);
+                        $this->consoles[$id]['failures'] = 0;
+                    } catch (Throwable $e) {
+                        // Unknown, not «no» (a database restarting): closed only after RECHECK_FAILURES in a row
+                        // (ADV-506-R2-6).
+                        $allowed = ++$this->consoles[$id]['failures'] < self::RECHECK_FAILURES;
+                    }
+                    if (!$allowed) {
                         $reason = 'no longer allowed (the service not active, or its login without access)';
                     }
                 }
@@ -502,8 +530,13 @@ final class ConsoleRelay
     private function say(string $message, int $id, ?array $c = null): void
     {
         $ticket = ($c ?? $this->consoles[$id] ?? [])['ticket'] ?? null;
-        if ($this->log !== null) {
+        if ($this->log === null) {
+            return;
+        }
+        try {
             ($this->log)($message, is_array($ticket) ? ['service_id' => $ticket['service_id'], 'vmid' => $ticket['vmid'], 'user_id' => $ticket['user_id']] : []);
+        } catch (Throwable) {
+            // A log that cannot be written (a file of root's, a full disk) never ends the relay (ADV-506-R2-4).
         }
     }
 }

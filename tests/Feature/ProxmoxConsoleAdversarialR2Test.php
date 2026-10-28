@@ -259,8 +259,8 @@ class ProxmoxConsoleAdversarialR2Test extends TestCase
             }
             $this->relay->tick(0.005);
         }
-        $this->assertCount(2, array_filter($this->consoles(), fn (array $c) => $c['closing'] && $c['cout'] !== '' && $c['upstream'] !== null),
-            'setup: both consoles closing, their last bytes unsent');
+        // Setup adapted with the fix: a backed console is no longer read at all (ADV-506-R2-1), so its Close may never be
+        // seen; closing, backed or drained by the reads above, the check below is the cap's.
 
         $this->now += 15; // a reconnect's few seconds later, a handshake's deadline past
         $fresh = [];
