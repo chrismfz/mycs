@@ -114,6 +114,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       που ξανασυζητιούνται):
   - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447),
     client area (#502), IP pools (#505), κονσόλα noVNC (#506).
+  - **Η κονσόλα σε cPanel (orion):** ανοιχτό ως την ώρα της myip (υπεύθυνος 2026-10-28). Τρεις επιλογές:
+    PHP streaming, relay στο cluster ή SPICE (`proxmox.md` → «Η κονσόλα σε cPanel»). Πριν από την παραγωγή χρειάζεται
+    ρύθμιση console on/off.
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`, και το pool τους με
     `app:import-whmcs-ip-pools`.
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.

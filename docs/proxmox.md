@@ -231,8 +231,50 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
    - **Deploy:** το `deploy/mycs-console.service.example` στο `/etc/systemd/system/mycs-console.service` (`enable --now`)
      και το location του `deploy/nginx.conf.example`. Στο τέλος κάθε deploy, το `update.sh` τρέχει
      `proxmox:console-relay --restart`: το relay τελειώνει και το systemd το ξεκινά με τον νέο κώδικα (512 MB μνήμη).
-   - **Στο cluster (ο υπεύθυνος):** `VM.Console` στον ρόλο: `pveum role modify MyCSLifecycle -privs "VM.Audit
-     VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"`.
+   - **Στο cluster:** έγινε στις 2026-10-28. Ο υπεύθυνος έφτιαξε το pool `mycs`, τον ρόλο `MyCSLifecycle` (μαζί με
+     `VM.Console`) και το ACL του στο pool. Ως τότε υπήρχε μόνο το `PVEAuditor` στο `/`.
+   - **Σε server με nginx (devbox, 2026-10-28):** εγκαταστάθηκαν το unit `mycs-console` και το `location = /console/ws`.
+     Ελέγχθηκαν το 403 χωρίς εισιτήριο ή από άλλο site και το restart στο deploy.
+
+#### Η κονσόλα σε cPanel (orion): ανοιχτό, για την ώρα της myip
+Ο υπεύθυνος αποφάσισε στις 2026-10-28: η κονσόλα μένει όπως είναι, και η λύση δοκιμάζεται όταν έρθει η ώρα της myip.
+Το ζητούμενο είναι η εγκατάσταση να μετακινείται εύκολα, χωρίς εξωτερικές εξαρτήσεις.
+
+**Το πρόβλημα:** στον orion (έλεγχος 2026-10-28, μόνο ανάγνωση) δεν υπάρχει ούτε το ένα ούτε το άλλο από όσα θέλει το
+relay.
+- Τα sites τα σερβίρει ο LiteSpeed Enterprise 6.3.7, μπροστά από τον Apache 2.4.
+- Υπάρχουν CloudLinux και CageFS· ο λογαριασμός cPanel δεν κρατά process που τρέχει μόνιμα.
+- Τρέχει Redis, και έχουμε root.
+- Η MyCS όμως τρέχει μέσα στον λογαριασμό cPanel: δεν έχει δικό της systemd ούτε δικό της proxy.
+
+Χωρίς τίποτα έξω από τη MyCS δεν γίνεται: ο Proxmox ανοίγει το VNC μόνο σε όποιον έχει το token, και ο browser δεν
+στέλνει, ούτε πρέπει να έχει ποτέ, το token. Κάτι πρέπει να κρατά ανοιχτή τη σύνδεση με τον Proxmox όσο κρατά η
+κονσόλα. Οι τρεις επιλογές:
+
+1. **Μέσα στη MyCS, σκέτη PHP.** Χωρίς daemon, proxy ή `.htaccess`.
+   - Ένα μακρύ HTTPS request φέρνει την οθόνη, και μικρά POSTs στέλνουν πληκτρολόγιο και ποντίκι. Το noVNC δέχεται
+     δικό του transport στη θέση του WebSocket.
+   - Κάθε ανοιχτή κονσόλα κρατά έναν PHP worker (ένα entry process του CloudLinux) και περνά από τα όρια χρόνου
+     εκτέλεσης.
+   - **Δοκιμή:** αν ο LiteSpeed αφήνει ένα streaming response να περάσει χωρίς buffering.
+2. **Το relay μαζί με το cluster, όχι με τη MyCS (πρόταση).** Το ίδιο relay μπαίνει μία φορά σε ένα μικρό LXC του
+   cluster (π.χ. `console.myip.gr`), με δικό του nginx και systemd.
+   - Η MyCS κρατά μόνο μία ρύθμιση, «Console URL», και μετακινείται αυτούσια.
+   - Αλλάζει ο κώδικας: το εισιτήριο υπογράφεται (HMAC, 30''), αντί να γράφεται στο Redis της MyCS. Ο έλεγχος των
+     30'' γίνεται με υπογεγραμμένη κλήση προς τη MyCS. Το token του Proxmox το κρατά το relay.
+   - Τα όρια, το backpressure και το TLS του #506 μένουν ως έχουν.
+3. **SPICE με το remote-viewer.** Η MyCS δίνει ένα `.vv` με εισιτήριο μίας χρήσης, και το πρόγραμμα του πελάτη συνδέεται
+   απευθείας στο spiceproxy του κόμβου (θύρα 3128).
+   - Η MyCS δεν θέλει τίποτα.
+   - Θέλει όμως πρόγραμμα στον υπολογιστή του πελάτη, και εκθέτει τη θύρα του κόμβου, αντίθετα με το «ο πελάτης δεν
+     βλέπει ποτέ τον Proxmox».
+
+**Τι μένει από το #506 σε κάθε περίπτωση:** τα εισιτήρια, ο έλεγχος δικαιωμάτων, η σελίδα με το noVNC, το
+`WebSocket` του package και το relay (για την 2). Αλλάζει μόνο ο τρόπος που φτάνουν τα frames.
+
+**Ως τότε:** στον orion δεν μπαίνει unit ούτε proxy. Το κουμπί «Κονσόλα» φαίνεται, αλλά η σύνδεση δεν ανοίγει (το
+`/console/ws` δεν οδηγεί πουθενά). Πριν την παραγωγή χρειάζεται ρύθμιση «console on/off» που κρύβει το κουμπί: να
+μπει μαζί με την επιλογή.
 
 Σειρά (ο υπεύθυνος, 2026-10-24): το Β1 τώρα, ώστε οι VPS να μπουν στον αυτόματο κύκλο από την πρώτη μέρα. Μετά
 payments tracking και importer (μαζί με το Α). Τα Β2–Β6 έρχονται μετά το cut-over.
