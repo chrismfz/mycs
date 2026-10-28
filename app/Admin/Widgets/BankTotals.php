@@ -28,7 +28,12 @@ class BankTotals extends Widget
         $total = '0.00';
         foreach (BankMovement::balances() as $bank => $balance) {
             $rows[] = ['label' => BankMovement::BANKS[$bank] ?? $bank, 'amount' => $balance['balance'], 'currency' => 'EUR',
-                'note' => $balance['at'] ? __('Last movement :when', ['when' => $balance['at']->format('d/m/Y H:i')]) : null, 'error' => null];
+                // A bank with more than one account: each one's balance in the note.
+                'note' => implode(' · ', array_filter([
+                    count($balance['accounts']) > 1 ? implode(' · ', array_map(fn ($account, $amount) => ($account !== '' ? $account : '—') . ' ' . self::money($amount, 'EUR'),
+                        array_keys($balance['accounts']), $balance['accounts'])) : null,
+                    $balance['at'] ? __('Last movement :when', ['when' => $balance['at']->format('d/m/Y H:i')]) : null,
+                ])) ?: null, 'error' => null];
             $total = bcadd($total, $balance['balance'], 2);
         }
         foreach (GatewayBalances::stored() as $gateway) {
