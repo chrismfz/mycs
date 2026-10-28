@@ -60,13 +60,18 @@ class Index extends Component
         ]);
     }
 
-    /** What tells the service apart in the list: its IP and the fields its license reports. @return array{ip: ?string, ip_is_license: bool, fields: array<string, string>} */
+    /**
+     * What tells the service apart in the list: its license key (owner 2026-10-28), its IP and the fields its license reports.
+     *
+     * @return array{key: ?string, ip: ?string, ip_is_license: bool, fields: array<string, string>}
+     */
     public static function glance(Service $service): array
     {
         $licensed = filled($service->license?->valid_ip);
         $ip = $licensed ? str_replace(',', ', ', (string) $service->license->valid_ip) : $service->dedicated_ip;
 
-        return ['ip' => filled($ip) ? (string) $ip : null, 'ip_is_license' => $licensed, 'fields' => Licenses::reportedFields($service)];
+        return ['key' => $service->license?->license_key, 'ip' => filled($ip) ? (string) $ip : null, 'ip_is_license' => $licensed,
+            'fields' => Licenses::reportedFields($service)];
     }
 
     /** @return list<int> the account's services whose shown license fields contain $search (any case) */
