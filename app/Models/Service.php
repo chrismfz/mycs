@@ -598,7 +598,7 @@ class Service extends Model implements Auditable
             return true;
         }
 
-        return $this->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)
+        return $this->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)
             ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff->toDateString()])
             ->whereDate('invoices.created_at', '<', $cutoff->toDateString())->exists();
     }
@@ -956,6 +956,17 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * Its invoices that bill it, not only a charge of it (an imported setup fee, promotion, addon or upgrade, #507): an
+     * open one of these is its renewal on its way; an open charge alone is not, and never stops its renewal being billed.
+     *
+     * @return HasManyThrough<Invoice, InvoiceItem, $this>
+     */
+    public function renewalInvoices(): HasManyThrough
+    {
+        return $this->invoices()->where(fn ($line) => $line->whereNull('invoice_items.kind')->orWhere('invoice_items.kind', '!=', InvoiceItem::KIND_CHARGE));
+    }
+
+    /**
      * Get cancellation requests
      *
      * @return HasOne<ServiceCancellation, $this>
@@ -1097,7 +1108,7 @@ class Service extends Model implements Auditable
      */
     public function priceCycle(): int
     {
-        return max(2, $this->invoices()->where('status', 'paid')->count());
+        return max(2, $this->renewalInvoices()->where('status', 'paid')->count());
     }
 
     /**
@@ -1125,7 +1136,7 @@ class Service extends Model implements Auditable
         if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
             // The cycle this price is for: the next renewal, after those already paid, and never the first (its
             // invoice was made with the order): a first-cycle coupon is never in it, even before the first payment (ADV-4).
-            $cycle ??= max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
+            $cycle ??= max($this->renewalInvoices()->where('status', 'paid')->count(), 1) + 1;
             // Only while its account holds the product it requires (C4 of #274).
             if (($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) && $this->coupon->requirementHeldBy($this->client)) {
                 $discount = OrderPricing::discount($this->coupon, (int) $this->product_id, $this->plan, $this->currency_code);

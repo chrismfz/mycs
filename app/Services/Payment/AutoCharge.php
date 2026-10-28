@@ -96,8 +96,10 @@ final class AutoCharge
             // A suspension window (Settings → Automation) postpones a suspension 6 days at most: those days are in it too.
             ->whereDate('due_at', '>=', $today->subDays(self::window() + (DunningWindow::always() ? 0 : 7))->toDateString())
             ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereNotNull('default_billing_agreement_id'))
-            // A renewal: of a service, or of a domain (D5b); none of an ended domain.
-            ->whereHas('items', fn ($items) => $items->whereIn('reference_type', [Service::class, Domain::class]))
+            // A renewal: of a service, or of a domain (D5b); none of an ended domain. A service's charge alone (an imported
+            // upgrade or addon, #507) is not.
+            ->whereHas('items', fn ($items) => $items->where('reference_type', Domain::class)->orWhere(fn ($line) => $line
+                ->where('reference_type', Service::class)->where(fn ($kind) => $kind->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', $notCharged))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
                 ->whereIn('reference_id', Domain::query()->select('id')->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())

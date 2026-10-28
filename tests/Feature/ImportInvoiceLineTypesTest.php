@@ -13,12 +13,14 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Reports\ProductIncome;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PDO;
 use ReflectionMethod;
@@ -262,5 +264,43 @@ class ImportInvoiceLineTypesTest extends TestCase
 
         $this->assertSame(['20.00', '5.00', '-3.00'], array_map(fn (int $line) => (string) InvoiceItem::query()->findOrFail($line)->price,
             [$hosting, $setup, $promo]), 'the renewal at the new price; a setup fee and a discount keep theirs');
+    }
+
+    /**
+     * Review of #507 (R1): an open invoice holding only a charge of the service (an unpaid WHMCS upgrade, an addon billed
+     * apart) is not its renewal on its way: the renewal is billed all the same. An open renewal still stops it.
+     */
+    public function test_an_open_charge_alone_never_stops_the_renewal_being_billed(): void
+    {
+        $service = $this->service(101);
+        $this->whmcs->exec("INSERT INTO tblupgrades VALUES (41, 101, 'package')");
+        $this->invoice(700, 'Unpaid', 4);
+        $this->item(700, 'Upgrade', 41, 4);
+        $this->import();
+
+        $made = DB::transaction(fn () => (new RenewalBilling)->billRenewal($service->id, Carbon::parse('2026-10-27')));
+
+        $this->assertSame(1, $made, 'the renewal is billed beside the open upgrade');
+        $this->assertSame('2026-10-25', $service->invoiceItems()->whereNotNull('period_start')->sole()->period_start->toDateString());
+        $this->assertSame(0, DB::transaction(fn () => (new RenewalBilling)->billRenewal($service->id, Carbon::parse('2026-10-27'))),
+            'its open renewal stops a second one');
+    }
+
+    /** Review of #507 (R1): with «suspend only with an overdue invoice», an overdue charge alone is not that invoice. */
+    public function test_an_overdue_charge_alone_is_not_the_invoice_a_suspension_requires(): void
+    {
+        config(['settings.cronjob_suspend_requires_invoice' => true, 'settings.cronjob_order_suspend' => 8]);
+        $service = $this->service(101, '2026-09-25');
+        $this->invoice(700, 'Unpaid', 5);
+        $this->item(700, 'Setup', 101, 5);
+        $this->import();
+        DB::table('invoices')->where('id', 700)->update(['due_at' => '2026-09-01', 'created_at' => '2026-09-01']);
+
+        $this->assertFalse($service->fresh()->stillOverdue(Carbon::parse('2026-09-25')), 'an unpaid setup fee alone');
+
+        $renewal = Invoice::factory()->create(['client_id' => $this->clientId, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $renewal->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
+        DB::table('invoices')->where('id', $renewal->id)->update(['due_at' => '2026-09-25', 'created_at' => '2026-09-25']);
+        $this->assertTrue($service->fresh()->stillOverdue(Carbon::parse('2026-09-25')), 'its overdue renewal');
     }
 }

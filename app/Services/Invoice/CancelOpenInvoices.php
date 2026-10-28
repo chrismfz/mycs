@@ -120,11 +120,9 @@ final class CancelOpenInvoices
         }
         $items = $invoice->items()->lockForUpdate()->get();
         // An imported WHMCS line keeps its relid; the importer types a hosting's lines (its setup fee, promotion, addon
-        // and upgrade too: a charge of the service), not a domain's. One with no type that names a hosting on this
-        // invoice goes with it (services keep their WHMCS ids). Any other (a domain) is not known: nothing is given up on by guess.
-        $hostings = $items->where('reference_type', Service::class)->pluck('reference_id')->map(fn ($id) => (int) $id);
-        if ($items->contains(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id > 0
-            && !$hostings->contains((int) $line->reference_id))) {
+        // and upgrade too: a charge of the service, #507). One with no type and a relid (a domain's until D6, a late fee)
+        // is not known, even when its relid is a hosting's id (another table's: ADV-507-3): nothing is given up on by guess.
+        if ($items->contains(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id > 0)) {
             return 'it has imported lines (a domain, an addon) whose item is not known: cancel it, or its lines, by hand.';
         }
         [$own, $others] = [$items, collect()];
@@ -191,9 +189,9 @@ final class CancelOpenInvoices
     }
 
     /**
-     * The invoice's lines: those of $onlyFor (a service's renewals and upgrades, or one upgrade's), those of other
-     * services or upgrades (anything with a reference), and lines with no reference (a setup fee, a promotion, an
-     * imported WHMCS Promo/Setup line).
+     * The invoice's lines: those of $onlyFor (a service's renewals, charges and upgrades, or one upgrade's), those of
+     * other services or upgrades (anything with a reference), and lines with no reference (a setup fee, a promotion by
+     * hand).
      *
      * @param  Collection<int, InvoiceItem>  $items
      * @return array{0: Collection<int, InvoiceItem>, 1: Collection<int, InvoiceItem>, 2: Collection<int, InvoiceItem>}
@@ -213,9 +211,9 @@ final class CancelOpenInvoices
         $upgrades = $onlyFor instanceof Service
             ? ServiceUpgrade::query()->where('service_id', $onlyFor->id)->pluck('id')->map(fn ($id) => (int) $id)
             : collect([(int) $onlyFor->id]);
-        // A service's own: its renewals, its upgrades, and an imported setup fee or promotion naming it (a relid).
+        // A service's own: its renewals, its charges (an imported setup fee or promotion), its upgrades.
         $own = $items->filter(fn (InvoiceItem $line) => ($onlyFor instanceof Service && (int) $line->reference_id === (int) $onlyFor->id
-            && ($line->reference_type === Service::class || blank($line->reference_type)))
+            && $line->reference_type === Service::class)
             || ($line->reference_type === ServiceUpgrade::class && $upgrades->contains((int) $line->reference_id)));
         $loose = $items->filter(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id <= 0);
 

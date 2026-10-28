@@ -189,8 +189,9 @@ class CancelOpenInvoicesTest extends TestCase
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);
-        // As the WHMCS importer writes a PromoHosting/Setup line: no type, relid = the hosting (services keep WHMCS ids).
-        $invoice->items()->create(['reference_type' => null, 'reference_id' => $a->id, 'description' => 'Promo', 'quantity' => 1, 'price' => -2]);
+        // As the WHMCS importer writes a PromoHosting/Setup line (#507): the hosting's charge (services keep WHMCS ids).
+        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $a->id, 'kind' => InvoiceItem::KIND_CHARGE,
+            'description' => 'Promo', 'quantity' => 1, 'price' => -2]);
 
         $this->assertSame([], CancelOpenInvoices::handle([$invoice], 'Cancelled.', $a));
 

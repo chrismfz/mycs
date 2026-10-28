@@ -197,6 +197,8 @@ final class MoneyCheck
         Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNull('kept_as_debt_at')
             ->whereHas('items', fn ($query) => $query->whereNull('applied_at')->where(fn ($line) => $line
                 ->where(fn ($renewal) => $renewal->where('reference_type', Service::class)
+                    // A charge of it (an imported setup fee, #507) is never applied: it renews nothing.
+                    ->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))
                     ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id')))
                 ->orWhere(fn ($upgrade) => $upgrade->where('reference_type', ServiceUpgrade::class)
                     ->whereIn('reference_id', ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_CANCELLED)->select('id')))))

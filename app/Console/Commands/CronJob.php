@@ -944,8 +944,9 @@ class CronJob extends Command
      */
     private static function periodUnbilled(Service $service): bool
     {
-        // Any open invoice of it is something to pay (an imported one without periods too): not this case.
-        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
+        // Any open invoice billing it is something to pay (an imported one without periods too): not this case. A charge
+        // of it alone (an imported upgrade) is not its period.
+        if ($service->renewalInvoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
             return false;
         }
         [$lines, $billed] = $service->billedPeriodLines();
