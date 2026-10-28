@@ -187,10 +187,10 @@
 
 /*
  * A widget's table with full pagination (Payments tracking) is narrower than the 56rem Filament wants before it shows
- * «Showing 1 to 10 of 3,945» and the page numbers, so it showed only ‹ › (owner 2026-10-28): show them, wrapping as needed.
+ * «Showing 1 to 10 of 3,945» and the page numbers, so it showed only ‹ › (owner 2026-10-28): show them, on two rows.
  */
 .fi-wi-table .fi-pagination:not(.fi-simple) {
-    @apply flex flex-wrap items-center justify-between gap-2;
+    @apply grid-cols-[1fr_auto] gap-y-2;
 
     & .fi-pagination-previous-btn,
     & .fi-pagination-next-btn {
@@ -198,10 +198,15 @@
     }
 
     & .fi-pagination-overview {
-        @apply inline text-xs;
+        @apply col-start-1 row-start-1 inline text-xs;
     }
 
+    & .fi-pagination-records-per-page-select-ctn {
+        @apply col-start-2 row-start-1 justify-self-end;
+    }
+
+    /* Always a row of their own, centred; on a phone they scroll rather than spill out (review of #490). */
     & .fi-pagination-items {
-        @apply order-last mx-auto flex;
+        @apply col-span-2 row-start-2 flex max-w-full justify-self-center overflow-x-auto;
     }
 }
