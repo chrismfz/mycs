@@ -40,9 +40,10 @@
                     @foreach ($categories as $category)
                     @php
                         $from = $category->startingPrice();
-                        // A short line of its description: the card is a way in, the whole text is on its page.
+                        // A short line of its description (its paragraphs and items apart by a space): the card is a way in, the whole
+                        // text is on its page.
                         $lead = theme('show_category_description', true)
-                            ? Str::limit(trim(html_entity_decode(strip_tags((string) $category->description), ENT_QUOTES | ENT_HTML5)), 140)
+                            ? Str::limit(Str::squish(html_entity_decode(strip_tags(str_replace('<', ' <', (string) $category->description)), ENT_QUOTES | ENT_HTML5)), 140)
                             : '';
                     @endphp
                     <div class="flex flex-col justify-between gap-4 bg-background-secondary border border-neutral rounded-lg p-5">

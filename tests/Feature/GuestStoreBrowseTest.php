@@ -32,7 +32,7 @@ class GuestStoreBrowseTest extends TestCase
         parent::setUp();
         config(['settings.default_currency' => 'USD']); // empty in the test seed: the menu's currency switch needs one
         $this->hosting = Category::factory()->create(['name' => 'Cloud Hosting', 'slug' => 'cloud-hosting', 'sort' => 1,
-            'show_in_menu' => true, 'description' => '<p>Fast &amp; <b>safe</b> hosting</p>']);
+            'show_in_menu' => true, 'description' => '<p>Fast &amp; <b>safe</b> hosting</p><ul><li>SSD</li><li>Backups</li></ul>']);
         $this->ssl = Category::factory()->create(['name' => 'SSL Certificates', 'slug' => 'ssl', 'sort' => 2, 'show_in_menu' => true]);
         $this->hidden = Category::factory()->create(['name' => 'Custom Hosting', 'slug' => 'custom-hosting', 'show_in_menu' => false]);
         $dv = Category::factory()->create(['name' => 'Domain Validated', 'slug' => 'ssl-dv', 'parent_id' => $this->ssl->id, 'show_in_menu' => true]);
@@ -65,7 +65,7 @@ class GuestStoreBrowseTest extends TestCase
     {
         $this->get('/')->assertOk()
             ->assertSee(__('home.browse_title'))
-            ->assertSeeInOrder(['Cloud Hosting', 'Fast &amp; safe hosting', __('home.browse'), 'SSL Certificates', __('home.browse')], false)
+            ->assertSeeInOrder(['Cloud Hosting', 'Fast &amp; safe hosting SSD Backups', __('home.browse'), 'SSL Certificates', __('home.browse')], false)
             ->assertSee('href="' . route('category.show', ['category' => 'cloud-hosting']) . '"', false)
             ->assertSee('href="' . route('category.show', ['category' => 'ssl']) . '"', false)
             ->assertSee('href="' . route('products.all') . '"', false);
@@ -122,7 +122,8 @@ class GuestStoreBrowseTest extends TestCase
     {
         $this->get(route('products.all'))->assertOk()
             ->assertSee(__('product.all_title'))
-            ->assertSeeInOrder(['Cloud Hosting', 'Small', 'SSL Certificates', 'Domain Validated'])
+            // From the sections, not the menu above them.
+            ->assertSeeInOrder(['id="category-' . $this->hosting->id . '"', 'Small', 'id="category-' . $this->ssl->id . '"', 'Domain Validated'], false)
             ->assertSee(route('products.checkout', ['category' => 'cloud-hosting', 'product' => Product::query()->where('name', 'Small')->value('slug')]), false)
             ->assertSee(route('category.show', ['category' => 'ssl-dv']), false)
             ->assertDontSee('Secret plan')
