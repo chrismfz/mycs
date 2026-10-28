@@ -1427,5 +1427,18 @@
     "Sent to Ekdosi": "Στάλθηκε στο Ekdosi",
     "Withdrawn from Ekdosi": "Αποσύρθηκε από το Ekdosi",
     ":count of :selected invoices": ":count από :selected τιμολόγια",
-    "Customers waiting": "Πελάτες σε αναμονή"
+    "Customers waiting": "Πελάτες σε αναμονή",
+    "so far, :date": "μέχρι σήμερα, :date",
+    "Received": "Εισπράχθηκαν",
+    "Month total": "Σύνολο μήνα",
+    ":percent% of the month received": "Εισπράχθηκε το :percent% του μήνα",
+    "Expected: :invoices on open invoices due this month + :renewals in renewals not invoiced yet": "Αναμένονται: :invoices σε απλήρωτα τιμολόγια με λήξη αυτόν τον μήνα + :renewals σε ανανεώσεις που δεν έχουν τιμολογηθεί ακόμα",
+    "Overdue from earlier months: :amount (:count invoice)|Overdue from earlier months: :amount (:count invoices)": "Ληξιπρόθεσμα προηγούμενων μηνών: :amount (:count τιμολόγιο)|Ληξιπρόθεσμα προηγούμενων μηνών: :amount (:count τιμολόγια)",
+    ":month (last month)": ":month (προηγ. μήνας)",
+    "last year :amount": "πέρσι :amount",
+    "This year to :date": "Φέτος έως :date",
+    "same period :year: :amount": "ίδιο διάστημα :year: :amount",
+    "Next months, if everyone pays": "Επόμενοι μήνες, αν πληρώσουν όλοι",
+    "Active services by cycle": "Ενεργές υπηρεσίες ανά κύκλο",
+    "amount per cycle (services)": "ποσό ανά κύκλο (υπηρεσίες)"
 }

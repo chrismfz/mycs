@@ -36,49 +36,7 @@ final class RevenueForecast
     {
         $from = ($from ?? CarbonImmutable::now())->startOfMonth();
         $until = $from->addMonths($months);
-        $cells = []; // 'Y-m' => ['cycles' => [months => cents], 'domains' => cents]
-
-        // As the billing renews them (reviews of #275): active, not to be cancelled; each renewal on the plan and at the
-        // price the billing will use (a cycle change at the next renewal, a coupon that ends: RenewalPrice).
-        $services = Service::query()->with(['plan', 'nextPlan', 'coupon', 'product'])->where('status', Service::STATUS_ACTIVE)
-            ->whereDoesntHave('cancellation')->where('currency_code', $currency)->whereNotNull('expires_at')->get();
-        foreach ($services as $service) {
-            $month = CarbonImmutable::instance($service->expires_at)->startOfMonth();
-            $first = true;
-            while ($month->lessThan($until)) {
-                $priced = RenewalPrice::for($service, $month, $first);
-                $every = self::months($priced->plan?->billing_unit, (int) $priced->plan?->billing_period, $priced->plan?->type);
-                if ($every === null) {
-                    break; // free, one time, no plan
-                }
-                if ($month->greaterThanOrEqualTo($from)) {
-                    $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(1, (int) $priced->quantity)));
-                    $column = in_array($every, self::CYCLES, true) ? $every : 'other';
-                    $key = $month->format('Y-m');
-                    $cells[$key]['cycles'][$column] = ($cells[$key]['cycles'][$column] ?? 0) + $amount;
-                }
-                $service = $priced; // on its next plan from here on
-                $first = false;
-                $month = $month->addMonths($every);
-            }
-        }
-
-        // The domains the cron renews (RenewalBilling::BILLED_DOMAINS, automatic renewal), at the price it bills: its own
-        // or its TLD's for its next period (renewalPriceFor; R1 of #275), net of the account's tax.
-        $domains = Domain::query()->with(['client', 'domainTld.prices'])
-            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
-            ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)->get();
-        foreach ($domains as $domain) {
-            $years = $domain->nextRenewalYears();
-            $price = $domain->renewalPriceFor($years);
-            if ($price === null) {
-                continue; // the billing does not bill it either (no renew price)
-            }
-            $amount = self::cents(OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null));
-            foreach (self::dates(CarbonImmutable::instance($domain->expires_at), 12 * max(1, $years), $from, $until) as $key) {
-                $cells[$key]['domains'] = ($cells[$key]['domains'] ?? 0) + $amount;
-            }
-        }
+        $cells = self::renewalCells($currency, $from, $until);
 
         $rows = [];
         $total = 0;
@@ -115,6 +73,66 @@ final class RevenueForecast
                 'collected' => self::money(self::paidNet($currency, $now, $now->addMonth())),
             ],
         ];
+    }
+
+    /**
+     * The renewals falling due in [from, until), by month: 'Y-m' => ['cycles' => [months => cents], 'domains' => cents].
+     * $skip: the periods already invoiced, [class => [id => ['Y-m' => true]]], left out (the invoice counts for them).
+     *
+     * @param  array<class-string, array<int, array<string, true>>>  $skip
+     * @return array<string, array{cycles?: array<int|string, int>, domains?: int}>
+     */
+    public static function renewalCells(string $currency, CarbonImmutable $from, CarbonImmutable $until, array $skip = []): array
+    {
+        $cells = [];
+
+        // As the billing renews them (reviews of #275): active, not to be cancelled; each renewal on the plan and at the
+        // price the billing will use (a cycle change at the next renewal, a coupon that ends: RenewalPrice).
+        $services = Service::query()->with(['plan', 'nextPlan', 'coupon', 'product'])->where('status', Service::STATUS_ACTIVE)
+            ->whereDoesntHave('cancellation')->where('currency_code', $currency)->whereNotNull('expires_at')->get();
+        foreach ($services as $service) {
+            $id = $service->id;
+            $month = CarbonImmutable::instance($service->expires_at)->startOfMonth();
+            $first = true;
+            while ($month->lessThan($until)) {
+                $priced = RenewalPrice::for($service, $month, $first);
+                $every = self::months($priced->plan?->billing_unit, (int) $priced->plan?->billing_period, $priced->plan?->type);
+                if ($every === null) {
+                    break; // free, one time, no plan
+                }
+                if ($month->greaterThanOrEqualTo($from) && !isset($skip[Service::class][$id][$month->format('Y-m')])) {
+                    $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(1, (int) $priced->quantity)));
+                    $column = in_array($every, self::CYCLES, true) ? $every : 'other';
+                    $key = $month->format('Y-m');
+                    $cells[$key]['cycles'][$column] = ($cells[$key]['cycles'][$column] ?? 0) + $amount;
+                }
+                $service = $priced; // on its next plan from here on
+                $first = false;
+                $month = $month->addMonths($every);
+            }
+        }
+
+        // The domains the cron renews (RenewalBilling::BILLED_DOMAINS, automatic renewal), at the price it bills: its own
+        // or its TLD's for its next period (renewalPriceFor; R1 of #275), net of the account's tax.
+        $domains = Domain::query()->with(['client', 'domainTld.prices'])
+            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
+            ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)->get();
+        foreach ($domains as $domain) {
+            $years = $domain->nextRenewalYears();
+            $price = $domain->renewalPriceFor($years);
+            if ($price === null) {
+                continue; // the billing does not bill it either (no renew price)
+            }
+            $amount = self::cents(OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null));
+            foreach (self::dates(CarbonImmutable::instance($domain->expires_at), 12 * max(1, $years), $from, $until) as $key) {
+                if (isset($skip[Domain::class][$domain->id][$key])) {
+                    continue;
+                }
+                $cells[$key]['domains'] = ($cells[$key]['domains'] ?? 0) + $amount;
+            }
+        }
+
+        return $cells;
     }
 
     public static function annualEstimate(): array
@@ -189,7 +207,7 @@ final class RevenueForecast
      * What the invoices paid in [from, until) brought in, net, in cents (by paid_at, WHMCS datepaid). No bounds: every
      * paid invoice, one imported without a payment date too (F4 of #278).
      */
-    private static function paidNet(string $currency, ?CarbonImmutable $from, ?CarbonImmutable $until): int
+    public static function paidNet(string $currency, ?CarbonImmutable $from, ?CarbonImmutable $until): int
     {
         return self::netOf(Invoice::query()->where('status', Invoice::STATUS_PAID)->where('currency_code', $currency)
             ->when($from !== null, fn ($query) => $query->where('paid_at', '>=', $from))
@@ -221,7 +239,7 @@ final class RevenueForecast
      *
      * @param  Builder<Invoice>  $invoices
      */
-    private static function netOf(Builder $invoices): int
+    public static function netOf(Builder $invoices): int
     {
         // Summed in the database per invoice (F2 of #278: 30k invoices in one read, not each one's lines loaded).
         $ids = $invoices->select('invoices.id');
@@ -246,12 +264,12 @@ final class RevenueForecast
         return $sum;
     }
 
-    private static function cents(BigDecimal|string $amount): int
+    public static function cents(BigDecimal|string $amount): int
     {
         return BigDecimal::of((string) $amount)->multipliedBy(100)->toScale(0, RoundingMode::HalfUp)->toInt();
     }
 
-    private static function money(int $cents): string
+    public static function money(int $cents): string
     {
         return (string) BigDecimal::of($cents)->dividedBy(100, 2);
     }
