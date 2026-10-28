@@ -7,7 +7,9 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Services\Domains\DomainRenewalService;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
@@ -40,9 +42,11 @@ final class IncomePlan
         $month = $now->startOfMonth();
         $rows = self::months($currency, $month, 1 + $ahead);
         $previous = $month->subMonth();
-        // The year so far, today included, against the same days a year before (29 February: up to 1 March).
+        // The year so far, today included, against the same days a year before: to the end of the same date (29
+        // February: of 28 February; 28 February after a leap year: not the 29th, ADV-500-3).
         $until = $now->addDay()->startOfDay();
-        $overdue = self::open($currency, null, $month);
+        $lastYearUntil = $now->subYearNoOverflow()->addDay()->startOfDay();
+        $overdue = array_column(self::open($currency, null, $month), 'cents');
 
         return [
             'this_month' => $rows[0],
@@ -53,7 +57,7 @@ final class IncomePlan
             ],
             'year' => [
                 'received' => RevenueForecast::collected($currency, $now->startOfYear(), $until),
-                'last_year' => RevenueForecast::collected($currency, $now->startOfYear()->subYear(), $until->subYearNoOverflow()),
+                'last_year' => RevenueForecast::collected($currency, $now->startOfYear()->subYear(), $lastYearUntil),
                 'until' => $now->startOfDay(),
             ],
             'overdue' => ['amount' => RevenueForecast::money(array_sum($overdue)), 'count' => count(array_filter($overdue))],
@@ -72,12 +76,9 @@ final class IncomePlan
         $from = $from->startOfMonth();
         $until = $from->addMonths($count);
         $cells = RevenueForecast::renewalCells($currency, $from, $until, self::invoicedPeriods($from, $until));
-        $expected = self::open($currency, $from, $until);
-        $dues = Invoice::query()->whereIn('id', array_keys($expected))->pluck('due_at', 'id');
         $open = [];
-        foreach ($expected as $id => $cents) {
-            $key = CarbonImmutable::parse($dues[$id])->format('Y-m');
-            $open[$key] = ($open[$key] ?? 0) + $cents;
+        foreach (self::open($currency, $from, $until) as ['due' => $due, 'cents' => $cents]) {
+            $open[$due->format('Y-m')] = ($open[$due->format('Y-m')] ?? 0) + $cents;
         }
 
         $rows = [];
@@ -101,24 +102,42 @@ final class IncomePlan
     }
 
     /**
-     * The service and domain periods starting in [from, until) already on an open or paid invoice (not given up on):
-     * their invoice counts for them (expected while open, received once paid), never their renewal as well.
+     * What each service and domain has invoiced already, which the billing will not bill again (RevenueForecast::
+     * renewalCells): the periods on its open or paid lines (the invoice counts for them: expected while open, received
+     * once paid) or given up on (forgone: nothing from it on, as the billing), around [from, until); and its open lines with no period
+     * (an imported or hand-made renewal, review of #500), each the next renewal.
      *
-     * @return array<class-string, array<int, array<string, true>>>
+     * @return array<class-string, array<int, array{periods: list<array{0: CarbonImmutable, 1: ?CarbonImmutable, 2: bool}>, loose: int}>>
      */
     private static function invoicedPeriods(CarbonImmutable $from, CarbonImmutable $until): array
     {
+        $margin = DomainRenewalService::SAME_PERIOD_DAYS + 1;
         $lines = DB::table('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
-            ->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])
             ->whereIn('invoice_items.reference_type', [Service::class, Domain::class])
-            ->whereNotNull('invoice_items.period_start')->whereNull('invoice_items.forgone_at')
-            ->where('invoice_items.period_start', '>=', $from->toDateString())
-            ->where('invoice_items.period_start', '<', $until->toDateString())
-            ->get(['invoice_items.reference_type', 'invoice_items.reference_id', 'invoice_items.period_start']);
+            ->where(fn ($line) => $line->where(fn ($period) => $period->whereNotNull('invoice_items.period_start')
+                ->where('invoice_items.period_start', '<', $until->addDays($margin)->toDateString())
+                ->where(fn ($end) => $end->whereNull('invoice_items.period_end')->orWhere('invoice_items.period_end', '>', $from->subDays($margin)->toDateString()))
+                // Live (open or paid), or given up on (forgone: its invoice cancelled or refunded): the billing never bills
+                // that one again (Service::billedPeriodLines), nor a service's after it (review of #500).
+                ->where(fn ($live) => $live->whereNotNull('invoice_items.forgone_at')
+                    ->orWhereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])))
+                // No period, on an open invoice, a renewal (not a charge): it takes the next one.
+                ->orWhere(fn ($loose) => $loose->whereNull('invoice_items.period_start')->where('invoices.status', Invoice::STATUS_UNPAID)
+                    ->where(fn ($kind) => $kind->whereNull('invoice_items.kind')->orWhere('invoice_items.kind', '!=', InvoiceItem::KIND_CHARGE))))
+            ->get(['invoice_items.reference_type', 'invoice_items.reference_id', 'invoice_items.period_start', 'invoice_items.period_end', 'invoice_items.forgone_at']);
 
         $skip = [];
         foreach ($lines as $line) {
-            $skip[$line->reference_type][(int) $line->reference_id][substr((string) $line->period_start, 0, 7)] = true;
+            $type = (string) $line->reference_type;
+            $id = (int) $line->reference_id;
+            $item = $skip[$type][$id] ?? ['periods' => [], 'loose' => 0];
+            if ($line->period_start === null) {
+                $item['loose']++;
+            } else {
+                $item['periods'][] = [CarbonImmutable::parse($line->period_start)->startOfDay(),
+                    $line->period_end === null ? null : CarbonImmutable::parse($line->period_end)->startOfDay(), $line->forgone_at !== null];
+            }
+            $skip[$type][$id] = $item;
         }
 
         return $skip;
@@ -129,13 +148,15 @@ final class IncomePlan
      * invoice: its income net (no credit purchase; its adjustment notes in their net share, as RevenueForecast::netOf)
      * times the part of its total still unpaid (payments, credit applied, each less what was refunded or became credit).
      *
-     * @return array<int, int>
+     * @return array<int, array{due: CarbonImmutable, cents: int}>
      */
     private static function open(string $currency, ?CarbonImmutable $from, CarbonImmutable $until): array
     {
-        $ids = Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('currency_code', $currency)
+        $invoices = Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('currency_code', $currency)
             ->when($from !== null, fn ($query) => $query->where('due_at', '>=', $from))
-            ->whereNotNull('due_at')->where('due_at', '<', $until)->select('id');
+            ->whereNotNull('due_at')->where('due_at', '<', $until);
+        $dues = (clone $invoices)->pluck('due_at', 'id');
+        $ids = $invoices->select('id');
 
         $lines = DB::table('invoice_items')->whereIn('invoice_id', $ids)->groupBy('invoice_id')
             ->selectRaw('invoice_id, SUM(line_total) AS gross, '
@@ -160,7 +181,8 @@ final class IncomePlan
             $net = $income === 0 ? $net : $net + self::share($note, $net, $income);
             $total = self::cents($row->gross) + $note;
             $left = min($total, max(0, $total - self::cents($paid[$id] ?? 0)));
-            $out[(int) $id] = $total <= 0 || $net <= 0 ? 0 : self::share($net, $left, $total);
+            $out[(int) $id] = ['due' => CarbonImmutable::parse($dues[$id]),
+                'cents' => $total <= 0 || $net <= 0 ? 0 : self::share($net, $left, $total)];
         }
 
         return $out;

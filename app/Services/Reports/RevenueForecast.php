@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Billing\RenewalPrice;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -77,9 +78,14 @@ final class RevenueForecast
 
     /**
      * The renewals falling due in [from, until), by month: 'Y-m' => ['cycles' => [months => cents], 'domains' => cents].
-     * $skip: the periods already invoiced, [class => [id => ['Y-m' => true]]], left out (the invoice counts for them).
+     * $skip: what each service or domain has invoiced already, left out (its invoice counts for it): the periods on its
+     * lines (a renewal on a date one covers, as the billing tells a billed period) and how many open lines it has with
+     * no period (each the next renewal not covered, as RenewServiceService gives it when paid: imported, by hand).
      *
-     * @param  array<class-string, array<int, array<string, true>>>  $skip
+     * A service's renewal given up on (its invoice cancelled or refunded, the line forgone) ends its renewals: the billing
+     * bills nothing after it until staff close the gap (RenewalBilling, Δ3).
+     *
+     * @param  array<class-string, array<int, array{periods: list<array{0: CarbonImmutable, 1: ?CarbonImmutable, 2: bool}>, loose: int}>>  $skip
      * @return array<string, array{cycles?: array<int|string, int>, domains?: int}>
      */
     public static function renewalCells(string $currency, CarbonImmutable $from, CarbonImmutable $until, array $skip = []): array
@@ -91,8 +97,9 @@ final class RevenueForecast
         $services = Service::query()->with(['plan', 'nextPlan', 'coupon', 'product'])->where('status', Service::STATUS_ACTIVE)
             ->whereDoesntHave('cancellation')->where('currency_code', $currency)->whereNotNull('expires_at')->get();
         foreach ($services as $service) {
-            $id = $service->id;
-            $month = CarbonImmutable::instance($service->expires_at)->startOfMonth();
+            $invoiced = $skip[Service::class][$service->id] ?? ['periods' => [], 'loose' => 0];
+            $date = CarbonImmutable::instance($service->expires_at)->startOfDay();
+            $month = $date->startOfMonth();
             $first = true;
             while ($month->lessThan($until)) {
                 $priced = RenewalPrice::for($service, $month, $first);
@@ -100,7 +107,11 @@ final class RevenueForecast
                 if ($every === null) {
                     break; // free, one time, no plan
                 }
-                if ($month->greaterThanOrEqualTo($from) && !isset($skip[Service::class][$id][$month->format('Y-m')])) {
+                $state = self::invoiced($invoiced, $date, false);
+                if ($state === 'forgone') {
+                    break;
+                }
+                if ($state === null && $month->greaterThanOrEqualTo($from)) {
                     $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(1, (int) $priced->quantity)));
                     $column = in_array($every, self::CYCLES, true) ? $every : 'other';
                     $key = $month->format('Y-m');
@@ -108,6 +119,7 @@ final class RevenueForecast
                 }
                 $service = $priced; // on its next plan from here on
                 $first = false;
+                $date = $date->addMonthsNoOverflow($every);
                 $month = $month->addMonths($every);
             }
         }
@@ -124,11 +136,14 @@ final class RevenueForecast
                 continue; // the billing does not bill it either (no renew price)
             }
             $amount = self::cents(OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null));
-            foreach (self::dates(CarbonImmutable::instance($domain->expires_at), 12 * max(1, $years), $from, $until) as $key) {
-                if (isset($skip[Domain::class][$domain->id][$key])) {
-                    continue;
+            $invoiced = $skip[Domain::class][$domain->id] ?? ['periods' => [], 'loose' => 0];
+            // Overdue (its due date before the window): its renewals from the first one inside it, as WHMCS counts on.
+            for ($date = CarbonImmutable::instance($domain->expires_at)->startOfDay(); $date->startOfMonth()->lessThan($until);
+                $date = $date->addMonthsNoOverflow(12 * max(1, $years))) {
+                if (self::invoiced($invoiced, $date, true) === null && $date->startOfMonth()->greaterThanOrEqualTo($from)) {
+                    $key = $date->format('Y-m');
+                    $cells[$key]['domains'] = ($cells[$key]['domains'] ?? 0) + $amount;
                 }
-                $cells[$key]['domains'] = ($cells[$key]['domains'] ?? 0) + $amount;
             }
         }
 
@@ -180,18 +195,30 @@ final class RevenueForecast
         };
     }
 
-    /** @return list<string> the months ('Y-m') it falls due in, from its next due date every $every months */
-    private static function dates(CarbonImmutable $due, int $every, CarbonImmutable $from, CarbonImmutable $until): array
+    /**
+     * Whether the renewal on $date is invoiced already, as the billing tells it: a line's period covers it (a service: from
+     * its start to its end; a domain: one starting within DomainRenewalService::SAME_PERIOD_DAYS of it, as billedLine,
+     * a registrar sync may move its expiry), else an open line with no period not used yet takes it (and is used).
+     * 'forgone' when the period covering it was given up on, 'invoiced' otherwise, null when it is still to bill.
+     *
+     * @param  array{periods: list<array{0: CarbonImmutable, 1: ?CarbonImmutable, 2: bool}>, loose: int}  $invoiced
+     */
+    private static function invoiced(array &$invoiced, CarbonImmutable $date, bool $domain): ?string
     {
-        $keys = [];
-        // Overdue (its due date before the window): its renewals from the first one inside it, as WHMCS counts on.
-        for ($month = $due->startOfMonth(); $month->lessThan($until); $month = $month->addMonths($every)) {
-            if ($month->greaterThanOrEqualTo($from)) {
-                $keys[] = $month->format('Y-m');
+        foreach ($invoiced['periods'] as [$start, $end, $forgone]) {
+            $covers = $domain ? abs($start->diffInDays($date)) <= DomainRenewalService::SAME_PERIOD_DAYS
+                : $start->lessThanOrEqualTo($date) && ($end === null || $date->lessThan($end));
+            if ($covers) {
+                return $forgone ? 'forgone' : 'invoiced';
             }
         }
+        if ($invoiced['loose'] > 0) {
+            $invoiced['loose']--;
 
-        return $keys;
+            return 'invoiced';
+        }
+
+        return null;
     }
 
     /**

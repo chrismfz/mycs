@@ -147,6 +147,21 @@ class IncomePlanTest extends TestCase
         $this->assertSame(['0.00', '10.00'], [$this->months()['2026-10']['invoices'], $this->months()['2026-10']['renewals']]);
     }
 
+    public function test_a_renewal_given_up_on_ends_what_is_expected_of_the_service(): void
+    {
+        // Its invoice cancelled and the period given up on (forgone): the billing bills nothing after it until staff close
+        // the gap (RenewalBilling, Δ3); the service falls to suspension (review of #500).
+        $service = $this->service(10, 'month', 1, '2026-10-25');
+        $invoice = $this->invoice(10, Invoice::STATUS_CANCELLED, '2026-10-25', null,
+            ['reference_type' => Service::class, 'reference_id' => $service->id, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
+        DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['forgone_at' => '2026-10-20 10:00:00']);
+
+        $months = $this->months();
+
+        $this->assertSame(['0.00', '0.00'], [$months['2026-10']['invoices'], $months['2026-10']['renewals']]);
+        $this->assertSame(['0.00', '0.00'], [$months['2026-11']['renewals'], $months['2026-12']['renewals']]);
+    }
+
     public function test_a_period_paid_but_not_applied_yet_is_received_not_expected_again(): void
     {
         // Paid today, the service not renewed yet (BIL-9): its date still 25 October.
