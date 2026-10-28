@@ -3,16 +3,19 @@
 namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
+use App\Http\Controllers\ZlicController;
 use App\Livewire\Services\Index;
 use App\Models\License;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Licensing\LicenseActivity;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Livewire\Livewire;
+use Nixpal\Licensing\ZlicResponse;
 use Tests\TestCase;
 
 /**
@@ -97,14 +100,26 @@ class ClientLicenseDetailsTest extends TestCase
         }
     }
 
-    public function test_a_failed_check_never_shows_as_last_seen_from(): void
+    public function test_last_seen_from_is_the_last_good_check_never_a_failed_one(): void
     {
-        $this->license->update(['last_failure_at' => now(), 'last_failure' => 'IP Address Invalid (203.0.113.9)']);
+        LicenseActivity::record($this->license->license_key, new ZlicResponse(200, ['status' => 'Invalid', 'message' => 'IP Address Invalid']), '203.0.113.9', 'POST x');
+        $this->assertStringNotContainsString(__('services.license.last_seen_from'), $this->page($this->owner)->getContent(), 'only a failure so far');
+
+        LicenseActivity::record($this->license->license_key, new ZlicResponse(200, ['status' => 'Active']), '198.51.100.7', 'POST GuzzleHttp/7');
+        LicenseActivity::record($this->license->license_key, new ZlicResponse(200, ['status' => 'Invalid', 'message' => 'IP Address Invalid']), '203.0.113.10', 'POST x');
 
         $html = $this->page($this->owner)->assertOk()->getContent();
+        $this->assertStringContainsString(__('services.license.last_seen_from') . ':</span>' . "\n" . '        <span class="text-base/50">198.51.100.7', $html);
+        $this->assertStringNotContainsString('203.0.113.10', $html, 'a later failure, from anyone, never takes its place');
+        $this->assertStringNotContainsString('GuzzleHttp', $html);
+    }
 
-        $this->assertStringNotContainsString(__('services.license.last_seen_from'), $html);
-        $this->assertStringNotContainsString('203.0.113.9', $html);
+    public function test_the_directory_zlic_binds_everywhere_is_not_shown(): void
+    {
+        $this->license->update(['valid_directory' => ZlicController::DIRECTORY]);
+        $html = $this->page($this->owner)->assertOk()->getContent();
+        $this->assertStringNotContainsString(__('services.license.valid_directory'), $html);
+        $this->assertStringNotContainsString(ZlicController::DIRECTORY, $html);
     }
 
     public function test_greek_labels(): void
@@ -114,7 +129,9 @@ class ClientLicenseDetailsTest extends TestCase
 
         $html = $this->page($this->owner)->assertOk()->getContent();
 
-        $this->assertStringContainsString('Έγκυρα domains', $html);
+        foreach (['Έγκυρα domains', 'Έγκυρος φάκελος', 'Τελευταίος επιτυχής έλεγχος', 'Τελευταία φορά από'] as $label) {
+            $this->assertStringContainsString($label, $html);
+        }
         $this->assertStringNotContainsString('services.license.', $html);
     }
 
@@ -144,8 +161,9 @@ class ClientLicenseDetailsTest extends TestCase
             ->assertSee('203.0.113.9')
             ->html();
 
-        $this->assertSame(2, substr_count($html, '<code class="font-mono">'), 'a key for each license, none for the hosting');
-        $this->assertStringContainsString('x-on:click.prevent.stop', $html, 'Copy, without opening the service');
+        $this->assertSame(2, substr_count($html, __('services.license.key') . ':'), 'a key for each license, none for the hosting');
+        // wire:navigate starts on mousedown and Enter: Copy and the key stop those, not only the click.
+        $this->assertSame(2, substr_count($html, 'x-on:mousedown.stop x-on:keydown.enter.stop x-on:click.prevent.stop'));
         $this->assertSame(['key' => null, 'ip' => '203.0.113.9', 'ip_is_license' => false, 'fields' => []],
             Index::glance(Service::query()->where('dedicated_ip', '203.0.113.9')->sole()));
     }
@@ -158,6 +176,6 @@ class ClientLicenseDetailsTest extends TestCase
         Livewire::actingAs($this->owner)->test(Index::class)
             ->assertSee($this->license->license_key)->assertDontSee($theirs->license_key);
         Livewire::actingAs($this->owner)->test(Index::class)->set('search', $theirs->license_key)
-            ->assertSee(__('services.no_match', ['search' => $theirs->license_key]))->assertDontSee('<code class="font-mono">', false);
+            ->assertSee(__('services.no_match', ['search' => $theirs->license_key]))->assertDontSee(__('services.license.key') . ':');
     }
 }

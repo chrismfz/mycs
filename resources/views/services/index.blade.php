@@ -46,11 +46,14 @@
             @if ($glance['key'] !== null || $glance['ip'] !== null || $glance['fields'] !== [])
             <div class="text-sm text-base/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
                 @if ($glance['key'] !== null)
-                {{-- Copy inside the card's link: prevent and stop, or the click opens the service. --}}
-                <span x-data="{ copied: false }"><span class="text-base/80">{{ __('services.license.key') }}:</span>
-                    <code class="font-mono">{{ $glance['key'] }}</code>
+                {{--
+                    Inside the card's link: wire:navigate starts on mousedown (and Enter), so those stop here too (review of
+                    #493), and the key can be selected by hand.
+                --}}
+                <span x-data="{ copied: false }" x-on:mousedown.stop x-on:keydown.enter.stop x-on:click.prevent.stop><span class="text-base/80">{{ __('services.license.key') }}:</span>
+                    <code class="font-mono select-all cursor-text">{{ $glance['key'] }}</code>
                     <button type="button" class="ml-1 underline"
-                        x-on:click.prevent.stop="navigator.clipboard.writeText(@js($glance['key'])); copied = true; setTimeout(() => copied = false, 2000)"
+                        x-on:click="navigator.clipboard.writeText(@js($glance['key'])); copied = true; setTimeout(() => copied = false, 2000)"
                         x-text="copied ? @js(__('services.license.copied')) : @js(__('services.license.copy'))">{{ __('services.license.copy') }}</button>
                 </span>
                 @endif

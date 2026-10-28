@@ -296,7 +296,7 @@ return [
         'valid_directory' => 'Valid directory',
         'last_check' => 'Last good check',
         'last_seen_from' => 'Last seen from',
-        'never_checked' => 'Not checked yet',
+        'never_checked' => 'No good check yet',
         'last_failure' => 'Last failed check',
         'failure_ip' => 'a check from an IP the license is not bound to; if you moved the server, reissue the license',
         'failure_other' => 'the check was refused; contact us if this persists',

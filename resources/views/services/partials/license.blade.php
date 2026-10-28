@@ -1,7 +1,8 @@
 {{--
     A nixpal license (WHMCS's licensing «Manage License»): its key, where it is bound (IPs, domains, directory), its status,
     its last good check and the IP it came from, Reissue (L2). The client string of that check stays staff's: it is the
-    caller's own, says nothing the customer can act on.
+    caller's own, says nothing the customer can act on. The directory zlic binds is always its own docroot
+    (ZlicController::DIRECTORY, review of #493): shown only when staff set another.
 --}}
 @if($license = $service->license)
 <div class="mt-4 border-t border-neutral pt-4 space-y-2">
@@ -23,10 +24,10 @@
         <span class="text-base/50 break-all">{{ str_replace(',', ', ', $license->valid_domain) }}</span>
     </div>
     @endif
-    @if(filled($license->valid_directory))
+    @if(filled($license->valid_directory) && $license->valid_directory !== \App\Http\Controllers\ZlicController::DIRECTORY)
     <div class="flex items-start text-base">
         <span class="mr-2 shrink-0">{{ __('services.license.valid_directory') }}:</span>
-        <code class="text-base/50 break-all">{{ str_replace(',', ', ', $license->valid_directory) }}</code>
+        <code class="text-base/50 break-all">{{ $license->valid_directory }}</code>
     </div>
     @endif
     <div class="flex items-center text-base">
@@ -41,7 +42,10 @@
             {{ $license->last_ok_at?->diffForHumans() ?? __('services.license.never_checked') }}
         </span>
     </div>
-    {{-- Written by a good check only (a failed one, from anyone, never overwrites it): the customer's own server. --}}
+    {{--
+        Written by a good check only (a failed one never overwrites it): a server holding the key, or, with the product's
+        «allow IP conflict», any caller with it and the product's PSK. Kept through a reissue, with the time beside it.
+    --}}
     @if(filled($license->last_seen_ip))
     <div class="flex items-center text-base">
         <span class="mr-2">{{ __('services.license.last_seen_from') }}:</span>
