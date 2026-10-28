@@ -139,7 +139,10 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
     {
         $listed = array_map(fn (string $user) => strtolower(trim($user)), explode(',', (string) $this->config('protected_accounts')));
 
-        return array_values(array_unique(['root', ...array_filter($listed, fn (string $user) => $user !== '')]));
+        // The server's own login too (a reseller's, nixpal's): its WHM reaches all of MyCS's accounts (review of #496).
+        $login = strtolower(trim((string) $this->config('username')));
+
+        return array_values(array_unique(array_filter(['root', $login, ...$listed], fn (string $user) => $user !== '')));
     }
 
     /**
@@ -699,8 +702,18 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
-        if (!self::wasReseller($properties) && !self::isReseller((array) $settings)) {
+        // A reseller in WHM: so marked here, and, with a root login, in WHM's own list of resellers (ADV-496-1).
+        $root = strtolower(trim((string) $this->config('username'))) === 'root';
+        if (!self::wasReseller($properties) || ($root && !$this->resellerInWhm((array) $settings, $properties, $properties['cpanel_username']))) {
             throw new Exception('cPanel: WHM is for a reseller\'s account');
+        }
+        // Its WHM reaches every account it owns: none of them may be protected, as for its suspend or terminate (review
+        // of #496). A reseller's login owns no resellers, so only a root login can tell.
+        if ($root) {
+            $owned = array_intersect(array_map('strtolower', $this->ownedAccounts($properties['cpanel_username'])), $this->protectedAccounts());
+            if ($owned !== []) {
+                throw new Exception("cPanel: {$properties['cpanel_username']} owns a protected account (" . implode(', ', $owned) . '): MyCS does not open its WHM.');
+            }
         }
         $url = $this->whm('/create_user_session', ['user' => $properties['cpanel_username'], 'service' => 'whostmgrd'], 'post')['data']['url'] ?? null;
         if (!is_string($url) || $url === '') {
@@ -743,7 +756,9 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             ],
             ['label' => __('services.cpanel.webmail'), 'type' => 'button', 'sso' => true, 'function' => 'getWebmailUrl'],
             // A reseller manages its customers in WHM (WHMCS's «Login to WHM»; the reseller test on rigel, 2026-10-28).
-            ...(self::wasReseller($properties) || self::isReseller((array) $settings)
+            // Only an account this module made a reseller in WHM (or imported as one), never on the product's setting alone
+            // (a reseller's login makes plain accounts; ADV-496-1, as A5/A6 of #315).
+            ...(self::wasReseller($properties)
                 ? [['label' => __('services.cpanel.whm_login'), 'type' => 'button', 'sso' => true, 'function' => 'getWhmUrl']] : []),
             // The page's own blocks (Services\Show): shortcuts (`productsso`), a new password and a new mailbox
             // (`manageproducts`), each checked again there.

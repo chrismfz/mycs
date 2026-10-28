@@ -251,4 +251,20 @@ class CPanelResellerTest extends TestCase
         $this->assertNotContains('getWhmUrl', array_column(ExtensionHelper::getActions($this->service->fresh()), 'function'));
         $this->post(route('services.panel-login', $this->service), ['function' => 'getWhmUrl'])->assertRedirect(route('services.show', $this->service));
     }
+
+    /** Review of #496: a reseller only by its flag (its product changed since) still opens it; one owning a protected account does not. */
+    public function test_whm_follows_the_reseller_flag_and_never_opens_over_a_protected_account(): void
+    {
+        $this->made();
+        $this->product->settings()->where('key', 'reseller')->update(['value' => '0']);
+        $user = $this->service->client->users()->first();
+        $this->actingAs($user)->withSession($this->loginUser($user, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWhmUrl'])->assertRedirectContains(':2087/');
+
+        $this->server->settings()->create(['key' => 'protected_accounts', 'value' => 'staffmail']);
+        $this->owned = ['staffmail'];
+        $sessions = count($this->sent('create_user_session'));
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWhmUrl'])->assertRedirect(route('services.show', $this->service));
+        $this->assertCount($sessions, $this->sent('create_user_session'), 'no WHM session over a protected account');
+    }
 }

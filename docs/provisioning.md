@@ -198,7 +198,8 @@ Modules για το myip:
   όρια του προϊόντος. **SSO** στο cPanel και **κωδικός:** εντάξει.
 - **terminate:** χωρίς επιβεβαίωση αρνείται («owns 1 other account»)· με το username πληκτρολογημένο, `terminatereseller`:
   και οι δύο διαγράφηκαν· ο rigel ξανά με 144 λογαριασμούς και τους δύο resellers του.
-- Βρέθηκε: ο reseller δεν είχε «Σύνδεση στο WHM» (το WHMCS την έχει): προστέθηκε (feat/cpanel-reseller-whm-login).
+- Βρέθηκε: ο reseller δεν είχε «Σύνδεση στο WHM» (το WHMCS την έχει): προστέθηκε (feat/cpanel-reseller-whm-login),
+  ελεγμένη με test (`whostmgrd`)· live στην επόμενη δοκιμή reseller.
 
 ## Δοκιμή live 2026-10-22 (ο υπεύθυνος έδωσε την άδεια)
 Υπηρεσία δοκιμής **#4** («Wordpress V16», πελάτης #2 «MyCS cPanel test», `mycs-test-2.dummy-domain.tld`) στον orion, με τον

@@ -133,7 +133,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [x] ~~cPanel: η ίδια εικόνα και resellers~~ **έγινε:** **Utilities → Hosting Accounts** (#495: λογαριασμοί κάθε WHM,
       πακέτο, owner/reseller, δίσκος, inodes, bandwidth, suspend, mail held, αντιστοίχιση, «Services without an account»,
       inodes και «κοντά στο όριο» στη σελίδα της υπηρεσίας)· **δοκιμή reseller στον rigel** (provisioning.md) και «Σύνδεση
-      στο WHM» για reseller.
+      στο WHM» για reseller (ελεγμένη με test· live στην επόμενη δοκιμή).
 - [ ] cPanel, επόμενα (υπεύθυνος 2026-10-28): χρήση πόρων του CloudLinux (LVE: CPU/RAM/IO/EP, faults) ανά λογαριασμό·
       WordPress (WP Toolkit) και ασφάλεια (Imunify360) ανά λογαριασμό· πριν από αυτά, τι φτάνει με το token του WHM. Το
       backup του λογαριασμού είναι του JetBackup (το backup του cPanel κλειστό στον rigel): αργότερα από το JetBackup.
