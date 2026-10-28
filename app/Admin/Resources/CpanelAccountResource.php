@@ -75,13 +75,19 @@ class CpanelAccountResource extends Resource
                 // One badge, the worst (owner 2026-10-28: the row fits a 22" screen, a window not full screen); all of it on hover.
                 TextColumn::make('state')->label('State')->badge()
                     ->state(fn (CpanelAccount $record) => match (true) {
+                        $record->differs() !== null => 'Differs',
                         $record->suspended => 'Suspended',
                         $record->mail_suspended => 'Mail suspended',
                         $record->mail_held => 'Mail held',
                         default => 'OK',
                     })
-                    ->color(fn (string $state) => $state === 'OK' ? 'success' : 'danger')
+                    ->color(fn (string $state) => match ($state) {
+                        'OK' => 'success',
+                        'Differs' => 'warning',
+                        default => 'danger',
+                    })
                     ->tooltip(fn (CpanelAccount $record) => implode(' · ', array_filter([
+                        ($differs = $record->differs()) !== null ? CpanelAccount::DIFFERS[$differs] : null,
                         $record->suspended ? trim('Suspended ' . ($record->suspended_at?->format('d/m/Y') ?? '') . ($record->suspend_reason ? ': ' . $record->suspend_reason : '')) : null,
                         $record->mail_suspended ? 'Outgoing mail suspended' : ($record->mail_held ? 'Outgoing mail held' : null),
                     ])) ?: null),
@@ -122,6 +128,8 @@ class CpanelAccountResource extends Resource
                             }
                         })),
                         false: fn (Builder $query) => $query),
+                TernaryFilter::make('differs')->label('State differs from MyCS')
+                    ->queries(true: fn (Builder $query) => $query->tap(fn ($q) => CpanelAccount::whereDiffers($q)), false: fn (Builder $query) => $query),
                 TernaryFilter::make('suspended'),
                 TernaryFilter::make('mail')->label('Outgoing mail held or suspended')
                     ->queries(true: fn (Builder $query) => $query->where(fn ($q) => $q->where('mail_held', true)->orWhere('mail_suspended', true)),

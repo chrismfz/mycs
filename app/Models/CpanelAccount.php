@@ -12,6 +12,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $suspended_at
  * @property Carbon|null $created_on_server_at
  * @property Carbon|null $lve_read_at
+ * @property Carbon|null $last_seen_at
+ * @property Carbon|null $gone_at
  *
  * An account of a WHM server, as cpanel:sync last read it, and what it is to us: a customer's service, internal, or not
  * mapped yet.
@@ -55,6 +57,47 @@ class CpanelAccount extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /** What the server says against what MyCS says (owner 2026-10-28: the mistakes a move from WHMCS leaves). */
+    public const DIFFERS = [
+        'suspended_on_server' => 'Suspended on the server, active in MyCS',
+        'active_on_server' => 'Active on the server, suspended in MyCS',
+        'ended_here' => 'Still on the server, ended in MyCS',
+    ];
+
+    /**
+     * How its state differs from its service's (a key of DIFFERS), or null. Only once the server was read after the
+     * service last changed: a suspend MyCS just sent is not «differs» until the next read shows it.
+     */
+    public function differs(): ?string
+    {
+        $service = $this->service;
+        if ($service === null || $this->gone_at !== null || $this->last_seen_at === null || $this->last_seen_at->lt($service->updated_at)) {
+            return null;
+        }
+
+        return match (true) {
+            $service->status === Service::STATUS_ACTIVE && $this->suspended => 'suspended_on_server',
+            $service->status === Service::STATUS_SUSPENDED && !$this->suspended => 'active_on_server',
+            in_array($service->status, [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED], true) => 'ended_here',
+            default => null,
+        };
+    }
+
+    /**
+     * The accounts whose state differs from their service's, as differs() reads it, in one query.
+     *
+     * @param  Builder<CpanelAccount>  $query
+     */
+    public static function whereDiffers(Builder $query): void
+    {
+        $query->whereNull('cpanel_accounts.gone_at')->whereHas('service', fn ($q) => $q
+            ->whereColumn('cpanel_accounts.last_seen_at', '>=', 'services.updated_at')
+            ->where(fn ($q) => $q
+                ->where(fn ($q) => $q->where('services.status', Service::STATUS_ACTIVE)->where('cpanel_accounts.suspended', true))
+                ->orWhere(fn ($q) => $q->where('services.status', Service::STATUS_SUSPENDED)->where('cpanel_accounts.suspended', false))
+                ->orWhereIn('services.status', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])));
     }
 
     /** @return HasMany<CpanelLveSample, $this> */

@@ -257,4 +257,39 @@ class CpanelInventoryTest extends TestCase
         $group = collect($this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->instance()->getTable()->getRecordActions())->sole();
         $this->assertInstanceOf(ActionGroup::class, $group, 'the actions in one menu');
     }
+
+    /**
+     * Owner 2026-10-28: an account whose state differs from its service's (active here, suspended there; suspended here,
+     * active there; ended here, still there) is flagged, on the list (a filter) and the service's page; never before the
+     * server was read after the service changed.
+     */
+    public function test_an_account_whose_state_differs_from_its_service_is_flagged(): void
+    {
+        $paying = $this->service('client1');                 // active here, suspended on the server
+        $this->accounts[2]['suspended'] = 1;
+        $unpaid = $this->service('alpha', 'suspended');      // suspended here, active on the server
+        $ended = $this->service('sub1', 'terminated');       // ended here, still on the server
+        AccountSync::sync($this->server);
+        $client = CpanelAccount::query()->where('user', 'client1')->sole();
+        $alpha = CpanelAccount::query()->where('user', 'alpha')->sole();
+        $sub = CpanelAccount::query()->where('user', 'sub1')->sole();
+        $sub->update(['service_id' => $ended->id]); // a reseller's customer is mapped by hand
+        $reseller = CpanelAccount::query()->where('user', 'resel1')->sole(); // not mapped: never «differs»
+
+        $this->assertSame('suspended_on_server', $client->fresh()->differs());
+        $this->assertSame('active_on_server', $alpha->fresh()->differs());
+        $this->assertSame('ended_here', $sub->fresh()->differs());
+        $this->assertNull($reseller->differs());
+
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
+            ->assertTableColumnStateSet('state', 'Differs', $client)
+            ->filterTable('differs', true)->assertCanSeeTableRecords([$client, $alpha, $sub])->assertCanNotSeeTableRecords([$reseller]);
+        $this->assertContains(CpanelAccount::DIFFERS['suspended_on_server'], ServiceResource::summaryLine($paying->fresh())['serverState']);
+
+        // MyCS suspends it (the service changes after the last read): not «differs» until the server is read again.
+        $this->travel(1)->minutes();
+        $unpaid->update(['status' => 'active']);
+        $this->assertNull($alpha->fresh()->differs(), 'changed since the read: wait for the next one');
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('differs', true)->assertCanNotSeeTableRecords([$alpha]);
+    }
 }

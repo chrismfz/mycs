@@ -18,6 +18,7 @@ use App\Admin\Resources\ServiceResource\RelationManagers\SslVersionsRelationMana
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
+use App\Models\CpanelAccount;
 use App\Models\Currency;
 use App\Models\License;
 use App\Models\MailcowDomain;
@@ -450,6 +451,8 @@ class ServiceResource extends Resource
             // Its account on the server (Hosting Accounts): inodes, and what is not right there.
             'inodes' => ($account = $record->cpanelAccount) === null || $account->inodes_used === null ? null : self::meter($account->inodes_used, $account->inodes_limit, false),
             'serverState' => $account === null ? [] : array_values(array_filter([
+                // Its state against the server's (Hosting Accounts' «Differs»): first, it is what to fix.
+                ($differs = $account->differs()) !== null ? CpanelAccount::DIFFERS[$differs] : null,
                 $account->suspended ? 'Suspended on the server' . ($account->suspend_reason ? ': ' . $account->suspend_reason : '') : null,
                 $account->mail_suspended ? 'Outgoing mail suspended' : ($account->mail_held ? 'Outgoing mail held' : null),
                 $account->nearLimits() !== [] ? 'Near its ' . implode(', ', $account->nearLimits()) . ' limit' : null,
