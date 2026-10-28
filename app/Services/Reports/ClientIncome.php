@@ -11,6 +11,7 @@ use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Income by customer (owner 2026-10-28, the approved mockup; docs/income-planning.md): who brings in how much in a
@@ -136,37 +137,79 @@ final class ClientIncome
     {
         $count = [];
         $exact = [];
-        // As the billing renews them: not to be cancelled (ADV-503-4).
-        $services = Service::query()->with('plan')->where('status', Service::STATUS_ACTIVE)->whereDoesntHave('cancellation')->where('currency_code', $currency)
-            ->when($clients !== null, fn ($query) => $query->whereIn('client_id', $clients ?: [0]))->get();
-        foreach ($services as $service) {
+        foreach (self::renewingServices($currency, $clients) as $service) {
             $id = (int) $service->client_id;
             $count[$id] = ($count[$id] ?? 0) + 1;
-            $times = self::timesAYear($service->plan?->billing_unit, (int) $service->plan?->billing_period, $service->plan?->type);
-            if ($times === null) {
-                continue; // free, one time: nothing a year
+            if (($yearly = self::serviceYearly($service)) !== null) {
+                $exact[$id] = ($exact[$id] ?? BigDecimal::zero())->plus($yearly);
             }
-            // The quantity as the billing puts it on the line: 0 bills nothing (ADV-503-5).
-            $amount = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->multipliedBy(max(0, (int) $service->quantity));
-            $exact[$id] = ($exact[$id] ?? BigDecimal::zero())->plus($amount->multipliedBy($times[0])->dividedBy($times[1], 6, RoundingMode::HalfUp));
+        }
+        foreach (self::renewingDomains($currency, $clients) as $domain) {
+            if (($yearly = self::domainYearly($domain)) !== null) {
+                $id = (int) $domain->client_id;
+                $exact[$id] = ($exact[$id] ?? BigDecimal::zero())->plus($yearly);
+            }
         }
 
-        $domains = Domain::query()->with(['client.primaryContact', 'domainTld.prices']) // toNet reads the client's tax (review of #503: N+1)
+        return [$count, array_map(fn (BigDecimal $amount) => self::toCents($amount), $exact)];
+    }
+
+    /**
+     * The active services the billing renews: not to be cancelled (ADV-503-4); with their plan.
+     *
+     * @param  list<int>|null  $clients
+     * @return Collection<int, Service>
+     */
+    public static function renewingServices(string $currency, ?array $clients = null): Collection
+    {
+        return Service::query()->with('plan')->where('status', Service::STATUS_ACTIVE)->whereDoesntHave('cancellation')->where('currency_code', $currency)
+            ->when($clients !== null, fn ($query) => $query->whereIn('client_id', $clients ?: [0]))->get();
+    }
+
+    /**
+     * The domains the cron renews (RenewalBilling::BILLED_DOMAINS, automatic renewal), with what their price reads.
+     *
+     * @param  list<int>|null  $clients
+     * @return Collection<int, Domain>
+     */
+    public static function renewingDomains(string $currency, ?array $clients = null): Collection
+    {
+        return Domain::query()->with(['client.primaryContact', 'domainTld.prices']) // toNet reads the client's tax (review of #503: N+1)
             ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
             ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)
             ->when($clients !== null, fn ($query) => $query->whereIn('client_id', $clients ?: [0]))->get();
-        foreach ($domains as $domain) {
-            $years = max(1, $domain->nextRenewalYears());
-            $price = $domain->renewalPriceFor($years);
-            if ($price === null) {
-                continue;
-            }
-            $id = (int) $domain->client_id;
-            $net = OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null);
-            $exact[$id] = ($exact[$id] ?? BigDecimal::zero())->plus(BigDecimal::of((string) $net)->dividedBy($years, 6, RoundingMode::HalfUp));
-        }
+    }
 
-        return [$count, array_map(fn (BigDecimal $amount) => $amount->multipliedBy(100)->toScale(0, RoundingMode::HalfUp)->toInt(), $exact)];
+    /** What a service brings in a year if renewed (price × quantity × times a year), exact; null when it does not recur. */
+    public static function serviceYearly(Service $service): ?BigDecimal
+    {
+        $times = self::timesAYear($service->plan?->billing_unit, (int) $service->plan?->billing_period, $service->plan?->type);
+        if ($times === null) {
+            return null; // free, one time: nothing a year
+        }
+        // The quantity as the billing puts it on the line: 0 bills nothing (ADV-503-5).
+        $amount = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->multipliedBy(max(0, (int) $service->quantity));
+
+        return $amount->multipliedBy($times[0])->dividedBy($times[1], 6, RoundingMode::HalfUp);
+    }
+
+    /** What a domain brings in a year if renewed: its net renewal price over its years, exact; null with no price. */
+    public static function domainYearly(Domain $domain): ?BigDecimal
+    {
+        $years = max(1, $domain->nextRenewalYears());
+        $price = $domain->renewalPriceFor($years);
+        if ($price === null) {
+            return null;
+        }
+        $net = OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null);
+
+        return BigDecimal::of($net)->dividedBy($years, 6, RoundingMode::HalfUp);
+    }
+
+    /** An exact amount in whole cents, half up. */
+    public static function toCents(BigDecimal $amount): int
+    {
+        return $amount->multipliedBy(100)->toScale(0, RoundingMode::HalfUp)->toInt();
     }
 
     /**
