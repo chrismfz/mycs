@@ -244,4 +244,20 @@ class MailcowInventoryTest extends TestCase
     {
         $this->artisan('mailcow:sync', ['--server' => 999])->assertExitCode(1);
     }
+
+    /** Review of #492, round 2: gone and back within one read; a terminated service whose domain stays keeps it. */
+    public function test_a_domain_whose_service_ended_goes_to_the_new_live_one_or_stays_whose_it_was(): void
+    {
+        $old = $this->service('example.org');
+        DomainSync::sync($this->server);
+        $old->update(['status' => 'terminated']);
+
+        DomainSync::sync($this->server);
+        $this->assertSame($old->id, MailcowDomain::query()->where('domain', 'example.org')->value('service_id'), 'kept: whose it was');
+
+        $new = $this->service('example.org');
+        DomainSync::sync($this->server);
+        $this->assertSame($new->id, MailcowDomain::query()->where('domain', 'example.org')->value('service_id'));
+        $this->artisan('mailcow:sync', ['--server' => 0])->assertExitCode(1);
+    }
 }

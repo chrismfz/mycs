@@ -66,11 +66,6 @@ final class DomainSync
                 $name = strtolower(trim((string) $data['domain_name']));
                 $row = MailcowDomain::query()->firstOrNew(['server_id' => $server->id, 'domain' => $name]);
                 $new += $row->exists ? 0 : 1;
-                // Gone and back, its service no longer live: another customer's now, as a VMID reused (review of #492).
-                if ($row->exists && $row->gone_at !== null && $row->service_id !== null
-                    && !in_array($row->service?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
-                    $row->service_id = null;
-                }
                 $row->fill([
                     'active' => (int) ($data['active_int'] ?? $data['active'] ?? 1) === 1,
                     'mailboxes' => self::int($data['mboxes_in_domain'] ?? 0), 'mailbox_limit' => self::int($data['max_num_mboxes_for_domain'] ?? 0),
@@ -81,6 +76,10 @@ final class DomainSync
                 ]);
                 if ($row->service_id === null && !$row->internal) {
                     $row->service_id = $row->suggestedServiceId();
+                } elseif ($row->service_id !== null && !in_array($row->service?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+                    // Its service no longer live and another live one now the domain's (gone and back, even within one read):
+                    // the new customer's, as a VMID reused; otherwise kept, to show whose it was (review of #492).
+                    $row->service_id = $row->suggestedServiceId() ?? $row->service_id;
                 }
                 $row->save();
                 $seen[] = $name;
