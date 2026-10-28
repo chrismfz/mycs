@@ -3,18 +3,24 @@
 namespace App\Admin\Widgets;
 
 use App\Admin\Pages\RevenueForecast;
+use App\Admin\Resources\InvoiceResource;
 use App\Classes\Price;
 use App\Models\Currency;
+use App\Services\Reports\IncomePlan;
 use App\Services\Reports\RevenueForecast as Forecast;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * WHMCS's Billing and Income Forecast dashboard widgets in one (owner 2026-10-21, screenshots): what came in today, this
- * month, this year and ever; then per currency each billing cycle's active services (amount and count, zero ones too)
- * and the estimate for a year (monthly × 12 + quarterly × 4 + …). Net, as every MyCS figure (the tax ones are Ekdosi's).
- * Billing in the default currency; the forecast in it always, in another when a service is billed in it.
+ * Income for cash planning (owner 2026-10-28, on WHMCS's Billing and Income Forecast widgets of 2026-10-21): this month
+ * received, still expected and their total against the same month a year before; the last month and the year so far
+ * against a year before; the overdue apart; the next months if everyone pays (IncomePlan); today and ever. Then per
+ * currency each billing cycle's active services (amount and count, zero ones too) and the estimate for a year (monthly
+ * × 12 + quarterly × 4 + …). Net, as every MyCS figure (the tax ones are Ekdosi's). Income in the default currency;
+ * the cycles in it always, in another when a service is billed in it.
  */
 class EstimatedIncome extends Widget
 {
@@ -49,15 +55,45 @@ class EstimatedIncome extends Widget
         $currency = Currency::query()->find($default);
         $money = fn ($amount) => (new Price(['price' => $amount, 'currency' => $currency], tax: 0))->format($amount);
         // Keyed by the day (F3 of #278): «today», «this month» and «this year» all turn at midnight.
-        $billing = Cache::remember('reports.billing.' . $default . '.' . $now->toDateString(), 300, fn () => [
+        $data = Cache::remember('reports.income_plan.' . $default . '.' . $now->toDateString(), 300, fn () => [
+            'plan' => IncomePlan::summary($default),
             'today' => Forecast::collected($default, $now->startOfDay(), $now->addDay()->startOfDay()),
-            'month' => Forecast::collected($default, $now->startOfMonth(), $now->addMonth()->startOfMonth()),
-            'year' => Forecast::collected($default, $now->startOfYear(), $now->addYear()->startOfYear()),
             'all' => Forecast::collected($default, null, null),
         ]);
+        $plan = $data['plan'];
+        $month = $plan['this_month'];
 
-        return ['currencies' => $currencies, 'url' => RevenueForecast::getUrl(), 'billingCurrency' => $default,
-            'billing' => array_map($money, $billing)];
+        return ['currencies' => $currencies, 'url' => RevenueForecast::getUrl(), 'billingCurrency' => $default, 'money' => $money,
+            'month' => $month + ['percent' => self::percent($month['received'], $month['total']),
+                'change' => self::change($month['total'], $month['last_year'])],
+            'lastMonth' => $plan['last_month'] + ['change' => self::change($plan['last_month']['received'], $plan['last_month']['last_year'])],
+            'year' => $plan['year'] + ['change' => self::change($plan['year']['received'], $plan['year']['last_year'])],
+            'overdue' => $plan['overdue'], 'ahead' => $plan['ahead'],
+            // The overdue invoices (this month's past due too: the list's filter), for staff who may see them.
+            'overdueUrl' => InvoiceResource::canViewAny() ? InvoiceResource::getUrl('index', ['filters' => ['overdue' => ['isActive' => true]]]) : null,
+            'today' => $money($data['today']), 'all' => $money($data['all'])];
+    }
+
+    /** How much of $whole $part is, in whole percent (0 to 100), for the bar. */
+    private static function percent(string $part, string $whole): int
+    {
+        $whole = BigDecimal::of($whole);
+
+        return $whole->isZero() ? 0 : min(100, max(0, BigDecimal::of($part)->multipliedBy(100)->dividedBy($whole, 0, RoundingMode::Down)->toInt()));
+    }
+
+    /**
+     * $now against $then: the difference and the change in whole percent (none when there was nothing then).
+     *
+     * @return array{difference: string, percent: int|null}
+     */
+    public static function change(string $now, string $then): array
+    {
+        $then = BigDecimal::of($then);
+        $difference = BigDecimal::of($now)->minus($then);
+
+        return ['difference' => (string) $difference->toScale(2),
+            'percent' => $then->isZero() ? null : $difference->multipliedBy(100)->dividedBy($then, 0, RoundingMode::HalfUp)->toInt()];
     }
 
     public static function canView(): bool

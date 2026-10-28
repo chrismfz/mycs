@@ -164,12 +164,11 @@ class RevenueForecastTest extends TestCase
         $this->service(548.70, 'month', 1, '2026-11-01');
         $this->service(1116.00, 'year', 3, '2027-01-01');
 
+        // One cell a cycle, «title (services)» over its amount (owner 2026-10-28: open, as WHMCS's).
         $this->livewireAs($staff)->test(EstimatedIncome::class)
-            ->assertSee(__(':code Currency', ['code' => 'USD']))
-            ->assertSee(__('Monthly') . ': $548.70 (1)')
-            ->assertSee(__('Quarterly') . ': $0.00 (0)')
-            ->assertSee(__('Triennially') . ': $1,116.00 (1)')
-            ->assertSee(__('Est. Annual') . ': $6,956.40'); // 548.70 × 12 + 1,116 / 3
+            ->assertSee(__('Active services by cycle'))
+            ->assertSeeInOrder([__('Monthly') . ' (1)', '$548.70', __('Quarterly') . ' (0)', '$0.00',
+                __('Triennially') . ' (1)', '$1,116.00', __('Est. Annual'), '$6,956.40']); // 548.70 × 12 + 1,116 / 3
 
     }
 
@@ -183,9 +182,10 @@ class RevenueForecastTest extends TestCase
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => $when]);
         }
 
-        // What came in (net of the 24%), then what is to come.
+        // What came in (net of the 24%): this month received, the year so far, then today and ever.
         $this->livewireAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->test(EstimatedIncome::class)
-            ->assertSeeInOrder(['$10.00', __('Today'), '$30.00', __('This Month'), '$70.00', __('This Year'), '$150.00', __('All Time'), __('Income Forecast')])
+            ->assertSeeInOrder([__('Received'), '$30.00', __('This year to :date', ['date' => '21/10']), '$70.00',
+                __('Today') . ': $10.00', __('All Time') . ': $150.00'])
             ->assertSee(RevenueForecast::getUrl(), false);
     }
 
