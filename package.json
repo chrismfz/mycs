@@ -15,6 +15,7 @@
     },
     "dependencies": {
         "@alpinejs/anchor": "^3.17.5",
+        "@novnc/novnc": "1.7.0",
         "altcha": "^3.5.0",
         "easymde": "^2.20.0"
     }

@@ -119,7 +119,7 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 
 ```bash
 pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
-pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate"
+pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"
 pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
 ```
 
@@ -200,10 +200,24 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
    - **Από τον υπεύθυνο:** cloud-init templates (Debian 13, Ubuntu 24.04).
 5. [ ] **PR 6, reinstall και reset κωδικού:** reinstall από template (σβήνει τα δεδομένα, με επιβεβαίωση) και reset
    του root password μέσω cloud-init. Το ISO, αν χρειαστεί, έρχεται μαζί με την κονσόλα.
-6. [ ] **PR 7, κονσόλα noVNC:**
-   - Ο πελάτης δεν βλέπει ποτέ τον Proxmox: εισιτήριο μίας χρήσης (`vncproxy`).
-   - Το websocket περνά από ένα μικρό relay δίπλα στη MyCS, πίσω από το nginx, με έλεγχο ότι ο πελάτης έχει δικαίωμα
-     σε αυτό το VM.
+6. [x] **PR 7, κονσόλα noVNC (υπεύθυνος 2026-10-28: PHP relay, και τις αλλαγές στον server τις κάνει το deploy):**
+   - Στο panel του VPS υπάρχει «Κονσόλα», όσο η υπηρεσία είναι active και το VM τρέχει. Ανοίγει σε δική της καρτέλα,
+     με noVNC (`@novnc/novnc` 1.7.0, MPL-2.0). Την ανοίγει όποιος κάνει και power (`can:update`).
+   - Κάθε σύνδεση ζητά εισιτήριο (POST με CSRF, 10 το λεπτό, στο audit ως `vm_console`):
+     - η MyCS ελέγχει το VM όπως για το power και φτιάχνει `vncproxy` στον κόμβο·
+     - το κρατά 30'' στο cache με τυχαίο token, και ο browser το παίρνει μία φορά.
+   - **Relay:** `php artisan proxmox:console-relay`, ένα PHP process στο `127.0.0.1:8091`, πίσω από το
+     `location = /console/ws` του nginx.
+     - Δέχεται μόνο websocket από τη MyCS (Origin), με εισιτήριο που δεν έχει χρησιμοποιηθεί.
+     - Ανοίγει το `vncwebsocket` του κόμβου με το token, όπως κάθε σύνδεση της MyCS: στην IP του κόμβου, και
+       self-signed μόνο με IP.
+     - Περνά τα frames και από τις δύο μεριές. Το token δεν φτάνει ποτέ στον browser.
+     - Κλείνει μετά από 30' χωρίς κίνηση ή 4 ώρες συνολικά, με έως 64 κονσόλες μαζί.
+   - **Deploy:** το `deploy/mycs-console.service.example` στο `/etc/systemd/system/mycs-console.service` (`enable --now`)
+     και το location του `deploy/nginx.conf.example`. Το relay τελειώνει με το `queue:restart` κάθε deploy, και το
+     systemd το ξεκινά με τον νέο κώδικα.
+   - **Στο cluster (ο υπεύθυνος):** `VM.Console` στον ρόλο: `pveum role modify MyCSLifecycle -privs "VM.Audit
+     VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"`.
 
 Σειρά (ο υπεύθυνος, 2026-10-24): το Β1 τώρα, ώστε οι VPS να μπουν στον αυτόματο κύκλο από την πρώτη μέρα. Μετά
 payments tracking και importer (μαζί με το Α). Τα Β2–Β6 έρχονται μετά το cut-over.

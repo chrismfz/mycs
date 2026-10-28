@@ -45,6 +45,19 @@ server {
         fastcgi_read_timeout 120s;
     }
 
+    # The customers' VPS consoles (docs/proxmox.md, B6): a websocket to the relay (deploy/mycs-console.service.example),
+    # which checks the one-time ticket and the Origin itself. Open as long as a console is.
+    location = /console/ws {
+        proxy_pass http://127.0.0.1:8091;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
     # Any other .php is a route of the application (the old PayPal IPN's /modules/gateways/callback/paypal.php):
     # the front controller answers it, no file of that name is ever run or served.
     location ~* \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) { rewrite ^ /index.php last; }

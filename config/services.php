@@ -42,4 +42,10 @@ return [
         'cc_encryption_hash' => env('WHMCS_CC_ENCRYPTION_HASH'),
     ],
 
+    // The customers' VPS consoles (docs/proxmox.md, B6): the relay listens here, behind nginx's location at this path.
+    'proxmox_console' => [
+        'listen' => env('PROXMOX_CONSOLE_LISTEN', '127.0.0.1:8091'),
+        'path' => '/console/ws',
+    ],
+
 ];

@@ -35,6 +35,11 @@
         @endif
         @if ($canPower && $known)
         <div class="flex flex-wrap gap-2">
+            @if ($running)
+            {{-- In its own tab: the console takes the whole window (B6). --}}
+            <a href="{{ route('services.console', $service) }}" target="_blank" rel="noopener"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.console.button') }}</a>
+            @endif
             @foreach (($running ? ['shutdown', 'reboot', 'stop'] : ['start']) as $action)
             <button type="button" wire:click="power('{{ $action }}')" wire:loading.attr="disabled"
                 wire:confirm="{{ __('services.proxmox.confirm.' . $action) }}"

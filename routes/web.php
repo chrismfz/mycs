@@ -7,6 +7,7 @@ use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\KnowledgebaseRedirectController;
 use App\Http\Controllers\LeaveImpersonationController;
 use App\Http\Controllers\OfferController;
+use App\Http\Controllers\ServiceConsoleController;
 use App\Http\Controllers\ServicePanelLoginController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\SslFileController;
@@ -116,6 +117,11 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
     Route::get('/domains/{domain}', Domains\Show::class)->name('domains.show')->middleware('can:view,domain');
     // The account's users (docs/accounts.md, PR 2b): it mails invitations, so only a verified login.
     Route::get('/account/users', Client\Users::class)->name('account.users');
+
+    // A VPS's console (docs/proxmox.md, B6): who may power it; its ticket a form's POST (CSRF), never a link.
+    Route::get('/services/{service}/console', [ServiceConsoleController::class, 'show'])->name('services.console')->middleware('can:update,service');
+    Route::post('/services/{service}/console/ticket', [ServiceConsoleController::class, 'ticket'])->name('services.console.ticket')
+        ->middleware(['can:update,service', 'throttle:30,1']);
 
     Route::get('/services/{service}/upgrade', Services\Upgrade::class)->name('services.upgrade')->middleware('can:update,service');
 });
