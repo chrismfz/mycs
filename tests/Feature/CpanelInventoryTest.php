@@ -237,4 +237,21 @@ class CpanelInventoryTest extends TestCase
         CpanelAccount::query()->where('user', 'alpha')->update(['service_id' => $other->id]);
         $this->assertNotContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
     }
+
+    /** Owner 2026-10-28: a row fits a smaller screen: one state badge, the mapping cut short, the actions in one menu. */
+    public function test_a_row_is_compact_one_state_badge_and_the_mapping_cut_short(): void
+    {
+        AccountSync::sync($this->server);
+        $reseller = CpanelAccount::query()->where('user', 'resel1')->sole();
+        $reseller->update(['mail_suspended' => true]);
+        $client = CpanelAccount::query()->where('user', 'client1')->sole();
+        $client->update(['internal' => true, 'note' => 'our own demo site for the sales team']);
+
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
+            ->assertSee('Suspended')->assertDontSee('Mail suspended')
+            ->assertSee('Internal: our own demo...')
+            ->assertSee('our own demo site for the sales team') // whole, on hover
+            ->callTableAction('internal', $client, data: ['note' => 'demo'])->assertHasNoTableActionErrors();
+        $this->assertSame('demo', $client->fresh()->note, 'the actions still work from the menu');
+    }
 }
