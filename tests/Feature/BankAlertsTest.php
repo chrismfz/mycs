@@ -218,6 +218,18 @@ class BankAlertsTest extends TestCase
         $this->assertSame(BankMovement::PENDING, $credit->fresh()->status);
     }
 
+    /** Thousands of movements: the widget says which page and how many in all, not only ‹ › (owner 2026-10-28). */
+    public function test_the_widget_shows_the_page_and_the_total(): void
+    {
+        foreach (range(1, 12) as $i) {
+            $this->movement(['status' => BankMovement::HISTORY]);
+        }
+
+        $this->livewireAs($this->staff(['admin.widgets.payments_tracking']))->test(PaymentsTracking::class)
+            ->assertSee('Showing 1 to 10 of 12 results')
+            ->call('gotoPage', 2, 'page')->assertSee('Showing 11 to 12 of 12 results');
+    }
+
     public function test_staff_who_may_only_look_cannot_tick_and_the_balances_are_not_theirs(): void
     {
         $credit = $this->movement();
