@@ -134,7 +134,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       πακέτο, owner/reseller, δίσκος, inodes, bandwidth, suspend, mail held, αντιστοίχιση, «Services without an account»,
       inodes και «κοντά στο όριο» στη σελίδα της υπηρεσίας)· **δοκιμή reseller στον rigel** (provisioning.md) και «Σύνδεση
       στο WHM» για reseller (ελεγμένη με test· live στην επόμενη δοκιμή).
-- [x] ~~cPanel: χρήση πόρων του CloudLinux~~ **έγινε (στάδιο 3):** `cpanel:lve` κάθε 30' διαβάζει μέσω WHM το
+- [x] ~~cPanel: χρήση πόρων του CloudLinux~~ **έγινε (στάδιο 3):** `cpanel:lve` κάθε ώρα, όλοι οι servers ταυτόχρονα (ένα process ο καθένας), διαβάζει μέσω WHM το
       `ResourceUsage::get_usages` κάθε λογαριασμού (CPU % του ορίου του, RAM, EP, processes, I/O, IOPS και τα όριά τους),
       κρατά τις μετρήσεις 2 μέρες· το μέγιστο 24ώρου στο Hosting Accounts (στήλη, φίλτρο) και στη σελίδα της υπηρεσίας
       (πελάτης και staff, «κοντά στο όριο»). Το όνομα του πακέτου κόβεται στους 24 χαρακτήρες. **Faults και ιστορικό του

@@ -18,6 +18,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Tests\TestCase;
 
 /**
@@ -230,5 +231,23 @@ class CpanelLveTest extends TestCase
         $this->account('alpha')->update(['reseller' => true]);
         $this->livewireAs($service->client->users()->first())->test(ServiceShow::class, ['service' => $service->fresh()])
             ->assertDontSee(__('services.usage.lve_title'));
+    }
+
+    /** Owner 2026-10-28: with more than one server, each is read in its own process, all at once; one failing is told. */
+    public function test_more_than_one_server_are_read_at_once_each_in_its_own_process(): void
+    {
+        $second = Server::query()->create(['name' => 'Orion', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $old = CpanelLveSample::query()->create(['cpanel_account_id' => $this->account('alpha')->id, 'sampled_at' => now()->subHours(50), 'cpu' => 1]);
+        Process::fake([
+            "*--server={$this->server->id}*" => Process::result('Rigel: 2 account(s) read'),
+            "*--server={$second->id}*" => Process::result(errorOutput: 'Orion: refused', exitCode: 1),
+        ]);
+
+        $this->artisan('cpanel:lve')->expectsOutput('Rigel: 2 account(s) read')->expectsOutput('Orion: refused')->assertExitCode(1);
+
+        Process::assertRanTimes(fn ($process) => str_contains(implode(' ', (array) $process->command), "--server={$this->server->id}"), 1);
+        Process::assertRanTimes(fn ($process) => str_contains(implode(' ', (array) $process->command), "--server={$second->id}"), 1);
+        $this->assertSame([], $this->asked, 'nothing read in the parent itself');
+        $this->assertNull($old->fresh(), 'old readings pruned by the parent');
     }
 }
