@@ -41,10 +41,22 @@
                 </x-tooltip>
                 @endif
             </div>
-            {{-- What tells it apart: its IP and the fields its license reports (owner 2026-10-23). --}}
+            {{-- What tells it apart: its license key (2026-10-28), its IP and the fields its license reports (owner 2026-10-23). --}}
             @php($glance = \App\Livewire\Services\Index::glance($service))
-            @if ($glance['ip'] !== null || $glance['fields'] !== [])
+            @if ($glance['key'] !== null || $glance['ip'] !== null || $glance['fields'] !== [])
             <div class="text-sm text-base/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                @if ($glance['key'] !== null)
+                {{--
+                    Inside the card's link: wire:navigate starts on mousedown (and Enter), so those stop here too (review of
+                    #493), and the key can be selected by hand.
+                --}}
+                <span x-data="{ copied: false }" x-on:mousedown.stop x-on:keydown.enter.stop x-on:click.prevent.stop><span class="text-base/80">{{ __('services.license.key') }}:</span>
+                    <code class="font-mono select-all cursor-text">{{ $glance['key'] }}</code>
+                    <button type="button" class="ml-1 underline"
+                        x-on:click="navigator.clipboard.writeText(@js($glance['key'])); copied = true; setTimeout(() => copied = false, 2000)"
+                        x-text="copied ? @js(__('services.license.copied')) : @js(__('services.license.copy'))">{{ __('services.license.copy') }}</button>
+                </span>
+                @endif
                 @if ($glance['ip'] !== null)
                 <span><span class="text-base/80">{{ $glance['ip_is_license'] ? __('services.license.valid_ips') : __('services.dedicated_ip') }}:</span> {{ $glance['ip'] }}</span>
                 @endif

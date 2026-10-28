@@ -53,6 +53,11 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
   - Πελάτης, σελίδα υπηρεσίας: «License» με κλειδί (αντιγραφή), Valid IPs, status, τα πεδία που αναφέρει (Custom Fields
     Reported, π.χ. `comments`), **Reissue** (όποιος διαχειρίζεται την υπηρεσία, αν το προϊόν το επιτρέπει, κάτω από το
     όριο). Registration Date σε κάθε υπηρεσία. Το domain (= κλειδί) δεν δείχνεται δεύτερη φορά.
+    Από 2026-10-28 (#493) και ό,τι βλέπει το staff για το πού είναι δεμένη: Valid domains (το reverse DNS της IP· όχι όταν είναι η ίδια η IP, χωρίς reverse DNS),
+    «Last good check» (`last_ok_at`, ήταν «Last check») και «Last seen from» (`last_seen_ip`, μόνο από καλό check· όχι όσο είναι Reissued, π.χ. μετά από μεταφορά σε άλλον πελάτη). Όχι
+    ο client του check (`last_seen_client`, του staff), ούτε το directory όταν είναι το docroot του zlic
+    (`ZlicController::DIRECTORY`, σε όλες σχεδόν: δεν λέει τίποτα στον πελάτη). Στη λίστα υπηρεσιών το κλειδί κάθε
+    άδειας, με αντιγραφή, δίπλα στις IPs.
   - Staff, Edit Service: ενότητα «License» (κλειδί, status, reissues / όριο, IP/domain/directory, τελευταίο καλό check,
     από πού και με τι client, τελευταία αποτυχία, checks 30 ημερών)· **Reissue license** (όποιο κι αν είναι το όριο, όπως
     το WHMCS) και **Edit license** (status, bindings, με audit)· το access log της άδειας.
