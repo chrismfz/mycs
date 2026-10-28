@@ -279,6 +279,7 @@ class CpanelInventoryTest extends TestCase
         $this->service('agree2', 'suspended');                  // suspended and suspended
         $this->service('new1', 'pending');                      // pending: never
         $ended = $this->service('sub1', 'terminated');          // ended here, still there
+        $this->travel(2)->seconds();                            // the services older than the read
         AccountSync::sync($this->server);
         $row = fn (string $user) => CpanelAccount::query()->where('user', $user)->sole();
         $row('sub1')->update(['service_id' => $ended->id]);     // a reseller's customer, mapped by hand
@@ -331,6 +332,8 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame('active_on_server', $row('alpha')->differs(), 'no date: older than any read');
         $this->assertNull($row('sub1')->differs(), 'suspended with its reseller: not to unsuspend');
         $this->assertSame('suspended_on_server', $row('client1')->differs());
+        ModuleAction::query()->create(['service_id' => $client->id, 'action' => 'unsuspend', 'status' => ModuleAction::STATUS_COMPLETED]);
+        $this->assertSame('suspended_on_server', $row('client1')->differs(), 'a job done long ago explains nothing');
         ModuleAction::query()->create(['service_id' => $client->id, 'action' => 'unsuspend', 'status' => ModuleAction::STATUS_OPEN]);
         $this->assertNull($row('client1')->differs(), 'MyCS\'s own unsuspend is open: already to handle');
 
@@ -348,7 +351,14 @@ class CpanelInventoryTest extends TestCase
             $this->travel(5)->seconds();
         };
         AccountSync::sync($this->server);
-
         $this->assertNull(CpanelAccount::query()->where('user', 'alpha')->sole()->differs(), 'read stamped as it began');
+
+        // Round 2: in the read's own second too (timestamps kept to the second).
+        $this->travel(1)->minutes();
+        $alpha->update(['status' => 'active']);
+        $this->travel(1)->minutes();
+        $this->whileListing = fn () => $alpha->update(['status' => 'suspended']);
+        AccountSync::sync($this->server);
+        $this->assertNull(CpanelAccount::query()->where('user', 'alpha')->sole()->differs(), 'changed in the read\'s own second');
     }
 }

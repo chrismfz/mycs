@@ -35,7 +35,8 @@ final class AccountSync
         try {
             // Stamped as the read began, not as it ended: a service changed while the server answered is newer than the
             // read (review of «Differs»).
-            $readAt = now();
+            // A second earlier: timestamps are kept to the second, and one in the read's own second is newer (round 2).
+            $readAt = now()->subSecond();
 
             return self::read($server, $extension->inventory(), $readAt);
         } finally {
