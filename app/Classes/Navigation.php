@@ -27,10 +27,14 @@ class Navigation
             $routes = [
                 [
                     'name' => __('navigation.shop'),
-                    'children' => $categories->map(fn (Category $category) => [
-                        'name' => $category->name,
-                        'url' => route('category.show', ['category' => $category->slug]),
-                    ])->toArray(),
+                    // «Show all» first, as WHMCS's «Εμφάνιση όλων», a line under it, then the categories.
+                    'children' => [
+                        ['name' => __('navigation.show_all'), 'url' => route('products.all'), 'separator' => true],
+                        ...$categories->map(fn (Category $category) => [
+                            'name' => $category->name,
+                            'url' => route('category.show', ['category' => $category->slug]),
+                        ]),
+                    ],
                     'condition' => count($categories) > 0,
                     'separator' => true,
                     'icon' => 'ri-shopping-bag',

@@ -26,24 +26,64 @@
         </div>
 
         <div class="container mb-6 grid gap-6 md:grid-cols-3">
-            @if ($categories->isNotEmpty())
-            <div class="md:col-span-2 flex flex-col">
-                <h2 class="text-lg font-semibold mb-2">{{ __('home.what_to_buy') }}</h2>
-                @foreach ($categories as $category)
-                @php $from = $category->startingPrice(); @endphp
-                <a href="{{ route('category.show', ['category' => $category->slug]) }}" wire:navigate
-                    class="flex items-center justify-between gap-4 py-3 border-t border-neutral hover:text-primary">
-                    <span class="font-medium">{{ $category->name }}</span>
-                    <span class="flex items-center gap-1 text-sm text-base/70 text-right">
-                        @if ($from)
-                        {{ __('home.from', ['price' => $from['price']]) }}@if ($from['cycle']) {{ $from['cycle'] }}@endif
-                        @if ($from['monthly'])<span class="hidden sm:inline">({{ __('home.per_month', ['price' => $from['monthly']]) }})</span>@endif
-                        @endif
-                        <x-ri-arrow-right-s-line class="size-5" />
-                    </span>
-                </a>
-                @endforeach
-            </div>
+            @if ($categories->isNotEmpty() || in_array(true, $domainCards, true))
+            <section class="md:col-span-2 flex flex-col gap-3" aria-labelledby="home-browse">
+                <div class="flex items-baseline justify-between gap-4">
+                    <h2 id="home-browse" class="text-lg font-semibold">{{ __('home.browse_title') }}</h2>
+                    @if ($categories->isNotEmpty())
+                    <a href="{{ route('products.all') }}" wire:navigate class="text-sm text-primary">{{ __('navigation.show_all') }}</a>
+                    @endif
+                </div>
+                {{-- Each card's way in, a link drawn as a button (a button inside a link is not valid HTML). --}}
+                @php $button = 'block w-full rounded-md border border-neutral bg-background px-4 py-2 text-center text-sm font-semibold transition-colors hover:border-primary hover:text-primary'; @endphp
+                <div class="grid sm:grid-cols-2 gap-4">
+                    @foreach ($categories as $category)
+                    @php
+                        $from = $category->startingPrice();
+                        // A short line of its description (its paragraphs and items apart by a space): the card is a way in, the whole
+                        // text is on its page.
+                        $lead = theme('show_category_description', true)
+                            ? Str::limit(Str::squish(html_entity_decode(strip_tags(str_replace('<', ' <', (string) $category->description)), ENT_QUOTES | ENT_HTML5)), 140)
+                            : '';
+                    @endphp
+                    <div class="flex flex-col justify-between gap-4 bg-background-secondary border border-neutral rounded-lg p-5">
+                        <div class="flex flex-col gap-2">
+                            <h3 id="home-category-{{ $category->id }}" class="text-lg font-bold">{{ $category->name }}</h3>
+                            @if ($lead !== '')
+                            <p class="text-sm text-base/70">{{ $lead }}</p>
+                            @endif
+                            @if ($from)
+                            <p class="text-sm text-base/70">
+                                {{ __('home.from', ['price' => $from['price']]) }}@if ($from['cycle']) {{ $from['cycle'] }}@endif
+                                @if ($from['monthly'])<span class="hidden sm:inline">({{ __('home.per_month', ['price' => $from['monthly']]) }})</span>@endif
+                            </p>
+                            @endif
+                        </div>
+                        <a href="{{ route('category.show', ['category' => $category->slug]) }}" wire:navigate
+                            aria-describedby="home-category-{{ $category->id }}" class="{{ $button }}">{{ __('home.browse') }}</a>
+                    </div>
+                    @endforeach
+
+                    @if ($domainCards['register'])
+                    <div class="flex flex-col justify-between gap-4 bg-background-secondary border border-neutral rounded-lg p-5">
+                        <div class="flex flex-col gap-2">
+                            <h3 class="text-lg font-bold">{{ __('home.domain_register_title') }}</h3>
+                            <p class="text-sm text-base/70">{{ __('home.domain_register_lead') }}</p>
+                        </div>
+                        <a href="{{ route('domain.search') }}" wire:navigate class="{{ $button }}">{{ __('home.domain_register_button') }}</a>
+                    </div>
+                    @endif
+                    @if ($domainCards['transfer'])
+                    <div class="flex flex-col justify-between gap-4 bg-background-secondary border border-neutral rounded-lg p-5">
+                        <div class="flex flex-col gap-2">
+                            <h3 class="text-lg font-bold">{{ __('home.domain_transfer_title') }}</h3>
+                            <p class="text-sm text-base/70">{{ __('home.domain_transfer_lead') }}</p>
+                        </div>
+                        <a href="{{ route('domain.transfer') }}" wire:navigate class="{{ $button }}">{{ __('home.domain_transfer_button') }}</a>
+                    </div>
+                    @endif
+                </div>
+            </section>
             @endif
 
             @guest('web')

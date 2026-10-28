@@ -52,4 +52,6 @@ return [
     'too_fast' => 'You are adding items too quickly. Please wait a moment and try again.',
     'have_coupon' => 'Have a coupon?',
     'more_features' => '+:count more',
+    'all_title' => 'All products',
+    'all_empty' => 'Nothing to order yet.',
 ];
