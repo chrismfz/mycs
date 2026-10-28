@@ -8,8 +8,9 @@ namespace Nixpal\Mailcow;
  * the autodiscover/autoconfig names are advised. Read only: it looks, it never changes a record.
  *
  * The resolver is given a name and a type (MX, TXT, CNAME, A) and returns the records: MX and CNAME as their target, TXT
- * as its text, A as its address (strings); none, an empty list. A row's note is a code: other_mx, spf_many, spf_not_ours,
- * dkim_other, dmarc_many.
+ * as its text, A as its address (strings); none, an empty list. Each name and type is looked up once per check, and SPF
+ * follows at most 10 includes and redirects (RFC 7208), so a domain's DNS can never make it ask without end. A row's note
+ * is a code: other_mx, spf_many, spf_not_ours, dkim_none, dkim_other, dmarc_many.
  */
 final class MailDns
 {
@@ -33,6 +34,14 @@ final class MailDns
 
     /** @var string|null */
     private $dkimTxt;
+
+    /** @var array<string, list<string>> lookups of this check, each once */
+    private $memo = [];
+
+    /** @var int SPF includes and redirects followed in this check (RFC 7208: 10 lookups) */
+    private $spfLookups = 0;
+
+    const SPF_LOOKUPS = 10;
 
     /**
      * @param  callable(string, string): list<string>  $resolve
@@ -58,11 +67,9 @@ final class MailDns
     public function check(string $domain): array
     {
         $domain = self::host($domain);
-        $rows = [$this->mx($domain), $this->spf($domain)];
-        if ($this->dkimTxt !== null && $this->dkimTxt !== '') {
-            $rows[] = $this->dkim($domain);
-        }
-        $rows[] = $this->dmarc($domain);
+        $this->memo = [];
+        $this->spfLookups = 0;
+        $rows = [$this->mx($domain), $this->spf($domain), $this->dkim($domain), $this->dmarc($domain)];
         foreach (['autodiscover', 'autoconfig'] as $name) {
             $rows[] = $this->alias($name, $domain);
         }
@@ -101,34 +108,75 @@ final class MailDns
         if (count($records) > 1) {
             return self::row('spf', 'TXT', $domain, $expected, $records, self::FAIL, true, 'spf_many');
         }
-        $ok = $this->spfCovers($records[0], $domain, true);
+        $ok = $this->spfCovers($records[0], $domain);
 
         return self::row('spf', 'TXT', $domain, $expected, $records, $ok ? self::OK : self::WARN, true,
             $ok ? null : 'spf_not_ours');
     }
 
-    /** Its mechanisms name our server: mx (the MX is ours), a:host, ip4/ip6 of it, or an include that does (one level). */
-    private function spfCovers(string $record, string $domain, bool $follow): bool
+    /**
+     * Its mechanisms name our server: mx when its domain's MX is ours, a when its A is, a:/mx:/include: our host, ip4 of
+     * our address (CIDR too), or an include or redirect that does (its own domain for its mx and a), within the RFC's 10.
+     */
+    private function spfCovers(string $record, string $domain): bool
     {
+        $redirect = null;
         foreach (preg_split('/\s+/', strtolower(trim($record))) as $term) {
             $term = ltrim($term, '+');
-            if ($term === 'mx' && in_array($this->mailHost, array_map([self::class, 'host'], $this->lookup($domain, 'MX')), true)) {
+            if (strpos($term, 'redirect=') === 0) {
+                $redirect = substr($term, 9);
+
+                continue;
+            }
+            [$mechanism, $value] = array_pad(explode(':', $term, 2), 2, null);
+            $mechanism = (string) preg_replace('#/\d+$#', '', $mechanism);
+            $target = $value === null ? $domain : (string) preg_replace('#/\d+$#', '', $value);
+            if ($mechanism === 'mx' && ($target === $this->mailHost || in_array($this->mailHost, array_map([self::class, 'host'], $this->lookup($target, 'MX')), true))) {
                 return true;
             }
-            if ($term === 'mx:' . $this->mailHost || $term === 'a:' . $this->mailHost || $term === 'include:' . $this->mailHost) {
+            if ($mechanism === 'a' && ($target === $this->mailHost || array_intersect($this->lookup($target, 'A'), $this->serverIps) !== [])) {
                 return true;
             }
-            foreach ($this->serverIps as $ip) {
-                if (in_array($term, ['ip4:' . strtolower($ip), 'ip6:' . strtolower($ip)], true)) {
-                    return true;
-                }
+            if ($mechanism === 'ip4' && $value !== null && $this->coversIp($value)) {
+                return true;
             }
-            if ($follow && strpos($term, 'include:') === 0) {
-                foreach (self::spfRecords($this->lookup(substr($term, 8), 'TXT')) as $included) {
-                    if ($this->spfCovers($included, $domain, false)) {
-                        return true;
-                    }
-                }
+            if ($mechanism === 'include' && $value !== null && ($value === $this->mailHost || $this->followed($value))) {
+                return true;
+            }
+        }
+
+        return $redirect !== null && $redirect !== '' && $this->followed($redirect);
+    }
+
+    /** An included or redirected domain's SPF covers us, while the RFC's lookups last. */
+    private function followed(string $domain): bool
+    {
+        if (++$this->spfLookups > self::SPF_LOOKUPS) {
+            return false;
+        }
+        foreach (self::spfRecords($this->lookup($domain, 'TXT')) as $record) {
+            if ($this->spfCovers($record, $domain)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** One of our IPv4 addresses within «a.b.c.d» or «a.b.c.d/n». */
+    private function coversIp(string $value): bool
+    {
+        [$network, $bits] = array_pad(explode('/', $value, 2), 2, '32');
+        $net = ip2long($network);
+        $bits = (int) $bits;
+        if ($net === false || $bits < 0 || $bits > 32) {
+            return false;
+        }
+        $mask = $bits === 0 ? 0 : (-1 << (32 - $bits)) & 0xFFFFFFFF;
+        foreach ($this->serverIps as $ip) {
+            $long = ip2long($ip);
+            if ($long !== false && ($long & $mask) === ($net & $mask)) {
+                return true;
             }
         }
 
@@ -138,8 +186,12 @@ final class MailDns
     private function dkim(string $domain): array
     {
         $name = ($this->dkimSelector ?: 'dkim') . '._domainkey.' . $domain;
-        $found = array_values(array_filter($this->lookup($name, 'TXT'), fn ($txt) => stripos($txt, 'p=') !== false));
         $ours = self::dkimKey((string) $this->dkimTxt);
+        if ($ours === '') {
+            // No key at the mail server: nothing it sends is signed, whatever the DNS says (review of #494).
+            return self::row('dkim', 'TXT', $name, '', [], self::FAIL, true, 'dkim_none');
+        }
+        $found = array_values(array_filter($this->lookup($name, 'TXT'), fn ($txt) => stripos($txt, 'p=') !== false));
         $status = $found === [] ? self::FAIL : (in_array($ours, array_map([self::class, 'dkimKey'], $found), true) ? self::OK : self::WARN);
 
         return self::row('dkim', 'TXT', $name, (string) $this->dkimTxt, $found, $status, true,
@@ -171,11 +223,16 @@ final class MailDns
     /** @return list<string> */
     private function lookup(string $name, string $type): array
     {
-        try {
-            return array_values(array_filter(array_map('strval', (array) ($this->resolve)($name, $type)), fn ($v) => $v !== ''));
-        } catch (\Throwable $e) {
-            return [];
+        $key = $type . ' ' . strtolower($name);
+        if (!array_key_exists($key, $this->memo)) {
+            try {
+                $this->memo[$key] = array_values(array_filter(array_map('strval', (array) ($this->resolve)($name, $type)), fn ($v) => $v !== ''));
+            } catch (\Throwable $e) {
+                $this->memo[$key] = [];
+            }
         }
+
+        return $this->memo[$key];
     }
 
     /** @return list<string> */

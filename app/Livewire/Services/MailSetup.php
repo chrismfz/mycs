@@ -6,14 +6,16 @@ use App\Models\MailcowDomain;
 use App\Models\Service;
 use App\Services\Mailcow\MailSetup as Check;
 use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Attributes\Lazy;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
  * A mail service's setup (owner 2026-10-28), for the customer on their service page and for staff on its admin page:
  * the DNS its domain needs, checked (✓/✗, with what to set), and its mailboxes with their quota and use as mailcow:sync
- * last read them. Reads only.
+ * last read them. Reads only. Lazy: the page never waits on the DNS (review of #494).
  */
+#[Lazy]
 class MailSetup extends Component
 {
     #[Locked]
@@ -32,7 +34,7 @@ class MailSetup extends Component
     public function recheck(): void
     {
         abort_unless($this->allowed(), 403);
-        $domain = MailcowDomain::forService($this->service);
+        $domain = MailcowDomain::forService($this->service, $this->admin);
         if ($domain !== null && RateLimiter::attempt('mailcow-dns:' . $this->service->id, 1, fn () => true, 20)) {
             Check::check($domain, fresh: true);
         }
@@ -45,9 +47,14 @@ class MailSetup extends Component
         return $user !== null && $user->can('view', $this->service);
     }
 
+    public function placeholder(): string
+    {
+        return '<div class="text-sm opacity-60 p-4">…</div>';
+    }
+
     public function render()
     {
-        $domain = MailcowDomain::forService($this->service);
+        $domain = MailcowDomain::forService($this->service, $this->admin);
         $check = $domain !== null ? Check::check($domain) : null;
 
         return view($this->admin ? 'admin.mailcow.mail-setup' : 'services.mail-setup', [

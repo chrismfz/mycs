@@ -56,7 +56,8 @@ final class MailDnsTest extends TestCase
         $rows = $this->check(['MX example.org' => ['mail.example.net', 'backup.example.org'], 'TXT dkim._domainkey.example.org' => ['v=DKIM1;p=OTHER']]);
         $this->assertSame(['warn', 'warn'], [$rows['mx']['status'], $rows['dkim']['status']]);
 
-        $this->assertArrayNotHasKey('dkim', $this->check([], dkim: null));
+        $none = $this->check(['TXT dkim._domainkey.example.org' => ['v=DKIM1;p=']], 'example.org', null);
+        $this->assertSame(['fail', 'dkim_none'], [$none['dkim']['status'], $none['dkim']['note']], 'no key at the server: never OK');
     }
 
     public function test_a_resolver_that_throws_is_no_record()
@@ -67,5 +68,33 @@ final class MailDnsTest extends TestCase
 
         $this->assertSame('example.org', $rows[0]['name']);
         $this->assertSame('fail', $rows[0]['status']);
+    }
+
+    public function test_spf_redirect_cidr_a_and_an_includes_own_mx()
+    {
+        $spf = fn (array $dns) => $this->check($dns + ['MX example.org' => ['elsewhere.test']])['spf']['status'];
+
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 redirect=_spf.example.org'], 'TXT _spf.example.org' => ['v=spf1 ip4:192.0.2.0/24 -all']]));
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 a ~all'], 'A example.org' => ['192.0.2.25']]));
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 mx:mail.example.net ~all']]));
+        $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 ip4:198.51.100.0/24 -all']]));
+        $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 include:other.test -all'], 'TXT other.test' => ['v=spf1 mx -all']]),
+            'mx in an include is the included domain\'s');
+    }
+
+    public function test_a_domain_can_never_make_it_ask_without_end()
+    {
+        $lookups = 0;
+        $dns = ['TXT example.org' => ['v=spf1 mx ' . implode(' ', array_map(fn ($i) => "include:i{$i}.test", range(1, 60))) . ' -all']];
+        foreach (range(1, 60) as $i) {
+            $dns["TXT i{$i}.test"] = ['v=spf1 mx a -all'];
+        }
+        (new MailDns(function ($name, $type) use (&$lookups, $dns) {
+            $lookups++;
+
+            return $dns["{$type} {$name}"] ?? [];
+        }, 'mail.example.net', ['192.0.2.25'], 'dkim', self::DKIM))->check('example.org');
+
+        $this->assertLessThan(45, $lookups);
     }
 }

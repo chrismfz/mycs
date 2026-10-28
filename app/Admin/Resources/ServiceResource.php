@@ -389,7 +389,7 @@ class ServiceResource extends Resource
                 Section::make('Mail')
                     ->columnSpanFull()
                     ->collapsible()
-                    ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record !== null && MailcowDomain::forService($record) !== null)
+                    ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record !== null && MailcowDomain::forService($record, staff: true) !== null)
                     ->schema([View::make('admin.mailcow.service-section')]),
                 // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
                 Section::make('License')

@@ -25,7 +25,8 @@ use Throwable;
 final class DomainSync
 {
     /** @return array{seen: int, new: int, gone: int, mailboxes: int} */
-    public static function sync(Server $server): array
+    /** @param  bool  $dns  check its domains' DNS after (the cron: yes; a page's «Read now»: no, never DNS in a request) */
+    public static function sync(Server $server, bool $dns = true): array
     {
         $extension = ExtensionHelper::getExtension('server', $server->extension, $server->settings);
         if (!$extension instanceof Mailcow) {
@@ -38,7 +39,9 @@ final class DomainSync
         try {
             $result = self::read($server, $extension);
             // Its domains' DNS, after the write (lookups, never in the transaction): a failure costs only the statuses.
-            rescue(fn () => MailSetup::refreshStatuses($server->id));
+            if ($dns) {
+                rescue(fn () => MailSetup::refreshStatuses($server->id));
+            }
 
             return $result;
         } finally {

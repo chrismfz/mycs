@@ -66,17 +66,21 @@ class MailcowDomain extends Model
         return $services->count() === 1 ? (int) $services->first()->id : null;
     }
 
-    /** The mail domain a service is: the one mapped to it, else its domain on its server; never one gone. */
-    public static function forService(Service $service): ?self
+    /**
+     * The mail domain a service is: the one mapped to it; else its domain on its server, not another service's, for staff
+     * always, for the customer only when it would be mapped to this service (its admin, the one live service): a domain
+     * merely named the same is never shown to another customer (review of #494).
+     */
+    public static function forService(Service $service, bool $staff = false): ?self
     {
         $mapped = self::query()->where('service_id', $service->id)->whereNull('gone_at')->orderBy('id')->first();
         if ($mapped !== null || blank($service->domain)) {
             return $mapped;
         }
         $server = $service->server_id ?? $service->product?->server_id;
+        $row = $server === null ? null : self::query()->where('server_id', $server)->where('domain', strtolower(trim((string) $service->domain)))
+            ->whereNull('gone_at')->where('internal', false)->whereNull('service_id')->first();
 
-        return $server === null ? null : self::query()->where('server_id', $server)->where('domain', strtolower(trim((string) $service->domain)))
-            ->whereNull('gone_at')->where('internal', false)
-            ->where(fn ($q) => $q->whereNull('service_id')->orWhere('service_id', $service->id))->first();
+        return $row !== null && ($staff || $row->suggestedServiceId() === $service->id) ? $row : null;
     }
 }

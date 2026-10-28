@@ -36,7 +36,7 @@
                         @if ($row['status'] === 'ok')
                             {{ implode(' · ', $row['found']) }}
                         @else
-                            <div>{{ __('services.mailcow.set') }} <span class="select-all">{{ $row['expected'] }}</span></div>
+                            @if ($row['expected'] !== '')<div>{{ __('services.mailcow.set') }} <span class="select-all">{{ $row['expected'] }}</span></div>@endif
                             @if ($row['found'])<div class="text-base/50 mt-1">{{ __('services.mailcow.now') }} {{ implode(' · ', $row['found']) }}</div>@endif
                             @if ($row['note'])<div class="text-base/50 mt-1 font-sans">{{ __('services.mailcow.notes.' . $row['note']) }}</div>@endif
                         @endif

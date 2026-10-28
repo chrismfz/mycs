@@ -83,7 +83,7 @@ class MailcowServicePageTest extends TestCase
 
         $this->livewireAs($user)->test(ServiceShow::class, ['service' => $this->service])
             ->assertSeeLivewire(MailSetupComponent::class);
-        $this->livewireAs($user)->test(MailSetupComponent::class, ['service' => $this->service])
+        $this->livewireAs($user)->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service])
             ->assertSee(__('services.mailcow.dns_ok'))
             ->assertSee('_dmarc.example.org')->assertSee('v=DMARC1; p=quarantine')
             ->assertSee('info@example.org')->assertSee('1.0 MB / 512 MB');
@@ -93,13 +93,13 @@ class MailcowServicePageTest extends TestCase
     {
         unset($this->dns['TXT dkim._domainkey.example.org']);
 
-        $this->livewireAs($this->service->client->users()->first())->test(MailSetupComponent::class, ['service' => $this->service])
+        $this->livewireAs($this->service->client->users()->first())->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service])
             ->assertSee(__('services.mailcow.dns_not_ok'))->assertSee(self::DKIM);
     }
 
     public function test_the_check_is_kept_and_checked_again_on_request_once_in_a_while(): void
     {
-        $page = $this->livewireAs($this->service->client->users()->first())->test(MailSetupComponent::class, ['service' => $this->service]);
+        $page = $this->livewireAs($this->service->client->users()->first())->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service]);
         $first = $this->lookups;
         $page->call('$refresh');
         $this->assertSame($first, $this->lookups, 'kept: no lookup again');
@@ -112,8 +112,8 @@ class MailcowServicePageTest extends TestCase
 
     public function test_another_customer_or_a_guest_sees_nothing(): void
     {
-        $this->livewireAs(User::factory()->create())->test(MailSetupComponent::class, ['service' => $this->service])->assertForbidden();
-        $this->livewireAs($this->staff())->test(MailSetupComponent::class, ['service' => $this->service])->assertForbidden();
+        $this->livewireAs(User::factory()->create())->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service])->assertForbidden();
+        $this->livewireAs($this->staff())->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service])->assertForbidden();
     }
 
     public function test_staff_see_the_mail_section_and_the_list_its_dns_status(): void
@@ -122,7 +122,7 @@ class MailcowServicePageTest extends TestCase
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
             ->assertSeeLivewire(MailSetupComponent::class);
-        $this->livewireAs($staff)->test(MailSetupComponent::class, ['service' => $this->service, 'admin' => true])
+        $this->livewireAs($staff)->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service, 'admin' => true])
             ->assertSee('DNS ready for mail')->assertSee('info@example.org');
 
         MailSetup::refreshStatuses($this->domain->server_id);
@@ -140,7 +140,7 @@ class MailcowServicePageTest extends TestCase
     public function test_staff_who_may_not_see_services_get_nothing(): void
     {
         $this->livewireAs($this->staff(['admin.servers.viewAny']))
-            ->test(MailSetupComponent::class, ['service' => $this->service, 'admin' => true])->assertForbidden();
+            ->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $this->service, 'admin' => true])->assertForbidden();
     }
 
     public function test_a_domain_mapped_to_another_service_is_not_this_ones(): void
@@ -149,5 +149,21 @@ class MailcowServicePageTest extends TestCase
             'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id])->id]);
 
         $this->assertNull(MailcowDomain::forService($this->service));
+    }
+
+    /** Review of #494: another customer's service named the same domain shows them nothing of it; staff see it. */
+    public function test_a_domain_merely_named_the_same_is_never_another_customers(): void
+    {
+        $theirs = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'status' => 'active', 'domain' => 'example.org']);
+
+        $this->assertNull(MailcowDomain::forService($theirs), 'two live services: none is surely its');
+        $this->assertNull(MailcowDomain::forService($this->service));
+        $this->livewireAs($theirs->client->users()->first())->withoutLazyLoading()->test(MailSetupComponent::class, ['service' => $theirs])
+            ->assertDontSee('info@example.org');
+        $this->assertSame($this->domain->id, MailcowDomain::forService($theirs, staff: true)?->id, 'staff see what it is named');
+
+        $this->domain->update(['service_id' => $this->service->id]);
+        $this->assertSame($this->domain->id, MailcowDomain::forService($this->service)?->id, 'mapped: its own');
     }
 }

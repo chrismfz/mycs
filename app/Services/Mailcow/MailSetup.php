@@ -20,7 +20,7 @@ final class MailSetup
     /** @return array{rows: list<array<string, mixed>>, checked_at: int, ok: bool, status: string} */
     public static function check(MailcowDomain $domain, bool $fresh = false): array
     {
-        $key = 'mailcow.dns.' . $domain->id . '.' . md5((string) $domain->dkim_txt . '|' . $domain->server_id);
+        $key = 'mailcow.dns.' . $domain->id . '.' . md5(implode('|', [$domain->dkim_selector, $domain->dkim_txt, $domain->server_id, self::host($domain)]));
         if ($fresh) {
             Cache::forget($key);
         }

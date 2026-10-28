@@ -274,6 +274,7 @@ return [
             'other_mx' => 'Other mail servers are listed too: some mail may go to them.',
             'spf_many' => 'There is more than one SPF record: receivers ignore them all. Keep one.',
             'spf_not_ours' => 'It does not include our mail server: add mx to it.',
+            'dkim_none' => 'No DKIM key at our mail server yet: contact us.',
             'dkim_other' => 'It holds another key: the mail we sign would not verify.',
             'dmarc_many' => 'There is more than one DMARC record. Keep one.',
         ],
