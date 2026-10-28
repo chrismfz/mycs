@@ -1490,5 +1490,6 @@
     "All clients (:count)": "Όλοι οι πελάτες (:count)",
     "Net amounts, without tax, in one currency. Income: the client's invoices paid in the period, as on Income & forecast (the same total). Yearly value of renewals: what its active services and auto-renewing domains bring in a year if all renewed. «fell»: a top-50 client down over 30%.": "Καθαρά ποσά, χωρίς ΦΠΑ, σε ένα νόμισμα. Έσοδα: τα τιμολόγια του πελάτη που εξοφλήθηκαν μέσα στο διάστημα, όπως στην «Έσοδα & πρόβλεψη» (το σύνολο είναι το ίδιο). Ετήσια αξία ανανεώσεων: τι φέρνουν σε έναν χρόνο οι ενεργές υπηρεσίες και τα domains με αυτόματη ανανέωση, αν ανανεωθούν όλα. «έπεσε»: πελάτης του top 50 με πτώση πάνω από 30%.",
     "new client": "νέος",
-    "All groups": "Όλες οι ομάδες"
+    "All groups": "Όλες οι ομάδες",
+    "Of which with no client (deleted)": "Από αυτά χωρίς πελάτη (διαγραμμένος)"
 }

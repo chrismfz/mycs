@@ -13,6 +13,7 @@ use Filament\Actions\Action;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -130,10 +131,17 @@ class IncomeByClient extends Page
         $this->page = max(1, $page);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Read at most every 5 minutes per currency, year and group (review of #503): a search keystroke, a sort or a page
+     * only rearranges it. Keyed by the day, as the dashboard's: «to date» turns at midnight.
+     *
+     * @return array<string, mixed>
+     */
     public function report(): array
     {
-        return ClientIncome::year($this->code(), $this->chosenYear(), $this->chosenGroup());
+        $key = 'reports.income_by_client.' . $this->code() . '.' . $this->chosenYear() . '.' . ($this->chosenGroup() ?? 'all') . '.' . now()->toDateString();
+
+        return Cache::remember($key, 300, fn () => ClientIncome::year($this->code(), $this->chosenYear(), $this->chosenGroup()));
     }
 
     /**
@@ -147,12 +155,19 @@ class IncomeByClient extends Page
         $rows = $report['rows'];
         $search = trim($this->search);
         if ($search !== '') {
-            $like = '%' . addcslashes($search, '%_\\') . '%';
-            $found = Client::query()->whereIn('id', array_column($rows, 'client_id'))
-                ->where(fn (Builder $query) => $query->where('id', ctype_digit($search) ? (int) $search : 0)
-                    ->orWhereHas('primaryContact', fn (Builder $query) => $query->where('first_name', 'like', $like)->orWhere('last_name', 'like', $like)
-                        ->orWhere('company_name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('vat_number', 'like', $like)->orWhere('tax_id', 'like', $like)))
-                ->pluck('id')->flip();
+            // Every word in one of the fields (the name as shown, «first last», too; ADV-503-9), % and _ taken literally
+            // on MariaDB and SQLite alike (ADV-503-8, as TicketResource).
+            $query = Client::query()->whereIn('id', array_column($rows, 'client_id'));
+            foreach (preg_split('/\s+/', $search) ?: [] as $word) {
+                $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($word)) . '%';
+                $query->where(fn (Builder $query) => $query->where('id', ctype_digit($word) ? (int) $word : 0)
+                    ->orWhereHas('primaryContact', fn (Builder $query) => $query->where(function (Builder $query) use ($like) {
+                        foreach (['first_name', 'last_name', 'company_name', 'email', 'vat_number', 'tax_id'] as $column) {
+                            $query->orWhereRaw('LOWER(' . $column . ") LIKE ? ESCAPE '!'", [$like]);
+                        }
+                    })));
+            }
+            $found = $query->pluck('id')->flip();
             $rows = array_values(array_filter($rows, fn ($row) => isset($found[$row['client_id']])));
         }
         // The rank, and the income of all up to it, by income whatever the sort.
@@ -162,19 +177,32 @@ class IncomeByClient extends Page
             $running += $row['received'];
             $ranks[$row['client_id']] = [$rank + 1, $running];
         }
-        $clients = Client::query()->with(['primaryContact', 'ownerGrant.user'])->whereIn('id', array_column($rows, 'client_id'))->get()->keyBy('id');
         $sort = $this->chosenSort();
         if ($sort !== 'received') {
+            $since = $sort === 'since' ? Client::query()->whereIn('id', array_column($rows, 'client_id'))->pluck('created_at', 'id') : collect();
             $key = fn ($row) => match ($sort) {
                 'change' => $row['received'] - $row['last_year'],
-                'since' => -($clients->get($row['client_id'])?->created_at?->getTimestamp() ?? 0), // the longest-standing first
+                // The longest-standing first; one with no date last.
+                'since' => ($date = $since->get($row['client_id'])) === null ? PHP_INT_MIN : -strtotime((string) $date),
                 default => $row[$sort],
             };
             usort($rows, fn ($a, $b) => [$key($b), $b['received'], $a['client_id']] <=> [$key($a), $a['received'], $b['client_id']]);
         }
 
-        return array_map(fn ($row) => $row + ['rank' => $ranks[$row['client_id']][0], 'cumulative' => $ranks[$row['client_id']][1],
-            'client' => $clients->get($row['client_id'])], $rows);
+        return array_map(fn ($row) => $row + ['rank' => $ranks[$row['client_id']][0], 'cumulative' => $ranks[$row['client_id']][1]], $rows);
+    }
+
+    /**
+     * These rows with their client (name, «client since»): only the rows shown, or the file's (review of #503).
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public function withClients(array $rows): array
+    {
+        $clients = Client::query()->with(['primaryContact', 'ownerGrant.user'])->whereIn('id', array_column($rows, 'client_id'))->get()->keyBy('id');
+
+        return array_map(fn ($row) => $row + ['client' => $clients->get($row['client_id'])], $rows);
     }
 
     public static function clientUrl(int $id): string
@@ -192,7 +220,7 @@ class IncomeByClient extends Page
     private function csv(): StreamedResponse
     {
         $report = $this->report();
-        $rows = $this->rows($report);
+        $rows = $this->withClients($this->rows($report));
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');

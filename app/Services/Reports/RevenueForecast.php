@@ -126,7 +126,7 @@ final class RevenueForecast
 
         // The domains the cron renews (RenewalBilling::BILLED_DOMAINS, automatic renewal), at the price it bills: its own
         // or its TLD's for its next period (renewalPriceFor; R1 of #275), net of the account's tax.
-        $domains = Domain::query()->with(['client', 'domainTld.prices'])
+        $domains = Domain::query()->with(['client.primaryContact', 'domainTld.prices'])
             ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
             ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)->get();
         foreach ($domains as $domain) {

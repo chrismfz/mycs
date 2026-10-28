@@ -3,7 +3,7 @@
     $rows = $this->rows($report);
     $pages = max(1, (int) ceil(count($rows) / \App\Admin\Pages\IncomeByClient::PER_PAGE));
     $current = min(max(1, (int) $this->page), $pages);
-    $shown = array_slice($rows, ($current - 1) * \App\Admin\Pages\IncomeByClient::PER_PAGE, \App\Admin\Pages\IncomeByClient::PER_PAGE);
+    $shown = $this->withClients(array_slice($rows, ($current - 1) * \App\Admin\Pages\IncomeByClient::PER_PAGE, \App\Admin\Pages\IncomeByClient::PER_PAGE));
     $currencyModel = \App\Models\Currency::query()->find($this->code());
     $cents = fn (int $cents) => \App\Services\Reports\RevenueForecast::money($cents);
     $money = fn (int $amount) => (new \App\Classes\Price(['price' => $cents($amount), 'currency' => $currencyModel], tax: 0))->format($cents($amount));
@@ -68,8 +68,8 @@
         </x-filament::section>
         <x-filament::section>
             <div class="text-sm text-gray-500">{{ __('The 10 largest') }}</div>
-            <div class="text-2xl font-semibold">{{ $share($report['top10'], $report['total']) }}% <span class="text-base font-medium text-gray-500">· {{ $money($report['top10']) }}</span></div>
-            <div class="text-sm text-gray-500">{{ __('the 50 largest: :percent%', ['percent' => $share($report['top50'], $report['total'])]) }}</div>
+            <div class="text-2xl font-semibold">{{ $share($report['top10'], $report['positive']) }}% <span class="text-base font-medium text-gray-500">· {{ $money($report['top10']) }}</span></div>
+            <div class="text-sm text-gray-500">{{ __('the 50 largest: :percent%', ['percent' => $share($report['top50'], $report['positive'])]) }}</div>
         </x-filament::section>
         <x-filament::section>
             <div class="text-sm text-gray-500">{{ __('New clients') }}</div>
@@ -83,11 +83,12 @@
         </x-filament::section>
     </div>
 
-    @if ($report['total'] > 0)
+    @if ($report['positive'] > 0)
         <x-filament::section :heading="__('How much depends on a few')">
             @php
-                $top = $share($report['top10'], $report['total']);
-                $next = $share($report['top50'], $report['total']) - $top;
+                // Out of what the clients brought in (never past 100%: ADV-503-7).
+                $top = $share($report['top10'], $report['positive']);
+                $next = $share($report['top50'], $report['positive']) - $top;
             @endphp
             <div class="flex h-7 rounded-md overflow-hidden text-xs font-semibold" role="img"
                  aria-label="{{ __('The 10 largest :a%, the next 40 :b%, the other :count :c%', ['a' => $top, 'b' => $next, 'count' => $rest, 'c' => 100 - $top - $next]) }}">
@@ -151,6 +152,15 @@
                         <td class="py-2 pr-4">100%</td>
                         <td colspan="4"></td>
                     </tr>
+                    @if ($report['unassigned']['received'] !== 0 || $report['unassigned']['last_year'] !== 0)
+                        <tr class="font-normal text-gray-500">
+                            <td></td>
+                            <td class="py-2 pr-4 text-left">{{ __('Of which with no client (deleted)') }}</td>
+                            <td class="py-2 pr-4 whitespace-nowrap">{{ $money($report['unassigned']['received']) }}</td>
+                            <td class="py-2 pr-4 whitespace-nowrap">{{ $money($report['unassigned']['last_year']) }}</td>
+                            <td colspan="6"></td>
+                        </tr>
+                    @endif
                 </tfoot>
             </table>
         </div>
