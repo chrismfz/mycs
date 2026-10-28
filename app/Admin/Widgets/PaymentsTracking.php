@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\PaginationMode;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -34,7 +35,8 @@ class PaymentsTracking extends TableWidget
         return $table
             ->query(BankMovement::query()->credits()->with(['acknowledgedBy', 'invoice']))
             ->defaultSort('executed_at', 'desc')
-            ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)
+            // A widget pages «simply» (no count): here the page and the total show, with thousands of movements (owner 2026-10-28).
+            ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)->paginationMode(PaginationMode::Default)
             ->recordClasses(fn (BankMovement $record) => $record->status === BankMovement::PENDING ? 'bg-warning-50 dark:bg-warning-500/10' : null)
             ->columns([
                 TextColumn::make('status')->label('')->width('1%')
