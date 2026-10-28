@@ -76,7 +76,11 @@ final class MailDnsTest extends TestCase
 
         $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 redirect=_spf.example.org'], 'TXT _spf.example.org' => ['v=spf1 ip4:192.0.2.0/24 -all']]));
         $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 a ~all'], 'A example.org' => ['192.0.2.25']]));
-        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 mx:mail.example.net ~all']]));
+        $this->assertSame('ok', $spf(['TXT example.org' => ['v=spf1 a:mail.example.net ~all'], 'A mail.example.net' => ['192.0.2.25']]));
+        $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 -all mx'], 'MX example.org' => ['mail.example.net']]), 'first match wins: -all');
+        $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 -ip4:192.0.2.25 ip4:192.0.2.0/24 -all']]), 'our IP refused first');
+        $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 ~all redirect=_spf.example.org'], 'TXT _spf.example.org' => ['v=spf1 ip4:192.0.2.25 -all']]),
+            'a redirect with all is ignored');
         $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 ip4:198.51.100.0/24 -all']]));
         $this->assertSame('warn', $spf(['TXT example.org' => ['v=spf1 include:other.test -all'], 'TXT other.test' => ['v=spf1 mx -all']]),
             'mx in an include is the included domain\'s');
@@ -96,5 +100,15 @@ final class MailDnsTest extends TestCase
         }, 'mail.example.net', ['192.0.2.25'], 'dkim', self::DKIM))->check('example.org');
 
         $this->assertLessThan(45, $lookups);
+
+        $terms = implode(' ', array_map(fn ($i) => "a:a{$i}.test mx:m{$i}.test", range(1, 200)));
+        $spf = new MailDns(function ($name, $type) use (&$lookups, $terms) {
+            $lookups++;
+
+            return $type === 'TXT' && $name === 'example.org' ? ["v=spf1 {$terms} -all"] : [];
+        }, 'mail.example.net', ['192.0.2.25'], 'dkim', self::DKIM);
+        $lookups = 0;
+        $spf->check('example.org');
+        $this->assertLessThan(25, $lookups, 'a: and mx: terms spend the 10 too');
     }
 }

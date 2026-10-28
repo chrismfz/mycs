@@ -156,7 +156,7 @@ final class MailcowClient
     public function getDkim($domain)
     {
         $json = $this->get('/api/v1/get/dkim/' . rawurlencode((string) $domain));
-        if ($json === null || $json === []) {
+        if ($json === []) { // mailcow's «none» is an empty list or object; a body that is no JSON (a proxy's page) is no «none»
             return [];
         }
         if (!is_array($json) || empty($json['dkim_txt'])) {

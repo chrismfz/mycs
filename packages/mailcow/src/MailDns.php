@@ -9,7 +9,7 @@ namespace Nixpal\Mailcow;
  *
  * The resolver is given a name and a type (MX, TXT, CNAME, A) and returns the records: MX and CNAME as their target, TXT
  * as its text, A as its address (strings); none, an empty list. Each name and type is looked up once per check, and SPF
- * follows at most 10 includes and redirects (RFC 7208), so a domain's DNS can never make it ask without end. A row's note
+ * spends at most the 10 lookups RFC 7208 allows, so a domain's DNS can never make it ask without end. A row's note
  * is a code: other_mx, spf_many, spf_not_ours, dkim_none, dkim_other, dmarc_many.
  */
 final class MailDns
@@ -38,7 +38,7 @@ final class MailDns
     /** @var array<string, list<string>> lookups of this check, each once */
     private $memo = [];
 
-    /** @var int SPF includes and redirects followed in this check (RFC 7208: 10 lookups) */
+    /** @var int SPF lookups spent in this check: a, mx, include, redirect, exists, ptr (RFC 7208: 10) */
     private $spfLookups = 0;
 
     const SPF_LOOKUPS = 10;
@@ -115,52 +115,70 @@ final class MailDns
     }
 
     /**
-     * Its mechanisms name our server: mx when its domain's MX is ours, a when its A is, a:/mx:/include: our host, ip4 of
-     * our address (CIDR too), or an include or redirect that does (its own domain for its mx and a), within the RFC's 10.
+     * Whether the record lets our server send, as a receiver evaluates it (RFC 7208 §4.6): its terms left to right, the
+     * first mechanism that matches decides, by its qualifier (only «+» lets it); a redirect only when there is no «all».
+     * a, mx, include, redirect, exists and ptr each spend one of the 10 lookups the RFC allows for the whole check: past
+     * them, it does not.
      */
     private function spfCovers(string $record, string $domain): bool
     {
         $redirect = null;
         foreach (preg_split('/\s+/', strtolower(trim($record))) as $term) {
-            $term = ltrim($term, '+');
+            if ($term === '' || $term === 'v=spf1') {
+                continue;
+            }
             if (strpos($term, 'redirect=') === 0) {
                 $redirect = substr($term, 9);
 
                 continue;
             }
+            if (strpos($term, '=') !== false) {
+                continue; // another modifier (exp=)
+            }
+            $qualifier = in_array($term[0], ['+', '-', '~', '?'], true) ? $term[0] : '+';
+            $term = ltrim($term, '+-~?');
             [$mechanism, $value] = array_pad(explode(':', $term, 2), 2, null);
-            $mechanism = (string) preg_replace('#/\d+$#', '', $mechanism);
-            $target = $value === null ? $domain : (string) preg_replace('#/\d+$#', '', $value);
-            if ($mechanism === 'mx' && ($target === $this->mailHost || in_array($this->mailHost, array_map([self::class, 'host'], $this->lookup($target, 'MX')), true))) {
-                return true;
+            $mechanism = (string) preg_replace('#/\d+(//\d+)?$#', '', $mechanism);
+            $target = $value === null ? $domain : (string) preg_replace('#/\d+(//\d+)?$#', '', $value);
+            if ($mechanism === 'all') {
+                return $qualifier === '+'; // so a redirect is never followed when there is an «all»
             }
-            if ($mechanism === 'a' && ($target === $this->mailHost || array_intersect($this->lookup($target, 'A'), $this->serverIps) !== [])) {
-                return true;
+            if (in_array($mechanism, ['a', 'mx', 'include', 'exists', 'ptr'], true) && !$this->spend()) {
+                return false; // past the RFC's 10: a receiver's permerror
             }
-            if ($mechanism === 'ip4' && $value !== null && $this->coversIp($value)) {
-                return true;
+            $matches = false;
+            if ($mechanism === 'ip4') {
+                $matches = $value !== null && $this->coversIp($value);
+            } elseif ($mechanism === 'a') {
+                $matches = array_intersect($this->lookup($target, 'A'), $this->serverIps) !== [];
+            } elseif ($mechanism === 'mx') {
+                $matches = in_array($this->mailHost, array_map([self::class, 'host'], $this->lookup($target, 'MX')), true);
+            } elseif ($mechanism === 'include') {
+                $matches = $value !== null && $this->included($value);
             }
-            if ($mechanism === 'include' && $value !== null && ($value === $this->mailHost || $this->followed($value))) {
-                return true;
+            if ($matches) {
+                return $qualifier === '+';
             }
         }
-
-        return $redirect !== null && $redirect !== '' && $this->followed($redirect);
-    }
-
-    /** An included or redirected domain's SPF covers us, while the RFC's lookups last. */
-    private function followed(string $domain): bool
-    {
-        if (++$this->spfLookups > self::SPF_LOOKUPS) {
+        if ($redirect === null || $redirect === '' || !$this->spend()) {
             return false;
         }
-        foreach (self::spfRecords($this->lookup($domain, 'TXT')) as $record) {
-            if ($this->spfCovers($record, $domain)) {
-                return true;
-            }
-        }
 
-        return false;
+        return $this->included($redirect);
+    }
+
+    /** One of the RFC's 10 lookups spent; false when none is left. */
+    private function spend(): bool
+    {
+        return ++$this->spfLookups <= self::SPF_LOOKUPS;
+    }
+
+    /** An included or redirected domain's SPF (one record) lets our server send. */
+    private function included(string $domain): bool
+    {
+        $records = self::spfRecords($this->lookup($domain, 'TXT'));
+
+        return count($records) === 1 && $this->spfCovers($records[0], $domain);
     }
 
     /** One of our IPv4 addresses within «a.b.c.d» or «a.b.c.d/n». */
