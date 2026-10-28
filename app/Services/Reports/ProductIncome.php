@@ -68,7 +68,8 @@ final class ProductIncome
                 $cells[$key]['annual_exact'] = ($cells[$key]['annual_exact'] ?? BigDecimal::zero())->plus($yearly);
             }
         }
-        foreach (Service::query()->where('currency_code', $currency)->where('created_at', '>=', $from)->where('created_at', '<', $until)
+        // New: activated in the period (an order never started is not; review of #504).
+        foreach (Service::query()->where('currency_code', $currency)->where('activated_at', '>=', $from)->where('activated_at', '<', $until)
             ->selectRaw('product_id, COUNT(*) AS count')->groupBy('product_id')->pluck('count', 'product_id') as $product => $count) {
             $cells['product:' . $product]['new'] = (int) $count;
         }
@@ -145,21 +146,28 @@ final class ProductIncome
             $shares = [];
             foreach ($lines->get($invoice, collect()) as $line) {
                 $key = self::item($line, $products, $domains, $owners[$invoice] ?? null);
-                $cents = RevenueForecast::cents(number_format((float) $line->line_total - (float) $line->tax_amount, 2, '.', ''));
-                $shares[] = [$key, $cents];
+                $shares[] = [$key, RevenueForecast::cents(number_format((float) $line->line_total - (float) $line->tax_amount, 2, '.', ''))];
             }
-            $sum = array_sum(array_column($shares, 1));
-            if ($shares === [] || $sum === 0) {
-                $out[self::OTHER] = ($out[self::OTHER] ?? 0) + $net; // nothing to share by: a note on lines of nothing
-
-                continue;
-            }
+            // Each line its own net; only the notes (the invoice's net less its lines') are shared out, over the lines that
+            // bill something, by their net, the last of them taking what rounding leaves: a note never moves income
+            // between a line and a discount beside it (review of #504). Nothing to share them by: «Other».
+            // Rounded on the running sum (ADV-504-1): each line within a cent of its share, whatever their number or order.
+            $positive = array_filter($shares, fn ($share) => $share[1] > 0);
+            $notes = $net - array_sum(array_column($shares, 1));
+            $base = array_sum(array_column($positive, 1));
+            $running = 0;
             $given = 0;
             foreach ($shares as $i => [$key, $cents]) {
-                $part = $i === count($shares) - 1 ? $net - $given
-                    : BigDecimal::of($net)->multipliedBy($cents)->dividedBy($sum, 0, RoundingMode::HalfUp)->toInt();
-                $given += $part;
-                $out[$key] = ($out[$key] ?? 0) + $part;
+                if ($notes !== 0 && isset($positive[$i])) {
+                    $running += $cents;
+                    $upTo = BigDecimal::of($notes)->multipliedBy($running)->dividedBy($base, 0, RoundingMode::HalfUp)->toInt();
+                    $cents += $upTo - $given;
+                    $given = $upTo;
+                }
+                $out[$key] = ($out[$key] ?? 0) + $cents;
+            }
+            if ($notes !== 0 && $positive === []) {
+                $out[self::OTHER] = ($out[self::OTHER] ?? 0) + $notes;
             }
         }
 
@@ -180,13 +188,33 @@ final class ProductIncome
             return 'tld:' . self::tld((string) $domain->tld);
         }
         // An imported WHMCS «Domain» line has no type, only the domain's id: its, when the domain is the invoice's
-        // client's and its name is in the line's description (owner 2026-10-28).
+        // client's and the line is a domain's naming it (owner 2026-10-28). A setup, addon or promo line carries
+        // another id, which may be a domain's too: «domain» in it, and the name whole (review of #504).
         if ($domain !== null && $line->reference_type === null && (int) $domain->client_id === (int) $client
-            && $domain->fqdn !== '' && mb_stripos((string) $line->description, (string) $domain->fqdn) !== false) {
+            && self::namesDomain((string) $line->description, (string) $domain->fqdn)) {
             return 'tld:' . self::tld((string) $domain->tld);
         }
 
         return self::OTHER;
+    }
+
+    /** A domain line's description naming this domain: «domain» in it, and the name whole, in punycode or not (IDN). */
+    private static function namesDomain(string $description, string $fqdn): bool
+    {
+        if ($fqdn === '' || !preg_match('/domain|τομέα|ονόματος χώρου/iu', $description)) {
+            return false;
+        }
+        $names = [$fqdn];
+        if (str_contains($fqdn, 'xn--') && ($unicode = idn_to_utf8($fqdn, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46)) !== false) {
+            $names[] = $unicode;
+        }
+        foreach ($names as $name) {
+            if (preg_match('/(?<![\\p{L}\\p{N}.\\-])' . preg_quote($name, '/') . '(?![\\p{L}\\p{N}\\-]|\\.[\\p{L}\\p{N}])/iu', $description)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** An extension as shown: «.gr», whatever the stored form. */
@@ -226,8 +254,9 @@ final class ProductIncome
                 [$group, $groupName] = [self::OTHER, __('Other (no service)')];
                 $item = ['name' => $groupName, 'services' => null, 'new' => null, 'ended' => null] + $item;
             }
-            // An item with nothing in either year and no active service is not shown.
-            if ($item['received'] === 0 && $item['last_year'] === 0 && !$item['services']) {
+            // An item with nothing in either year, no active service and nothing to renew is not shown (ADV-504-3: an
+            // expired domain the cron still renews keeps its yearly value).
+            if ($item['received'] === 0 && $item['last_year'] === 0 && !$item['services'] && $item['annual'] === 0) {
                 continue;
             }
             $groups[$group] ??= ['key' => $group, 'name' => $groupName, 'items' => []];

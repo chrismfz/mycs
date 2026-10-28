@@ -159,7 +159,8 @@ class IncomeByProduct extends Page
         $perService = fn (array $row) => $row['services'] ? intdiv($row['received'], $row['services']) : null;
         $withServices = array_filter($groups, fn ($group) => $group['services'] > 0 && $group['received'] > 0);
         usort($withServices, fn ($a, $b) => $perService($b) <=> $perService($a));
-        $itemsWithServices = array_filter($items, fn ($item) => $item['services'] > 0 && $item['received'] > 0);
+        // Of a product: not an extension (review of #504).
+        $itemsWithServices = array_filter($items, fn ($item) => str_starts_with($item['key'], 'product:') && $item['services'] > 0 && $item['received'] > 0);
         usort($itemsWithServices, fn ($a, $b) => $perService($a) <=> $perService($b));
         $changes = $items;
         usort($changes, fn ($a, $b) => ($b['received'] - $b['last_year']) <=> ($a['received'] - $a['last_year']));
@@ -167,7 +168,8 @@ class IncomeByProduct extends Page
         $fall = $changes === [] ? null : $changes[count($changes) - 1];
 
         return [
-            'largest' => $groups[0] ?? null,
+            // Something came in (ADV-504-6).
+            'largest' => isset($groups[0]) && $groups[0]['received'] > 0 ? $groups[0] : null,
             'best' => $withServices[0] ?? null,
             'best_per' => isset($withServices[0]) ? $perService($withServices[0]) : null,
             'least' => $itemsWithServices[0] ?? null,

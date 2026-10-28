@@ -8,7 +8,10 @@
     // Display only (the amounts are whole cents): whole percents, never «-0»; a share to a tenth, in the staff's locale.
     $percent = fn (int $now, int $then) => $then > 0 ? (($change = (int) round(($now - $then) * 100 / $then)) > 0 ? '+' : '') . $change . '%' : null;
     $tone = fn (int $now, int $then) => $now < $then ? 'text-danger-600 dark:text-danger-400' : 'text-success-700 dark:text-success-400';
-    $tenth = fn (int $part) => \Illuminate\Support\Number::format($report['total'] > 0 ? $part * 100 / $report['total'] : 0, 1) . '%';
+    // Out of what the groups brought in: one netting below zero («Other»: refunds, credits) never makes another weigh
+    // more than all (ADV-504-2).
+    $positive = array_sum(array_map(fn ($group) => max(0, $group['received']), $groups));
+    $tenth = fn (int $part) => \Illuminate\Support\Number::format($positive > 0 ? $part * 100 / $positive : 0, 1) . '%';
     $perService = fn (array $row) => $row['services'] ? $money(intdiv($row['received'], $row['services'])) : '—';
     $period = $report['to_date']
         ? __(':year to :date, against the same days of :last', ['year' => $this->chosenYear(), 'date' => $report['until']->subDay()->format('d/m'), 'last' => $this->chosenYear() - 1])

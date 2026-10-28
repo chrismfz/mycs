@@ -176,9 +176,10 @@ class ProductIncomeTest extends TestCase
     {
         $category = $this->category('Hosting');
         $product = $this->product('Business 10', $category);
-        $old = $this->service($product, 10, ['created_at' => '2025-02-01 09:00:00']);
-        $this->service($product, 10, ['created_at' => '2026-02-01 09:00:00']);
-        $leaving = $this->service($product, 10, ['created_at' => '2026-03-01 09:00:00']);
+        $old = $this->service($product, 10, ['created_at' => '2025-02-01 09:00:00', 'activated_at' => '2025-02-01 09:00:00']);
+        $this->service($product, 10, ['created_at' => '2026-02-01 09:00:00', 'activated_at' => '2026-02-01 09:00:00']);
+        $this->service($product, 10, ['created_at' => '2026-02-01 09:00:00', 'activated_at' => null, 'status' => Service::STATUS_PENDING]); // never started
+        $leaving = $this->service($product, 10, ['created_at' => '2026-03-01 09:00:00', 'activated_at' => '2026-03-01 09:00:00']);
         ServiceCancellation::create(['service_id' => $leaving->id, 'reason' => 'x', 'type' => 'end_of_period']);
         $this->service($product, 10, ['status' => Service::STATUS_CANCELLED, 'created_at' => '2024-01-01 09:00:00']);
         $this->paid('2026-04-01 09:00:00', [['price' => 90, 'reference_type' => Service::class, 'reference_id' => $old->id]]);
@@ -236,5 +237,42 @@ class ProductIncomeTest extends TestCase
         $page->call('sortBy', 'services')->assertSeeInOrder(['Shared Hosting', 'Semi Dedicated']);
         $page->set('sort', 'nonsense')->assertSet('sort', 'received')->set('year', 1999)->assertSet('year', 2026);
         $page->callAction('csv')->assertFileDownloaded('income-by-product-USD-2026-2026-10-21.csv');
+    }
+
+    public function test_a_note_is_shared_over_the_lines_that_bill_never_moving_a_discount(): void
+    {
+        $category = $this->category('Hosting');
+        $a = $this->service($this->product('A', $category), 10);
+        $b = $this->service($this->product('B', $category), 10);
+        // A 10, a promo of −9.99 (no service), B 3.33, and a credit note of 20 gross (review of #504).
+        $this->paid('2026-03-01 09:00:00', [
+            ['price' => 10, 'reference_type' => Service::class, 'reference_id' => $a->id],
+            ['price' => -9.99, 'description' => 'Promo'],
+            ['price' => 3.33, 'reference_type' => Service::class, 'reference_id' => $b->id],
+        ], open: fn (Invoice $invoice) => $invoice->adjustmentNotes()->create(['type' => 'credit', 'amount' => -20, 'description' => 'Goodwill']));
+
+        $report = ProductIncome::year('USD', 2026);
+        $groups = $this->byName($report);
+
+        // The promo stays −9.99; the note's net part (the invoice's net less its lines' 3.34) only on A and B, by their net.
+        $this->assertSame(-999, $groups[__('Other (no service)')]['received']);
+        $this->assertSame($report['total'], $groups['Hosting']['received'] - 999);
+        $this->assertLessThan(0, $groups['Hosting']['by']['A']['received']);
+        $this->assertSame(IncomePlan::yearToDate('USD')['received'], RevenueForecast::money($report['total']));
+    }
+
+    public function test_an_imported_line_goes_to_a_domain_only_when_it_is_a_domain_line_naming_it_whole(): void
+    {
+        $domain = $this->domain('example');
+        $idn = $this->domain('xn--hxajbheg2az3al', ['fqdn' => 'xn--hxajbheg2az3al.gr']);
+        $this->paid('2026-03-01 09:00:00', [['price' => 7, 'reference_id' => $domain->id, 'description' => 'Setup Fee - Hosting - example.gr']]);
+        $this->paid('2026-03-01 09:00:00', [['price' => 6, 'reference_id' => $domain->id, 'description' => 'Domain Renewal - myexample.gr']]);
+        $this->paid('2026-03-01 09:00:00', [['price' => 5, 'reference_id' => $domain->id, 'description' => 'Domain Renewal - example.gr.cy']]);
+        $this->paid('2026-03-01 09:00:00', [['price' => 4, 'reference_id' => $idn->id, 'description' => 'Ανανέωση Domain - παράδειγμα.gr (1 Έτος)']]);
+
+        $groups = $this->byName(ProductIncome::year('USD', 2026));
+
+        $this->assertSame(400, $groups[__('Domains')]['received'], 'the IDN, by its name in Unicode');
+        $this->assertSame(1800, $groups[__('Other (no service)')]['received'], 'a setup line, another name, another extension');
     }
 }
