@@ -48,20 +48,14 @@ class MailcowDomainResource extends Resource
                 TextColumn::make('domain')->sortable()->searchable()
                     ->description(fn (MailcowDomain $record) => $record->admins ? 'admin: ' . implode(', ', $record->admins) : null),
                 IconColumn::make('active')->boolean()->sortable(),
-                // Its DNS as last checked (after each read): the service page says what is missing.
+                // Its DNS as last checked (after each read): ✓, or ✗ for any record not right, which ones on hover (owner
+                // 2026-10-28); the service page says what to set.
                 TextColumn::make('dns_status')->label('DNS')->badge()->sortable()->placeholder('—')
-                    ->formatStateUsing(fn (?string $state) => match ($state) {
-                        'ok' => '✓', 'fail' => '✗', default => '!'
-                    })
-                    ->color(fn (?string $state) => match ($state) {
-                        'ok' => 'success', 'fail' => 'danger', default => 'warning'
-                    })
-                    ->tooltip(fn (MailcowDomain $record) => match ($record->dns_status) {
-                        'ok' => 'MX, SPF, DKIM, DMARC and autodiscover as they should be',
-                        'warn' => 'An advised record missing, or one to check',
-                        'fail' => 'A needed record (MX, SPF or DKIM) missing',
-                        default => null,
-                    } . ($record->dns_checked_at ? ' · checked ' . $record->dns_checked_at->diffForHumans() : '')),
+                    ->formatStateUsing(fn (?string $state) => $state === 'ok' ? '✓' : '✗')
+                    ->color(fn (?string $state) => $state === 'ok' ? 'success' : 'danger')
+                    ->tooltip(fn (MailcowDomain $record) => $record->dns_status === null ? null
+                        : ($record->dns_status === 'ok' ? 'MX, SPF, DKIM, DMARC and autodiscover as they should be' : 'Not right: ' . $record->dns_issues)
+                            . ($record->dns_checked_at ? ' · checked ' . $record->dns_checked_at->diffForHumans() : '')),
                 TextColumn::make('mailboxes')->sortable()
                     ->formatStateUsing(fn (MailcowDomain $record) => $record->mailboxes . ' / ' . ($record->mailbox_limit ?: '∞')),
                 TextColumn::make('aliases')->sortable()->toggleable()
@@ -90,7 +84,7 @@ class MailcowDomainResource extends Resource
                         'internal' => $query->where('internal', true),
                         default => $query,
                     }),
-                SelectFilter::make('dns_status')->label('DNS')->options(['fail' => '✗ A needed record missing', 'warn' => '! To check', 'ok' => '✓ OK']),
+                SelectFilter::make('dns_status')->label('DNS')->options(['fail' => '✗ Something not right', 'ok' => '✓ OK']),
                 SelectFilter::make('server_id')->label('Server')->relationship('server', 'name', fn (Builder $query) => $query->where('extension', 'Mailcow')),
                 TernaryFilter::make('gone')->label('Gone from the server')
                     ->queries(true: fn (Builder $query) => $query->whereNotNull('gone_at'), false: fn (Builder $query) => $query->whereNull('gone_at'))

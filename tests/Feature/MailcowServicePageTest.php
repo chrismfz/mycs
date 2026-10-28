@@ -126,12 +126,12 @@ class MailcowServicePageTest extends TestCase
             ->assertSee('DNS ready for mail')->assertSee('info@example.org');
 
         MailSetup::refreshStatuses($this->domain->server_id);
-        $this->assertSame('warn', $this->domain->fresh()->dns_status, 'needed ones OK, advised ones missing');
+        $this->assertSame(['fail', 'DMARC, AUTODISCOVER, AUTOCONFIG'], [$this->domain->fresh()->dns_status, $this->domain->fresh()->dns_issues], 'any record not right: ✗, which ones');
         $this->dns['TXT _dmarc.example.org'] = ['v=DMARC1; p=none'];
         $this->dns['CNAME autodiscover.example.org'] = ['mail.example.net'];
         $this->dns['CNAME autoconfig.example.org'] = ['mail.example.net'];
         MailSetup::refreshStatuses($this->domain->server_id);
-        $this->assertSame('ok', $this->domain->fresh()->dns_status);
+        $this->assertSame(['ok', null], [$this->domain->fresh()->dns_status, $this->domain->fresh()->dns_issues]);
         $this->dns['MX example.org'] = [];
         MailSetup::refreshStatuses($this->domain->server_id);
         $this->assertSame('fail', $this->domain->fresh()->dns_status);

@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
 class MailcowDomain extends Model
 {
     protected $fillable = ['server_id', 'domain', 'active', 'mailboxes', 'mailbox_limit', 'aliases', 'alias_limit', 'quota_bytes', 'used_bytes',
-        'messages', 'admins', 'dkim_selector', 'dkim_txt', 'dns_status', 'dns_checked_at', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note'];
+        'messages', 'admins', 'dkim_selector', 'dkim_txt', 'dns_status', 'dns_issues', 'dns_checked_at', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note'];
 
     protected function casts(): array
     {

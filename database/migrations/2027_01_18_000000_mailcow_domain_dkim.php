@@ -13,8 +13,10 @@ return new class extends Migration
         Schema::table('mailcow_domains', function (Blueprint $table) {
             $table->string('dkim_selector', 63)->nullable()->after('admins');
             $table->text('dkim_txt')->nullable()->after('dkim_selector');
-            // Its DNS as last checked (the sync; MailDns): ok, warn (advised missing or a needed one to check), fail.
+            // Its DNS as last checked (the sync; MailDns): ok, or fail with the records that are not right (owner
+            // 2026-10-28: a plain ✓ or ✗ in the list, any error).
             $table->string('dns_status', 8)->nullable()->after('dkim_txt');
+            $table->string('dns_issues')->nullable()->after('dns_status');
             $table->timestamp('dns_checked_at')->nullable()->after('dns_status');
         });
     }
@@ -22,7 +24,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('mailcow_domains', function (Blueprint $table) {
-            $table->dropColumn(['dkim_selector', 'dkim_txt', 'dns_status', 'dns_checked_at']);
+            $table->dropColumn(['dkim_selector', 'dkim_txt', 'dns_status', 'dns_issues', 'dns_checked_at']);
         });
     }
 };

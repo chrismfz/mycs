@@ -34,17 +34,16 @@ final class MailSetup
         });
     }
 
-    /** One word for the list: fail when a needed record is missing, warn when one is to check or an advised one missing. */
+    /** For the list (owner 2026-10-28: a plain ✓ or ✗): ok only when every record is, needed or advised. */
     public static function status(array $rows): string
     {
-        $statuses = array_column($rows, 'status', 'key');
-        foreach ($rows as $row) {
-            if ($row['required'] && $row['status'] === MailDns::FAIL) {
-                return MailDns::FAIL;
-            }
-        }
+        return self::issues($rows) === [] ? MailDns::OK : MailDns::FAIL;
+    }
 
-        return in_array(MailDns::WARN, $statuses, true) ? MailDns::WARN : MailDns::OK;
+    /** @return list<string> the records that are not right, by name (MX, SPF, DKIM, DMARC, AUTODISCOVER, AUTOCONFIG) */
+    public static function issues(array $rows): array
+    {
+        return array_values(array_map(fn (array $row) => strtoupper($row['key']), array_filter($rows, fn (array $row) => $row['status'] !== MailDns::OK)));
     }
 
     /** Each live domain of the server checked again, its status kept on it (after the sync; a DNS that fails is a fail). */
@@ -52,7 +51,7 @@ final class MailSetup
     {
         foreach (MailcowDomain::query()->where('server_id', $serverId)->whereNull('gone_at')->with('server.settings')->get() as $domain) {
             $check = self::check($domain, fresh: true);
-            $domain->update(['dns_status' => $check['status'], 'dns_checked_at' => now()]);
+            $domain->update(['dns_status' => $check['status'], 'dns_issues' => implode(', ', self::issues($check['rows'])) ?: null, 'dns_checked_at' => now()]);
         }
     }
 
