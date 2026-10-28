@@ -56,7 +56,7 @@ class GuestNavigationHomeTest extends TestCase
     {
         $shop = $this->menu()[__('navigation.shop')];
 
-        $this->assertSame(['Cloud Hosting'], array_column($shop['children'], 'name'));
+        $this->assertSame([__('navigation.show_all'), 'Cloud Hosting'], array_column($shop['children'], 'name'));
         $this->assertArrayNotHasKey(__('navigation.home'), $this->menu(), 'home is the logo');
     }
 

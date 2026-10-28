@@ -28,4 +28,5 @@ return [
     'whois' => 'Whois',
     'knowledgebase' => 'Βάση γνώσεων',
     'contact' => 'Επικοινωνία',
+    'show_all' => 'Εμφάνιση όλων',
 ];

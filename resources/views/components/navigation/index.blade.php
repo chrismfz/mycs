@@ -37,6 +37,9 @@
                                     :spa="isset($child['spa']) ? $nav['spa'] : true">
                                     {{ $child['name'] }}
                                 </x-navigation.link>
+                                @if (!empty($child['separator']))
+                                <div class="my-1 h-px bg-neutral"></div>
+                                @endif
                                 @endforeach
                             </x-slot:content>
                         </x-dropdown>

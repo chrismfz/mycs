@@ -28,4 +28,5 @@ return [
     'whois' => 'Whois',
     'knowledgebase' => 'Knowledgebase',
     'contact' => 'Contact',
+    'show_all' => 'Show all',
 ];

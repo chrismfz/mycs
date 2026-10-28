@@ -161,6 +161,8 @@ Route::post('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeControll
     ->withoutMiddleware([ValidateCsrfToken::class]);
 
 Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
+    // «Show all» (WHMCS's «Εμφάνιση όλων»): every category of the menu on one page.
+    Route::get('/', Products\ShowAll::class)->name('products.all');
     Route::get('/{category:slug}', Products\Index::class)->name('category.show')/* ->where('category', '[A-Za-z0-9_/-]+') */;
     Route::get('/{category:slug}/{product:slug}', Products\Show::class)->name('products.show')/* ->where('category', '[A-Za-z0-9_/-]+') */;
     Route::get('/{category:slug}/{product:slug}/checkout', Products\Checkout::class)->name('products.checkout')/* ->where('category', '[A-Za-z0-9_/-]+') */;
