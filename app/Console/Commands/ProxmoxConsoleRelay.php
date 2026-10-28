@@ -51,8 +51,7 @@ class ProxmoxConsoleRelay extends Command
         }
         // A deploy's --restart, at its end, ends it (its consoles with it): systemd starts the release's code
         // (Restart=always). Not the queue's restart: that is sent before the checkout (review of #506).
-        // Only a key set and changed: a cache flushed (a currency saved flushes it) or Redis down is no restart
-        // (ADV-506-R2-5).
+        // A cache flushed (a currency saved flushes it) or Redis down is no restart (ADV-506-R2-5).
         $read = function () {
             try {
                 return Cache::get(self::RESTART_KEY);
@@ -60,14 +59,15 @@ class ProxmoxConsoleRelay extends Command
                 return null;
             }
         };
-        $restart = $read();
+        // A deploy sets the time it ran: one after this process started is a restart. A flush, Redis down at the start,
+        // or an old deploy's key is none (round 3 of #506).
+        $started = microtime(true);
         $checked = 0.0;
-        $relay->run(function () use (&$stop, $restart, &$checked, $read) {
+        $relay->run(function () use (&$stop, $started, &$checked, $read) {
             if (!$stop && microtime(true) - $checked > 10) {
                 $checked = microtime(true);
                 $now = $read();
-                // Only a deploy sets it: set, and not the value this process started with (a flush, then a deploy, too).
-                $stop = $now !== null && $now !== $restart;
+                $stop = is_numeric($now) && (float) $now > $started;
             }
 
             return $stop;

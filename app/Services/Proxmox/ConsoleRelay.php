@@ -46,7 +46,12 @@ final class ConsoleRelay
 
     public const RECHECK = 30;
 
-    /** A console whose browser (or node) reads nothing is kept this long, its slot with it (round 2 of #506). */
+    /** A browser silent this long is pinged; one that answers nothing PING_WAIT more is gone (round 3 of #506). */
+    public const PING_AFTER = 30;
+
+    public const PING_WAIT = 60;
+
+    /** A console whose browser (or node) reads nothing, no byte of it written, is kept this long (round 2 of #506). */
     public const BACKED = 60;
 
     /** A closing console's last bytes are written this long, at most (ADV-506-R2-3). */
@@ -141,7 +146,15 @@ final class ConsoleRelay
         foreach ($this->consoles as $id => $c) {
             $backed = strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING
                 || ($full && self::held($c) > intdiv(self::BUDGET, self::MAX_CONNECTIONS));
-            $this->consoles[$id]['backed_since'] = $backed ? ($c['backed_since'] ?? ($this->clock)()) : null;
+            // Backed and no byte written since the last turn: a slow browser that reads is not «reads nothing» (round 3).
+            $pending = strlen($c['cout']) + strlen($c['uout']);
+            $progress = $pending < $c['pending'];
+            $this->consoles[$id]['pending'] = $pending;
+            $this->consoles[$id]['backed_since'] = match (true) {
+                !$backed => null,
+                $progress => ($this->clock)(),
+                default => $c['backed_since'] ?? ($this->clock)(),
+            };
             if (!$backed && !$c['closing']) {
                 $readable[$id] = true;
                 $read[] = $c['client'];
@@ -149,7 +162,7 @@ final class ConsoleRelay
                 if ($c['upstream'] !== null && ($c['state'] !== 'connecting' || $c['tls_started'])) {
                     $read[] = $c['upstream'];
                 }
-                $again = $again || $c['more'];
+                $again = $again || $c['more'] || $c['drain'] !== [];
             }
             if ($c['cout'] !== '') {
                 $write[] = $c['client'];
@@ -182,6 +195,9 @@ final class ConsoleRelay
                     }
                     if ($c[$side] !== null && isset($readable[$id], $this->consoles[$id]) && (in_array($c[$side], $read, true) || $c['more'])) {
                         $this->readFrom($id, $side);
+                    } elseif (isset($readable[$id], $this->consoles[$id], $c['drain'][$side])) {
+                        unset($this->consoles[$id]['drain'][$side]);
+                        $side === 'client' ? $this->fromClient($id) : $this->fromUpstream($id);
                     }
                 }
                 $this->flush($id);
@@ -230,7 +246,8 @@ final class ConsoleRelay
         $now = ($this->clock)();
         $this->consoles[(int) $client] = ['client' => $client, 'upstream' => null, 'state' => 'handshake', 'cin' => '', 'uin' => '', 'cout' => '',
             'uout' => '', 'since' => $now, 'last' => $now, 'checked' => $now, 'accept' => null, 'key' => null, 'protocol' => null, 'closing' => false,
-            'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false, 'closing_at' => null, 'failures' => 0, 'backed_since' => null];
+            'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false, 'closing_at' => null, 'failures' => 0, 'backed_since' => null, 'drain' => [], 'pending' => 0,
+            'heard' => $now, 'pinged' => null];
     }
 
     private function readFrom(int $id, string $side): void
@@ -259,6 +276,10 @@ final class ConsoleRelay
         }
         $c[$buffer] .= $got;
         $c['last'] = ($this->clock)();
+        if ($side === 'client') {
+            $c['heard'] = $c['last'];
+            $c['pinged'] = null;
+        }
         try {
             $side === 'client' ? $this->fromClient($id) : $this->fromUpstream($id);
         } catch (InvalidArgumentException $e) {
@@ -299,6 +320,8 @@ final class ConsoleRelay
                 default => $c['uout'] .= WebSocket::encode($frame['opcode'], $frame['payload'], true, $frame['fin']),
             };
             if ($this->consoles[$id]['closing'] || strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING) {
+                $c['drain']['client'] = true; // decoded again once it drains: noVNC waits for it (round 3 of #506)
+
                 return; // the rest when it drains
             }
         }
@@ -337,6 +360,8 @@ final class ConsoleRelay
                 default => $c['cout'] .= WebSocket::encode($frame['opcode'], $frame['payload'], false, $frame['fin']),
             };
             if ($this->consoles[$id]['closing'] || strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING) {
+                $c['drain']['upstream'] = true;
+
                 return;
             }
         }
@@ -479,6 +504,7 @@ final class ConsoleRelay
                 $reason = match (true) {
                     $c['closing'] && $now - $c['closing_at'] > self::CLOSING => $c['why'] ?? 'closed (its last bytes not read)',
                     $c['backed_since'] !== null && $now - $c['backed_since'] > self::BACKED => 'a side reads nothing',
+                    $c['pinged'] !== null && $now - $c['pinged'] > self::PING_WAIT => 'the browser is gone (no answer to a ping)',
                     $c['state'] !== 'open' && $now - $c['since'] > self::HANDSHAKE => 'no handshake in time',
                     $now - $c['last'] > self::IDLE => 'idle',
                     $now - $c['since'] > self::MAX_SESSION => 'its time is up',
@@ -498,6 +524,11 @@ final class ConsoleRelay
                     if (!$allowed) {
                         $reason = 'no longer allowed (the service not active, or its login without access)';
                     }
+                }
+                // A browser gone without a word (a laptop asleep) holds its slot only until it misses a ping (round 3).
+                if ($reason === null && $c['state'] === 'open' && !$c['closing'] && $c['pinged'] === null && $now - $c['heard'] > self::PING_AFTER) {
+                    $this->consoles[$id]['cout'] .= WebSocket::encode(WebSocket::PING, 'mycs', false);
+                    $this->consoles[$id]['pinged'] = $now;
                 }
                 if ($reason !== null) {
                     $this->close($id, $reason);
