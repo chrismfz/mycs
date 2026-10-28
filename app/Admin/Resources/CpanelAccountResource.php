@@ -129,7 +129,8 @@ class CpanelAccountResource extends Resource
                         })),
                         false: fn (Builder $query) => $query),
                 TernaryFilter::make('differs')->label('State differs from MyCS')
-                    ->queries(true: fn (Builder $query) => $query->tap(fn ($q) => CpanelAccount::whereDiffers($q)), false: fn (Builder $query) => $query),
+                    ->queries(true: fn (Builder $query) => $query->tap(fn ($q) => CpanelAccount::whereDiffers($q)),
+                        false: fn (Builder $query) => $query->whereNotIn('cpanel_accounts.id', CpanelAccount::query()->select('cpanel_accounts.id')->tap(fn ($q) => CpanelAccount::whereDiffers($q)))),
                 TernaryFilter::make('suspended'),
                 TernaryFilter::make('mail')->label('Outgoing mail held or suspended')
                     ->queries(true: fn (Builder $query) => $query->where(fn ($q) => $q->where('mail_held', true)->orWhere('mail_suspended', true)),

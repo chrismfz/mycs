@@ -33,7 +33,11 @@ final class AccountSync
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
         try {
-            return self::read($server, $extension->inventory());
+            // Stamped as the read began, not as it ended: a service changed while the server answered is newer than the
+            // read (review of «Differs»).
+            $readAt = now();
+
+            return self::read($server, $extension->inventory(), $readAt);
         } finally {
             $lock->release();
         }
@@ -43,14 +47,14 @@ final class AccountSync
      * @param  list<array<string, mixed>>  $accounts
      * @return array{seen: int, new: int, gone: int}
      */
-    private static function read(Server $server, array $accounts): array
+    private static function read(Server $server, array $accounts, ?Carbon $readAt = null): array
     {
         if ($accounts === [] && CpanelAccount::query()->where('server_id', $server->id)->whereNull('gone_at')->exists()) {
             throw new RuntimeException("{$server->name} listed no account: check its token. Nothing marked gone.");
         }
 
-        return DB::transaction(function () use ($server, $accounts) {
-            $now = now();
+        return DB::transaction(function () use ($server, $accounts, $readAt) {
+            $now = $readAt ?? now();
             $new = 0;
             $seen = [];
             foreach ($accounts as $data) {

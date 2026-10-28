@@ -66,23 +66,38 @@ class CpanelAccount extends Model
         'ended_here' => 'Still on the server, ended in MyCS',
     ];
 
+    /** MyCS's own actions on a service that, while open (Pending Module Actions), explain a difference. */
+    private const ACTIONS = ['suspend', 'unsuspend', 'terminate'];
+
     /**
      * How its state differs from its service's (a key of DIFFERS), or null. Only once the server was read after the
-     * service last changed: a suspend MyCS just sent is not «differs» until the next read shows it.
+     * service last changed (a suspend MyCS just sent is not «differs» until a read shows it; a service imported with no
+     * date counts as older than any read); never while MyCS's own suspend, unsuspend or terminate of it is open (already in
+     * Pending Module Actions); an account suspended because its reseller is is not «suspended on the server» (unsuspending
+     * it would be wrong: review of «Differs»).
      */
     public function differs(): ?string
     {
         $service = $this->service;
-        if ($service === null || $this->gone_at !== null || $this->last_seen_at === null || $this->last_seen_at->lt($service->updated_at)) {
+        if ($service === null || $this->gone_at !== null || $this->last_seen_at === null
+            || ($service->updated_at !== null && $this->last_seen_at->lt($service->updated_at))) {
             return null;
         }
-
-        return match (true) {
+        $differs = match (true) {
             $service->status === Service::STATUS_ACTIVE && $this->suspended => 'suspended_on_server',
             $service->status === Service::STATUS_SUSPENDED && !$this->suspended => 'active_on_server',
             in_array($service->status, [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED], true) => 'ended_here',
             default => null,
         };
+        if ($differs === null || ModuleAction::query()->open()->where('service_id', $service->id)->whereIn('action', self::ACTIONS)->exists()) {
+            return null;
+        }
+        if ($differs === 'suspended_on_server' && $this->owner !== null && !in_array($this->owner, ['root', $this->user], true)
+            && self::query()->where('server_id', $this->server_id)->where('user', $this->owner)->where('suspended', true)->exists()) {
+            return null;
+        }
+
+        return $differs;
     }
 
     /**
@@ -92,10 +107,15 @@ class CpanelAccount extends Model
      */
     public static function whereDiffers(Builder $query): void
     {
-        $query->whereNull('cpanel_accounts.gone_at')->whereHas('service', fn ($q) => $q
-            ->whereColumn('cpanel_accounts.last_seen_at', '>=', 'services.updated_at')
+        $query->whereNull('cpanel_accounts.gone_at')->whereNotNull('cpanel_accounts.last_seen_at')->whereHas('service', fn ($q) => $q
+            ->where(fn ($q) => $q->whereNull('services.updated_at')->orWhereColumn('cpanel_accounts.last_seen_at', '>=', 'services.updated_at'))
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('module_actions')->whereColumn('module_actions.service_id', 'services.id')
+                ->where('module_actions.status', ModuleAction::STATUS_OPEN)->whereIn('module_actions.action', self::ACTIONS))
             ->where(fn ($q) => $q
-                ->where(fn ($q) => $q->where('services.status', Service::STATUS_ACTIVE)->where('cpanel_accounts.suspended', true))
+                ->where(fn ($q) => $q->where('services.status', Service::STATUS_ACTIVE)->where('cpanel_accounts.suspended', true)
+                    ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('cpanel_accounts as reseller')
+                        ->whereColumn('reseller.server_id', 'cpanel_accounts.server_id')->whereColumn('reseller.user', 'cpanel_accounts.owner')
+                        ->whereColumn('reseller.user', '!=', 'cpanel_accounts.user')->where('reseller.user', '!=', 'root')->where('reseller.suspended', true)))
                 ->orWhere(fn ($q) => $q->where('services.status', Service::STATUS_SUSPENDED)->where('cpanel_accounts.suspended', false))
                 ->orWhereIn('services.status', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])));
     }
