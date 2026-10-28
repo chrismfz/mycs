@@ -212,10 +212,18 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
      - Ανοίγει το `vncwebsocket` του κόμβου με το token, όπως κάθε σύνδεση της MyCS: στην IP του κόμβου, και
        self-signed μόνο με IP.
      - Περνά τα frames και από τις δύο μεριές. Το token δεν φτάνει ποτέ στον browser.
-     - Κλείνει μετά από 30' χωρίς κίνηση ή 4 ώρες συνολικά, με έως 64 κονσόλες μαζί.
+     - Κλείνει μετά από 30' χωρίς κίνηση ή 4 ώρες συνολικά. Κλείνει επίσης μόλις η υπηρεσία πάψει να είναι active ή ο
+       χρήστης χάσει την πρόσβαση: ελέγχεται ξανά κάθε 30''.
+     - Έως 64 κονσόλες μαζί, έως 2 ανά VPS.
+     - Ένας πελάτης δεν το ρίχνει για τους άλλους:
+       - πριν ανοίξει η κονσόλα δεν κρατιέται τίποτα πέρα από το handshake·
+       - μια πλευρά που δεν διαβάζει σταματά την ανάγνωση της άλλης (2 MB), και όλες μαζί κρατούν έως 96 MB·
+       - frame του browser έως 64 KB, του κόμβου έως 4 MB·
+       - το TCP και το TLS του κόμβου γίνονται χωρίς να σταματά ο βρόχος·
+       - ό,τι πετάξει μια κονσόλα κλείνει μόνο αυτήν.
    - **Deploy:** το `deploy/mycs-console.service.example` στο `/etc/systemd/system/mycs-console.service` (`enable --now`)
-     και το location του `deploy/nginx.conf.example`. Το relay τελειώνει με το `queue:restart` κάθε deploy, και το
-     systemd το ξεκινά με τον νέο κώδικα.
+     και το location του `deploy/nginx.conf.example`. Στο τέλος κάθε deploy, το `update.sh` τρέχει
+     `proxmox:console-relay --restart`: το relay τελειώνει και το systemd το ξεκινά με τον νέο κώδικα (512 MB μνήμη).
    - **Στο cluster (ο υπεύθυνος):** `VM.Console` στον ρόλο: `pveum role modify MyCSLifecycle -privs "VM.Audit
      VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"`.
 

@@ -2,6 +2,9 @@
 
 namespace App\Services\Proxmox;
 
+use App\Admin\Resources\ServiceResource\ProxmoxPower;
+use App\Models\Service;
+use App\Models\User;
 use Closure;
 use InvalidArgumentException;
 use MyCS\Proxmox\WebSocket;
@@ -14,14 +17,26 @@ use Throwable;
  * A browser's connection opens only with a ticket ConsoleTickets gave for it a few seconds before, once, from this site
  * (its Origin); then its frames go to the node and the node's to it, each read whole and written again (a client's
  * masked, a server's not). Pings are answered where they arrive. A console ends when either side closes, after
- * IDLE without a frame, or MAX_SESSION in all.
+ * IDLE without a frame, MAX_SESSION in all, or once the service is no longer active or its login may no longer power
+ * it (asked again every RECHECK seconds: review of #506).
+ *
+ * One customer never takes it down for the others (review of #506): nothing a browser sends is kept before its
+ * console opens past a handshake's size; a side that reads nothing stops the other side's reading (MAX_PENDING), and
+ * all consoles together hold at most BUDGET; the node is connected and its TLS spoken without blocking the loop; a VPS
+ * has at most PER_SERVICE consoles at once; and whatever one console throws ends that console, never the loop.
  */
 final class ConsoleRelay
 {
     public const MAX_CONNECTIONS = 64;
 
-    /** A VNC frame is a screen update: a few MB at most. */
-    public const MAX_FRAME = 16 * 1024 * 1024;
+    /** A VPS's consoles at once: a reconnect while the old one closes, not every slot. */
+    public const PER_SERVICE = 2;
+
+    /** A node's frame is a screen update: pveproxy sends them in pieces far smaller. */
+    public const MAX_FRAME = 4 * 1024 * 1024;
+
+    /** A browser's frame is a key or a mouse move (review of #506: one of 16 MB cost 64 MB to relay). */
+    public const MAX_CLIENT_FRAME = 64 * 1024;
 
     public const HANDSHAKE = 10;
 
@@ -29,8 +44,16 @@ final class ConsoleRelay
 
     public const MAX_SESSION = 4 * 3600;
 
-    /** A side's unsent bytes past this (a browser that reads nothing) end its console. */
-    public const MAX_PENDING = 32 * 1024 * 1024;
+    public const RECHECK = 30;
+
+    /** A side's unsent bytes past this: the other side is not read until it drains. */
+    public const MAX_PENDING = 2 * 1024 * 1024;
+
+    /** All consoles' buffers together past this: nothing more is read until they drain. */
+    public const BUDGET = 96 * 1024 * 1024;
+
+    /** Read from one stream a turn, at most. */
+    private const READ = 256 * 1024;
 
     /** @var resource */
     private $server;
@@ -41,13 +64,17 @@ final class ConsoleRelay
     /** @var Closure(): float */
     private Closure $clock;
 
+    /** @var Closure(array<string, mixed>): bool */
+    private Closure $allowed;
+
     /**
-     * @param  Closure(array<string, mixed>): array{stream: resource, host: string, port: int, authorization: string}  $connect
-     *                                                                                                                           a ticket's node, connected (TLS)
+     * @param  Closure(array<string, mixed>): array{stream: resource, host: string, port: int, authorization: string, tls?: bool}  $connect
+     *                                                                                                                                       a ticket's node, its connection begun (TLS spoken here when `tls`)
      * @param  Closure(string, array<string, mixed>): void|null  $log
+     * @param  (Closure(array<string, mixed>): bool)|null  $allowed  whether a ticket's console may stay open (default: self::allowed)
      */
     public function __construct(string $listen, private readonly string $origin, private readonly string $path, private readonly Closure $connect,
-        private readonly ?Closure $log = null, ?Closure $clock = null)
+        private readonly ?Closure $log = null, ?Closure $clock = null, ?Closure $allowed = null)
     {
         $server = @stream_socket_server('tcp://' . $listen, $code, $message);
         if ($server === false) {
@@ -56,6 +83,22 @@ final class ConsoleRelay
         stream_set_blocking($server, false);
         $this->server = $server;
         $this->clock = $clock ?? fn () => microtime(true);
+        $this->allowed = $allowed ?? fn (array $ticket) => self::allowed($ticket);
+    }
+
+    /**
+     * A ticket's console may stay open: its service active, still mapped to the same VM, and its login still allowed
+     * to power it (its grant on the account not revoked).
+     *
+     * @param  array<string, mixed>  $ticket
+     */
+    public static function allowed(array $ticket): bool
+    {
+        $service = Service::query()->find($ticket['service_id'] ?? 0);
+        $user = User::query()->find($ticket['user_id'] ?? 0);
+
+        return $service !== null && $user !== null && $service->status === Service::STATUS_ACTIVE
+            && ProxmoxPower::guest($service)?->vmid === (int) ($ticket['vmid'] ?? 0) && $user->can('update', $service);
     }
 
     /** The address it listens on («127.0.0.1:8091»). */
@@ -80,37 +123,80 @@ final class ConsoleRelay
     /** One turn of the loop: what is readable read, what is pending written, what is over closed. */
     public function tick(float $timeout = 1.0): void
     {
-        $read = [$this->server];
+        $read = count($this->consoles) < self::MAX_CONNECTIONS + 1 ? [$this->server] : [];
         $write = [];
+        $full = $this->buffered() > self::BUDGET;
+        $again = false; // a stream left with bytes read next turn without waiting
         foreach ($this->consoles as $c) {
-            $read[] = $c['client'];
+            $backed = strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING;
+            if (!$full && !$backed && !$c['closing']) {
+                $read[] = $c['client'];
+                // A TLS handshake under way waits on the node's answer: readable, once its first step is sent.
+                if ($c['upstream'] !== null && ($c['state'] !== 'connecting' || $c['tls_started'])) {
+                    $read[] = $c['upstream'];
+                }
+                $again = $again || $c['more'];
+            }
             if ($c['cout'] !== '') {
                 $write[] = $c['client'];
             }
-            if ($c['upstream'] !== null) {
-                $read[] = $c['upstream'];
-                if ($c['uout'] !== '') {
-                    $write[] = $c['upstream'];
-                }
+            if ($c['upstream'] !== null && ($c['uout'] !== '' || ($c['state'] === 'connecting' && !$c['tls_started']))) {
+                $write[] = $c['upstream'];
             }
         }
         $except = null;
+        $timeout = $again ? 0.0 : $timeout;
         $seconds = (int) $timeout;
-        if (@stream_select($read, $write, $except, $seconds, (int) (($timeout - $seconds) * 1e6)) === false) {
+        if ($read === [] && $write === []) {
+            usleep((int) ($timeout * 1e6));
+        } elseif (@stream_select($read, $write, $except, $seconds, (int) (($timeout - $seconds) * 1e6)) === false) {
             return;
         }
         foreach ($read as $stream) {
             if ($stream === $this->server) {
                 $this->accept();
-
-                continue;
             }
-            $this->readFrom($stream);
         }
         foreach ($this->consoles as $id => $c) {
-            $this->flush($id);
+            $this->guarded($id, function () use ($id, $c, $read, $write) {
+                if ($c['state'] === 'connecting' && (in_array($c['upstream'], $write, true) || in_array($c['upstream'], $read, true))) {
+                    $this->handshakeTls($id);
+                }
+                foreach (['client', 'upstream'] as $side) {
+                    if ($side === 'upstream' && $c['state'] === 'connecting') {
+                        continue;
+                    }
+                    if ($c[$side] !== null && isset($this->consoles[$id]) && (in_array($c[$side], $read, true) || $c['more'])) {
+                        $this->readFrom($id, $side);
+                    }
+                }
+                $this->flush($id);
+            });
         }
         $this->expire();
+    }
+
+    /** One console's turn: whatever it throws (the cache, a node) ends it alone, never the loop (ADV-506-7). */
+    private function guarded(int $id, Closure $turn): void
+    {
+        try {
+            $turn();
+        } catch (Throwable $e) {
+            if (isset($this->consoles[$id])) {
+                $this->consoles[$id]['why'] = 'failed: ' . self::clean($e->getMessage());
+                $this->close($id, $this->consoles[$id]['why']);
+            }
+        }
+    }
+
+    private function buffered(): int
+    {
+        $total = 0;
+        foreach ($this->consoles as $c) {
+            $total += strlen($c['cin']) + strlen($c['uin']) + strlen($c['cout']) + strlen($c['uout']);
+        }
+
+        return $total;
     }
 
     private function accept(): void
@@ -128,36 +214,38 @@ final class ConsoleRelay
         stream_set_blocking($client, false);
         $now = ($this->clock)();
         $this->consoles[(int) $client] = ['client' => $client, 'upstream' => null, 'state' => 'handshake', 'cin' => '', 'uin' => '', 'cout' => '',
-            'uout' => '', 'since' => $now, 'last' => $now, 'accept' => null, 'protocol' => null, 'closing' => false, 'ticket' => null];
+            'uout' => '', 'since' => $now, 'last' => $now, 'checked' => $now, 'accept' => null, 'key' => null, 'protocol' => null, 'closing' => false,
+            'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false];
     }
 
-    /** @param resource $stream */
-    private function readFrom($stream): void
+    private function readFrom(int $id, string $side): void
     {
-        $id = $this->owner($stream);
-        if ($id === null) {
-            return;
-        }
-        $side = $this->consoles[$id]['client'] === $stream ? 'cin' : 'uin';
+        $c = &$this->consoles[$id];
+        $stream = $c[$side];
+        $buffer = $side === 'client' ? 'cin' : 'uin';
         $got = '';
-        // A TLS stream holds decrypted bytes stream_select does not see: read until it has none.
+        $c['more'] = false;
+        // A TLS stream holds decrypted bytes stream_select does not see: read until it has none, or READ (then again next
+        // turn without waiting).
         while (($chunk = @fread($stream, 65536)) !== false && $chunk !== '') {
             $got .= $chunk;
-            if (strlen($got) > self::MAX_FRAME + 16) {
+            if (strlen($got) >= self::READ) {
+                $c['more'] = true;
+
                 break;
             }
         }
         if ($got === '') {
             if (feof($stream)) {
-                $this->close($id, 'closed by the ' . ($side === 'cin' ? 'browser' : 'node'));
+                $this->close($id, 'closed by the ' . ($side === 'client' ? 'browser' : 'node'));
             }
 
             return;
         }
-        $this->consoles[$id][$side] .= $got;
-        $this->consoles[$id]['last'] = ($this->clock)();
+        $c[$buffer] .= $got;
+        $c['last'] = ($this->clock)();
         try {
-            $side === 'cin' ? $this->fromClient($id) : $this->fromUpstream($id);
+            $side === 'client' ? $this->fromClient($id) : $this->fromUpstream($id);
         } catch (InvalidArgumentException $e) {
             $this->close($id, $e->getMessage());
         }
@@ -166,6 +254,11 @@ final class ConsoleRelay
     private function fromClient(int $id): void
     {
         $c = &$this->consoles[$id];
+        if ($c['closing']) {
+            $c['cin'] = ''; // refused: nothing more of it is read (a second head pipelined after the first)
+
+            return;
+        }
         if ($c['state'] === 'handshake') {
             $head = WebSocket::head($c['cin']);
             if ($head === null) {
@@ -176,17 +269,22 @@ final class ConsoleRelay
             return;
         }
         if ($c['state'] !== 'open') {
-            return; // the node's answer first
+            // A client sends nothing before the 101 (RFC 6455 4.1): a handshake's size of it, at most (ADV-506-1).
+            if (strlen($c['cin']) > WebSocket::MAX_HEAD) {
+                throw new InvalidArgumentException('bytes before the console opened');
+            }
+
+            return;
         }
-        while (($frame = WebSocket::decode($c['cin'], true, self::MAX_FRAME)) !== null) {
+        while (($frame = WebSocket::decode($c['cin'], true, self::MAX_CLIENT_FRAME)) !== null) {
             match ($frame['opcode']) {
                 WebSocket::PING => $c['cout'] .= WebSocket::encode(WebSocket::PONG, $frame['payload'], false),
                 WebSocket::PONG => null,
                 WebSocket::CLOSE => $this->closing($id, $frame['payload']),
                 default => $c['uout'] .= WebSocket::encode($frame['opcode'], $frame['payload'], true, $frame['fin']),
             };
-            if ($c['closing']) {
-                return;
+            if ($this->consoles[$id]['closing'] || strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING) {
+                return; // the rest when it drains
             }
         }
     }
@@ -201,7 +299,7 @@ final class ConsoleRelay
             }
             [$status, $headers] = $head;
             if (!preg_match('#^HTTP/1\.1 101 #', $status . ' ') || ($headers['sec-websocket-accept'] ?? '') !== $c['accept']) {
-                $this->refuse($id, 502, 'the node refused the console: ' . trim($status));
+                $this->refuse($id, 502, 'the node refused the console: ' . self::clean($status));
 
                 return;
             }
@@ -213,7 +311,7 @@ final class ConsoleRelay
                 $this->fromClient($id);
             }
         }
-        if ($c['state'] !== 'open') {
+        if ($c['state'] !== 'open' || $c['closing']) {
             return;
         }
         while (($frame = WebSocket::decode($c['uin'], false, self::MAX_FRAME)) !== null) {
@@ -223,7 +321,7 @@ final class ConsoleRelay
                 WebSocket::CLOSE => $this->closing($id, $frame['payload']),
                 default => $c['cout'] .= WebSocket::encode($frame['opcode'], $frame['payload'], false, $frame['fin']),
             };
-            if ($c['closing']) {
+            if ($this->consoles[$id]['closing'] || strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING) {
                 return;
             }
         }
@@ -231,7 +329,7 @@ final class ConsoleRelay
 
     /**
      * A browser's handshake: this site's page, a websocket of version 13 at the console's path with a ticket not yet
-     * taken; then the node's websocket, opened with the token.
+     * taken, of a VPS with fewer than PER_SERVICE consoles; then the node's connection begun.
      *
      * @param  array<string, string>  $headers
      */
@@ -245,7 +343,7 @@ final class ConsoleRelay
             return;
         }
         if (($headers['origin'] ?? '') !== $this->origin) {
-            $this->refuse($id, 403, 'from another site: ' . ($headers['origin'] ?? 'no Origin'));
+            $this->refuse($id, 403, 'from another site: ' . self::clean($headers['origin'] ?? 'no Origin'));
 
             return;
         }
@@ -258,18 +356,52 @@ final class ConsoleRelay
             return;
         }
         $c['ticket'] = $ticket;
+        $open = count(array_filter($this->consoles, fn (array $o) => ($o['ticket']['service_id'] ?? null) === $ticket['service_id'] && !$o['closing']));
+        if ($open > self::PER_SERVICE) {
+            $this->refuse($id, 429, 'service #' . $ticket['service_id'] . ' has ' . self::PER_SERVICE . ' consoles open (ADV-506-6)');
+
+            return;
+        }
         $c['key'] = $headers['sec-websocket-key'];
         $offered = array_map('trim', explode(',', $headers['sec-websocket-protocol'] ?? ''));
         $c['protocol'] = in_array('binary', $offered, true) ? 'binary' : null;
         try {
             $node = ($this->connect)($ticket);
         } catch (Throwable $e) {
-            $this->refuse($id, 502, 'the node could not be reached: ' . $e->getMessage());
+            $this->refuse($id, 502, 'the node could not be reached: ' . self::clean($e->getMessage()));
 
             return;
         }
         stream_set_blocking($node['stream'], false);
         $c['upstream'] = $node['stream'];
+        $c['node'] = $node;
+        if ($node['tls'] ?? false) {
+            $c['state'] = 'connecting'; // its TCP and TLS finished from the loop (ADV-506-3)
+
+            return;
+        }
+        $this->upgrade($id);
+    }
+
+    /** The node's TLS, a step a turn: it never holds the loop. */
+    private function handshakeTls(int $id): void
+    {
+        $c = &$this->consoles[$id];
+        $done = @stream_socket_enable_crypto($c['upstream'], true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
+        $c['tls_started'] = true;
+        if ($done === false) {
+            $this->refuse($id, 502, 'the node\'s TLS failed');
+        } elseif ($done === true) {
+            $this->upgrade($id);
+        }
+    }
+
+    /** The node's websocket asked for, with the token. */
+    private function upgrade(int $id): void
+    {
+        $c = &$this->consoles[$id];
+        $ticket = $c['ticket'];
+        $node = $c['node'];
         $key = WebSocket::key();
         $c['accept'] = WebSocket::accept($key);
         $c['state'] = 'upstream';
@@ -283,7 +415,7 @@ final class ConsoleRelay
     {
         $c = &$this->consoles[$id];
         $c['cout'] .= WebSocket::encode(WebSocket::CLOSE, $payload, false);
-        if ($c['upstream'] !== null) {
+        if ($c['upstream'] !== null && $c['state'] === 'open') {
             $c['uout'] .= WebSocket::encode(WebSocket::CLOSE, $payload, true);
         }
         $c['closing'] = true;
@@ -291,8 +423,9 @@ final class ConsoleRelay
 
     private function refuse(int $id, int $status, string $why): void
     {
-        $text = [400 => 'Bad Request', 403 => 'Forbidden', 502 => 'Bad Gateway'][$status] ?? 'Error';
+        $text = [400 => 'Bad Request', 403 => 'Forbidden', 429 => 'Too Many Requests', 502 => 'Bad Gateway'][$status] ?? 'Error';
         $this->consoles[$id]['cout'] .= "HTTP/1.1 {$status} {$text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        $this->consoles[$id]['uout'] = '';
         $this->consoles[$id]['closing'] = true;
         $this->consoles[$id]['why'] = $why;
     }
@@ -304,7 +437,7 @@ final class ConsoleRelay
         }
         $c = &$this->consoles[$id];
         foreach (['cout' => 'client', 'uout' => 'upstream'] as $buffer => $side) {
-            if ($c[$buffer] === '' || $c[$side] === null) {
+            if ($c[$buffer] === '' || $c[$side] === null || ($side === 'upstream' && $c['state'] === 'connecting')) {
                 continue;
             }
             $sent = @fwrite($c[$side], $c[$buffer]);
@@ -314,13 +447,8 @@ final class ConsoleRelay
                 return;
             }
             $c[$buffer] = (string) substr($c[$buffer], $sent);
-            if (strlen($c[$buffer]) > self::MAX_PENDING) {
-                $this->close($id, "the {$side} reads nothing");
-
-                return;
-            }
         }
-        if ($c['closing'] && $c['cout'] === '' && $c['uout'] === '') {
+        if ($c['closing'] && $c['cout'] === '' && ($c['uout'] === '' || $c['state'] !== 'open')) {
             $this->close($id, $c['why'] ?? 'closed');
         }
     }
@@ -329,15 +457,24 @@ final class ConsoleRelay
     {
         $now = ($this->clock)();
         foreach ($this->consoles as $id => $c) {
-            $reason = match (true) {
-                $c['state'] !== 'open' && $now - $c['since'] > self::HANDSHAKE => 'no handshake in time',
-                $now - $c['last'] > self::IDLE => 'idle',
-                $now - $c['since'] > self::MAX_SESSION => 'its time is up',
-                default => null,
-            };
-            if ($reason !== null) {
-                $this->close($id, $reason);
-            }
+            $this->guarded($id, function () use ($id, $c, $now) {
+                $reason = match (true) {
+                    $c['state'] !== 'open' && $now - $c['since'] > self::HANDSHAKE => 'no handshake in time',
+                    $now - $c['last'] > self::IDLE => 'idle',
+                    $now - $c['since'] > self::MAX_SESSION => 'its time is up',
+                    default => null,
+                };
+                // Still the customer's to keep (ADV-506-4, 5): asked again every RECHECK seconds.
+                if ($reason === null && $c['state'] === 'open' && $now - $c['checked'] >= self::RECHECK) {
+                    $this->consoles[$id]['checked'] = $now;
+                    if (!($this->allowed)($c['ticket'])) {
+                        $reason = 'no longer allowed (the service not active, or its login without access)';
+                    }
+                }
+                if ($reason !== null) {
+                    $this->close($id, $reason);
+                }
+            });
         }
     }
 
@@ -355,6 +492,12 @@ final class ConsoleRelay
         $this->say('Console closed: ' . $why, $id, $c);
     }
 
+    /** A browser's or a node's words in the log: one line, printable, short (ADV-506-8). */
+    private static function clean(string $text): string
+    {
+        return mb_strimwidth((string) preg_replace('/[^\x20-\x7e]/', '?', $text), 0, 160, '…');
+    }
+
     /** @param  array<string, mixed>|null  $c */
     private function say(string $message, int $id, ?array $c = null): void
     {
@@ -362,17 +505,5 @@ final class ConsoleRelay
         if ($this->log !== null) {
             ($this->log)($message, is_array($ticket) ? ['service_id' => $ticket['service_id'], 'vmid' => $ticket['vmid'], 'user_id' => $ticket['user_id']] : []);
         }
-    }
-
-    /** @param resource $stream */
-    private function owner($stream): ?int
-    {
-        foreach ($this->consoles as $id => $c) {
-            if ($c['client'] === $stream || $c['upstream'] === $stream) {
-                return $id;
-            }
-        }
-
-        return null;
     }
 }

@@ -329,6 +329,7 @@ return [
             'not_available' => 'This service has no console.',
             'too_soon' => 'Too many connections in a minute: try again shortly.',
             'not_opened' => 'The console could not be opened: the VM must be running. Try again shortly.',
+            'unavailable' => 'The console is not available right now: try again later.',
         ],
         'graphs' => 'Graphs',
         'timeframe' => ['hour' => 'Hour', 'day' => 'Day', 'week' => 'Week'],

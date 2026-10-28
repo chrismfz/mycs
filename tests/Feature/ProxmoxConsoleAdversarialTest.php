@@ -183,10 +183,9 @@ class ProxmoxConsoleAdversarialTest extends TestCase
     public function test_adv_506_2_browsers_that_ping_and_never_read_pass_php_clis_memory_limit(): void
     {
         $this->relay();
-        $service = $this->vps();
         $sides = [];
         for ($n = 0; $n < 4; $n++) {
-            $sides[] = $this->open($service);
+            $sides[] = $this->open($this->vps()); // four VPS: one has at most PER_SERVICE consoles now (setup adapted with the fix)
         }
         $ping = str_repeat(WebSocket::encode(WebSocket::PING, str_repeat('p', 125), true), 512); // 64 KB of pings
         foreach ($sides as [$browser]) {
@@ -293,11 +292,13 @@ class ProxmoxConsoleAdversarialTest extends TestCase
         $this->relay();
         $service = $this->vps();
         $opened = 0;
+        $browsers = []; // kept open: a browser let go is a close (setup adapted with the fix)
         for ($i = 0; $i < 8; $i++) {
-            $browser = $this->browser($this->ticket($service));
+            $browsers[] = $this->browser($this->ticket($service));
             $this->relay->tick(0.02);
             $this->relay->tick(0.02);
-            if (@stream_socket_accept($this->node, 0.2) !== false) {
+            if (($node = @stream_socket_accept($this->node, 0.2)) !== false) {
+                $nodes[] = $node; // kept as well: a node's side let go is a close
                 $opened++;
             }
         }

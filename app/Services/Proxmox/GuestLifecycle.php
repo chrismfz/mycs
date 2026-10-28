@@ -158,10 +158,6 @@ final class GuestLifecycle
     }
 
     /**
-     * Its state as the customer is told it: a qemu VM paused (or suspended to RAM) is «running» to Proxmox with its
-     * qmpstatus apart, and one migrating or backed up is «running» with a lock (round 3 of #502).
-     */
-    /**
      * A console for the customer (docs/proxmox.md, B6): the guest checked as for power (one VM, in the pool, the same
      * machine), the service active and the VM running; its VNC proxy and the websocket path to it.
      *
@@ -186,6 +182,10 @@ final class GuestLifecycle
         return $console ?? throw new RuntimeException("No console of service #{$service->id}'s VM.");
     }
 
+    /**
+     * Its state as the customer is told it: a qemu VM paused (or suspended to RAM) is «running» to Proxmox with its
+     * qmpstatus apart, and one migrating or backed up is «running» with a lock (round 3 of #502).
+     */
     private function effective(string $status): string
     {
         if ($status === 'running' && isset($this->current['lock']) && (string) $this->current['lock'] !== '') {

@@ -232,6 +232,9 @@ trap - ERR
 log "Maintenance mode OFF"
 $ART up
 start_queue_worker
+# The console relay (docs/proxmox.md, B6), told now, with the new release in place: it exits and systemd starts
+# the new code. Its consoles drop; the customer reconnects.
+$ART proxmox:console-relay --restart >/dev/null 2>&1 || true
 
 _url="$(grep -E '^APP_URL=' .env | cut -d= -f2-)"
 if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then

@@ -13,17 +13,26 @@ use RuntimeException;
 
 /**
  * The customer's console relay (docs/proxmox.md, B6), run by systemd (deploy/mycs-console.service.example) behind
- * nginx's `location /console/ws` (deploy/nginx.conf.example). It ends on a deploy's queue:restart, as the queue worker
- * does, and systemd starts the release's code.
+ * nginx's `location = /console/ws` (deploy/nginx.conf.example). A deploy ends it at its end (--restart), and systemd
+ * starts the release's code.
  */
 class ProxmoxConsoleRelay extends Command
 {
-    protected $signature = 'proxmox:console-relay {--listen= : address:port (default: config services.proxmox_console.listen)}';
+    protected $signature = 'proxmox:console-relay {--listen= : address:port (default: config services.proxmox_console.listen)}
+        {--restart : tell the running relay to exit (deploy/update.sh, at its end), for systemd to start the new code}';
+
+    /** What a deploy sets (--restart) and the relay watches. */
+    public const RESTART_KEY = 'proxmox:console-relay:restart';
 
     protected $description = 'Relay the customers\' VPS consoles (noVNC) to their Proxmox nodes';
 
     public function handle(): int
     {
+        if ($this->option('restart')) {
+            Cache::forever(self::RESTART_KEY, microtime(true));
+
+            return self::SUCCESS;
+        }
         $listen = (string) ($this->option('listen') ?: config('services.proxmox_console.listen'));
         $parts = parse_url((string) config('app.url'));
         $origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
@@ -40,13 +49,14 @@ class ProxmoxConsoleRelay extends Command
                 $stop = true;
             });
         }
-        // A deploy's queue:restart ends it too (its consoles with it): systemd starts the release's code (Restart=always).
-        $restart = Cache::get('illuminate:queue:restart');
+        // A deploy's --restart, at its end, ends it (its consoles with it): systemd starts the release's code
+        // (Restart=always). Not the queue's restart: that is sent before the checkout (review of #506).
+        $restart = Cache::get(self::RESTART_KEY);
         $checked = 0.0;
         $relay->run(function () use (&$stop, $restart, &$checked) {
             if (!$stop && microtime(true) - $checked > 10) {
                 $checked = microtime(true);
-                $stop = Cache::get('illuminate:queue:restart') !== $restart;
+                $stop = Cache::get(self::RESTART_KEY) !== $restart;
             }
 
             return $stop;
@@ -56,10 +66,10 @@ class ProxmoxConsoleRelay extends Command
     }
 
     /**
-     * The ticket's node, over TLS as MyCS reaches it (its IP when set; a self-signed certificate only with that IP).
+     * The ticket's node, over TLS as MyCS reaches it (its connection begun; the relay speaks the TLS) (its IP when set; a self-signed certificate only with that IP).
      *
      * @param  array<string, mixed>  $ticket
-     * @return array{stream: resource, host: string, port: int, authorization: string}
+     * @return array{stream: resource, host: string, port: int, authorization: string, tls: bool}
      */
     public static function connect(array $ticket): array
     {
@@ -74,12 +84,13 @@ class ProxmoxConsoleRelay extends Command
             'peer_name' => $target['host'], 'SNI_enabled' => true,
             'verify_peer' => !$target['self_signed'], 'verify_peer_name' => !$target['self_signed'], 'allow_self_signed' => $target['self_signed'],
         ]]);
-        $stream = @stream_socket_client('tls://' . (str_contains($address, ':') ? "[{$address}]" : $address) . ':' . $target['port'], $code, $message, 5,
-            STREAM_CLIENT_CONNECT, $context);
+        // Begun, not waited for: the TCP connect and the TLS handshake finish from the relay's loop (ADV-506-3).
+        $stream = @stream_socket_client('tcp://' . (str_contains($address, ':') ? "[{$address}]" : $address) . ':' . $target['port'], $code, $message, 5,
+            STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT, $context);
         if ($stream === false) {
             throw new RuntimeException("{$target['host']}: {$message}");
         }
 
-        return ['stream' => $stream, 'host' => $target['host'], 'port' => $target['port'], 'authorization' => $target['authorization']];
+        return ['stream' => $stream, 'host' => $target['host'], 'port' => $target['port'], 'authorization' => $target['authorization'], 'tls' => true];
     }
 }

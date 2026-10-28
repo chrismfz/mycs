@@ -7,17 +7,33 @@ const screen = root.querySelector('[data-screen]');
 const status = root.querySelector('[data-status]');
 const strings = JSON.parse(root.dataset.strings);
 let rfb = null;
+let generation = 0; // a reconnect's own: events and answers of an older one are ignored (review of #506)
+let busy = false;
 
 function say(text) {
     status.textContent = text;
 }
 
 async function connect() {
+    if (busy) {
+        return; // a click while a ticket is asked
+    }
+    busy = true;
+    const mine = ++generation;
     if (rfb) {
-        rfb.disconnect();
+        const old = rfb;
         rfb = null;
+        old.disconnect();
     }
     say(strings.connecting);
+    try {
+        await open(mine);
+    } finally {
+        busy = false;
+    }
+}
+
+async function open(mine) {
     let ticket;
     try {
         const response = await fetch(root.dataset.ticket, {
@@ -37,11 +53,16 @@ async function connect() {
         say(strings.failed);
         return;
     }
-    rfb = new RFB(screen, ticket.url, { credentials: { password: ticket.password }, wsProtocols: ['binary'] });
-    rfb.scaleViewport = true;
-    rfb.addEventListener('connect', () => say(strings.connected));
-    rfb.addEventListener('disconnect', () => say(strings.disconnected));
-    rfb.addEventListener('credentialsrequired', () => rfb.sendCredentials({ password: ticket.password }));
+    if (mine !== generation) {
+        return;
+    }
+    const current = new RFB(screen, ticket.url, { credentials: { password: ticket.password }, wsProtocols: ['binary'] });
+    rfb = current;
+    current.scaleViewport = true;
+    const ifCurrent = (handler) => () => mine === generation && handler();
+    current.addEventListener('connect', ifCurrent(() => say(strings.connected)));
+    current.addEventListener('disconnect', ifCurrent(() => say(strings.disconnected)));
+    current.addEventListener('credentialsrequired', ifCurrent(() => current.sendCredentials({ password: ticket.password })));
 }
 
 root.querySelector('[data-action="ctrlaltdel"]').addEventListener('click', () => rfb && rfb.sendCtrlAltDel());

@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
+use MyCS\Proxmox\ProxmoxException;
 use OwenIt\Auditing\Events\AuditCustom;
 use Throwable;
 
@@ -47,6 +48,12 @@ class ServiceConsoleController extends Controller
         }
         try {
             $console = $extension->lifecycle($service)->console($service);
+        } catch (ProxmoxException $e) {
+            // The cluster's answer, not the VM's state: the token without VM.Console, a node down. Staff see it in
+            // the log; the customer is not told their running VM is stopped (review of #506).
+            report($e);
+
+            return $refuse('unavailable', 503);
         } catch (Throwable $e) {
             report($e);
 

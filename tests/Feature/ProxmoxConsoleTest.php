@@ -13,6 +13,7 @@ use App\Services\Proxmox\ConsoleTickets;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
 use MyCS\Proxmox\WebSocket;
@@ -32,6 +33,8 @@ class ProxmoxConsoleTest extends TestCase
 
     private string $status = 'running';
 
+    private bool $vncDenied = false;
+
     /** @var list<string> */
     private array $writes = [];
 
@@ -47,6 +50,10 @@ class ProxmoxConsoleTest extends TestCase
             $path = substr((string) parse_url($request->url(), PHP_URL_PATH), strlen('/api2/json/'));
             if ($request->method() !== 'GET') {
                 $this->writes[] = $request->method() . ' ' . $path;
+
+                if ($this->vncDenied) {
+                    return Http::response(['data' => null], 403);
+                }
 
                 return $path === 'nodes/vega/qemu/101/vncproxy'
                     ? Http::response(['data' => ['port' => '5901', 'ticket' => 'PVEVNC:ABC+/=', 'user' => 'mycs@pve!api']])
@@ -274,12 +281,52 @@ class ProxmoxConsoleTest extends TestCase
         $this->assertStringStartsWith('HTTP/1.1 502', $this->read($browser));
     }
 
-    public function test_the_relay_connects_to_the_nodes_ip_over_tls(): void
+    public function test_the_relay_begins_the_nodes_connection_without_waiting_for_it(): void
     {
         $service = $this->vps();
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('vega.example.test');
-        // 192.0.2.201 is a documentation address: nothing answers, the connection is refused or times out.
-        ProxmoxConsoleRelay::connect(['server_id' => $service->provisioningServer()->id, 'base' => self::VEGA]);
+        $started = microtime(true);
+        // 192.0.2.201 is a documentation address: nothing answers. The connection is begun, its TCP and TLS finished
+        // from the relay's loop (review of #506: a node that stalls never holds every console).
+        $node = ProxmoxConsoleRelay::connect(['server_id' => $service->provisioningServer()->id, 'base' => self::VEGA]);
+
+        $this->assertLessThan(1.0, microtime(true) - $started);
+        $this->assertSame(['vega.example.test', 8006, true], [$node['host'], $node['port'], $node['tls']]);
+        $this->assertIsResource($node['stream']);
+        fclose($node['stream']);
+    }
+
+    /** Review of #506: a role without VM.Console is the cluster's, never told as «the VM must be running». */
+    public function test_a_token_without_the_console_privilege_is_a_503_not_a_stopped_vm(): void
+    {
+        $service = $this->vps();
+        $this->vncDenied = true;
+
+        $this->as($this->owner($service))->postJson(route('services.console.ticket', $service))
+            ->assertStatus(503)->assertJson(['message' => __('services.proxmox.console.unavailable')]);
+    }
+
+    /** Review of #506: a deploy tells the relay at its end, with the new release in place. */
+    public function test_a_deploy_restarts_the_relay_by_its_own_key(): void
+    {
+        $this->assertNull(Cache::get(ProxmoxConsoleRelay::RESTART_KEY));
+        $this->artisan('proxmox:console-relay', ['--restart' => true])->assertSuccessful();
+        $this->assertNotNull(Cache::get(ProxmoxConsoleRelay::RESTART_KEY));
+        $this->assertStringContainsString('proxmox:console-relay --restart', (string) file_get_contents(base_path('deploy/update.sh')));
+    }
+
+    /** Review of #506: a browser's frame is a key or a mouse move; a large one ends its console, not the relay. */
+    public function test_a_browsers_large_frame_ends_its_console(): void
+    {
+        $this->relay();
+        $browser = $this->browser($this->ticket($this->vps()));
+        $node = $this->nodeSide();
+        $request = $this->read($node);
+        preg_match('/Sec-WebSocket-Key: (\S+)/', $request, $m);
+        fwrite($node, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " . WebSocket::accept($m[1]) . "\r\n\r\n");
+        $this->read($browser);
+
+        fwrite($browser, WebSocket::encode(WebSocket::BINARY, str_repeat('k', ConsoleRelay::MAX_CLIENT_FRAME + 1), true));
+        $this->read($browser, 0.5);
+        $this->assertSame(0, $this->relay->count());
     }
 }

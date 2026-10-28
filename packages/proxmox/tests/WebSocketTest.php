@@ -68,4 +68,11 @@ class WebSocketTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         WebSocket::head($long);
     }
+
+    public function test_a_control_character_in_a_head_is_refused(): void
+    {
+        $buffer = "GET / HTTP/1.1\r\nOrigin: https://a.example.test\n[forged] line\r\n\r\n";
+        $this->expectException(InvalidArgumentException::class);
+        WebSocket::head($buffer);
+    }
 }

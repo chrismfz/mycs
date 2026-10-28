@@ -59,6 +59,13 @@ final class WebSocket
             throw new InvalidArgumentException('HTTP head too long.');
         }
         $lines = explode("\r\n", substr($buffer, 0, $end));
+        foreach ($lines as $line) {
+            // A lone LF or another control character inside a line is no HTTP of a browser's or a node's: it would
+            // carry its own lines into a log (review of #506).
+            if (preg_match('/[\x00-\x08\x0a-\x1f\x7f]/', $line) === 1) {
+                throw new InvalidArgumentException('A control character in the HTTP head.');
+            }
+        }
         $buffer = (string) substr($buffer, $end + 4);
         $first = (string) array_shift($lines);
         $headers = [];

@@ -1,7 +1,7 @@
 # The customers' VPS consoles (docs/proxmox.md, B6): /etc/systemd/system/mycs-console.service, then
 #   systemctl daemon-reload && systemctl enable --now mycs-console
-# It listens on 127.0.0.1 only (PROXMOX_CONSOLE_LISTEN), behind nginx's `location = /console/ws`. A deploy's
-# queue:restart ends it, and Restart=always starts the new release's code.
+# It listens on 127.0.0.1 only (PROXMOX_CONSOLE_LISTEN), behind nginx's `location = /console/ws`. A deploy ends it
+# at its end (proxmox:console-relay --restart), and Restart=always starts the new release's code.
 [Unit]
 Description=MyCS console relay (noVNC to Proxmox)
 After=network.target redis.service mariadb.service
@@ -12,7 +12,8 @@ Group=mycs
 Restart=always
 RestartSec=3
 WorkingDirectory=/var/www/mycs
-ExecStart=/usr/bin/php artisan proxmox:console-relay
+# Its own memory, not php-cli's 128M: 64 consoles' buffers (ConsoleRelay::BUDGET).
+ExecStart=/usr/bin/php -d memory_limit=512M artisan proxmox:console-relay
 NoNewPrivileges=true
 
 [Install]
