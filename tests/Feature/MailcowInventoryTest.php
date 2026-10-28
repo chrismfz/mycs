@@ -11,6 +11,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Mailcow\DomainSync;
+use App\Services\Mailcow\MailSetup;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -41,6 +42,7 @@ class MailcowInventoryTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
+        MailSetup::$resolve = fn () => []; // the DNS check after each read: never the real DNS in a test
         $this->server = Server::query()->create(['name' => 'Mymail Node 1', 'extension' => 'Mailcow', 'type' => 'server', 'enabled' => true]);
         foreach (['host' => self::API, 'apikey' => 'api-key-1'] as $key => $value) {
             $this->server->settings()->create(['key' => $key, 'value' => $value]);
@@ -66,9 +68,17 @@ class MailcowInventoryTest extends TestCase
             return match ((string) parse_url($request->url(), PHP_URL_PATH)) {
                 '/api/v1/get/domain/all' => Http::response($this->domains),
                 '/api/v1/get/mailbox/all' => Http::response($this->mailboxes),
+                '/api/v1/get/dkim/example.org' => Http::response(['dkim_selector' => 'dkim', 'dkim_txt' => 'v=DKIM1;k=rsa;p=KEY']),
+                '/api/v1/get/dkim/ours.test' => Http::response([]),
                 default => Http::response(['type' => 'error'], 404),
             };
         });
+    }
+
+    protected function tearDown(): void
+    {
+        MailSetup::$resolve = null;
+        parent::tearDown();
     }
 
     private function staff(array $permissions = ['admin.servers.viewAny', 'admin.servers.update']): Staff
@@ -259,5 +269,15 @@ class MailcowInventoryTest extends TestCase
         DomainSync::sync($this->server);
         $this->assertSame($new->id, MailcowDomain::query()->where('domain', 'example.org')->value('service_id'));
         $this->artisan('mailcow:sync', ['--server' => 0])->assertExitCode(1);
+    }
+
+    /** The service page's mail setup: the DKIM record mailcow has, and the DNS status after each read. */
+    public function test_a_read_keeps_each_domains_dkim_and_dns_status(): void
+    {
+        DomainSync::sync($this->server);
+
+        $domain = MailcowDomain::query()->where('domain', 'example.org')->sole();
+        $this->assertSame(['dkim', 'v=DKIM1;k=rsa;p=KEY', 'fail'], [$domain->dkim_selector, $domain->dkim_txt, $domain->dns_status], 'no DNS at all: fail');
+        $this->assertNull(MailcowDomain::query()->where('domain', 'ours.test')->value('dkim_txt'), 'none made yet');
     }
 }

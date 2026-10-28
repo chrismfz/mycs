@@ -148,6 +148,18 @@ final class MailcowClient
         return $this->post('/api/v1/delete/domain-admin', ['items' => (string) $username]);
     }
 
+    /**
+     * The domain's DKIM record at mailcow (dkim_selector, dkim_txt), or none yet.
+     *
+     * @return array<string, mixed>
+     */
+    public function getDkim($domain)
+    {
+        $json = $this->get('/api/v1/get/dkim/' . rawurlencode((string) $domain));
+
+        return is_array($json) && !empty($json['dkim_txt']) ? $json : [];
+    }
+
     /** DKIM for the domain, created with the given selector/key size when it has none. */
     public function ensureDkim($domain, $selector = 'dkim', $keySize = 2048)
     {

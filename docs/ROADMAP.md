@@ -125,10 +125,13 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       «mailcow test (hidden)» (χωρίς restart του SOGo, terminate = delete), υπηρεσία #8 με το `mycs-test.myip.gr`: create
       (domain με όρια, DKIM, domain admin), suspend (admin κλειδωμένος, μαρκαρισμένος), unsuspend, κωδικός, SSO στο
       domain admin, χρήση, upgrade (όρια), terminate (domain και admin διαγράφηκαν): όλα εντάξει.
-- [ ] mailcow, συνέχεια (υπεύθυνος, 2026-10-28): **Utilities → Mail Domains** (domains και mailboxes κάθε server, χρήση,
-      αντιστοίχιση με υπηρεσία, όπως τα Proxmox Guests: feat/mailcow-inventory)· στη σελίδα της υπηρεσίας, για staff και
-      πελάτη, οδηγός DNS με έλεγχο (MX, SPF, DKIM, DMARC, autodiscover) και τα mailboxes με quota και χρήση· μετά το
-      ίδιο για τους λογαριασμούς του cPanel. Όχι πρόσθετα mailboxes ως config options (μόνο όριο χώρου).
+- [x] ~~mailcow, συνέχεια (υπεύθυνος, 2026-10-28)~~ **έγινε:** **Utilities → Mail Domains** (#492: domains και mailboxes
+      κάθε server, χρήση, αντιστοίχιση με υπηρεσία, όπως τα Proxmox Guests, και στήλη «DNS» ✓/!/✗)· στη σελίδα της
+      υπηρεσίας, για staff (ενότητα «Mail») και πελάτη, ο έλεγχος DNS (MX, SPF, DKIM, DMARC, autodiscover/autoconfig:
+      το DNS που ζητά ο server, το κλειδί DKIM από το mailcow, απέναντι σε ό,τι απαντά το δημόσιο DNS) και τα mailboxes
+      με quota και χρήση (feat/mailcow-service-page). Όχι πρόσθετα mailboxes ως config options (μόνο όριο χώρου).
+- [ ] cPanel: η ίδια εικόνα (λογαριασμοί κάθε server, πακέτα, χρήση, αντιστοίχιση) και resellers, με τον rigel (root
+      token για δοκιμές, υπεύθυνος 2026-10-28).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

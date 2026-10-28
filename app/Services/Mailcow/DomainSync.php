@@ -12,7 +12,9 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use MyCS\Extensions\Servers\Mailcow\Mailcow;
+use Nixpal\Mailcow\MailcowClient;
 use RuntimeException;
+use Throwable;
 
 /**
  * A mailcow server's domains and mailboxes read into mailcow_domains/mailcow_mailboxes (owner 2026-10-28: «what goes on
@@ -34,7 +36,11 @@ final class DomainSync
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
         try {
-            return self::read($server, $extension);
+            $result = self::read($server, $extension);
+            // Its domains' DNS, after the write (lookups, never in the transaction): a failure costs only the statuses.
+            rescue(fn () => MailSetup::refreshStatuses($server->id));
+
+            return $result;
         } finally {
             $lock->release();
         }
@@ -52,6 +58,7 @@ final class DomainSync
             throw new RuntimeException("{$server->name} listed no domain: check its API key. Nothing marked gone.");
         }
 
+        $dkims = self::dkims($client, $domains);
         $now = now();
         $new = 0;
         $byDomain = [];
@@ -59,7 +66,7 @@ final class DomainSync
             $byDomain[strtolower((string) ($mailbox['domain'] ?? substr(strrchr((string) $mailbox['username'], '@') ?: '', 1)))][] = $mailbox;
         }
 
-        return DB::transaction(function () use ($server, $domains, $byDomain, $now, &$new) {
+        return DB::transaction(function () use ($server, $domains, $byDomain, $dkims, $now, &$new) {
             $seen = [];
             $boxes = 0;
             foreach ($domains as $data) {
@@ -80,6 +87,9 @@ final class DomainSync
                     // Its service no longer live and another live one now the domain's (gone and back, even within one read):
                     // the new customer's, as a VMID reused; otherwise kept, to show whose it was (review of #492).
                     $row->service_id = $row->suggestedServiceId() ?? $row->service_id;
+                }
+                if (array_key_exists($name, $dkims)) { // one that could not be read keeps what was read before
+                    $row->fill($dkims[$name]);
                 }
                 $row->save();
                 $seen[] = $name;
@@ -114,6 +124,30 @@ final class DomainSync
         MailcowMailbox::query()->where('mailcow_domain_id', $domain->id)->whereNotIn('address', $seen ?: [''])->delete();
 
         return count($seen);
+    }
+
+    /**
+     * Each domain's DKIM record as mailcow has it (selector, record; none yet: nulls), read before anything is written; a
+     * domain whose record cannot be read is left out.
+     *
+     * @param  list<array<string, mixed>>  $domains
+     * @return array<string, array{dkim_selector: ?string, dkim_txt: ?string}>
+     */
+    private static function dkims(MailcowClient $client, array $domains): array
+    {
+        $read = [];
+        foreach ($domains as $data) {
+            $name = strtolower(trim((string) $data['domain_name']));
+            try {
+                $dkim = $client->getDkim($name);
+            } catch (Throwable) {
+                continue;
+            }
+            $read[$name] = ['dkim_selector' => filled($dkim['dkim_selector'] ?? null) ? mb_substr((string) $dkim['dkim_selector'], 0, 63) : null,
+                'dkim_txt' => filled($dkim['dkim_txt'] ?? null) ? (string) $dkim['dkim_txt'] : null];
+        }
+
+        return $read;
     }
 
     private static function int(mixed $value): int

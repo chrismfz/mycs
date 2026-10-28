@@ -4,6 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Resources\MailcowDomainResource\Pages\ListMailcowDomains;
 use App\Models\MailcowDomain;
+use App\Models\Server;
 use App\Models\Service;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
@@ -41,10 +42,26 @@ class MailcowDomainResource extends Resource
             ->defaultSort('domain')
             ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('server')->with(['server', 'service.product', 'service.client']))
             ->columns([
-                TextColumn::make('server.name')->label('Server')->toggleable(isToggledHiddenByDefault: true),
+                // Shown by itself when there is more than one mailcow server.
+                TextColumn::make('server.name')->label('Server')
+                    ->toggleable(isToggledHiddenByDefault: Server::query()->where('extension', 'Mailcow')->count() <= 1),
                 TextColumn::make('domain')->sortable()->searchable()
                     ->description(fn (MailcowDomain $record) => $record->admins ? 'admin: ' . implode(', ', $record->admins) : null),
                 IconColumn::make('active')->boolean()->sortable(),
+                // Its DNS as last checked (after each read): the service page says what is missing.
+                TextColumn::make('dns_status')->label('DNS')->badge()->sortable()->placeholder('—')
+                    ->formatStateUsing(fn (?string $state) => match ($state) {
+                        'ok' => '✓', 'fail' => '✗', default => '!'
+                    })
+                    ->color(fn (?string $state) => match ($state) {
+                        'ok' => 'success', 'fail' => 'danger', default => 'warning'
+                    })
+                    ->tooltip(fn (MailcowDomain $record) => match ($record->dns_status) {
+                        'ok' => 'MX, SPF, DKIM, DMARC and autodiscover as they should be',
+                        'warn' => 'An advised record missing, or one to check',
+                        'fail' => 'A needed record (MX, SPF or DKIM) missing',
+                        default => null,
+                    } . ($record->dns_checked_at ? ' · checked ' . $record->dns_checked_at->diffForHumans() : '')),
                 TextColumn::make('mailboxes')->sortable()
                     ->formatStateUsing(fn (MailcowDomain $record) => $record->mailboxes . ' / ' . ($record->mailbox_limit ?: '∞')),
                 TextColumn::make('aliases')->sortable()->toggleable()
@@ -73,6 +90,7 @@ class MailcowDomainResource extends Resource
                         'internal' => $query->where('internal', true),
                         default => $query,
                     }),
+                SelectFilter::make('dns_status')->label('DNS')->options(['fail' => '✗ A needed record missing', 'warn' => '! To check', 'ok' => '✓ OK']),
                 SelectFilter::make('server_id')->label('Server')->relationship('server', 'name', fn (Builder $query) => $query->where('extension', 'Mailcow')),
                 TernaryFilter::make('gone')->label('Gone from the server')
                     ->queries(true: fn (Builder $query) => $query->whereNotNull('gone_at'), false: fn (Builder $query) => $query->whereNull('gone_at'))
