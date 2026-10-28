@@ -228,13 +228,17 @@ final class EkdosiFeed
         $reference = $item->reference;
         $product = $reference instanceof Service ? $reference->product : null;
 
+        $taxed = (bool) $item->taxed && (float) $item->tax_rate > 0;
+
         return [
             'id' => $item->id,
             'type' => $this->type($item),
             'relid' => (int) ($item->reference_id ?? 0),
             'description' => (string) ($item->description ?? ''),
             'amount' => $this->money($item->net()),
-            'taxed' => (int) (bool) $item->taxed,
+            // As WHMCS's: tax applies at the invoice's rate. A line ticked but billed at 0% (a product that is not taxable,
+            // an exempt account, LineTax) is not: Ekdosi would put 24% on it (live test of 2026-10-27).
+            'taxed' => (int) $taxed,
             'whmcs_product_id' => (int) ($product->id ?? 0),
             'whmcs_group_id' => (int) ($product->category_id ?? 0),
             'quantity' => (int) $item->quantity,
@@ -244,7 +248,12 @@ final class EkdosiFeed
             'total' => $this->money($item->total()),
             'period_start' => $item->period_start?->format('Y-m-d'),
             'period_end' => $item->period_end?->format('Y-m-d'),
-        ];
+        ] + ($taxed ? [] : [
+            // Why it went without tax (EuVat: exempt, not_taxable, reverse_charge, outside_eu): Ekdosi's exemption category
+            // for it, not the tenant's one for all (adversarial ADV-1 of #487). Only on such a line: a key on every line
+            // made every staged MyCS row read «changed» to Ekdosi's re-read once (R2-1 of #487).
+            'tax_reason' => $item->tax_reason ?: null,
+        ]);
     }
 
     /** WHMCS's line type, which Ekdosi's routing and classification read («hosting», «domain» in it). */
