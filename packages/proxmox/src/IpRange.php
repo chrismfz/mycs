@@ -134,6 +134,53 @@ final class IpRange
     }
 
     /**
+     * An address's or a network's first and last address, packed (4 bytes for IPv4, 16 for IPv6): of one family they
+     * compare as strings, so overlaps are found by sorting.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function span(string $cidr): array
+    {
+        if (!str_contains($cidr, '/')) {
+            $packed = (string) inet_pton(self::normalize($cidr));
+
+            return [$packed, $packed];
+        }
+        [$address, $length] = self::split($cidr);
+        $first = self::masked((string) inet_pton($address), $length);
+        $last = '';
+        foreach (str_split($first) as $i => $byte) {
+            $bits = max(0, min(8, $length - 8 * $i));
+            $last .= chr(ord($byte) | (0xFF >> $bits));
+        }
+
+        return [$first, $last];
+    }
+
+    /**
+     * The first two of these that share an address, or null: one sort and one sweep, not each against each.
+     *
+     * @param  list<string>  $networks  of one family
+     * @return array{0: string, 1: string}|null
+     */
+    public static function firstOverlap(array $networks): ?array
+    {
+        $spans = array_map(fn (string $n) => [...self::span($n), $n], $networks);
+        usort($spans, fn (array $a, array $b) => strcmp($a[0], $b[0]));
+        $widest = null;
+        foreach ($spans as $span) {
+            if ($widest !== null && strcmp($span[0], $widest[1]) <= 0) {
+                return [$widest[2], $span[2]];
+            }
+            if ($widest === null || strcmp($span[1], $widest[1]) > 0) {
+                $widest = $span;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * An IPv4 network's first and last address (its network and broadcast address, below /31).
      *
      * @return array{0: string, 1: string}

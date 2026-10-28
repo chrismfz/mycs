@@ -65,12 +65,27 @@ class IpPoolResource extends Resource
                 ->helperText('Its addresses must be in it.')
                 // Kept while it has addresses: they were checked against it.
                 ->disabled(fn (?IpPool $record) => $record?->addresses()->exists() ?? false)
-                ->rule($valid(function (string $value, Get $get) {
-                    if (IpRange::isV4($value) !== ((int) $get('family') === 4)) {
-                        throw new InvalidArgumentException('Not of the pool\'s family.');
+                ->rule(fn (Get $get, ?IpPool $record) => function (string $attribute, $value, Closure $fail) use ($get, $record) {
+                    if (blank($value)) {
+                        return;
                     }
-                    IpRange::network($value);
-                }))
+                    try {
+                        if (IpRange::isV4((string) $value) !== ((int) $get('family') === 4)) {
+                            throw new InvalidArgumentException('Not of the pool\'s family.');
+                        }
+                        $network = IpRange::network((string) $value);
+                        // Two pools never over one network: each would give the other's addresses (round 2 of #505).
+                        $others = IpPool::query()->whereNotNull('network')->where('family', (int) $get('family'))
+                            ->when($record?->id, fn ($q, $id) => $q->whereKeyNot($id))->get();
+                        foreach ($others as $other) {
+                            if (IpRange::overlaps((string) $other->network, $network)) {
+                                throw new InvalidArgumentException("Overlaps the pool «{$other->name}» ({$other->network}).");
+                            }
+                        }
+                    } catch (InvalidArgumentException $e) {
+                        $fail($e->getMessage());
+                    }
+                })
                 ->dehydrateStateUsing(fn (?string $state) => filled($state) ? IpRange::network($state) : null)
                 ->live(onBlur: true),
             // IPv4: the network's own (IpPool::booted). IPv6: each service's prefix, kept once it has prefixes (ADV-505-2).
@@ -85,7 +100,8 @@ class IpPoolResource extends Resource
                     if (IpRange::isV4($value) !== ((int) $get('family') === 4)) {
                         throw new InvalidArgumentException('Not of the pool\'s family.');
                     }
-                    if (filled($get('network')) && !IpRange::contains((string) $get('network'), $value)) {
+                    // In the network, or (IPv6) the router's link-local address, as routers advertise (ADV-505-R2-5).
+                    if (filled($get('network')) && !IpRange::contains((string) $get('network'), $value) && !IpRange::contains('fe80::/10', $value)) {
                         throw new InvalidArgumentException('Not in the network.');
                     }
                     // Never an address a customer holds, or may be given (ADV-505-5).

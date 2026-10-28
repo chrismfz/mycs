@@ -28,7 +28,9 @@ final class IpAllocator
         if ($address !== null && $address->ip_pool_id !== $pool->id) {
             throw new DisplayException("{$address->address} is not of the pool {$pool->name}.");
         }
-        $candidates = IpAddress::query()->where('ip_pool_id', $pool->id)->tap(fn ($q) => IpAddress::whereFree($q))
+        // Never a pool's gateway, or its network or broadcast address, however it got in (ADV-505-R2-1).
+        $forbidden = array_keys(IpPool::forbidden()['v4']);
+        $candidates = IpAddress::query()->where('ip_pool_id', $pool->id)->tap(fn ($q) => IpAddress::whereFree($q))->whereNotIn('address', $forbidden)
             ->when($address !== null, fn ($q) => $q->whereKey($address->id))
             ->orderByRaw('released_at is not null')->orderBy('released_at')->orderBy('id')->limit(20)->pluck('id');
         foreach ($candidates as $id) {
@@ -71,6 +73,8 @@ final class IpAllocator
             return;
         }
         $released = DB::transaction(function () use ($address, $serviceId) {
+            // The service's row first, as assign and DeleteService take them (round 2 of #505: opposite orders deadlock).
+            Service::query()->whereKey($serviceId)->lockForUpdate()->value('id');
             $done = IpAddress::query()->whereKey($address->id)->where('service_id', $serviceId)
                 ->update(['service_id' => null, 'assigned_at' => null, 'released_at' => now(), 'updated_at' => now()]) === 1;
             if ($done) {
@@ -93,12 +97,35 @@ final class IpAllocator
     /** Kept out of the pool (ours, a router's), only while free; and given back to it. */
     public static function reserve(IpAddress $address, bool $reserved, ?string $note = null): void
     {
+        // A gateway, or a prefix holding one, stays reserved: «back to the pool» would give the router's address
+        // (ADV-505-R2-1).
+        if (!$reserved && ($why = self::notGiven($address->address)) !== null) {
+            throw new DisplayException("{$address->address} is {$why}: it stays reserved.");
+        }
         $query = IpAddress::query()->whereKey($address->id)->whereNull('service_id');
         $done = $query->update(['reserved' => $reserved, 'note' => $note ?? $address->note, 'updated_at' => now()]) === 1;
         if (!$done) {
             throw new DisplayException("{$address->address} is a service's: release it first.");
         }
         $address->refresh();
+    }
+
+    /** Why an address is never given (a pool's gateway, network or broadcast address), or null. */
+    private static function notGiven(string $address): ?string
+    {
+        $forbidden = IpPool::forbidden();
+        if (isset($forbidden['v4'][$address])) {
+            return $forbidden['v4'][$address];
+        }
+        if (str_contains($address, '/')) {
+            foreach ($forbidden['gateways6'] as $gateway) {
+                if (IpRange::contains($address, $gateway)) {
+                    return "the prefix of the gateway {$gateway}";
+                }
+            }
+        }
+
+        return null;
     }
 
     private static function audit(Service $service, string $event, IpAddress $address): void

@@ -36,10 +36,17 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['ip_pool_id', 'service_id']);
         });
+
+        // The WHMCS pools app:import-whmcs-ip-pools brought once: one staff deleted since is not brought back (ADV-505-R2-3).
+        Schema::create('whmcs_ip_pool_imports', function (Blueprint $table) {
+            $table->unsignedInteger('whmcs_id')->primary();
+            $table->timestamp('imported_at');
+        });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists('whmcs_ip_pool_imports');
         Schema::dropIfExists('ip_addresses');
         Schema::dropIfExists('ip_pools');
     }

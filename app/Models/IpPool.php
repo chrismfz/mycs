@@ -20,6 +20,9 @@ class IpPool extends Model
 {
     protected $fillable = ['name', 'family', 'network', 'prefix', 'gateway', 'nameservers', 'server_id', 'whmcs_id', 'note'];
 
+    /** @var array{v4: array<string, string>, gateways6: list<string>} what add() never takes, read once an add */
+    private array $forbidden = ['v4' => [], 'gateways6' => []];
+
     protected function casts(): array
     {
         return ['family' => 'integer', 'prefix' => 'integer', 'whmcs_id' => 'integer'];
@@ -100,6 +103,7 @@ class IpPool extends Model
      */
     public function add(string $lines): array
     {
+        $this->forbidden = self::forbidden();
         $wanted = [];
         foreach (preg_split('/[\r\n,;]+/', $lines) ?: [] as $line) {
             $line = trim($line);
@@ -134,15 +138,18 @@ class IpPool extends Model
             if ((int) explode('/', $prefix)[1] !== $this->prefix) {
                 throw new InvalidArgumentException("{$line}: this pool gives /{$this->prefix} prefixes.");
             }
-            if (IpRange::isV4($prefix) || IpRange::contains('::ffff:0:0/96', $prefix)) {
+            if (IpRange::isV4($prefix) || IpRange::overlaps('::ffff:0:0/96', $prefix)) {
                 // An IPv4-mapped address is another spelling of an IPv4 one (ADV-505-11).
                 throw new InvalidArgumentException("{$line} is not IPv6.");
             }
             if (filled($this->network) && !IpRange::contains((string) $this->network, $prefix)) {
                 throw new InvalidArgumentException("{$prefix} is not in {$this->network}.");
             }
-            if (filled($this->gateway) && IpRange::contains($prefix, (string) $this->gateway)) {
-                throw new InvalidArgumentException("{$prefix} holds the pool's gateway.");
+            // Any pool's gateway, not only this one's (ADV-505-R2-2).
+            foreach ($this->forbidden['gateways6'] as $gateway) {
+                if (IpRange::contains($prefix, $gateway)) {
+                    throw new InvalidArgumentException("{$prefix} holds the gateway {$gateway}.");
+                }
             }
 
             return [$prefix];
@@ -162,10 +169,11 @@ class IpPool extends Model
                 throw new InvalidArgumentException("{$address} is not in {$this->network}.");
             }
             $edges = $this->prefix < 31 ? IpRange::bounds(IpRange::networkOf($address, $this->prefix)) : [];
+            // This pool's, and any pool's gateway or network or broadcast address (ADV-505-R2-2).
             $reason = match (true) {
                 $address === $this->gateway => 'the pool\'s gateway',
                 in_array($address, $edges, true) => "the /{$this->prefix} network's " . ($address === $edges[0] ? 'network' : 'broadcast') . ' address',
-                default => null,
+                default => $this->forbidden['v4'][$address] ?? null,
             };
             if ($reason === null) {
                 $out[] = $address;
@@ -180,13 +188,38 @@ class IpPool extends Model
     /** @param list<string> $prefixes */
     private function refuseOverlaps(array $prefixes): void
     {
+        // One sweep over every prefix of every pool and the new ones (ADV-505-R2-4: each against each was minutes).
         $existing = IpAddress::query()->where('address', 'like', '%/%')->pluck('address')->all();
-        foreach ($prefixes as $i => $prefix) {
-            foreach ([...$existing, ...array_slice($prefixes, 0, $i)] as $other) {
-                if (IpRange::overlaps($prefix, $other)) {
-                    throw new InvalidArgumentException("{$prefix} overlaps {$other}, already in a pool.");
+        $overlap = IpRange::firstOverlap([...$existing, ...$prefixes]);
+        if ($overlap !== null) {
+            [$a, $b] = in_array($overlap[1], $prefixes, true) ? $overlap : array_reverse($overlap);
+            throw new InvalidArgumentException("{$b} overlaps {$a}, already in a pool.");
+        }
+    }
+
+    /**
+     * What no pool gives: every pool's gateway, and every IPv4 pool network's network and broadcast address.
+     *
+     * @return array{v4: array<string, string>, gateways6: list<string>}
+     */
+    public static function forbidden(): array
+    {
+        $out = ['v4' => [], 'gateways6' => []];
+        foreach (self::query()->get(['name', 'family', 'network', 'prefix', 'gateway']) as $pool) {
+            if (filled($pool->gateway)) {
+                if (IpRange::isV4((string) $pool->gateway)) {
+                    $out['v4'][(string) $pool->gateway] = "the gateway of the pool «{$pool->name}»";
+                } else {
+                    $out['gateways6'][] = (string) $pool->gateway;
                 }
             }
+            if ($pool->family === 4 && filled($pool->network) && $pool->prefix < 31) {
+                [$first, $last] = IpRange::bounds((string) $pool->network);
+                $out['v4'][$first] = "the network address of the pool «{$pool->name}»";
+                $out['v4'][$last] = "the broadcast address of the pool «{$pool->name}»";
+            }
         }
+
+        return $out;
     }
 }

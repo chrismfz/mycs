@@ -96,4 +96,11 @@ class IpRangeTest extends TestCase
         $this->assertFalse(IpRange::overlaps('2001:db8:0:1::/64', '2001:db8:0:2::/64'));
         $this->assertSame(['192.0.2.64', '192.0.2.95'], IpRange::bounds('192.0.2.64/27'));
     }
+
+    public function test_overlaps_are_found_by_one_sweep(): void
+    {
+        $this->assertNull(IpRange::firstOverlap(['2001:db8:0:2::/64', '2001:db8:0:1::/64', '2001:db8:0:3::/64']));
+        $this->assertSame(['2001:db8::/56', '2001:db8:0:5::/64'], IpRange::firstOverlap(['2001:db8:0:5::/64', '2001:db8:1::/64', '2001:db8::/56']));
+        $this->assertSame(['192.0.2.0/24', '192.0.2.77'], IpRange::firstOverlap(['192.0.2.77', '192.0.2.0/24']));
+    }
 }

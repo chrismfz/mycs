@@ -8,6 +8,7 @@ use App\Models\IpPool;
 use App\Models\Server;
 use App\Models\Service;
 use App\Services\Ip\IpAllocator;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use MyCS\Proxmox\IpRange;
 use PDO;
@@ -36,14 +37,15 @@ final class WhmcsIpPoolImport
         $clusters = Server::query()->where('extension', 'Proxmox')->pluck('id');
         $addresses = $this->whmcs->query('SELECT pool_id, ipaddress, mask FROM mod_pvewhmcs_ip_addresses ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
         foreach ($this->whmcs->query('SELECT id, title, gateway FROM mod_pvewhmcs_ip_pools ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if (IpPool::query()->where('whmcs_id', (int) $row['id'])->exists()) {
-                continue; // brought before: kept as staff left it, its addresses with it (ADV-505-7)
+            if (DB::table('whmcs_ip_pool_imports')->where('whmcs_id', (int) $row['id'])->exists() || IpPool::query()->where('whmcs_id', (int) $row['id'])->exists()) {
+                continue; // brought before: kept as staff left it, its addresses with it, or deleted (ADV-505-7, R2-3)
             }
             $rows = array_values(array_filter($addresses, fn (array $a) => (int) $a['pool_id'] === (int) $row['id']));
             $pool = $this->pool($row, $rows, $clusters->count() === 1 ? (int) $clusters->first() : null);
             if ($pool === null) {
                 continue;
             }
+            DB::table('whmcs_ip_pool_imports')->insertOrIgnore(['whmcs_id' => (int) $row['id'], 'imported_at' => now()]);
             // One a time: an odd one is told, the rest come (ADV-505-6).
             foreach ($rows as $address) {
                 $ip = trim((string) $address['ipaddress']);
@@ -81,7 +83,9 @@ final class WhmcsIpPoolImport
             if ($prefix < 16 || $prefix > 32) {
                 throw new InvalidArgumentException("a /{$prefix} mask");
             }
-            $from = $gateway ?? trim((string) ($rows[0]['ipaddress'] ?? ''));
+            // An IPv4 pool, told by its IPv4 addresses (an IPv6 row is told in the conflicts: round 2 of #505).
+            $v4 = array_values(array_filter(array_map(fn (array $a) => trim((string) $a['ipaddress']), $rows), fn (string $ip) => IpRange::isV4($ip)));
+            $from = $gateway ?? ($v4[0] ?? throw new InvalidArgumentException('no IPv4 address'));
             $network = $prefix === 32 ? null : IpRange::networkOf($from, $prefix);
         } catch (InvalidArgumentException $e) {
             $this->counts['conflicts'][] = "Pool «{$row['title']}»: no network to tell from its addresses ({$e->getMessage()}); set it up by hand.";
