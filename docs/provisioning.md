@@ -167,6 +167,11 @@ Modules για το myip:
   (enabled, χωρίς μαρκάρισμα), χρήση, terminate (διαγράφηκε· το Centova ξανά με 9 accounts): όλα εντάξει. Η δοκιμή βρήκε
   τρία πράγματα του Centova 3.3.2, διορθωμένα και με tests: ελληνικά σε HTML entities (`&Iota;…`) μέσα στο XML
   (#335), το `server.enabled` με κάθε τιμή σε `<field>` (#335), και debug banner πριν από το XML ενός σφάλματος (#336).
+  **Δεύτερη δοκιμή live (2026-10-28, υπεύθυνος):** ShoutCast v1 (template `shoutcast_1_100`, κρυφό προϊόν #42) και
+  ShoutCast v2 (`shoutcast_2_100`, #43): create (θύρες 9217/9248, ο τύπος από το template), suspend (disabled),
+  unsuspend, terminate (διαγράφηκαν· ο stream ξανά με τους 9 σταθμούς: 4 IceCast, 4 ShoutCast v2, 1 ShoutCast v1). Ο
+  τύπος ενός νέου σταθμού είναι του template του προϊόντος του (`icecast100`, `icecast200`, `shoutcast_1_100`,
+  `shoutcast_2_100`)· suspend/terminate δεν εξαρτώνται από τον τύπο.
   **Στον stream:** το Centova δεν μπορούσε να φτιάξει κανένα account (`Field 'statuscache' doesn't have a default value`)
   επειδή η MariaDB ήταν σε strict mode· ο υπεύθυνος αφαίρεσε το `STRICT_TRANS_TABLES` (`sql_mode` στο `my.cnf`).
 - **Proxmox:** το myip τρέχει το Proxmox VE for WHMCS της The-Network-Crew (pvewhmcs· η nixpal/myip του έστειλε το
@@ -182,6 +187,19 @@ Modules για το myip:
   πρόθεμα όταν λείπει). Με το πλήρες όνομα ο λογαριασμός έγινε, με ιδιοκτήτη τον reseller.
 - **suspend / unsuspend / terminate:** εντάξει, επαληθευμένα με `accountsummary`· στο τέλος ο λογαριασμός δεν υπάρχει.
 - Η υπηρεσία δοκιμής (#3) μένει terminated στο devbox.
+
+## Δοκιμή reseller στον rigel (2026-10-28, υπεύθυνος: root token για δοκιμές)
+Από το devbox, μέσα από την εφαρμογή, κρυφό προϊόν #44 «cPanel reseller test (hidden)» (`Business10`, ACL `reseller70`,
+2.000 MB / 20.000 MB / 3 λογαριασμοί), υπηρεσία #11 στο `mycs-rtest.myip.gr`:
+- **create:** ο λογαριασμός έγινε reseller που ανήκει στον εαυτό του, με τα ACL του `reseller70` και τα όρια του
+  προϊόντος (`resellerstats`: 2000/20000, χωρίς overselling· `acctcounts`: όριο 3).
+- Ένας λογαριασμός κάτω από αυτόν (`createacct` του root με owner τον reseller, σαν να τον έφτιαξε ο ίδιος).
+- **suspend / unsuspend:** περνούν και στον λογαριασμό του (`suspendreseller`). **Χρήση:** 1 από 3 λογαριασμούς, με τα
+  όρια του προϊόντος. **SSO** στο cPanel και **κωδικός:** εντάξει.
+- **terminate:** χωρίς επιβεβαίωση αρνείται («owns 1 other account»)· με το username πληκτρολογημένο, `terminatereseller`:
+  και οι δύο διαγράφηκαν· ο rigel ξανά με 144 λογαριασμούς και τους δύο resellers του.
+- Βρέθηκε: ο reseller δεν είχε «Σύνδεση στο WHM» (το WHMCS την έχει): προστέθηκε (feat/cpanel-reseller-whm-login),
+  ελεγμένη με test (`whostmgrd`)· live στην επόμενη δοκιμή reseller.
 
 ## Δοκιμή live 2026-10-22 (ο υπεύθυνος έδωσε την άδεια)
 Υπηρεσία δοκιμής **#4** («Wordpress V16», πελάτης #2 «MyCS cPanel test», `mycs-test-2.dummy-domain.tld`) στον orion, με τον

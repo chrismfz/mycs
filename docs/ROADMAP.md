@@ -130,8 +130,13 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       υπηρεσίας, για staff (ενότητα «Mail») και πελάτη, ο έλεγχος DNS (MX, SPF, DKIM, DMARC, autodiscover/autoconfig:
       το DNS που ζητά ο server, το κλειδί DKIM από το mailcow, απέναντι σε ό,τι απαντά το δημόσιο DNS) και τα mailboxes
       με quota και χρήση (feat/mailcow-service-page). Όχι πρόσθετα mailboxes ως config options (μόνο όριο χώρου).
-- [ ] cPanel: η ίδια εικόνα (λογαριασμοί κάθε server, πακέτα, χρήση, αντιστοίχιση) και resellers, με τον rigel (root
-      token για δοκιμές, υπεύθυνος 2026-10-28).
+- [x] ~~cPanel: η ίδια εικόνα και resellers~~ **έγινε:** **Utilities → Hosting Accounts** (#495: λογαριασμοί κάθε WHM,
+      πακέτο, owner/reseller, δίσκος, inodes, bandwidth, suspend, mail held, αντιστοίχιση, «Services without an account»,
+      inodes και «κοντά στο όριο» στη σελίδα της υπηρεσίας)· **δοκιμή reseller στον rigel** (provisioning.md) και «Σύνδεση
+      στο WHM» για reseller (ελεγμένη με test· live στην επόμενη δοκιμή).
+- [ ] cPanel, επόμενα (υπεύθυνος 2026-10-28): χρήση πόρων του CloudLinux (LVE: CPU/RAM/IO/EP, faults) ανά λογαριασμό·
+      WordPress (WP Toolkit) και ασφάλεια (Imunify360) ανά λογαριασμό· πριν από αυτά, τι φτάνει με το token του WHM. Το
+      backup του λογαριασμού είναι του JetBackup (το backup του cPanel κλειστό στον rigel): αργότερα από το JetBackup.
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

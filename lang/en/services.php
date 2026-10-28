@@ -69,6 +69,7 @@ return [
     'cpanel' => [
         'login' => 'Access cPanel',
         'webmail' => 'Login to Webmail',
+        'whm_login' => 'Access WHM',
         'shortcuts_title' => 'Quick shortcuts',
         'failed' => 'The panel could not be opened. Try again in a moment.',
         'too_many' => 'Too many attempts. Try again later.',
