@@ -55,6 +55,7 @@ final class AccountSync
             $seen = [];
             foreach ($accounts as $data) {
                 $row = CpanelAccount::query()->with('service')->firstOrNew(['server_id' => $server->id, 'user' => $data['user']]);
+                $row->setRelation('server', $server); // its login read once, not per row (round 3 of #495)
                 $new += $row->exists ? 0 : 1;
                 $fill = $data;
                 unset($fill['user'], $fill['created_at']);

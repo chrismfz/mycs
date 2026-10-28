@@ -1162,7 +1162,7 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Its account on its WHM server as cpanel:sync last read it (Hosting Accounts): inodes, limits, mail, backups.
+     * Its account on its WHM server as cpanel:sync last read it (Hosting Accounts): inodes, limits, suspension, mail.
      *
      * @return HasOne<CpanelAccount, $this>
      */
