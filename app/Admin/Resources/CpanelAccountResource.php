@@ -159,7 +159,8 @@ class CpanelAccountResource extends Resource
     /** Its peaks as the list loaded them (withLvePeaks), with its limits. @return array<string, array{peak: int|null, limit: int|null}> */
     private static function lvePeaks(CpanelAccount $record): array
     {
-        if ($record->lve_read_at === null) {
+        // A suspended one is not read: its last readings are not shown, as on the service page (review 3 of #497).
+        if ($record->lve_read_at === null || $record->suspended) {
             return [];
         }
         $peaks = [];

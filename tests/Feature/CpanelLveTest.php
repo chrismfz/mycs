@@ -264,7 +264,8 @@ class CpanelLveTest extends TestCase
             "*--server={$second->id}*" => Process::describe()->output('Orion: …')->iterations(1000),
         ]);
         try {
-            $this->artisan('cpanel:lve')->expectsOutput('Orion: its read took longer than 0 seconds: stopped.')->assertExitCode(1);
+            $this->artisan('cpanel:lve')->expectsOutput('Rigel: 2 account(s) read')
+                ->expectsOutput('Orion: its read took longer than 0 seconds: stopped.')->assertExitCode(1);
         } finally {
             SyncCpanelLve::$deadline = SyncCpanelLve::SERVER_TIMEOUT;
         }
