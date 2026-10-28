@@ -7,10 +7,13 @@ use App\Admin\Resources\Audits\AuditResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\TopMenu;
+use App\Models\EmailLog;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
@@ -86,5 +89,61 @@ class TopMenuLogsTest extends TestCase
 
         $this->get(PaymentGatewayEventResource::getUrl('index'))->assertOk();
         $this->assertSame(['Billing'], array_column(array_filter(TopMenu::groups(), fn ($g) => $g['active']), 'label'));
+    }
+
+    /** Stored as a Setting: each request below loads the settings again from the database (TopMenuCoverageTest). */
+    private function debug(bool $on): void
+    {
+        Setting::query()->updateOrCreate(['key' => 'debug', 'settingable_type' => null], ['value' => $on, 'type' => 'boolean']);
+        config(['settings.debug' => $on]);
+        Cache::forget('settings.rows');
+    }
+
+    public function test_with_debugging_off_logs_never_leads_to_the_debug_logs(): void
+    {
+        $this->debug(false);
+        $this->actingAs($this->staff(['admin.debug_logs.view']), 'staff');
+
+        $this->assertArrayNotHasKey('Logs', $this->utilities());
+
+        $this->actingAs($this->staff(['*']), 'staff');
+        $labels = array_map(fn ($item) => $item->getLabel(), Logs::navigation());
+        $this->assertNotContains(__('Error Logs'), $labels);
+        $this->assertNotContains(__('HTTP Logs'), $labels);
+        $this->assertContains(__('Failed Jobs'), $labels);
+    }
+
+    public function test_with_debugging_on_logs_leads_to_them(): void
+    {
+        $this->debug(true);
+        $this->actingAs($this->staff(['admin.debug_logs.view']), 'staff');
+
+        $this->assertStringContainsString('error-logs', $this->utilities()['Logs']['url']);
+    }
+
+    /** The menu opens only the first log now: each of the others opens too, from the list on its left. */
+    public function test_every_log_in_the_list_opens(): void
+    {
+        $this->debug(true);
+        foreach (['tax_enabled' => [true, 'boolean'], 'default_currency' => ['USD', 'string']] as $key => [$value, $kind]) {
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $kind]);
+            config(["settings.{$key}" => $value]);
+        }
+        Cache::forget('settings.rows');
+        $this->actingAs($this->staff(['*']), 'staff');
+
+        $urls = array_map(fn ($item) => (string) $item->getUrl(), Logs::navigation());
+        $this->assertCount(count(Logs::classes()), $urls);
+        foreach ($urls as $url) {
+            $this->get($url)->assertOk();
+        }
+    }
+
+    public function test_logs_is_lit_on_a_logs_record_too(): void
+    {
+        $log = EmailLog::query()->create(['subject' => 'x', 'to' => 'e@example.test', 'body' => 'y']);
+        $this->actingAs($this->staff(['*']), 'staff')->get(EmailLogResource::getUrl('view', ['record' => $log]))->assertOk();
+
+        $this->assertTrue($this->utilities()['Logs']['active']);
     }
 }

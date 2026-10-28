@@ -74,6 +74,6 @@ class TopMenuCoverageTest extends TestCase
         $labels = collect(TopMenu::groups())->flatMap(fn (array $group) => array_column($group['items'], 'label'));
 
         $this->assertNotContains('Error Logs', $labels);
-        $this->assertContains('Logs', $labels); // Failed Jobs and the others, behind «Utilities → Logs»
+        $this->assertContains('Logs', $labels); // Failed Jobs and the others, behind «Utilities → Logs» (TopMenuLogsTest)
     }
 }

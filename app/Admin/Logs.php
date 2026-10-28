@@ -59,7 +59,8 @@ final class Logs
         $sort = 0;
         foreach (self::ITEMS as $group => $entries) {
             foreach ($entries as [$class, $label]) {
-                if (!$class::canAccess()) {
+                // A log shown only under a setting (Error/HTTP Logs, while debugging) stays out here too (review, 2026-10-28).
+                if (!$class::canAccess() || !$class::shouldRegisterNavigation()) {
                     continue;
                 }
                 $resource = is_subclass_of($class, Resource::class);
