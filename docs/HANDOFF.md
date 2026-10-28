@@ -93,8 +93,8 @@
 - **Νέο squash:** όταν μαζευτούν πολλά, ξανά με τον ίδιο έλεγχο.
   1. Μια άδεια βάση: `migrate --seed`, και από αυτήν `php artisan schema:dump --database=mariadb`.
   2. Το ίδιο με `--database=sqlite`.
-  3. Από το mariadb dump σβήνεται η πρώτη γραμμή, `/*M!999999\- enable the sandbox mode */`: ο client της MySQL και οι
-     παλιοί της MariaDB δεν την καταλαβαίνουν.
+  3. Από το mariadb dump σβήνεται **κάθε** γραμμή `/*M!999999\- enable the sandbox mode */`: μία στην αρχή, και μία στο
+     δεύτερο dump, των γραμμών του `migrations`. Ο client της MySQL και οι παλιοί της MariaDB δεν την καταλαβαίνουν.
   4. Σύγκριση με μια βάση από dump και seed.
   5. Σβήνονται τα migrations και τα tests του upgrade τους.
 - **Τι θέλει:**
@@ -108,6 +108,13 @@
     απλό index στο foreign key, που μια νέα βάση δεν το χρειάζεται γιατί το καλύπτει ένα σύνθετο.
   - Δεν το προκάλεσε το squash, και δεν χρειάζεται κάτι.
   - Στο αντίγραφο του σχήματός της, το `migrate` της νέας βάσης λέει «Nothing to migrate».
+- **PHPStan:** το Larastan μαθαίνει τις στήλες των models από το dump, όχι πια από τα migrations.
+  - Ο parser του δεν ξέρει τον τύπο `uuid` της MariaDB, και τότε πετά όλο το dump. Γι' αυτό το `phpstan-schema.php`
+    γράφει πριν από κάθε run ένα αντίγραφο στο `storage/framework/larastan/`, με τις δύο στήλες `uuid` ως `char(36)`.
+  - Με `parseModelCastsMethod` ο τύπος έρχεται από το `casts()` του model: ένα `tinyint(1)` με cast `boolean` είναι
+    `bool`.
+  - Ένα PHPStan που περνά με το cache δεν αποδεικνύει τίποτα εδώ. Πριν το push:
+    `vendor/bin/phpstan clear-result-cache` (το CI ξεκινά πάντα χωρίς cache).
 - **Τα tests που φόρτωναν ένα migration** για να ελέγξουν το upgrade παλιών δεδομένων σβήστηκαν μαζί τους: 76 μέθοδοι,
   από αυτές 3 ολόκληρα αρχεία. Η παραγωγή έχει τρέξει ήδη όλα αυτά τα upgrades.
 

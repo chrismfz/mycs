@@ -48,6 +48,10 @@ cp .env.example .env && chmod 600 .env     # DB_*, APP_URL, MAIL_*· όχι secr
 php artisan key:generate                    # κρυπτογραφεί τα αποθηκευμένα credentials: κράτα αντίγραφο του .env
 php artisan mycs:install                    # ρωτάει εταιρεία, URL, πρώτο admin, κωδικό (κρυφά)
 ```
+Θέλει τον client `mariadb` (ή `sqlite3` για SQLite) στο `PATH` του χρήστη που τρέχει το artisan. Η νέα βάση
+φορτώνεται από το `database/schema/mariadb-schema.sql` μέσω του client (HANDOFF → «Σχήμα της βάσης»). Σε CageFS
+(orion) πρέπει να υπάρχει και μέσα στο cage του χρήστη.
+
 Το `mycs:install` τρέχει migrations και το βασικό seed (ρόλος admin, προεπιλογές ρυθμίσεων, templates), δημιουργεί
 το νόμισμα (EUR, `1.000,00 €`), γράφει εταιρεία/URL/γλώσσα (client area `el` + `en`, admin `en`)/ζώνη ώρας
 (`Europe/Athens`), το `storage:link` και το πρώτο μέλος του **staff** (πίνακας `staff`, login στο

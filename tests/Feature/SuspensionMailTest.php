@@ -23,18 +23,6 @@ class SuspensionMailTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PREVIOUS_EN_BODY = "# Service suspended\n\nDear {{ user.first_name }},\n\nYour service **{{ service.product.name }}** was suspended because its renewal is overdue.\n\n"
-        . "Once its invoice is paid, the service is reactivated automatically, usually within minutes.\n\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoices }}\">\n"
-        . "\t\tView my invoices\n\t</a>\n</div>\n\nIf you think this is a mistake, please contact us.";
-
-    private const PREVIOUS_EN_IN_APP = 'Your service {{ service.product.name }} was suspended because its renewal is overdue. Pay its invoice to reactivate it.';
-
-    private const PREVIOUS_EL_BODY = "# Αναστολή υπηρεσίας\n\nΑγαπητέ/ή {{ user.first_name }},\n\nΗ υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.\n\n"
-        . "Μόλις εξοφληθεί το προτιμολόγιό της, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.\n\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoices }}\">\n"
-        . "\t\tΤα προτιμολόγιά μου\n\t</a>\n</div>\n\nΑν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας.";
-
-    private const PREVIOUS_EL_IN_APP = 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά.';
-
     private Service $service;
 
     protected function setUp(): void

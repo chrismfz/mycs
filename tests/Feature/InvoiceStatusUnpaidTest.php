@@ -5,20 +5,12 @@ namespace Tests\Feature;
 use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** An unpaid invoice is «unpaid» in the database too, as WHMCS calls it (docs/importer.md); no other word gets in. */
 class InvoiceStatusUnpaidTest extends TestCase
 {
     use RefreshDatabase;
-
-    private function rawInvoice(array $attributes = []): int
-    {
-        return DB::table('invoices')->insertGetId(array_merge([
-            'client_id' => User::factory()->create()->client()->id, 'currency_code' => 'USD', 'created_at' => now(), 'updated_at' => now(),
-        ], $attributes));
-    }
 
     public function test_unpaid_is_the_word_and_pending_is_gone(): void
     {
