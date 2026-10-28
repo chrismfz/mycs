@@ -191,8 +191,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       πλάνα), Stock (∞ χωρίς όριο), Auto Setup, και Shown (Listed/Hidden/Retired). (Duplicate, Pending Orders και
       dashboard υπήρχαν· το Auto Setup ως ρύθμιση του προϊόντος επίσης.)
 - [ ] `mycs:login-link`. (Έξοδα: ανήκουν στο Ekdosi.)
-- [ ] **Έσοδα για τον προγραμματισμό ταμείου** (`income-planning.md`, σχέδιο εγκρίθηκε 2026-10-28): PR 1 το widget
-      «Έσοδα» του dashboard· PR 2 η σελίδα «Έσοδα & πρόβλεψη» (η «Πρόβλεψη εσόδων» μεγαλωμένη).
+- [ ] **Έσοδα για τον προγραμματισμό ταμείου** (`income-planning.md`, σχέδιο εγκρίθηκε 2026-10-28): το widget
+      «Έσοδα» του dashboard (#500)· η σελίδα «Έσοδα & πρόβλεψη» (η «Πρόβλεψη εσόδων» μεγαλωμένη).
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
 ### Licensing (`licensing.md`)
