@@ -135,7 +135,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /** @return list<string> */
-    private function protectedAccounts(): array
+    public function protectedAccounts(): array
     {
         $listed = array_map(fn (string $user) => strtolower(trim($user)), explode(',', (string) $this->config('protected_accounts')));
 
@@ -1016,6 +1016,80 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 
         return $accounts;
     }
+
+    /**
+     * CloudLinux's limits and what each account uses of them now (owner 2026-10-28, stage 3: «does the site hit its
+     * limits»), as cPanel's own ResourceUsage::get_usages tells it, one account a call through WHM: CPU as a percent of
+     * the account's own limit, physical memory and I/O in bytes, entry processes, processes and IOPS counted. Reads only.
+     * A protected account is not read (the call names it); a server without CloudLinux answers without them: an empty
+     * list, after one call. One account that cannot be read is left out; none at all throws.
+     *
+     * @param  list<string>  $users
+     * @return array<string, array<string, array{used: int, limit: int|null}>>
+     */
+    public function lveUsages(array $users): array
+    {
+        $protected = $this->protectedAccounts();
+        $read = [];
+        $failed = null;
+        $failures = 0;
+        $empty = 0;
+        foreach ($users as $user) {
+            $user = strtolower(trim($user));
+            if ($user === '' || in_array($user, $protected, true)) {
+                continue;
+            }
+            try {
+                $json = $this->request('/cpanel', 'get', ['cpanel_jsonapi_user' => $user, 'cpanel_jsonapi_apiversion' => 3,
+                    'cpanel_jsonapi_module' => 'ResourceUsage', 'cpanel_jsonapi_func' => 'get_usages'], timeout: 10)->json();
+                $rows = $json['result']['data'] ?? null;
+                if ((int) ($json['result']['status'] ?? 0) !== 1 || !is_array($rows)) {
+                    throw new WhmRefused('cPanel ResourceUsage: ' . implode(' ', array_map('strval', (array) ($json['result']['errors'] ?? ['no answer']))));
+                }
+                $failures = 0;
+            } catch (Throwable $e) {
+                $failed ??= $e;
+                // A token or server that fails every call is told once, after a few, not once an account (review of #497).
+                if (++$failures >= self::LVE_GIVE_UP) {
+                    throw $failed;
+                }
+
+                continue;
+            }
+            $lve = [];
+            foreach ($rows as $row) {
+                $key = self::LVE[$row['id'] ?? ''] ?? null;
+                if ($key !== null && is_numeric($row['usage'] ?? null)) {
+                    $lve[$key] = ['used' => max(0, (int) round((float) $row['usage'])),
+                        'limit' => is_numeric($row['maximum'] ?? null) && (float) $row['maximum'] > 0 ? (int) round((float) $row['maximum']) : null];
+                }
+            }
+            if ($lve === []) {
+                // One account without them (excluded from LVE) is left out, never the server's other readings; the first
+                // few answering without them: no CloudLinux here (review of #497).
+                if ($read === [] && ++$empty >= self::LVE_GIVE_UP) {
+                    return [];
+                }
+
+                continue;
+            }
+            $read[$user] = $lve;
+        }
+        if ($read === [] && $empty === 0 && $failed !== null) {
+            throw $failed;
+        }
+        if ($failed !== null) {
+            report($failed); // some read, some not: told once
+        }
+
+        return $read;
+    }
+
+    /** Answers in a row that fail, or come first without CloudLinux, before the server's read stops. */
+    private const LVE_GIVE_UP = 3;
+
+    /** get_usages's CloudLinux ids. */
+    private const LVE = ['lvecpu' => 'cpu', 'lvememphy' => 'memory', 'lveep' => 'entry_processes', 'lvenproc' => 'processes', 'lveio' => 'io', 'lveiops' => 'iops'];
 
     /** WHM's «793M», «20G», «512000K» → MB; «unlimited» or none → null (a limit of 0 is «none»: self::limit). */
     private static function mb(mixed $value): ?int
