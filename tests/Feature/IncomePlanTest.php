@@ -325,4 +325,14 @@ class IncomePlanTest extends TestCase
 
         $this->assertSame(2026, $page->instance()->chosenYear());
     }
+
+    public function test_the_widget_signs_a_fall_before_the_currency(): void
+    {
+        config(['settings.default_currency' => 'USD']);
+        $this->invoice(50, Invoice::STATUS_PAID, '2026-10-05', '2026-10-05 09:00:00');
+        $this->invoice(80, Invoice::STATUS_PAID, '2025-10-05', '2025-10-05 09:00:00');
+
+        $this->livewireAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->test(EstimatedIncome::class)
+            ->assertSee('-$30.00 (-38%)')->assertDontSee('$-30.00');
+    }
 }

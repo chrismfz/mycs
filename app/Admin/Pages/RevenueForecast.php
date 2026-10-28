@@ -38,6 +38,17 @@ class RevenueForecast extends Page
         $this->year = (int) now()->format('Y');
     }
 
+    /** A year or currency not offered (tampered input) is set back to the one shown, so the select says it (ADV-501-6). */
+    public function updatedYear(): void
+    {
+        $this->year = $this->chosenYear();
+    }
+
+    public function updatedCurrency(): void
+    {
+        $this->currency = $this->code();
+    }
+
     public function getTitle(): string
     {
         return __('Income & forecast');

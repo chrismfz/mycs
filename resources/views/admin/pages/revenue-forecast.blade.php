@@ -3,11 +3,13 @@
     $titles = \App\Admin\Pages\RevenueForecast::cycleTitles();
     $currencyModel = \App\Models\Currency::query()->find($this->code());
     $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => $currencyModel], tax: 0))->format($amount);
-    $diff = fn ($now, $then) => (float) $then > 0 ? round(((float) $now - (float) $then) / (float) $then * 100) : null;
+    // Display only (the amounts are decimal strings): a whole percent, never «-0» (ADV-501-5).
+    $diff = fn ($now, $then) => (float) $then > 0 ? (int) round(((float) $now - (float) $then) / (float) $then * 100) : null;
     $plan = $this->plan();
     $summary = $this->summary();
     $year = $this->chosenYear();
-    $signed = fn ($amount) => ((float) $amount > 0 ? '+' : '') . $money($amount);
+    // The sign before the currency, for a fall as for a rise (ADV-501-4).
+    $signed = fn ($amount) => ((float) $amount > 0 ? '+' : ((float) $amount < 0 ? '-' : '')) . $money(ltrim((string) $amount, '-'));
     $percent = fn ($now, $then) => ($change = $diff($now, $then)) === null ? '—' : ($change > 0 ? '+' : '') . $change . '%';
     $tone = fn ($now, $then) => (float) $now < (float) $then ? 'text-danger-600 dark:text-danger-400' : 'text-success-700 dark:text-success-400';
     $monthName = fn ($month) => ucfirst($month->translatedFormat('F Y'));

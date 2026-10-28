@@ -104,6 +104,9 @@ class IncomePlanPageAdversarialTest extends TestCase
      */
     public function test_the_years_total_if_everyone_pays_does_not_move_when_the_rest_is_paid(): void
     {
+        // Left as is by the owner's choice (2026-10-28, docs/income-planning.md «Μερικώς πληρωμένο»): received by the
+        // invoice paid in full, so that it agrees with the accountant's Income report; the part paid shows when it is.
+        $this->markTestIncomplete('ADV-501-2: a partial payment is received with its invoice, by the owner\'s choice (2026-10-28).');
         $invoice = $this->invoice(200, Invoice::STATUS_UNPAID, '2026-10-30');
         Carbon::setTestNow('2026-10-15 10:00:00');
         (new RecordPaymentService)->handle($invoice, null, 62.0, transactionId: 'wire-1');

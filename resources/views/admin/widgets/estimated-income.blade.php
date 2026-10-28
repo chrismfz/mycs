@@ -1,6 +1,6 @@
 {{-- Income for cash planning (owner 2026-10-28, the approved mockup), then WHMCS's Income Forecast by cycle: net amounts. --}}
 @php
-    $signed = fn (array $change) => ((float) $change['difference'] > 0 ? '+' : '') . $money($change['difference'])
+    $signed = fn (array $change) => ((float) $change['difference'] > 0 ? '+' : ((float) $change['difference'] < 0 ? '-' : '')) . $money(ltrim($change['difference'], '-'))
         . ($change['percent'] === null ? '' : ' (' . ($change['percent'] > 0 ? '+' : '') . $change['percent'] . '%)');
     $tone = fn (array $change) => (float) $change['difference'] < 0 ? 'text-danger-600 dark:text-danger-400' : 'text-success-700 dark:text-success-400';
     $percent = fn (array $change) => ($change['percent'] > 0 ? '+' : '') . $change['percent'] . '%';
