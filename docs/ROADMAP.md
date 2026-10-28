@@ -8,15 +8,20 @@
 > πέρασε στο «Έγινε». Μαζί, τι χρησιμοποιούν πραγματικά staff και πελάτες στο WHMCS του myip (access log 1–22/10,
 > `whmcs-usage.md`).
 
-## Πού είμαστε (2026-10-23, main στο #350)
+## Πού είμαστε (2026-10-29, main στο #510)
 - Το MyCS τρέχει στο devbox (`https://mycs.myip.gr`)· **καμία εταιρεία δεν δουλεύει ακόμα σε αυτό**. Pilot είναι η
   nixpal, μετά το myip.gr (`../CLAUDE.md`).
 - **Έτοιμα:** η χρέωση και οι ροές χρημάτων (ομάδες πελατών, promotions, προσφορές, τραπεζική μεταφορά), οι λογαριασμοί,
   οι παραγγελίες, τα **tickets** (πλήρες port), το provisioning (cPanel με resellers και χρήση, mailcow, Centova Cast,
   **SSL μέσω Openprovider**, licensing της nixpal), τα domains (Openprovider, CNIC, Μητρώο .gr με δικό μας EPP), τα
   βασικά reports, το portal, el/en, σκλήρυνση ασφαλείας (2FA staff υποχρεωτικό). Σύνοψη στο «Έγινε».
-- **Τι λείπει για να μπει η nixpal (2026-10-27):** ο importer με parity (9), η παραγωγή στον orion (8) και το runbook
-  (10). Πριν τον importer: βλ. «Πριν τον importer» παρακάτω.
+- **Από τις 2026-10-28:**
+  - cPanel: CloudLinux χρήση και «Differs» (#497–#499).
+  - Proxmox: client area, IP pools και κονσόλα noVNC (#502, #505, #506· η κονσόλα σε cPanel μένει για τη myip).
+  - Έσοδα ανά προϊόν και πελάτη (#504 κ.ά.).
+  - Squash των migrations σε schema dumps (#510).
+- **Τι λείπει για να μπει η nixpal:** ο importer με parity (9), η παραγωγή στον orion (8) και το runbook (10). Το «Πριν
+  τον importer» παρακάτω έκλεισε όλο (2026-10-28).
 
 ## Πριν τον importer (υπεύθυνος, 2026-10-27)
 - [x] ~~Unique `transaction_id`~~ **όχι (υπεύθυνος, 2026-10-27):** το idempotency μένει **ανά πελάτη**
@@ -295,7 +300,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [ ] Πριν το cut-over: `paypal_legacy_receivers` (PayPal της nixpal) και μήνυμα στους 3 πελάτες με συνδρομή (γραμμή 7).
 - [ ] Το hook `invoicepaid.php` στο rigel (ξεχασμένο debug που γράφει το επώνυμο του πελάτη σε αρχείο): να σβηστεί μαζί
       με το αρχείο.
-- [ ] Σβήσιμο των branches που έχουν γίνει merge (~63, από αυτά 15 `adv/*`).
+- [x] ~~Σβήσιμο των branches που έχουν γίνει merge~~ **έγινε (2026-10-28):** στο GitHub μένει μόνο το `main`.
 
 ## Έγινε (σύνοψη· λεπτομέρειες στα PRs και στα docs)
 - **2026-10-20 → 23:**
