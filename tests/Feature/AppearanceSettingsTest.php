@@ -10,7 +10,6 @@ use Filament\Facades\Filament;
 use Filament\Forms\Components\Field;
 use Filament\Support\Facades\FilamentView;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -25,28 +24,6 @@ class AppearanceSettingsTest extends TestCase
     {
         parent::setUp();
         config(['settings.default_currency' => 'USD']); // empty in the test seed: the menu's currency switch needs one
-    }
-
-    public function test_the_active_themes_settings_lose_the_theme_name_and_the_theme_choice_goes(): void
-    {
-        $migration = require database_path('migrations/2026_10_25_000000_theme_settings_without_theme_name.php');
-        // As before: the seeded defaults under theme_default_<name>, and the theme choice.
-        DB::table('settings')->where('key', 'like', 'theme%')->delete();
-        DB::table('settings')->insert([
-            ['key' => 'theme', 'value' => 'default', 'type' => 'string'],
-            ['key' => 'theme_default_primary', 'value' => 'hsl(10, 50%, 50%)', 'type' => 'string'],
-            ['key' => 'theme_default_direct_checkout', 'value' => '1', 'type' => 'boolean'],
-            ['key' => 'theme_other_primary', 'value' => 'hsl(1, 1%, 1%)', 'type' => 'string'],
-        ]);
-
-        $migration->up();
-
-        $keys = DB::table('settings')->whereNull('settingable_type')->pluck('value', 'key');
-        $this->assertSame('hsl(10, 50%, 50%)', $keys['theme_primary']);
-        $this->assertSame('1', $keys['theme_direct_checkout']);
-        $this->assertFalse($keys->has('theme'));
-        $this->assertFalse($keys->has('theme_default_primary'));
-        $this->assertTrue($keys->has('theme_other_primary'), 'another theme\'s settings are left alone');
     }
 
     public function test_theme_reads_the_appearance_settings(): void

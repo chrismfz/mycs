@@ -106,47 +106,6 @@ class AppearanceSettingsReviewTest extends TestCase
         Storage::disk('public')->assertExists('brand/brand.woff2');
     }
 
-    /**
-     * Migration down(): the theme_default_ prefix goes back only on the settings that had it. A setting of another
-     * theme that up() left alone (theme_other_x) must not become theme_default_other_x.
-     */
-    public function test_migration_down_leaves_other_themes_settings_alone(): void
-    {
-        $migration = require database_path('migrations/2026_10_25_000000_theme_settings_without_theme_name.php');
-        DB::table('settings')->where('key', 'like', 'theme%')->delete();
-        DB::table('settings')->insert([
-            ['key' => 'theme', 'value' => 'default', 'type' => 'string'],
-            ['key' => 'theme_default_primary', 'value' => 'hsl(10, 50%, 50%)', 'type' => 'string'],
-            ['key' => 'theme_other_primary', 'value' => 'hsl(1, 1%, 1%)', 'type' => 'string'],
-        ]);
-
-        $migration->up();
-        $migration->down();
-
-        $keys = DB::table('settings')->whereNull('settingable_type')->pluck('value', 'key');
-        $this->assertSame('hsl(10, 50%, 50%)', $keys['theme_default_primary']);
-        $this->assertSame('default', $keys['theme']);
-        $this->assertTrue($keys->has('theme_other_primary'), 'another theme\'s setting keeps its key across up+down');
-        $this->assertFalse($keys->has('theme_default_other_primary'));
-    }
-
-    /** Migration up() over a key already present (seeded with the new code before migrate): the staff value is lost. */
-    public function test_migration_up_keeps_the_staff_value_when_the_new_key_already_exists(): void
-    {
-        $migration = require database_path('migrations/2026_10_25_000000_theme_settings_without_theme_name.php');
-        DB::table('settings')->where('key', 'like', 'theme%')->delete();
-        DB::table('settings')->insert([
-            ['key' => 'theme', 'value' => 'default', 'type' => 'string'],
-            ['key' => 'theme_default_primary', 'value' => 'hsl(10, 50%, 50%)', 'type' => 'string'], // staff's
-            ['key' => 'theme_primary', 'value' => 'hsl(229, 100%, 64%)', 'type' => 'string'],     // a default
-        ]);
-
-        $migration->up();
-
-        $keys = DB::table('settings')->whereNull('settingable_type')->pluck('value', 'key');
-        $this->assertSame('hsl(10, 50%, 50%)', $keys['theme_primary']);
-    }
-
     /** Guard (passes): the Files field keeps the client's file name; an image named .php must not land in the web root. */
     public function test_files_are_stored_only_with_an_extension_matching_their_type(): void
     {

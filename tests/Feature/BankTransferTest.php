@@ -12,9 +12,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\User;
 use App\Services\Money\BankTransferDetails;
-use Database\Seeders\EmailTemplateSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -121,31 +119,6 @@ class BankTransferTest extends TestCase
         $this->assertStringNotContainsString('bank transfer', EmailLog::query()->latest('id')->firstOrFail()->body);
     }
 
-    public function test_the_mail_template_takes_the_block_only_where_it_is_still_the_default(): void
-    {
-        $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
-        $default = EmailTemplateSeeder::mapping['new_invoice_created'];
-        $block = '/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s';
-        // As it was then: without the credit line a later migration adds (2026_12_29, «Total») either.
-        $credit = '/\n *\{% if credit %\}.*?\{% endif %\}/s';
-        $old = preg_replace([$block, $credit], ['', ''], $default['body']);
-        $oldEl = preg_replace([$block, $credit], ['', ''], EmailTemplateSeeder::translations['new_invoice_created']['el']['body']);
-        $translations = ['el' => ['body' => $oldEl] + EmailTemplateSeeder::translations['new_invoice_created']['el']];
-        DB::table('notification_templates')->where('key', 'new_invoice_created')
-            ->update(['body' => $old, 'translations' => json_encode($translations, JSON_UNESCAPED_UNICODE)]);
-
-        $migration->up();
-
-        $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
-        $this->assertSame($default['body'], $row->body);
-        $this->assertStringContainsString('{% if bank_transfer %}', json_decode($row->translations, true)['el']['body']);
-
-        // Rewritten by staff: kept as it is.
-        DB::table('notification_templates')->where('key', 'new_invoice_created')->update(['body' => 'Our own text']);
-        $migration->up();
-        $this->assertSame('Our own text', DB::table('notification_templates')->where('key', 'new_invoice_created')->value('body'));
-    }
-
     public function test_accounts_for_some_currencies_are_offered_and_printed_only_in_them(): void
     {
         $this->gateway->settings()->create(['key' => 'currencies', 'value' => 'eur, gbp']);
@@ -170,20 +143,5 @@ class BankTransferTest extends TestCase
         $methods = (new \ReflectionMethod(TransactionsRelationManager::class, 'refundMethods'))->invoke(null, $transaction);
 
         $this->assertSame(['manual', 'credit'], array_keys($methods), 'the first is the default: one that works');
-    }
-
-    public function test_an_older_default_text_the_live_database_still_holds_takes_the_new_one(): void
-    {
-        // The default of 3d920e8d (the seeder changed later without a migration): what the live database held (BT-ADV-5).
-        $old = json_decode((string) file_get_contents(base_path('tests/fixtures/mail/new_invoice_created_3d920e8d.json')), true);
-        DB::table('notification_templates')->where('key', 'new_invoice_created')
-            ->update($old['en'] + ['translations' => json_encode(['el' => $old['el']], JSON_UNESCAPED_UNICODE)]);
-
-        (require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php'))->up();
-
-        $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
-        $this->assertSame(EmailTemplateSeeder::mapping['new_invoice_created']['body'], $row->body);
-        $this->assertSame(EmailTemplateSeeder::mapping['new_invoice_created']['subject'], $row->subject);
-        $this->assertSame(EmailTemplateSeeder::translations['new_invoice_created']['el']['body'], json_decode($row->translations, true)['el']['body']);
     }
 }

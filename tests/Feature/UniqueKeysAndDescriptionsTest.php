@@ -9,7 +9,6 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -20,11 +19,6 @@ use Tests\TestCase;
 class UniqueKeysAndDescriptionsTest extends TestCase
 {
     use RefreshDatabase;
-
-    private function migration(): object
-    {
-        return require database_path('migrations/2026_10_21_000000_unique_keys_and_long_line_descriptions.php');
-    }
 
     private function refused(callable $insert): void
     {
@@ -52,40 +46,6 @@ class UniqueKeysAndDescriptionsTest extends TestCase
     {
         DB::table('coupons')->insert(['code' => 'WELCOME', 'type' => 'percentage', 'value' => 10, 'created_at' => now(), 'updated_at' => now()]);
         $this->refused(fn () => DB::table('coupons')->insert(['code' => 'WELCOME', 'type' => 'percentage', 'value' => 50, 'created_at' => now(), 'updated_at' => now()]));
-    }
-
-    public function test_the_migration_keeps_one_of_each_duplicate(): void
-    {
-        $migration = $this->migration();
-        $migration->down();
-        DB::table('settings')->whereIn('key', ['invoice_number', 'company_name'])->whereNull('settingable_type')->delete();
-        foreach (['250', '7', '120'] as $value) { // a counter rewound by a duplicate row
-            DB::table('settings')->insert(['key' => 'invoice_number', 'value' => $value, 'type' => 'string']);
-        }
-        DB::table('settings')->insert(['key' => 'company_name', 'value' => 'Old', 'type' => 'string']);
-        DB::table('settings')->insert(['key' => 'company_name', 'value' => 'New', 'type' => 'string']);
-        foreach ([10, 50] as $value) {
-            DB::table('coupons')->insert(['code' => 'WELCOME', 'type' => 'percentage', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
-        }
-
-        $migration->up();
-
-        $this->assertSame(['250'], DB::table('settings')->where('key', 'invoice_number')->whereNull('settingable_type')->pluck('value')->all(), 'the highest: a number given is never given again');
-        $this->assertSame(['New'], DB::table('settings')->where('key', 'company_name')->pluck('value')->all(), 'the latest');
-        $codes = DB::table('coupons')->orderBy('id')->pluck('code')->all();
-        $this->assertSame('WELCOME', $codes[0], 'the oldest keeps its code');
-        $this->assertStringStartsWith('WELCOME-', $codes[1]);
-    }
-
-    public function test_the_migration_rolls_back_and_forth_twice(): void
-    {
-        $migration = $this->migration();
-        foreach ([1, 2] as $round) {
-            $migration->down();
-            $migration->up();
-        }
-
-        $this->assertTrue(Schema::hasColumn('settings', 'scope'));
     }
 
     public function test_a_long_multi_line_description_is_kept_whole(): void

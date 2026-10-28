@@ -18,7 +18,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
@@ -388,24 +387,5 @@ class StaffSplitAdversarialTest extends TestCase
             ->assertHasNoActionErrors();
 
         $this->assertSame($other->id, (int) ApiKey::query()->where('name', 'integration')->value('staff_id'));
-    }
-
-    public function test_holds_the_migration_keeps_the_admins_2fa(): void
-    {
-        $clients = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
-        $clients->down();
-        $migration = require database_path('migrations/2026_10_26_000000_split_staff_from_users.php');
-        $migration->down();
-
-        $role = Role::query()->create(['name' => 'Old admin', 'permissions' => ['*']]);
-        $id = DB::table('users')->insertGetId([
-            'first_name' => 'Ada', 'last_name' => 'Admin', 'email' => 'ada@example.test', 'password' => Hash::make('pw'),
-            'role_id' => $role->id, 'tfa_secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP'), 'created_at' => now(), 'updated_at' => now(),
-        ]);
-
-        $migration->up();
-        $clients->up();
-
-        $this->assertSame('JBSWY3DPEHPK3PXP', Staff::query()->findOrFail($id)->getAppAuthenticationSecret());
     }
 }

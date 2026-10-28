@@ -327,23 +327,6 @@ class D3aAdversarialTest extends TestCase
         $this->assertLessThanOrEqual(1, $open->count(), 'two open invoices for the period 2026-10-25');
     }
 
-    /**
-     * D3A-11. The migration's backfill copies invoice_items.updated_at into forgone_at: a line whose updated_at is NULL
-     * (rows written with the query builder: imports, data fixes) stays unmarked, and its period is billed again.
-     * Was FAILING (confirmed defect); fixed in this PR.
-     */
-    public function test_d3a11_backfill_marks_lines_without_updated_at(): void
-    {
-        $service = $this->service();
-        $cancelled = $this->openInvoice($service, '2026-10-25');
-        DB::table('invoices')->where('id', $cancelled->id)->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => null]);
-        DB::table('invoice_items')->where('invoice_id', $cancelled->id)->update(['updated_at' => null]);
-
-        $this->rerunForgoneMigration();
-
-        $this->assertNotNull(DB::table('invoice_items')->where('invoice_id', $cancelled->id)->value('forgone_at'));
-    }
-
     // ---------------------------------------------------------------- regression coverage
 
     /**
@@ -426,43 +409,6 @@ class D3aAdversarialTest extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertNull($this->renewals($service)->sole()->forgone_at);
         $this->assertSame('2026-11-25', $service->fresh()->expires_at->toDateString());
-    }
-
-    /**
-     * The migration's backfill: cancelled by staff (no reason, or their own) and refunded are marked; cancelled by the
-     * app with one of its reasons, in English or Greek, is not; open invoices and lines without a period are not.
-     * Regression coverage.
-     */
-    public function test_r5_migration_backfill(): void
-    {
-        $service = $this->service();
-        $make = function (string $status, ?string $reason, bool $period = true) use ($service): int {
-            $invoice = $this->openInvoice($service, '2026-10-25');
-            if (!$period) {
-                DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['period_start' => null, 'period_end' => null]);
-            }
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status, 'cancellation_reason' => $reason]);
-
-            return $invoice->id;
-        };
-        $staffNull = $make(Invoice::STATUS_CANCELLED, null);
-        $staffOwn = $make(Invoice::STATUS_CANCELLED, 'Duplicate, issued again by hand');
-        $refunded = $make(Invoice::STATUS_REFUNDED, null);
-        $appEn = $make(Invoice::STATUS_CANCELLED, trans('invoices.cancellation_reasons.cycle_changed', [], 'en'));
-        $appEl = $make(Invoice::STATUS_CANCELLED, trans('invoices.cancellation_reasons.service_terminated', [], 'el'));
-        $open = $make(Invoice::STATUS_UNPAID, null);
-        $noPeriod = $make(Invoice::STATUS_CANCELLED, null, period: false);
-
-        $this->rerunForgoneMigration();
-
-        $marked = fn (int $id) => DB::table('invoice_items')->where('invoice_id', $id)->value('forgone_at') !== null;
-        $this->assertTrue($marked($staffNull));
-        $this->assertTrue($marked($staffOwn));
-        $this->assertTrue($marked($refunded));
-        $this->assertFalse($marked($appEn));
-        $this->assertFalse($marked($appEl));
-        $this->assertFalse($marked($open));
-        $this->assertFalse($marked($noPeriod));
     }
 
     /**
@@ -552,12 +498,5 @@ class D3aAdversarialTest extends TestCase
         $this->cron();
 
         $this->assertSame([], (new MoneyCheck)->run());
-    }
-
-    private function rerunForgoneMigration(): void
-    {
-        $migration = require database_path('migrations/2026_11_06_000000_add_forgone_at_to_invoice_items.php');
-        $migration->down();
-        $migration->up();
     }
 }

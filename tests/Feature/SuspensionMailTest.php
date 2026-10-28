@@ -10,11 +10,8 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
-use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Tests\TestCase;
 
@@ -102,32 +99,5 @@ class SuspensionMailTest extends TestCase
         $this->assertStringNotContainsString('ληξιπρόθεσμη', $html);
         $this->assertStringNotContainsString('Overdue on Payment', $html, 'the hold clears the cron\'s reason');
         $this->assertNull($this->service->fresh()->dunning_suspended_at);
-    }
-
-    public function test_the_live_template_takes_the_new_text_unless_staff_rewrote_it(): void
-    {
-        $previous = fn (array $el) => ['subject' => 'Service suspended: {{ service.product.name }}', 'body' => self::PREVIOUS_EN_BODY,
-            'in_app_title' => 'Service suspended', 'in_app_body' => self::PREVIOUS_EN_IN_APP,
-            'translations' => json_encode(['el' => $el], JSON_UNESCAPED_UNICODE)];
-        $previousEl = ['subject' => 'Αναστολή υπηρεσίας: {{ service.product.name }}', 'body' => self::PREVIOUS_EL_BODY,
-            'in_app_title' => 'Αναστολή υπηρεσίας', 'in_app_body' => self::PREVIOUS_EL_IN_APP];
-        $migration = require database_path('migrations/2026_11_16_000000_suspension_mail_says_why.php');
-
-        DB::table('notification_templates')->where('key', 'server_suspended')->update($previous($previousEl));
-        $migration->up();
-        $row = DB::table('notification_templates')->where('key', 'server_suspended')->sole();
-        $this->assertSame(EmailTemplateSeeder::mapping['server_suspended']['body'], $row->body);
-        $this->assertSame(EmailTemplateSeeder::translations['server_suspended']['el']['body'], json_decode($row->translations, true)['el']['body']);
-
-        DB::table('notification_templates')->where('key', 'server_suspended')->update(['body' => 'Our own text'] + $previous(['body' => 'Δικό μας'] + $previousEl));
-        $migration->up();
-        $row = DB::table('notification_templates')->where('key', 'server_suspended')->sole();
-        $this->assertSame(['Our own text', 'Δικό μας'], [$row->body, json_decode($row->translations, true)['el']['body']]);
-
-        Log::spy();
-        DB::table('notification_templates')->where('key', 'server_suspended')->delete();
-        (new EmailTemplateSeeder)->run(); // a fresh install: already the new text, nothing said
-        $migration->up();
-        Log::shouldNotHaveReceived('notice');
     }
 }

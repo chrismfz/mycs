@@ -207,25 +207,6 @@ class TicketMailAdminTest extends TestCase
         @unlink($file->localPath);
     }
 
-    public function test_the_migration_goes_down_and_up(): void
-    {
-        $migration = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
-        $imports = require database_path('migrations/2027_01_01_000000_create_ticket_mail_imports.php'); // it points at the quarantine
-        $imports->down();
-        $migration->down();
-        $this->assertTrue(\Schema::hasColumn('ticket_messages', 'ticket_mail_log_id'));
-        \DB::table('settings')->insert(['key' => 'ticket_mail_password', 'value' => 'old', 'type' => 'string']);
-
-        $migration->up();
-        $imports->up();
-
-        $this->assertFalse(\Schema::hasTable('ticket_mail_logs'));
-        $this->assertFalse(\Schema::hasColumn('ticket_messages', 'ticket_mail_log_id'));
-        $this->assertNull(\DB::table('settings')->where('key', 'ticket_mail_password')->value('value'), 'the old password goes');
-        $this->assertTrue($this->support->fresh()->require_dmarc, 'DMARC demanded unless staff say otherwise');
-        $this->assertFalse($this->support->fresh()->polling, 'nothing is read until staff turn it on');
-    }
-
     /** The quarantine's ticket and account searches need those permissions too (review of #244). */
     public function test_attaching_and_opening_need_the_tickets_permissions(): void
     {

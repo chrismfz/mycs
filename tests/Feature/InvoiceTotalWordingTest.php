@@ -7,7 +7,6 @@ use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -46,23 +45,5 @@ class InvoiceTotalWordingTest extends TestCase
         $invoice->fresh()->createCancellationCreditNote();
 
         $this->assertSame(__('invoices.cancellation_reasons.automatic', [], 'en'), $invoice->adjustmentNotes()->sole()->description);
-    }
-
-    /** Code review of #388: the mails say the credit used before the total, in both languages; partly paid is not it. */
-    public function test_the_mails_say_the_credit_used_before_the_total(): void
-    {
-        $id = DB::table('notification_templates')->where('key', 'new_invoice_created')->value('id');
-        DB::table('notification_templates')->where('id', $id)->update([
-            'body' => "- Total: **{{ total }}**\n",
-            'translations' => json_encode(['el' => ['body' => "- Σύνολο: **{{ total }}**\n"]], JSON_UNESCAPED_UNICODE),
-        ]);
-
-        (require base_path('database/migrations/2026_12_29_000000_invoice_mail_credit_line.php'))->up();
-
-        $row = DB::table('notification_templates')->where('id', $id)->first();
-        $this->assertStringContainsString("- Credit applied: **{{ credit }}**\n{% endif %}\n- Total: **{{ total }}**", $row->body);
-        $this->assertStringContainsString('- Πίστωση: **{{ credit }}**', json_decode($row->translations, true)['el']['body']);
-        (require base_path('database/migrations/2026_12_29_000000_invoice_mail_credit_line.php'))->up();
-        $this->assertSame(1, substr_count((string) DB::table('notification_templates')->where('id', $id)->value('body'), '{{ credit }}'), 'once');
     }
 }

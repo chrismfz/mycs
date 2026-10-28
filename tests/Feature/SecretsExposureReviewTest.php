@@ -10,7 +10,6 @@ use App\Helpers\NotificationHelper;
 use App\Models\DebugLog;
 use App\Models\EmailLog;
 use App\Models\Extension;
-use App\Models\Property;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
@@ -179,24 +178,6 @@ class SecretsExposureReviewTest extends TestCase
     }
 
     /**
-     * R9. The migration redacts the audits of the directadmin_password properties that still exist: one deleted before
-     * (staff on the Properties tab, a service deleted) left its audits with the password, and they are not touched.
-     */
-    public function test_r9_the_migration_misses_audits_of_deleted_directadmin_password_properties(): void
-    {
-        config(['audit.console' => true]);
-        $property = $this->service->properties()->create(['key' => 'directadmin_password', 'name' => 'DirectAdmin password', 'value' => 'gone-da-pw-1']);
-        $property->delete();
-        $audits = fn () => DB::table('audits')->where('auditable_type', Property::class)->where('auditable_id', $property->id)
-            ->get()->map(fn ($a) => $a->old_values . $a->new_values)->implode('');
-        $this->assertStringContainsString('gone-da-pw-1', $audits(), 'precondition: in clear before');
-
-        (require database_path('migrations/2026_11_06_000000_move_directadmin_passwords_out_of_properties.php'))->up();
-
-        $this->assertStringNotContainsString('gone-da-pw-1', $audits());
-    }
-
-    /**
      * R10. The Settings page empties a secret from its state once saved (AUTH-12); the server form keeps what was typed
      * in the Livewire snapshot after the save.
      */
@@ -209,23 +190,6 @@ class SecretsExposureReviewTest extends TestCase
 
         $this->assertSame('typed-new-pw-55', ExtensionHelper::settingsToArray($server->fresh()->settings)['password'], 'precondition: saved');
         $this->assertStringNotContainsString('typed-new-pw-55', json_encode($page->snapshot));
-    }
-
-    /**
-     * R11. The migration deletes the property even when it does not move it (the service already has a password, e.g.
-     * one staff typed or one imported): the account's real DirectAdmin password, its only copy, is lost and the SSO
-     * login uses the other one.
-     */
-    public function test_r11_the_migration_drops_a_directadmin_password_it_did_not_move(): void
-    {
-        $this->service->forceFill(['password' => 'other-pw-on-service'])->save();
-        $this->service->properties()->create(['key' => 'directadmin_password', 'name' => 'DirectAdmin password', 'value' => 'real-da-pw-9']);
-
-        (require database_path('migrations/2026_11_06_000000_move_directadmin_passwords_out_of_properties.php'))->up();
-
-        $kept = $this->service->fresh()->password === 'real-da-pw-9'
-            || Property::query()->where('key', 'directadmin_password')->where('value', 'real-da-pw-9')->exists();
-        $this->assertTrue($kept, "the account's DirectAdmin password is gone");
     }
 
     /**

@@ -163,27 +163,4 @@ class MoneyTrailCodeReviewTest extends TestCase
         $this->assertSame($journaled, $transaction->fresh()->refunded_amount);
         $this->assertSame('-' . $journaled, number_format((float) $invoice->adjustmentNotes()->value('amount'), 2, '.', ''));
     }
-
-    /** P2: existing credit balances get an opening event, so the journal adds up from the start. */
-    public function test_the_migration_journals_existing_credit_balances(): void
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $other = User::factory()->create();
-        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 12.50]);
-        Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'USD', 'amount' => -3.00]);
-        Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'EUR', 'amount' => 0]);
-
-        $migration = require database_path('migrations/2026_10_14_000000_create_money_events_table.php');
-        $migration->down();
-        $migration->up();
-
-        $this->assertSame([
-            ['credit_in', '12.50', $this->user->client()->id, '12.50', 'opening_balance'],
-            ['credit_out', '3.00', $other->client()->id, '-3.00', 'opening_balance'],
-        ], MoneyEvent::query()->orderBy('id')->get()->map(fn (MoneyEvent $event) => [
-            $event->kind->value, $event->amount, $event->client_id, $event->credit_balance_after, $event->cause,
-        ])->all());
-    }
 }

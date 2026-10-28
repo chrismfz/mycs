@@ -21,7 +21,6 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\Lookup\LaravelTransport;
-use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,20 +106,6 @@ class DomainSettingsTest extends TestCase
             $this->assertContains($name, $names);
         }
         $this->assertNotContains('domain_billing_enabled', collect(Settings::settings()['cronjob'])->pluck('name')->all(), 'moved, not copied');
-    }
-
-    public function test_the_old_nameserver_textarea_moves_to_the_fields(): void
-    {
-        DB::table('settings')->insert(['key' => 'domain_default_nameservers', 'value' => "NS1.myip.gr\nns2.myip.gr\n\nns3.myip.gr", 'type' => 'string',
-            'encrypted' => false, 'created_at' => now(), 'updated_at' => now()]);
-
-        (require database_path('migrations/2026_11_29_000000_domain_nameserver_settings.php'))->up();
-
-        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr', 'ns3.myip.gr'],
-            DB::table('settings')->where('key', 'like', 'domain_nameserver_%')->orderBy('key')->pluck('value')->filter()->values()->all());
-        $this->assertFalse(DB::table('settings')->where('key', 'domain_default_nameservers')->exists());
-        config(['settings.domain_nameserver_1' => 'ns1.myip.gr', 'settings.domain_nameserver_2' => 'NS2.myip.gr.', 'settings.domain_nameserver_4' => 'ns1.myip.gr']);
-        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr'], DomainOrderFulfilment::defaultNameservers(), 'lower case, no trailing dot, once each');
     }
 
     public function test_the_shop_takes_only_what_is_allowed(): void

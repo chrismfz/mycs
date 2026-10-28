@@ -165,17 +165,4 @@ class StaffOnlineTest extends TestCase
         Livewire::test(StaffOnlineWidget::class)
             ->assertSeeInOrder(['Here', __('Connected now'), 'Gone', '10 minutes ago', 'Never', __('Never')]);
     }
-
-    public function test_the_migration_gives_every_role_the_permission_once(): void
-    {
-        $plain = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny']]);
-        $all = Role::create(['name' => 'All' . uniqid(), 'permissions' => ['*']]);
-        $migration = require database_path('migrations/2026_12_27_000000_staff_presence.php');
-
-        $migration->grantToEveryRole();
-        $migration->grantToEveryRole();
-
-        $this->assertSame(['admin.tickets.viewAny', 'admin.staff_online.view'], $plain->fresh()->permissions);
-        $this->assertSame(['*'], $all->fresh()->permissions);
-    }
 }

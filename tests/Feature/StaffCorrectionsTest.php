@@ -354,19 +354,4 @@ class StaffCorrectionsTest extends TestCase
         $note->fresh()->update(['status' => AdjustmentNoteStatus::Active]);
         $this->assertFalse(VoidAdjustmentNote::allowed($note->fresh()));
     }
-
-    public function test_the_migration_marks_the_refund_notes_written_before_it(): void
-    {
-        $invoice = $this->invoice();
-        DB::table('adjustment_notes')->insert([
-            ['invoice_id' => $invoice->id, 'type' => 'credit', 'amount' => -5, 'description' => 'Refund for transaction #7 (pi_old)', 'status' => 'active', 'is_cancellation' => false, 'is_refund' => false],
-            ['invoice_id' => $invoice->id, 'type' => 'credit', 'amount' => -5, 'description' => 'Goodwill', 'status' => 'active', 'is_cancellation' => false, 'is_refund' => false],
-        ]);
-        $migration = require database_path('migrations/2026_10_17_000000_add_refund_marker_to_adjustment_notes.php');
-
-        $migration->down();
-        $migration->up();
-
-        $this->assertSame(['Refund for transaction #7 (pi_old)'], AdjustmentNote::query()->where('is_refund', true)->pluck('description')->all());
-    }
 }

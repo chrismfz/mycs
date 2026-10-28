@@ -362,19 +362,4 @@ class DomainSettingsAdversarialTest extends TestCase
 
         $this->assertSame(0, Domain::query()->count());
     }
-
-    /** The migration twice, and over fields already set: what was set is kept, nothing doubled. */
-    public function test_the_migration_is_rerunnable_and_keeps_fields_set(): void
-    {
-        DB::table('settings')->where('key', 'like', 'domain_nameserver_%')->delete();
-        DB::table('settings')->insert(['key' => 'domain_nameserver_1', 'value' => 'ns1.kept.test', 'type' => 'string', 'encrypted' => false, 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('settings')->insert(['key' => 'domain_default_nameservers', 'value' => 'ns1.old.test, ns2.old.test', 'type' => 'string', 'encrypted' => false, 'created_at' => now(), 'updated_at' => now()]);
-        $migration = require database_path('migrations/2026_11_29_000000_domain_nameserver_settings.php');
-
-        $migration->up();
-        $migration->up();
-
-        $this->assertSame(['domain_nameserver_1' => 'ns1.kept.test', 'domain_nameserver_2' => 'ns2.old.test'],
-            DB::table('settings')->where('key', 'like', 'domain_nameserver_%')->orderBy('key')->pluck('value', 'key')->all());
-    }
 }

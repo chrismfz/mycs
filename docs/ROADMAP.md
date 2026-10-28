@@ -41,9 +41,9 @@
       τμήματα tickets (Support, Sales), και οι μετρητές `invoice_number`/`credit_note_number` από 0 (με 1, σε νέα
       εγκατάσταση το πρώτο πιστωτικό έπαιρνε τον αριθμό 2· migration για όσες στήθηκαν πριν). Φύλακας:
       `SeedersCoverMigrationDataTest`, σε κάθε πίνακα και στήλη.
-- [ ] **Squash των migrations (~216)** σε `schema:dump` (MariaDB και SQLite), **μετά** από Ekdosi, review του payments
-      tracking, mailcow, cPanel resellers, Proxmox, Centova (υπεύθυνος, 2026-10-27). Έλεγχος: βάση από τα παλιά migrations
-      + seed απέναντι σε βάση από το dump + seed, σχήμα και κάθε γραμμή ίδια.
+- [x] ~~**Squash των migrations**~~ **έγινε (2026-10-28):** 224 migrations έγιναν `database/schema/mariadb-schema.sql` και
+      `sqlite-schema.sql`. Ο έλεγχος (βάση από τα παλιά migrations + seed απέναντι σε βάση από το dump + seed) βγήκε ίδιος
+      στο σχήμα και σε κάθε γραμμή, και στις δύο βάσεις. Λεπτομέρειες στο `HANDOFF.md` → «Σχήμα της βάσης».
 - Αποφασίστηκαν (2026-10-27):
   - **Ιστορικό emails:** ο τελευταίος χρόνος του `tblemails` στα `email_logs`, και στο cut-over
     `cronjob_delete_email_logs` = 365 (default 90: αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα tickets

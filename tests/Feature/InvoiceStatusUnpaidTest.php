@@ -44,16 +44,4 @@ class InvoiceStatusUnpaidTest extends TestCase
 
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
-
-    public function test_the_migration_renames_old_pending_rows_and_only_those(): void
-    {
-        $old = $this->rawInvoice(['status' => 'pending']);
-        $paid = $this->rawInvoice(['status' => Invoice::STATUS_PAID]);
-        $migration = require database_path('migrations/2026_10_21_000000_rename_invoice_status_pending_to_unpaid.php');
-
-        $migration->up();
-
-        $this->assertSame(Invoice::STATUS_UNPAID, DB::table('invoices')->where('id', $old)->value('status'));
-        $this->assertSame(Invoice::STATUS_PAID, DB::table('invoices')->where('id', $paid)->value('status'));
-    }
 }

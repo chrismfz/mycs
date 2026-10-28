@@ -11,7 +11,6 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Adversarial review of the admin's speed (indexes, cached badges, searchable client filters). */
@@ -22,29 +21,6 @@ class AdvPerfAdminTest extends TestCase
     private function staff(array $permissions): Staff
     {
         return Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => $permissions])->id]);
-    }
-
-    /**
-     * ADV-1. The index migration rolls back once, but not twice. down() adds ticket_messages_ticket_id_index
-     * unconditionally (for the foreign key MariaDB moved to the new composite) and up() never drops it, so after
-     * down -> up the next down() fails with «Duplicate key name 'ticket_messages_ticket_id_index'». Reproduced on
-     * MariaDB 10.11 with `migrate`, `migrate:rollback`, `migrate`, `migrate:rollback`; on SQLite the same here (no
-     * foreign key index there at all, so even the first down() leaves an index the schema never had). Run on SQLite
-     * only: on MariaDB the DDL would commit RefreshDatabase's transaction.
-     */
-    public function test_the_index_migration_rolls_back_after_being_run_again(): void
-    {
-        if (DB::connection()->getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('DDL inside the test transaction: SQLite only (MariaDB reproduced by hand).');
-        }
-        $migration = require base_path('database/migrations/2027_01_02_000000_add_admin_list_indexes.php');
-
-        $migration->down();
-        $migration->up();
-        $migration->down(); // Duplicate index name ticket_messages_ticket_id_index
-        $migration->up();
-
-        $this->assertTrue(true);
     }
 
     /**

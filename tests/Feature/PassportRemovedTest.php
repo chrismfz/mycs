@@ -51,13 +51,4 @@ class PassportRemovedTest extends TestCase
 
         $this->assertEqualsCanonicalizing(['admin.tickets.viewAny', 'extension.gone.view'], $role->fresh()->permissions);
     }
-
-    public function test_the_migration_takes_its_permissions_out_of_the_roles(): void
-    {
-        $role = Role::create(['name' => 'Old', 'permissions' => ['admin.oauth_clients.create', 'admin.tickets.viewAny']]);
-
-        (require database_path('migrations/2026_12_26_000000_drop_passport_tables.php'))->up();
-
-        $this->assertSame(['admin.tickets.viewAny'], $role->fresh()->permissions);
-    }
 }

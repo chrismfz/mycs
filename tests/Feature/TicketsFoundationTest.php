@@ -17,7 +17,6 @@ use App\Rules\TicketReferenceMask;
 use App\Support\Tickets\TicketReference;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Livewire;
@@ -59,43 +58,6 @@ class TicketsFoundationTest extends TestCase
         $this->actingAs($staff, 'staff');
 
         return $staff;
-    }
-
-    public function test_the_migration_moves_departments_statuses_numbers_and_mail_templates(): void
-    {
-        $migration = require database_path('migrations/2026_12_05_000001_tickets_departments_guests_statuses.php');
-        // A2's and A3's tables point at the departments and tickets: down first, up again after (as a rollback would).
-        $mailboxes = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
-        $outbound = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
-        $imports = (require database_path('migrations/2027_01_01_000000_create_ticket_mail_imports.php')); // it points at the quarantine
-        $chats = (require database_path('migrations/2027_01_15_000000_create_live_chats.php')); // the live chat points at the departments
-        $chats->down();
-        $imports->down();
-        $outbound->down();
-        $mailboxes->down();
-        $migration->down();
-        DB::table('settings')->updateOrInsert(['key' => 'ticket_departments', 'settingable_type' => null], ['value' => json_encode(['Support', 'Sales']), 'type' => 'array']);
-        $client = User::factory()->create()->client();
-        $ids = [];
-        foreach ([['Support', 'replied'], ['Billing', 'open'], [null, 'closed']] as [$department, $status]) {
-            $ids[] = DB::table('tickets')->insertGetId(['client_id' => $client->id, 'subject' => 'Old', 'status' => $status, 'priority' => 'normal',
-                'department' => $department, 'created_at' => now(), 'updated_at' => now()]);
-        }
-        DB::table('notification_templates')->where('key', 'new_ticket_message')->update(['subject' => '[Ticket #{{ ticketMessage.ticket_id }}] x']);
-
-        $migration->up();
-        $mailboxes->up();
-        $outbound->up();
-        $imports->up();
-        $chats->up();
-
-        $this->assertSame(['Support', 'Sales', 'Billing'], TicketDepartment::query()->orderBy('sort')->pluck('name')->all(), 'the setting first, then names tickets carried');
-        $this->assertNull(DB::table('settings')->where('key', 'ticket_departments')->value('value'));
-        [$replied, $billing, $none] = array_map(fn (int $id) => Ticket::query()->findOrFail($id), $ids);
-        $this->assertSame(['answered', 'Support', (string) $replied->id, 'medium'], [$replied->status, $replied->department?->name, $replied->reference, $replied->priority]);
-        $this->assertSame('Billing', $billing->department?->name);
-        $this->assertNull($none->department_id);
-        $this->assertStringContainsString('ticketMessage.ticket.reference', (string) DB::table('notification_templates')->where('key', 'new_ticket_message')->value('subject'));
     }
 
     public function test_who_writes_moves_the_ticket(): void

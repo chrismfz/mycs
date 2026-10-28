@@ -13,9 +13,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Schema;
 use MyCS\Extensions\Gateways\CpmPay\CpmPay;
 use Tests\TestCase;
 
@@ -138,35 +136,5 @@ class ClientPaymentMethodTest extends TestCase
         $client->refresh();
         $this->assertSame($second->id, (int) $client->default_billing_agreement_id);
         $this->assertTrue($client->auto_charge, 'asked to use it for the next payments');
-    }
-
-    public function test_the_migration_gives_each_account_the_method_most_of_its_services_had(): void
-    {
-        $client = User::factory()->create()->client();
-        $other = User::factory()->create()->client();
-        $a = $this->agreementOf($client, 'A');
-        $b = $this->agreementOf($client, 'B');
-        $removed = $this->agreementOf($other, 'R');
-        $product = $this->createProduct();
-        $service = fn (Client $owner, array $attributes = []) => Service::factory()->create($attributes + ['client_id' => $owner->id,
-            'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_ACTIVE,
-            'currency_code' => 'USD', 'price' => 10, 'quantity' => 1]);
-        $ids = [$service($client)->id, $service($client)->id, $service($client)->id, $service($client, ['status' => Service::STATUS_CANCELLED])->id,
-            $service($other)->id];
-
-        $this->artisan('migrate:rollback', ['--path' => 'database/migrations/2026_11_08_000000_move_saved_payment_method_to_clients.php'])->assertExitCode(0); // only this migration, whatever came after
-        $this->assertTrue(Schema::hasColumn('services', 'billing_agreement_id'));
-        // Before C2: two running services on B, one on A, a cancelled one on A; the other account's method was removed.
-        DB::table('services')->whereIn('id', [$ids[0], $ids[1]])->update(['billing_agreement_id' => $b->id]);
-        DB::table('services')->whereIn('id', [$ids[2], $ids[3]])->update(['billing_agreement_id' => $a->id]);
-        DB::table('services')->where('id', $ids[4])->update(['billing_agreement_id' => $removed->id]);
-        DB::table('billing_agreements')->where('id', $removed->id)->update(['deleted_at' => now()]);
-        $this->artisan('migrate')->assertExitCode(0);
-
-        // Dropped on MariaDB; SQLite keeps the unused column (see the migration).
-        $this->assertSame(DB::getDriverName() === 'sqlite', Schema::hasColumn('services', 'billing_agreement_id'));
-        $this->assertSame($b->id, (int) $client->fresh()->default_billing_agreement_id);
-        $this->assertNull($other->fresh()->default_billing_agreement_id);
-        $this->assertTrue($client->fresh()->auto_charge);
     }
 }

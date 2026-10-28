@@ -21,7 +21,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -464,24 +463,5 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $this->assertSame('suspended', $overdue->fresh()->status);
         $this->cronOn('2026-10-12 18:00:00');
         $this->assertEquals($first, $snapshot());
-    }
-
-    // ---------------------------------------------------------------- migrations
-
-    public function test_new_migrations_roll_back_and_forward_on_existing_data(): void
-    {
-        $coupon = $this->coupon(10, 1);
-        $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'coupon_id' => $coupon->id]);
-        $service->forceFill(['coupon_started_at' => '2026-09-01', 'coupon_expired_at' => now()])->saveQuietly();
-        // Back to before the coupon-state migration, whatever came after it.
-        $steps = DB::table('migrations')->where('migration', '>=', '2026_10_12_000300')->count();
-        $this->artisan('migrate:rollback', ['--step' => $steps])->assertExitCode(0);
-        $this->assertFalse(Schema::hasColumn('services', 'dunning_suspended_at'));
-        $this->assertFalse(Schema::hasColumn('services', 'coupon_started_at'));
-        $this->assertSame('suspended', DB::table('services')->where('id', $service->id)->value('status'));
-        $this->artisan('migrate')->assertExitCode(0);
-        $this->assertTrue(Schema::hasColumn('services', 'dunning_suspended_at'));
-        $this->assertTrue(Schema::hasColumn('services', 'coupon_expired_at'));
-        $this->assertNull(DB::table('services')->where('id', $service->id)->value('dunning_suspended_at'));
     }
 }

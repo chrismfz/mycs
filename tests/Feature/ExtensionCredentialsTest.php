@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Server;
-use App\Models\Setting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -48,21 +47,5 @@ class ExtensionCredentialsTest extends TestCase
         ExtensionHelper::saveSettings($server->fresh(), ['host' => 'https://cp.example.test:2087', 'username' => 'root', 'apikey' => 'NEW']);
 
         $this->assertSame('NEW', Crypt::decryptString($this->raw($server, 'apikey')->value));
-    }
-
-    public function test_migration_encrypts_plain_text_credentials(): void
-    {
-        $server = $this->server();
-        foreach (['host' => 'https://cp.example.test:2087', 'username' => 'root', 'apikey' => 'PLAIN'] as $key => $value) {
-            DB::table('settings')->insert(['key' => $key, 'value' => $value, 'type' => 'string', 'encrypted' => false, 'settingable_id' => $server->id, 'settingable_type' => Server::class]);
-        }
-
-        (require database_path('migrations/2026_10_11_100000_encrypt_extension_credentials.php'))->up();
-
-        $apikey = $this->raw($server, 'apikey');
-        $this->assertTrue((bool) $apikey->encrypted);
-        $this->assertSame('PLAIN', Crypt::decryptString($apikey->value));
-        $this->assertSame('root', $this->raw($server, 'username')->value);
-        $this->assertSame('PLAIN', Setting::where('settingable_id', $server->id)->where('key', 'apikey')->first()->value);
     }
 }

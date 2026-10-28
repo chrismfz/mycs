@@ -105,15 +105,4 @@ class ServiceEndMailsTest extends TestCase
 
         $this->assertSame(['suspended', []], [$this->service->fresh()->status, $this->mailed()]);
     }
-
-    public function test_the_template_reaches_a_live_database_in_both_languages(): void
-    {
-        DB::table('notification_templates')->where('key', 'service_cancelled')->delete();
-
-        (require database_path('migrations/2026_11_09_000001_service_cancelled_notification.php'))->up();
-
-        $row = DB::table('notification_templates')->where('key', 'service_cancelled')->sole();
-        $this->assertTrue((bool) $row->enabled);
-        $this->assertStringContainsString('Διακοπή υπηρεσίας', (string) $row->translations);
-    }
 }

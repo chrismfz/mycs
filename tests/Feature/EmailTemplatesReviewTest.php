@@ -97,25 +97,6 @@ class EmailTemplatesReviewTest extends TestCase
         }
     }
 
-    /**
-     * R3: saving a seeded template's form unchanged stamps updated_at (cc/bcc null → []). The text migration decides
-     * «edited» by the texts, not by updated_at (fixed): such a template still takes the new texts and its Greek.
-     */
-    public function test_r3_a_template_saved_unchanged_still_takes_the_new_texts(): void
-    {
-        Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = Staff::factory()->admin()->create();
-        $template = NotificationTemplate::query()->where('key', 'invoice_paid')->first();
-        DB::table('notification_templates')->where('id', $template->id)->update(['translations' => null]);
-
-        $this->livewireAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
-            ->call('save')
-            ->assertHasNoFormErrors();
-        (require database_path('migrations/2026_10_26_000001_new_notification_template_texts.php'))->up();
-
-        $this->assertNotNull($template->fresh()->translations, 'saved unchanged, then treated as rewritten by staff');
-    }
-
     /** R4: staff create a template with only the default text: its Greek text is empty, the mail is the English one. */
     public function test_r4_a_new_template_without_greek_falls_back_to_the_default_text(): void
     {

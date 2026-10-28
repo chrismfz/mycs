@@ -3,11 +3,8 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\ImportFromWhmcs;
-use App\Enums\AdjustmentNoteType;
-use App\Listeners\InvoiceNumberListener;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Providers\SettingsProvider;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -25,43 +22,6 @@ use Tests\TestCase;
 class Adv477Test extends TestCase
 {
     use RefreshDatabase;
-
-    /**
-     * ADV-1 (P2). The PR fixes the default of `credit_note_number` (1 → 0) for new installs only. Every install seeded
-     * before it already holds the row `credit_note_number = 1` (DatabaseSeeder's firstOrCreate) and no migration repairs
-     * it: with no credit/debit note issued yet, its first note still takes number 2 (the dev MyCS shows exactly this).
-     * Scenario: an install seeded before #477 (counter row «1», no notes), upgraded (every migration that touches the
-     * counter runs again here), staff write the first credit note → it should be 1.
-     */
-    public function test_an_install_seeded_before_the_fix_numbers_its_first_credit_note_one_after_upgrading(): void
-    {
-        DB::table('settings')->whereNull('settingable_type')->where('key', 'credit_note_number')->update(['value' => '1']);
-        $this->assertSame(0, DB::table('adjustment_notes')->count());
-
-        // The upgrade: any migration after the last one that touched the counters (the unique keys of 2026-10-21) and
-        // that mentions credit_note_number, i.e. a repair, runs on this install.
-        foreach (glob(database_path('migrations/*.php')) as $file) {
-            if (strcmp(basename($file), '2026_10_21_000000_unique_keys_and_long_line_descriptions.php') <= 0
-                || !str_contains((string) file_get_contents($file), 'credit_note_number')) {
-                continue;
-            }
-            $migration = require $file;
-            if (is_object($migration) && method_exists($migration, 'up')) {
-                $migration->up();
-            }
-        }
-        SettingsProvider::flushCache();
-
-        $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID]);
-        $note = $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -5, 'description' => 'Goodwill']);
-
-        $this->assertSame(
-            InvoiceNumberListener::formatInvoiceNumber(1, 'credit_note'),
-            $note->fresh()->number,
-            'the first credit note of an upgraded install is number 1, not 2 (the old default 1 is still stored)'
-        );
-    }
 
     /**
      * ADV-2 (P2). The counter holds the LAST number given (the PR's own wording, `settings-map.md`, and the 2025-04-25

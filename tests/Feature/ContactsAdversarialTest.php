@@ -22,9 +22,7 @@ use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Throwable;
@@ -63,24 +61,6 @@ class ContactsAdversarialTest extends TestCase
     private function invoiceOf(Client $client): Invoice
     {
         return Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
-    }
-
-    /** Re-runs the contacts migration (down, seed legacy properties, up), as ContactsTest does. */
-    private function migrateWithProperties(Client $client, array $properties): Contact
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $migration = require database_path('migrations/2026_10_30_000000_create_contacts_table.php');
-        $migration->down();
-        DB::table('properties')->where('model_type', Client::class)->where('model_id', $client->id)->delete();
-        foreach ($properties as $key => $value) {
-            DB::table('properties')->insert(['model_type' => Client::class, 'model_id' => $client->id, 'key' => $key, 'name' => $key,
-                'value' => $value, 'custom_property_id' => DB::table('custom_properties')->where('model', Client::class)->where('key', $key)->value('id')]);
-        }
-        $migration->up();
-
-        return Contact::query()->where('primary_of_client_id', $client->id)->sole();
     }
 
     // ---- client area: permissions ------------------------------------------------------------------------------
@@ -408,58 +388,5 @@ class ContactsAdversarialTest extends TestCase
         }
 
         $this->assertNull($client->primaryContact->fresh()->archived_at);
-    }
-
-    // ---- migration -----------------------------------------------------------------------------------------------
-
-    public function test_holds_the_migration_gives_an_account_without_owner_a_primary_contact(): void
-    {
-        $client = User::factory()->create()->client();
-        DB::table('client_user')->where('client_id', $client->id)->delete();
-
-        $contact = $this->migrateWithProperties($client, ['city' => 'Athens']);
-
-        $this->assertSame('Athens', $contact->city);
-        $this->assertNull($contact->email);
-    }
-
-    /** A country stored with another case or spelling ("greece") is dropped without a trace: the VAT country is lost. */
-    public function test_bug_the_migration_drops_a_country_name_it_does_not_match_exactly(): void
-    {
-        $client = User::factory()->create()->client();
-
-        $contact = $this->migrateWithProperties($client, ['country' => 'greece', 'city' => 'Athens']);
-
-        $this->assertSame('GR', $contact->country, 'the account\'s country (its VAT rate) is lost in the migration');
-    }
-
-    /** A two-letter value is kept as is, even when it is no ISO code ("UK"): the account then has no valid country. */
-    public function test_bug_the_migration_keeps_a_two_letter_country_that_is_no_iso_code(): void
-    {
-        $client = User::factory()->create()->client();
-
-        $contact = $this->migrateWithProperties($client, ['country' => 'UK']);
-
-        $this->assertArrayHasKey((string) $contact->country, array_slice((array) config('app.countries'), 1, null, true),
-            "migrated country {$contact->country} is no ISO code: the account page then refuses to save");
-    }
-
-    /**
-     * The properties were validated `string|max:255`; postcode is now 20 and phone 50 characters. On MySQL (strict)
-     * the insert fails mid-migration ($withinTransaction = false): contacts half filled, properties not yet removed,
-     * the migration not re-runnable (the table exists). sqlite does not enforce the length, so the test checks it.
-     */
-    public function test_bug_the_migration_does_not_fit_values_longer_than_the_new_columns(): void
-    {
-        $client = User::factory()->create()->client();
-
-        $contact = $this->migrateWithProperties($client, ['zip' => str_repeat('1', 30), 'phone' => str_repeat('2', 60)]);
-
-        // Fixed by widening the columns to the properties' 255 (nothing cut, nothing refused by a strict MySQL).
-        $this->assertSame(str_repeat('1', 30), $contact->postcode);
-        $this->assertSame(str_repeat('2', 60), $contact->phone);
-        $this->assertTrue(collect(Schema::getColumns('contacts'))
-            ->whereIn('name', ['postcode', 'phone'])->every(fn ($column) => ($column['length'] ?? 255) === null || ($column['length'] ?? 255) >= 255
-                || str_contains((string) $column['type'], '255') || DB::getDriverName() === 'sqlite'));
     }
 }

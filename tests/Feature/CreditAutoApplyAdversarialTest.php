@@ -23,14 +23,12 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
-use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use MyCS\Extensions\Gateways\PayPal\PayPal;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -561,24 +559,6 @@ class CreditAutoApplyAdversarialTest extends TestCase
             ->assertHasNoFormErrors();
 
         $this->assertFalse($this->user->client()->fresh()->credit_auto_apply);
-    }
-
-    /** Held: the migration goes down and up, and its template is there once, also after the seeder. */
-    public function test_the_migration_goes_down_and_up_with_one_template(): void
-    {
-        $migration = require base_path('database/migrations/2026_10_18_000000_credit_auto_apply.php');
-        $clientId = $this->user->client()->id;
-
-        $migration->down();
-        // The flag is the account's since PR 2a: the migration replayed now changes the clients table.
-        $this->assertFalse(Schema::hasColumn('clients', 'credit_auto_apply'));
-        $this->assertSame(0, DB::table('notification_templates')->where('key', 'credit_applied')->count());
-
-        $migration->up();
-        (new EmailTemplateSeeder)->run();
-        $this->assertTrue(Schema::hasColumn('clients', 'credit_auto_apply'));
-        $this->assertSame(1, DB::table('notification_templates')->where('key', 'credit_applied')->count());
-        $this->assertTrue((bool) DB::table('clients')->where('id', $clientId)->value('credit_auto_apply'));
     }
 
     /**
