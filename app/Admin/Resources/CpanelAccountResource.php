@@ -21,7 +21,7 @@ use Illuminate\Support\Number;
 /**
  * Utilities → Hosting Accounts (owner 2026-10-28: «what goes on in each server», hosting being the main product): every
  * account of the WHM servers (cpanel:sync, every 30 minutes) with its package, owner, disk, inodes and bandwidth against
- * their limits, suspension, outgoing mail held or suspended and backups, each mapped to the customer's service it is, or
+ * their limits, suspension and outgoing mail held or suspended, each mapped to the customer's service it is, or
  * marked internal. Read-only on the server: mapping changes nothing there.
  */
 class CpanelAccountResource extends Resource
@@ -64,11 +64,8 @@ class CpanelAccountResource extends Resource
                     ->state(fn (CpanelAccount $record) => array_values(array_filter([
                         $record->suspended ? 'Suspended' : null,
                         $record->mail_suspended ? 'Mail suspended' : ($record->mail_held ? 'Mail held' : null),
-                        $record->backup ? null : 'No backup',
                     ])) ?: ['OK'])
-                    ->color(fn (string $state) => match ($state) {
-                        'OK' => 'success', 'No backup' => 'gray', default => 'danger'
-                    })
+                    ->color(fn (string $state) => $state === 'OK' ? 'success' : 'danger')
                     ->tooltip(fn (CpanelAccount $record) => $record->suspended
                         ? trim('Suspended ' . ($record->suspended_at?->format('d/m/Y') ?? '') . ($record->suspend_reason ? ': ' . $record->suspend_reason : '')) : null),
                 TextColumn::make('mapping')->label('Is')->badge()
@@ -102,7 +99,6 @@ class CpanelAccountResource extends Resource
                 TernaryFilter::make('mail')->label('Outgoing mail held or suspended')
                     ->queries(true: fn (Builder $query) => $query->where(fn ($q) => $q->where('mail_held', true)->orWhere('mail_suspended', true)),
                         false: fn (Builder $query) => $query->where('mail_held', false)->where('mail_suspended', false)),
-                TernaryFilter::make('backup')->label('Backups on'),
                 SelectFilter::make('owner')->label('Reseller')
                     ->options(fn () => CpanelAccount::query()->where('reseller', true)->whereNull('gone_at')->orderBy('user')->pluck('user', 'user')->all()),
                 SelectFilter::make('server_id')->label('Server')->relationship('server', 'name', fn (Builder $query) => $query->where('extension', 'CPanel')),

@@ -967,7 +967,8 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 'bandwidth_used_mb' => $bandwidth === null ? null : ($bandwidth[$user]['used'] ?? 0),
                 'bandwidth_limit_mb' => $bandwidth[$user]['limit'] ?? null,
                 'suspended' => (int) ($row['suspended'] ?? 0) === 1,
-                'suspend_reason' => mb_substr(trim((string) ($row['suspendreason'] ?? '')), 0, 255) ?: null,
+                // WHM says «not suspended» for one that is not: kept only for one that is.
+                'suspend_reason' => (int) ($row['suspended'] ?? 0) === 1 ? (mb_substr(trim((string) ($row['suspendreason'] ?? '')), 0, 255) ?: null) : null,
                 'suspended_at' => is_numeric($row['suspendtime'] ?? null) && (int) $row['suspendtime'] > 0 ? (int) $row['suspendtime'] : null,
                 'mail_held' => (int) ($row['outgoing_mail_hold'] ?? 0) === 1,
                 'mail_suspended' => (int) ($row['outgoing_mail_suspended'] ?? 0) === 1,

@@ -54,7 +54,7 @@ final class AccountSync
             $new = 0;
             $seen = [];
             foreach ($accounts as $data) {
-                $row = CpanelAccount::query()->firstOrNew(['server_id' => $server->id, 'user' => $data['user']]);
+                $row = CpanelAccount::query()->with('service')->firstOrNew(['server_id' => $server->id, 'user' => $data['user']]);
                 $new += $row->exists ? 0 : 1;
                 $fill = $data;
                 unset($fill['user'], $fill['created_at']);
@@ -91,27 +91,29 @@ final class AccountSync
 
     /**
      * The live services on cPanel servers whose account is not on their server (a service billed for nothing, or an
-     * account under another name): for staff to look at.
+     * account under another name): for staff to look at. Only servers read at least once (one never read lists nothing
+     * yet: review of #495); the accounts looked up in memory, not one query each.
      *
      * @return Collection<int, Service>
      */
     public static function servicesWithoutAccount()
     {
-        $servers = self::servers()->pluck('id')->all();
+        $servers = CpanelAccount::query()->whereIn('server_id', self::servers()->pluck('id'))->distinct()->pluck('server_id')->all();
         if ($servers === []) {
             return new Collection;
         }
+        $live = CpanelAccount::query()->whereIn('server_id', $servers)->whereNull('gone_at')->get(['server_id', 'user'])
+            ->mapWithKeys(fn (CpanelAccount $account) => [$account->server_id . '|' . $account->user => true]);
 
         return Service::query()->with(['product', 'client', 'properties'])
             ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where(fn ($q) => $q->whereIn('server_id', $servers)
                 ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->whereIn('server_id', $servers))))
             ->get()
-            ->filter(function (Service $service) {
-                $server = $service->server_id ?? $service->product?->server_id;
+            ->filter(function (Service $service) use ($live) {
                 $user = strtolower((string) ($service->properties->firstWhere('key', 'cpanel_username')->value ?? $service->username));
 
-                return $user === '' || !CpanelAccount::query()->where('server_id', $server)->where('user', $user)->whereNull('gone_at')->exists();
+                return $user === '' || !isset($live[($service->server_id ?? $service->product?->server_id) . '|' . $user]);
             })
             ->values();
     }

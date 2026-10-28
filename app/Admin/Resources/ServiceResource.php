@@ -452,7 +452,6 @@ class ServiceResource extends Resource
             'serverState' => $account === null ? [] : array_values(array_filter([
                 $account->suspended ? 'Suspended on the server' . ($account->suspend_reason ? ': ' . $account->suspend_reason : '') : null,
                 $account->mail_suspended ? 'Outgoing mail suspended' : ($account->mail_held ? 'Outgoing mail held' : null),
-                $account->backup ? null : 'No backups',
                 $account->nearLimits() !== [] ? 'Near its ' . implode(', ', $account->nearLimits()) . ' limit' : null,
             ])),
         ];

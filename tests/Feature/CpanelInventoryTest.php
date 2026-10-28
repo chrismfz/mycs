@@ -49,7 +49,8 @@ class CpanelInventoryTest extends TestCase
                 'max_email_per_hour' => '200', 'backup' => 1, 'unix_startdate' => '1700000000'],
             ['user' => 'resel1', 'domain' => 'reseller.test', 'owner' => 'root', 'plan' => 'Reseller', 'diskused' => '100M', 'disklimit' => 'unlimited',
                 'inodesused' => '10', 'inodeslimit' => '0', 'suspended' => 1, 'suspendreason' => 'Overdue', 'suspendtime' => '1790000000', 'backup' => 0],
-            ['user' => 'client1', 'domain' => 'client1.test', 'owner' => 'resel1', 'plan' => 'resel1_Small', 'diskused' => '1G', 'disklimit' => '2G'],
+            ['user' => 'client1', 'domain' => 'client1.test', 'owner' => 'root', 'plan' => 'resel1_Small', 'diskused' => '1G', 'disklimit' => '2G', 'suspended' => 0, 'suspendreason' => 'not suspended'],
+            ['user' => 'sub1', 'domain' => 'sub1.test', 'owner' => 'resel1', 'plan' => 'resel1_Small', 'diskused' => '1G', 'disklimit' => '2G'],
         ];
         Http::fake(function (Request $request) {
             if ($this->down) {
@@ -94,7 +95,12 @@ class CpanelInventoryTest extends TestCase
         $client = $this->service('client1', property: true);
         $this->service('resel1', 'terminated');
 
-        $this->assertSame(['seen' => 3, 'new' => 3, 'gone' => 0], AccountSync::sync($this->server));
+        $sub = $this->service('Sub1');
+
+        $this->assertSame(['seen' => 4, 'new' => 4, 'gone' => 0], AccountSync::sync($this->server));
+        $this->assertNull(CpanelAccount::query()->where('user', 'sub1')->value('service_id'), 'a reseller\'s customer\'s account: never by name alone');
+        $root = CpanelAccount::query()->where('user', 'sub1')->sole()->fill(['owner' => 'root']);
+        $this->assertSame($sub->id, $root->suggestedServiceId(), 'one of root\'s: Sub1, its name lower-cased');
 
         $a = CpanelAccount::query()->where('user', 'alpha')->sole();
         $this->assertSame(['alpha.test', 'Business10', 9300, 10000, 120000, 250000, 5120, 10240, true, false, 200, true, false, $alpha->id],
@@ -103,6 +109,7 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame(['disk'], $a->nearLimits());
         $r = CpanelAccount::query()->where('user', 'resel1')->sole();
         $this->assertSame([true, true, 'Overdue', null, null, 0, null], [$r->reseller, $r->suspended, $r->suspend_reason, $r->disk_limit_mb, $r->inodes_limit, $r->bandwidth_used_mb, $r->service_id]);
+        $this->assertNull(CpanelAccount::query()->where('user', 'client1')->value('suspend_reason'), 'WHM\'s «not suspended» is no reason');
         $this->assertSame($client->id, CpanelAccount::query()->where('user', 'client1')->value('service_id'), 'its cPanel username property');
     }
 
@@ -166,8 +173,9 @@ class CpanelInventoryTest extends TestCase
 
         $page = $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->assertCanSeeTableRecords([$alpha, $reseller, $client]);
         $page->filterTable('near', true)->assertCanSeeTableRecords([$alpha])->assertCanNotSeeTableRecords([$reseller, $client]);
+        $sub = CpanelAccount::query()->where('user', 'sub1')->sole();
         $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('mail', true)->assertCanSeeTableRecords([$alpha])->assertCanNotSeeTableRecords([$client]);
-        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('owner', 'resel1')->assertCanSeeTableRecords([$client])->assertCanNotSeeTableRecords([$alpha]);
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->filterTable('owner', 'resel1')->assertCanSeeTableRecords([$sub])->assertCanNotSeeTableRecords([$alpha, $client]);
         $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->callTableAction('assign', $client, data: ['service_id' => $service->id])->assertHasNoTableActionErrors();
         $this->assertSame($service->id, $client->fresh()->service_id);
     }
@@ -196,5 +204,22 @@ class CpanelInventoryTest extends TestCase
         $line = ServiceResource::summaryLine($alpha->fresh());
         $this->assertSame('120000 / 250000 (48%)', $line['inodes']);
         $this->assertSame(['Outgoing mail held', 'Near its disk limit'], $line['serverState']);
+    }
+
+    /** Review of #495: an older live account is found past a newer gone one; a server never read flags no service. */
+    public function test_the_service_finds_its_live_account_and_an_unread_server_flags_nothing(): void
+    {
+        $alpha = $this->service('alpha');
+        $unread = Server::query()->create(['name' => 'New', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $product = $this->createProduct();
+        $product->product->update(['server_id' => $unread->id]);
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'status' => 'active', 'username' => 'someone']);
+        AccountSync::sync($this->server);
+        $moved = Server::query()->create(['name' => 'Moved', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => false]);
+        CpanelAccount::query()->create(['server_id' => $moved->id, 'user' => 'alpha', 'service_id' => $alpha->id, 'gone_at' => now()]);
+
+        $this->assertSame($this->server->id, $alpha->fresh()->cpanelAccount?->server_id, 'the live one, past a newer gone one');
+        $this->assertNotContains('someone', AccountSync::servicesWithoutAccount()->pluck('username')->all(), 'its server never read: not flagged');
     }
 }

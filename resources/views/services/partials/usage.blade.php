@@ -8,7 +8,8 @@
     // Its files' count (Hosting Accounts): a limit a site meets before its disk's.
     ($account = $service->cpanelAccount) && $account->inodes_used !== null && $account->inodes_limit ? ['label' => __('services.usage.inodes'), 'used' => $account->inodes_used, 'limit' => $account->inodes_limit, 'size' => false] : null,
 ]))
-@php($near = isset($account) && $account ? $account->nearLimits() : [])
+{{-- A reseller's meters are its accounts' summed against its product's limits: its own account's limits are not them. --}}
+@php($near = isset($account) && $account && !$account->reseller ? $account->nearLimits() : [])
 <div class="bg-background-secondary rounded-lg p-4 mt-2">
     <h4 class="text-lg font-semibold">{{ __('services.usage.title') }}</h4>
     <div class="grid {{ count($meters) >= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2' }} gap-4 mt-3">

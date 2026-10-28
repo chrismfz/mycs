@@ -57,15 +57,22 @@ class CpanelAccount extends Model
 
     /**
      * The one live service (active or suspended) this account is on this server: its cPanel username the account's (the
-     * service's property, else its username), the service on this server or its product's. None when none or more.
+     * service's property, else its username), the service on this server or its product's; never a reseller's customer's
+     * account. None when none or more.
      */
     public function suggestedServiceId(): ?int
     {
+        // A reseller's own customer's account is never one of our services by its name alone (a username reused under a
+        // reseller would show another customer's account: review of #495); staff map one by hand.
+        if ($this->owner !== null && !in_array($this->owner, ['root', $this->user], true)) {
+            return null;
+        }
         $ids = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where(fn ($q) => $q->where('server_id', $this->server_id)
                 ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->where('server_id', $this->server_id))))
-            ->where(fn ($q) => $q->whereHas('properties', fn ($q) => $q->where('key', 'cpanel_username')->where('value', $this->user))
-                ->orWhere(fn ($q) => $q->whereDoesntHave('properties', fn ($q) => $q->where('key', 'cpanel_username'))->where('username', $this->user)))
+            // Compared lower-cased, as the extension does (an imported «Bob» is bob on any database: review of #495).
+            ->where(fn ($q) => $q->whereHas('properties', fn ($q) => $q->where('key', 'cpanel_username')->whereRaw('lower(value) = ?', [$this->user]))
+                ->orWhere(fn ($q) => $q->whereDoesntHave('properties', fn ($q) => $q->where('key', 'cpanel_username'))->whereRaw('lower(username) = ?', [$this->user])))
             ->limit(2)->pluck('id');
 
         return $ids->count() === 1 ? (int) $ids->first() : null;

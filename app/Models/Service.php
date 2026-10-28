@@ -1168,7 +1168,8 @@ class Service extends Model implements Auditable
      */
     public function cpanelAccount(): HasOne
     {
-        return $this->hasOne(CpanelAccount::class)->whereNull('gone_at')->latestOfMany();
+        // The constraint inside ofMany's own subquery: an older live row is found past a newer gone one (review of #495).
+        return $this->hasOne(CpanelAccount::class)->ofMany(['id' => 'max'], fn ($query) => $query->whereNull('gone_at'));
     }
 
     /** @return HasMany<ServiceUpgrade, $this> */

@@ -14,7 +14,7 @@ class CpanelAccountPolicy
         return $user->hasPermission('admin.servers.viewAny');
     }
 
-    public function view(User|Staff $user, CpanelAccount $domain): bool
+    public function view(User|Staff $user, CpanelAccount $account): bool
     {
         return $user->hasPermission('admin.servers.viewAny');
     }
@@ -24,12 +24,12 @@ class CpanelAccountPolicy
         return false; // read from the server only
     }
 
-    public function update(User|Staff $user, CpanelAccount $domain): bool
+    public function update(User|Staff $user, CpanelAccount $account): bool
     {
         return $user->hasPermission('admin.servers.update');
     }
 
-    public function delete(User|Staff $user, CpanelAccount $domain): bool
+    public function delete(User|Staff $user, CpanelAccount $account): bool
     {
         return $user->hasPermission('admin.servers.update');
     }
