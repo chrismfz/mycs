@@ -36,8 +36,13 @@ class SyncCpanelLve extends Command
 
                 continue;
             }
-            $this->line("{$server->name}: " . ($result['cloudlinux'] ? "{$result['read']} account(s) read" : 'no CloudLinux'));
+            $this->line("{$server->name}: " . match ($result['cloudlinux']) {
+                true => "{$result['read']} account(s) read",
+                false => 'no CloudLinux',
+                null => 'nothing to read',
+            });
         }
+        LveSync::prune();
 
         return $failed ? self::FAILURE : self::SUCCESS;
     }

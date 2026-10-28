@@ -21,21 +21,28 @@ final class LveSync
     /** Readings kept this long (the peak is of the last 24 hours). */
     public const KEEP_HOURS = 48;
 
-    /** @return array{read: int, cloudlinux: bool} */
+    /** Every server's old readings, a disabled or failing one's too (review of #497). */
+    public static function prune(): int
+    {
+        return CpanelLveSample::query()->where('sampled_at', '<', now()->subHours(self::KEEP_HOURS))->delete();
+    }
+
+    /** @return array{read: int, cloudlinux: bool|null} cloudlinux null: nothing to read (none live, or all protected) */
     public static function sync(Server $server): array
     {
         $extension = ExtensionHelper::getExtension('server', $server->extension, $server->settings);
         if (!$extension instanceof CPanel) {
             throw new \InvalidArgumentException("{$server->name} is not a cPanel server.");
         }
-        $lock = Cache::lock("cpanel.lve.{$server->id}", 1800);
+        $lock = Cache::lock("cpanel.lve.{$server->id}", 3600);
         if (!$lock->get()) {
             throw new RuntimeException("{$server->name} is being read already: try again later.");
         }
         try {
             $accounts = CpanelAccount::query()->where('server_id', $server->id)->whereNull('gone_at')->where('suspended', false)
                 ->get()->keyBy('user');
-            $read = $accounts->isEmpty() ? [] : $extension->lveUsages($accounts->keys()->map(fn ($user) => (string) $user)->all());
+            $asked = $accounts->keys()->map(fn ($user) => (string) $user)->diff($extension->protectedAccounts())->isNotEmpty();
+            $read = $asked ? $extension->lveUsages($accounts->keys()->map(fn ($user) => (string) $user)->all()) : [];
             $now = now();
             foreach ($read as $user => $lve) {
                 $account = $accounts->get($user);
@@ -53,10 +60,8 @@ final class LveSync
                     'cpu' => $used('cpu') === null ? null : min(65535, $used('cpu')), 'memory_mb' => $mb($used('memory')),
                     'entry_processes' => $used('entry_processes'), 'processes' => $used('processes'), 'io_kbs' => $kb($used('io')), 'iops' => $used('iops')]);
             }
-            CpanelLveSample::query()->whereIn('cpanel_account_id', CpanelAccount::query()->where('server_id', $server->id)->select('id'))
-                ->where('sampled_at', '<', $now->copy()->subHours(self::KEEP_HOURS))->delete();
 
-            return ['read' => count($read), 'cloudlinux' => $read !== [] || $accounts->isEmpty()];
+            return ['read' => count($read), 'cloudlinux' => $read !== [] ? true : ($asked ? false : null)];
         } finally {
             $lock->release();
         }

@@ -112,6 +112,7 @@ class CpanelLveTest extends TestCase
         $this->usages['alpha'] = self::rows(cpu: 10, memory: 200 * 1048576, memoryLimit: 1024 * 1048576, ep: 1, io: 0);
 
         LveSync::sync($this->server);
+        LveSync::prune();
 
         $lve = $this->account('alpha')->lve();
         $this->assertSame(['peak' => 40, 'now' => 10, 'limit' => 100], $lve['cpu'], 'the 30-hour-old 100% is not today\'s');
@@ -120,20 +121,71 @@ class CpanelLveTest extends TestCase
         $this->assertNull($gone->fresh(), 'older ones go');
     }
 
-    public function test_a_server_without_cloudlinux_is_told_after_one_call_and_one_account_failing_leaves_the_rest(): void
+    public function test_a_server_without_cloudlinux_is_told_and_one_account_failing_leaves_the_rest(): void
     {
-        $this->usages = ['alpha' => [['id' => 'disk_usage', 'usage' => 1, 'maximum' => 2]], 'beta' => self::rows(1, 1, 1, 1, 1)];
+        $this->usages = ['alpha' => [['id' => 'disk_usage', 'usage' => 1, 'maximum' => 2]], 'beta' => [['id' => 'disk_usage', 'usage' => 1, 'maximum' => 2]]];
         $this->assertSame(['read' => 0, 'cloudlinux' => false], LveSync::sync($this->server));
-        $this->assertSame(['alpha'], $this->asked);
         $this->assertSame(0, CpanelLveSample::query()->count());
 
-        $this->asked = [];
         $this->usages = ['beta' => self::rows(1, 1, 1, 1, 1)]; // alpha's call fails
         $this->assertSame(['read' => 1, 'cloudlinux' => true], LveSync::sync($this->server));
 
         $this->usages = [];
         $this->expectException(\Throwable::class);
         LveSync::sync($this->server); // none could be read: told, not taken for «no CloudLinux»
+    }
+
+    /** Review of #497: an account without CloudLinux's rows (excluded from LVE), first or in the middle, never drops the others'. */
+    public function test_an_account_without_them_first_or_between_leaves_the_others_read(): void
+    {
+        foreach (['gamma', 'delta'] as $user) {
+            CpanelAccount::query()->create(['server_id' => $this->server->id, 'user' => $user, 'last_seen_at' => now()]);
+        }
+        $none = [['id' => 'disk_usage', 'usage' => 1, 'maximum' => 2]];
+        $this->usages['alpha'] = $none; // first asked
+        $this->usages['delta'] = $none; // between
+        $this->usages['gamma'] = self::rows(5, 1048576, 1073741824, 1, 0);
+
+        $this->assertSame(['read' => 2, 'cloudlinux' => true], LveSync::sync($this->server));
+        $this->assertSame(['beta', 'gamma'], CpanelAccount::query()->whereNotNull('lve_read_at')->orderBy('user')->pluck('user')->all());
+    }
+
+    /** Review of #497: a server failing every call stops after a few; nothing to read is not «no CloudLinux». */
+    public function test_a_failing_server_stops_early_and_nothing_to_read_is_said(): void
+    {
+        foreach (['c1', 'c2', 'c3', 'c4', 'c5'] as $user) {
+            CpanelAccount::query()->create(['server_id' => $this->server->id, 'user' => $user, 'last_seen_at' => now()]);
+        }
+        $this->usages = [];
+        try {
+            LveSync::sync($this->server);
+            $this->fail('a server that fails every call is told');
+        } catch (\Throwable) {
+        }
+        $this->assertCount(3, $this->asked, 'stopped after three failures in a row');
+
+        CpanelAccount::query()->where('user', '!=', 'ours')->update(['suspended' => true]);
+        $this->assertSame(['read' => 0, 'cloudlinux' => null], LveSync::sync($this->server), 'only a protected account live');
+    }
+
+    /** Review of #497: old readings go for every server; a suspended account, or a reading hours old, is not shown as now. */
+    public function test_old_readings_go_everywhere_and_stale_or_suspended_is_not_shown(): void
+    {
+        $other = Server::query()->create(['name' => 'Off', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => false]);
+        $offAccount = CpanelAccount::query()->create(['server_id' => $other->id, 'user' => 'x']);
+        $old = CpanelLveSample::query()->create(['cpanel_account_id' => $offAccount->id, 'sampled_at' => now()->subHours(50), 'cpu' => 1]);
+        $this->artisan('cpanel:lve')->assertExitCode(0);
+        $this->assertNull($old->fresh(), 'a disabled server\'s old readings go too');
+
+        $beta = $this->account('beta');
+        CpanelLveSample::query()->where('cpanel_account_id', $beta->id)->update(['sampled_at' => now()->subHours(5)]);
+        $this->assertNull($beta->fresh()->lve()['cpu']['now'], 'five hours old: not now');
+        $this->assertSame(2, $beta->fresh()->lve()['cpu']['peak']);
+
+        $alpha = $this->account('alpha');
+        $this->assertSame(['cpu'], $alpha->lveNear());
+        $alpha->update(['suspended' => true]);
+        $this->assertSame([], $alpha->fresh()->lve(), 'suspended: not read, its readings not shown');
     }
 
     public function test_hosting_accounts_show_the_peaks_cut_the_package_and_filter_the_ones_near(): void

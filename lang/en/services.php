@@ -291,7 +291,7 @@ return [
         'inodes' => 'Files (inodes)',
         'near' => 'Your account is close to its :limits limit.',
         'upgrade' => 'Move to a bigger package',
-        'lve_title' => 'Server resources (peak of the last 24 hours)',
+        'lve_title' => 'Server resources (highest reading of the last 24 hours, read every 30 minutes)',
         'lve_cpu_of' => ':percent of your limit',
         'lve_now' => 'now :value',
         'lve' => [

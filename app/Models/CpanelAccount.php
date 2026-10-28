@@ -76,20 +76,22 @@ class CpanelAccount extends Model
     }
 
     /**
-     * CloudLinux's limits and its use of them (none when never read): each one's peak of the last 24 hours, its last
+     * CloudLinux's limits and its use of them (none when never read, or suspended): each one's highest reading of the last 24 hours, its last
      * reading and its limit.
      *
      * @return array<string, array{peak: int|null, now: int|null, limit: int|null}>
      */
     public function lve(): array
     {
-        if ($this->lve_read_at === null) {
+        // A suspended account is not read: its last readings are not what it uses now (review of #497).
+        if ($this->lve_read_at === null || $this->suspended) {
             return [];
         }
         $peaks = array_key_exists('lve_cpu_peak', $this->getAttributes()) ? null
             : $this->lveSamples()->where('sampled_at', '>=', now()->subDay())
                 ->selectRaw(implode(', ', array_map(fn (array $c) => "max({$c['sample']}) as {$c['sample']}", self::LVE)))->first();
-        $last = $this->lveSamples()->latest('sampled_at')->first();
+        // «Now» only a recent reading (its reads failing since: none).
+        $last = $this->lveSamples()->where('sampled_at', '>=', now()->subHours(2))->latest('sampled_at')->first();
         $read = [];
         foreach (self::LVE as $key => $columns) {
             $peak = $peaks === null ? $this->getAttribute("lve_{$key}_peak") : $peaks->getAttribute($columns['sample']);
