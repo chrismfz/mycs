@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\ConfigOption;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\PaymentGroup;
 use App\Models\Product;
@@ -1128,21 +1129,88 @@ class ImportFromWhmcs extends Command
                     'line_total' => $line['total'],
                     'created_at' => now(),
                     'updated_at' => now(),
-                    'reference_type' => match ($record['type']) {
-                        'Hosting' => Service::class,
-                        // A credit purchase (add funds), as MyCS's own: never income (the credit is, when it pays; #275).
-                        'AddFunds' => Credit::class,
-                        'Domain' => null,
-                        'Addon' => null,
-                        'Upgrade' => null,
-                        default => null,
-                    },
-                    'reference_id' => $record['type'] === 'AddFunds' ? null : $record['relid'],
-                ];
+                ] + $this->lineReference($record);
             }
 
             DB::table('invoice_items')->insert($data);
         });
+    }
+
+    /**
+     * What a WHMCS invoice line is for (tblinvoiceitems.type, relid), so income goes to its product (#504):
+     * - Hosting: the service's renewal (services keep their WHMCS ids), as before: no kind, its period given when paid.
+     * - Setup, PromoHosting (relid = the service), Addon (relid = tblhostingaddons, on its service) and Upgrade (relid =
+     *   tblupgrades of a package or its options, on its service): the service's, `kind = charge`, never a period: a
+     *   payment renews nothing with it, and the billing never takes it for a period (docs/importer.md).
+     * - AddFunds: a credit purchase, as MyCS's own: never income (the credit is, when it pays; #275).
+     * - Anything else (domains until D6, a late fee, a group discount, by hand): no type, its relid kept as it was.
+     * A line whose service is not here (deleted in WHMCS) has no type either: never attached by guess.
+     *
+     * @param  array<string, mixed>  $record  a tblinvoiceitems row
+     * @return array{reference_type: string|null, reference_id: mixed, kind: string|null}
+     */
+    private function lineReference(array $record): array
+    {
+        $type = (string) $record['type'];
+        $relid = (int) $record['relid'];
+        $service = match ($type) {
+            'Setup', 'PromoHosting' => $relid,
+            'Addon' => $this->addonServices()[$relid] ?? null,
+            'Upgrade' => $this->upgradeServices()[$relid] ?? null,
+            default => null,
+        };
+
+        return match (true) {
+            $type === 'Hosting' => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            $type === 'AddFunds' => ['reference_type' => Credit::class, 'reference_id' => null, 'kind' => null],
+            $service !== null && isset($this->importedServices()[$service]) => ['reference_type' => Service::class, 'reference_id' => $service, 'kind' => InvoiceItem::KIND_CHARGE],
+            default => ['reference_type' => null, 'reference_id' => $record['relid'], 'kind' => null],
+        };
+    }
+
+    /** @var array<int, true>|null the services imported (their WHMCS ids) */
+    private ?array $importedServices = null;
+
+    /** @return array<int, true> */
+    private function importedServices(): array
+    {
+        return $this->importedServices ??= array_fill_keys(DB::table('services')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+    }
+
+    /** @var array<int, int>|null WHMCS product addon (tblhostingaddons.id) => its service */
+    private ?array $addonServices = null;
+
+    /** @return array<int, int> */
+    private function addonServices(): array
+    {
+        return $this->addonServices ??= $this->idMap('SELECT id, hostingid FROM tblhostingaddons');
+    }
+
+    /** @var array<int, int>|null WHMCS upgrade (tblupgrades.id) of a package or its options => its service */
+    private ?array $upgradeServices = null;
+
+    /** @return array<int, int> */
+    private function upgradeServices(): array
+    {
+        return $this->upgradeServices ??= $this->idMap("SELECT id, relid FROM tblupgrades WHERE type IN ('package', 'configoptions')");
+    }
+
+    /** @return array<int, int> the first column => the second; none on a WHMCS without the table (an old one, a fixture) */
+    private function idMap(string $sql): array
+    {
+        try {
+            $rows = $this->pdo->query($sql)->fetchAll(PDO::FETCH_NUM);
+        } catch (PDOException) {
+            return [];
+        }
+        $map = [];
+        foreach ($rows as [$id, $service]) {
+            if ((int) $service > 0) {
+                $map[(int) $id] = (int) $service;
+            }
+        }
+
+        return $map;
     }
 
     private function importPayments()

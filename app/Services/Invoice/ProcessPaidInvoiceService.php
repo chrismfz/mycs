@@ -51,6 +51,10 @@ class ProcessPaidInvoiceService
                     return;
                 }
                 if ($item->reference_type == Service::class) {
+                    // A charge of the service (an imported setup fee, promotion, addon or upgrade): no period, nothing to renew.
+                    if ($item->kind === InvoiceItem::KIND_CHARGE) {
+                        return;
+                    }
                     $service = $item->reference;
                     if (!$service || !($service instanceof Service)) {
                         return;

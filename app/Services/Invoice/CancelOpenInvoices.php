@@ -119,9 +119,9 @@ final class CancelOpenInvoices
             return 'Ekdosi issued its fiscal document: cancel the document there first, then this invoice by hand.';
         }
         $items = $invoice->items()->lockForUpdate()->get();
-        // An imported WHMCS line keeps its relid but not its type (the importer maps only Hosting). A setup fee or a
-        // promotion of a hosting has that hosting's id, and services keep their WHMCS ids: such a line goes with the
-        // hosting it names on this invoice. Any other (a domain, an addon) is not known: nothing is given up on by guess.
+        // An imported WHMCS line keeps its relid; the importer types a hosting's lines (its setup fee, promotion, addon
+        // and upgrade too: a charge of the service), not a domain's. One with no type that names a hosting on this
+        // invoice goes with it (services keep their WHMCS ids). Any other (a domain) is not known: nothing is given up on by guess.
         $hostings = $items->where('reference_type', Service::class)->pluck('reference_id')->map(fn ($id) => (int) $id);
         if ($items->contains(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id > 0
             && !$hostings->contains((int) $line->reference_id))) {

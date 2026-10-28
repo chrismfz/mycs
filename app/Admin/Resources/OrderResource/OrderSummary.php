@@ -64,7 +64,9 @@ final class OrderSummary
      */
     public static function items(Order $order, ?Invoice $invoice): array
     {
-        $line = fn (string $type, int $id): ?InvoiceItem => $invoice?->items->first(fn (InvoiceItem $item) => $item->reference_type === $type && (int) $item->reference_id === $id);
+        // A service's own line, not a charge beside it (an imported setup fee or promotion).
+        $line = fn (string $type, int $id): ?InvoiceItem => $invoice?->items->first(fn (InvoiceItem $item) => $item->reference_type === $type && (int) $item->reference_id === $id
+            && ($type !== Service::class || $item->kind !== InvoiceItem::KIND_CHARGE));
         $amount = fn (?InvoiceItem $item): string => $item === null ? '—' : (string) $item->formattedTotal;
         $paid = fn (?InvoiceItem $item): string => $item === null ? '—' : self::paymentStatus($invoice);
 

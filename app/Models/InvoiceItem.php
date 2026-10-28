@@ -20,7 +20,10 @@ use OwenIt\Auditing\Contracts\Auditable;
 #[ObservedBy([InvoiceItemObserver::class])]
 class InvoiceItem extends Model implements Auditable
 {
-    /** A charge on a domain that is not its renewal (an owner change, a fee billed apart): kind, not a period. */
+    /**
+     * A charge on a domain or a service that is not its renewal (an owner change, a fee billed apart; a WHMCS setup fee,
+     * promotion, addon or upgrade the importer brought): kind, not a period. It never renews or bills a period.
+     */
     public const KIND_CHARGE = 'charge';
 
     /** Asked for when made (the Admin API): «this is the domain's renewal, give it its period». Never stored. */

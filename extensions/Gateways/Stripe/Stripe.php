@@ -443,7 +443,8 @@ class Stripe extends Gateway
         // Create subscription
         /** @var InvoiceItem $item */
         foreach ($invoice->items as $item) {
-            if ($item->reference_type !== Service::class) {
+            // A charge of the service (an imported setup fee, promotion): not a subscription of its own.
+            if ($item->reference_type !== Service::class || $item->kind === InvoiceItem::KIND_CHARGE) {
                 continue;
             }
             /** @var Service $service */
