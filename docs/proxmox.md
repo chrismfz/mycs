@@ -110,7 +110,8 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 4. [ ] **Προϊόντα:** τα «Cloud 2CPU‑8GB‑60GB», cloud‑1, Cloud‑2 και CS‑2 με module Proxmox. Τα πλάνα
    (`mod_pvewhmcs_plans`) γίνονται ρυθμίσεις του προϊόντος όταν έρθει το create (Β4). Ως τότε αρκεί το module, για
    suspend και terminate. Οι παλιές επιλογές Hetzner του CS‑2 δεν περνούν.
-5. [ ] **IP pool:** το pool του WHMCS (10 IPv4, οι 6 σε χρήση) εισάγεται όταν έρθουν τα IP pools (Β3).
+5. [ ] **IP pool:** το pool του WHMCS (10 IPv4, οι 6 σε χρήση) με `app:import-whmcs-ip-pools`, μετά τις υπηρεσίες
+   (Β3, PR 4).
 6. [ ] **Μετά το cut-over:** ο υπεύθυνος σβήνει τον χρήστη `whmcs@pam` και το module του WHMCS.
 
 ### Πρόσβαση για το PR 2 (suspend, start, destroy)
@@ -162,8 +163,21 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
      abuse το staff κάνει suspend την υπηρεσία, και τότε δεν υπάρχουν κουμπιά.
    - **Create (υπεύθυνος 2026-10-28):** χωρίς cloud-init templates (εγκατάσταση από .iso), και το πρώτο create γίνεται
      χειροκίνητα, γιατί η MAC μπαίνει στο MikroTik (gw1-snc) κατά των αλλαγών IP. Το Β4 ξανασυζητιέται.
-3. [ ] **PR 4, IP pools στη MyCS:** IPv4 (και IPv6 prefix) με gateway και mask, δέσμευση και αποδέσμευση ανά
-   υπηρεσία, import του pool του WHMCS. Χωρίς αυτά δεν γίνεται create.
+3. [x] **PR 4, IP pools στη MyCS (Utilities → IP Pools):**
+   - Pool = δίκτυο, gateway, μάσκα (prefix), DNS και cluster. IPv4: διευθύνσεις (ένα δίκτυο, ένα εύρος ή μία μία,
+     χωρίς το gateway). IPv6: ένα prefix ανά υπηρεσία (π.χ. /64).
+   - Κάθε διεύθυνση είναι free, reserved (δική μας, router), μιας υπηρεσίας, ή «held» από υπηρεσία που έληξε
+     (terminated/cancelled). Η held δεν δίνεται ξανά μέχρι να την αποδεσμεύσει το staff: η αποδέσμευση **δεν** γίνεται
+     αυτόματα με το terminate.
+   - Δίνεται και αποδεσμεύεται από το pool ή από τη σελίδα της υπηρεσίας («IPs»). Μία διεύθυνση δεν δίνεται ποτέ σε δύο
+     (conditional update). Πρώτα δίνεται όποια δεν δόθηκε ποτέ, μετά όποια αποδεσμεύτηκε παλαιότερα. Το `dedicated_ip`
+     ακολουθεί την πρώτη IPv4, αν είναι κενό. Όλα στο audit της υπηρεσίας.
+   - Η λίστα δείχνει σε ποιο VM φαίνεται κάθε διεύθυνση (από το `proxmox:sync`). Σημαδεύει όποια είναι σε χρήση αλλά
+     free εδώ, ή είναι σε VM άλλης υπηρεσίας.
+   - Ο πελάτης βλέπει στο panel του VPS διεύθυνση, μάσκα, gateway και DNS, για την εγκατάσταση από ISO.
+   - Τίποτα δεν αλλάζει στο cluster ή στο MikroTik: το staff βάζει την IP στο VM και στο router όπως πριν.
+   - Import: `php artisan app:import-whmcs-ip-pools <βάση του WHMCS>`, μετά τις υπηρεσίες (ίδια ids), re-runnable. Τα
+     `v6prefix` του WHMCS δεν είναι πραγματικά prefixes (2026-10-28) και δεν περνούν.
 4. [ ] **PR 5, create από πλάνο και αλλαγή πακέτου:**
    - Το πλάνο είναι ρυθμίσεις του προϊόντος: cores, RAM, δίσκος, storage, bridge/VLAN, κόμβος (ή ο πιο ελεύθερος),
      template.

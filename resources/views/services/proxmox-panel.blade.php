@@ -64,6 +64,20 @@
     </dl>
     @endif
 
+    @if ($network)
+    {{-- What the installer asks, from the IP pools (B3). --}}
+    <h5 class="text-sm font-semibold mt-5">{{ __('services.proxmox.network_title') }}</h5>
+    <p class="text-xs text-base/50">{{ __('services.proxmox.network.hint') }}</p>
+    @foreach ($network as $ip)
+    <dl class="grid sm:grid-cols-4 gap-4 mt-2 text-sm">
+        <div><dt class="text-base/50">{{ __('services.proxmox.network.address') }}</dt><dd class="font-mono text-xs break-all select-all">{{ $ip['address'] . ($ip['prefix'] !== null ? '/' . $ip['prefix'] : '') }}</dd></div>
+        <div><dt class="text-base/50">{{ __('services.proxmox.network.netmask') }}</dt><dd class="font-mono text-xs select-all">{{ $ip['netmask'] ?? '—' }}</dd></div>
+        <div><dt class="text-base/50">{{ __('services.proxmox.network.gateway') }}</dt><dd class="font-mono text-xs break-all select-all">{{ $ip['gateway'] ?? '—' }}</dd></div>
+        <div><dt class="text-base/50">{{ __('services.proxmox.network.dns') }}</dt><dd class="font-mono text-xs break-all select-all">{{ $ip['dns'] ? implode(' · ', $ip['dns']) : '—' }}</dd></div>
+    </dl>
+    @endforeach
+    @endif
+
     <div class="flex items-center justify-between mt-5">
         <h5 class="text-sm font-semibold">{{ __('services.proxmox.graphs') }}</h5>
         <div class="flex gap-1 text-xs">

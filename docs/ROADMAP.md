@@ -111,9 +111,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
 - [ ] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap):
-  - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447).
-  - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`.
-  - **Μετά το cut-over:** client area, IP pools, create από πλάνο, reinstall, κονσόλα noVNC.
+  - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447),
+    client area (#502), IP pools (feat/ip-pools).
+  - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`, και το pool τους με
+    `app:import-whmcs-ip-pools`.
+  - **Επόμενο:** κονσόλα noVNC. Create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
 - [x] ~~ngm (1), Hetzner (1): χειροκίνητα προϊόντα~~ **έγινε (feat/offline-modules):** modules «Offline VM» και «Offline Dedicated Server» χωρίς API· τα στοιχεία της μηχανής (VM ID, πάροχος, MAC, IPv6· rack, U, IPMI IP και MAC, serial, θύρα switch/PDU) στην υπηρεσία, κάθε ενέργεια εργασία του staff στα Pending Module Actions. Επόμενο, αν χρειαστεί: η τρέχουσα IP του IPMI από τα DHCP leases του MikroTik με το MAC του.
 - [x] ~~Συμφιλίωση κατάστασης cPanel~~ **έγινε:** «Differs» στο Hosting Accounts (φίλτρο) και στη σελίδα της υπηρεσίας:
       active εδώ/suspended εκεί, suspended εδώ/active εκεί, ended εδώ/υπάρχει ακόμα εκεί (μόνο αφού ο server διαβαστεί

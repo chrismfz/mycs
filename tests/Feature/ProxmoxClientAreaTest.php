@@ -6,10 +6,12 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\ProxmoxPanel;
 use App\Livewire\Services\Show as ServiceShow;
 use App\Models\ClientUser;
+use App\Models\IpPool;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Ip\IpAllocator;
 use App\Services\Proxmox\GuestLifecycle;
 use App\Support\Sparkline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -248,5 +250,19 @@ class ProxmoxClientAreaTest extends TestCase
         $this->assertSame([], $this->writes);
         $lifecycle->power($service, 'shutdown'); // staff's buttons: no such check
         $this->assertSame(['POST nodes/vega/qemu/101/status/shutdown'], $this->writes);
+    }
+
+    public function test_the_customer_is_told_its_network_settings_from_the_ip_pools(): void
+    {
+        $service = $this->vps();
+        $pool = IpPool::query()->create(['name' => 'VPS', 'family' => 4, 'network' => '192.0.2.0/24', 'prefix' => 24,
+            'gateway' => '192.0.2.1', 'nameservers' => '192.0.2.53 198.51.100.53']);
+        $pool->add('192.0.2.10');
+        IpAllocator::assign($service, $pool);
+
+        Livewire::actingAs($this->owner($service))->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+            ->assertSee(__('services.proxmox.network_title'))
+            ->assertSee('192.0.2.10/24')->assertSee('255.255.255.0')->assertSee('192.0.2.1')
+            ->assertSee('192.0.2.53 · 198.51.100.53');
     }
 }
