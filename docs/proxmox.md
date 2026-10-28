@@ -158,6 +158,8 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
    - Κάνει start, shutdown, reboot και hard stop (με επιβεβαίωση, μία ενέργεια ανά 30'' ανά VM, στο audit), αλλά όχι
      όσο είναι suspended. Όλα περνούν από τους ίδιους ελέγχους του `GuestLifecycle::guest()` (ένα VM, στο pool, το ίδιο
      μηχάνημα): ένα VM που δεν αγγίζει η MyCS ούτε φαίνεται. Η ανάγνωση κρατιέται 60''.
+   - Ο πελάτης μπορεί να ξεκινήσει VM που σταμάτησε το staff όσο η υπηρεσία είναι active (υπεύθυνος 2026-10-28): για
+     abuse το staff κάνει suspend την υπηρεσία, και τότε δεν υπάρχουν κουμπιά.
    - **Create (υπεύθυνος 2026-10-28):** χωρίς cloud-init templates (εγκατάσταση από .iso), και το πρώτο create γίνεται
      χειροκίνητα, γιατί η MAC μπαίνει στο MikroTik (gw1-snc) κατά των αλλαγών IP. Το Β4 ξανασυζητιέται.
 3. [ ] **PR 4, IP pools στη MyCS:** IPv4 (και IPv6 prefix) με gateway και mask, δέσμευση και αποδέσμευση ανά

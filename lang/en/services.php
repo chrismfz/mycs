@@ -283,13 +283,13 @@ return [
     ],
     'proxmox' => [
         'title' => 'Your server',
-        'status' => ['running' => 'Running', 'stopped' => 'Stopped', 'gone' => 'Not found'],
+        'status' => ['running' => 'Running', 'stopped' => 'Stopped', 'gone' => 'Not found', 'unknown' => 'State unknown'],
         'power' => ['start' => 'Start', 'shutdown' => 'Shut down', 'reboot' => 'Reboot', 'stop' => 'Hard stop'],
         'confirm' => [
             'start' => 'Start the server?',
             'shutdown' => 'Shut the server down? Its operating system is asked to stop cleanly.',
             'reboot' => 'Reboot the server now?',
-            'stop' => 'Stop the server at once, as pulling the plug? Unsaved data may be lost.',
+            'stop' => 'Stop the server at once, like pulling the plug? Unsaved data may be lost.',
         ],
         'sent' => [
             'start' => 'The server is starting.',
@@ -298,6 +298,7 @@ return [
             'stop' => 'The server is stopping.',
         ],
         'too_soon' => 'Please wait half a minute before the next action.',
+        'pending' => 'Working on it… the state updates by itself.',
         'not_done' => 'That could not be done now. Please try again in a few minutes, or open a ticket.',
         'suspended' => 'The service is suspended: the server starts again once it is unsuspended.',
         'unavailable' => 'Your server\'s details cannot be shown right now.',
@@ -311,7 +312,7 @@ return [
         'graphs' => 'Graphs',
         'timeframe' => ['hour' => 'Hour', 'day' => 'Day', 'week' => 'Week'],
         'graph' => ['cpu' => 'CPU', 'memory' => 'Memory', 'network' => 'Network', 'disk' => 'Disk I/O'],
-        'peak' => 'highest',
+        'peak' => 'peak',
         'in' => 'in',
         'out' => 'out',
         'read' => 'read',

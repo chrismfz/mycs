@@ -28,6 +28,9 @@ final class GuestLifecycle
 
     private int $waited = 0;
 
+    /** @var array<string, mixed> the guest's own status as guest() last read it (its CPU, memory, uptime) */
+    private array $current = [];
+
     /** @param  Closure(int): void|null  $sleep */
     public function __construct(
         private readonly ProxmoxClient $client,
@@ -144,19 +147,20 @@ final class GuestLifecycle
     }
 
     /**
-     * What the customer and staff see of the service's VM (owner 2026-10-28, the client area): its state now, its CPU,
-     * memory and disk, its addresses as the last read found them, and its graph for an hour, a day or a week. Reads only,
-     * through the same checks as an action (one guest, in the pool, the same machine): a VM MyCS may not act on is not
-     * shown either. Null state: no longer on the cluster.
+     * What the customer sees of the service's VM now (owner 2026-10-28, the client area): its state, its CPU, memory and
+     * disk, its addresses as the last read found them. Reads only, through the same checks as an action (one guest, in the
+     * pool, the same machine): a VM MyCS may not act on is not shown either. Null state: no longer on the cluster. Its
+     * own state read once (guest() reads it), a size of 0 the last read's (review of #502).
      *
      * @return array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int, memory: int,
-     *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, graph: list<array<string, mixed>>}
+     *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>}
      */
-    public function overview(Service $service, string $timeframe = 'hour'): array
+    public function state(Service $service): array
     {
         [$row, $resource] = $this->guest($service);
-        $now = $resource === null ? [] : (array) $this->client->get(ProxmoxClient::guestPath($resource) . '/status/current');
-        $number = fn (string $key, mixed $fallback = 0) => is_numeric($now[$key] ?? null) ? $now[$key] + 0 : $fallback;
+        $now = $resource === null ? [] : $this->current;
+        $number = fn (string $key) => is_numeric($now[$key] ?? null) ? $now[$key] + 0 : 0;
+        $size = fn (string $key, ?int $known) => $number($key) > 0 ? (int) $number($key) : (int) ($known ?? 0);
 
         return [
             'vmid' => $row->vmid,
@@ -164,14 +168,25 @@ final class GuestLifecycle
             'status' => $resource['status'] ?? null,
             'uptime' => (int) $number('uptime'),
             'cpu' => (float) $number('cpu'),
-            'cpus' => (int) $number('cpus', $row->cpus ?? 0),
+            'cpus' => $size('cpus', $row->cpus),
             'memory' => (int) $number('mem'),
-            'max_memory' => (int) $number('maxmem', $row->max_memory ?? 0),
-            'max_disk' => (int) $number('maxdisk', $row->max_disk ?? 0),
+            'max_memory' => $size('maxmem', $row->max_memory),
+            'max_disk' => $size('maxdisk', $row->max_disk),
             'ips' => (array) $row->ips,
             'macs' => (array) $row->macs,
-            'graph' => $resource === null ? [] : $this->client->guestRrd($resource, $timeframe),
         ];
+    }
+
+    /**
+     * The VM's graph for an hour, a day or a week (rrddata), through the same checks.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function graph(Service $service, string $timeframe = 'hour'): array
+    {
+        [, $resource] = $this->guest($service);
+
+        return $resource === null ? [] : $this->client->guestRrd($resource, $timeframe);
     }
 
     /**
@@ -241,8 +256,10 @@ final class GuestLifecycle
      */
     private function current(array $resource): string
     {
+        $this->current = [];
         try {
-            $status = (string) (((array) $this->client->get(ProxmoxClient::guestPath($resource) . '/status/current'))['status'] ?? '');
+            $this->current = (array) $this->client->get(ProxmoxClient::guestPath($resource) . '/status/current');
+            $status = (string) ($this->current['status'] ?? '');
         } catch (ProxmoxException $e) {
             if ($e->getCode() === 403) {
                 throw $e;

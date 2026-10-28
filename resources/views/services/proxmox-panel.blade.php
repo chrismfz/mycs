@@ -1,5 +1,6 @@
-{{-- A VPS's own panel (owner 2026-10-28, Proxmox's client area): its state, resources, addresses, graphs and power. --}}
-<div>
+{{-- A VPS's own panel (owner 2026-10-28, Proxmox's client area): its state, resources, addresses, graphs and power.
+     Read again every 5 seconds for a little while after an action (the cluster does it meanwhile: review of #502). --}}
+<div @if ($pending) wire:poll.5s @endif>
 @if ($vm)
 @php($bytes = function ($value) {
     $value = (float) $value;
@@ -11,6 +12,8 @@
     }
 })
 @php($running = $vm['status'] === 'running')
+{{-- Only running and stopped are told as such and powered; any other (the node unsure, a migration) is neither. --}}
+@php($known = in_array($vm['status'], ['running', 'stopped'], true))
 @php($series = fn (string $key, float $scale = 1) => array_map(fn ($p) => is_numeric($p[$key] ?? null) ? $p[$key] * $scale : null, $vm['graph']))
 @php($memory = array_map(fn ($p) => is_numeric($p['mem'] ?? null) && is_numeric($p['maxmem'] ?? null) && $p['maxmem'] > 0 ? 100 * $p['mem'] / $p['maxmem'] : null, $vm['graph']))
 @php($graphs = [
@@ -24,10 +27,13 @@
         <h4 class="text-lg font-semibold">
             {{ __('services.proxmox.title') }}
             <span class="text-xs font-medium rounded px-2 py-0.5 ms-2 {{ $running ? 'bg-success/20 text-success' : 'bg-neutral text-base/70' }}">
-                {{ $vm['status'] === null ? __('services.proxmox.status.gone') : __('services.proxmox.status.' . ($running ? 'running' : 'stopped')) }}
+                {{ __('services.proxmox.status.' . ($vm['status'] === null ? 'gone' : ($known ? $vm['status'] : 'unknown'))) }}
             </span>
         </h4>
-        @if ($canPower && $vm['status'] !== null)
+        @if ($pending)
+        <p class="text-sm text-base/70 w-full sm:w-auto sm:order-last">{{ __('services.proxmox.pending') }}</p>
+        @endif
+        @if ($canPower && $known)
         <div class="flex flex-wrap gap-2">
             @foreach (($running ? ['shutdown', 'reboot', 'stop'] : ['start']) as $action)
             <button type="button" wire:click="power('{{ $action }}')" wire:loading.attr="disabled"

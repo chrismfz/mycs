@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\ProxmoxPanel;
 use App\Livewire\Services\Show as ServiceShow;
+use App\Models\ClientUser;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Support\Sparkline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -32,6 +34,12 @@ class ProxmoxClientAreaTest extends TestCase
     /** @var list<string> */
     private array $writes = [];
 
+    private bool $currentDown = false;
+
+    private bool $writeDown = false;
+
+    private int $maxdisk = 64424509440;
+
     /** @var list<string> the graphs' timeframes asked */
     private array $frames = [];
 
@@ -41,6 +49,9 @@ class ProxmoxClientAreaTest extends TestCase
         Http::fake(function (Request $request) {
             $path = substr((string) parse_url($request->url(), PHP_URL_PATH), strlen('/api2/json/'));
             if ($request->method() !== 'GET') {
+                if ($this->writeDown) {
+                    return Http::response(['data' => null], 500);
+                }
                 $this->writes[] = $request->method() . ' ' . $path;
 
                 return Http::response(['data' => 'UPID:vega:0000ABCD:0001:6700:qmstart:101:mycs@pve!api:']);
@@ -50,8 +61,9 @@ class ProxmoxClientAreaTest extends TestCase
             return match (true) {
                 $path === 'cluster/resources' => Http::response(['data' => [$this->vm]]),
                 $path === 'nodes/vega/qemu/101/config' => Http::response(['data' => ['net0' => 'virtio=BC:24:11:00:00:01,bridge=vmbr0']]),
-                $path === 'nodes/vega/qemu/101/status/current' => Http::response(['data' => ['status' => $this->vm['status'], 'cpu' => 0.25, 'cpus' => 2,
-                    'mem' => 1073741824, 'maxmem' => 4294967296, 'maxdisk' => 64424509440, 'uptime' => 93784]]),
+                $path === 'nodes/vega/qemu/101/status/current' => $this->currentDown ? Http::response(['data' => null], 500)
+                    : Http::response(['data' => ['status' => $this->vm['status'], 'cpu' => 0.25, 'cpus' => 2,
+                        'mem' => 1073741824, 'maxmem' => 4294967296, 'maxdisk' => $this->maxdisk, 'uptime' => 93784]]),
                 $path === 'nodes/vega/qemu/101/rrddata' => tap(Http::response(['data' => [
                     ['time' => 1, 'cpu' => 0.1, 'mem' => 1, 'maxmem' => 4, 'netin' => 100, 'netout' => 50, 'diskread' => 10, 'diskwrite' => 5],
                     ['time' => 2, 'cpu' => 0.4, 'mem' => 2, 'maxmem' => 4, 'netin' => 300, 'netout' => 80, 'diskread' => 20, 'diskwrite' => 15],
@@ -90,7 +102,7 @@ class ProxmoxClientAreaTest extends TestCase
             ->assertSee('192.0.2.10')->assertSee('BC:24:11:00:00:01')
             ->assertSee(__('services.proxmox.power.reboot'))->assertDontSee(__('services.proxmox.power.start'))
             ->assertSee(__('services.proxmox.peak') . ' 40%')
-            ->call('$set', 'timeframe', 'week')->assertSee(__('services.proxmox.timeframe.week'));
+            ->call('$set', 'timeframe', 'week')->assertSet('timeframe', 'week');
         $this->assertSame(['hour', 'week'], $this->frames);
 
         // On its service page too.
@@ -145,5 +157,56 @@ class ProxmoxClientAreaTest extends TestCase
         $this->assertSame('0,60 300,0', Sparkline::points([0, null, 4], 300, 60));
         $this->assertSame('', Sparkline::points([5], 300, 60));
         $this->assertSame('', Sparkline::points([0, 0], 300, 60));
+    }
+
+    /**
+     * Review of #502: a state other than running or stopped is told as unknown and not powered; a node that cannot tell
+     * the VM's own state is shown from the list; a size of 0 is the last read's; a view-only login sees no buttons.
+     */
+    public function test_an_unknown_state_is_not_powered_and_sizes_fall_back_to_the_last_read(): void
+    {
+        $service = $this->vps('active', ['max_disk' => 21474836480]);
+        $this->vm['status'] = 'unknown';
+        $this->currentDown = true;
+        Livewire::actingAs($this->owner($service))->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+            ->assertSee(__('services.proxmox.status.unknown'))
+            ->assertDontSee(__('services.proxmox.power.start'))->assertDontSee(__('services.proxmox.power.reboot'))
+            ->assertSee('20.0 GB'); // its status unread: the size the last read found
+
+        Cache::flush();
+        $this->vm['status'] = 'running';
+        $this->currentDown = false;
+        $this->maxdisk = 0; // a node answering 0
+        Livewire::actingAs($this->owner($service))->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+            ->assertSee('20.0 GB');
+
+        $member = User::factory()->withoutClient()->create();
+        ClientUser::query()->create(['client_id' => $service->client_id, 'user_id' => $member->id, 'permissions' => ['products'], 'granted_at' => now()]);
+        Livewire::actingAs($member)->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+            ->assertSee('192.0.2.10')->assertDontSee(__('services.proxmox.power.reboot'))
+            ->call('power', 'reboot')->assertForbidden();
+        $this->assertSame([], $this->writes);
+    }
+
+    /** Review of #502: after an action the panel polls for a little while; a failure does not hold the next try half a minute. */
+    public function test_after_an_action_it_polls_and_a_failure_is_tried_again_sooner(): void
+    {
+        $service = $this->vps();
+        $page = Livewire::actingAs($this->owner($service))->withoutLazyLoading()->test(ProxmoxPanel::class, ['service' => $service])
+            ->assertDontSeeHtml('wire:poll');
+        $page->call('power', 'reboot')->assertSeeHtml('wire:poll.5s')->assertSee(__('services.proxmox.pending'));
+
+        $this->travel(21)->seconds();
+        $page->call('$refresh')->assertDontSeeHtml('wire:poll');
+
+        // A failure (the cluster refusing) waits 10 seconds, not 30.
+        $this->travel(31)->seconds();
+        $this->writeDown = true;
+        $page->call('power', 'reboot')->assertDispatched('notify');
+        $this->writeDown = false;
+        $this->travel(11)->seconds();
+        $this->writes = [];
+        $page->call('power', 'reboot');
+        $this->assertSame(['POST nodes/vega/qemu/101/status/reboot'], $this->writes);
     }
 }
