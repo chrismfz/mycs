@@ -222,4 +222,19 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame($this->server->id, $alpha->fresh()->cpanelAccount?->server_id, 'the live one, past a newer gone one');
         $this->assertNotContains('someone', AccountSync::servicesWithoutAccount()->pluck('username')->all(), 'its server never read: not flagged');
     }
+
+    /** Round 2 of #495: a server reached with a reseller's login maps its accounts; one mapped by hand has its account. */
+    public function test_a_reseller_logins_accounts_are_mapped_and_a_hand_mapping_counts(): void
+    {
+        $this->server->settings()->where('key', 'username')->update(['value' => 'Resel1']);
+        $sub = $this->service('sub1');
+        $other = $this->service('renamed');
+
+        AccountSync::sync($this->server);
+        $this->assertSame($sub->id, CpanelAccount::query()->where('user', 'sub1')->value('service_id'), 'owned by the server\'s login: ours');
+
+        $this->assertContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
+        CpanelAccount::query()->where('user', 'alpha')->update(['service_id' => $other->id]);
+        $this->assertNotContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
+    }
 }

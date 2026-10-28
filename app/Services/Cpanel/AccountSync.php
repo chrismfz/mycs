@@ -102,15 +102,20 @@ final class AccountSync
         if ($servers === []) {
             return new Collection;
         }
-        $live = CpanelAccount::query()->whereIn('server_id', $servers)->whereNull('gone_at')->get(['server_id', 'user'])
-            ->mapWithKeys(fn (CpanelAccount $account) => [$account->server_id . '|' . $account->user => true]);
+        $accounts = CpanelAccount::query()->whereIn('server_id', $servers)->whereNull('gone_at')->get(['server_id', 'user', 'service_id']);
+        $live = $accounts->mapWithKeys(fn (CpanelAccount $account) => [$account->server_id . '|' . $account->user => true]);
+        // One staff mapped by hand, under another name, has its account (round 2 of #495).
+        $mapped = $accounts->pluck('service_id')->filter()->flip();
 
         return Service::query()->with(['product', 'client', 'properties'])
             ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where(fn ($q) => $q->whereIn('server_id', $servers)
                 ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->whereIn('server_id', $servers))))
             ->get()
-            ->filter(function (Service $service) use ($live) {
+            ->filter(function (Service $service) use ($live, $mapped) {
+                if (isset($mapped[$service->id])) {
+                    return false;
+                }
                 $user = strtolower((string) ($service->properties->firstWhere('key', 'cpanel_username')->value ?? $service->username));
 
                 return $user === '' || !isset($live[($service->server_id ?? $service->product?->server_id) . '|' . $user]);

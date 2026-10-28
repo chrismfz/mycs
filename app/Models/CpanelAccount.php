@@ -64,7 +64,10 @@ class CpanelAccount extends Model
     {
         // A reseller's own customer's account is never one of our services by its name alone (a username reused under a
         // reseller would show another customer's account: review of #495); staff map one by hand.
-        if ($this->owner !== null && !in_array($this->owner, ['root', $this->user], true)) {
+        // Ours: root's, its own, or the server's login's (a server reached with a reseller's login lists that reseller's
+        // accounts, which MyCS made: round 2 of #495).
+        $login = strtolower(trim((string) $this->server?->settings->firstWhere('key', 'username')?->value));
+        if ($this->owner !== null && !in_array($this->owner, array_filter(['root', $this->user, $login]), true)) {
             return null;
         }
         $ids = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
