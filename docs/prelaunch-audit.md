@@ -1,0 +1,129 @@
+# Pre-launch audit (από 2026-10-29)
+
+> Ένας ακόμα ανεξάρτητος έλεγχος πριν από την παραγωγή και τον importer, μετά το squash (#510). Ψάχνουμε μόνο
+> **μεγάλα ψάρια**: λάθη που κοστίζουν χρήματα, χαλάνε δεδομένα, κάνουν κάτι μη αναστρέψιμο ή ανοίγουν τρύπα ασφαλείας.
+> Ο έλεγχος γίνεται **ανά ροή, στον τωρινό κώδικα**, όχι ανά PR: τα παλιά diffs έχουν ξαναγραφτεί, και τα bugs κρύβονται
+> συχνά εκεί που ενώνονται δύο PRs που ήταν σωστά το καθένα μόνο του.
+
+## Τι μετράει
+
+| Σοβαρότητα | Παραδείγματα |
+|---|---|
+| **Critical / High** | Λάθος ποσό· διπλή χρέωση ή πίστωση· πληρωμή που χάνεται· suspend/terminate σε λάθος πελάτη ή υπηρεσία, ή σε υπηρεσία που πληρώθηκε· μη αναστρέψιμη ενέργεια σε server ή registrar που δεν έπρεπε να γίνει· παράκαμψη auth ή δικαιωμάτων (staff ή πελάτης σε ξένα δεδομένα)· διαρροή δεδομένων ή secrets· σπασμένο contract (`zlic.php`, bridge Ekdosi, αρίθμηση)· απώλεια ή αλλοίωση δεδομένων στο import |
+| **Medium** | Ροή που τρέχει μόνη της (cron, queue, webhook) και αποτυγχάνει **σιωπηλά**, χωρίς log ή ειδοποίηση στο staff· κάτι που μπλοκάρει και ξεμπλοκάρει μόνο με χειρουργική στη βάση |
+| **Εκτός** | Εμφάνιση και καταστάσεις στο UI (π.χ. αν ένα μερικώς πληρωμένο φαίνεται σωστά), ονόματα, στυλ, μικρά κείμενα, θεωρητικά edge cases χωρίς ρεαλιστικό σενάριο |
+
+- Κάθε εύρημα έχει **συγκεκριμένο σενάριο αποτυχίας** (τι κάνει ποιος, με ποια δεδομένα, τι βγαίνει λάθος)· αλλιώς δεν
+  μετράει.
+- Στις ροές χρημάτων και lifecycle ο reviewer γράφει **failing test** για κάθε Critical/High (`../CLAUDE.md`, «Reviews»).
+- **Μια ροή είναι έτοιμη** όταν ένας ανεξάρτητος γύρος δεν βρίσκει κανένα Critical ή High. Τα Medium που μένουν
+  γράφονται εδώ και αποφασίζει ο υπεύθυνος.
+
+## Τι έχει γίνει ήδη (δεν ξαναγίνεται)
+- **Squash:** ο έλεγχος ισοδυναμίας (βάση από τα παλιά migrations + seed απέναντι σε βάση από το dump + seed, MariaDB και
+  SQLite, και η παραγωγή απέναντι στο dump) βγήκε ίδιος: `HANDOFF.md` → «Σχήμα της βάσης».
+- **Audit sweep του κληρονομημένου κώδικα** (2026-10-13, `audit-sweep.md`): κάλυψε όλα τα PRs ως το ~#39. Γι' αυτό τα
+  PRs #1–#30 χωρίς ίχνος review (το fork, Φάση 0) δεν είναι κενό από μόνα τους.
+- **Sweep χρέωσης** (`sweeps/billing.md`), **modules** (`sweeps/modules.md`), **domains** (`domains.md`, «Sweep
+  2026-10-22»).
+
+## Η εικόνα των PRs (main στο #512)
+
+506 PRs με merge. Μέτρηση από τα commits του κάθε PR (ένα commit που λέει review/adversarial/`ADV-`) και από τα σχόλια
+στο GitHub: είναι ένδειξη, όχι απόδειξη. Ένα PR μετράει σε όσες ροές αγγίζει.
+
+| Ροή | PRs | με review | με adversarial | χωρίς ίχνος review |
+|---|---:|---:|---:|---:|
+| Cron χρέωσης, κύκλος ζωής υπηρεσίας | 126 | 111 | 73 | 6 |
+| Τιμολόγια, πιστώσεις, αρίθμηση | 90 | 78 | 57 | 7 |
+| Πληρωμές, gateways, τράπεζες | 65 | 54 | 44 | 7 |
+| Auth, δικαιώματα, ασφάλεια | 101 | 83 | 54 | 11 |
+| Provisioning (cPanel, mailcow, Proxmox, Centova, SSL) | 64 | 54 | 36 | 6 |
+| Domains, registrars | 73 | 69 | 56 | 2 |
+| Ekdosi bridge, API, MCP | 46 | 37 | 26 | 2 |
+| Importer | 49 | 44 | 33 | 2 |
+| Παραγγελίες, καλάθι, ΦΠΑ, promotions | 38 | 31 | 21 | 4 |
+| Licensing, `zlic.php` | 10 | 8 | 3 | 1 |
+| Mail, tickets, ειδοποιήσεις | 56 | 47 | 30 | 6 |
+| Deploy, ops, σχήμα | 157 | 142 | 92 | 8 |
+| **Σύνολο** | **506** | **366** | **217** | **100** |
+
+**Μετά το audit sweep, σε επικίνδυνη ροή, χωρίς ίχνος review:** #39 (races στις αγορές πίστωσης και στη διαγραφή
+τιμολογίου), #104 (μετονομασία namespace, 89 αρχεία), #152 (κείμενο του email αναστολής), #344 (2FA υποχρεωτικό για
+κάθε staff). Τα #39 και #344 θέλουν ματιά μέσα στις ροές τους.
+
+**Μεγάλα PRs σε ροές χρημάτων/lifecycle με review αλλά χωρίς adversarial:** #32 (ανανέωση δεμένη με τιμολόγιο και
+περίοδο, ο δρομέας), #99 (υπενθυμίσεις, overdue), #67 (ακυρώσεις ανά γραμμή), #68 (BIL-9), #71 (upgrades και η ζωή της
+υπηρεσίας), #63 (αναστολή με ληξιπρόθεσμο), #75 (ένα cron τη φορά), #82 (διαγραφή υπηρεσίας), #78 (status «unpaid»),
+#221 (email αναστολών), #66 (Automation Settings). Τα περισσότερα είναι παλιά και έχουν ξαναγραφτεί από επόμενα: γι'
+αυτό ελέγχεται η ροή, όχι το diff τους.
+
+### Hotspots: αρχεία με τα περισσότερα «fix» commits
+Πού μαζεύτηκαν τα bugs ως τώρα (fix commits / όλα τα commits). Από εδώ ξεκινά ο reviewer κάθε ροής.
+
+| Αρχείο | fix / όλα | Ροή |
+|---|---|---|
+| `app/Console/Commands/CronJob.php` | 52 / 109 | Cron |
+| `app/Models/Service.php` | 29 / 73 | Cron, κύκλος ζωής |
+| `app/Classes/Settings.php` | 29 / 81 | Ops (ρυθμίσεις που διαβάζει το cron) |
+| `app/Admin/Resources/ServiceResource.php` (+ `EditService.php` 21) | 28 / 58 | Κύκλος ζωής, staff |
+| `app/Services/Domains/Registrars/OpenproviderRegistrar.php` | 25 / 37 | Domains |
+| `app/Services/Domains/Registrars/GrEppRegistrar.php` | 22 / 40 | Domains |
+| `app/Helpers/NotificationHelper.php` | 22 / 43 | Mail |
+| `app/Observers/InvoiceObserver.php` | 21 / 42 | Τιμολόγια |
+| `extensions/Servers/CPanel/CPanel.php` | 20 / 38 | Provisioning |
+| `app/Admin/Resources/InvoiceResource.php` (+ `EditInvoice.php` 14) | 20 / 43 | Τιμολόγια, staff |
+| `app/Console/Commands/ImportFromWhmcs.php` | 20 / 53 | Importer |
+| `app/Helpers/ExtensionHelper.php` | 20 / 58 | Provisioning, gateways |
+| `app/Services/Domains/DomainSyncService.php`, `DomainRenewalService.php` | 20 / 31, 20 / 27 | Domains |
+| `app/Services/Billing/RenewalBilling.php` | 15 / 21 | Cron |
+| `app/Observers/ServiceObserver.php` | 13 / 27 | Κύκλος ζωής |
+| `app/Models/ModuleAction.php`, `ModuleActionResource.php` | 12 / 17, 12 / 18 | Provisioning |
+| `extensions/Gateways/PayPal/PayPal.php`, `Stripe/Stripe.php` | 11 / 34, 7 / 31 | Πληρωμές |
+| `app/Services/Mcp/McpOauth.php`, `McpOauthController.php` | 10 / 12, 8 / 10 | Auth (MCP) |
+| `app/Services/Ekdosi/EkdosiFeed.php` | 9 / 12 | Bridge |
+
+## Σειρά ελέγχου
+Μία ροή ανά session, με τη σειρά, όσο φτάνουν τα limits. Ο reviewer δεν έχει το context του συγγραφέα: παίρνει το brief
+παρακάτω, αυτό το doc, τα docs της ροής και τον κώδικα στο `main`.
+
+| # | Ροή | Τι ψάχνουμε (μεγάλα ψάρια) | Από πού | Docs |
+|---|---|---|---|---|
+| 1 | **Cron χρέωσης και κύκλος ζωής** | Διπλό τιμολόγιο ανανέωσης· περίοδος που χάνεται ή χρεώνεται δύο φορές· suspend/terminate πελάτη που πλήρωσε ή σε hold· terminate χωρίς να σταματήσει η συνδρομή στο gateway· δύο cron μαζί· ένα σφάλμα σε μία υπηρεσία που σταματά όλο το run· upgrade/downgrade και ακυρώσεις σε σύγκρουση με πληρωμή | `CronJob.php`, `RenewalBilling.php`, `Service.php`, `ServiceObserver.php`, `CancelOpenInvoices.php`, `ServiceUpgradeService.php`, `RenewServiceService.php`, `CancellationCreatedListener.php` | `billing-cursor.md`, `sweeps/billing.md`, `money-trail.md` |
+| 2 | **Πληρωμές, πιστώσεις, τιμολόγια** | Webhook/IPN χωρίς σωστό έλεγχο υπογραφής ή με replay· διπλή χρέωση κάρτας ή vault· refund που καταγράφεται ενώ απέτυχε· πληρωμή σε λάθος τιμολόγιο ή πελάτη· πίστωση που γεννιέται ή χάνεται· matching τράπεζας που εφαρμόζει μόνο του σε λάθος τιμολόγιο· `add_payment` του Ekdosi· αλλαγές γραμμών από το staff σε πληρωμένο· σειρά locks | `RecordPaymentService`, `CreditLedger`, `MoneyTrail`, `extensions/Gateways/*`, `InvoiceObserver.php`, `InvoiceResource` + `EditInvoice`, `app/Services/Invoice`, payments tracking | `payments.md`, `payments-tracking.md`, `money-trail.md`, `eu-vat.md` |
+| 3 | **Auth, δικαιώματα, εξωτερική επιφάνεια** | Πελάτης σε ξένα δεδομένα (IDOR) στο portal και στο API· staff που κάνει ό,τι δεν του επιτρέπεται, ή δίνει σε άλλους ό,τι δεν έχει· MCP OAuth και proposals· SSO προς cPanel/mailcow/WHM· κονσόλα noVNC (relay)· uploads· templates του staff (όχι Blade)· endpoints χωρίς throttle· secrets σε logs, cache, Livewire state | `app/Http/Middleware`, `config/permissions.php`, `Policies`, `app/Livewire/Auth`, `McpOauth`, `Proposals`, `TemplateRenderer`, `routes/*.php`, `Redact.php`, `StaffSessions.php` | `history/audit-security.md`, `mcp.md`, `decisions.md` |
+| 4 | **Provisioning και μη αναστρέψιμες ενέργειες** | Terminate/delete σε λάθος λογαριασμό, VM ή mail domain· ενέργεια που «πετυχαίνει» ενώ ο server απέτυχε· retry του ModuleAction που ξανατρέχει μια καταστροφική ενέργεια· create δύο φορές· suspend που δεν γίνεται και κανείς δεν το ξέρει | `ExtensionHelper.php`, `ModuleAction`, `Jobs/Server`, `extensions/Servers/*`, `packages/proxmox`, `packages/mailcow`, `GuestLifecycle.php` | `provisioning.md`, `proxmox.md`, `sweeps/modules.md` |
+| 5 | **Παραγγελίες, καλάθι, ΦΠΑ, promotions** | Λάθος τιμή ή ΦΠΑ στο τιμολόγιο της παραγγελίας· κουπόνι/promotion/ομάδα πελάτη που δίνει περισσότερα ή άπειρα· VIES που ανοίγει reverse charge χωρίς έλεγχο· παραγγελία που ξεκινά provisioning χωρίς έγκριση/πληρωμή | `app/Classes/Cart.php`, `app/Livewire/Cart.php`, `PlaceOrderService.php`, `packages/pricing`, `packages/vies` | `orders.md`, `eu-vat.md` |
+| 6 | **Domains και registrars** | Ανανέωση/μεταφορά που χρεώνει το υπόλοιπο στον registrar χωρίς πληρωμή· διπλή ανανέωση· auto-renew που δεν έπρεπε· λάθος κάτοχος/επαφές προς το μητρώο. Ήδη έγινε sweep (2026-10-22): εδώ ένας γύρος στα αλλαγμένα από τότε | `DomainRenewalService.php`, `DomainSyncService.php`, `OpenproviderRegistrar.php`, `GrEppRegistrar.php`, CNIC | `domains.md`, `domains/grepp.md` |
+| 7 | **Contracts: `zlic.php` και bridge Ekdosi** | `md5hash`/`localkey` byte-for-byte απέναντι στα fixtures· rate limit που κόβει νόμιμους· HMAC (timing-safe σύγκριση, replay, ίδια ops και error codes)· feed που στέλνει ό,τι δεν πρέπει | `public/zlic.php`, `packages/nixpal-licensing`, `app/Services/Licensing`, `app/Services/Ekdosi`, `/api/ekdosi` | `licensing.md`, `ekdosi-bridge.md` |
+| 8 | **Ops και ρυθμίσεις** | `Settings.php` και `SettingsProvider`: defaults που ενεργοποιούν κάτι επικίνδυνο, cache με secrets, worker που τρέχει με λάθος ρυθμίσεις· `deploy/update.sh` (αποτυχία που μοιάζει με επιτυχία, βλ. MariaDB OOM)· `/health` που λέει «εντάξει» ενώ το cron ή η ουρά έχουν σταματήσει | `app/Classes/Settings.php`, `SettingsProvider.php`, `deploy/`, `app/Services/Ops` | `ops.md`, `install.md` |
+| 9 | **Importer** | Όταν τελειώσει (`ROADMAP.md` γραμμή 9): απώλεια ή διπλά στο re-run, ποσά και υπόλοιπα που δεν βγαίνουν ίδια με το WHMCS, αρίθμηση, κωδικοί/secrets. Εκτός από review, **dry-run σε αντίγραφο και `mycs:parity`** | `ImportFromWhmcs.php`, `app/Services/Import` | `importer.md` |
+
+Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση και εμφάνιση. Μπαίνουν μόνο ό,τι στέλνουν σε πελάτη (μέσα στις ροές
+1–2) και η αποθήκευση των εισερχόμενων emails (ροή 3).
+
+## Brief για κάθε reviewer
+> Είσαι ανεξάρτητος reviewer του MyCS (Laravel 13, Filament 5) πριν την παραγωγή. Ροή: **‹όνομα›**. Διάβασε
+> `CLAUDE.md`, `docs/prelaunch-audit.md` (κριτήρια, «Τι μετράει») και τα docs της ροής, και μετά τον κώδικα στο `main`,
+> ξεκινώντας από τα αρχεία της γραμμής της. Δούλεψε σε δικό σου clone (ποτέ στο `/var/www/mycs`· `bin/test`).
+> Ψάχνεις **μόνο Critical/High/Medium** όπως ορίζονται εκεί· όχι UI, στυλ, ονόματα, θεωρητικά edge cases. Για κάθε
+> εύρημα: σοβαρότητα, αρχείο:γραμμή, **συγκεκριμένο σενάριο αποτυχίας**, και failing test όπου είναι χρήματα ή
+> lifecycle (σε branch `adv/audit-‹ροή›`). Μην διορθώνεις. Αν δεν βρεις Critical/High, πες το καθαρά: είναι αποδεκτό
+> αποτέλεσμα. Επέστρεψε πίνακα ευρημάτων.
+
+Μετά: οι διορθώσεις σε ένα PR ανά ροή (με τα tests του reviewer, `../CLAUDE.md` → «Reviews»), και ένας ακόμα γύρος μόνο
+αν ο πρώτος βρήκε Critical/High.
+
+## Πρόοδος
+
+| # | Ροή | Γύρος | Critical/High | Medium | PR διορθώσεων | Κατάσταση |
+|---|---|---|---|---|---|---|
+| 1 | Cron χρέωσης, κύκλος ζωής | | | | | ανοιχτό |
+| 2 | Πληρωμές, πιστώσεις, τιμολόγια | | | | | ανοιχτό |
+| 3 | Auth, δικαιώματα, επιφάνεια | | | | | ανοιχτό |
+| 4 | Provisioning | | | | | ανοιχτό |
+| 5 | Παραγγελίες, ΦΠΑ, promotions | | | | | ανοιχτό |
+| 6 | Domains | | | | | ανοιχτό |
+| 7 | `zlic.php`, bridge | | | | | ανοιχτό |
+| 8 | Ops, ρυθμίσεις | | | | | ανοιχτό |
+| 9 | Importer | | | | | όταν τελειώσει ο importer |
