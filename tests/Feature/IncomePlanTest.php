@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Pages\RevenueForecast;
 use App\Admin\Widgets\EstimatedIncome;
 use App\Enums\DomainStatus;
 use App\Models\Credit;
@@ -248,5 +249,80 @@ class IncomePlanTest extends TestCase
             ->assertSee(__('Next months, if everyone pays'))
             ->assertSeeInOrder([__('Monthly') . ' (1)', '$10.00', __('Est. Annual'), '$120.00'])
             ->assertSeeInOrder([__('Today'), '$0.00', __('All Time'), '$180.00']);
+    }
+
+    public function test_the_year_month_by_month_past_months_expect_nothing_more(): void
+    {
+        $this->invoice(70, Invoice::STATUS_PAID, '2026-03-01', '2026-03-10 09:00:00');
+        $this->invoice(50, Invoice::STATUS_PAID, '2025-03-01', '2025-03-10 09:00:00');
+        $this->invoice(30, Invoice::STATUS_UNPAID, '2026-09-15');                     // September left it unpaid: overdue
+        $this->invoice(20, Invoice::STATUS_PAID, '2026-10-01', '2026-10-02 09:00:00');
+        $this->invoice(40, Invoice::STATUS_UNPAID, '2026-10-30');
+        $this->service(10, 'month', 1, '2026-11-05');
+
+        $plan = IncomePlan::year('USD', 2026);
+        $months = collect($plan['months'])->keyBy(fn ($row) => $row['month']->format('Y-m'));
+
+        $this->assertCount(12, $plan['months']);
+        $this->assertSame(['70.00', '0.00', '70.00', '50.00', '20.00'], [$months['2026-03']['received'], $months['2026-03']['expected'],
+            $months['2026-03']['total'], $months['2026-03']['last_year'], $months['2026-03']['difference']]);
+        $this->assertSame(['0.00', '0.00'], [$months['2026-09']['expected'], $months['2026-09']['total']], 'a month gone: its unpaid is overdue');
+        $this->assertSame(['20.00', '40.00', '60.00'], [$months['2026-10']['received'], $months['2026-10']['expected'], $months['2026-10']['total']]);
+        $this->assertSame(['10.00', '10.00'], [$months['2026-11']['expected'], $months['2026-12']['expected']]);
+        $this->assertSame(['130.00', '150.00', '50.00'], [$months['2026-10']['cumulative'], $months['2026-12']['cumulative'], $months['2026-12']['cumulative_last_year']]);
+        $this->assertSame(['90.00', '60.00', '150.00', '50.00', '100.00'], [$plan['totals']['received'], $plan['totals']['expected'],
+            $plan['totals']['total'], $plan['totals']['last_year'], $plan['totals']['difference']]);
+        $this->assertSame(['2027-01', '2027-02', '2027-03', '2027-04'], array_map(fn ($row) => $row['month']->format('Y-m'), $plan['after']));
+        $this->assertSame('10.00', $plan['after'][0]['total']);
+    }
+
+    public function test_a_past_year_is_what_came_in_and_a_coming_one_what_is_expected(): void
+    {
+        $this->invoice(50, Invoice::STATUS_PAID, '2025-03-01', '2025-03-10 09:00:00');
+        $this->invoice(25, Invoice::STATUS_PAID, '2024-03-01', '2024-03-10 09:00:00');
+        $this->invoice(99, Invoice::STATUS_UNPAID, '2025-06-01');                     // never paid: nothing in 2025
+        $this->service(120, 'year', 1, '2027-02-10');
+
+        $past = IncomePlan::year('USD', 2025);
+        $this->assertSame(['50.00', '0.00', '50.00', '25.00'], [$past['totals']['received'], $past['totals']['expected'], $past['totals']['total'], $past['totals']['last_year']]);
+        $this->assertSame([], $past['after']);
+
+        $next = IncomePlan::year('USD', 2027);
+        $this->assertSame(['0.00', '120.00', '120.00'], [$next['totals']['received'], $next['totals']['expected'], $next['totals']['total']]);
+        $this->assertSame('120.00', $next['months'][1]['renewals']);
+        $this->assertSame([], $next['after']);
+    }
+
+    public function test_the_page_shows_the_year_and_another_year_without_this_months_cards(): void
+    {
+        config(['settings.default_currency' => 'USD']);
+        $this->invoice(100, Invoice::STATUS_PAID, '2026-10-05', '2026-10-05 09:00:00');
+        $this->invoice(30, Invoice::STATUS_UNPAID, '2026-10-30');
+        $this->invoice(15, Invoice::STATUS_UNPAID, '2026-08-30');
+        $this->invoice(80, Invoice::STATUS_PAID, '2025-10-05', '2025-10-05 09:00:00');
+        $staff = Staff::factory()->withPermissions(['admin.reports.view'])->create();
+
+        $this->actingAs($staff)->get(RevenueForecast::getUrl())->assertOk()
+            ->assertSee(__('Income & forecast'))
+            ->assertSeeInOrder([__('This year to :date', ['date' => '21/10']), '$100.00', __('All :year, if everyone pays', ['year' => 2026]), '$130.00'])
+            ->assertSeeInOrder([__('Month by month'), 'October 2026', '$100.00', '$30.00', '$130.00', '$80.00', '+$50.00', '+63%'])
+            ->assertSee(trans_choice('Overdue from earlier months: :amount (:count invoice)|Overdue from earlier months: :amount (:count invoices)', 1, ['amount' => '$15.00']))
+            ->assertSee(__('After the end of the year'))
+            ->assertSee(__('Forecast by billing cycle, the next 12 months'));
+
+        $this->livewireAs($staff)->test(RevenueForecast::class)->set('year', 2025)
+            ->assertDontSee(__('This year to :date', ['date' => '21/10']))
+            ->assertDontSee(__('After the end of the year'))
+            ->assertSeeInOrder([__('The whole year'), '$80.00'])
+            ->callAction('year_csv')->assertFileDownloaded('income-USD-2025-2026-10-21.csv');
+    }
+
+    public function test_a_year_not_offered_falls_back_to_this_one(): void
+    {
+        $staff = Staff::factory()->withPermissions(['admin.reports.view'])->create();
+
+        $page = $this->livewireAs($staff)->test(RevenueForecast::class)->set('year', 1999);
+
+        $this->assertSame(2026, $page->instance()->chosenYear());
     }
 }

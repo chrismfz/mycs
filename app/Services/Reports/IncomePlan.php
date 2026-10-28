@@ -42,11 +42,6 @@ final class IncomePlan
         $month = $now->startOfMonth();
         $rows = self::months($currency, $month, 1 + $ahead);
         $previous = $month->subMonth();
-        // The year so far, today included, against the same days a year before: to the end of the same date (29
-        // February: of 28 February; 28 February after a leap year: not the 29th, ADV-500-3).
-        $until = $now->addDay()->startOfDay();
-        $lastYearUntil = $now->subYearNoOverflow()->addDay()->startOfDay();
-        $overdue = array_column(self::open($currency, null, $month), 'cents');
 
         return [
             'this_month' => $rows[0],
@@ -55,13 +50,83 @@ final class IncomePlan
                 'received' => RevenueForecast::collected($currency, $previous, $month),
                 'last_year' => RevenueForecast::collected($currency, $previous->subYear(), $month->subYear()),
             ],
-            'year' => [
-                'received' => RevenueForecast::collected($currency, $now->startOfYear(), $until),
-                'last_year' => RevenueForecast::collected($currency, $now->startOfYear()->subYear(), $lastYearUntil),
-                'until' => $now->startOfDay(),
-            ],
-            'overdue' => ['amount' => RevenueForecast::money(array_sum($overdue)), 'count' => count(array_filter($overdue))],
+            'year' => self::yearToDate($currency),
+            'overdue' => self::overdue($currency),
             'ahead' => array_slice($rows, 1),
+        ];
+    }
+
+    /**
+     * The year so far, today included, against the same days a year before: to the end of the same date (29 February:
+     * of 28 February; 28 February after a leap year: not the 29th, ADV-500-3).
+     *
+     * @return array{received: string, last_year: string, until: CarbonImmutable}
+     */
+    public static function yearToDate(string $currency): array
+    {
+        $now = CarbonImmutable::now();
+
+        return [
+            'received' => RevenueForecast::collected($currency, $now->startOfYear(), $now->addDay()->startOfDay()),
+            'last_year' => RevenueForecast::collected($currency, $now->startOfYear()->subYear(), $now->subYearNoOverflow()->addDay()->startOfDay()),
+            'until' => $now->startOfDay(),
+        ];
+    }
+
+    /**
+     * What is left on the open invoices due before this month, and how many: apart, in no month's total.
+     *
+     * @return array{amount: string, count: int}
+     */
+    public static function overdue(string $currency): array
+    {
+        $overdue = array_column(self::open($currency, null, CarbonImmutable::now()->startOfMonth()), 'cents');
+
+        return ['amount' => RevenueForecast::money(array_sum($overdue)), 'count' => count(array_filter($overdue))];
+    }
+
+    /**
+     * A year month by month (the Reports page): what came in, what is still expected from this month on (a month gone
+     * expects nothing more: what it left unpaid is overdue, apart), their total, the same month a year before, and both
+     * added up through the year; then its totals and, for this year, the $after months past its end.
+     *
+     * @return array{months: list<array{month: CarbonImmutable, received: string, invoices: string, renewals: string, expected: string, total: string, last_year: string, difference: string, cumulative: string, cumulative_last_year: string}>,
+     *               totals: array{received: string, expected: string, total: string, last_year: string, difference: string},
+     *               after: list<array{month: CarbonImmutable, received: string, invoices: string, renewals: string, expected: string, total: string, last_year: string}>}
+     */
+    public static function year(string $currency, int $year, int $after = 4): array
+    {
+        $current = CarbonImmutable::now()->startOfMonth();
+        $start = CarbonImmutable::create($year, 1, 1)->startOfDay();
+        $end = $start->addYear();
+        $index = fn (CarbonImmutable $month) => (int) $month->format('Y') * 12 + (int) $month->format('n');
+
+        $rows = [];
+        for ($month = $start; $month->lessThan($end) && $month->lessThan($current); $month = $month->addMonth()) {
+            $received = RevenueForecast::collected($currency, $month, $month->addMonth());
+            $rows[] = ['month' => $month, 'received' => $received, 'invoices' => '0.00', 'renewals' => '0.00', 'expected' => '0.00',
+                'total' => $received, 'last_year' => RevenueForecast::collected($currency, $month->subYear(), $month->subYear()->addMonth())];
+        }
+        $from = $start->greaterThan($current) ? $start : $current;
+        $left = max(0, $index($end) - $index($from));
+        $more = $left > 0 && $year === (int) $current->format('Y') ? $after : 0;
+        $tail = $left > 0 ? self::months($currency, $from, $left + $more) : [];
+        $rows = [...$rows, ...array_slice($tail, 0, $left)];
+
+        $sum = ['received' => 0, 'expected' => 0, 'total' => 0, 'last_year' => 0];
+        foreach ($rows as $i => $row) {
+            foreach (array_keys($sum) as $key) {
+                $sum[$key] += RevenueForecast::cents($row[$key]);
+            }
+            $rows[$i] += ['difference' => RevenueForecast::money(RevenueForecast::cents($row['total']) - RevenueForecast::cents($row['last_year'])),
+                'cumulative' => RevenueForecast::money($sum['total']), 'cumulative_last_year' => RevenueForecast::money($sum['last_year'])];
+        }
+
+        return [
+            'months' => $rows,
+            'totals' => array_map(fn (int $cents) => RevenueForecast::money($cents), $sum)
+                + ['difference' => RevenueForecast::money($sum['total'] - $sum['last_year'])],
+            'after' => array_slice($tail, $left),
         ];
     }
 
