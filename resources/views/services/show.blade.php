@@ -187,6 +187,10 @@
 
     @include('services.partials.usage')
     @include('services.partials.hosted-domains')
+    {{-- A mail service: the DNS its domain needs, checked, and its mailboxes (owner 2026-10-28). --}}
+    @if (in_array($service->status, ['active', 'suspended'], true) && \App\Models\MailcowDomain::forService($service))
+        <livewire:services.mail-setup :service="$service" :key="'mail-setup-' . $service->id" />
+    @endif
     @include('services.partials.panel-tools')
     @include('services.partials.ssl')
 

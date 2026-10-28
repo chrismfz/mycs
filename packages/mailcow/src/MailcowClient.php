@@ -148,6 +148,25 @@ final class MailcowClient
         return $this->post('/api/v1/delete/domain-admin', ['items' => (string) $username]);
     }
 
+    /**
+     * The domain's DKIM record at mailcow (dkim_selector, dkim_txt), or none yet (an empty answer); any other answer throws.
+     *
+     * @return array<string, mixed>
+     */
+    public function getDkim($domain)
+    {
+        $json = $this->get('/api/v1/get/dkim/' . rawurlencode((string) $domain));
+        if ($json === []) { // mailcow's «none» is an empty list or object; a body that is no JSON (a proxy's page) is no «none»
+            return [];
+        }
+        if (!is_array($json) || empty($json['dkim_txt'])) {
+            // Anything else is no «none»: a stored record is never wiped by it (review of #494).
+            throw new MailcowException('mailcow: unexpected DKIM answer for ' . $domain);
+        }
+
+        return $json;
+    }
+
     /** DKIM for the domain, created with the given selector/key size when it has none. */
     public function ensureDkim($domain, $selector = 'dkim', $keySize = 2048)
     {

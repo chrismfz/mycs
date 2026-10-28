@@ -24,7 +24,7 @@ class ListMailcowDomains extends ListRecords
                 ->action(function () {
                     foreach (DomainSync::servers() as $server) {
                         try {
-                            $result = DomainSync::sync($server);
+                            $result = DomainSync::sync($server, dns: false); // the DNS statuses with the cron (review of #494)
                             Notification::make()->success()->title($server->name)
                                 ->body("{$result['seen']} domain(s), {$result['new']} new, {$result['gone']} gone, {$result['mailboxes']} mailbox(es)")->send();
                         } catch (Throwable $e) {

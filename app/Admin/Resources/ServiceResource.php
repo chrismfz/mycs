@@ -20,6 +20,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Currency;
 use App\Models\License;
+use App\Models\MailcowDomain;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
@@ -384,6 +385,12 @@ class ServiceResource extends Resource
                             ->alpineClickHandler("\$wire.mountAction('editMachine')")
                             ->visible(fn (Service $record) => (bool) auth()->user()?->can('update', $record))]),
                     ]),
+                // Its mail domain (mailcow, owner 2026-10-28): the DNS it needs, checked, and its mailboxes; as a domain's status.
+                Section::make('Mail')
+                    ->columnSpanFull()
+                    ->collapsible()
+                    ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record !== null && MailcowDomain::forService($record, staff: true) !== null)
+                    ->schema([View::make('admin.mailcow.service-section')]),
                 // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
                 Section::make('License')
                     ->columns(3)
