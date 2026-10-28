@@ -39,6 +39,7 @@ use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
 use App\Admin\Resources\KbArticleResource;
 use App\Admin\Resources\KbCategoryResource;
 use App\Admin\Resources\LicenseResource;
+use App\Admin\Resources\MailcowDomainResource;
 use App\Admin\Resources\McpOauthGrantResource;
 use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
@@ -130,6 +131,7 @@ class TopMenu
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
             [ProxmoxNodes::class],
+            [MailcowDomainResource::class, 'index', 'Mail Domains'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
             [SystemCleanup::class],
         ],

@@ -85,7 +85,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return true;
     }
 
-    private function client(int $timeout = 30): MailcowClient
+    public function client(int $timeout = 30): MailcowClient
     {
         return new MailcowClient(new LaravelTransport($timeout), (string) $this->config('host'), trim((string) $this->config('apikey')),
             $this->config('sso_endpoint') ?: null);
