@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Jobs\Server\TerminateJob;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
@@ -160,16 +161,16 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
     }
 
     /**
-     * R4 (low): an invoice imported from WHMCS carries lines with reference_type null (Promo/Setup/LateFee: the importer
-     * maps only «Hosting»). onlyFor treats them as «something else», so every request leaves the service's own
-     * renewal open, logged only (the listener never mails staff). Pinned here: it stays open.
+     * R4 (low): an invoice imported from WHMCS carries the service's promotion or setup fee as its charge (#507:
+     * reference Service, kind charge). It goes with the service: the service's own invoice is cancelled with it.
      */
     public function test_an_imported_promo_line_does_not_keep_the_services_own_invoice_open(): void
     {
         Queue::fake([TerminateJob::class]);
         $service = $this->service('2026-10-25');
         $invoice = $this->openInvoiceFor($service);
-        $invoice->items()->create(['reference_type' => null, 'reference_id' => $service->id, 'description' => 'Promo', 'quantity' => 1, 'price' => -2]);
+        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'kind' => InvoiceItem::KIND_CHARGE,
+            'description' => 'Promo', 'quantity' => 1, 'price' => -2]);
 
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
 

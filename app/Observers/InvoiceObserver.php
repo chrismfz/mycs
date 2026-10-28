@@ -206,7 +206,9 @@ class InvoiceObserver
     private static function givePeriodsUp(Invoice $invoice, bool $onlyDue = false): void
     {
         $loose = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)
-            ->where(fn ($line) => $line->whereNull('period_start')->orWhereNull('period_end'))->orderBy('id')->get();
+            ->where(fn ($line) => $line->whereNull('period_start')->orWhereNull('period_end'))
+            // A charge of the service (an imported setup fee, promotion, addon or upgrade) bills no period.
+            ->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))->orderBy('id')->get();
         foreach ($loose as $line) {
             $service = Service::query()->find($line->reference_id);
             if ($service === null || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true) || $service->expires_at === null) {

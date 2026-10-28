@@ -6,6 +6,7 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Billing\RenewalPrice;
@@ -252,6 +253,7 @@ final class RevenueForecast
     private static function openRenewalNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
     {
         $sum = DB::table('invoice_items')->where('reference_type', Service::class)
+            ->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE)) // a charge is no renewal (#507)
             ->whereIn('invoice_id', Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('currency_code', $currency)
                 ->where('due_at', '>=', $from)->where('due_at', '<', $until)->select('id'))
             ->selectRaw('COALESCE(SUM(line_total - tax_amount), 0) AS net')->value('net');

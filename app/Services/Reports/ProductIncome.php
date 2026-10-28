@@ -23,8 +23,9 @@ use Illuminate\Support\Facades\DB;
  *
  * Each paid invoice's net (RevenueForecast::netByInvoice: its notes in their net share, never a credit purchase) is
  * shared out over its lines by their net, to the cent (the total is Income & forecast's): a service's line to its
- * product and the product's category; a domain's to «Domains», by its extension (an imported line with no type, by its
- * WHMCS id and its name in the description); anything else (setup, by hand, upgrades) to «Other».
+ * product and the product's category, its charges too (an imported setup fee, promotion, addon or upgrade: a discount
+ * makes its product smaller); a domain's to «Domains», by its extension (an imported line with no type, by its WHMCS id
+ * and its name in the description, until D6 imports domains); anything else (by hand, a late fee) to «Other».
  */
 final class ProductIncome
 {
@@ -187,9 +188,10 @@ final class ProductIncome
         if ($domain !== null && $line->reference_type === Domain::class) {
             return 'tld:' . self::tld((string) $domain->tld);
         }
-        // An imported WHMCS «Domain» line has no type, only the domain's id: its, when the domain is the invoice's
-        // client's and the line is a domain's naming it (owner 2026-10-28). A setup, addon or promo line carries
-        // another id, which may be a domain's too: «domain» in it, and the name whole (review of #504).
+        // An imported WHMCS «Domain» line has no type, only the domain's id (D6, not written yet, imports domains): its,
+        // when the domain is the invoice's client's and the line is a domain's naming it (owner 2026-10-28). Another
+        // untyped line (a late fee, a setup fee of a service deleted in WHMCS) carries another id, which may be a
+        // domain's too: «domain» in it, and the name whole (review of #504).
         if ($domain !== null && $line->reference_type === null && (int) $domain->client_id === (int) $client
             && self::namesDomain((string) $line->description, (string) $domain->fqdn)) {
             return 'tld:' . self::tld((string) $domain->tld);

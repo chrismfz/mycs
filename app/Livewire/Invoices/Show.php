@@ -12,6 +12,7 @@ use App\Models\ChargeAttempt;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
@@ -92,6 +93,7 @@ class Show extends Component
         return $this->invoice->items()
             ->where('reference_type', Service::class)
             ->whereNotNull('reference_id')
+            ->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))
             ->whereHasMorph('reference', [Service::class], function ($query) {
                 $query->whereHas('plan', function ($planQuery) {
                     $planQuery->whereNotIn('type', ['one-time', 'free']);

@@ -116,7 +116,9 @@ class ServiceUpgradeService
             $service->refreshOpenPeriods(retax: $productChanged);
             // Legacy manual lines without a period retain their whole-cycle allocation on payment. Under the payment
             // locks; an invoice with a payment on it keeps its line (R9).
+            // Not a charge of the service (an imported setup fee, promotion, addon or upgrade): it keeps its own amount.
             $service->invoiceItems()->where(fn ($query) => $query->whereNull('period_start')->orWhereNull('period_end'))
+                ->where(fn ($query) => $query->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))
                 ->whereHas('invoice', fn ($query) => $query->whereIn('status', Invoice::OPEN_STATUSES))
                 ->get()
                 ->each(fn ($item) => ChangeOpenLine::handle($item, function ($line) use ($service, $productChanged) {

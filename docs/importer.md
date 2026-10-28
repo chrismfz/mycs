@@ -189,9 +189,33 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   μέσω πύλης για πληρωμή της εποχής του WHMCS μπορεί να το αρνηθεί η πύλη (δεν φεύγουν χρήματα, βγαίνει σφάλμα): τότε
   γίνεται με το χέρι. Ένα promotion με διπλό κωδικό (κεφαλαία/μικρά) θα σταματούσε το import (unique).
 
+## Τύποι γραμμών τιμολογίου (2026-10-28)
+Ο importer κρατά τι είναι κάθε γραμμή (`tblinvoiceitems.type`, `relid`), ώστε τα έσοδα ανά προϊόν (#504) να πηγαίνουν
+στο προϊόν τους και όχι στο «Άλλα». Γράφει με `DB::table()->insert`, χωρίς observers.
+
+| WHMCS `type` | `reference_type` / `reference_id` | `kind` |
+|---|---|---|
+| Hosting | `Service`, relid (οι υπηρεσίες κρατούν τα WHMCS ids) | κενό: ανανέωση, η περίοδος δίνεται όταν πληρωθεί |
+| Setup, PromoHosting | `Service`, relid | `charge` |
+| Addon | `Service`, η υπηρεσία του addon (`tblhostingaddons.hostingid`) | `charge` |
+| Upgrade | `Service`, η υπηρεσία του upgrade (`tblupgrades.relid`, μόνο `package`/`configoptions`) | `charge` |
+| AddFunds | `Credit`, κενό | κενό |
+| οτιδήποτε άλλο (Domain*, PromoDomain, LateFee, GroupDiscount, Item, …) | κενό, το relid όπως ήταν | κενό |
+
+- **`kind = charge` σε υπηρεσία:** χρέωση που **δεν** είναι περίοδος. Η πληρωμή της δεν ανανεώνει την υπηρεσία
+  (`ProcessPaidInvoiceService`), η ακύρωση του τιμολογίου δεν της δίνει περίοδο ως «forgone» (`InvoiceObserver`), το
+  upgrade δεν της αλλάζει την τιμή (`ServiceUpgradeService`), δεν μετρά ως τιμολογημένη περίοδος (`IncomePlan`), δεν
+  γίνεται συνδρομή Stripe. Μετρά όμως ως γραμμή της υπηρεσίας (ακύρωση τιμολογίων της, affiliates, έσοδα ανά προϊόν).
+- **Addon/Upgrade → η υπηρεσία (απόφαση):** στη MyCS τα addons γίνονται επιλογές της υπηρεσίας (`service_configs`,
+  παρακάτω) και ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά τους είναι του προϊόντος της υπηρεσίας. Το
+  «System Maintenance», που θα γίνει ξεχωριστή υπηρεσία όταν εισαχθούν τα addons, μένει ως τότε στη γονική.
+- **Υπηρεσία που δεν υπάρχει** (σβήστηκε στο WHMCS, ή addon/upgrade χωρίς γραμμή): χωρίς τύπο, ποτέ με «μάντεμα».
+- **Domains:** δεν εισάγονται ακόμα (D6), άρα οι γραμμές τους μένουν χωρίς τύπο. Τα έσοδα ανά προϊόν τις βρίσκουν με το
+  relid και το όνομα στην περιγραφή (`ProductIncome::namesDomain`) όταν το domain υπάρχει με το WHMCS id του. Το D6 τις
+  συνδέει όπως λέει η επόμενη ενότητα, και τότε ο κανόνας αυτός φεύγει.
+
 ## Γραμμές domain (D6): απαίτηση για όταν γραφτεί
-- Σήμερα ο importer γράφει τις γραμμές `Domain` του WHMCS **χωρίς** `reference_type` (μόνο Hosting αντιστοιχίζεται) και
-  με `DB::table()->insert`, χωρίς observers.
+- Σήμερα ο importer γράφει τις γραμμές `Domain` του WHMCS **χωρίς** `reference_type` (βλ. πιο πάνω).
 - Όταν το D6 τις συνδέσει με domains: κάθε γραμμή ανανέωσης/εγγραφής/μεταφοράς μπαίνει με την **ιστορική** της περίοδο
   και, αν είναι πληρωμένη, με `applied_at` (το έτος έχει ήδη γίνει στον registrar)· ό,τι άλλο με `kind = charge`.
   **Ποτέ** χωρίς περίοδο και χωρίς `kind`, και ποτέ μέσω του `kind=renewal` (θα έπαιρνε την επόμενη μη τιμολογημένη
@@ -224,8 +248,7 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 - **Ετικέτες υπηρεσιών του πελάτη:** `mod_clientproductdescriptions` (type `tblhosting`, pid = service id), 310 εγγραφές,
   124 σε ενεργές → `services.label`. Το addon είναι ακόμα ενεργό, ο φάκελός του όμως δεν υπάρχει πια.
 - **Τύποι γραμμών τιμολογίου:**
-  - PromoHosting (3.871, relid = υπηρεσία): σήμερα μπαίνει με `reference_type` null, πρέπει να γίνει Service, ώστε οι
-    εκπτώσεις να μετρούν ανά προϊόν.
+  - PromoHosting (3.871, relid = υπηρεσία): μπαίνει ως `Service` με `kind = charge` (2026-10-28, «Τύποι γραμμών»).
   - GroupDiscount (498, relid 0): χωρίς υπηρεσία.
   - Γραμμές domain (18): ανήκουν στο D6.
   - **2 ορφανές γραμμές**, χωρίς τιμολόγιο: θα σπάσουν το FK, άρα παραλείπονται με αναφορά.
@@ -345,9 +368,8 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - αρχεία πελατών: 18·
   - to-dos: 619 ανοιχτά.
 - **Τύποι γραμμών τιμολογίου:**
-  - Χωρίς κανόνα `reference_type` προς το παρόν: Addon 378, Upgrade 324, Setup 7, DomainAddonIDP 7, DomainAddonDNS 1,
-    PromoDomain 1.
-  - PromoHosting 117 → Service, όπως στη nixpal.
+  - Addon 378, Upgrade 324, Setup 7 και PromoHosting 117 → `Service` με `kind = charge` (2026-10-28, «Τύποι γραμμών»).
+  - DomainAddonIDP 7, DomainAddonDNS 1, PromoDomain 1: με τα domains, στο D6.
   - Επίσης υπάρχουν manual 1.714, AddFunds 619 και mass pay 233.
 - **Ορφανά:**
   - 1.344 γραμμές σε τιμολόγια που σβήστηκαν (~30,4 χιλ. €): παραλείπονται, με αναφορά.

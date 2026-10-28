@@ -119,7 +119,7 @@ final class RenewalBilling
         }
 
         // Does the service have already an open (pending or draft) invoice?
-        if ($service->invoices()->whereIn('status', Invoice::OPEN_STATUSES)->exists() || $service->cancellation()->exists()) {
+        if ($service->renewalInvoices()->whereIn('status', Invoice::OPEN_STATUSES)->exists() || $service->cancellation()->exists()) {
             return 0;
         }
         // A payment of it still to be applied (BIL-9): its date has not moved yet, billing now would ask for it twice.

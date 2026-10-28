@@ -151,7 +151,7 @@ final class InvoiceSelectedItems
     /** Why a service is not billed (before, or $after billRenewal billed nothing), null when it may be. */
     public function serviceSkip(Service $service, bool $after = false): ?string
     {
-        $open = $service->invoices()->whereIn('status', Invoice::OPEN_STATUSES)->value('invoices.id');
+        $open = $service->renewalInvoices()->whereIn('status', Invoice::OPEN_STATUSES)->value('invoices.id');
 
         return match (true) {
             !in_array($service->status, ['active', 'suspended'], true) => __('invoices.selected.status', ['status' => Service::statusLabel($service->status)]),
