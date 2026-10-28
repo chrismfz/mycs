@@ -693,6 +693,23 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return $url;
     }
 
+    /** A reseller's WHM, signed in (create_user_session «whostmgrd»): only for a reseller's service (getActions). */
+    public function getWhmUrl(Service $service, $settings, $properties): string
+    {
+        if (!isset($properties['cpanel_username'])) {
+            throw new Exception('Service has not been created');
+        }
+        if (!self::wasReseller($properties) && !self::isReseller((array) $settings)) {
+            throw new Exception('cPanel: WHM is for a reseller\'s account');
+        }
+        $url = $this->whm('/create_user_session', ['user' => $properties['cpanel_username'], 'service' => 'whostmgrd'], 'post')['data']['url'] ?? null;
+        if (!is_string($url) || $url === '') {
+            throw new Exception('Unable to generate the WHM login URL');
+        }
+
+        return $url;
+    }
+
     /**
      * WHMCS's «Quick Shortcuts» (owner 2026-10-22): cPanel opened on that page, signed in. Its app names (WHM's
      * create_user_session «app», as Jupiter's dynamicui.conf «implements» them: read on orion, 2026-10-22) and the icon shown; the label is the customer's language (services.cpanel.shortcuts.*).
@@ -725,6 +742,9 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 'function' => 'getLoginUrl',
             ],
             ['label' => __('services.cpanel.webmail'), 'type' => 'button', 'sso' => true, 'function' => 'getWebmailUrl'],
+            // A reseller manages its customers in WHM (WHMCS's «Login to WHM»; the reseller test on rigel, 2026-10-28).
+            ...(self::wasReseller($properties) || self::isReseller((array) $settings)
+                ? [['label' => __('services.cpanel.whm_login'), 'type' => 'button', 'sso' => true, 'function' => 'getWhmUrl']] : []),
             // The page's own blocks (Services\Show): shortcuts (`productsso`), a new password and a new mailbox
             // (`manageproducts`), each checked again there.
             ['type' => 'shortcuts', 'items' => array_map(fn (string $app, string $icon) => ['app' => $app, 'icon' => $icon,

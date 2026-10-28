@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -73,6 +74,7 @@ class CPanelResellerTest extends TestCase
             str_ends_with($call, '/setupreseller') => tap($ok(), fn () => $this->resellers[] = (string) $request['user']),
             str_ends_with($call, '/listresellers') => $ok(['reseller' => $this->resellers]),
             str_ends_with($call, '/listaccts') => $ok(['acct' => array_map(fn ($u) => ['user' => $u, 'owner' => (string) $request['search']], $this->owned)]),
+            str_ends_with($call, '/create_user_session') => $ok(['url' => 'https://whm.test:' . ((string) $request['service'] === 'whostmgrd' ? '2087' : '2083') . '/cpsess1/login']),
             str_ends_with($call, '/accountsummary') => $ok(['acct' => [['user' => 'resel1', 'domain' => 'reseller.test', 'plan' => 'Business10']]]),
             default => $ok(),
         };
@@ -231,5 +233,22 @@ class CPanelResellerTest extends TestCase
         foreach (['setupreseller', 'suspendreseller', 'terminatereseller', 'setresellerlimits', 'setacls'] as $call) {
             $this->assertSame([], $this->sent($call), $call);
         }
+    }
+
+    /** A reseller manages its customers in WHM (the reseller test on rigel, 2026-10-28): its owner opens it signed in. */
+    public function test_a_reseller_opens_its_whm_and_a_plain_account_cannot(): void
+    {
+        $this->made();
+        $user = $this->service->client->users()->first();
+        $this->actingAs($user)->withSession($this->loginUser($user, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+
+        $this->assertContains('getWhmUrl', array_column(ExtensionHelper::getActions($this->service->fresh()), 'function'));
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWhmUrl'])->assertRedirectContains(':2087/');
+        $this->assertSame('whostmgrd', (string) $this->sent('create_user_session')[0]['service']);
+
+        $this->product->settings()->where('key', 'reseller')->update(['value' => '0']);
+        $this->service->properties()->where('key', CPanel::RESELLER)->delete();
+        $this->assertNotContains('getWhmUrl', array_column(ExtensionHelper::getActions($this->service->fresh()), 'function'));
+        $this->post(route('services.panel-login', $this->service), ['function' => 'getWhmUrl'])->assertRedirect(route('services.show', $this->service));
     }
 }
