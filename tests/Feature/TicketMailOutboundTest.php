@@ -207,19 +207,6 @@ class TicketMailOutboundTest extends TestCase
         $this->assertSame('other@myip.test', $this->sent()->last()->getTo()[0]->getAddress());
     }
 
-    public function test_the_migration_goes_down_and_up_and_names_the_author(): void
-    {
-        $migration = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
-        $migration->down();
-        $this->assertStringContainsString('ticketMessage.user.name', (string) \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('body'));
-
-        $migration->up();
-
-        $this->assertStringContainsString('{{ author_name }}', (string) \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('body'));
-        $this->assertStringContainsString('{{ author_name }}', (string) \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('translations'));
-        $this->assertTrue(\DB::table('notification_templates')->whereIn('key', ['guest_ticket_message', 'ticket_received'])->count() === 2);
-    }
-
     /** Reviews of #249: the template's Cc and Bcc never get a ticket's mail (its Message-ID is a key). */
     public function test_a_ticket_mail_is_copied_to_no_one(): void
     {
@@ -260,17 +247,5 @@ class TicketMailOutboundTest extends TestCase
         $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]), 'staff');
         Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
             ->assertSee('it may be forged');
-    }
-
-    /** The migration also finds the author's old name as staff spaced it. */
-    public function test_the_author_is_named_also_in_a_template_spaced_otherwise(): void
-    {
-        $migration = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
-        \DB::table('notification_templates')->where('key', 'new_ticket_message')->update(['body' => 'From {{ticketMessage.user.name}}:']);
-
-        $migration->down();
-        $migration->up();
-
-        $this->assertSame('From {{ author_name }}:', \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('body'));
     }
 }

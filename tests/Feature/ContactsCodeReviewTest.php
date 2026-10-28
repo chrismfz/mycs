@@ -12,7 +12,6 @@ use App\Models\User;
 use App\Services\Import\WhmcsTicketImport;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Code review of PR 3a (contacts): the findings' tests stay as regression coverage. */
@@ -56,25 +55,6 @@ class ContactsCodeReviewTest extends TestCase
 
         $this->assertSame('Acme', $client->fresh()->primaryContact?->company_name);
         $this->assertSame($client->id, $client->fresh()->primaryContact?->client_id);
-    }
-
-    /** C4: a country name the migration could not convert was dropped without a trace. */
-    public function test_the_migration_does_not_silently_lose_a_country_it_cannot_convert(): void
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $client = User::factory()->create()->client();
-        $client->primaryContact->update(['country' => 'GR', 'city' => 'Athens']);
-        $migration = require database_path('migrations/2026_10_30_000000_create_contacts_table.php');
-        $migration->down();
-        DB::table('properties')->where('model_id', $client->id)->where('key', 'country')->update(['value' => 'greece']);
-
-        $migration->up();
-
-        $contact = DB::table('contacts')->where('primary_of_client_id', $client->id)->first();
-        $this->assertTrue($contact->country === 'GR' || str_contains((string) $contact->notes, 'greece'),
-            'the unconvertible country «greece» was dropped without a trace');
     }
 
     /** C2: a business's company was printed twice on its invoices. */

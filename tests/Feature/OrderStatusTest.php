@@ -2,9 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
-use App\Admin\TopMenu;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\TerminateJob;
@@ -26,7 +24,6 @@ use App\Services\Order\PlaceOrderService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -228,24 +225,6 @@ class OrderStatusTest extends TestCase
             ->assertNotified('Refunds need the permission to change transactions');
 
         $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'nothing done');
-    }
-
-    public function test_pending_orders_in_the_menu_and_the_existing_orders_get_their_status(): void
-    {
-        $this->actingAs($this->staff(), 'staff');
-        $items = collect(TopMenu::groups())->firstWhere('label', 'Orders')['items'];
-        $this->assertContains(OrderResource::getUrl('index', ['tab' => 'pending']), array_column($items, 'url'));
-
-        $active = $this->order(Product::AUTOSETUP_ORDER, server: false);
-        $ended = $this->order(Product::AUTOSETUP_PAYMENT);
-        $ended->services()->update(['status' => 'cancelled']);
-        $waiting = $this->order(Product::AUTOSETUP_PAYMENT);
-        DB::table('orders')->update(['status' => 'pending']);
-
-        (require database_path('migrations/2026_11_05_000001_add_status_to_orders.php'))->backfill();
-
-        $this->assertSame([Order::STATUS_ACTIVE, Order::STATUS_CANCELLED, Order::STATUS_PENDING],
-            [$active->fresh()->status, $ended->fresh()->status, $waiting->fresh()->status]);
     }
 
     private function stripe(): void

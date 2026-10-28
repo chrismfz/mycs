@@ -10,11 +10,8 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
-use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Tests\TestCase;
 
@@ -25,18 +22,6 @@ use Tests\TestCase;
 class SuspensionMailTest extends TestCase
 {
     use RefreshDatabase;
-
-    private const PREVIOUS_EN_BODY = "# Service suspended\n\nDear {{ user.first_name }},\n\nYour service **{{ service.product.name }}** was suspended because its renewal is overdue.\n\n"
-        . "Once its invoice is paid, the service is reactivated automatically, usually within minutes.\n\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoices }}\">\n"
-        . "\t\tView my invoices\n\t</a>\n</div>\n\nIf you think this is a mistake, please contact us.";
-
-    private const PREVIOUS_EN_IN_APP = 'Your service {{ service.product.name }} was suspended because its renewal is overdue. Pay its invoice to reactivate it.';
-
-    private const PREVIOUS_EL_BODY = "# Αναστολή υπηρεσίας\n\nΑγαπητέ/ή {{ user.first_name }},\n\nΗ υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.\n\n"
-        . "Μόλις εξοφληθεί το προτιμολόγιό της, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.\n\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoices }}\">\n"
-        . "\t\tΤα προτιμολόγιά μου\n\t</a>\n</div>\n\nΑν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας.";
-
-    private const PREVIOUS_EL_IN_APP = 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά.';
 
     private Service $service;
 
@@ -102,32 +87,5 @@ class SuspensionMailTest extends TestCase
         $this->assertStringNotContainsString('ληξιπρόθεσμη', $html);
         $this->assertStringNotContainsString('Overdue on Payment', $html, 'the hold clears the cron\'s reason');
         $this->assertNull($this->service->fresh()->dunning_suspended_at);
-    }
-
-    public function test_the_live_template_takes_the_new_text_unless_staff_rewrote_it(): void
-    {
-        $previous = fn (array $el) => ['subject' => 'Service suspended: {{ service.product.name }}', 'body' => self::PREVIOUS_EN_BODY,
-            'in_app_title' => 'Service suspended', 'in_app_body' => self::PREVIOUS_EN_IN_APP,
-            'translations' => json_encode(['el' => $el], JSON_UNESCAPED_UNICODE)];
-        $previousEl = ['subject' => 'Αναστολή υπηρεσίας: {{ service.product.name }}', 'body' => self::PREVIOUS_EL_BODY,
-            'in_app_title' => 'Αναστολή υπηρεσίας', 'in_app_body' => self::PREVIOUS_EL_IN_APP];
-        $migration = require database_path('migrations/2026_11_16_000000_suspension_mail_says_why.php');
-
-        DB::table('notification_templates')->where('key', 'server_suspended')->update($previous($previousEl));
-        $migration->up();
-        $row = DB::table('notification_templates')->where('key', 'server_suspended')->sole();
-        $this->assertSame(EmailTemplateSeeder::mapping['server_suspended']['body'], $row->body);
-        $this->assertSame(EmailTemplateSeeder::translations['server_suspended']['el']['body'], json_decode($row->translations, true)['el']['body']);
-
-        DB::table('notification_templates')->where('key', 'server_suspended')->update(['body' => 'Our own text'] + $previous(['body' => 'Δικό μας'] + $previousEl));
-        $migration->up();
-        $row = DB::table('notification_templates')->where('key', 'server_suspended')->sole();
-        $this->assertSame(['Our own text', 'Δικό μας'], [$row->body, json_decode($row->translations, true)['el']['body']]);
-
-        Log::spy();
-        DB::table('notification_templates')->where('key', 'server_suspended')->delete();
-        (new EmailTemplateSeeder)->run(); // a fresh install: already the new text, nothing said
-        $migration->up();
-        Log::shouldNotHaveReceived('notice');
     }
 }

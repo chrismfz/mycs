@@ -19,7 +19,6 @@ use App\Models\User;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use MyCS\MailTemplate\Html;
 use Tests\TestCase;
@@ -152,27 +151,6 @@ class NotificationTemplateTextsTest extends TestCase
             ->assertHasNoFormErrors();
 
         $this->assertSame('Αναστολή: {{ service.product.name }}', $template->fresh()->translations['el']['subject']);
-    }
-
-    public function test_the_new_texts_replace_only_templates_staff_did_not_rewrite(): void
-    {
-        DB::table('notification_templates')->where('key', 'invoice_paid')->update(['body' => 'Our own text', 'updated_at' => now(), 'translations' => null]);
-        // The previous default, as seeded before (0be6618), saved once unchanged from the form (updated_at stamped).
-        DB::table('notification_templates')->where('key', 'server_suspended')->update(['subject' => 'Service suspended',
-            'body' => "# Service suspended\n\nYour service has been suspended due to a payment failure.\n\n**Service details**\n- Name: {{ service.product.name }}\n\nPlease pay the invoice to reactivate the service.",
-            'in_app_title' => 'Service suspended',
-            'in_app_body' => 'Your service {{ service.product.name }} has been suspended due to a payment failure. Please pay the invoice to reactivate the service.',
-            'translations' => null, 'updated_at' => now()]);
-        DB::table('notification_templates')->where('key', 'server_unsuspended')->delete();
-
-        (require database_path('migrations/2026_10_26_000001_new_notification_template_texts.php'))->up();
-
-        $rows = DB::table('notification_templates')->get()->keyBy('key');
-        $this->assertSame('Our own text', $rows['invoice_paid']->body);
-        $this->assertNull($rows['invoice_paid']->translations);
-        $this->assertSame(EmailTemplateSeeder::mapping['server_suspended']['body'], $rows['server_suspended']->body);
-        $this->assertNotNull($rows['server_suspended']->translations);
-        $this->assertTrue($rows->has('server_unsuspended'));
     }
 
     public function test_a_reactivated_service_is_mailed(): void

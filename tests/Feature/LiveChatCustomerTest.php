@@ -372,25 +372,6 @@ class LiveChatCustomerTest extends TestCase
         $this->withSession($this->loginUser($user, ['client_id' => $client->id, 'currency' => 'EUR']))->get('/dashboard')->assertOk()->assertDontSee('client.chat-bubble', false);
     }
 
-    public function test_the_migration_gives_chat_to_logins_with_tickets_and_the_permissions_to_roles(): void
-    {
-        $user = User::factory()->create();
-        $client = User::factory()->create()->client();
-        $grant = ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $user->id, 'granted_at' => now(), 'permissions' => ['tickets', 'invoices']]);
-        $other = User::factory()->create();
-        $noTickets = ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $other->id, 'granted_at' => now(), 'permissions' => ['invoices']]);
-        $role = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny']]);
-        $migration = require database_path('migrations/2027_01_15_000000_create_live_chats.php');
-
-        $migration->grantChatToTicketLogins();
-        $migration->grantChatToTicketLogins();
-        $migration->grantToEveryRole();
-
-        $this->assertSame(['tickets', 'invoices', 'chat'], $grant->fresh()->permissions);
-        $this->assertSame(['invoices'], $noTickets->fresh()->permissions);
-        $this->assertSame(['admin.tickets.viewAny', 'admin.chats.view', 'admin.chats.reply'], $role->fresh()->permissions);
-    }
-
     /** Review of #475: a chat whose operator left shows in a colleague's queue, to take over. */
     public function test_a_chat_whose_operator_left_is_in_the_colleagues_queue_to_take_over(): void
     {

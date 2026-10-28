@@ -30,3 +30,11 @@ parameters:
     # new ones. Fix a file's entries when you touch it, then regenerate with
     #   vendor/bin/phpstan analyse --memory-limit=2G --generate-baseline
     reportUnmatchedIgnoredErrors: false
+
+    # The models' columns from the schema dump, through a copy its parser can read (phpstan-schema.php).
+    bootstrapFiles:
+        - phpstan-schema.php
+    squashedMigrationsPath:
+        - storage/framework/larastan
+    # A model's casts() over the dump's column type (a tinyint(1) cast to boolean is a bool, as PHP sees it).
+    parseModelCastsMethod: true

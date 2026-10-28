@@ -171,19 +171,6 @@ class StaffChatTest extends TestCase
             ->assertSee(__('Team'))->assertSee(__('Staff room'))->assertSee('Zoe');
     }
 
-    public function test_the_migration_gives_every_role_the_chat_permissions_once(): void
-    {
-        $plain = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny', 'admin.staff_chat.view']]);
-        $all = Role::create(['name' => 'All' . uniqid(), 'permissions' => ['*']]);
-        $migration = require database_path('migrations/2026_12_28_000000_create_staff_chat.php');
-
-        $migration->grantToEveryRole();
-        $migration->grantToEveryRole();
-
-        $this->assertSame(['admin.tickets.viewAny', 'admin.staff_chat.view', 'admin.staff_chat.post'], $plain->fresh()->permissions);
-        $this->assertSame(['*'], $all->fresh()->permissions);
-    }
-
     /** ChatText::render is the one unescaped output the chat's views may use (§3 Α, F5). */
     public function test_the_chat_views_print_raw_html_only_through_chattext(): void
     {
@@ -260,15 +247,6 @@ class StaffChatTest extends TestCase
 
         $this->assertNotNull(StaffChat::post($this->member(), $pair, 'hi'));
         $this->assertSame(0, StaffMessage::query()->count());
-    }
-
-    /** Review of #373, R8: a role left empty on purpose gets nothing. */
-    public function test_an_empty_role_stays_empty(): void
-    {
-        $empty = Role::create(['name' => 'Empty' . uniqid(), 'permissions' => []]);
-        (require database_path('migrations/2026_12_28_000000_create_staff_chat.php'))->grantToEveryRole();
-
-        $this->assertSame([], $empty->fresh()->permissions);
     }
 
     /** Re-review of #373: a sequence whose joiner follows an emoji selector or a skin tone keeps it too. */

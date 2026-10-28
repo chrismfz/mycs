@@ -111,19 +111,6 @@ class StaffOnlineReviewTest extends TestCase
         $this->assertSame([], StaffPresence::online(), 'listed online while still on the 2FA set-up page');
     }
 
-    /** down() then up() again on the test database (SQLite). */
-    public function test_the_migration_rolls_back_and_forward(): void
-    {
-        $role = Role::create(['name' => 'Plain' . uniqid(), 'permissions' => ['admin.tickets.viewAny', 'admin.staff_online.view']]);
-        $migration = require database_path('migrations/2026_12_27_000000_staff_presence.php');
-
-        $migration->down();
-        $this->assertSame(['admin.tickets.viewAny'], $role->fresh()->permissions);
-        $migration->up();
-        $this->assertSame(['admin.tickets.viewAny', 'admin.staff_online.view'], $role->fresh()->permissions);
-        $this->assertSame('available', $this->member()->fresh()->presence_status);
-    }
-
     /** R5: a role created after the migration has the permission ticked by default (docs/livechat.md §7β). */
     public function test_a_new_role_has_staff_online_ticked_by_default(): void
     {

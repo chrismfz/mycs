@@ -220,16 +220,6 @@ class LicensingTest extends TestCase
         $this->assertSame('kept.example.test', $other->fresh()->domain, 'a domain the service has is kept');
     }
 
-    public function test_licenses_issued_before_get_their_key_as_domain(): void
-    {
-        ExtensionHelper::createServer($this->service);
-        DB::table('services')->where('id', $this->service->id)->update(['domain' => null]);
-
-        (require database_path('migrations/2026_11_07_000000_license_keys_as_service_domains.php'))->up();
-
-        $this->assertSame(License::query()->sole()->license_key, $this->service->fresh()->domain);
-    }
-
     public function test_quantity_and_the_old_subscription_id_show_only_where_they_mean_something(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));

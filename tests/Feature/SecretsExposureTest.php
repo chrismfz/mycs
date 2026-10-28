@@ -124,21 +124,6 @@ class SecretsExposureTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/CMD_API_ACCOUNT_USER') && $request['passwd'] === $service->password);
     }
 
-    public function test_old_directadmin_passwords_move_to_the_service_and_leave_the_audits(): void
-    {
-        config(['audit.console' => true]);
-        $this->service->forceFill(['password' => null])->save();
-        $property = $this->service->properties()->create(['key' => 'directadmin_password', 'name' => 'DirectAdmin password', 'value' => 'old-da-pw-1']);
-        $audits = fn () => (string) DB::table('audits')->where('auditable_type', Property::class)->where('auditable_id', $property->id)->value('new_values');
-        $this->assertStringContainsString('old-da-pw-1', $audits(), 'in clear before');
-
-        (require database_path('migrations/2026_11_06_000000_move_directadmin_passwords_out_of_properties.php'))->up();
-
-        $this->assertSame('old-da-pw-1', $this->service->fresh()->password);
-        $this->assertNull(Property::query()->find($property->id));
-        $this->assertStringNotContainsString('old-da-pw-1', $audits());
-    }
-
     public function test_the_server_form_never_gets_a_stored_secret_and_keeps_it_when_left_empty(): void
     {
         $server = $this->server('DirectAdmin', ['host' => 'https://da.example.test:2222', 'username' => 'admin', 'password' => 'da-admin-pw']);

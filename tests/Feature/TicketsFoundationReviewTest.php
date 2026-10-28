@@ -29,40 +29,6 @@ class TicketsFoundationReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_the_migration_keeps_a_department_written_with_spaces_or_another_case(): void
-    {
-        $migration = require database_path('migrations/2026_12_05_000001_tickets_departments_guests_statuses.php');
-        // A2's and A3's tables point at the departments and tickets: down first, up again after (as a rollback would).
-        $mailboxes = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
-        $outbound = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
-        $imports = (require database_path('migrations/2027_01_01_000000_create_ticket_mail_imports.php')); // it points at the quarantine
-        $chats = (require database_path('migrations/2027_01_15_000000_create_live_chats.php')); // the live chat points at the departments
-        $chats->down();
-        $imports->down();
-        $outbound->down();
-        $mailboxes->down();
-        $migration->down();
-        $client = User::factory()->create()->client();
-        $ids = [];
-        foreach ([' Support ', 'support', 'Support'] as $department) {
-            $ids[] = DB::table('tickets')->insertGetId(['client_id' => $client->id, 'subject' => 'Old', 'status' => 'open', 'priority' => 'medium',
-                'department' => $department, 'created_at' => now(), 'updated_at' => now()]);
-        }
-
-        $migration->up();
-        $mailboxes->up();
-        $outbound->up();
-        $imports->up();
-        $chats->up();
-
-        $support = TicketDepartment::query()->whereRaw('LOWER(name) = ?', ['support'])->sole()->id; // one, not one per spelling
-        $this->assertSame([$support, $support, $support], array_map(fn (int $id) => Ticket::query()->find($id)->department_id, $ids));
-
-        // The client's tickets still go with it (the column made nullable keeps its cascade).
-        DB::table('clients')->where('id', $client->id)->delete();
-        $this->assertSame(0, Ticket::query()->count());
-    }
-
     public function test_two_tickets_drawing_the_same_number_at_once_both_open(): void
     {
         $client = User::factory()->create()->client();

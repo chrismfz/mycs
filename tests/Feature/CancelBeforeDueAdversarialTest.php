@@ -381,20 +381,4 @@ class CancelBeforeDueAdversarialTest extends TestCase
         $this->assertNull($this->lines($farService)[0]->fresh()->forgone_at);
         $this->assertNotNull($this->lines($nearService)[0]->fresh()->forgone_at);
     }
-
-    /** The migration marks cancelled domain lines with a period, not open ones nor lines without a period. */
-    public function test_defended_the_migration_marks_only_cancelled_domain_periods(): void
-    {
-        $kept = $this->domain(['expires_at' => '2027-03-01']);
-        $open = $this->domain(['expires_at' => '2027-03-01']);
-        $cancelled = $this->select([], [$kept]);
-        $cancelled->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'x']);
-        $this->select([], [$open]);
-        $this->assertNull($this->lines($kept)[0]->fresh()->forgone_at);
-
-        (require base_path('database/migrations/2026_11_23_000000_forgone_domain_periods.php'))->up();
-
-        $this->assertNotNull($this->lines($kept)[0]->fresh()->forgone_at);
-        $this->assertNull($this->lines($open)[0]->fresh()->forgone_at);
-    }
 }

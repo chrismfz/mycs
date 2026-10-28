@@ -130,16 +130,6 @@ class ServiceServersTest extends TestCase
         ExtensionHelper::suspendServer($service->fresh());
     }
 
-    public function test_existing_services_take_their_products_server(): void
-    {
-        $service = $this->service();
-        DB::table('services')->where('id', $service->id)->update(['server_id' => null]);
-
-        (require database_path('migrations/2026_11_03_000000_service_servers_and_server_groups.php'))->backfill();
-
-        $this->assertSame($this->product->server_id, (int) DB::table('services')->where('id', $service->id)->value('server_id'));
-    }
-
     public function test_staff_make_a_server_group(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));

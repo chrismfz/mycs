@@ -159,20 +159,4 @@ class ServiceServersReviewTest extends TestCase
 
         $this->assertSame($unlimited->id, ServerSelector::forNewAccount($this->product->fresh())->id);
     }
-
-    /**
-     * F6: products.server_id has no foreign key: a product pointing at a server row no longer there makes the backfill
-     * break the new services.server_id key (on MariaDB the migration stops half done: the new columns and tables stay,
-     * and a rerun fails on them).
-     */
-    public function test_f6_the_backfill_survives_a_product_pointing_at_a_missing_server(): void
-    {
-        $service = $this->service();
-        DB::table('services')->where('id', $service->id)->update(['server_id' => null]);
-        DB::table('products')->where('id', $this->product->id)->update(['server_id' => 999999]);
-
-        (require database_path('migrations/2026_11_03_000000_service_servers_and_server_groups.php'))->backfill();
-
-        $this->assertNull(DB::table('services')->where('id', $service->id)->value('server_id'));
-    }
 }

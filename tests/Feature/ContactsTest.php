@@ -19,7 +19,6 @@ use App\Models\User;
 use App\Support\CurrentClient;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -58,29 +57,6 @@ class ContactsTest extends TestCase
         $client->unsetRelation('primaryContact');
         $this->assertSame('Acme ΙΚΕ', $client->name, 'a business is named by its company');
         $this->assertSame('billing@example.test', $client->email);
-    }
-
-    public function test_the_identity_properties_become_the_primary_contact_and_back(): void
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $client = User::factory()->create(['first_name' => 'Nikos', 'last_name' => 'K'])->client();
-        $client->primaryContact->update(['company_name' => 'Acme', 'address1' => 'Odos 1', 'city' => 'Athens', 'postcode' => '10431',
-            'country' => 'GR', 'phone' => '+30 210 0000000']);
-        $migration = require database_path('migrations/2026_10_30_000000_create_contacts_table.php');
-
-        $migration->down();
-        $this->assertSame('Greece', DB::table('properties')->where('model_id', $client->id)->where('key', 'country')->value('value'));
-        $this->assertSame('Odos 1', DB::table('properties')->where('model_id', $client->id)->where('key', 'address')->value('value'));
-
-        $migration->up();
-        $contact = Contact::query()->where('primary_of_client_id', $client->id)->sole();
-        $this->assertSame(['Nikos', 'K', 'Acme', 'business', 'Odos 1', 'Athens', '10431', 'GR', '+30 210 0000000'], [
-            $contact->first_name, $contact->last_name, $contact->company_name, $contact->type, $contact->address1, $contact->city,
-            $contact->postcode, $contact->country, $contact->phone,
-        ]);
-        $this->assertSame(0, DB::table('properties')->where('model_id', $client->id)->whereIn('key', ['country', 'address', 'zip'])->count());
     }
 
     public function test_tax_and_invoices_read_the_primary_contact(): void

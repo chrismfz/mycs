@@ -17,9 +17,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Money\BankTransferDetails;
-use Database\Seeders\EmailTemplateSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -279,48 +277,6 @@ class BankTransferAdversarialTest extends TestCase
         }
         $this->assertEquals(0, (float) $transaction->fresh()->refunded_amount);
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-    }
-
-    /** The migration with null, malformed, or a non-object translations column: no crash, English still updated. */
-    public function test_guard_the_migration_survives_null_or_malformed_translations(): void
-    {
-        $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
-        $default = EmailTemplateSeeder::mapping['new_invoice_created'];
-        // As it was then: without the credit line the seeder has since (2026_12_29, «Total»); the migration writes today's.
-        $old = preg_replace(['/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s', '/\n *\{% if credit %\}.*?\{% endif %\}/s'], ['', ''], $default['body']);
-
-        // Malformed JSON only where the column can hold it: MariaDB's json column refuses it (its CHECK), so it never is there.
-        $values = DB::connection()->getDriverName() === 'sqlite'
-            ? [null, '{not json', '"a string"', '[1,2]', '{"el":"text"}', '{"el":{"body":null}}']
-            : [null, '"a string"', '[1,2]', '{"el":"text"}', '{"el":{"body":null}}'];
-        foreach ($values as $translations) {
-            DB::table('notification_templates')->where('key', 'new_invoice_created')->update(['body' => $old, 'translations' => $translations]);
-            $migration->up();
-            $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
-            $this->assertSame($default['body'], $row->body, var_export($translations, true));
-            $this->assertSame($translations, $row->translations, 'a translations value it does not recognise is left as it is');
-        }
-    }
-
-    /** The migration on a staff-edited English text and a still-default Greek one: English kept, Greek updated. */
-    public function test_guard_the_migration_treats_each_language_on_its_own(): void
-    {
-        $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
-        $block = '/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s';
-        $el = EmailTemplateSeeder::translations['new_invoice_created']['el'];
-        // As it was then: without the credit line the seeder has since (2026_12_29, «Total»).
-        $translations = ['el' => ['body' => preg_replace([$block, '/\n *\{% if credit %\}.*?\{% endif %\}/s'], ['', ''], $el['body'])] + $el, 'de' => ['body' => 'Deutsch']];
-        DB::table('notification_templates')->where('key', 'new_invoice_created')
-            ->update(['body' => 'Staff text', 'translations' => json_encode($translations, JSON_UNESCAPED_UNICODE)]);
-
-        $migration->up();
-        $migration->up(); // re-runnable
-
-        $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
-        $this->assertSame('Staff text', $row->body);
-        $stored = json_decode($row->translations, true);
-        $this->assertSame($el['body'], $stored['el']['body']);
-        $this->assertSame('Deutsch', $stored['de']['body']);
     }
 
     /** Every gateway loop (checkout lists, billing agreements, subscriptions) works with it installed. */

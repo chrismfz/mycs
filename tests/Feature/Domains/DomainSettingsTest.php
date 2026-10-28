@@ -109,18 +109,11 @@ class DomainSettingsTest extends TestCase
         $this->assertNotContains('domain_billing_enabled', collect(Settings::settings()['cronjob'])->pluck('name')->all(), 'moved, not copied');
     }
 
-    public function test_the_old_nameserver_textarea_moves_to_the_fields(): void
+    public function test_the_default_nameservers_are_lower_case_without_a_trailing_dot_and_once_each(): void
     {
-        DB::table('settings')->insert(['key' => 'domain_default_nameservers', 'value' => "NS1.myip.gr\nns2.myip.gr\n\nns3.myip.gr", 'type' => 'string',
-            'encrypted' => false, 'created_at' => now(), 'updated_at' => now()]);
-
-        (require database_path('migrations/2026_11_29_000000_domain_nameserver_settings.php'))->up();
-
-        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr', 'ns3.myip.gr'],
-            DB::table('settings')->where('key', 'like', 'domain_nameserver_%')->orderBy('key')->pluck('value')->filter()->values()->all());
-        $this->assertFalse(DB::table('settings')->where('key', 'domain_default_nameservers')->exists());
         config(['settings.domain_nameserver_1' => 'ns1.myip.gr', 'settings.domain_nameserver_2' => 'NS2.myip.gr.', 'settings.domain_nameserver_4' => 'ns1.myip.gr']);
-        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr'], DomainOrderFulfilment::defaultNameservers(), 'lower case, no trailing dot, once each');
+
+        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr'], DomainOrderFulfilment::defaultNameservers());
     }
 
     public function test_the_shop_takes_only_what_is_allowed(): void

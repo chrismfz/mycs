@@ -11,9 +11,7 @@ use App\Models\License;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\User;
-use Database\Seeders\EmailTemplateSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;
@@ -166,23 +164,5 @@ class NotificationTemplateTest extends TestCase
         $this->assertFalse($check('{{ route("invoices.show", $invoice) }}'));
         $this->assertFalse($check('{{ $invoice->id }}'));
         $this->assertFalse($check('{% if x %}never closed'));
-    }
-
-    public function test_migration_replaces_blade_defaults_and_keeps_custom_templates(): void
-    {
-        NotificationTemplate::where('key', 'invoice_paid')->update([
-            'body' => 'Paid {{ $invoice->id }} @if($x) y @endif',
-            'in_app_url' => '{{ route("invoices.show", $invoice) }}',
-        ]);
-        NotificationTemplate::where('key', 'password_reset')->update(['body' => 'Custom: {{ url }}']);
-        DB::table('settings')->where('key', 'mail_footer')->update(['value' => "© {{ date('Y') }}"]);
-
-        (require database_path('migrations/2026_10_11_000000_templates_without_blade.php'))->up();
-
-        $paid = NotificationTemplate::where('key', 'invoice_paid')->first();
-        $this->assertSame(EmailTemplateSeeder::mapping['invoice_paid']['body'], $paid->body);
-        $this->assertSame('{{ urls.invoice }}', $paid->in_app_url);
-        $this->assertSame('Custom: {{ url }}', NotificationTemplate::where('key', 'password_reset')->value('body'));
-        $this->assertStringContainsString('{{ app.year }}', DB::table('settings')->where('key', 'mail_footer')->value('value'));
     }
 }

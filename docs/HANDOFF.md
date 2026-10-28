@@ -79,6 +79,45 @@
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
+## Σχήμα της βάσης (squash, 2026-10-28)
+- Μια νέα βάση ξεκινά από τα `database/schema/mariadb-schema.sql` και `sqlite-schema.sql`, όχι από migrations.
+  - Τα 224 migrations ως τις 2026-10-28 έγιναν ένα dump για κάθε βάση και σβήστηκαν. Το `migrations` του dump τα έχει
+    ως ήδη τρεγμένα.
+  - Μια βάση που τα έχει τρέξει ήδη (η παραγωγή) δεν αλλάζει: δεν έχει τίποτα να τρέξει.
+- **Έλεγχος ισοδυναμίας:** δύο βάσεις συγκρίθηκαν σε MariaDB και σε SQLite.
+  - Η μία χτίστηκε με τα παλιά migrations και seed, η άλλη με το dump και seed.
+  - Το σχήμα βγήκε ίδιο και στους 136 πίνακες, και οι 405 γραμμές ίδιες.
+  - Μόνη διαφορά, η σειρά των ids στα `notification_templates` και `settings`: εκεί τα migrations έγραφαν πριν από τους
+    seeders. Δεν πειράζει, γιατί καμία εγκατάσταση δεν μοιράζεται ids με άλλη.
+- **Νέα migrations:** μπαίνουν όπως πάντα στο `database/migrations/`, και τρέχουν μετά το dump.
+- **Νέο squash:** όταν μαζευτούν πολλά, ξανά με τον ίδιο έλεγχο.
+  1. Μια άδεια βάση: `migrate --seed`, και από αυτήν `php artisan schema:dump --database=mariadb`.
+  2. Το ίδιο με `--database=sqlite`.
+  3. Από το mariadb dump σβήνεται **κάθε** γραμμή `/*M!999999\- enable the sandbox mode */`: μία στην αρχή, και μία στο
+     δεύτερο dump, των γραμμών του `migrations`. Ο client της MySQL και οι παλιοί της MariaDB δεν την καταλαβαίνουν.
+  4. Σύγκριση με μια βάση από dump και seed.
+  5. Σβήνονται τα migrations και τα tests του upgrade τους.
+- **Τι θέλει:**
+  - Το dump φορτώνεται με τον client `mariadb` (ή `sqlite3`). Στο CI εγκαθίστανται.
+  - Ο orion τα έχει: MariaDB **11.4**, ενώ το CI και ο devbox έχουν 10.11. Το dump της 10.11 φορτώνει στην 11.4· κάποια
+    στιγμή το CI να τρέξει και σε 11.4.
+- **Η παραγωγή απέναντι στο dump (2026-10-28):** συγκρίθηκε μόνο το σχήμα, χωρίς δεδομένα. Είναι λειτουργικά ίδια.
+  - Σε 12 πίνακες διαφέρουν μόνο τα ονόματα και η σειρά των indexes: η παραγωγή κρατά το παλιό όνομα `*_user_id_foreign`
+    στη στήλη που έγινε `client_id`.
+  - Σε 4 (`credits`, `invoice_snapshots`, `service_cancellations`, `ticket_messages`) η παραγωγή έχει κι ένα περιττό
+    απλό index στο foreign key, που μια νέα βάση δεν το χρειάζεται γιατί το καλύπτει ένα σύνθετο.
+  - Δεν το προκάλεσε το squash, και δεν χρειάζεται κάτι.
+  - Στο αντίγραφο του σχήματός της, το `migrate` της νέας βάσης λέει «Nothing to migrate».
+- **PHPStan:** το Larastan μαθαίνει τις στήλες των models από το dump, όχι πια από τα migrations.
+  - Ο parser του δεν ξέρει τον τύπο `uuid` της MariaDB, και τότε πετά όλο το dump. Γι' αυτό το `phpstan-schema.php`
+    γράφει πριν από κάθε run ένα αντίγραφο στο `storage/framework/larastan/`, με τις δύο στήλες `uuid` ως `char(36)`.
+  - Με `parseModelCastsMethod` ο τύπος έρχεται από το `casts()` του model: ένα `tinyint(1)` με cast `boolean` είναι
+    `bool`.
+  - Ένα PHPStan που περνά με το cache δεν αποδεικνύει τίποτα εδώ. Πριν το push:
+    `vendor/bin/phpstan clear-result-cache` (το CI ξεκινά πάντα χωρίς cache).
+- **Τα tests που φόρτωναν ένα migration** για να ελέγξουν το upgrade παλιών δεδομένων σβήστηκαν μαζί τους: 76 μέθοδοι,
+  από αυτές 3 ολόκληρα αρχεία. Η παραγωγή έχει τρέξει ήδη όλα αυτά τα upgrades.
+
 ## Contracts που δεν σπάνε
 `../CLAUDE.md` → «Contracts»: `zlic.php` byte-for-byte, bridge προς Ekdosi (HMAC/ops), αρίθμηση τιμολογίων.
 Fixtures του zlic και η λογική του: `history/blesta-modules/licensing.md` και το package `nixpal-licensing`

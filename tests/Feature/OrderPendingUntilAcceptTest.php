@@ -188,24 +188,6 @@ class OrderPendingUntilAcceptTest extends TestCase
         Queue::assertPushed(CreateJob::class);
     }
 
-    public function test_an_order_accepted_before_keeps_the_cron_away(): void
-    {
-        // Accepted under the old Accept (it started everything): the migration gives its services accepted_at.
-        $order = $this->order(Product::AUTOSETUP_PAYMENT);
-        $other = $this->order(Product::AUTOSETUP_PAYMENT);
-        $order->forceFill(['status' => Order::STATUS_ACTIVE, 'accepted_at' => '2026-01-02 09:00:00'])->save();
-        $migration = require database_path('migrations/2026_12_04_000000_services_started_unpaid_at.php');
-        $migration->down();
-        $migration->up();
-        $this->assertSame('2026-01-02 09:00:00', $order->services()->sole()->started_unpaid_at?->toDateTimeString());
-        $this->assertNull($other->services()->sole()->started_unpaid_at, 'not accepted: none');
-
-        Carbon::setTestNow('2026-01-20 10:00:00');
-        $this->artisan('app:cron-job');
-
-        $this->assertSame(Service::STATUS_PENDING, $order->services()->sole()->status);
-    }
-
     public function test_the_accept_modal_offers_to_start_the_unpaid_ones(): void
     {
         $order = $this->order(Product::AUTOSETUP_PAYMENT);

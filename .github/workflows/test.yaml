@@ -38,6 +38,10 @@ jobs:
 
       - name: Create Database
         run: touch database/database.sqlite
+
+      # The schema is loaded from database/schema/sqlite-schema.sql by the sqlite3 client (the migrations squashed).
+      - name: SQLite client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends sqlite3
       
       - name: Copy .env
         run: php -r "file_exists('.env') || copy('.env.example', '.env');"
@@ -95,6 +99,10 @@ jobs:
           path: ~/.composer/cache
           key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
           restore-keys: ${{ runner.os }}-composer-
+
+      # The schema is loaded from database/schema/mariadb-schema.sql by the mariadb client (the migrations squashed).
+      - name: MariaDB client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client
 
       - name: Copy .env
         run: php -r "file_exists('.env') || copy('.env.example', '.env');"

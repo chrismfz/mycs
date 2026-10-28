@@ -238,22 +238,4 @@ class CreditLedgerTest extends TestCase
         $this->assertSame('10.00', $this->balance());
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
     }
-
-    public function test_the_migration_merges_duplicate_credit_rows_before_the_unique_key(): void
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $migration = require database_path('migrations/2026_10_15_000000_credit_ledger.php');
-        $migration->down();
-        DB::table('credits')->insert([
-            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 3.50, 'created_at' => now(), 'updated_at' => now()],
-            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 1.25, 'created_at' => now(), 'updated_at' => now()],
-        ]);
-
-        $migration->up();
-
-        $this->assertSame(1, Credit::query()->where('client_id', $this->user->client()->id)->count());
-        $this->assertSame('4.75', $this->balance());
-    }
 }

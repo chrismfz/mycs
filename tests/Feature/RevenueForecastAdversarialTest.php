@@ -397,24 +397,6 @@ class RevenueForecastAdversarialTest extends TestCase
         $this->assertSame('10.00', $page->instance()->forecast()['months'][1]['total']);
     }
 
-    public function test_holds_the_backfill_dates_a_paid_invoice_by_its_last_payment(): void
-    {
-        $withPayments = $this->paid(30.00);
-        DB::table('invoice_transactions')->where('invoice_id', $withPayments->id)->update(['created_at' => '2025-03-04 09:00:00']);
-        DB::table('invoice_transactions')->insert(['invoice_id' => $withPayments->id, 'amount' => 0.01, 'status' => 'failed',
-            'created_at' => '2025-06-01 09:00:00', 'updated_at' => '2025-06-01 09:00:00']);
-        $open = $this->invoice(10.00);
-        DB::table('invoices')->where('id', $withPayments->id)->update(['updated_at' => '2025-08-08 08:00:00']);
-
-        $migration = require database_path('migrations/2026_12_12_000000_invoices_paid_at.php');
-        $migration->down();
-        $migration->up();
-
-        $this->assertSame('2025-03-04', substr((string) DB::table('invoices')->where('id', $withPayments->id)->value('paid_at'), 0, 10),
-            'its last succeeded payment, not a failed one nor its last change');
-        $this->assertNull(DB::table('invoices')->where('id', $open->id)->value('paid_at'));
-    }
-
     // ---------------------------------------------------------------- WHMCS import harness (as ImportMassPayTest)
 
     private ?PDO $whmcs = null;

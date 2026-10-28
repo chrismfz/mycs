@@ -190,20 +190,6 @@ class ServiceFieldsTest extends TestCase
         $this->assertSame([null, null, null, null], [$empty->domain, $empty->username, $empty->dedicated_ip, $empty->suspend_reason]);
     }
 
-    public function test_a_domain_a_checkout_wrote_as_a_property_moves_to_the_service(): void
-    {
-        if (DB::getDriverName() !== 'sqlite') {
-            $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
-        }
-        $migration = require database_path('migrations/2026_11_02_000000_add_whmcs_fields_to_services.php');
-        $migration->down();
-        DB::table('properties')->insert(['model_type' => Service::class, 'model_id' => $this->service->id, 'key' => 'domain', 'name' => 'Domain', 'value' => 'from-checkout.gr']);
-
-        $migration->up();
-
-        $this->assertSame('from-checkout.gr', DB::table('services')->where('id', $this->service->id)->value('domain'));
-    }
-
     public function test_a_new_orders_domain_property_becomes_the_services_domain(): void
     {
         $this->service->update(['domain' => null]);
@@ -228,15 +214,5 @@ class ServiceFieldsTest extends TestCase
         $this->assertStringContainsString('S3cret!pw', $mail->renderedHtml);
         $this->assertSame('', TemplateRenderer::render('{{ service.password }}{{ service_password }}', ['service' => $this->service->fresh()]),
             'any other template: neither the attribute nor the variable');
-    }
-
-    public function test_the_live_welcome_mail_takes_the_login_block_unless_staff_rewrote_it(): void
-    {
-        $migration = require database_path('migrations/2026_11_02_000001_welcome_mail_login_details.php');
-        DB::table('notification_templates')->where('key', 'new_server_created')->update(['body' => 'Our own welcome']);
-
-        $migration->up();
-
-        $this->assertSame('Our own welcome', DB::table('notification_templates')->where('key', 'new_server_created')->value('body'));
     }
 }

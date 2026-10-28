@@ -41,9 +41,9 @@
       τμήματα tickets (Support, Sales), και οι μετρητές `invoice_number`/`credit_note_number` από 0 (με 1, σε νέα
       εγκατάσταση το πρώτο πιστωτικό έπαιρνε τον αριθμό 2· migration για όσες στήθηκαν πριν). Φύλακας:
       `SeedersCoverMigrationDataTest`, σε κάθε πίνακα και στήλη.
-- [ ] **Squash των migrations (~216)** σε `schema:dump` (MariaDB και SQLite), **μετά** από Ekdosi, review του payments
-      tracking, mailcow, cPanel resellers, Proxmox, Centova (υπεύθυνος, 2026-10-27). Έλεγχος: βάση από τα παλιά migrations
-      + seed απέναντι σε βάση από το dump + seed, σχήμα και κάθε γραμμή ίδια.
+- [x] ~~**Squash των migrations**~~ **έγινε (2026-10-28):** 224 migrations έγιναν `database/schema/mariadb-schema.sql` και
+      `sqlite-schema.sql`. Ο έλεγχος (βάση από τα παλιά migrations + seed απέναντι σε βάση από το dump + seed) βγήκε ίδιος
+      στο σχήμα και σε κάθε γραμμή, και στις δύο βάσεις. Λεπτομέρειες στο `HANDOFF.md` → «Σχήμα της βάσης».
 - Αποφασίστηκαν (2026-10-27):
   - **Ιστορικό emails:** ο τελευταίος χρόνος του `tblemails` στα `email_logs`, και στο cut-over
     `cronjob_delete_email_logs` = 365 (default 90: αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα tickets
@@ -110,7 +110,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [x] ~~**Η πραγματική IP από τον server**~~ **έγινε (feat/server-ip):** το cPanel λέει την IP κάθε λογαριασμού μαζί με τη
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
-- [ ] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap):
+- [x] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap· μένουν η αντιστοίχιση με τον importer και το create/reinstall,
+      που ξανασυζητιούνται):
   - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447),
     client area (#502), IP pools (#505), κονσόλα noVNC (#506).
   - **Η κονσόλα σε cPanel (orion):** ανοιχτό ως την ώρα της myip (υπεύθυνος 2026-10-28). Τρεις επιλογές:
@@ -240,7 +241,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 
 ### myip.gr (μετά τη nixpal)
 - [x] ~~Δύο επιλογές του πελάτη για το Ekdosi~~ **έγινε (feat/ekdosi-client-flags):** «Ignore invoicing» και «Immediate invoicing» στην καρτέλα του πελάτη (μόνο staff)· κρατιούνται, τις διαβάζει η γέφυρα όταν έρθει.
-- [ ] **Ekdosi bridge**, σε κομμάτια (ο υπεύθυνος, 2026-10-25· `ekdosi-bridge.md`): ρύθμιση κλειστή by default,
+- [x] **Ekdosi bridge** (έγινε ως το E5 και η live δοκιμή, 2026-10-27· μένει μόνο το E4, που ανήκει στον importer),
+      σε κομμάτια (ο υπεύθυνος, 2026-10-25· `ekdosi-bridge.md`): ρύθμιση κλειστή by default,
       «MyCS Bridge» στο Ekdosi με λιγότερες ρυθμίσεις, ένα «Εισερχόμενα». ΑΦΜ/ΔΟΥ/είδος παραστατικού από τις επαφές,
       γκρινιάρης και ignore invoicing από τον πελάτη, αποδέκτης ανά γραμμή από τη σχετική επαφή υπηρεσίας/domain.
   - [x] **E1 (feat/ekdosi-feed):** `POST /api/ekdosi` (HMAC, ops ping/invoices/invoice/resolve/mark) στο σχήμα του

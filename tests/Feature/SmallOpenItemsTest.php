@@ -12,7 +12,6 @@ use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Small items left open by the reviews of #411 (owner 2026-10-24). */
@@ -68,14 +67,5 @@ class SmallOpenItemsTest extends TestCase
         $this->assertSame(['auto', 'keep', 'give_up'], array_keys($choices));
         $this->assertStringContainsString('suspended on its date', $choices['auto']);
         $this->assertStringStartsWith('Re-issue', $choices['keep']);
-    }
-
-    public function test_the_setting_nothing_reads_is_gone(): void
-    {
-        DB::table('settings')->insert(['key' => 'cronjob_invoice_reminder', 'value' => '3', 'type' => 'string']);
-
-        (require database_path('migrations/2027_01_05_000000_forget_cronjob_invoice_reminder.php'))->up();
-
-        $this->assertFalse(DB::table('settings')->where('key', 'cronjob_invoice_reminder')->exists());
     }
 }

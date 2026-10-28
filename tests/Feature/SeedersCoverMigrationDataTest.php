@@ -69,13 +69,4 @@ class SeedersCoverMigrationDataTest extends TestCase
         $this->assertSame('0', (string) DB::table('settings')->where('key', 'invoice_number')->value('value'), 'the seeder alone');
         $this->assertSame('0', (string) DB::table('settings')->where('key', 'credit_note_number')->value('value'));
     }
-
-    public function test_an_install_seeded_with_the_old_default_numbers_its_first_note_one(): void
-    {
-        DB::table('settings')->where('key', 'credit_note_number')->update(['value' => '1']);
-
-        (require database_path('migrations/2027_01_15_000000_credit_note_counter_from_zero.php'))->up();
-
-        $this->assertSame('0', (string) DB::table('settings')->where('key', 'credit_note_number')->value('value'));
-    }
 }
