@@ -9,6 +9,7 @@ use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
 use App\Admin\Pages\GrRegistry;
 use App\Admin\Pages\IncomeByClient;
+use App\Admin\Pages\IncomeByProduct;
 use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\ProxmoxNodes;
@@ -123,6 +124,7 @@ class TopMenu
         'Reports' => [
             [RevenueForecast::class],
             [IncomeByClient::class],
+            [IncomeByProduct::class],
             [IncomeReport::class],
         ],
         'Utilities' => [
