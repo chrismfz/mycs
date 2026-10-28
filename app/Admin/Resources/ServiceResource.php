@@ -202,7 +202,7 @@ class ServiceResource extends Resource
             ->components([
                 // Its usage as its server last told it (services:usage, every 4 hours) and the domains its account hosts, one line.
                 View::make('admin.resources.service-resource.summary-line')->columnSpanFull()
-                    ->visible(fn (?Service $record) => $record !== null && ($record->usage !== null || $record->hostedDomains()->exists()))
+                    ->visible(fn (?Service $record) => $record !== null && ($record->usage !== null || $record->hostedDomains()->exists() || $record->cpanelAccount !== null))
                     ->viewData(fn (?Service $record) => $record === null ? [] : self::summaryLine($record)),
                 Section::make('Billing')
                     ->columnSpan(1)
@@ -447,6 +447,14 @@ class ServiceResource extends Resource
             'dedicatedIp' => $record->dedicated_ip,
             'readAt' => $usage?->read_at?->format('d/m/Y H:i'),
             'hosted' => $hosted->all(),
+            // Its account on the server (Hosting Accounts): inodes, and what is not right there.
+            'inodes' => ($account = $record->cpanelAccount) === null || $account->inodes_used === null ? null : self::meter($account->inodes_used, $account->inodes_limit, false),
+            'serverState' => $account === null ? [] : array_values(array_filter([
+                $account->suspended ? 'Suspended on the server' . ($account->suspend_reason ? ': ' . $account->suspend_reason : '') : null,
+                $account->mail_suspended ? 'Outgoing mail suspended' : ($account->mail_held ? 'Outgoing mail held' : null),
+                $account->backup ? null : 'No backups',
+                $account->nearLimits() !== [] ? 'Near its ' . implode(', ', $account->nearLimits()) . ' limit' : null,
+            ])),
         ];
     }
 

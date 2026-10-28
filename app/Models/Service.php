@@ -1161,6 +1161,16 @@ class Service extends Model implements Auditable
         return $this->hasOne(ServiceUsage::class);
     }
 
+    /**
+     * Its account on its WHM server as cpanel:sync last read it (Hosting Accounts): inodes, limits, mail, backups.
+     *
+     * @return HasOne<CpanelAccount, $this>
+     */
+    public function cpanelAccount(): HasOne
+    {
+        return $this->hasOne(CpanelAccount::class)->whereNull('gone_at')->latestOfMany();
+    }
+
     /** @return HasMany<ServiceUpgrade, $this> */
     public function upgrade(): HasMany
     {

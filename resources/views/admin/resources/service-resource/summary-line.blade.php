@@ -11,6 +11,12 @@
     @if ($bandwidth)
     <span><strong class="text-gray-950 dark:text-white">Bandwidth</strong> {{ $bandwidth }}</span>
     @endif
+    @if ($inodes)
+    <span><strong class="text-gray-950 dark:text-white">Inodes</strong> {{ $inodes }}</span>
+    @endif
+    @foreach ($serverState as $state)
+    <x-filament::badge size="sm" :color="str_starts_with($state, 'No backups') ? 'gray' : 'danger'">{{ $state }}</x-filament::badge>
+    @endforeach
     @if ($accounts)
     <span><strong class="text-gray-950 dark:text-white">{{ $accounts[0] }}</strong> {{ $accounts[1] }}</span>
     @endif
