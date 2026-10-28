@@ -134,8 +134,12 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       πακέτο, owner/reseller, δίσκος, inodes, bandwidth, suspend, mail held, αντιστοίχιση, «Services without an account»,
       inodes και «κοντά στο όριο» στη σελίδα της υπηρεσίας)· **δοκιμή reseller στον rigel** (provisioning.md) και «Σύνδεση
       στο WHM» για reseller (ελεγμένη με test· live στην επόμενη δοκιμή).
-- [ ] cPanel, επόμενα (υπεύθυνος 2026-10-28): χρήση πόρων του CloudLinux (LVE: CPU/RAM/IO/EP, faults) ανά λογαριασμό·
-      WordPress (WP Toolkit) και ασφάλεια (Imunify360) ανά λογαριασμό· πριν από αυτά, τι φτάνει με το token του WHM. Το
+- [x] ~~cPanel: χρήση πόρων του CloudLinux~~ **έγινε (στάδιο 3):** `cpanel:lve` κάθε 30' διαβάζει μέσω WHM το
+      `ResourceUsage::get_usages` κάθε λογαριασμού (CPU % του ορίου του, RAM, EP, processes, I/O, IOPS και τα όριά τους),
+      κρατά τις μετρήσεις 2 μέρες· το μέγιστο 24ώρου στο Hosting Accounts (στήλη, φίλτρο) και στη σελίδα της υπηρεσίας
+      (πελάτης και staff, «κοντά στο όριο»). Το όνομα του πακέτου κόβεται στους 24 χαρακτήρες. **Faults και ιστορικό του
+      lve-stats** δεν τα δίνει το API (μόνο `lveinfo` ως root): απόφαση υπευθύνου 2026-10-28, αργότερα.
+- [ ] cPanel, επόμενα: WordPress (WP Toolkit) και ασφάλεια (Imunify360) ανά λογαριασμό· πριν από αυτά, τι φτάνει με το token του WHM. Το
       backup του λογαριασμού είναι του JetBackup (το backup του cPanel κλειστό στον rigel): αργότερα από το JetBackup.
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 

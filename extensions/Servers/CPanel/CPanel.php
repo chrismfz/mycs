@@ -1017,6 +1017,62 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return $accounts;
     }
 
+    /**
+     * CloudLinux's limits and what each account uses of them now (owner 2026-10-28, stage 3: «does the site hit its
+     * limits»), as cPanel's own ResourceUsage::get_usages tells it, one account a call through WHM: CPU as a percent of
+     * the account's own limit, physical memory and I/O in bytes, entry processes, processes and IOPS counted. Reads only.
+     * A protected account is not read (the call names it); a server without CloudLinux answers without them: an empty
+     * list, after one call. One account that cannot be read is left out; none at all throws.
+     *
+     * @param  list<string>  $users
+     * @return array<string, array<string, array{used: int, limit: int|null}>>
+     */
+    public function lveUsages(array $users): array
+    {
+        $protected = $this->protectedAccounts();
+        $read = [];
+        $failed = null;
+        foreach ($users as $user) {
+            $user = strtolower(trim($user));
+            if ($user === '' || in_array($user, $protected, true)) {
+                continue;
+            }
+            try {
+                $json = $this->request('/cpanel', 'get', ['cpanel_jsonapi_user' => $user, 'cpanel_jsonapi_apiversion' => 3,
+                    'cpanel_jsonapi_module' => 'ResourceUsage', 'cpanel_jsonapi_func' => 'get_usages'], timeout: 20)->json();
+                $rows = $json['result']['data'] ?? null;
+                if ((int) ($json['result']['status'] ?? 0) !== 1 || !is_array($rows)) {
+                    throw new WhmRefused('cPanel ResourceUsage: ' . implode(' ', array_map('strval', (array) ($json['result']['errors'] ?? ['no answer']))));
+                }
+            } catch (Throwable $e) {
+                report($e);
+                $failed = $e;
+
+                continue;
+            }
+            $lve = [];
+            foreach ($rows as $row) {
+                $key = self::LVE[$row['id'] ?? ''] ?? null;
+                if ($key !== null && is_numeric($row['usage'] ?? null)) {
+                    $lve[$key] = ['used' => max(0, (int) round((float) $row['usage'])),
+                        'limit' => is_numeric($row['maximum'] ?? null) && (float) $row['maximum'] > 0 ? (int) round((float) $row['maximum']) : null];
+                }
+            }
+            if ($lve === []) {
+                return []; // no CloudLinux here: no other account has them either
+            }
+            $read[$user] = $lve;
+        }
+        if ($read === [] && $failed !== null) {
+            throw $failed;
+        }
+
+        return $read;
+    }
+
+    /** get_usages's CloudLinux ids. */
+    private const LVE = ['lvecpu' => 'cpu', 'lvememphy' => 'memory', 'lveep' => 'entry_processes', 'lvenproc' => 'processes', 'lveio' => 'io', 'lveiops' => 'iops'];
+
     /** WHM's «793M», «20G», «512000K» → MB; «unlimited» or none → null (a limit of 0 is «none»: self::limit). */
     private static function mb(mixed $value): ?int
     {

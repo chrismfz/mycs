@@ -40,7 +40,10 @@ class CpanelAccountResource extends Resource
     {
         return $table
             ->defaultSort('user')
-            ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('server')->with(['server', 'service.product', 'service.client']))
+            ->modifyQueryUsing(function (Builder $query) {
+                $query->whereHas('server')->with(['server', 'service.product', 'service.client']);
+                CpanelAccount::withLvePeaks($query);
+            })
             ->columns([
                 // Shown by itself when there is more than one cPanel server.
                 TextColumn::make('server.name')->label('Server')->sortable()
@@ -48,7 +51,9 @@ class CpanelAccountResource extends Resource
                 TextColumn::make('user')->sortable()->searchable()
                     ->description(fn (CpanelAccount $record) => $record->domain),
                 TextColumn::make('domain')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                // Cut short (a reseller's «owner_long-package-name» widened the table past the page: owner 2026-10-28), whole on hover.
                 TextColumn::make('plan')->label('Package')->sortable()->searchable()->toggleable()
+                    ->limit(24)->tooltip(fn (CpanelAccount $record) => mb_strlen((string) $record->plan) > 24 ? $record->plan : null)
                     ->description(fn (CpanelAccount $record) => $record->reseller ? 'reseller' : ($record->owner && $record->owner !== 'root' ? 'of ' . $record->owner : null)),
                 TextColumn::make('owner')->sortable()->searchable()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('disk_used_mb')->label('Disk')->sortable()
@@ -60,6 +65,11 @@ class CpanelAccountResource extends Resource
                 TextColumn::make('bandwidth_used_mb')->label('Bandwidth (month)')->sortable()->toggleable()
                     ->formatStateUsing(fn (CpanelAccount $record) => self::meter($record->bandwidth_used_mb, $record->bandwidth_limit_mb, true))
                     ->color(fn (CpanelAccount $record) => CpanelAccount::near($record->bandwidth_used_mb, $record->bandwidth_limit_mb) ? 'danger' : null),
+                // CloudLinux (cpanel:lve): the peaks of the last 24 hours against its limits, CPU and memory shown, all on hover.
+                TextColumn::make('lve')->label('CPU · RAM (24h)')->toggleable()
+                    ->state(fn (CpanelAccount $record) => self::lveSummary($record))
+                    ->tooltip(fn (CpanelAccount $record) => self::lveDetail($record))
+                    ->color(fn (CpanelAccount $record) => self::lveNear($record) ? 'danger' : null),
                 TextColumn::make('state')->label('State')->badge()
                     ->state(fn (CpanelAccount $record) => array_values(array_filter([
                         $record->suspended ? 'Suspended' : null,
@@ -94,6 +104,17 @@ class CpanelAccountResource extends Resource
                         ->orWhereRaw('disk_limit_mb > 0 and disk_used_mb >= ? * disk_limit_mb', [CpanelAccount::NEAR])
                         ->orWhereRaw('inodes_limit > 0 and inodes_used >= ? * inodes_limit', [CpanelAccount::NEAR])
                         ->orWhereRaw('bandwidth_limit_mb > 0 and bandwidth_used_mb >= ? * bandwidth_limit_mb', [CpanelAccount::NEAR])),
+                        false: fn (Builder $query) => $query),
+                TernaryFilter::make('lve_near')->label('Near a CloudLinux limit (24h)')
+                    ->queries(true: fn (Builder $query) => $query->whereHas('lveSamples', fn ($q) => $q->where('sampled_at', '>=', now()->subDay())
+                        ->where(function ($q) {
+                            $q->where('cpu', '>=', 100 * CpanelAccount::NEAR);
+                            foreach (CpanelAccount::LVE as $columns) {
+                                if ($columns['limit'] !== null) {
+                                    $q->orWhereRaw("cpanel_accounts.{$columns['limit']} > 0 and cpanel_lve_samples.{$columns['sample']} >= ? * cpanel_accounts.{$columns['limit']}", [CpanelAccount::NEAR]);
+                                }
+                            }
+                        })),
                         false: fn (Builder $query) => $query),
                 TernaryFilter::make('suspended'),
                 TernaryFilter::make('mail')->label('Outgoing mail held or suspended')
@@ -133,6 +154,70 @@ class CpanelAccountResource extends Resource
                     ->requiresConfirmation()
                     ->action(fn (CpanelAccount $record) => $record->update(['service_id' => null, 'internal' => false, 'note' => null])),
             ]);
+    }
+
+    /** Its peaks as the list loaded them (withLvePeaks), with its limits. @return array<string, array{peak: int|null, limit: int|null}> */
+    private static function lvePeaks(CpanelAccount $record): array
+    {
+        if ($record->lve_read_at === null) {
+            return [];
+        }
+        $peaks = [];
+        foreach (CpanelAccount::LVE as $key => $columns) {
+            $peak = $record->getAttribute("lve_{$key}_peak");
+            $peaks[$key] = ['peak' => $peak === null ? null : (int) $peak, 'limit' => $columns['limit'] === null ? 100 : $record->getAttribute($columns['limit'])];
+        }
+
+        return $peaks;
+    }
+
+    private static function percentOf(?int $used, ?int $limit): ?int
+    {
+        return $used === null || !$limit ? null : (int) round(100 * $used / $limit);
+    }
+
+    /** «CPU 45% · RAM 12%», or «—» never read. */
+    public static function lveSummary(CpanelAccount $record): string
+    {
+        $peaks = self::lvePeaks($record);
+        if ($peaks === [] || $peaks['cpu']['peak'] === null) {
+            return '—';
+        }
+        $memory = self::percentOf($peaks['memory']['peak'], $peaks['memory']['limit']);
+
+        return 'CPU ' . $peaks['cpu']['peak'] . '%' . ($memory === null ? '' : ' · RAM ' . $memory . '%');
+    }
+
+    public static function lveDetail(CpanelAccount $record): ?string
+    {
+        $peaks = self::lvePeaks($record);
+        if ($peaks === []) {
+            return null;
+        }
+        $labels = ['cpu' => 'CPU', 'memory' => 'RAM', 'entry_processes' => 'Entry processes', 'processes' => 'Processes', 'io' => 'I/O', 'iops' => 'IOPS'];
+        $lines = [];
+        foreach ($peaks as $key => $peak) {
+            $format = fn (?int $value) => $value === null ? '—' : match ($key) {
+                'cpu' => $value . '%',
+                'memory' => Number::fileSize($value * 1048576, 1),
+                'io' => Number::fileSize($value * 1024, 1) . '/s',
+                default => number_format($value, 0, ',', '.'),
+            };
+            $lines[] = $labels[$key] . ': ' . $format($peak['peak']) . ($key === 'cpu' ? ' of its limit' : ' / ' . ($peak['limit'] ? $format($peak['limit']) : '∞'));
+        }
+
+        return 'Peak of the last 24 hours: ' . implode(' · ', $lines);
+    }
+
+    private static function lveNear(CpanelAccount $record): bool
+    {
+        foreach (self::lvePeaks($record) as $peak) {
+            if (CpanelAccount::near($peak['peak'], $peak['limit'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** «1.2 GB / 5 GB · 24%», a count «12,000 / 250,000», or «… / ∞» with no limit. */
