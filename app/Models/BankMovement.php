@@ -31,6 +31,9 @@ class BankMovement extends Model
     /** Matched to its invoice and recorded on it, automatically. */
     public const MATCHED = 'matched';
 
+    /** Authenticity of a vouched-for movement whose account was taken out of «Our accounts» after (review of #491). */
+    public const TAKEN_OUT = 'account_taken_out';
+
     public const BANKS = ['eurobank' => 'Eurobank', 'piraeus' => 'Πειραιώς'];
 
     protected $fillable = ['bank', 'direction', 'amount', 'balance', 'reason', 'executed_at', 'message_key', 'message_id', 'folder', 'account',

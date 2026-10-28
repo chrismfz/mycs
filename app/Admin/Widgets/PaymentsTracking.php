@@ -59,7 +59,7 @@ class PaymentsTracking extends TableWidget
                     ->description(fn (BankMovement $record) => $record->bankName()),
                 TextColumn::make('reason')->label('Reference')->wrap()->searchable()
                     ->description(fn (BankMovement $record) => $record->authentic ? null
-                        : ($record->authenticity === 'not_our_account' ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
+                        : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
                             : '⚠ Not vouched for by our mail server: check it at the bank')),
                 TextColumn::make('executed_at')->label('When')->dateTime('d/m/Y H:i')->sortable(),
             ])

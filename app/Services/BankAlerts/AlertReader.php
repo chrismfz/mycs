@@ -142,13 +142,16 @@ final class AlertReader
             $isOurs = fn (?string $account) => $account !== null && in_array(mb_strtoupper(trim($account)), $ours, true);
             // The few accounts the bank's movements name, compared here as ours() does (a database's UPPER is not mb_strtoupper).
             $accounts = fn (bool $authentic) => BankMovement::query()->where('bank', $bank)->where('authentic', $authentic)
-                ->when(!$authentic, fn ($q) => $q->where('authenticity', 'not_our_account'))
+                ->when(!$authentic, fn ($q) => $q->whereIn('authenticity', ['not_our_account', BankMovement::TAKEN_OUT]))
                 ->whereNotNull('account')->distinct()->pluck('account');
 
             $added = $accounts(false)->filter($isOurs)->values()->all();
             $removed = $accounts(true)->reject($isOurs)->values()->all();
-            BankMovement::query()->where('bank', $bank)->where('authenticity', 'not_our_account')->whereIn('account', $added)
-                ->whereNotNull('message_id')->lazyById()->each(fn (BankMovement $movement) => $this->recount($movement, true));
+            // One with no Message-ID only when it was ours before (its key never changed): round 2 of #491.
+            BankMovement::query()->where('bank', $bank)->whereIn('account', $added)
+                ->where(fn ($q) => $q->where('authenticity', BankMovement::TAKEN_OUT)
+                    ->orWhere(fn ($q) => $q->where('authenticity', 'not_our_account')->whereNotNull('message_id')))
+                ->lazyById()->each(fn (BankMovement $movement) => $this->recount($movement, true));
             BankMovement::query()->where('bank', $bank)->where('authentic', true)->whereIn('account', $removed)
                 ->lazyById()->each(fn (BankMovement $movement) => $this->recount($movement, false));
         }
@@ -156,7 +159,7 @@ final class AlertReader
 
     private function recount(BankMovement $movement, bool $ours): void
     {
-        $changes = ['authentic' => $ours, 'authenticity' => $ours ? 'account_added_later' : 'not_our_account'];
+        $changes = ['authentic' => $ours, 'authenticity' => $ours ? 'account_added_later' : BankMovement::TAKEN_OUT];
         if ($ours && $movement->status === BankMovement::UNVERIFIED) {
             $changes['status'] = array_filter($this->settings['ignore'], fn ($text) => mb_stripos($movement->reason, $text) !== false) !== []
                 ? BankMovement::IGNORED : BankMovement::PENDING;
@@ -166,10 +169,15 @@ final class AlertReader
         }
         if ($movement->message_id !== null) {
             $key = hash('sha256', ($ours ? 'authentic|' : 'unverified|') . 'mid:' . $movement->message_id);
-            if (BankMovement::query()->where('message_key', $key)->whereKeyNot($movement->id)->exists()) {
+            if (!BankMovement::query()->where('message_key', $key)->whereKeyNot($movement->id)->exists()) {
+                $changes['message_key'] = $key;
+            } elseif ($ours) {
                 return; // that mail's other copy is a movement already: this one stays as it is
             }
-            $changes['message_key'] = $key;
+            // Taken out with an unvouched copy of it stored: it stops counting all the same, with its own key, which the
+            // mail read again does not reach (it finds the copy's): round 2 of #491.
+        } elseif ($ours && $movement->authenticity !== BankMovement::TAKEN_OUT) {
+            return;
         }
         // Only as it was read: staff seeing to it meanwhile keep what they did (review of #491).
         BankMovement::query()->whereKey($movement->id)->where('status', $movement->status)->where('authentic', $movement->authentic)->update($changes);
