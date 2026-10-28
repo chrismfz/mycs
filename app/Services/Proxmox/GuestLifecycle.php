@@ -144,6 +144,37 @@ final class GuestLifecycle
     }
 
     /**
+     * What the customer and staff see of the service's VM (owner 2026-10-28, the client area): its state now, its CPU,
+     * memory and disk, its addresses as the last read found them, and its graph for an hour, a day or a week. Reads only,
+     * through the same checks as an action (one guest, in the pool, the same machine): a VM MyCS may not act on is not
+     * shown either. Null state: no longer on the cluster.
+     *
+     * @return array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int, memory: int,
+     *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, graph: list<array<string, mixed>>}
+     */
+    public function overview(Service $service, string $timeframe = 'hour'): array
+    {
+        [$row, $resource] = $this->guest($service);
+        $now = $resource === null ? [] : (array) $this->client->get(ProxmoxClient::guestPath($resource) . '/status/current');
+        $number = fn (string $key, mixed $fallback = 0) => is_numeric($now[$key] ?? null) ? $now[$key] + 0 : $fallback;
+
+        return [
+            'vmid' => $row->vmid,
+            'name' => $row->name,
+            'status' => $resource['status'] ?? null,
+            'uptime' => (int) $number('uptime'),
+            'cpu' => (float) $number('cpu'),
+            'cpus' => (int) $number('cpus', $row->cpus ?? 0),
+            'memory' => (int) $number('mem'),
+            'max_memory' => (int) $number('maxmem', $row->max_memory ?? 0),
+            'max_disk' => (int) $number('maxdisk', $row->max_disk ?? 0),
+            'ips' => (array) $row->ips,
+            'macs' => (array) $row->macs,
+            'graph' => $resource === null ? [] : $this->client->guestRrd($resource, $timeframe),
+        ];
+    }
+
+    /**
      * The service's guest and what the cluster lists for it now (null: no longer there), refused unless it is safe to
      * act on: one guest, in the pool, the same machine. A guest already destroyed, or seen gone by the last read, is never
      * looked up again by its VMID: that number may be another machine's by now.

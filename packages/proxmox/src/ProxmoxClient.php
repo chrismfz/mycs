@@ -112,6 +112,25 @@ final class ProxmoxClient
         return array_values(array_filter((array) $this->get('nodes/' . rawurlencode($node) . '/rrddata?timeframe=' . rawurlencode($timeframe) . '&cf=AVERAGE'), 'is_array'));
     }
 
+    /** One of a guest's timeframes for its graphs (rrddata). */
+    public const TIMEFRAMES = ['hour', 'day', 'week'];
+
+    /**
+     * A guest's graph points (rrddata: cpu, mem/maxmem, netin/netout, diskread/diskwrite per second) for an hour, a day
+     * or a week, at its node now.
+     *
+     * @param  array<string, mixed>  $resource  as the cluster lists it (its node, type, vmid)
+     * @return list<array<string, mixed>>
+     */
+    public function guestRrd(array $resource, string $timeframe = 'hour'): array
+    {
+        if (!in_array($timeframe, self::TIMEFRAMES, true)) {
+            throw new ProxmoxException("Not a timeframe: {$timeframe}");
+        }
+
+        return array_values(array_filter((array) $this->get(self::guestPath($resource) . '/rrddata?timeframe=' . $timeframe . '&cf=AVERAGE'), 'is_array'));
+    }
+
     /**
      * Every VM and container of the cluster, with its MACs (its config) and addresses (its guest agent, or a
      * container's static ones). A guest whose details cannot be read is listed all the same, without them.
