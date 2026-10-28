@@ -913,6 +913,75 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return $read;
     }
 
+    /**
+     * Every account on the server as WHM lists it (owner 2026-10-28: Utilities → Hosting Accounts), in one listaccts, one
+     * showbw and one listresellers: its owner and package, disk and inodes against their limits, this month's bandwidth,
+     * suspension, outgoing mail held or suspended, backups. Reads only; a listaccts without its accounts throws (never
+     * taken for an empty server); bandwidth or resellers that cannot be read are left unknown.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function inventory(): array
+    {
+        $listed = $this->whm('/listaccts', [], timeout: 90)['data']['acct'] ?? null;
+        if (!is_array($listed) || !array_is_list($listed)) {
+            throw new Exception('cPanel listaccts: an answer without its accounts');
+        }
+        $bandwidth = null;
+        try {
+            $bandwidth = [];
+            foreach ((array) ($this->whm('/showbw', [], timeout: 60)['data']['acct'] ?? []) as $row) {
+                $user = strtolower((string) ($row['user'] ?? ''));
+                if ($user !== '' && empty($row['deleted'])) {
+                    $bandwidth[$user] = ['used' => self::bytesToMb($row['totalbytes'] ?? null) ?? 0, 'limit' => self::limit(self::bytesToMb($row['limit'] ?? null))];
+                }
+            }
+        } catch (Throwable $e) {
+            report($e);
+            $bandwidth = null;
+        }
+        try {
+            $resellers = array_map('strtolower', $this->resellers());
+        } catch (Throwable $e) {
+            report($e);
+            $resellers = null;
+        }
+
+        $accounts = [];
+        foreach ($listed as $row) {
+            $user = strtolower(trim((string) ($row['user'] ?? '')));
+            if ($user === '' || strlen($user) > 64) {
+                continue;
+            }
+            $count = fn (string $key) => is_numeric($row[$key] ?? null) ? max(0, (int) $row[$key]) : null;
+            $accounts[] = [
+                'user' => $user,
+                'domain' => mb_substr(strtolower(trim((string) ($row['domain'] ?? ''))), 0, 253) ?: null,
+                'owner' => strtolower(trim((string) ($row['owner'] ?? ''))) ?: null,
+                'plan' => mb_substr(trim((string) ($row['plan'] ?? '')), 0, 191) ?: null,
+                'ip' => filter_var($row['ip'] ?? null, FILTER_VALIDATE_IP) ?: null,
+                'disk_used_mb' => self::mb($row['diskused'] ?? null),
+                'disk_limit_mb' => self::limit(self::mb($row['disklimit'] ?? null)),
+                'inodes_used' => $count('inodesused'),
+                'inodes_limit' => ($limit = $count('inodeslimit')) ? $limit : null,
+                'bandwidth_used_mb' => $bandwidth === null ? null : ($bandwidth[$user]['used'] ?? 0),
+                'bandwidth_limit_mb' => $bandwidth[$user]['limit'] ?? null,
+                'suspended' => (int) ($row['suspended'] ?? 0) === 1,
+                // WHM says «not suspended» for one that is not: kept only for one that is.
+                'suspend_reason' => (int) ($row['suspended'] ?? 0) === 1 ? (mb_substr(trim((string) ($row['suspendreason'] ?? '')), 0, 255) ?: null) : null,
+                'suspended_at' => is_numeric($row['suspendtime'] ?? null) && (int) $row['suspendtime'] > 0 ? (int) $row['suspendtime'] : null,
+                'mail_held' => (int) ($row['outgoing_mail_hold'] ?? 0) === 1,
+                'mail_suspended' => (int) ($row['outgoing_mail_suspended'] ?? 0) === 1,
+                'max_email_per_hour' => is_numeric($row['max_email_per_hour'] ?? null) ? (int) $row['max_email_per_hour'] : null,
+                'backup' => (int) ($row['backup'] ?? 0) === 1,
+                'reseller' => $resellers === null ? null : in_array($user, $resellers, true),
+                'created_at' => is_numeric($row['unix_startdate'] ?? null) ? (int) $row['unix_startdate'] : null,
+            ];
+        }
+
+        return $accounts;
+    }
+
     /** WHM's «793M», «20G», «512000K» → MB; «unlimited» or none → null (a limit of 0 is «none»: self::limit). */
     private static function mb(mixed $value): ?int
     {

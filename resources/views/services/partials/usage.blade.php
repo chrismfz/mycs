@@ -5,10 +5,14 @@
     ['label' => __('services.usage.disk'), 'used' => $usage->disk_used_mb, 'limit' => $usage->disk_limit_mb, 'size' => true],
     ['label' => __('services.usage.bandwidth'), 'used' => $usage->bandwidth_used_mb, 'limit' => $usage->bandwidth_limit_mb, 'size' => true],
     $usage->accounts !== null ? ['label' => __('services.usage.' . ($usage->accounts_kind === 'mailboxes' ? 'mailboxes' : 'accounts')), 'used' => $usage->accounts, 'limit' => $usage->accounts_limit, 'size' => false] : null,
+    // Its files' count (Hosting Accounts): a limit a site meets before its disk's.
+    ($account = $service->cpanelAccount) && $account->inodes_used !== null && $account->inodes_limit ? ['label' => __('services.usage.inodes'), 'used' => $account->inodes_used, 'limit' => $account->inodes_limit, 'size' => false] : null,
 ]))
+{{-- A reseller's meters are its accounts' summed against its product's limits: its own account's limits are not them. --}}
+@php($near = isset($account) && $account && !$account->reseller ? $account->nearLimits() : [])
 <div class="bg-background-secondary rounded-lg p-4 mt-2">
     <h4 class="text-lg font-semibold">{{ __('services.usage.title') }}</h4>
-    <div class="grid {{ count($meters) === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2' }} gap-4 mt-3">
+    <div class="grid {{ count($meters) >= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2' }} gap-4 mt-3">
         @foreach($meters as $meter)
         @php($percent = \App\Models\ServiceUsage::percent($meter['used'], $meter['limit']))
         <div>
@@ -28,6 +32,12 @@
         </div>
         @endforeach
     </div>
+    @if($near !== [])
+    <p class="text-sm text-warning mt-3">
+        {{ __('services.usage.near', ['limits' => collect($near)->map(fn ($limit) => __('services.usage.limits.' . $limit))->implode(', ')]) }}
+        @can('update', $service)<a class="underline" href="{{ route('services.upgrade', $service) }}" wire:navigate>{{ __('services.usage.upgrade') }}</a>@endcan
+    </p>
+    @endif
     <p class="text-xs text-base/50 mt-3">{{ __('services.usage.read_at', ['when' => $usage->read_at->format('d/m/Y H:i')]) }}</p>
 </div>
 @endif

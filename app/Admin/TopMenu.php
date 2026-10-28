@@ -27,6 +27,7 @@ use App\Admin\Resources\ClientGroupResource;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ConfigOptionResource;
 use App\Admin\Resources\CouponResource;
+use App\Admin\Resources\CpanelAccountResource;
 use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
 use App\Admin\Resources\DomainRegistrarConnectionResource;
@@ -131,6 +132,7 @@ class TopMenu
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
             [ProxmoxNodes::class],
+            [CpanelAccountResource::class, 'index', 'Hosting Accounts'],
             [MailcowDomainResource::class, 'index', 'Mail Domains'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
             [SystemCleanup::class],

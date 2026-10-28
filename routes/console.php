@@ -12,6 +12,7 @@ use App\Console\Commands\ReadBankAlerts;
 use App\Console\Commands\ReadGatewayBalances;
 use App\Console\Commands\RegistrarDebugLogPrune;
 use App\Console\Commands\ScheduleHeartbeatCommand;
+use App\Console\Commands\SyncCpanelAccounts;
 use App\Console\Commands\SyncMailcowDomains;
 use App\Console\Commands\SyncProxmoxGuests;
 use App\Console\Commands\SyncServiceUsage;
@@ -33,6 +34,7 @@ Schedule::command(ReadBankAlerts::class)->description('Reads the banks\' alert e
 Schedule::command(ReadGatewayBalances::class)->description('Reads what Stripe and PayPal hold (Bank totals)')->hourlyAt(13)->withoutOverlapping(10)->onOneServer();
 Schedule::command(SyncProxmoxGuests::class)->description('Reads the VMs and containers of every Proxmox cluster (read-only)')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncMailcowDomains::class)->description('Reads the domains and mailboxes of every mailcow server (read-only)')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
+Schedule::command(SyncCpanelAccounts::class)->description('Reads the accounts of every cPanel server (read-only)')->everyThirtyMinutes()->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncSslOrders::class)->description('Reads every Openprovider SSL order again: status, dates, certificate, validation')->cron('41 * * * *')->withoutOverlapping(30)->onOneServer();
 Schedule::command(ReadBalances::class)->description('Reads what is left with each registrar (the dashboard\'s «Registrar credit»; staff mailed when low)')->hourlyAt(7)->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping()->onOneServer();
