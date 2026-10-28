@@ -76,12 +76,12 @@ class ClientLicenseDetailsTest extends TestCase
     {
         Carbon::setTestNow('2026-10-28 10:00:00');
         $this->license->update(['valid_ip' => '198.51.100.7', 'valid_domain' => 'panel.example.test,www.example.test', 'valid_directory' => '/opt/zonecloud',
-            'last_ok_at' => now()->subHours(3), 'last_seen_ip' => '198.51.100.7', 'last_seen_client' => 'POST GuzzleHttp/7']);
+            'last_ok_at' => now()->subHours(3), 'last_seen_ip' => '198.51.100.20', 'last_seen_client' => 'POST GuzzleHttp/7']);
 
         $html = $this->page($this->owner)->assertOk()->getContent();
 
         foreach ([__('services.license.valid_domains'), 'panel.example.test, www.example.test', __('services.license.valid_directory'), '/opt/zonecloud',
-            __('services.license.last_check'), now()->subHours(3)->diffForHumans(), __('services.license.last_seen_from')] as $shown) {
+            __('services.license.last_check'), now()->subHours(3)->diffForHumans(), __('services.license.last_seen_from'), '198.51.100.20'] as $shown) {
             $this->assertStringContainsString($shown, $html);
         }
         $this->assertSame('Last good check', __('services.license.last_check'), 'one label for last_ok_at, as staff call it');
@@ -109,9 +109,29 @@ class ClientLicenseDetailsTest extends TestCase
         LicenseActivity::record($this->license->license_key, new ZlicResponse(200, ['status' => 'Invalid', 'message' => 'IP Address Invalid']), '203.0.113.10', 'POST x');
 
         $html = $this->page($this->owner)->assertOk()->getContent();
-        $this->assertStringContainsString(__('services.license.last_seen_from') . ':</span>' . "\n" . '        <span class="text-base/50">198.51.100.7', $html);
+        $this->assertMatchesRegularExpression('#' . preg_quote(__('services.license.last_seen_from'), '#') . ':</span>\s*<span[^>]*>198\.51\.100\.7</span>#', $html);
         $this->assertStringNotContainsString('203.0.113.10', $html, 'a later failure, from anyone, never takes its place');
         $this->assertStringNotContainsString('GuzzleHttp', $html);
+    }
+
+    public function test_a_reverse_dns_that_is_only_the_ip_is_not_a_domain(): void
+    {
+        $this->license->update(['valid_ip' => '192.0.2.1', 'valid_domain' => '192.0.2.1,www.192.0.2.1']);
+        $this->assertStringNotContainsString(__('services.license.valid_domains'), $this->page($this->owner)->getContent());
+
+        $this->license->update(['valid_domain' => 'host.example.test,www.host.example.test,2001:db8::1']);
+        $html = $this->page($this->owner)->getContent();
+        $this->assertStringContainsString('host.example.test, www.host.example.test</span>', $html);
+        $this->assertStringNotContainsString('2001:db8::1', $html);
+    }
+
+    public function test_last_seen_from_is_hidden_while_reissued(): void
+    {
+        // E.g. moved to another client and reissued: the server it left is the previous owner's.
+        $this->license->update(['last_ok_at' => now(), 'last_seen_ip' => '198.51.100.30', 'status' => License::STATUS_REISSUED, 'valid_ip' => null]);
+        $html = $this->page($this->owner)->getContent();
+        $this->assertStringNotContainsString(__('services.license.last_seen_from'), $html);
+        $this->assertStringNotContainsString('198.51.100.30', $html);
     }
 
     public function test_the_directory_zlic_binds_everywhere_is_not_shown(): void
@@ -129,7 +149,7 @@ class ClientLicenseDetailsTest extends TestCase
 
         $html = $this->page($this->owner)->assertOk()->getContent();
 
-        foreach (['Έγκυρα domains', 'Έγκυρος φάκελος', 'Τελευταίος επιτυχής έλεγχος', 'Τελευταία φορά από'] as $label) {
+        foreach (['Έγκυρα domains', 'Έγκυρος φάκελος', 'Τελευταίος επιτυχής έλεγχος', 'Τελευταίος έλεγχος από'] as $label) {
             $this->assertStringContainsString($label, $html);
         }
         $this->assertStringNotContainsString('services.license.', $html);

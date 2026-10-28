@@ -61,6 +61,18 @@ class License extends Model implements Auditable
         return $this->belongsTo(Service::class);
     }
 
+    /**
+     * Its valid domains as names: zlic binds the reverse DNS of the IP, which is the IP itself (and «www.» + it) when
+     * the address has none (review of #493). Those say nothing the valid IPs don't.
+     *
+     * @return list<string>
+     */
+    public function domainNames(): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', (string) $this->valid_domain)),
+            fn (string $domain) => $domain !== '' && filter_var(preg_replace('/^www\./i', '', $domain), FILTER_VALIDATE_IP) === false));
+    }
+
     /** @return HasMany<LicenseAccessLog, $this> */
     public function accessLogs(): HasMany
     {

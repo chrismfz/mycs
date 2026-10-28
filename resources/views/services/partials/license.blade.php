@@ -18,10 +18,10 @@
         <span class="mr-2">{{ __('services.license.valid_ips') }}:</span>
         <span class="text-base/50">{{ filled($license->valid_ip) ? str_replace(',', ', ', $license->valid_ip) : __('services.license.not_bound') }}</span>
     </div>
-    @if(filled($license->valid_domain))
+    @if($domains = $license->domainNames())
     <div class="flex items-start text-base">
         <span class="mr-2 shrink-0">{{ __('services.license.valid_domains') }}:</span>
-        <span class="text-base/50 break-all">{{ str_replace(',', ', ', $license->valid_domain) }}</span>
+        <span class="text-base/50 break-all">{{ implode(', ', $domains) }}</span>
     </div>
     @endif
     @if(filled($license->valid_directory) && $license->valid_directory !== \App\Http\Controllers\ZlicController::DIRECTORY)
@@ -44,12 +44,13 @@
     </div>
     {{--
         Written by a good check only (a failed one never overwrites it): a server holding the key, or, with the product's
-        «allow IP conflict», any caller with it and the product's PSK. Kept through a reissue, with the time beside it.
+        «allow IP conflict», any caller with it and the product's PSK. Not while reissued (review of #493): the server it
+        left, or a previous owner's after a move, until the next check binds it.
     --}}
-    @if(filled($license->last_seen_ip))
-    <div class="flex items-center text-base">
-        <span class="mr-2">{{ __('services.license.last_seen_from') }}:</span>
-        <span class="text-base/50">{{ $license->last_seen_ip }}</span>
+    @if(filled($license->last_seen_ip) && $license->status !== \App\Models\License::STATUS_REISSUED)
+    <div class="flex items-start text-base">
+        <span class="mr-2 shrink-0">{{ __('services.license.last_seen_from') }}:</span>
+        <span class="text-base/50 break-all">{{ $license->last_seen_ip }}</span>
     </div>
     @endif
     @if($license->status !== \App\Models\License::STATUS_REISSUED && $license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
