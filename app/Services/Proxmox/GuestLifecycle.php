@@ -149,20 +149,32 @@ final class GuestLifecycle
     /**
      * What the customer sees of the service's VM now (owner 2026-10-28, the client area): its state, its CPU, memory and
      * disk, its addresses as the last read found them. Reads only, through the same checks as an action (one guest, in the
-     * pool, the same machine): a VM MyCS may not act on is not shown either. Null state: no longer on the cluster. Its
-     * own state read once (guest() reads it), a size of 0 the last read's (review of #502).
+     * pool, the same machine): a VM MyCS may not act on is not shown either. Null state: no longer on the cluster.
      *
      * @return array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int, memory: int,
      *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>}
      */
     public function state(Service $service): array
     {
+        return $this->read($service)[0];
+    }
+
+    /**
+     * Its state and, when a timeframe is asked, its graph (rrddata), in one check of the guest (round 2 of #502: a cold
+     * panel read it twice). The VM's own state read once (guest() reads it); a size of 0 the last read's. A graph that
+     * cannot be read is told apart (its error), never a refusal of the VM: its state and power stay (ADV-502-R2-3).
+     *
+     * @return array{0: array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int,
+     *     memory: int, max_memory: int, max_disk: int, ips: list<string>, macs: list<string>},
+     *     1: list<array<string, mixed>>|null, 2: \Throwable|null}
+     */
+    public function read(Service $service, ?string $timeframe = null): array
+    {
         [$row, $resource] = $this->guest($service);
         $now = $resource === null ? [] : $this->current;
         $number = fn (string $key) => is_numeric($now[$key] ?? null) ? $now[$key] + 0 : 0;
         $size = fn (string $key, ?int $known) => $number($key) > 0 ? (int) $number($key) : (int) ($known ?? 0);
-
-        return [
+        $state = [
             'vmid' => $row->vmid,
             'name' => $row->name,
             'status' => $resource['status'] ?? null,
@@ -175,18 +187,17 @@ final class GuestLifecycle
             'ips' => (array) $row->ips,
             'macs' => (array) $row->macs,
         ];
-    }
+        $graph = null;
+        $failed = null;
+        if ($timeframe !== null) {
+            try {
+                $graph = $resource === null ? [] : $this->client->guestRrd($resource, $timeframe);
+            } catch (\Throwable $e) {
+                $failed = $e;
+            }
+        }
 
-    /**
-     * The VM's graph for an hour, a day or a week (rrddata), through the same checks.
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function graph(Service $service, string $timeframe = 'hour'): array
-    {
-        [, $resource] = $this->guest($service);
-
-        return $resource === null ? [] : $this->client->guestRrd($resource, $timeframe);
+        return [$state, $graph, $failed];
     }
 
     /**

@@ -38,8 +38,16 @@ class ProxmoxPanel extends Component
 
     private const KEEP_REFUSAL = 60;
 
-    /** After an action the panel reads its state afresh, every 5 seconds, this long (the cluster does it meanwhile). */
+    /**
+     * After an action the panel reads its state afresh, every 5 seconds, this long (the cluster does it meanwhile); the
+     * state kept 4 seconds then, whatever asks (a script, not the poll: ADV-502-R2-1).
+     */
     private const PENDING = 20;
+
+    private const KEEP_STATE_PENDING = 4;
+
+    /** Which state each action needs (ADV-502-R2-4: a VM paused, or migrating, is not powered by a crafted call). */
+    private const NEEDS = ['start' => 'stopped', 'shutdown' => 'running', 'reboot' => 'running', 'stop' => 'running'];
 
     public function mount(): void
     {
@@ -53,7 +61,9 @@ class ProxmoxPanel extends Component
             return;
         }
         $key = 'proxmox-power:' . $this->service->id;
-        if (RateLimiter::tooManyAttempts($key, 1)) {
+        // Taken before the action, not after: a second request meanwhile (a double click, two tabs) is refused
+        // (ADV-502-R2-2); given back as 10 seconds if the action fails.
+        if (!RateLimiter::attempt($key, 1, fn () => true, 30)) {
             $this->notify(__('services.proxmox.too_soon'), 'error');
 
             return;
@@ -63,15 +73,20 @@ class ProxmoxPanel extends Component
         try {
             // No guest (unmapped since the page opened) is «not done», never told sent nor audited (ADV-502-2).
             $extension ?? throw new \RuntimeException("Service #{$this->service->id} has no Proxmox guest to act on.");
-            $extension->lifecycle($this->service)->power($this->service, $action);
+            $lifecycle = $extension->lifecycle($this->service);
+            $status = $lifecycle->state($this->service)['status'];
+            if ($status !== self::NEEDS[$action]) {
+                throw new \RuntimeException("VM is «{$status}»: «{$action}» needs it «" . self::NEEDS[$action] . '».');
+            }
+            $lifecycle->power($this->service, $action);
         } catch (Throwable $e) {
             report($e);
+            RateLimiter::clear($key);
             RateLimiter::hit($key, 10); // a failure may be tried again soon, not hammered
             $this->notify(__('services.proxmox.not_done'), 'error');
 
             return;
         }
-        RateLimiter::hit($key, 30);
         $this->service->auditEvent = 'vm_power';
         $this->service->isCustomEvent = true;
         $this->service->auditCustomOld = [];
@@ -98,12 +113,27 @@ class ProxmoxPanel extends Component
         // now (a VM re-mapped is not shown to the service it left: ADV-502-4).
         $guest = $this->allowed('view') ? ProxmoxPower::guest($this->service) : null;
         if ($guest !== null && !Cache::has($this->refusalKey($guest)) && ($extension = $this->extension()) !== null) {
+            $state = Cache::get($this->stateKey($guest));
+            $graph = Cache::get($this->graphKey($guest, $this->timeframe));
+            $graphFailed = Cache::has($this->graphKey($guest, $this->timeframe) . '.failed');
             try {
-                $lifecycle = $extension->lifecycle($this->service);
-                $state = $pending !== null ? $lifecycle->state($this->service)
-                    : Cache::remember($this->stateKey($guest), self::KEEP_STATE, fn () => $lifecycle->state($this->service));
-                $graph = Cache::remember($this->graphKey($guest, $this->timeframe), self::KEEP_GRAPH, fn () => $lifecycle->graph($this->service, $this->timeframe));
-                $vm = $state + ['graph' => $graph];
+                if ($state === null || ($graph === null && !$graphFailed)) {
+                    [$read, $readGraph, $failed] = $extension->lifecycle($this->service)
+                        ->read($this->service, $graph === null && !$graphFailed ? $this->timeframe : null);
+                    if ($state === null) {
+                        $state = $read;
+                        Cache::put($this->stateKey($guest), $state, $pending !== null ? self::KEEP_STATE_PENDING : self::KEEP_STATE);
+                    }
+                    if ($failed !== null) {
+                        // A graph that cannot be read is only that graph's, a minute (ADV-502-R2-3).
+                        report($failed);
+                        Cache::put($this->graphKey($guest, $this->timeframe) . '.failed', true, self::KEEP_REFUSAL);
+                    } elseif ($readGraph !== null) {
+                        $graph = $readGraph;
+                        Cache::put($this->graphKey($guest, $this->timeframe), $graph, self::KEEP_GRAPH);
+                    }
+                }
+                $vm = $state + ['graph' => $graph ?? []];
             } catch (Throwable $e) {
                 report($e);
                 Cache::put($this->refusalKey($guest), true, self::KEEP_REFUSAL);
@@ -132,6 +162,7 @@ class ProxmoxPanel extends Component
         Cache::forget($this->refusalKey($guest));
         foreach (ProxmoxClient::TIMEFRAMES as $timeframe) {
             Cache::forget($this->graphKey($guest, $timeframe));
+            Cache::forget($this->graphKey($guest, $timeframe) . '.failed');
         }
     }
 
