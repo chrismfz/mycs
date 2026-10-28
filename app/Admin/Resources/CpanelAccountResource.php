@@ -7,6 +7,7 @@ use App\Models\CpanelAccount;
 use App\Models\Server;
 use App\Models\Service;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -17,6 +18,7 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Number;
+use Illuminate\Support\Str;
 
 /**
  * Utilities → Hosting Accounts (owner 2026-10-28: «what goes on in each server», hosting being the main product): every
@@ -62,7 +64,7 @@ class CpanelAccountResource extends Resource
                 TextColumn::make('inodes_used')->label('Inodes')->sortable()->toggleable()
                     ->formatStateUsing(fn (CpanelAccount $record) => self::meter($record->inodes_used, $record->inodes_limit, false))
                     ->color(fn (CpanelAccount $record) => CpanelAccount::near($record->inodes_used, $record->inodes_limit) ? 'danger' : null),
-                TextColumn::make('bandwidth_used_mb')->label('Bandwidth (month)')->sortable()->toggleable()
+                TextColumn::make('bandwidth_used_mb')->label('Bandwidth (mo)')->sortable()->toggleable()
                     ->formatStateUsing(fn (CpanelAccount $record) => self::meter($record->bandwidth_used_mb, $record->bandwidth_limit_mb, true))
                     ->color(fn (CpanelAccount $record) => CpanelAccount::near($record->bandwidth_used_mb, $record->bandwidth_limit_mb) ? 'danger' : null),
                 // CloudLinux (cpanel:lve): the peaks of the last 24 hours against its limits, CPU and memory shown, all on hover.
@@ -70,20 +72,24 @@ class CpanelAccountResource extends Resource
                     ->state(fn (CpanelAccount $record) => self::lveSummary($record))
                     ->tooltip(fn (CpanelAccount $record) => self::lveDetail($record))
                     ->color(fn (CpanelAccount $record) => self::lveNear($record) ? 'danger' : null),
+                // One badge, the worst (owner 2026-10-28: the row fits a 22" screen, a window not full screen); all of it on hover.
                 TextColumn::make('state')->label('State')->badge()
-                    ->state(fn (CpanelAccount $record) => array_values(array_filter([
-                        $record->suspended ? 'Suspended' : null,
-                        $record->mail_suspended ? 'Mail suspended' : ($record->mail_held ? 'Mail held' : null),
-                    ])) ?: ['OK'])
-                    ->color(fn (string $state) => $state === 'OK' ? 'success' : 'danger')
-                    ->tooltip(fn (CpanelAccount $record) => $record->suspended
-                        ? trim('Suspended ' . ($record->suspended_at?->format('d/m/Y') ?? '') . ($record->suspend_reason ? ': ' . $record->suspend_reason : '')) : null),
-                TextColumn::make('mapping')->label('Is')->badge()
                     ->state(fn (CpanelAccount $record) => match (true) {
-                        $record->service !== null => '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ' · ' . ($record->service->client->name ?? ''),
-                        $record->internal => 'Internal' . (filled($record->note) ? ': ' . $record->note : ''),
-                        default => 'Not mapped',
+                        $record->suspended => 'Suspended',
+                        $record->mail_suspended => 'Mail suspended',
+                        $record->mail_held => 'Mail held',
+                        default => 'OK',
                     })
+                    ->color(fn (string $state) => $state === 'OK' ? 'success' : 'danger')
+                    ->tooltip(fn (CpanelAccount $record) => implode(' · ', array_filter([
+                        $record->suspended ? trim('Suspended ' . ($record->suspended_at?->format('d/m/Y') ?? '') . ($record->suspend_reason ? ': ' . $record->suspend_reason : '')) : null,
+                        $record->mail_suspended ? 'Outgoing mail suspended' : ($record->mail_held ? 'Outgoing mail held' : null),
+                    ])) ?: null),
+                // Cut short, whole on hover (as the package).
+                TextColumn::make('mapping')->label('Is')->badge()
+                    ->state(fn (CpanelAccount $record) => self::mapping($record))
+                    ->formatStateUsing(fn (string $state) => Str::limit($state, 22))
+                    ->tooltip(fn (CpanelAccount $record) => mb_strlen(self::mapping($record)) > 22 ? self::mapping($record) : null)
                     ->color(fn (CpanelAccount $record) => $record->service_id !== null ? 'success' : ($record->internal ? 'gray' : 'warning'))
                     ->url(fn (CpanelAccount $record) => $record->service_id !== null ? ServiceResource::getUrl('edit', ['record' => $record->service_id]) : null),
                 TextColumn::make('ip')->label('IP')->toggleable(isToggledHiddenByDefault: true),
@@ -127,7 +133,8 @@ class CpanelAccountResource extends Resource
                     ->queries(true: fn (Builder $query) => $query->whereNotNull('gone_at'), false: fn (Builder $query) => $query->whereNull('gone_at'))
                     ->default(false),
             ])
-            ->recordActions([
+            // In one «⋯» menu: three buttons a row took a third of its width.
+            ->recordActions([ActionGroup::make([
                 Action::make('assign')->label('Service')->icon('ri-links-line')
                     ->authorize('update')
                     ->fillForm(fn (CpanelAccount $record) => ['service_id' => $record->service_id ?? $record->suggestedServiceId()])
@@ -153,7 +160,17 @@ class CpanelAccountResource extends Resource
                     ->visible(fn (CpanelAccount $record) => $record->service_id !== null || $record->internal)
                     ->requiresConfirmation()
                     ->action(fn (CpanelAccount $record) => $record->update(['service_id' => null, 'internal' => false, 'note' => null])),
-            ]);
+            ])]);
+    }
+
+    /** «#12 Business10 · Acme», «Internal: our site», «Not mapped». */
+    private static function mapping(CpanelAccount $record): string
+    {
+        return match (true) {
+            $record->service !== null => '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ' · ' . ($record->service->client->name ?? ''),
+            $record->internal => 'Internal' . (filled($record->note) ? ': ' . $record->note : ''),
+            default => 'Not mapped',
+        };
     }
 
     /** Its peaks as the list loaded them (withLvePeaks), with its limits. @return array<string, array{peak: int|null, limit: int|null}> */

@@ -12,6 +12,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Cpanel\AccountSync;
+use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -236,5 +237,24 @@ class CpanelInventoryTest extends TestCase
         $this->assertContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
         CpanelAccount::query()->where('user', 'alpha')->update(['service_id' => $other->id]);
         $this->assertNotContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
+    }
+
+    /** Owner 2026-10-28: a row fits a smaller screen: one state badge, the mapping cut short, the actions in one menu. */
+    public function test_a_row_is_compact_one_state_badge_and_the_mapping_cut_short(): void
+    {
+        AccountSync::sync($this->server);
+        $reseller = CpanelAccount::query()->where('user', 'resel1')->sole();
+        $reseller->update(['mail_suspended' => true]);
+        $client = CpanelAccount::query()->where('user', 'client1')->sole();
+        $client->update(['internal' => true, 'note' => 'our own demo site for the sales team']);
+
+        $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)
+            ->assertTableColumnStateSet('state', 'Suspended', $reseller)->assertDontSee('Mail suspended')
+            ->assertSee('Internal: our own demo...')
+            ->assertSee('our own demo site for the sales team') // whole, on hover
+            ->callTableAction('internal', $client, data: ['note' => 'demo'])->assertHasNoTableActionErrors();
+        $this->assertSame('demo', $client->fresh()->note, 'an action grouped still works');
+        $group = collect($this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->instance()->getTable()->getRecordActions())->sole();
+        $this->assertInstanceOf(ActionGroup::class, $group, 'the actions in one menu');
     }
 }
