@@ -110,9 +110,10 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [x] ~~**Η πραγματική IP από τον server**~~ **έγινε (feat/server-ip):** το cPanel λέει την IP κάθε λογαριασμού μαζί με τη
       χρήση του (`services:usage`, κάθε 4 ώρες)· κρατιέται στο `service_usages.server_ip`, φαίνεται στην υπηρεσία του admin
       («IP on the server»), κόκκινη όταν η dedicated IP που έχουμε διαφέρει, και φίλτρο «IP differs from the server».
-- [ ] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap):
+- [x] **Proxmox (8 VPS)** (`proxmox.md` → Roadmap· μένουν η αντιστοίχιση με τον importer και το create/reinstall,
+      που ξανασυζητιούνται):
   - **Έγινε:** inventory μόνο ανάγνωσης (#446), κύκλος ζωής: suspend = stop, unsuspend = start, terminate (#447),
-    client area (#502), IP pools (#505), κονσόλα noVNC (feat/vnc-console).
+    client area (#502), IP pools (#505), κονσόλα noVNC (#506).
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`, και το pool τους με
     `app:import-whmcs-ip-pools`.
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
@@ -237,7 +238,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 
 ### myip.gr (μετά τη nixpal)
 - [x] ~~Δύο επιλογές του πελάτη για το Ekdosi~~ **έγινε (feat/ekdosi-client-flags):** «Ignore invoicing» και «Immediate invoicing» στην καρτέλα του πελάτη (μόνο staff)· κρατιούνται, τις διαβάζει η γέφυρα όταν έρθει.
-- [ ] **Ekdosi bridge**, σε κομμάτια (ο υπεύθυνος, 2026-10-25· `ekdosi-bridge.md`): ρύθμιση κλειστή by default,
+- [x] **Ekdosi bridge** (έγινε ως το E5 και η live δοκιμή, 2026-10-27· μένει μόνο το E4, που ανήκει στον importer),
+      σε κομμάτια (ο υπεύθυνος, 2026-10-25· `ekdosi-bridge.md`): ρύθμιση κλειστή by default,
       «MyCS Bridge» στο Ekdosi με λιγότερες ρυθμίσεις, ένα «Εισερχόμενα». ΑΦΜ/ΔΟΥ/είδος παραστατικού από τις επαφές,
       γκρινιάρης και ignore invoicing από τον πελάτη, αποδέκτης ανά γραμμή από τη σχετική επαφή υπηρεσίας/domain.
   - [x] **E1 (feat/ekdosi-feed):** `POST /api/ekdosi` (HMAC, ops ping/invoices/invoice/resolve/mark) στο σχήμα του
