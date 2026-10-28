@@ -268,6 +268,17 @@ final class RevenueForecast
      */
     public static function netOf(Builder $invoices): int
     {
+        return array_sum(self::netByInvoice($invoices));
+    }
+
+    /**
+     * netOf() by invoice: id => its net, in cents (the income reports by customer and product add them up their way).
+     *
+     * @param  Builder<Invoice>  $invoices
+     * @return array<int, int>
+     */
+    public static function netByInvoice(Builder $invoices): array
+    {
         // Summed in the database per invoice (F2 of #278: 30k invoices in one read, not each one's lines loaded).
         $ids = $invoices->select('invoices.id');
         $lines = DB::table('invoice_items')->whereIn('invoice_id', $ids)
@@ -279,16 +290,16 @@ final class RevenueForecast
             ->where('status', AdjustmentNoteStatus::Active->value)
             ->groupBy('invoice_id')->selectRaw('invoice_id, SUM(amount) AS amount')->pluck('amount', 'invoice_id');
 
-        $sum = 0;
+        $out = [];
         foreach ($lines as $id => $row) {
             $net = self::cents(number_format((float) $row->net, 2, '.', ''));
             $gross = self::cents(number_format((float) $row->gross, 2, '.', ''));
             $note = self::cents(number_format((float) ($notes[$id] ?? 0), 2, '.', ''));
             // The notes are gross amounts on its total: their net part in the lines' proportion.
-            $sum += $gross === 0 ? $net : $net + (int) round($note * $net / $gross);
+            $out[(int) $id] = $gross === 0 ? $net : $net + (int) round($note * $net / $gross);
         }
 
-        return $sum;
+        return $out;
     }
 
     public static function cents(BigDecimal|string $amount): int
