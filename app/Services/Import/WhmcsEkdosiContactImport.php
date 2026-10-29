@@ -43,8 +43,10 @@ final class WhmcsEkdosiContactImport
             return ['counts' => $this->counts, 'notes' => $this->notes];
         }
         $byContact = [];
+        $first = []; // type|item => its first assignment's id: a second one is listed, never applied (ADV-542-3)
         foreach ($routing as $row) {
-            $byContact[(int) $row['contactid']][] = $row;
+            $byContact[(int) ($row['contactid'] ?? 0)][] = $row;
+            $first[strtolower(trim((string) ($row['service_type'] ?? ''))) . '|' . (int) ($row['serviceid'] ?? 0)] ??= (int) $row['id'];
         }
         $clients = DB::table('clients')->pluck('id')->flip()->all();
         $owners = [
@@ -63,20 +65,28 @@ final class WhmcsEkdosiContactImport
 
                 continue;
             }
-            $receipts = count(array_filter($assigned, fn (array $row) => (bool) $row['is_receipt']));
-            if ($receipts > 0 && $receipts < count($assigned)) {
-                $this->notes[] = "Ekdosi contact #{$id} (customer #{$client}): {$receipts} of its " . count($assigned)
+            // The assignments that apply, first: a skipped one decides nothing (ADV-542-1), and a contact with none is
+            // not imported (ADV-542-4: as one never assigned).
+            $applied = array_values(array_filter($assigned, fn (array $row) => $this->applies($row, $client, $owners, $first)));
+            if ($applied === []) {
+                continue;
+            }
+            $receipts = count(array_filter($applied, fn (array $row) => (bool) ($row['is_receipt'] ?? false)));
+            if ($receipts > 0 && $receipts < count($applied)) {
+                $this->notes[] = "Ekdosi contact #{$id} (customer #{$client}): {$receipts} of its " . count($applied)
                     . ' assignments are receipts, the rest invoices: imported as «invoice», check it.';
             }
-            $contactId = $this->insert($contact, $receipts === count($assigned) ? 'receipt' : 'invoice');
+            $contactId = $this->insert($contact, $receipts === count($applied) ? 'receipt' : 'invoice');
             $this->counts['contacts']++;
-            foreach ($assigned as $row) {
-                $this->assign($row, $contactId, $client, $owners);
+            foreach ($applied as $row) {
+                $type = strtolower(trim((string) ($row['service_type'] ?? '')));
+                DB::table($type === 'hosting' ? 'services' : 'domains')->where('id', (int) ($row['serviceid'] ?? 0))->update(['contact_id' => $contactId]);
+                $this->counts[$type === 'hosting' ? 'services' : 'domains']++;
             }
         }
         $known = array_flip(array_map('intval', array_column($contacts, 'id')));
         foreach ($routing as $row) {
-            if (!isset($known[(int) $row['contactid']])) {
+            if (!isset($known[(int) ($row['contactid'] ?? 0)])) {
                 $this->skip(1, "Ekdosi assignment #{$row['id']}: its contact #{$row['contactid']} is not in mod_ekdosi_contacts");
             }
         }
@@ -84,42 +94,70 @@ final class WhmcsEkdosiContactImport
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
 
-    /** @param array<string, array<int, int>> $owners */
-    private function assign(array $row, int $contactId, int $client, array $owners): void
+    /**
+     * Whether the assignment is applied; else skipped and listed.
+     *
+     * @param  array<string, array<int, int>>  $owners
+     * @param  array<string, int>  $first
+     */
+    private function applies(array $row, int $client, array $owners, array $first): bool
     {
-        $type = strtolower(trim((string) $row['service_type']));
-        $item = (int) $row['serviceid'];
+        // The plugin finds a route by its own customer (routing.userid = the invoice's), never the contact's: two that
+        // differ are their own case (code review 4 of #542; none on the copies).
+        if ((int) ($row['userid'] ?? 0) !== $client) {
+            $this->skip(1, "Ekdosi assignment #{$row['id']}: its customer #" . (int) ($row['userid'] ?? 0) . " is not its contact's (#{$client}): not assigned");
+
+            return false;
+        }
+        $type = strtolower(trim((string) ($row['service_type'] ?? '')));
+        $item = (int) ($row['serviceid'] ?? 0);
         if (!isset($owners[$type])) {
             $this->skip(1, "Ekdosi assignment #{$row['id']}: a «{$type}» is neither a service nor a domain");
 
-            return;
+            return false;
         }
         if (!isset($owners[$type][$item])) {
             $this->skip(1, "Ekdosi assignment #{$row['id']}: {$type} #{$item} is not here");
 
-            return;
+            return false;
         }
         if ((int) $owners[$type][$item] !== $client) {
             $this->skip(1, "Ekdosi assignment #{$row['id']}: {$type} #{$item} is customer #{$owners[$type][$item]}'s now, its contact customer #{$client}'s: "
                 . 'not assigned, its documents go to its account until staff set a contact');
 
-            return;
+            return false;
         }
-        DB::table($type === 'hosting' ? 'services' : 'domains')->where('id', $item)->update(['contact_id' => $contactId]);
-        $this->counts[$type === 'hosting' ? 'services' : 'domains']++;
+        if ($first["{$type}|{$item}"] !== (int) $row['id']) {
+            $this->skip(1, "Ekdosi assignment #{$row['id']}: {$type} #{$item} has another one already (#{$first["{$type}|{$item}"]}), which it keeps: check which is right");
+
+            return false;
+        }
+
+        return true;
     }
 
     private function insert(array $row, string $documentType): int
     {
         $value = fn (string $key) => isset($row[$key]) && trim((string) $row[$key]) !== '' ? trim((string) $row[$key]) : null;
         $country = self::country($value('country'));
-        if ($country === null && $value('country') === null) {
-            // None given (45 on myip's copy): its account's, as the plugin issued it to that account's country.
-            $country = DB::table('contacts')->where('primary_of_client_id', (int) $row['userid'])->value('country');
+        if ($country === null && $value('country') === null && $value('vies_vatno') !== null) {
+            // None given: its VIES number's (EL: GR), never its account's (ADV-542-2: a Dutch company is not a Greek one).
+            $country = EuVat::iso(mb_substr(preg_replace('/\s+/', '', $value('vies_vatno')) ?? '', 0, 2));
         }
+        $vies = $value('vies_vatno');
+        if ($vies !== null && mb_strlen($vies) > 50) {
+            $this->notes[] = "Ekdosi contact #{$row['id']} (customer #{$row['userid']}): its VIES number is longer than the 50 characters kept: imported without it, set it.";
+            $vies = null;
+        }
+        $notes = $value('comments');
         if ($country === null) {
             $this->notes[] = "Ekdosi contact #{$row['id']} (customer #{$row['userid']}): its country «" . ($value('country') ?? '')
                 . '» is not one the app knows: imported without one, set it.';
+            // What WHMCS had, for staff setting it (code review 7 of #542).
+            $notes = $value('country') === null ? $notes : trim(($notes ?? '') . "\nCountry in WHMCS: " . $value('country'));
+        }
+        if ($documentType === 'invoice' && ($value('gr_vatno') === null || $value('tax_office') === null || $value('address1') === null)) {
+            $this->notes[] = "Ekdosi contact #{$row['id']} (customer #{$row['userid']}): an invoice recipient without ΑΦΜ, ΔΟΥ or address: complete it.";
         }
 
         return (int) DB::table('contacts')->insertGetId([
@@ -127,7 +165,7 @@ final class WhmcsEkdosiContactImport
             'type' => $value('company_name') !== null ? 'business' : 'individual',
             'company_name' => $value('company_name'),
             'tax_id' => $value('gr_vatno'),
-            'vat_number' => $value('vies_vatno'),
+            'vat_number' => $vies,
             'tax_office' => $value('tax_office'),
             'activity' => $value('description'),
             'address1' => $value('address1'),
@@ -137,7 +175,7 @@ final class WhmcsEkdosiContactImport
             'country' => $country,
             'email' => $value('email'),
             'phone' => $value('telephone'),
-            'notes' => $value('comments'),
+            'notes' => $notes,
             'document_type' => $documentType,
             'created_at' => ($created = $value('created_at')) !== null && !str_starts_with($created, '0000') ? $created : now(),
             'updated_at' => now(),
@@ -162,8 +200,12 @@ final class WhmcsEkdosiContactImport
     {
         try {
             return $this->whmcs->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException) {
-            return null;
+        } catch (PDOException $e) {
+            // A WHMCS without the plugin (its table missing); any other failure (a lost connection) is one, loudly.
+            if (preg_match('/doesn\'t exist|no such table|42S02/i', $e->getMessage() . ' ' . $e->getCode()) === 1) {
+                return null;
+            }
+            throw $e;
         }
     }
 
