@@ -416,4 +416,18 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertCount(1, $this->op);
         $this->assertSame(0, $this->sent('RenewDomain'));
     }
+
+    public function test_review_a_multi_year_transfer_failed_later_renews_all_its_years_at_the_source(): void
+    {
+        [$domain, $line] = $this->paidRenewal('com', 3);
+        $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->opStatus = 'FAI';
+        app(DomainSyncService::class)->sync($domain->refresh());
+        $this->assertNull($line->fresh()->applied_at);
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $cmd = collect($this->cnic)->first(fn ($c) => str_starts_with($c, 'COMMAND=RenewDomain'));
+        fwrite(STDERR, 'CMD: ' . str_replace("\n", ' | ', (string) $cmd) . "\n");
+        $this->assertStringContainsString('PERIOD=3', (string) $cmd);
+        $this->assertCount(1, $this->op);
+    }
 }

@@ -209,6 +209,18 @@ class DomainRenewalService
         if (!$retry && self::closedUnrenewed($line)) {
             return self::WAITING;
         }
+        // A transfer that replaced another paid renewal is not settled yet (its years still to come at the target): this
+        // one waits for it, else it would buy its own year from the short expiry and the earlier line then settle «covered»
+        // with this one's year (R537-2 of #537). With staff: said on this one too, never held back silently.
+        $record = $domain->meta['renew_transfer'] ?? null;
+        if (is_array($record) && !empty($record['done_at']) && (int) ($record['line'] ?? 0) !== $line->id) {
+            if (!empty($record['told_at'])) {
+                $this->staffDecides($domain, $line, $connection->registrar, 'Waits for the transfer that replaced an earlier paid renewal (invoice line #'
+                    . (int) ($record['line'] ?? 0) . ') to get its years: resolve that one first, then Retry.');
+            }
+
+            return self::WAITING;
+        }
         $target = Carbon::parse($line->period_end)->startOfDay();
 
         try {
@@ -309,6 +321,15 @@ class DomainRenewalService
             return $this->apply($domain, $line, $connection, $staff, $now, false); // charged: the registrar lags
         }
         $years = min($this->lacking($now, $target), $paid - $done);
+        // Opened again after its transfer: never more than the registry itself lacks (read when it was opened), so a
+        // target lagging its own transfer never buys the year that transfer added (R537-1, ADV-537-1/2 of #537).
+        $registry = self::reopenedAfterTransfer($domain, $line) ? ($domain->meta['renew_transfer']['registry_expiry'] ?? null) : null;
+        if (is_string($registry) && $registry !== '') {
+            $years = min($years, self::yearsShort(Carbon::parse($registry)->startOfDay(), $target));
+            if ($years < 1) {
+                return $this->apply($domain, $line, $connection, $staff, $now, true); // the registry has them: adopted
+            }
+        }
         // The registrar's expiry short of where this period starts, and no earlier period charged that it lags behind: the
         // years before it are not bought (an earlier period unpaid, or never billed). Its own years would leave it short, and
         // an earlier period paid later would be adopted over them (adversarial ADV-1 of #305): staff decide.
@@ -335,11 +356,17 @@ class DomainRenewalService
             || DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'transfer')->where('status', DomainRegistrarLog::STATUS_OK)
                 ->where('request->line', $line->id)->exists();
         $to = $restore || $here ? null : $connection->renewTransferTarget();
-        if ($to !== null && $now->status === DomainStatus::Active && $years >= 1 && $done === 0) {
+        if ($to !== null && $now->status === DomainStatus::Active && $done === 0) {
             $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
             if ($outcome === self::APPLIED) {
                 $this->lifecycle->advance($domain->refresh());
-                self::tellRenewed($domain, Carbon::parse($line->period_end)); // the year its transfer adds
+                if ($paid === 1) {
+                    self::tellRenewed($domain, Carbon::parse($line->period_end)); // the year its transfer adds
+                } else {
+                    // More years than its transfer adds: told when they are there (bought at the target, or shown by the
+                    // registry), never a date nobody bought yet (ADV-537-3 of #537).
+                    self::markTellLater($domain);
+                }
             }
 
             return $outcome;
@@ -451,6 +478,17 @@ class DomainRenewalService
             && Carbon::parse($until)->greaterThanOrEqualTo($target->copy()->subDays(self::TOLERANCE_DAYS));
     }
 
+    /** The whole years from $from to reach $target (0 to 10), within the tolerance. */
+    private static function yearsShort(Carbon $from, Carbon $target): int
+    {
+        $years = 0;
+        while ($years < 10 && $from->copy()->addYearsNoOverflow($years)->lessThan($target->copy()->subDays(self::TOLERANCE_DAYS))) {
+            $years++;
+        }
+
+        return $years;
+    }
+
     /** The whole years its registrar expiry lacks to reach the end of the paid period (1 to 10). */
     private function lacking(DomainSyncResult $result, Carbon $target): int
     {
@@ -506,9 +544,12 @@ class DomainRenewalService
         }
         $this->lifecycle->advance($domain->refresh());
         // Short: the registrar does not show it yet; the period paid for is what the customer has (ADV-6 of #293). A line
-        // opened again after its transfer (renewAfterTransfer): the customer was told «renewed» when it was sent.
+        // opened again after its transfer (renewAfterTransfer): told «renewed» when it was sent, unless its years were more
+        // than the transfer added (then now, once: ADV-537-3 of #537).
         if (!self::reopenedAfterTransfer($domain, $line)) {
             self::tellRenewed($domain, $short ? Carbon::parse($line->period_end) : null);
+        } elseif (!empty($domain->meta['renew_transfer']['tell_later'])) {
+            self::tellRenewed($domain, Carbon::parse($line->period_end));
         }
         self::settleTransferRecord($domain, $line);
 
@@ -541,6 +582,26 @@ class DomainRenewalService
     }
 
     /** The customer's «renewed until» (WHMCS's Domain Renewal Confirmation, mail check of 2026-10-21): after it is applied. */
+    /** Its transfer's «renewed» to be told once its years are there (renewAfterTransfer, or the reopened line applied). */
+    private static function markTellLater(Domain $domain): void
+    {
+        DB::transaction(function () use ($domain) {
+            $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
+            $meta = $fresh->meta ?? [];
+            if (isset($meta['renew_transfer']) && is_array($meta['renew_transfer'])) {
+                $meta['renew_transfer']['tell_later'] = true;
+                $fresh->forceFill(['meta' => $meta])->save();
+            }
+            $domain->setRawAttributes($fresh->getAttributes(), true);
+        });
+    }
+
+    /** «Renewed» until $until, for a transfer whose years the registry showed without a purchase (DomainSyncService). */
+    public static function tellRenewedAfterTransfer(Domain $domain, Carbon $until): void
+    {
+        self::tellRenewed($domain, $until);
+    }
+
     private static function tellRenewed(Domain $domain, ?Carbon $until = null): void
     {
         try {

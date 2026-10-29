@@ -9,6 +9,7 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Models\User;
@@ -440,5 +441,52 @@ class RenewAsTransferTest extends TestCase
 
         $this->assertNotNull($line->fresh()->applied_at, 'the registry has the years: the registrar lags, nothing to renew');
         $this->assertSame([], $this->opRenewedYears);
+    }
+
+    /** REVIEW-537-1: the target lags at its old expiry while the registry shows the transfer's year: only the year missing is bought. */
+    public function test_review_a_lagging_target_never_gets_the_transfer_year_bought_again(): void
+    {
+        [$domain, $line] = $this->paidRenewal(years: 2);
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00'; // the target still shows the expiry before its transfer
+        $this->rdapExpiry = '2027-11-01T00:00:00Z'; // the registry: the transfer's year there, one lacking
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        Carbon::setTestNow('2026-10-22 11:00:00');
+        $sync->sync($domain->refresh());
+        $this->assertNull($line->fresh()->applied_at, 'one year lacking at the registry: opened again');
+
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->assertLessThanOrEqual(1, array_sum($this->opRenewedYears), 'two paid: one by the transfer, at most one more, never two');
+    }
+
+    /** REVIEW-537-2: a later paid period renewed at the target during the wait: never a paid year lost. */
+    public function test_review_a_later_paid_line_during_the_wait_never_loses_a_year(): void
+    {
+        [$domain, $line] = $this->paidRenewal(years: 2); // 2026-11-01 .. 2028-11-01
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2027-11-01 00:00:00';
+        $this->rdapExpiry = '2027-11-01T00:00:00Z';
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        $invoice = Invoice::query()->create(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => '2026-10-21']);
+        $next = $invoice->items()->create(['description' => 'Renewal', 'price' => '23.33', 'quantity' => 1, 'reference_type' => Domain::class,
+            'reference_id' => $domain->id, 'period_start' => '2028-11-01', 'period_end' => '2029-11-01']);
+        (new RecordPaymentService)->handle($invoice->fresh(), null, (float) $invoice->fresh()->total, transactionId: 'tx-next');
+        app(DomainRenewalService::class)->renewLine($next->id);
+        $this->rdapExpiry = Carbon::parse($this->opExpiry)->toIso8601ZuluString(); // the registry follows the target's renewals
+
+        Carbon::setTestNow('2026-10-22 11:00:00');
+        $sync->sync($domain->refresh());
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $sync->sync($domain->refresh());
+        // The later line waited for the transfer's years (R537-2 fix); the cron runs it again on its next pass.
+        $this->rdapExpiry = Carbon::parse($this->opExpiry)->toIso8601ZuluString();
+        app(DomainRenewalService::class)->renewLine($next->id);
+        $sync->sync($domain->refresh());
+
+        $this->assertSame('2029-11-01', $domain->fresh()->expires_at->toDateString(), 'three years paid: 1 by transfer + 2 bought; got ' . json_encode($this->opRenewedYears));
     }
 }
