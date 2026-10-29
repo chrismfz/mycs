@@ -140,6 +140,12 @@ final class WhmcsPayMethodImport
         if ($saved === [] || count($saved) < count($leaders)) {
             DB::table('clients')->where('id', $clientId)->update(['auto_charge' => false]);
             $this->counts['not_charged']++;
+            // Some of its items did pay by a saved method in WHMCS: those stop being charged here, staff's to ask (R3-1).
+            $charged = array_sum(array_intersect_key($usage, $first));
+            if ($charged > 0) {
+                $this->notes[] = "Customer #{$clientId}: {$charged} of its " . array_sum($usage) . ' live item(s) paid by a saved method in WHMCS, the rest '
+                    . 'by another way: «Auto-charge» off here (one method pays all its renewals); ask them, or turn it on.';
+            }
 
             return;
         }
@@ -156,21 +162,45 @@ final class WhmcsPayMethodImport
             return $this->usage;
         }
         $this->usage = [];
-        // What WHMCS invoices: live services and their addons, domains active or in grace (never one long expired: R2-3).
-        foreach (["SELECT userid, paymentmethod FROM tblhosting WHERE domainstatus IN ('Active', 'Suspended')",
-            "SELECT h.userid, a.paymentmethod FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ('Active', 'Suspended')",
-            "SELECT userid, paymentmethod FROM tbldomains WHERE status IN ('Active', 'Grace')"] as $sql) {
-            try {
-                foreach ($this->whmcs->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                    $module = strtolower(trim((string) $row['paymentmethod']));
-                    $this->usage[(int) $row['userid']][$module] = ($this->usage[(int) $row['userid']][$module] ?? 0) + 1;
-                }
-            } catch (PDOException) {
-                // no such table here (a fixture): no item on it
+        // What WHMCS charged a saved method for: live services and their addons, domains active or in grace (never one
+        // long expired: R2-3), invoiced (not free, not set to «do not renew»), not paid by a gateway subscription (R3-2,
+        // R3-3). Read whole rows, so a WHMCS without a column (a fixture, an old one) counts what it has.
+        $add = function (int $client, mixed $module): void {
+            $module = strtolower(trim((string) $module));
+            $this->usage[$client][$module] = ($this->usage[$client][$module] ?? 0) + 1;
+        };
+        $invoiced = fn (array $row) => trim((string) ($row['subscriptionid'] ?? '')) === '' && strcasecmp(trim((string) ($row['billingcycle'] ?? '')), 'Free Account') !== 0
+            && !(array_key_exists('amount', $row) && (float) $row['amount'] <= 0);
+        foreach ($this->all('SELECT * FROM tblhosting') as $row) {
+            if (in_array(strtolower((string) ($row['domainstatus'] ?? '')), ['active', 'suspended'], true) && $invoiced($row)) {
+                $add((int) $row['userid'], $row['paymentmethod'] ?? '');
+            }
+        }
+        $owners = array_column($this->all('SELECT id, userid FROM tblhosting'), 'userid', 'id');
+        foreach ($this->all('SELECT * FROM tblhostingaddons') as $row) {
+            $client = (int) ($row['userid'] ?? 0) ?: (int) ($owners[$row['hostingid'] ?? 0] ?? 0);
+            if ($client > 0 && in_array(strtolower((string) ($row['status'] ?? '')), ['active', 'suspended'], true) && $invoiced($row)) {
+                $add($client, $row['paymentmethod'] ?? '');
+            }
+        }
+        foreach ($this->all('SELECT * FROM tbldomains') as $row) {
+            if (in_array(strtolower((string) ($row['status'] ?? '')), ['active', 'grace'], true) && !(int) ($row['donotrenew'] ?? 0)
+                && !(array_key_exists('recurringamount', $row) && (float) $row['recurringamount'] <= 0)) {
+                $add((int) $row['userid'], $row['paymentmethod'] ?? '');
             }
         }
 
         return $this->usage;
+    }
+
+    /** @return list<array<string, mixed>> its rows, or none on a WHMCS without the table */
+    private function all(string $sql): array
+    {
+        try {
+            return $this->whmcs->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return [];
+        }
     }
 
     /** @return list<array<string, mixed>> the methods not deleted, by customer and WHMCS's order */
@@ -301,6 +331,10 @@ final class WhmcsPayMethodImport
         // WHMCS's paypal_ppcpv: {"vaultId", "customerId", "transactionIdentifier"} (read on nixpal's WHMCS, 2026-10-29).
         $value = is_array($decoded) ? ($decoded['vaultId'] ?? $decoded['vault_id'] ?? $decoded['payment_token'] ?? $decoded['token'] ?? $decoded['id'] ?? null) : trim($token);
         $method = is_string($value) ? $value : '';
+        // Broken JSON, or a bare number: never a vault id taken whole.
+        if (!is_array($decoded) && (str_starts_with(trim($token), '{') || ctype_digit($method))) {
+            return null;
+        }
 
         return $method !== '' && !str_contains($method, ' ') ? ['method' => $method] : null;
     }

@@ -1477,7 +1477,7 @@ class ImportFromWhmcs extends Command
         $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
         $c = $result['counts'];
         $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default; {$c['not_charged']} with «Auto-charge» off, "
-            . "none of their services on a saved method's gateway), {$c['skipped']} skipped.");
+            . "most of their services paid another way, those with some paid by a saved method listed), {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
