@@ -1979,6 +1979,11 @@ class ImportFromWhmcs extends Command
                 'updated_at' => $this->validateDate($byId[$planned['id']]['date']),
             ], $plan['payments']));
             DB::table('invoice_transactions')->insert(array_map(function (array $allocation) use (&$nextId, $parent) {
+                // Dated by the parent's day alone (no payment, no datepaid): the journal orders it as such (ADV-528-2).
+                if ($allocation['date'] === null && $this->validateDate($parent['datepaid']) === null) {
+                    $this->dayOnly[] = $nextId;
+                }
+
                 return [
                     'id' => $nextId++,
                     'invoice_id' => $allocation['invoice_id'],
@@ -2012,6 +2017,9 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /** @var list<int> transactions dated by a day only (importMassPay), for the journal's order */
+    private array $dayOnly = [];
+
     /** @var array<int, int> Mass Pay child => cents of its WHMCS credit its parents did not pay (importMassPay) */
     private array $childCredit = [];
 
@@ -2024,7 +2032,7 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Writing the money journal...');
         $journal = new WhmcsMoneyJournal($this->pdo);
-        $journal->creditApplied($this->massPayParents(), $this->childCredit, $this->importedInvoices());
+        $journal->creditApplied($this->massPayParents(), $this->childCredit, $this->importedInvoices(), $this->dayOnly);
         $journal->overpayments();
         // After the overpayments: a refund takes what the invoice kept, never the credit the payment already gave.
         $this->importRefunds();

@@ -32,7 +32,10 @@ final class WhmcsParity
 
         $add('Customers', $this->count('SELECT COUNT(*) FROM tblclients'), DB::table('clients')->count());
         // Without a country the app knows (EuVat::iso, as the importer reads it): #524 stops their orders until they set one.
-        $this->hasColumn('tblclients', 'country') && $add('Customers without a country', count(array_filter($this->whmcs->query('SELECT country FROM tblclients')->fetchAll(PDO::FETCH_COLUMN),
+        // Only the customers the importer brings (one with an owner login, ImportFromWhmcs::importUsers).
+        $this->hasColumn('tblclients', 'country') && $add('Customers without a country', count(array_filter($this->whmcs->query('SELECT c.country FROM tblclients c'
+            . ($this->hasColumn('tblusers_clients', 'owner') ? ' WHERE EXISTS (SELECT 1 FROM tblusers_clients uc JOIN tblusers u ON u.id = uc.auth_user_id'
+                . ' WHERE uc.client_id = c.id AND uc.owner = 1)' : ''))->fetchAll(PDO::FETCH_COLUMN),
             fn ($country) => EuVat::iso($country) === null)),
             DB::table('clients')->whereNotExists(fn ($contact) => $contact->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id')
                 ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
