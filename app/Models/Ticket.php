@@ -144,6 +144,19 @@ class Ticket extends Model implements Auditable
         };
     }
 
+    /**
+     * Where a reply moves it (docs/tickets.md §5): staff's → answered; the customer's → back with us, open while it still
+     * waits on our first reply.
+     */
+    public function statusAfterReply(bool $fromStaff): string
+    {
+        if ($fromStaff) {
+            return self::STATUS_ANSWERED;
+        }
+
+        return $this->messages()->whereNotNull('staff_id')->where('is_internal', false)->exists() ? self::STATUS_CUSTOMER_REPLY : self::STATUS_OPEN;
+    }
+
     /** No account: a guest's (§3 Δ). */
     public function isGuest(): bool
     {

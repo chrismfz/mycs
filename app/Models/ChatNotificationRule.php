@@ -22,6 +22,7 @@ class ChatNotificationRule extends Model implements Auditable
     public const EVENTS = [
         'ticket_opened' => 'New ticket',
         'ticket_reply' => 'Customer reply to a ticket',
+        'ticket_staff_reply' => 'Staff reply to a ticket',
         'order_placed' => 'New order',
         'invoice_paid' => 'Invoice paid',
         'payment_matched' => 'Bank payment matched to its invoice',

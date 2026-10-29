@@ -8,6 +8,7 @@ use App\Models\CronStat;
 use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Providers\SettingsProvider;
+use App\Services\Chat\ChatCard;
 use App\Services\Chat\ChatNotifier;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Http;
@@ -193,7 +194,8 @@ final class EuVatRates
         NotificationHelper::sendSystemEmailNotification('EU VAT rate changed', e('The European Commission\'s Taxes in Europe Database (TEDB) gives a different standard VAT rate than Tax Rates for:')
             . '<br><pre>' . e(implode("\n", $lines)) . '</pre>'
             . e('Nothing was changed. A new rate applies from a set day: check it with the member state, then change the rate in Tax Rates on that day. TEDB is for information, not a legal source.'));
-        ChatNotifier::notify('vat_rate_differs', '🧾 EU VAT rate differs from TEDB: ' . ChatNotifier::escape(implode('; ', $lines)));
+        ChatNotifier::notify('vat_rate_differs', new ChatCard('EU VAT rate differs from TEDB', null,
+            ChatNotifier::escape(implode('; ', $lines)) . "\n" . 'Nothing was changed: check it with the member state, then change the rate in Tax Rates on the day it applies.', ChatCard::GREY));
     }
 
     /** @param  array<string, mixed>  $changes */

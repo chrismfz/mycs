@@ -7,13 +7,13 @@ use App\Models\ChatNotificationRule;
 use Throwable;
 
 /**
- * Tells each enabled rule that asks for $event: one queued post each, after the change is committed. The text is made
- * only when a rule asks (no query, no relation loaded, otherwise).
+ * Tells each enabled rule that asks for $event: one queued post each, after the change is committed. The message (a
+ * card, or a line of text) is made only when a rule asks (no query, no relation loaded, otherwise).
  */
 final class ChatNotifier
 {
-    /** @param  string|callable(): string  $text */
-    public static function notify(string $event, string|callable $text): void
+    /** @param  string|ChatCard|callable(): (string|ChatCard)  $message */
+    public static function notify(string $event, string|ChatCard|callable $message): void
     {
         try {
             $rules = ChatNotificationRule::query()->where('enabled', true)->get()
@@ -21,9 +21,10 @@ final class ChatNotifier
             if ($rules->isEmpty()) {
                 return;
             }
-            $text = is_string($text) ? $text : $text();
+            $message = is_callable($message) ? $message() : $message;
+            [$text, $card] = $message instanceof ChatCard ? [$message->fallback(), $message->toArray()] : [$message, []];
             foreach ($rules as $rule) {
-                SendChatNotification::dispatch($rule->id, $text)->afterCommit();
+                SendChatNotification::dispatch($rule->id, $text, $card)->afterCommit();
             }
         } catch (Throwable $e) {
             report($e); // a chat never fails what it tells of
@@ -37,15 +38,25 @@ final class ChatNotifier
     }
 
     /**
+     * A customer's text where the chat shows plain text (a card's title, its fallback): one line, its mentions broken,
+     * nothing escaped (a backslash would show).
+     */
+    public static function plain(string $text): string
+    {
+        $text = str_replace(["\r", "\n"], ' ', $text);
+        $text = (string) preg_replace('/<!/', "<\u{200B}!", $text);
+
+        return (string) preg_replace('/@/u', "@\u{200B}", $text);
+    }
+
+    /**
      * A customer's text (a ticket's subject, a name, a reason) as plain text in the chat (review of #456): its mentions
      * broken (a zero-width space after «@», Slack's «<!…>» disarmed), so it pings no one, and its markdown escaped, so
      * it links nowhere.
      */
     public static function escape(string $text): string
     {
-        $text = str_replace(["\r", "\n"], ' ', $text);
-        $text = (string) preg_replace('/<!/', "<\u{200B}!", $text);
-        $text = (string) preg_replace('/@/u', "@\u{200B}", $text);
+        $text = self::plain($text);
 
         // Not «#»: a heading only at a line's start, and each message starts with its emoji.
         return (string) preg_replace('/([\\\\`*_\[\]()~>|!])/', '\\\\$1', $text);
