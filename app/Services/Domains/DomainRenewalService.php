@@ -14,6 +14,7 @@ use App\Models\ModuleAction;
 use App\Models\Staff;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Order\OrderPricing;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
@@ -744,13 +745,17 @@ class DomainRenewalService
             $years = $domain->nextRenewalYears();
             $price = $domain->renewalPriceFor($years)
                 ?? throw new RuntimeException(__('domains.renew.no_price', ['domain' => $domain->fqdn, 'years' => $years]));
+            // Its own payment method, as the cron's (#541): preferred, its line records it (never the account's card).
+            $own = ItemPaymentMethod::apart($domain);
             $invoice = Invoice::query()->create(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID,
-                'due_at' => $start->greaterThan(today()) ? $start : today(), 'currency_code' => $domain->currency_code]);
+                'due_at' => $start->greaterThan(today()) ? $start : today(), 'currency_code' => $domain->currency_code]
+                + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             $end = $start->copy()->addYearsNoOverflow($years);
 
             return $invoice->items()->create(['reference_type' => Domain::class, 'reference_id' => $domain->id,
                 'price' => OrderPricing::toNet($price, $domain->client), 'quantity' => 1,
-                'description' => $domain->describeRenewal($start, $end, $years), 'period_start' => $start, 'period_end' => $end]);
+                'description' => $domain->describeRenewal($start, $end, $years), 'period_start' => $start, 'period_end' => $end,
+                'payment_gateway_id' => ItemPaymentMethod::live($domain)]);
         });
     }
 

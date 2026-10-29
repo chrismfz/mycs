@@ -626,10 +626,9 @@ class Invoice extends Model implements Auditable
         if ($clientId === null) {
             return null;
         }
-        $default = DB::table('clients')->join('billing_agreements', 'billing_agreements.id', '=', 'clients.default_billing_agreement_id')
-            ->where('clients.id', $clientId)->whereNull('billing_agreements.deleted_at')->value('billing_agreements.gateway_id');
+        $default = self::savedMethodGatewayFor($clientId);
         if ($default !== null) {
-            return (int) $default;
+            return $default;
         }
         $last = DB::table('invoice_transactions')->join('invoices', 'invoices.id', '=', 'invoice_transactions.invoice_id')
             ->where('invoices.client_id', $clientId)->where('invoice_transactions.status', InvoiceTransactionStatus::Succeeded->value)
@@ -637,6 +636,15 @@ class Invoice extends Model implements Auditable
             ->orderByDesc('invoice_transactions.id')->value('invoice_transactions.gateway_id');
 
         return $last !== null ? (int) $last : null;
+    }
+
+    /** Its account's saved method's gateway (the default one), or null. */
+    public static function savedMethodGatewayFor(int $clientId): ?int
+    {
+        $default = DB::table('clients')->join('billing_agreements', 'billing_agreements.id', '=', 'clients.default_billing_agreement_id')
+            ->where('clients.id', $clientId)->whereNull('billing_agreements.deleted_at')->value('billing_agreements.gateway_id');
+
+        return $default === null ? null : (int) $default;
     }
 
     /** @return HasMany<InvoiceItem, $this> */

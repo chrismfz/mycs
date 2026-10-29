@@ -379,6 +379,11 @@ return [
     'renews_on' => 'Renews on',
     'auto_pay' => 'Auto paying using',
     'auto_pay_not_configured' => 'Not configured',
+    'auto_pay_paid_with' => 'None: paid with :method',
+    'payment_method' => 'Payment method',
+    'payment_method_account' => 'The account\'s (its saved method)',
+    'payment_method_saved' => 'The payment method was saved: its next renewals are invoiced with it.',
+    'payment_method_not_available' => 'This payment method is not available.',
 
     'no_services' => 'No services found',
     'update_billing_agreement' => 'Update Billing Agreement',

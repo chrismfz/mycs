@@ -17,6 +17,7 @@ use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarConnection;
+use App\Models\Gateway;
 use App\Models\Staff;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Clients\MoveToClient;
@@ -638,7 +639,7 @@ class ViewDomain extends ViewRecord
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
                 ->visible(fn () => self::can('admin.domains.update'))
                 ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years),
-                    'recurring_amount' => $record->recurring_amount])
+                    'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id])
                 ->schema([
                     Toggle::make('auto_renew')->label(__('Auto renew'))
                         ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
@@ -660,6 +661,11 @@ class ViewDomain extends ViewRecord
                         ->helperText(__('Empty: the TLD\'s renew price (shown). From its next renewal invoice; one already made keeps its price.'))
                         ->hintAction(Action::make('recalculate')->label(__('Recalculate'))->icon('heroicon-o-arrow-path')
                             ->action(fn (Set $set) => $set('recurring_amount', null))),
+                    // Its own payment method (owner 2026-10-29, as WHMCS's): its renewals invoiced apart with it.
+                    Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
+                        ->options(fn () => Gateway::query()->orderBy('name')->pluck('name', 'id'))
+                        ->placeholder(__('The account\'s (its saved method)'))
+                        ->helperText(__('Another gateway than the saved method\'s: its renewals are invoiced apart and never charged automatically.')),
                     Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
                 ])
                 ->action(function (Domain $record, array $data) {
@@ -676,6 +682,7 @@ class ViewDomain extends ViewRecord
                     }
                     $price = $data['recurring_amount'] ?? null;
                     $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null,
+                        'payment_gateway_id' => filled($data['payment_gateway_id'] ?? null) ? (int) $data['payment_gateway_id'] : null,
                         'recurring_amount' => $price === null || $price === '' ? null : (string) BigDecimal::of((string) $price)->toScale(2, RoundingMode::HalfUp)])->save(); // audited
                     Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
                         DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),

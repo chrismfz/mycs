@@ -16,6 +16,8 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Order\OrderPricing;
+use App\Services\Payment\AutoCharge;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\RenewServiceService;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
@@ -36,6 +38,9 @@ final class RenewalBilling
 {
     /** @var array<string, int> this run's groups: key => invoice id */
     private array $renewalGroups = [];
+
+    /** @var array<int, int|null> this run's customers: client => its saved method's gateway (Invoice::savedMethodGatewayFor) */
+    private array $accountGateways = [];
 
     /** @var array<string, Throwable> mailed to staff, the run succeeds */
     public array $notices = [];
@@ -240,6 +245,8 @@ final class RenewalBilling
         // A line of nothing (a short prorated hole rounding to zero cents) goes alone: closed as paid, it renews its service
         // at once, not when the rest of a group is paid.
         $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
+        $own = $this->ownGateway($service);
+        $key = $key === null || $own === null ? $key : "{$key}|g{$own}"; // its own payment method: an invoice apart (as WHMCS)
         // Lock order: the service (above), then its group's invoice, as for every line of the group; the services of a
         // group are billed one after another, never two at once (one cron run at a time; a group is this instance's own,
         // the cron's or one «Invoice selected items» run's).
@@ -247,7 +254,7 @@ final class RenewalBilling
             ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
             || (int) $invoice->client_id !== (int) $service->client_id || $invoice->currency_code !== $service->currency_code
-            || $invoice->hasPayments(lock: true))) {
+            || ($own !== null && (int) $invoice->preferred_gateway_id !== $own) || $invoice->hasPayments(lock: true))) {
             $invoice = null; // paid, finished or changed meanwhile: a new one
         }
         if ($invoice === null) {
@@ -256,7 +263,7 @@ final class RenewalBilling
                 'status' => Invoice::STATUS_UNPAID,
                 'due_at' => $periodStart,
                 'currency_code' => $service->currency_code,
-            ]);
+            ] + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             // Finalized, emailed and paid by credit once all its lines are on it (finishRenewalInvoices): marked
             // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
             $invoice->finalize_later = true;
@@ -276,6 +283,8 @@ final class RenewalBilling
             'description' => $service->describeLine($periodStart, $periodEnd) . self::groupNote($service),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            // Its way as billed: a saved method of another gateway never charges this invoice (#541).
+            'payment_gateway_id' => ItemPaymentMethod::live($service),
         ]);
 
         return 1;
@@ -347,15 +356,17 @@ final class RenewalBilling
             $domain->client->separatesInvoices() => null,
             default => implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]),
         };
+        $own = $this->ownGateway($domain);
+        $key = $key === null || $own === null ? $key : "{$key}|g{$own}";
         $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
             || (int) $invoice->client_id !== (int) $domain->client_id || $invoice->currency_code !== $domain->currency_code
-            || $invoice->hasPayments(lock: true))) {
+            || ($own !== null && (int) $invoice->preferred_gateway_id !== $own) || $invoice->hasPayments(lock: true))) {
             $invoice = null;
         }
         if ($invoice === null) {
             $invoice = new Invoice(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $due,
-                'currency_code' => $domain->currency_code]);
+                'currency_code' => $domain->currency_code] + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             $invoice->finalize_later = true;
             $invoice->forceFill(['finish_pending_at' => now()]);
             $invoice->save();
@@ -369,6 +380,7 @@ final class RenewalBilling
             'description' => $domain->describeRenewal($periodStart, $periodEnd, $years),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            'payment_gateway_id' => ItemPaymentMethod::live($domain),
         ]);
 
         return 1;
@@ -465,6 +477,20 @@ final class RenewalBilling
         });
     }
 
+    /** ItemPaymentMethod::apart, its account's gateway read once a run. */
+    private function ownGateway(Service|Domain $item): ?int
+    {
+        if ($item->payment_gateway_id === null) {
+            return null;
+        }
+        $client = (int) $item->client_id;
+        if (!array_key_exists($client, $this->accountGateways)) {
+            $this->accountGateways[$client] = Invoice::savedMethodGatewayFor($client);
+        }
+
+        return ItemPaymentMethod::apart($item, $this->accountGateways[$client]);
+    }
+
     /**
      * The renewal invoices of this run (one per group, PR C), its key: customer, due date and currency; null
      * for one billed alone (a gateway subscription's renewal, a customer with «Separate invoices»).
@@ -496,6 +522,7 @@ final class RenewalBilling
     public function finishRenewalInvoices(?array $only = null): void
     {
         $this->renewalGroups = [];
+        $this->accountGateways = [];
         $ids = Invoice::query()->whereNotNull('finish_pending_at')->when($only !== null, fn ($q) => $q->whereKey($only))->orderBy('id')->pluck('id');
         foreach ($ids as $id) {
             try {
@@ -527,7 +554,8 @@ final class RenewalBilling
                     $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
                         ->orderBy('id')->first();
                     $subscription = (string) $service?->subscription_id !== '';
-                    $agreement = $subscription ? null : $invoice->client?->autoChargeAgreement();
+                    // Not one paid another way either (ADV-541-7): the card never charges the rest, so the customer is told.
+                    $agreement = $subscription ? null : AutoCharge::agreementFor($invoice);
                     if (!$this->creditOnFinish) {
                         return;
                     }

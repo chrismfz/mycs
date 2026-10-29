@@ -379,6 +379,11 @@ return [
     'renews_on' => 'Ανανεώνεται στις',
     'auto_pay' => 'Αυτόματη πληρωμή με',
     'auto_pay_not_configured' => 'Δεν έχει οριστεί',
+    'auto_pay_paid_with' => 'Καμία: πληρώνεται με :method',
+    'payment_method' => 'Τρόπος πληρωμής',
+    'payment_method_account' => 'Του λογαριασμού (ο αποθηκευμένος τρόπος)',
+    'payment_method_saved' => 'Ο τρόπος πληρωμής αποθηκεύτηκε: οι επόμενες ανανεώσεις τιμολογούνται με αυτόν.',
+    'payment_method_not_available' => 'Αυτός ο τρόπος πληρωμής δεν είναι διαθέσιμος.',
 
     'no_services' => 'Δεν υπάρχουν υπηρεσίες',
     'update_billing_agreement' => 'Αλλαγή τρόπου αυτόματης πληρωμής',

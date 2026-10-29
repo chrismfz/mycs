@@ -200,6 +200,7 @@ class ImportFromWhmcs extends Command
             $this->importPayments();
             $this->importMassPay();
             $this->importInvoicePreferences();
+            $this->importItemPaymentMethods();
             $this->journalMoney();
             // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
             $this->importPayMethods();
@@ -1465,8 +1466,12 @@ class ImportFromWhmcs extends Command
         }
     }
 
-    /** WHMCS's modules that are a gateway here for an invoice's preferred method, beside the payment ones (GATEWAYS). */
-    private const PREFERRED_GATEWAYS = ['banktransfer' => 'BankTransfer'];
+    /**
+     * WHMCS's modules that are a gateway here for an invoice's or item's preferred method, beside the payment ones
+     * (GATEWAYS): bank transfer, and myip's Eurobank vPOS (eurobanklib: a redirect to the bank, nothing saved, paid from
+     * the invoice; owner 2026-10-29). Not for its payments: those stay manual, never refunded through a gateway.
+     */
+    private const PREFERRED_GATEWAYS = ['banktransfer' => 'BankTransfer', 'eurobanklib' => 'Cardlink'];
 
     /**
      * Each invoice's preferred payment method (WHMCS's tblinvoices.paymentmethod): its page opens with it chosen, its
@@ -1483,13 +1488,7 @@ class ImportFromWhmcs extends Command
         }
         $set = 0;
         foreach ($byModule as $module => $ids) {
-            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
-            if ($extension === null) {
-                continue;
-            }
-            // Only a gateway already here (its payments', or set up): never installed for a label, it would be offered to
-            // everyone unconfigured (reviews of #539).
-            $gateway = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
+            $gateway = $this->existingGateway($module);
             if ($gateway === null) {
                 continue;
             }
@@ -1498,6 +1497,52 @@ class ImportFromWhmcs extends Command
             }
         }
         $this->info("Invoices' preferred payment method: {$set} set from WHMCS.");
+    }
+
+    /**
+     * The gateway here of a WHMCS module, for a preferred payment method: only one already here (its payments', or set
+     * up), never installed for a label, it would be offered to everyone unconfigured (reviews of #539).
+     */
+    private function existingGateway(string $module): ?int
+    {
+        // Once per module and run: what the preferences and the items got is what the saved methods' step reads, though
+        // it installs gateways after (ADV-541-8).
+        if (array_key_exists($module, $this->itemGateways)) {
+            return $this->itemGateways[$module];
+        }
+        $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+        $id = $extension === null ? null : DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
+
+        return $this->itemGateways[$module] = $id === null ? null : (int) $id;
+    }
+
+    /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
+    private array $itemGateways = [];
+
+    /**
+     * Each service's and domain's own payment method (tblhosting/tbldomains.paymentmethod, owner 2026-10-29): its renewals
+     * are invoiced apart with it, and a saved method of another gateway never charges them, as in WHMCS. A module with no
+     * gateway here: none (the account's); the saved methods' step then keeps «Auto-charge» off for such a customer.
+     */
+    private function importItemPaymentMethods(): void
+    {
+        $set = 0;
+        foreach (['tblhosting' => 'services', 'tbldomains' => 'domains'] as $source => $table) {
+            $byModule = [];
+            foreach ($this->pdo->query("SELECT id, paymentmethod FROM {$source}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $module = strtolower(trim((string) ($row['paymentmethod'] ?? '')));
+                if ($module !== '') {
+                    $byModule[$module][] = (int) $row['id'];
+                }
+            }
+            foreach ($byModule as $module => $ids) {
+                $gateway = $this->existingGateway($module);
+                foreach (array_chunk($gateway === null ? [] : $ids, 1000) as $chunk) {
+                    $set += DB::table($table)->whereIn('id', $chunk)->update(['payment_gateway_id' => $gateway]);
+                }
+            }
+        }
+        $this->info("Services' and domains' payment method: {$set} set from WHMCS.");
     }
 
     /** The saved payment methods (WhmcsPayMethodImport): their references through WHMCS's API, never its key. */
@@ -1510,10 +1555,12 @@ class ImportFromWhmcs extends Command
 
             return;
         }
-        $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
+        $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module),
+            // What the item step wrote (ADV-541-8: a gateway installed since is not on its items).
+            fn (string $module) => $this->existingGateway($module)))->run();
         $c = $result['counts'];
         $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default; {$c['not_charged']} with «Auto-charge» off, "
-            . "most of their services paid another way, those with some paid by a saved method listed), {$c['skipped']} skipped.");
+            . "their items paid another way with no payment method here, those with some paid by a saved method listed), {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }

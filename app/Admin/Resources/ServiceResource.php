@@ -324,6 +324,11 @@ class ServiceResource extends Resource
                             ->label(__('Keep this price'))
                             ->hintIcon(...$hint(__('A change of the customer\'s group never reprices it.')))
                             ->default(false),
+                        // Its own payment method (owner 2026-10-29, as WHMCS's): its renewals invoiced apart with it.
+                        Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
+                            ->relationship('paymentGateway', 'name')
+                            ->placeholder(__('The account\'s (its saved method)'))
+                            ->hintIcon(...$hint(__('Another gateway than the saved method\'s: its renewals are invoiced apart and never charged automatically.'))),
                         // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
                         // (nixpal: 5 PayPal ones).
                         TextInput::make('subscription_id')

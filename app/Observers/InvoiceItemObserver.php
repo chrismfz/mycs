@@ -8,9 +8,11 @@ use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Service;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\LineTax;
+use App\Services\Payment\ItemPaymentMethod;
 
 /**
  * A paid invoice keeps what it charged (docs/money-trail.md, MT-1c): no line is added, removed or repriced while it is
@@ -46,7 +48,21 @@ class InvoiceItemObserver
             $invoice->forceFill(LineTax::decide($invoice));
         }
         LineTax::apply($invoice);
+        self::recordWay($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
+    }
+
+    /**
+     * A service's or domain's line records the item's way as billed (#541), however it is made (the cron, staff's API,
+     * a form): a saved method of another gateway never charges its invoice. One given (an import) stays.
+     */
+    private static function recordWay(InvoiceItem $line): void
+    {
+        if ($line->isDirty('payment_gateway_id') || !in_array($line->reference_type, [Service::class, Domain::class], true) || $line->reference_id === null) {
+            return;
+        }
+        $item = $line->reference_type::query()->find($line->reference_id);
+        $line->payment_gateway_id = $item === null ? null : ItemPaymentMethod::live($item);
     }
 
     /**
@@ -74,6 +90,9 @@ class InvoiceItemObserver
         if ($invoice->isDirty(['reference_type', 'reference_id'])
             && ($invoice->getOriginal('reference_type') === Domain::class || $invoice->reference_type === Domain::class)) {
             throw new DisplayException(__('A domain line keeps its domain: make a new line.'));
+        }
+        if ($invoice->isDirty(['reference_type', 'reference_id'])) {
+            self::recordWay($invoice);
         }
         if ($invoice->isDirty('taxed') && !$invoice->isDirty('tax_rate')) {
             $invoice->forceFill(LineTax::decide($invoice));
