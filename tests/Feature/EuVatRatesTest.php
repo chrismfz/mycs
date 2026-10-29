@@ -76,7 +76,7 @@ class EuVatRatesTest extends TestCase
         $this->assertSame('25.50', number_format((float) TaxRate::query()->where('country', 'FI')->value('rate'), 2));
         $this->assertSame('VAT Austria', TaxRate::query()->where('country', 'AT')->value('name'));
 
-        $this->artisan('mycs:vat-rates:seed')->expectsOutputToContain('Added 0 rate(s)')->assertSuccessful();
+        $this->artisan('mycs:vat-rates:seed', ['--force' => true])->expectsOutputToContain('Added 0 rate(s)')->assertSuccessful();
         $this->assertSame(27, TaxRate::query()->count());
     }
 
@@ -86,7 +86,7 @@ class EuVatRatesTest extends TestCase
         TaxRate::query()->create(['name' => 'Everyone', 'rate' => 24, 'country' => 'all']);
         TaxRate::query()->create(['name' => 'Swiss', 'rate' => 8.1, 'country' => 'CH']);
 
-        $this->artisan('mycs:vat-rates:seed')->expectsOutputToContain('Added 26 rate(s)')->assertSuccessful();
+        $this->artisan('mycs:vat-rates:seed', ['--force' => true])->expectsOutputToContain('Added 26 rate(s)')->assertSuccessful();
 
         $rates = $this->rates();
         $this->assertSame('13.00 ΦΠΑ', $rates['GR']);
@@ -95,11 +95,28 @@ class EuVatRatesTest extends TestCase
         $this->assertCount(29, $rates);
     }
 
+    public function test_an_instance_with_rates_gets_none_unless_asked(): void
+    {
+        // myip: GR and «All other» (PR #524): the seed would change what other EU customers pay.
+        TaxRate::query()->create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
+        TaxRate::query()->create(['name' => 'All other', 'rate' => 24, 'country' => 'all']);
+
+        $this->artisan('mycs:vat-rates:seed', ['--no-interaction' => true])->expectsOutputToContain('Nothing added')->assertFailed();
+        $this->assertSame(2, TaxRate::query()->count());
+
+        $this->artisan('mycs:vat-rates:seed')->expectsConfirmation('Add the missing EU rates anyway?', 'no')->assertFailed();
+        $this->assertSame(2, TaxRate::query()->count());
+
+        $this->artisan('mycs:vat-rates:seed')->expectsConfirmation('Add the missing EU rates anyway?', 'yes')
+            ->expectsOutputToContain('Company country')->assertSuccessful();
+        $this->assertSame(28, TaxRate::query()->count());
+    }
+
     public function test_a_dry_run_writes_nothing(): void
     {
         TaxRate::query()->create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
 
-        $this->artisan('mycs:vat-rates:seed', ['--dry-run' => true])->expectsOutputToContain('Would add 26 rate(s)')->assertSuccessful();
+        $this->artisan('mycs:vat-rates:seed', ['--dry-run' => true, '--no-interaction' => true])->expectsOutputToContain('Would add 26 rate(s)')->assertSuccessful();
 
         $this->assertSame(1, TaxRate::query()->count());
     }
