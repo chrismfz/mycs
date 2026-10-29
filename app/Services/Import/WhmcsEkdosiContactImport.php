@@ -43,10 +43,12 @@ final class WhmcsEkdosiContactImport
             return ['counts' => $this->counts, 'notes' => $this->notes];
         }
         $byContact = [];
-        $first = []; // type|item => its first assignment's id: a second one is listed, never applied (ADV-542-3)
+        // customer|type|item => its first assignment's id, as the plugin's resolveInvoice looks a route up (the invoice's
+        // customer, the item): a second one is listed, never applied (ADV-542-3); a moved item's new owner's is its own (R2-542-1).
+        $first = [];
         foreach ($routing as $row) {
             $byContact[(int) ($row['contactid'] ?? 0)][] = $row;
-            $first[strtolower(trim((string) ($row['service_type'] ?? ''))) . '|' . (int) ($row['serviceid'] ?? 0)] ??= (int) $row['id'];
+            $first[(int) ($row['userid'] ?? 0) . '|' . strtolower(trim((string) ($row['service_type'] ?? ''))) . '|' . (int) ($row['serviceid'] ?? 0)] ??= (int) $row['id'];
         }
         $clients = DB::table('clients')->pluck('id')->flip()->all();
         $owners = [
@@ -127,8 +129,9 @@ final class WhmcsEkdosiContactImport
 
             return false;
         }
-        if ($first["{$type}|{$item}"] !== (int) $row['id']) {
-            $this->skip(1, "Ekdosi assignment #{$row['id']}: {$type} #{$item} has another one already (#{$first["{$type}|{$item}"]}), which it keeps: check which is right");
+        if (($earlier = $first["{$client}|{$type}|{$item}"]) !== (int) $row['id']) {
+            $this->skip(1, "Ekdosi assignment #{$row['id']}: {$type} #{$item} has an earlier one (#{$earlier}), which the plugin used: "
+                . 'not applied (the earlier one is, unless it is listed too): check which is right');
 
             return false;
         }
