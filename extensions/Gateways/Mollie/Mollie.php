@@ -5,12 +5,16 @@ namespace MyCS\Extensions\Gateways\Mollie;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayReference;
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 #[ExtensionMeta(
     name: 'Mollie Gateway',
@@ -27,15 +31,18 @@ class Mollie extends Gateway
         // Register webhook route
     }
 
-    private function request($url, $method = 'get', $data = [])
+    /** @throws Exception Mollie's error, with its HTTP status as the code */
+    private function request($url, $method = 'get', $data = [], ?string $idempotencyKey = null)
     {
-        $response = Http::withHeaders([
+        $response = Http::withHeaders(array_filter([
             'Authorization' => 'Bearer ' . $this->config('api_key'),
             'Content-Type' => 'application/json',
-        ])->$method('https://api.mollie.com' . $url, $data);
+            'Idempotency-Key' => $idempotencyKey,
+        ]))->$method('https://api.mollie.com' . $url, $data);
 
         if (!$response->successful()) {
-            throw new Exception('Mollie API error: ' . $response->json()['detail']);
+            $detail = $response->json('detail');
+            throw new Exception('Mollie API error: ' . (is_string($detail) ? $detail : 'HTTP ' . $response->status()), $response->status());
         }
 
         return $response->json();
@@ -188,8 +195,52 @@ class Mollie extends Gateway
             ],
         ];
 
-        $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data);
+        // Mollie's refunds of this payment, read before anything is sent (AUD2-1). One giving money back that MyCS has not
+        // recorded by its id is a refund whose answer was lost and whose webhook has not come yet: refused, so a retry never
+        // pays it a second time, however late (Mollie keeps an idempotency key for an hour only). By id, not by amount: a
+        // refund recorded by hand or a chargeback must not hide it (ADV-517-R2-1, R2-2).
+        $listed = $this->listOf($paymentId, 'refunds');
+        $known = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->where('gateway', 'Mollie')
+            ->whereIn('origin', [GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_HAND])
+            ->pluck('reference')->all();
+        foreach ($listed as $made) {
+            if (in_array($made['status'] ?? null, ['queued', 'pending', 'processing', 'refunded'], true) && !in_array($made['id'] ?? null, $known, true)) {
+                throw new Exception('Mollie shows refund ' . ($made['id'] ?? '?') . ' of this payment, which MyCS has not recorded yet: wait for its webhook, or check Mollie, before refunding again.');
+            }
+        }
+
+        // Two clicks of the same refund before Mollie lists the first share a key: Mollie gives the first answer back.
+        // Any refund Mollie lists since, made, failed or canceled, makes a new key, so the next one is a refund of its own
+        // (ADV-517-1, ADV-517-2).
+        $key = 'refund-' . $transaction->id . '-' . count($listed) . '-' . RecordPaymentService::toCents($amount);
+        try {
+            $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data, $key);
+        } catch (ConnectionException $e) {
+            $this->outcomeUnknown($transaction, $paymentId, $amount, $key, 'no answer');
+
+            throw $e;
+        } catch (Exception $e) {
+            // Mollie's own failure (5xx), or the same key still being processed (409), may end in a refund: unknown, as a
+            // timeout. Any other 4xx is a refusal.
+            if ($e->getCode() >= 500 || $e->getCode() === 409) {
+                $this->outcomeUnknown($transaction, $paymentId, $amount, $key, 'HTTP ' . $e->getCode());
+            }
+
+            throw $e;
+        }
+
+        // A refund that does not give money back is not one, whatever the key handed back (ADV-517-2).
+        if (in_array($refund['status'] ?? null, ['failed', 'canceled'], true)) {
+            throw new Exception('Mollie answered with refund ' . ($refund['id'] ?? '?') . ', which is ' . $refund['status'] . ': nothing was refunded.');
+        }
 
         return (string) ($refund['id'] ?? '') ?: true;
+    }
+
+    private function outcomeUnknown(InvoiceTransaction $transaction, string $paymentId, $amount, string $key, string $why): void
+    {
+        Log::critical('Mollie refund outcome unknown (' . $why . '): check Mollie before retrying; MyCS refuses another refund of this payment until Mollie\'s refunds are recorded.', [
+            'transaction_id' => $transaction->id, 'payment_id' => $paymentId, 'amount' => $amount, 'idempotency_key' => $key,
+        ]);
     }
 }
