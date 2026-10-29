@@ -162,6 +162,7 @@ class ImportFromWhmcs extends Command
             DB::table('currencies')->truncate();
             // Import currencies
             $this->importCurrencies();
+            $this->importAutomationSettings();
             $this->importUsers();
             $this->importAdmins();
             $this->importCategories();
@@ -371,6 +372,48 @@ class ImportFromWhmcs extends Command
      * security audit AUTHN-11): those of no account too (108 on myip), so no login is lost. A ticket reply's user is
      * then the same id (WhmcsTicketImport::userOf).
      */
+    /**
+     * The company's automation, from its tblconfiguration (docs/settings-map.md, «Αυτοματισμοί»): left at MyCS's defaults,
+     * the cron would end services earlier than WHMCS did (myip terminates at 120 days, the default is 60: pre-launch audit,
+     * flow 1, 2026-10-29). Only the settings that are the same thing on both sides; what the owner decided otherwise
+     * (the overdue reminders, 1,3,7) is set by hand at the cut-over. A value WHMCS lacks, or one out of range, keeps
+     * MyCS's own, and is said.
+     */
+    private function importAutomationSettings(): void
+    {
+        $this->info('Importing automation settings...');
+        $config = $this->pdo->query("SELECT setting, value FROM tblconfiguration WHERE setting IN ('AutoSuspension', 'AutoSuspensionDays',"
+            . " 'AutoTermination', 'AutoTerminationDays', 'CreateInvoiceDaysBefore', 'DailyCronExecutionHour', 'CloseInactiveTickets')")
+            ->fetchAll(PDO::FETCH_KEY_PAIR);
+        $days = fn (string $key) => isset($config[$key]) && ctype_digit(trim((string) $config[$key])) ? (string) (int) $config[$key] : null;
+        $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
+            ? (int) $config['DailyCronExecutionHour'] : null;
+        $closeHours = $days('CloseInactiveTickets');
+        $settings = [
+            'cronjob_suspend_enabled' => isset($config['AutoSuspension']) ? ['boolean', $config['AutoSuspension'] === 'on' ? '1' : '0'] : null,
+            'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
+            'cronjob_terminate_enabled' => isset($config['AutoTermination']) ? ['boolean', $config['AutoTermination'] === 'on' ? '1' : '0'] : null,
+            'cronjob_order_terminate' => ($v = $days('AutoTerminationDays')) !== null ? ['string', $v] : null,
+            'cronjob_invoice' => ($v = $days('CreateInvoiceDaysBefore')) !== null ? ['string', $v] : null,
+            // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
+            'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
+            // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 is never, on both sides.
+            'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,
+        ];
+        $rows = [];
+        foreach ($settings as $key => $setting) {
+            if ($setting === null) {
+                $rows[] = [$key, 'kept (WHMCS has none, or one out of range)'];
+
+                continue;
+            }
+            [$type, $value] = $setting;
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null, 'settingable_id' => null], ['value' => $value, 'type' => $type]);
+            $rows[] = [$key, $value];
+        }
+        $this->table(['Setting', 'Value'], $rows);
+    }
+
     private function importLogins(): void
     {
         $this->info('Importing logins... (' . $this->count('tblusers') . ' records)');

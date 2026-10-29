@@ -52,7 +52,7 @@
 - **Pending υπηρεσίες με μόνο ακυρωμένα τιμολόγια** (BIL-12, #75): στο πρώτο run του cron μετά το cut-over
   ακυρώνονται όλες μαζί (παλαιότερες από `cronjob_order_cancel` ημέρες) και το stock τους επιστρέφει. Να μετρηθούν
   πριν από το cut-over και να αποφασίσει το staff (να γίνουν cancelled στο import ή να μείνουν).
-- **Ρυθμίσεις αυτοματισμού:** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
+- **Ρυθμίσεις αυτοματισμού (έγινε, 2026-10-29: `importAutomationSettings`):** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
 - **Mass Pay:** τα γονικά τιμολόγια δεν γίνονται τιμολόγια· η πληρωμή τους πάει στα παιδιά (`WhmcsMassPay`, PR F3,
   `payments.md`). Parity: πλήθος πληρωμένων γονικών = ομάδες με `whmcs_invoice_id`· χρήματα γονικών = άμεσα + allocations.
 - **Ό,τι άλλο βγάλει η απογραφή χρήσης του WHMCS** (`whmcs-usage.md`): mass pay/merge, πιστώσεις, promotions και εκπτώσεις ομάδων, κανόνες ΦΠΑ/VIES, custom fields, suspend overrides, guest tickets.
@@ -259,6 +259,19 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 30/09–24/10/2026. Εδώ μόνο ό,τι **λείπει** ή **θέλει απόφαση**.
 Ό,τι καλύπτεται ήδη (πελάτες, υπηρεσίες, άδειες, τιμολόγια, πληρωμές, πιστώσεις, tickets, admins) είναι στο ROADMAP,
 γραμμή 9.
+
+### Ρυθμίσεις αυτοματισμού (2026-10-29)
+Τις φέρνει το import, αλλιώς το cron θα τερμάτιζε υπηρεσίες της myip στις 60 ημέρες, ενώ το WHMCS τις κρατά ως τις
+120 (pre-launch audit, ροή 1).
+- `AutoSuspension`/`AutoTermination` → `cronjob_suspend_enabled`/`cronjob_terminate_enabled`.
+- `AutoSuspensionDays` → `cronjob_order_suspend` και `AutoTerminationDays` → `cronjob_order_terminate`.
+- `CreateInvoiceDaysBefore` → `cronjob_invoice`.
+- `DailyCronExecutionHour` → `cronjob_time` (ποτέ 03:xx).
+- `CloseInactiveTickets`, σε ώρες → `cronjob_close_ticket`, σε ημέρες, με στρογγυλοποίηση προς τα πάνω: 48 → 2.
+- Ό,τι λείπει ή είναι εκτός ορίων κρατά την τιμή της MyCS, και το import το λέει.
+- Οι υπενθυμίσεις overdue **δεν** έρχονται: εκεί ισχύει η απόφαση του υπευθύνου (1,3,7), που ορίζεται στο cut-over.
+- Οι 12 suspended υπηρεσίες της myip (2026-10-29) έχουν όλες override και καμία «Overdue on Payment»: μπαίνουν ως
+  κράτηση του staff, που ο τερματισμός του cron δεν την αγγίζει.
 
 ### Λείπουν από τον importer
 - **Ετικέτες υπηρεσιών του πελάτη:** `mod_clientproductdescriptions` (type `tblhosting`, pid = service id), 310 εγγραφές,
