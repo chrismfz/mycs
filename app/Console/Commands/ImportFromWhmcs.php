@@ -20,6 +20,7 @@ use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsDomainImport;
+use App\Services\Import\WhmcsEkdosiContactImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
@@ -192,6 +193,7 @@ class ImportFromWhmcs extends Command
             $this->importServices();
             $this->importOfflineSsl();
             $this->importDomains();
+            $this->importEkdosiContacts();
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
@@ -1518,6 +1520,17 @@ class ImportFromWhmcs extends Command
 
     /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
     private array $itemGateways = [];
+
+    /** E4 of the Ekdosi bridge (WhmcsEkdosiContactImport): who each service's and domain's fiscal document is issued to. */
+    private function importEkdosiContacts(): void
+    {
+        $result = (new WhmcsEkdosiContactImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Ekdosi contacts: {$c['contacts']} imported, assigned to {$c['services']} service(s) and {$c['domains']} domain(s); {$c['skipped']} assignment(s) skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
 
     /**
      * Each service's and domain's own payment method (tblhosting/tbldomains.paymentmethod, owner 2026-10-29): its renewals
