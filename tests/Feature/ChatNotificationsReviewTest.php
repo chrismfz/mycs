@@ -41,7 +41,9 @@ class ChatNotificationsReviewTest extends TestCase
     /** @return list<string> */
     private function told(): array
     {
-        return Queue::pushed(SendChatNotification::class)->map(fn (SendChatNotification $job) => $job->text)->values()->all();
+        // The fallback and the card, as JSON: a customer's text may reach the chat through either.
+        return Queue::pushed(SendChatNotification::class)->map(fn (SendChatNotification $job) => json_encode(['text' => $job->text, 'card' => $job->card],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))->values()->all();
     }
 
     /**
@@ -164,7 +166,7 @@ class ChatNotificationsReviewTest extends TestCase
 
         $told = $this->told();
         $this->assertCount(2, $told, json_encode($told));
-        $this->assertStringStartsWith('⏸️ Suspended', $told[0], json_encode($told));
-        $this->assertStringStartsWith('⛔ Terminated', $told[1]);
+        $this->assertStringContainsString('A service has been suspended.', $told[0], json_encode($told));
+        $this->assertStringContainsString('A service has been terminated.', $told[1]);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\BankAlerts;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
@@ -9,6 +10,7 @@ use App\Models\BankMovement;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Setting;
+use App\Services\Chat\ChatCard;
 use App\Services\Chat\ChatNotifier;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Eloquent\Builder;
@@ -151,8 +153,12 @@ final class PaymentMatcher
             $movement = BankMovement::query()->findOrFail($movementId);
             $invoice = Invoice::query()->findOrFail($invoiceId);
 
-            return '🏦 Payment auto matched: ' . number_format((float) $movement->amount, 2, ',', '.') . ' € (' . $movement->bankName() . ') → '
-                . ChatNotifier::link('#' . ($invoice->number ?: $invoice->id), InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin'));
+            return (new ChatCard('Invoice #' . ($invoice->number ?: $invoice->id), InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin'),
+                'A bank payment has been matched to this invoice automatically.', ChatCard::GREEN))
+                ->field('Client', $invoice->client ? ChatNotifier::link((string) $invoice->client->name, ClientResource::getUrl('view', ['record' => $invoice->client], panel: 'admin')) : null)
+                ->field('Amount', number_format((float) $movement->amount, 2, ',', '.') . ' €')
+                ->field('Bank', ChatNotifier::escape($movement->bankName()))
+                ->field('Total', (string) $invoice->formattedTotal);
         });
 
         return true;

@@ -200,7 +200,7 @@ class BankPaymentMatchingTest extends TestCase
         PaymentMatcher::run();
 
         $told = Queue::pushed(SendChatNotification::class)->map(fn ($job) => $job->text)->implode("\n");
-        $this->assertStringContainsString('Payment auto matched', $told);
+        $this->assertStringContainsString('matched to this invoice automatically', $told);
         $this->assertStringContainsString('#32999', $told);
 
         Filament::setCurrentPanel(Filament::getPanel('admin'));

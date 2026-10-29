@@ -19,16 +19,13 @@ class TicketMessageCreatedListener
         if ($message->is_internal) {
             return;
         }
+        $ticket->update(['status' => $ticket->statusAfterReply($message->isFromStaff())]);
         if ($message->isFromStaff()) {
-            $ticket->update(['status' => Ticket::STATUS_ANSWERED]);
             // To the owner, by mail with a Message-ID of ours (A3): the account's owner, or the guest's address.
             app(TicketMailer::class)->reply($message);
 
             return;
         }
-        // Still waiting on our first reply: open; otherwise the customer's answer, also on a closed ticket.
-        $answered = $ticket->messages()->whereNotNull('staff_id')->where('is_internal', false)->exists();
-        $ticket->update(['status' => $answered ? Ticket::STATUS_CUSTOMER_REPLY : Ticket::STATUS_OPEN]);
         app(TicketMailer::class)->notifyStaff($message, new: $ticket->messages()->count() === 1);
     }
 }

@@ -13,7 +13,8 @@ use RuntimeException;
 use Throwable;
 
 /**
- * One message to one rule's incoming webhook ({"text": …}: Mattermost and Slack alike). The job carries the rule's id,
+ * One message to one rule's incoming webhook ({"text": …}, or a card as {"attachments": […]}: Mattermost and Slack
+ * alike). The job carries the rule's id,
  * not its URL (the secret is read when sent, never queued or logged). https only, no redirects.
  */
 class SendChatNotification implements ShouldQueue
@@ -24,7 +25,22 @@ class SendChatNotification implements ShouldQueue
 
     public $timeout = 20;
 
-    public function __construct(public int $ruleId, public string $text) {}
+    /**
+     * ChatCard::toArray(); empty for a plain message. Declared with its default, not promoted: a job queued before cards
+     * has no «card» in its payload, and a promoted property would be left uninitialised (review of the cards' PR).
+     *
+     * @var array<string, mixed>
+     */
+    public array $card = [];
+
+    /**
+     * @param  string  $text  the message, or a card's fallback
+     * @param  array<string, mixed>  $card
+     */
+    public function __construct(public int $ruleId, public string $text, array $card = [])
+    {
+        $this->card = $card;
+    }
 
     public function backoff(): array
     {
@@ -37,18 +53,24 @@ class SendChatNotification implements ShouldQueue
         if ($rule === null || !$rule->enabled) {
             return;
         }
-        self::post((string) $rule->webhook_url, $this->text);
+        self::post((string) $rule->webhook_url, $this->text, $this->card);
     }
 
-    /** Posts the text; throws on anything but a 2xx, without the URL in the message. */
-    public static function post(string $url, string $text): void
+    /**
+     * Posts the text, or the card; throws on anything but a 2xx, without the URL in the message.
+     *
+     * @param  array<string, mixed>  $card
+     */
+    public static function post(string $url, string $text, array $card = []): void
     {
         if (!str_starts_with(strtolower(trim($url)), 'https://')) {
             throw new RuntimeException('The chat webhook must be an https:// URL.');
         }
         try {
             $response = Http::withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(10)
-                ->asJson()->post(trim($url), ['text' => mb_substr($text, 0, 4000), 'username' => 'MyCS']);
+                ->asJson()->post(trim($url), $card === []
+                    ? ['text' => mb_substr($text, 0, 4000), 'username' => 'MyCS']
+                    : ['attachments' => [$card], 'username' => 'MyCS']);
         } catch (Throwable) {
             // Its message names the URL (the secret): a fixed one instead, nothing chained (review of #456).
             throw new RuntimeException('The chat could not be reached (connection failed or timed out).');

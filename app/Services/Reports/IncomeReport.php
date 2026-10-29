@@ -167,7 +167,8 @@ final class IncomeReport
         ];
     }
 
-    private static function paidWith(Invoice $invoice): string
+    /** How it was paid: its gateways, account credit or «Manual» (also the chat card of a paid invoice). */
+    public static function paidWith(Invoice $invoice): string
     {
         return $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
             ->map(fn ($transaction) => $transaction->is_credit_transaction ? __('Account credit') : ($transaction->gateway->name ?? __('Manual')))
