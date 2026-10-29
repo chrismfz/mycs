@@ -123,8 +123,8 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 3 | Auth, δικαιώματα, επιφάνεια | 1 (2026-10-29, `main` @ 147b9496) | 1 (AUD3-1) | 1 (AUD3-2) | #519 | **έτοιμο** (#519, 3 γύροι review) |
 | 4 | Provisioning | 1 (2026-10-29, `main` @ 1390a389) | 2 (AUD4-1, AUD4-2: του importer) | 0 | στο session του importer | **έτοιμο** για ό,τι φτιάχνει η MyCS· **πύλη του cut-over** τα AUD4-1/2 |
 | 5 | Παραγγελίες, ΦΠΑ, promotions | 1 (2026-10-29, `main` @ 1390a389) | 1 (AUD5-1) | 0 | #524 | **έτοιμο** (#524, 2 γύροι review) |
-| 6 | Domains | | | | | ανοιχτό |
-| 7 | `zlic.php`, bridge | | | | | ανοιχτό |
+| 6 | Domains | 1 (2026-10-29, `main` @ c94aa7bf) | 0 | 1 (AUD6-1) | #526 | **έτοιμο** (#526) |
+| 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
 | 8 | Ops, ρυθμίσεις | | | | | ανοιχτό |
 | 9 | Importer | | | | | όταν τελειώσει ο importer |
 
@@ -218,3 +218,32 @@ username), Proxmox `GuestLifecycle` (pool, templates, MACs, VMID που ξανα
 - **Cut-over:** «Company country» myip = GR, nixpal (ή το `eu_vat_home_country` EE). Ο importer μετρά στα dumps τους
   πελάτες χωρίς χώρα ή με χώρα που δεν αναγνωρίζεται, και περνά τη χώρα από το `EuVat::iso()` (όχι `substr(…, 0, 2)`).
   Προ-συμπλήρωση των συντελεστών της ΕΕ και εβδομαδιαίος έλεγχος: σε δικό του session.
+
+### Ροή 6: σημειώσεις (2026-10-29)
+Μόνο τα αλλαγμένα μετά το sweep της 22/10. Ελέγχθηκαν: μαζικές ενέργειες στο portal (μόνο του λογαριασμού, ένα τιμολόγιο
+ανά νόμισμα, κανένα διπλό με το cron), μεταφορά σε άλλο πελάτη (`MoveToClient`), G8-5b, `DomainRecordCorrections`,
+εισαγωγή τιμών TLD, Registrar Log (χωρίς EPP code), η ροή ανανέωσης. Πέρασαν τα 1.018 tests των domains.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD6-1 | Medium | Αλλαγή κατόχου .gr «με μεταφορά στον νέο κάτοχο»: γινόταν στο Μητρώο ενώ η μεταφορά αρνιόταν, και έμενε «done» με το domain (EPP code, NS) στον πωλητή και κάτοχο τον αγοραστή, χωρίς κανείς να το μάθει | **#526:** η μεταφορά ελέγχεται πριν (`MoveToClient::domainRefusal`, χωρίς εγγραφή): στο αίτημα και ξανά πριν σταλεί (refused, τίποτα στο Μητρώο)· αν αποτύχει αφού έγινε εκεί (ΕΕΤΤ αργότερα), email στο staff |
+
+Low, ανοιχτά: «staff gone» σε αλλαγή με μεταφορά (ακύρωση και νέο αίτημα· ένα πληρωμένο τιμολόγιο θέλει refund ή πίστωση,
+ο υπάρχων κανόνας)· προσωρινές αρνήσεις της μεταφοράς γίνονται refused και θέλουν «Send again»· η μεταφορά μέσα από την
+αλλαγή κατόχου θέλει μόνο το `admin.domains.owner_change`, όχι και το `move`. **Cut-over:** τα 8 ερωτήματα του sweep της
+22/10 μένουν (κυρίως τα domains του CNIC σε AUTORENEW)· η τιμή `domain_gr_owner_change_price`.
+
+### Ροή 7: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: LocalKey και md5hash απέναντι στον αυθεντικό κώδικα, input (POST πριν από GET), σειρά ελέγχων status, IP
+binding υπό race, rate limit του zlic, HMAC της γέφυρας (`hash_equals` στο raw body, replay idempotent), ops και error
+codes, feed (ignore, επαφές), `add_payment`, «issued is final», E5. Πέρασαν τα 295 tests του licensing και του Ekdosi.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD7-1 | High (contract) | Το αυθεντικό `zlic.php` διαβάζει το verify.php με `/<(.*?)>([^<]+)<\/\1>/`: κενό tag δεν ταιριάζει, λείπει από JSON και localkey. Το δικό μας έστελνε `companyname` (ιδιώτες), `billingcycle`, `validdirectory` κενά | **#527:** τα κενά tags φεύγουν πριν από το md5hash και το localkey |
+
+Low, ανοιχτό: τιμή με `<` (π.χ. εταιρεία «A<B»): το WHMCS την αποθηκεύει ως `&lt;` και το verify.php τη στέλνει έτσι· το
+MyCS στέλνει `<`. Κανένας client δεν διαβάζει το `companyname`. **Cut-over:** shadow-run με άδεια ιδιώτη και με όνομα με
+`&`/`'`· ίδια DNS records του `clients.nixpal.com` (όχι νέο AAAA, αλλιώς οι dual-stack clients έρχονται από IPv6 και παίρνουν
+«IP Address Invalid»)· τα ops του plugin `resellers`, `invoiced_flags`, `legacy_invoice_links`, `custom_fields` δεν υπάρχουν
+στη MyCS (400 `unknown_op`): να επιβεβαιωθεί ότι το K1 δεν τα καλεί.
