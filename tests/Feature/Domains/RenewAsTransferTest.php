@@ -109,7 +109,7 @@ class RenewAsTransferTest extends TestCase
             str_contains($path, '/auth/login') => Http::response(['data' => ['token' => 'tok']]),
             $request->method() === 'POST' && str_ends_with($path, '/customers') => Http::response(['data' => ['handle' => 'MP000001-GR']]),
             $request->method() === 'POST' && str_ends_with($path, '/domains/transfer') => $this->opTransfer($path, $request->data()),
-            $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew(),
+            $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew($request->data()),
             $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->op === [] ? [] : [$this->record()], 'total' => $this->op === [] ? 0 : 1] + ($this->op === [] ? [] : $this->record())]),
             str_contains($request->url(), 'data.iana.org') => Http::response(['services' => [[['com', 'eu', 'uk'], ['https://rdap.example/']]]]),
             str_contains($request->url(), 'rdap.example/domain/') => $this->rdapExpiry === null ? Http::response([], 503)
@@ -137,10 +137,15 @@ class RenewAsTransferTest extends TestCase
 
     private int $opRenewals = 0;
 
-    private function opRenew()
+    /** @var list<int> the years each renewal at the target asked for */
+    private array $opRenewedYears = [];
+
+    private function opRenew(array $data = [])
     {
         $this->opRenewals++;
-        $this->opExpiry = Carbon::parse($this->opExpiry)->addYear()->format('Y-m-d H:i:s');
+        $years = max(1, (int) ($data['period'] ?? 1));
+        $this->opRenewedYears[] = $years;
+        $this->opExpiry = Carbon::parse($this->opExpiry)->addYears($years)->format('Y-m-d H:i:s');
 
         return Http::response(['code' => 0, 'data' => ['status' => 'ACT']]);
     }
@@ -385,5 +390,55 @@ class RenewAsTransferTest extends TestCase
         $this->assertTrue($domain->fresh()->meta['renew_transfer']['staff_only'] ?? false, 'open for staff\'s Retry only');
         $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
         $this->assertStringContainsString('could not confirm', $row->last_error);
+    }
+
+    /**
+     * R7 of #535 (owner 2026-10-29: «they all go to Openprovider»): a paid renewal of more years at CNIC is transferred too;
+     * the transfer adds one, and the rest are renewed at Openprovider once it is there, only when the registry confirms them
+     * missing, reading first: the years paid, never more.
+     */
+    public function test_a_paid_multi_year_renewal_is_transferred_and_the_rest_renewed_there(): void
+    {
+        [$domain, $line] = $this->paidRenewal(years: 3);
+        $this->assertSame('2029-11-01', $line->period_end->toDateString(), 'three years paid');
+
+        $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->assertCount(1, $this->op, 'transferred to Openprovider, not renewed at CNIC');
+        $this->assertSame(0, $this->sent('RenewDomain'));
+        $this->assertSame($this->to->id, $domain->fresh()->registrar_connection_id);
+
+        // Done there: its transfer added one year (2027-11-01); the registry too.
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2027-11-01 00:00:00';
+        $this->rdapExpiry = '2027-11-01T00:00:00Z';
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        Carbon::setTestNow('2026-10-22 11:00:00');
+        $sync->sync($domain->refresh());
+        $this->assertNull($line->fresh()->applied_at, 'two years still lacking a day on: opened again, to be renewed there');
+
+        $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->assertSame([2], $this->opRenewedYears, 'the two years it lacks, never three again');
+        $this->assertSame(DomainRenewalService::NOTHING, app(DomainRenewalService::class)->renewLine($line->id));
+        $sync->sync($domain->refresh());
+        $this->assertSame('2029-11-01', $domain->fresh()->expires_at->toDateString(), 'the three years paid, at Openprovider');
+        $this->assertCount(1, $this->mails('domain_renewed'), 'told «renewed» once');
+    }
+
+    /** R7: the registry already showing the years (the transfer added them all, or the target lags): never bought. */
+    public function test_a_multi_year_transfer_whose_years_the_registry_has_is_never_charged_again(): void
+    {
+        [$domain, $line] = $this->paidRenewal(years: 2);
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2027-11-01 00:00:00'; // the target lags
+        $this->rdapExpiry = '2028-11-01T00:00:00Z'; // the registry has both years
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        Carbon::setTestNow('2026-10-23 11:00:00');
+        $sync->sync($domain->refresh());
+
+        $this->assertNotNull($line->fresh()->applied_at, 'the registry has the years: the registrar lags, nothing to renew');
+        $this->assertSame([], $this->opRenewedYears);
     }
 }

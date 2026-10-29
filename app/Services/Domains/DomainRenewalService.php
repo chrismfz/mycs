@@ -325,7 +325,9 @@ class DomainRenewalService
             return self::FAILED;
         }
         // Its connection transfers its renewals elsewhere (owner 2026-10-21, the WHMCS hook as a setting): a transfer adds
-        // the one year paid for. More years, or some already charged for this line: renewed here.
+        // one year. More years paid (owner 2026-10-29: «they all go», R7 of #535): transferred too, and the rest renewed at
+        // the target once it is there (renewAfterTransfer: the registry confirming them missing, the target read first,
+        // only the years it lacks). Some already charged for this line: renewed here.
         // A line whose transfer failed is renewed here (RenewAsTransfer::revert), never transferred again on its own.
         // A line opened again after its transfer (renewAfterTransfer), or one a transfer already took: renewed where it is,
         // never transferred again (ADV-2 / code review 2 of #304).
@@ -333,7 +335,7 @@ class DomainRenewalService
             || DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'transfer')->where('status', DomainRegistrarLog::STATUS_OK)
                 ->where('request->line', $line->id)->exists();
         $to = $restore || $here ? null : $connection->renewTransferTarget();
-        if ($to !== null && $now->status === DomainStatus::Active && $years === 1 && $done === 0 && $paid === 1) {
+        if ($to !== null && $now->status === DomainStatus::Active && $years >= 1 && $done === 0) {
             $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
             if ($outcome === self::APPLIED) {
                 $this->lifecycle->advance($domain->refresh());

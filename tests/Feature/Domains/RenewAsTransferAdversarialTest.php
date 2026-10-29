@@ -382,15 +382,19 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertSame($this->to->id, $domain->fresh()->registrar_connection_id);
     }
 
-    /** GUARD — passes. A two-year line is renewed here (a transfer adds one year only), never transferred. */
-    public function test_guard_a_two_year_line_is_renewed_here(): void
+    /**
+     * GUARD — passes. A two-year line is transferred too (owner 2026-10-29, R7 of #535: «they all go to Openprovider»):
+     * nothing renewed here; its transfer adds one year and the other is renewed at the target once it is there
+     * (RenewAsTransferTest: the registry confirming it missing, the years it lacks only).
+     */
+    public function test_guard_a_two_year_line_is_transferred_too(): void
     {
         [, $line] = $this->paidRenewal('com', 2);
 
         app(DomainRenewalService::class)->renewLine($line->id);
 
-        $this->assertSame([], $this->op);
-        $this->assertSame(1, $this->sent('RenewDomain'));
+        $this->assertCount(1, $this->op);
+        $this->assertSame(0, $this->sent('RenewDomain'));
     }
 
     /**
