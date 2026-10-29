@@ -26,10 +26,10 @@ use Throwable;
  *   registrant and admin the customer's primary contact (as domains:adopt). An Openprovider handle from WHMCS is the
  *   role's only when its WHMCS contact has that contact's email (D4b: never our contact paired with another person
  *   there); every other one is kept in `meta.whmcs_handles` for staff. Additional fields in `meta.whmcs_fields`.
- * - Its registrar from WHMCS, except where WHMCS's CNIC → Openprovider hook (mod_domain_migration) changed it before
- *   a transfer that then failed: such a domain is still at its old registrar (domains.md, «Διαφορά από το hook»: 26 on
- *   myip showed Openprovider while still at CNIC), so it comes on that one's connection, listed. A submitted transfer is
- *   the new registrar's; the first sync with credentials confirms each domain where it is (importer.md, cut-over).
+ * - Its registrar as WHMCS has it. WHMCS's CNIC → Openprovider hook log (mod_domain_migration) is kept in its meta for
+ *   staff, never trusted over it: the 26 attempts it logged as failed were all at Openprovider by 2026-10-29 (moved by
+ *   hand since; the registrars' own lists, read then). The first sync with credentials confirms each domain where it is
+ *   (importer.md, cut-over).
  * - The expiry notices WHMCS sent for each domain's current expiry, so none goes again (as #531's for invoices).
  * - Its invoice lines (line()): a renewal with its historical period, applied when paid (the year was renewed at the
  *   registrar already); a registration or transfer as such; anything else a charge.
@@ -48,7 +48,7 @@ final class WhmcsDomainImport
         'YYYY/MM/DD' => 'Y/m/d', 'YYYY-MM-DD' => 'Y-m-d'];
 
     /** @var array<string, int> */
-    private array $counts = ['connections' => 0, 'tlds' => 0, 'domains' => 0, 'skipped' => 0, 'moves_undone' => 0, 'handles' => 0, 'handles_kept' => 0, 'reminders' => 0];
+    private array $counts = ['connections' => 0, 'tlds' => 0, 'domains' => 0, 'skipped' => 0, 'handles' => 0, 'handles_kept' => 0, 'reminders' => 0];
 
     /** @var list<string> */
     private array $notes = [];
@@ -205,13 +205,6 @@ final class WhmcsDomainImport
             $migration = $migrations[$id] ?? null;
             if ($migration !== null) {
                 $meta['whmcs_migration'] = $migration;
-                // Changed by the hook before its transfer, which did not go through: still at the old registrar.
-                if ($migration['status'] !== 'submitted' && $migration['old'] !== '' && $registrar === $migration['new']) {
-                    $this->notes[] = "Domain #{$id} {$fqdn}: WHMCS shows «{$registrar}», but its move from «{$migration['old']}» {$migration['status']}: "
-                        . "imported at «{$migration['old']}», check it.";
-                    $registrar = $migration['old'];
-                    $this->counts['moves_undone']++;
-                }
             }
             $rows[] = [
                 'id' => $id,

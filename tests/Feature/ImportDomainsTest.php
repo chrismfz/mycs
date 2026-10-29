@@ -221,15 +221,15 @@ class ImportDomainsTest extends TestCase
         (new ReflectionMethod($command, 'importDomains'))->invoke($command);
 
         $this->assertSame(1, Domain::query()->count());
-        $this->assertStringContainsString('Domains: 1 (0 skipped, 0 still at their old registrar), 3 TLDs, 2 registrar connection(s)', $output->fetch());
+        $this->assertStringContainsString('Domains: 1 (0 skipped), 3 TLDs, 2 registrar connection(s)', $output->fetch());
     }
 
     /**
-     * WHMCS's CNIC → Openprovider hook changed a domain's registrar before its transfer: where the transfer failed (26 on
-     * myip), WHMCS shows Openprovider while the domain is still at CNIC. It comes on the CNIC connection, listed; a
-     * submitted one is Openprovider's; and CNIC's paid renewals go on as transfers to Openprovider.
+     * WHMCS's CNIC → Openprovider hook log (mod_domain_migration) is kept for staff, never trusted over WHMCS's registrar:
+     * the 26 it logged as failed were all at Openprovider (read from the registrars, 2026-10-29: moved by hand since).
+     * CNIC's paid renewals go on as transfers to Openprovider.
      */
-    public function test_a_failed_move_from_cnic_comes_at_cnic_and_the_move_goes_on_at_renewal(): void
+    public function test_the_hooks_log_is_kept_but_whmcs_registrar_decides_and_the_move_goes_on_at_renewal(): void
     {
         $this->whmcs->exec("INSERT INTO tbldomainpricing VALUES (4, '.eu', 'cnic', 1, 0, 0, 0, 0, 40, 4)");
         $this->domain(61, 'moved.example.eu', 'Active', 'openprovider');
@@ -245,16 +245,45 @@ class ImportDomainsTest extends TestCase
             (63, 'cnic', 'openprovider', 0, '', 'triggered', '2026-05-01 10:00:00'),
             (64, 'cnic', 'openprovider', 1, '', 'failed', '2026-05-01 10:00:00')");
 
-        $result = $this->run_();
+        $this->run_();
 
         $connections = DomainRegistrarConnection::query()->pluck('id', 'registrar');
-        $this->assertSame([61 => $connections['openprovider'], 62 => $connections['cnic'], 63 => $connections['cnic'], 64 => $connections['cnic']],
-            Domain::query()->orderBy('id')->pluck('registrar_connection_id', 'id')->all(), 'the last real attempt decides; a dry run never does');
-        $this->assertSame('failed', Domain::query()->find(62)->meta['whmcs_migration']['status']);
+        $this->assertSame([61 => $connections['openprovider'], 62 => $connections['openprovider'], 63 => $connections['openprovider'], 64 => $connections['cnic']],
+            Domain::query()->orderBy('id')->pluck('registrar_connection_id', 'id')->all(), 'WHMCS\'s registrar, whatever the hook logged');
+        $this->assertSame('failed', Domain::query()->find(62)->meta['whmcs_migration']['status'], 'its last real attempt, for staff');
+        $this->assertArrayNotHasKey('whmcs_migration', Domain::query()->find(64)->meta ?? [], 'a dry run is no attempt');
         $this->assertStringNotContainsString('secret-epp', (string) DB::table('domains')->pluck('meta')->implode(' '), 'never its EPP code');
-        $this->assertSame(2, $result['counts']['moves_undone']);
-        $this->assertStringContainsString('Domain #62 stuck.example.eu: WHMCS shows «openprovider», but its move from «cnic» failed', implode("\n", $result['notes']));
         $this->assertSame($connections['openprovider'], DomainRegistrarConnection::query()->find($connections['cnic'])->renew_transfer_to_id,
             'a paid renewal at CNIC moves it to Openprovider, as the hook did');
+    }
+
+    /** Through the full importer: the domain's lines on it; a line of an invoice WHMCS deleted is never one without an invoice. */
+    public function test_the_lines_come_on_their_domain_and_a_deleted_invoices_line_never_comes(): void
+    {
+        $this->domain(71, 'billed.example.com', 'Active', 'openprovider');
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, invoicenum TEXT, date TEXT, duedate TEXT, datepaid TEXT,
+            status TEXT, total REAL, credit REAL, taxrate REAL)');
+        $this->whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, userid INT, type TEXT, relid INT, description TEXT,
+            amount REAL, taxed INT, duedate TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblaccounts (id INTEGER PRIMARY KEY, userid INT, invoiceid INT, gateway TEXT, date TEXT, amountin REAL,
+            amountout REAL, fees REAL, transid TEXT)');
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (1, {$this->client->id}, '', '2026-02-01', '2026-03-01', '2026-02-20 09:00:00', 'Paid', 12.5, 0, 0)");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES
+            (11, 1, {$this->client->id}, 'Domain', 71, 'Domain Renewal - billed.example.com - 1 Year/s (01/03/2026 - 28/02/2027)', 12.5, 0, '2026-03-01'),
+            (12, 999, {$this->client->id}, 'Domain', 71, 'Domain Renewal - billed.example.com - 1 Year/s (01/03/2025 - 28/02/2026)', 12.5, 0, '2025-03-01')");
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        foreach (['importDomains', 'importInvoices', 'importInvoiceItems'] as $step) {
+            (new ReflectionMethod($command, $step))->invoke($command);
+        }
+
+        $this->assertSame([11], DB::table('invoice_items')->pluck('id')->all(), 'the line of invoice #999 (deleted in WHMCS) is not imported');
+        $line = InvoiceItem::query()->findOrFail(11);
+        $this->assertSame([Domain::class, 71, '2026-03-01', '2027-03-01'], [$line->reference_type, (int) $line->reference_id,
+            $line->period_start?->toDateString(), $line->period_end?->toDateString()]);
+        $this->assertNotNull($line->applied_at);
+        $this->assertStringContainsString('1 invoice line(s) of invoices deleted in WHMCS: not imported', $output->fetch());
     }
 }

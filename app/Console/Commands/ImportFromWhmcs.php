@@ -1452,7 +1452,7 @@ class ImportFromWhmcs extends Command
         $this->domains = new WhmcsDomainImport($this->pdo);
         $result = $this->domains->run();
         $c = $result['counts'];
-        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped, {$c['moves_undone']} still at their old registrar), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
+        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
             . "{$c['handles']} handle(s) linked, {$c['handles_kept']} kept for staff; {$c['reminders']} notice(s) already sent.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
@@ -1622,10 +1622,17 @@ class ImportFromWhmcs extends Command
         // Each line with the tax it was issued with (Δ1): WHMCS keeps amounts net, «taxed» per line and the rate on the
         // invoice (TaxPerLineItem: rounded per line, as here). The second tax (taxrate2) is not used by either company.
         // Ordered, so the batches are stable.
-        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate, i.status AS invoice_status, i.datepaid AS invoice_datepaid FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate, i.id AS invoice_found, i.status AS invoice_status, i.datepaid AS invoice_datepaid FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
+                    continue;
+                }
+                // A line of an invoice WHMCS deleted (it keeps the line): no invoice here to be on, never one without
+                // (importer.md: myip 1,346, nixpal 2; review of D6: 77 of them a domain's).
+                if ($record['invoice_found'] === null) {
+                    $this->orphanLines++;
+
                     continue;
                 }
                 $taxed = (bool) ($record['taxed'] ?? false) && (float) ($record['invoice_taxrate'] ?? 0) > 0;
@@ -1647,7 +1654,13 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_items')->insert($data);
         });
+        if ($this->orphanLines > 0) {
+            $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS: not imported.");
+        }
     }
+
+    /** Lines of an invoice WHMCS deleted, skipped. */
+    private int $orphanLines = 0;
 
     /**
      * What a WHMCS invoice line is for (tblinvoiceitems.type, relid), so income goes to its product (#504):
