@@ -74,7 +74,7 @@ class Register extends ComponentWithProperties
             $rules['tos'] = 'accepted';
         }
 
-        return array_merge($rules, $this->forInvite() ? [] : $this->contactRules(), $this->getRulesForProperties());
+        return array_merge($rules, $this->forInvite() ? [] : $this->primaryContactRules(), $this->getRulesForProperties());
     }
 
     public function submit(Login $login)

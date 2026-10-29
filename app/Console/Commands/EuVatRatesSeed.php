@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Classes\Settings;
 use App\Models\TaxRate;
 use App\Services\Tax\EuVatRates;
 use Illuminate\Console\Command;
@@ -41,7 +42,8 @@ class EuVatRatesSeed extends Command
         $this->info(sprintf('%s %d rate(s), checked against TEDB on %s; %d countries already had one.',
             $dryRun ? 'Would add' : 'Added', count($added), StandardRates::checkedOn(), count(StandardRates::EU) - count($added)));
 
-        if ($added !== [] && !$dryRun) {
+        // More than one rate now: the only rate no longer stands for the company's country (Settings::homeCountry, #524).
+        if ($added !== [] && !$dryRun && Settings::configuredHomeCountry() === null) {
             $this->line('Set «Company country» (Settings → Tax) if it is not set: with more than one rate, a customer without a country pays «All» or the company country\'s rate.');
         }
 

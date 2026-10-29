@@ -133,7 +133,8 @@ final class EuVat
             return 'GR';
         }
 
-        return array_key_exists($country, $countries) ? $country : null;
+        // Never the list's empty «Select a country» key: no country is none (review of #524).
+        return $country !== '' && array_key_exists($country, $countries) ? $country : null;
     }
 
     /** The member state whose VAT a country pays: Monaco France's, the others their own. */

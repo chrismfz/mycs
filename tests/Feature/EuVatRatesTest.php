@@ -112,6 +112,16 @@ class EuVatRatesTest extends TestCase
         $this->assertSame(28, TaxRate::query()->count());
     }
 
+    public function test_the_company_country_reminder_only_when_none_is_set(): void
+    {
+        $this->artisan('mycs:vat-rates:seed')->expectsOutputToContain('Company country')->assertSuccessful();
+
+        TaxRate::query()->delete();
+        $this->storeSettings(['tax_home_country' => 'EE']);
+        $this->artisan('mycs:vat-rates:seed')->doesntExpectOutputToContain('Company country')->assertSuccessful();
+        $this->assertSame('EE', Settings::homeCountry());
+    }
+
     public function test_a_dry_run_writes_nothing(): void
     {
         TaxRate::query()->create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);

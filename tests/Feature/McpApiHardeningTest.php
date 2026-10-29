@@ -180,7 +180,7 @@ class McpApiHardeningTest extends TestCase
     {
         Mail::fake();
         config(['settings.tos' => false]);
-        $submit = fn (string $email) => Livewire::withHeaders([])->test(Register::class)->set('first_name', 'A')->set('last_name', 'B')->set('email', $email)
+        $submit = fn (string $email) => Livewire::withHeaders([])->test(Register::class)->set('contact.country', 'GR')->set('first_name', 'A')->set('last_name', 'B')->set('email', $email)
             ->set('password', 'Probe-Pass-1')->set('password_confirmation', 'Probe-Pass-1')->call('submit');
 
         // A typo costs no try.
