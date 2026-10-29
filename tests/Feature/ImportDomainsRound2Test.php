@@ -111,7 +111,9 @@ class ImportDomainsRound2Test extends TestCase
     private function invoice(int $id, string $status, ?string $datepaid, array $lines, ?int $userid = null): void
     {
         $this->whmcs->prepare('INSERT INTO tblinvoices VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)')
-            ->execute([$id, $userid ?? $this->client->id, '', '2026-01-01', '2026-01-15', $datepaid ?? '0000-00-00 00:00:00', $status,
+            // Each invoice on its own date, as WHMCS has them (its lines are dated by it here: R2-4).
+            ->execute([$id, $userid ?? $this->client->id, '', $datepaid !== null ? substr($datepaid, 0, 10) : ($lines[0][5] ?? '2026-01-01'), '2026-01-15',
+                $datepaid ?? '0000-00-00 00:00:00', $status,
                 array_sum(array_column($lines, 4))]);
         foreach ($lines as [$lineId, $type, $relid, $description, $amount, $due]) {
             $this->whmcs->prepare('INSERT INTO tblinvoiceitems VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)')

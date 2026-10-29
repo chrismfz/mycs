@@ -1622,7 +1622,7 @@ class ImportFromWhmcs extends Command
         // Each line with the tax it was issued with (Δ1): WHMCS keeps amounts net, «taxed» per line and the rate on the
         // invoice (TaxPerLineItem: rounded per line, as here). The second tax (taxrate2) is not used by either company.
         // Ordered, so the batches are stable.
-        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate, i.id AS invoice_found, i.status AS invoice_status, i.datepaid AS invoice_datepaid FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate, i.id AS invoice_found, i.status AS invoice_status, i.datepaid AS invoice_datepaid, i.date AS invoice_date FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
@@ -1647,13 +1647,15 @@ class ImportFromWhmcs extends Command
                     'tax_rate' => $taxed ? $record['invoice_taxrate'] : 0,
                     'tax_amount' => $line['tax'],
                     'line_total' => $line['total'],
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    // Its invoice's date: which fee is which renewal's is told by it (R2-4 of #535), never all «now».
+                    'created_at' => $this->validateDate($record['invoice_date'] ?? null) ?? now(),
+                    'updated_at' => $this->validateDate($record['invoice_date'] ?? null) ?? now(),
                 ] + $this->lineReference($record);
             }
 
             DB::table('invoice_items')->insert($data);
         });
+        $this->domains?->recordDoneYears();
         foreach ($this->domains?->lineNotes() ?? [] as $note) {
             $this->warn($note);
         }

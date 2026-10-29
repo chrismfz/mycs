@@ -66,6 +66,25 @@ final class WhmcsDomainImport
         return $this->lineNotes;
     }
 
+    /** @var list<array{line: int, domain: int, years: int, invoice: int, at: string|null}> years WHMCS renewed of a line left to be applied */
+    private array $doneYears = [];
+
+    /**
+     * After the invoice lines: the years WHMCS already renewed of a paid line left to be applied, as an «ok» renewal of
+     * that line in the domain's registrar log (what DomainRenewalService::chargedYears counts), so it buys only the rest.
+     */
+    public function recordDoneYears(): void
+    {
+        foreach ($this->doneYears as $done) {
+            DB::table('domain_registrar_logs')->insert(['domain_id' => $done['domain'],
+                'registrar_connection_id' => DB::table('domains')->where('id', $done['domain'])->value('registrar_connection_id'),
+                'action' => 'renew', 'status' => 'ok', 'invoice_id' => $done['invoice'] ?: null,
+                'request' => json_encode(['line' => $done['line'], 'years' => $done['years'], 'source' => 'whmcs']),
+                'response' => json_encode(['note' => 'Renewed in WHMCS before the import (its expiry shows these years of the line).']),
+                'created_at' => $done['at'] ?? now(), 'updated_at' => $done['at'] ?? now()]);
+        }
+    }
+
     /** @var array<string, DomainRegistrarConnection> WHMCS registrar module => its connection here */
     private array $connections = [];
 
@@ -119,11 +138,28 @@ final class WhmcsDomainImport
             $short = $done && $renewal['period_end'] !== null && !$domain['ended']
                 && ($domain['expires'] === null || Carbon::parse($domain['expires'])->addDays(self::COVERED_WITHIN_DAYS)->lessThan(Carbon::parse($renewal['period_end'])));
             if ($short) {
-                $this->lineNotes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}, WHMCS's expiry is "
-                    . ($domain['expires'] ?? 'none') . ': left to be renewed (the registrar read first: only the years it lacks).';
+                // The years of it WHMCS's expiry already shows (the hook's transfer added one of two: R2-2 of #535), as
+                // charged for this line: the renewal buys only the rest, never the whole again.
+                $paidYears = max(1, (int) round(Carbon::parse($renewal['period_start'])->diffInMonths(Carbon::parse($renewal['period_end'])) / 12));
+                $done = 0;
+                while ($domain['expires'] !== null && $done < $paidYears
+                    && Carbon::parse($renewal['period_start'])->addYearsNoOverflow($done + 1)->lessThanOrEqualTo(Carbon::parse($domain['expires'])->addDays(self::COVERED_WITHIN_DAYS))) {
+                    $done++;
+                }
+                if ($done > 0) {
+                    $this->doneYears[] = ['line' => (int) $record['id'], 'domain' => (int) $record['relid'], 'years' => $done, 'invoice' => (int) ($record['invoiceid'] ?? 0),
+                        'at' => $applied];
+                }
+                $this->lineNotes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}"
+                    . " ({$paidYears} year(s)), WHMCS's expiry is " . ($domain['expires'] ?? 'none') . ($done > 0 ? " ({$done} done)" : '')
+                    . ': left to be renewed (the registrar read first: only the years it lacks).';
             }
-            // Cancelled in WHMCS for a period already due: given up, as a cancellation here does (Δ3a, InvoiceObserver).
-            $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] <= now()->toDateString();
+            // Cancelled in WHMCS for the period now due and not renewed (its expiry still at its start): given up, as a
+            // cancellation here does (Δ3a). Never an alternative not taken (a longer one, the domain renewed by another):
+            // given up, it would count as billed and stop the next renewal (R2-1 of #535).
+            $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] <= now()->toDateString()
+                && !$domain['ended'] && $domain['expires'] !== null
+                && abs(Carbon::parse($domain['expires'])->diffInDays(Carbon::parse($renewal['period_start']), false)) <= self::COVERED_WITHIN_DAYS;
 
             return ['applied_at' => $short ? null : $applied, 'forgone_at' => $forgone ? now()->toDateTimeString() : null] + $renewal;
         }
@@ -226,8 +262,12 @@ final class WhmcsDomainImport
             // Still «Pending» in WHMCS, but registered (an order has no expiry until it is) or renewed and paid there: live,
             // never an order the cron cancels as unpaid (review of #535).
             $expires = $this->date($row['expirydate'] ?? null, dateOnly: true);
+            // Not a pending transfer carrying the losing registrar's expiry (R2-3 of #535): renewed here, or registered over a
+            // year ago, and its expiry still ahead.
+            $registered = $this->date($row['registrationdate'] ?? null, dateOnly: true);
             if (in_array($status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-                && $expires !== null && ($expires >= now()->toDateString() || isset($paidRenewals[$id]))) {
+                && $expires !== null && $expires >= now()->toDateString()
+                && (isset($paidRenewals[$id]) || ($registered !== null && $registered <= now()->subYear()->toDateString()))) {
                 $status = DomainStatus::Active;
                 $this->notes[] = "Domain #{$id} {$fqdn}: «Pending» in WHMCS with an expiry ({$expires}): imported active, check it.";
             }
@@ -243,7 +283,8 @@ final class WhmcsDomainImport
             $meta = array_filter([
                 'whmcs' => array_filter(['registrar' => trim((string) $row['registrar']), 'status' => (string) $row['status'], 'type' => (string) $row['type'],
                     'next_due' => $this->date($row['nextduedate'] ?? null, dateOnly: true)]),
-                // Encrypted: a registry's fields carry birth dates, ID and tax numbers (review of #535); staff read them here.
+                // Encrypted: a registry's fields carry birth dates, ID and tax numbers (review of #535); kept for staff and a
+                // registrar's later needs (Crypt::decryptString), read by nothing yet.
                 'whmcs_fields' => $fieldsOf !== [] ? Crypt::encryptString(json_encode($fieldsOf, JSON_UNESCAPED_UNICODE)) : null,
                 'whmcs_handles' => $kept,
             ]);
