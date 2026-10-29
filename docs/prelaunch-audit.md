@@ -119,7 +119,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | # | Ροή | Γύρος | Critical/High | Medium | PR διορθώσεων | Κατάσταση |
 |---|---|---|---|---|---|---|
 | 1 | Cron χρέωσης, κύκλος ζωής | 1 (2026-10-29, `main` @ e298c168) | 0 | 0 | — | **έτοιμο** |
-| 2 | Πληρωμές, πιστώσεις, τιμολόγια | | | | | ανοιχτό |
+| 2 | Πληρωμές, πιστώσεις, τιμολόγια | 1 (2026-10-29, `main` @ e298c168) | 0 | 1 (AUD2-1, μόνο αν ανοίξει το Mollie) | — | **έτοιμο** (με το Mollie κλειστό) |
 | 3 | Auth, δικαιώματα, επιφάνεια | | | | | ανοιχτό |
 | 4 | Provisioning | | | | | ανοιχτό |
 | 5 | Παραγγελίες, ΦΠΑ, promotions | | | | | ανοιχτό |
@@ -143,3 +143,22 @@ BillingCursor). Για αργότερα, όχι ευρήματα:
   (`extensions/Gateways/Stripe/Stripe.php:72-84`). Δεν μετράει σήμερα: η MyCS δεν φτιάχνει συνδρομές και ο importer δεν
   φέρνει `subscriptionid`. Μετράει μόνο αν μπει `subscription_id` με το χέρι.
 - Ο βρόχος `domain_invoices_cancelled` δεν έχει try ανά domain: μια αποτυχία σταματά τον βρόχο, αλλά αναφέρεται.
+
+### Ροή 2: σημειώσεις (2026-10-29)
+Κανένα Critical/High. Πέρασαν 1.518 tests της ροής (ένα αποτυγχάνει από την ημερομηνία, βλ. κάτω). Ελέγχθηκαν:
+`RecordPaymentService` (σειρά locks, idempotency ανά πελάτη, cents, υπερπληρωμή), `CreditLedger`/auto-apply/Mass Pay,
+οι υπογραφές των webhooks (Stripe HMAC με όριο 300 s, PayPal μέσω API, Mollie ξαναδιαβάζει, digest του Cardlink, IPN με
+receiver), διπλή χρέωση vault (`SavedMethodCharge`, idempotency key), refunds/chargebacks, γραμμές σε πληρωμένο
+τιμολόγιο, matching τράπεζας (DKIM/DMARC, ακριβώς ένα τιμολόγιο με ίδιο υπόλοιπο), `add_payment` του Ekdosi.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD2-1 | Medium, μόνο με το Mollie ανοιχτό | `extensions/Gateways/Mollie/Mollie.php` `refund()`/`request()`: χωρίς idempotency key, και το timeout μοιάζει με άρνηση. Το staff βλέπει «refund failed» ενώ το Mollie επέστρεψε, ξαναπατά, και ο πελάτης παίρνει δύο φορές. Το Stripe και το PayPal το έχουν λύσει | ανοιχτό· **το Mollie δεν ανοίγει πριν διορθωθεί** (καμία εταιρεία δεν το χρησιμοποιεί) |
+
+Σημειώσεις:
+- **Test που εξαρτάται από την ημερομηνία:** `tests/Feature/CreditAutoApplyAdversarialTest.php:180` περιμένει
+  `addMonth()` (31/10 → 1/12) ενώ ο κώδικας δίνει σωστά 30/11. Αποτυγχάνει στις 29–31 κάθε μήνα πριν από μικρότερο
+  μήνα, και στο CI. Λάθος του test, όχι της χρέωσης.
+- **Cut-over:** το IPN (PayPal Standard) της MyCS καταγράφει πληρωμή με το `item_number` του URL, χωρίς σήμανση ότι
+  τη ξεκινήσαμε εμείς. Ασφαλές όσο το IPN URL της MyCS **δεν** μπαίνει ως IPN URL στο προφίλ του λογαριασμού PayPal και
+  οι πληρωμές της εποχής WHMCS πάνε στο legacy URL. Έλεγχος της ρύθμισης του PayPal τη μέρα του cut-over.
