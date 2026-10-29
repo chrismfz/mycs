@@ -99,7 +99,7 @@
     @endif
 
     @if($this->gateways && count($this->gateways) > 0)
-    <div class="mb-6" x-data="{ showOneTime: @if($this->savedPaymentMethods->count() == 0) true @else false @endif }">
+    <div class="mb-6" x-data="{ showOneTime: @if($this->savedPaymentMethods->count() == 0 || str_starts_with((string) $selectedMethod, 'gateway-')) true @else false @endif }">
         <button @click="showOneTime = !showOneTime"
             class="flex items-center justify-between w-full p-3 text-left rounded-lg border border-neutral transition-colors @if($this->savedPaymentMethods->count() == 0) hidden @endif">
             <span class="text-sm font-medium">

@@ -240,6 +240,8 @@ final class MoveToClient
             if ($whole) {
                 $order?->forceFill(['client_id' => $to->id])->save();
                 $invoice->client_id = $to->id;
+                // Its preferred method: the new account's own, as a split's (R3-2 of #539), never the old card's gateway.
+                $invoice->preferred_gateway_id = Invoice::preferredGatewayFor($to->id);
                 $invoice->save();
                 $invoice->setRelation('client', $to);
                 $this->retax($lines, $invoice);
@@ -252,6 +254,7 @@ final class MoveToClient
             // This item's lines move to a new invoice of the new client, as SplitInvoice moves them: issued when the first
             // was, kept from the cron's charge and as a debt as it was, pointing at it. Sent once, by its creation (after
             // the commit, its lines on it; adversarial ADV-3).
+            // Its preferred method: the new account's own (the observer's), never the old account's card's gateway.
             $new = new Invoice(['client_id' => $to->id, 'status' => $invoice->status, 'due_at' => $invoice->due_at, 'currency_code' => $invoice->currency_code]);
             $new->split_from_id = $invoice->id;
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;

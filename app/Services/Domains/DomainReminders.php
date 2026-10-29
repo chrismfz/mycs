@@ -245,6 +245,8 @@ class DomainReminders
             'late_fee' => $free ? '' : $money($fee),
             'years' => $domain->nextRenewalYears(),
             'invoice' => $invoice,
+            // Its renewal invoice's preferred payment method, for the button (R2-3 of #539).
+            'preferred_method' => $invoice !== null ? NotificationHelper::preferredMethod($invoice) : '',
             // Charged without the customer, by AutoCharge's own rules (review R2: not a mixed invoice it leaves alone).
             'auto_charged' => $invoice !== null ? PaymentReminders::chargedOnItsOwn($invoice) : $domain->client->autoChargeAgreement() !== null,
         ];

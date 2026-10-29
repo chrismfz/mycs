@@ -199,6 +199,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->importInvoicePreferences();
             $this->journalMoney();
             // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
             $this->importPayMethods();
@@ -1462,6 +1463,41 @@ class ImportFromWhmcs extends Command
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
+    }
+
+    /** WHMCS's modules that are a gateway here for an invoice's preferred method, beside the payment ones (GATEWAYS). */
+    private const PREFERRED_GATEWAYS = ['banktransfer' => 'BankTransfer'];
+
+    /**
+     * Each invoice's preferred payment method (WHMCS's tblinvoices.paymentmethod): its page opens with it chosen, its
+     * email names it. After the payments (their gateways installed by then); a module with no gateway here: none.
+     */
+    private function importInvoicePreferences(): void
+    {
+        $byModule = [];
+        foreach ($this->pdo->query('SELECT id, paymentmethod FROM tblinvoices')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $module = strtolower(trim((string) ($row['paymentmethod'] ?? '')));
+            if ($module !== '') {
+                $byModule[$module][] = (int) $row['id'];
+            }
+        }
+        $set = 0;
+        foreach ($byModule as $module => $ids) {
+            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            if ($extension === null) {
+                continue;
+            }
+            // Only a gateway already here (its payments', or set up): never installed for a label, it would be offered to
+            // everyone unconfigured (reviews of #539).
+            $gateway = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
+            if ($gateway === null) {
+                continue;
+            }
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                $set += DB::table('invoices')->whereIn('id', $chunk)->update(['preferred_gateway_id' => $gateway]);
+            }
+        }
+        $this->info("Invoices' preferred payment method: {$set} set from WHMCS.");
     }
 
     /** The saved payment methods (WhmcsPayMethodImport): their references through WHMCS's API, never its key. */
