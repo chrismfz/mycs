@@ -158,6 +158,14 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [ ] ~~cPanel: WordPress (WP Toolkit), ασφάλεια (Imunify360), faults του lve-stats~~ **όχι τώρα** (υπεύθυνος 2026-10-28: «αρκετά
       ολοκληρωμένο, μην το βαρύνουμε»· φαίνονται στο cPanel με το SSO). Το
       backup του λογαριασμού είναι του JetBackup (το backup του cPanel κλειστό στον rigel): αργότερα από το JetBackup.
+- [x] ~~Resend welcome email, generator κωδικού, κωδικός που ορίστηκε αλλού~~ **έγινε (feat/resend-welcome, υπεύθυνος
+      2026-10-29):** στη σελίδα της υπηρεσίας «Resend welcome email» (ο κωδικός που είναι αποθηκευμένος τώρα, στον κάτοχο,
+      3/ώρα, audit), «Generate» και «και στείλε το welcome email» στο «Change password on server», «Save a password set
+      elsewhere» χωρίς κλήση στον server· «Δημιουργία ισχυρού κωδικού» και για τον πελάτη (`provisioning.md`, «Κωδικός
+      υπηρεσίας και welcome email»). cPanel, mailcow, Centova αλλάζουν στον server· Proxmox όχι ακόμα (PR 6 του
+      `proxmox.md`).
+- [ ] **DirectAdmin και ngm: αλλαγή κωδικού στον server** (σημειώσεις στο `provisioning.md`): DirectAdmin με
+      `CMD_API_USER_PASSWD` μετά από live δοκιμή· ngm μόνο αν ο πάροχος δώσει API. Ως τότε «Save a password set elsewhere».
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

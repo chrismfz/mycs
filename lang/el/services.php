@@ -78,6 +78,8 @@ return [
         'confirm_password' => 'Επιβεβαίωση νέου κωδικού',
         'mysql_too' => 'Αλλαγή και του κωδικού MySQL',
         'password_hint' => 'Τουλάχιστον 10 χαρακτήρες, με κεφαλαία και πεζά γράμματα και αριθμούς.',
+        'password_generate' => 'Δημιουργία ισχυρού κωδικού',
+        'password_generated' => 'Ο νέος κωδικός σας (αντιγράψτε τον πριν την αλλαγή):',
         'password_change' => 'Αλλαγή κωδικού',
         'password_changed' => 'Ο κωδικός άλλαξε.',
         'password_refused' => 'Ο κωδικός δεν άλλαξε: :reason',

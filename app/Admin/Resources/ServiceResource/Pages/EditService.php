@@ -23,13 +23,16 @@ use App\Models\License;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\SslOrder;
+use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
+use App\Services\Service\WelcomeMail;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\LicenseKeyMask;
 use App\Support\Redact;
+use App\Support\ServicePassword;
 use App\Support\StaffLink;
 use Exception;
 use Filament\Actions\Action;
@@ -44,16 +47,17 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
-use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
 use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
+use OwenIt\Auditing\Events\AuditCustom;
 
 class EditService extends EditRecord
 {
@@ -170,6 +174,58 @@ class EditService extends EditRecord
             && rescue(fn () => ExtensionHelper::hasFunction($server, 'getLoginUrl'), false, false);
     }
 
+    /** Its server's module changes passwords (cPanel, mailcow, Centova). */
+    private static function changesPasswordOnServer(Service $record): bool
+    {
+        return rescue(fn () => ($server = $record->provisioningServer()) !== null
+            && ExtensionHelper::hasFunction($server, 'changePassword'), false, false);
+    }
+
+    private static function passwordInput(): TextInput
+    {
+        return TextInput::make('password')->label(__('New password'))->password()->revealable()->required()->maxLength(128);
+    }
+
+    private static function sendWelcomeCheckbox(): Checkbox
+    {
+        return Checkbox::make('sendWelcome')->label(__('Then send the welcome email with the new password'))->default(false)
+            ->visible(fn (Service $record) => in_array($record->status, WelcomeMail::STATUSES, true))
+            ->helperText(fn (Service $record) => __('To the account\'s owner (:email).', ['email' => WelcomeMail::recipient($record) ?? '—']));
+    }
+
+    /** Who stored a password and how (the attribute's own audit shows only that it changed, never its value). */
+    private static function auditPassword(Service $record, string $event): void
+    {
+        $record->auditEvent = $event;
+        $record->isCustomEvent = true;
+        $record->auditCustomOld = [];
+        $record->auditCustomNew = ['staff_id' => Auth::guard('staff')->id()];
+        event(new AuditCustom($record));
+    }
+
+    /** The form shows the password stored now, and a save diffs against it (not the old one). */
+    private function passwordStored(): void
+    {
+        $this->refreshFormData(['password']);
+        if (array_key_exists('password', $attributes = $this->getRecord()->refresh()->getAttributes())) {
+            $this->filledAttributes['password'] = $attributes['password'];
+        }
+    }
+
+    private function resendWelcome(Service $record): void
+    {
+        $staff = Auth::guard('staff')->user();
+        abort_unless($staff instanceof Staff && $staff->can('update', $record), 403);
+        try {
+            $log = WelcomeMail::resend($record, $staff);
+        } catch (DisplayException $e) {
+            Notification::make()->title(__('Welcome email not sent'))->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+        Notification::make()->title(__('Welcome email sent'))->body(__('To :email.', ['email' => $log->to]))->success()->send();
+    }
+
     protected function getHeaderActions(): array
     {
         /** @var Service $record */
@@ -271,18 +327,22 @@ class EditService extends EditRecord
                     }),
 
                 // WHMCS's «Change Password» for staff: a new password at the server (cPanel's passwd), kept on the service once the
-                // server took it. Its answer never repeats the password.
+                // server took it. Its answer never repeats the password. «Generate» fills one that meets the rule; the welcome
+                // mail may go with it right after (owner 2026-10-29).
                 Action::make('serverPassword')
-                    ->label('Change password on server')
+                    ->label(__('Change password on server'))
                     ->authorize('update')
-                    ->visible(fn (Service $record) => $record->status === Service::STATUS_ACTIVE && rescue(fn () => ($server = $record->provisioningServer()) !== null
-                        && ExtensionHelper::hasFunction($server, 'changePassword'), false, false))
+                    ->visible(fn (Service $record) => $record->status === Service::STATUS_ACTIVE && self::changesPasswordOnServer($record))
+                    ->modalDescription(__('The password is changed on the server, then stored on the service.'))
                     ->schema([
-                        TextInput::make('password')->label('New password')->password()->revealable()->required()->maxLength(128)
-                            ->rule(Password::min(10)->letters()->mixedCase()->numbers()),
+                        self::passwordInput()->rule(ServicePassword::rule())
+                            ->suffixAction(Action::make('generatePassword')->label(__('Generate'))->icon('heroicon-m-sparkles')
+                                ->action(fn (Set $set) => $set('password', ServicePassword::generate())))
+                            ->helperText(__('At least 10 characters, with upper and lower case letters and numbers.')),
                         Checkbox::make('mysqlToo')->label('Change the MySQL password too')->default(false)
                             ->visible(fn (Service $record) => $record->provisioningServer()?->extension === 'CPanel') // cPanel's db_pass_update only
                             ->helperText('WHM\'s «db_pass_update»: the account\'s main MySQL user gets the new password too. Scripts that use it must then be updated.'),
+                        self::sendWelcomeCheckbox(),
                     ])
                     ->action(function (array $data, Service $record, Action $action): void {
                         $password = (string) $data['password'];
@@ -301,9 +361,52 @@ class EditService extends EditRecord
 
                             return;
                         }
-                        $this->refreshFormData(['password']);
-                        Notification::make()->title('Password changed on the server')->success()->send();
+                        // Stored? A module that changed it at the server but could not store it (cPanel reports it) leaves the old
+                        // one here: never mailed as the new one.
+                        $stored = WelcomeMail::password($record->refresh()) === $password;
+                        self::auditPassword($record, 'password_changed_on_server');
+                        $this->passwordStored();
+                        Notification::make()->title(__('Password changed on the server'))->success()->send();
+                        if (!$stored) {
+                            Notification::make()->title(__('The new password could not be stored on the service'))
+                                ->body(__('Save it with «Save a password set elsewhere»; no welcome email was sent.'))->warning()->persistent()->send();
+                        } elseif ($data['sendWelcome'] ?? false) {
+                            $this->resendWelcome($record);
+                        }
                     }),
+
+                // A password set elsewhere (by the customer on the server, by staff on WHM), stored here only, so the welcome
+                // email sends the one that works (owner 2026-10-29). Nothing is asked of the server.
+                Action::make('storePassword')
+                    ->label(__('Save a password set elsewhere'))->icon('ri-key-2-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (Service $record) => !$record->isEnded())
+                    ->modalDescription(__('Only stores the password on the service: nothing is changed on the server. For a password already set there (by the customer, or by staff on the server\'s own panel).'))
+                    ->schema([
+                        self::passwordInput()->label(__('Password as set on the server')),
+                        self::sendWelcomeCheckbox(),
+                    ])
+                    ->action(function (array $data, Service $record): void {
+                        $record->forceFill(['password' => (string) $data['password']])->save();
+                        self::auditPassword($record, 'password_stored');
+                        $this->passwordStored();
+                        Notification::make()->title(__('Password stored on the service'))->body(__('Nothing was changed on the server.'))->success()->send();
+                        if ($data['sendWelcome'] ?? false) {
+                            $this->resendWelcome($record);
+                        }
+                    }),
+
+                // WHMCS's «Resend Welcome Email» (owner 2026-10-29): the same mail, with the password stored now, to the owner.
+                Action::make('resendWelcome')
+                    ->label(__('Resend welcome email'))->icon('ri-mail-send-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (Service $record) => in_array($record->status, WelcomeMail::STATUSES, true))
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Resend welcome email'))
+                    ->modalDescription(fn (Service $record) => WelcomeMail::refusal($record)
+                        ?? __('The welcome email goes again to the account\'s owner (:email), with the login details and the password stored on the service now.', ['email' => WelcomeMail::recipient($record)]))
+                    ->modalSubmitActionLabel(__('Send'))
+                    ->action(fn (Service $record) => $this->resendWelcome($record)),
 
                 // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared
                 // by staff after checking Openprovider, so the customer may order again (code review 2 of #345).

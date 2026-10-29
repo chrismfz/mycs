@@ -46,7 +46,16 @@
             <x-form.checkbox wire:model="changeMysqlToo" name="changeMysqlToo">{{ __('services.cpanel.mysql_too') }}</x-form.checkbox>
             @endif
             <p class="text-xs text-base/50">{{ __('services.cpanel.password_hint') }}</p>
-            <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.cpanel.password_change') }}</x-button.primary>
+            @if($generatedPassword !== '')
+            <div class="text-sm">
+                <span class="text-base/70">{{ __('services.cpanel.password_generated') }}</span>
+                <code class="select-all font-mono px-2 py-1 rounded bg-background">{{ $generatedPassword }}</code>
+            </div>
+            @endif
+            <div class="flex flex-wrap gap-2">
+                <x-button.secondary type="button" class="!w-fit" wire:click="generateServicePassword" wire:loading.attr="disabled">{{ __('services.cpanel.password_generate') }}</x-button.secondary>
+                <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.cpanel.password_change') }}</x-button.primary>
+            </div>
         </form>
     </div>
     @endif

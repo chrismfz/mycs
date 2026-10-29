@@ -17,6 +17,7 @@ use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\Ssl\SslVault;
 use App\Support\Actor;
 use App\Support\Redact;
+use App\Support\ServicePassword;
 use Exception;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -104,6 +105,9 @@ class Show extends Component
     public string $newPassword = '';
 
     public string $newPasswordConfirmation = '';
+
+    /** One made here at the customer's request, shown once to copy (never kept after the change). */
+    public string $generatedPassword = '';
 
     /** WHM's «db_pass_update»: the account's MySQL user gets the new password too (unchecked, as WHM). */
     public bool $changeMysqlToo = false;
@@ -398,6 +402,17 @@ class Show extends Component
         return $url;
     }
 
+    /** A strong password that meets the rule, filled in both fields and shown to copy before it is changed (owner 2026-10-29). */
+    public function generateServicePassword(): void
+    {
+        $this->authorize('update', $this->service);
+        if (!$this->canChangePassword) {
+            return;
+        }
+        $this->generatedPassword = $this->newPassword = $this->newPasswordConfirmation = ServicePassword::generate();
+        $this->resetValidation(['newPassword', 'newPasswordConfirmation']);
+    }
+
     /**
      * A new password for the account at its server (WHMCS's «Change Password»): `manageproducts`, a few a quarter-hour,
      * the server's strength rules on top of ours; its answer never repeats the password.
@@ -409,11 +424,11 @@ class Show extends Component
             return;
         }
         $this->validate([
-            'newPassword' => ['required', 'string', 'max:128', Password::min(10)->letters()->mixedCase()->numbers()],
+            'newPassword' => ['required', 'string', 'max:128', ServicePassword::rule()],
             'newPasswordConfirmation' => ['required', 'same:newPassword'],
         ]);
         $password = $this->newPassword;
-        $this->reset('newPassword', 'newPasswordConfirmation'); // never kept, whatever follows (ADV-6)
+        $this->reset('newPassword', 'newPasswordConfirmation', 'generatedPassword'); // never kept, whatever follows (ADV-6)
         if (RateLimiter::tooManyAttempts($key = 'service-password:' . $this->service->id, 5)) {
             $this->notify(__('services.cpanel.too_many'), 'error');
 
