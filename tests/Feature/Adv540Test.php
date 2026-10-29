@@ -122,7 +122,7 @@ class Adv540Test extends TestCase
         $agreement = $this->agreement($this->off, 'OFF');
         $this->client->forceFill(['auto_charge' => true, 'default_billing_agreement_id' => $agreement->id])->save();
         $unknown = ChargeAttempt::query()->create([
-            'key' => 'adv540-unknown-key', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $agreement->id,
+            'key' => '0b1e5f2a-540a-4d2c-9e7f-0000000540a2', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $agreement->id,
             'amount' => 50, 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CRON, 'status' => ChargeAttempt::STATUS_UNKNOWN,
             'started_at' => now()->subHours(2), 'sent_at' => now()->subHours(2),
         ]);
@@ -132,7 +132,7 @@ class Adv540Test extends TestCase
 
         $attempt = (new SavedMethodCharge)->charge($invoice->fresh(), $agreement, ChargeAttempt::SOURCE_CRON);
         $this->assertSame($unknown->id, $attempt->id, 'the same attempt, resent');
-        $this->assertSame(['charge:adv540-unknown-key'], AdvOff::$calls, 'resent with its own key: no new money is taken');
+        $this->assertSame(['charge:0b1e5f2a-540a-4d2c-9e7f-0000000540a2'], AdvOff::$calls, 'resent with its own key: no new money is taken');
     }
 
     /**
