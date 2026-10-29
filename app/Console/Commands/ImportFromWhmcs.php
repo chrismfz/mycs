@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\ConfigOption;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\PaymentGroup;
@@ -180,6 +181,7 @@ class ImportFromWhmcs extends Command
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
+            $this->importReminderState();
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
@@ -1399,6 +1401,46 @@ class ImportFromWhmcs extends Command
         $this->info("Invoice counter: {$counter} (the next number is one past it" . ($sequential ? ", WHMCS's sequential numbering)." : ').'));
     }
 
+    /**
+     * The reminders WHMCS has sent already, as sent here (review of #531): with the due dates in (AUD9-2), the first cron
+     * run would otherwise send each open invoice's «due soon» again, and the overdue notice of the last few days. Every
+     * overdue day up to today counts as sent, and «due soon» where its due date is within WHMCS's reminder days. The days
+     * ahead are the cron's own.
+     */
+    private function importReminderState(): void
+    {
+        $before = 0;
+        if ($this->sourceHas('tblconfiguration')) {
+            $value = trim((string) $this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'SendInvoiceReminderDays'")->fetchColumn());
+            $before = ctype_digit($value) && (int) $value <= PaymentReminders::MAX_DAYS ? (int) $value : 0;
+        }
+        $today = Carbon::today();
+        $rows = [];
+        foreach (DB::table('invoices')->where('status', Invoice::STATUS_UNPAID)->whereNotNull('due_at')->get(['id', 'due_at']) as $invoice) {
+            $due = Carbon::parse($invoice->due_at)->startOfDay();
+            $row = ['invoice_id' => $invoice->id, 'due_on' => $due->toDateString(), 'sent_at' => now()];
+            if ($due->greaterThan($today)) {
+                if ($due->lessThanOrEqualTo($today->copy()->addDays($before))) {
+                    $rows[] = ['kind' => 'due', 'days' => 0] + $row;
+                }
+
+                continue;
+            }
+            // Only within the overdue days the cron still sends on (and catches up): an older one is never reminded again.
+            $late = (int) $due->diffInDays($today);
+            if ($late > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
+                continue;
+            }
+            for ($day = 1; $day <= min($late, PaymentReminders::MAX_DAYS); $day++) {
+                $rows[] = ['kind' => 'overdue', 'days' => $day] + $row;
+            }
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('invoice_reminders')->insertOrIgnore($chunk);
+        }
+        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . '.');
+    }
+
     private function importInvoiceItems()
     {
         $this->info('Importing invoice items... (' . $this->count('tblinvoiceitems') . ' records)');
@@ -1929,7 +1971,7 @@ class ImportFromWhmcs extends Command
 
     /**
      * The services with an unpaid WHMCS invoice line (Hosting, PromoHosting) past its due date: what its cron suspends for
-     * (AUD9-3). A source without the invoice tables (a test's): none.
+     * (AUD9-3). Unpaid as invoiceStatus() reads it: Collections and Payment Pending too (ADV-531-1). A source without the invoice tables (a test's): none.
      *
      * @return array<int, true>
      */
@@ -1942,7 +1984,7 @@ class ImportFromWhmcs extends Command
             return $this->overdueServices = [];
         }
         $query = $this->pdo->prepare("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii JOIN tblinvoices i ON i.id = ii.invoiceid
-            WHERE ii.type IN ('Hosting', 'PromoHosting') AND i.status = 'Unpaid' AND i.duedate > '0000-00-00' AND i.duedate < :today");
+            WHERE ii.type IN ('Hosting', 'PromoHosting') AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded') AND i.duedate > '0000-00-00' AND i.duedate < :today");
         $query->execute(['today' => now()->toDateString()]);
 
         return $this->overdueServices = array_fill_keys(array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)), true);

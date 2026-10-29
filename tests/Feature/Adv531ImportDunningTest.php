@@ -122,13 +122,17 @@ class Adv531ImportDunningTest extends TestCase
     public function test_a_suspension_for_an_overdue_invoice_in_collections_is_lifted_by_its_payment(string $whmcsStatus): void
     {
         $this->service(9101, '2026-10-11', 'Suspended');
+        // Its period before, paid, as every imported service's history has (review of #531: with this line alone, the
+        // payment reads as the order's own invoice and pays the first period, whatever the status).
+        $this->renewal(9200, 9101, '2026-09-11', 'Paid');
         $this->renewalWith(9201, 9101, '2026-10-11', $whmcsStatus);
         $this->import();
         $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail(9201)->status, 'open and payable here');
+        // Before the payment: the payment lifts it (review of #531: read after it, it is gone by then).
+        $this->assertNotNull(Service::query()->findOrFail(9101)->dunning_suspended_at, 'a suspension for non-payment, as an Unpaid one is');
 
         ExtensionHelper::addPayment(9201, null, 10.00, null, 'tx-adv-531-1');
 
-        $this->assertNotNull(Service::query()->findOrFail(9101)->dunning_suspended_at, 'a suspension for non-payment, as an Unpaid one is');
         Queue::assertPushed(UnsuspendJob::class, fn (UnsuspendJob $job) => (int) $job->service->id === 9101);
     }
 

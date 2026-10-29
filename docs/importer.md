@@ -454,8 +454,9 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 - **Συναίνεση marketing:** `tblclients.emailoptout` (76), `marketing_emails_opt_in` (156), `tblmarketing_consent`
   (269) → το opt-out του `announcement_news` (`NotificationPreference`). Χωρίς αυτό, το πρώτο μαζικό email θα πάει σε
   όσους έχουν πει όχι (GDPR).
-- **Κατάσταση υπενθυμίσεων:** `tbldomainreminders` και οι πρόσφατες υπενθυμίσεις overdue → `invoice_reminders` και
-  `domain_reminders`. Χωρίς αυτό, το πρώτο cron ξαναστέλνει τις υπενθυμίσεις των τελευταίων 3 ημερών (`CATCH_UP_DAYS`).
+- **Κατάσταση υπενθυμίσεων:** των τιμολογίων **έγινε** (review του #531): κάθε απλήρωτο με `due_at` παίρνει ως «στάλθηκε»
+  κάθε overdue ημέρα ως σήμερα, και το «due soon» όταν λήγει μέσα στις `SendInvoiceReminderDays` του WHMCS· οι επόμενες
+  είναι του cron. **Μένει** το `tbldomainreminders` → `domain_reminders` (με το D6).
 - **Spam filters των tickets:** `tblticketspamfilters` (54, όλα sender) → `TicketBlockedSender`.
 - **Announcements:** 4 δημοσιευμένα → extension Announcements, και τα URLs τους στον χάρτη 301.
 - **Handles του Openprovider:** `wHandles`, `wDomain_handle` → `domains.*_handle`, μαζί με το D6.
