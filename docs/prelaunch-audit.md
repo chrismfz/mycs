@@ -121,7 +121,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 1 | Cron χρέωσης, κύκλος ζωής | 1 (2026-10-29, `main` @ e298c168) | 0 | 0 | — | **έτοιμο** |
 | 2 | Πληρωμές, πιστώσεις, τιμολόγια | 1 (2026-10-29, `main` @ e298c168) | 0 | 1 (AUD2-1, Mollie) | #517 | **έτοιμο** (το AUD2-1 στο #517) |
 | 3 | Auth, δικαιώματα, επιφάνεια | 1 (2026-10-29, `main` @ 147b9496) | 1 (AUD3-1) | 1 (AUD3-2) | #519 | **έτοιμο** (#519, 3 γύροι review) |
-| 4 | Provisioning | | | | | ανοιχτό |
+| 4 | Provisioning | 1 (2026-10-29, `main` @ 1390a389) | 2 (AUD4-1, AUD4-2: του importer) | 0 | στο session του importer | **έτοιμο** για ό,τι φτιάχνει η MyCS· **πύλη του cut-over** τα AUD4-1/2 |
 | 5 | Παραγγελίες, ΦΠΑ, promotions | | | | | ανοιχτό |
 | 6 | Domains | | | | | ανοιχτό |
 | 7 | `zlic.php`, bridge | | | | | ανοιχτό |
@@ -183,3 +183,21 @@ Low, ανοιχτά (δεν διορθώνονται τώρα):
 
 **Cut-over:** τα trusted proxies στον orion μόνο το IP του server και `127.0.0.1`. Οι ρόλοι του staff να ξαναδούν τα
 δικαιώματα που δίνουν (τώρα το «δίνω σε μια σύνδεση» ακολουθεί το admin).
+
+### Ροή 4: σημειώσεις (2026-10-29)
+Για υπηρεσίες που φτιάχνει η MyCS, καθαρός γύρος. Ελέγχθηκαν: `ExtensionHelper::serverAction` (το `false` γίνεται
+exception, server που σβήστηκε δεν είναι «τίποτα να γίνει»), ModuleAction Retry/Mark resolved (ίδια job, ίδιοι έλεγχοι,
+terminate μόνο σε υπηρεσία που έληξε, create υπό lock), jobs και `ServiceObserver` (ξαναδιαβάζουν την κατάσταση,
+`after_commit`), cPanel (idempotent create, προστατευμένοι λογαριασμοί, `terminatereseller` με πληκτρολόγηση του
+username), Proxmox `GuestLifecycle` (pool, templates, MACs, VMID που ξαναχρησιμοποιήθηκε), mailcow (`ownedAdmin`,
+`lock_only`), Centova (`disable_only`), SSL, `ServerSelector`, secrets στο `last_error` και στα emails. Τα modules που
+καμία εταιρεία δεν χρησιμοποιεί (Convoy, Virtualizor, Pterodactyl, Enhance, DirectAdmin, Plesk, Virtfusion) δεν
+ελέγχθηκαν σε βάθος.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD4-1 | High | Ο importer δεν φέρνει το `tblhosting.server` στο `services.server_id` (το `importer.md` λέει ότι το φέρνει): κάθε υπηρεσία που έρχεται παίρνει τον server του προϊόντος. Στο myip (6 cPanel servers) ένα terminate πάει σε λάθος server και σβήνει λογαριασμό άλλου πελάτη με το ίδιο username· και το `provisioningServer()` πέφτει στον server του προϊόντος όταν ο server της υπηρεσίας λείπει | στο session του importer, με τα tests του `adv/audit-flow4` (15c91aa2). **Κανένα cron και κανένα Retry σε υπηρεσίες που εισήχθησαν πριν κλείσει** |
+| AUD4-2 | High (cut-over) | Σταθμός Centova ή λογαριασμός mailcow που τον έκανε suspend το WHMCS έρχεται χωρίς το mark μας: στην πληρωμή το unsuspend λέει «έγινε» χωρίς να καλέσει τον server, ο πελάτης παίρνει email, η υπηρεσία μένει κλειστή | στο session του importer (ο importer βάζει τα marks). Πριν το cut-over: λίστα των suspended Centova/mailcow |
+
+Όχι εύρημα: αλλαγή προϊόντος από το staff σε άλλο module (`keepServerOfProductsModule`) αφήνει τον παλιό λογαριασμό στον
+παλιό server· είναι ενέργεια του staff και φαίνεται.
