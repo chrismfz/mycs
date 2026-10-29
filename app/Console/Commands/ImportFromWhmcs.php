@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\ConfigOption;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\PaymentGroup;
@@ -185,6 +186,7 @@ class ImportFromWhmcs extends Command
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
+            $this->importReminderState();
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
@@ -1279,12 +1281,15 @@ class ImportFromWhmcs extends Command
                     'expires_at' => $this->validateDate($record['nextduedate']),
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
-                    // WHMCS's own suspension for non-payment: a payment lifts it here too. Any other reason
-                    // (or none) was staff's: a manual hold (docs/billing-cursor.md).
+                    // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason
+                    // empty (myip: none of 123 says «Overdue on Payment», AUD9-3), so an empty one with an unpaid renewal
+                    // past its due date is one too. Any other reason, or none with nothing overdue, was staff's: a manual
+                    // hold (docs/billing-cursor.md).
                     // When: its due date and the Suspend Days, as WHMCS's own run did; never later than now. The cron counts
                     // the days it has been suspended (review of #518: «now» put a termination due on the first night a day late).
                     'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'
-                        && strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0
+                        && (strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0
+                            || (trim((string) ($record['suspendreason'] ?? '')) === '' && isset($this->overdueServices()[(int) $record['id']])))
                         ? self::suspendedOn($this->validateDate($record['nextduedate']), $suspendDays) : null,
                     // WHMCS's «Override Auto-Suspend» (review of #518, ADV-518-1: on myip 36 active services): suspended
                     // until its date, or never (no date) as a hold far off; the cron neither suspends nor terminates it.
@@ -1404,6 +1409,8 @@ class ImportFromWhmcs extends Command
                     'currency_code' => $user['code'],
                     // When it was paid (WHMCS datepaid): the revenue reports count by it (#275).
                     'paid_at' => $record['status'] === 'Paid' ? $this->validateDate($record['datepaid'] ?? null) : null,
+                    // Its due date (AUD9-2): the overdue reminders and dunning go by it, as WHMCS's did.
+                    'due_at' => $this->validateDate($record['duedate'] ?? null),
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
                 ];
@@ -1420,10 +1427,73 @@ class ImportFromWhmcs extends Command
         if ((DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') && DB::transactionLevel() === 0) {
             DB::statement('ALTER TABLE invoices AUTO_INCREMENT = ' . ($highestInvoiceNumber + 1));
         }
+        // WHMCS's sequential paid numbering (nixpal, AUD9-1): its own counter, apart from the ids, holds the next number;
+        // here the counter holds the last one given. Its format and «number on payment» come with it. Without it the
+        // number is the id (myip), and the counter is not used.
+        $numbering = $this->sourceHas('tblconfiguration') ? $this->pdo->query('SELECT setting, value FROM tblconfiguration WHERE setting IN'
+            . " ('SequentialInvoiceNumbering', 'SequentialInvoiceNumberFormat', 'SequentialInvoiceNumberValue')")->fetchAll(PDO::FETCH_KEY_PAIR) : [];
+        $sequential = in_array(strtolower(trim((string) ($numbering['SequentialInvoiceNumbering'] ?? ''))), ['on', '1', 'yes', 'true'], true);
+        $next = trim((string) ($numbering['SequentialInvoiceNumberValue'] ?? ''));
+        $counter = $sequential && ctype_digit($next) && strlen($next) <= 9 && (int) $next > 0 ? (int) $next - 1 : $highestInvoiceNumber;
         Setting::updateOrCreate(
-            ['key' => 'invoice_number'],
-            ['value' => $highestInvoiceNumber]
+            ['key' => 'invoice_number', 'settingable_type' => null, 'settingable_id' => null],
+            ['value' => $counter]
         );
+        if (array_key_exists('SequentialInvoiceNumbering', $numbering)) {
+            $format = str_ireplace(['{YEAR}', '{MONTH}', '{DAY}', '{NUMBER}'], ['{year}', '{month}', '{day}', '{number}'],
+                trim((string) ($numbering['SequentialInvoiceNumberFormat'] ?? '')));
+            $settings = ['invoice_number_is_id' => ['boolean', $sequential ? '0' : '1'], 'invoice_proforma' => ['boolean', $sequential ? '1' : '0']];
+            // Only a format MyCS can write: {number} in it, and no placeholder of WHMCS's it has not.
+            if ($sequential && str_contains($format, '{number}') && preg_match('/\{(?!year\}|month\}|day\}|number\})/', $format) !== 1) {
+                $settings['invoice_number_format'] = ['string', $format];
+            } elseif ($sequential) {
+                $this->warn("WHMCS's invoice number format ({$format}) is not one MyCS writes: invoice_number_format kept, set it before the first payment.");
+            }
+            foreach ($settings as $key => [$type, $value]) {
+                Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null, 'settingable_id' => null], ['value' => $value, 'type' => $type]);
+            }
+        }
+        $this->info("Invoice counter: {$counter} (the next number is one past it" . ($sequential ? ", WHMCS's sequential numbering)." : ').'));
+    }
+
+    /**
+     * The reminders WHMCS has sent already, as sent here (review of #531): with the due dates in (AUD9-2), the first cron
+     * run would otherwise send each open invoice's «due soon» again, and the overdue notice of the last few days. Every
+     * overdue day up to today counts as sent, and «due soon» where its due date is within WHMCS's reminder days. The days
+     * ahead are the cron's own.
+     */
+    private function importReminderState(): void
+    {
+        $before = 0;
+        if ($this->sourceHas('tblconfiguration')) {
+            $value = trim((string) $this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'SendInvoiceReminderDays'")->fetchColumn());
+            $before = ctype_digit($value) && (int) $value <= PaymentReminders::MAX_DAYS ? (int) $value : 0;
+        }
+        $today = Carbon::today();
+        $rows = [];
+        foreach (DB::table('invoices')->where('status', Invoice::STATUS_UNPAID)->whereNotNull('due_at')->get(['id', 'due_at']) as $invoice) {
+            $due = Carbon::parse($invoice->due_at)->startOfDay();
+            $row = ['invoice_id' => $invoice->id, 'due_on' => $due->toDateString(), 'sent_at' => now()];
+            if ($due->greaterThan($today)) {
+                if ($due->lessThanOrEqualTo($today->copy()->addDays($before))) {
+                    $rows[] = ['kind' => 'due', 'days' => 0] + $row;
+                }
+
+                continue;
+            }
+            // Only within the overdue days the cron still sends on (and catches up): an older one is never reminded again.
+            $late = (int) $due->diffInDays($today);
+            if ($late > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
+                continue;
+            }
+            for ($day = 1; $day <= min($late, PaymentReminders::MAX_DAYS); $day++) {
+                $rows[] = ['kind' => 'overdue', 'days' => $day] + $row;
+            }
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('invoice_reminders')->insertOrIgnore($chunk);
+        }
+        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . '.');
     }
 
     private function importInvoiceItems()
@@ -1951,6 +2021,29 @@ class ImportFromWhmcs extends Command
      *                            (F3 review CR-3, adversarial F3-ADV-4/5/6).
      */
     private ?array $massPayParents = null;
+
+    private ?array $overdueServices = null;
+
+    /**
+     * The services with an unpaid WHMCS invoice line (Hosting, PromoHosting) past its due date: what its cron suspends for
+     * (AUD9-3). Unpaid as invoiceStatus() reads it: Collections and Payment Pending too (ADV-531-1). A source without the invoice tables (a test's): none.
+     *
+     * @return array<int, true>
+     */
+    private function overdueServices(): array
+    {
+        if ($this->overdueServices !== null) {
+            return $this->overdueServices;
+        }
+        if (!$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return $this->overdueServices = [];
+        }
+        $query = $this->pdo->prepare("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE ii.type IN ('Hosting', 'PromoHosting') AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded') AND i.duedate > '0000-00-00' AND i.duedate < :today");
+        $query->execute(['today' => now()->toDateString()]);
+
+        return $this->overdueServices = array_fill_keys(array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)), true);
+    }
 
     /** @return array<int, true> */
     private function massPayParents(): array
