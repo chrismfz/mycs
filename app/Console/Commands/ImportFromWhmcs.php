@@ -1487,7 +1487,12 @@ class ImportFromWhmcs extends Command
             if ($extension === null) {
                 continue;
             }
-            $gateway = $this->installedGateway($extension);
+            // Only a gateway already here (its payments', or set up): never installed for a label, it would be offered to
+            // everyone unconfigured (reviews of #539).
+            $gateway = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
+            if ($gateway === null) {
+                continue;
+            }
             foreach (array_chunk($ids, 1000) as $chunk) {
                 $set += DB::table('invoices')->whereIn('id', $chunk)->update(['preferred_gateway_id' => $gateway]);
             }

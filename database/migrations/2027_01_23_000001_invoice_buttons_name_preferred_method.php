@@ -13,6 +13,9 @@ return new class extends Migration
     private const BUTTONS = [
         'View & pay invoice' => '{% if preferred_method %}Pay with {{ preferred_method }}{% else %}View & pay invoice{% endif %}',
         'Προβολή & πληρωμή' => '{% if preferred_method %}Πληρωμή με {{ preferred_method }}{% else %}Προβολή & πληρωμή{% endif %}',
+        // The reminders' and overdue notices' (reviews of #539: the main chasing email kept the old one).
+        'Pay invoice' => '{% if preferred_method %}Pay with {{ preferred_method }}{% else %}Pay invoice{% endif %}',
+        'Εξόφληση προτιμολογίου' => '{% if preferred_method %}Πληρωμή με {{ preferred_method }}{% else %}Εξόφληση προτιμολογίου{% endif %}',
     ];
 
     public function up(): void
@@ -38,8 +41,9 @@ return new class extends Migration
     private function button(string $html): string
     {
         foreach (self::BUTTONS as $text => $new) {
-            $html = (string) preg_replace('#href="\{\{ urls\.invoice \}\}">(\s*)' . preg_quote($text, '#') . '(\s*)</a>#u',
+            $changed = preg_replace('#href="\{\{ urls\.invoice \}\}">(\s*)' . preg_quote($text, '#') . '(\s*)</a>#u',
                 'href="{{ urls.pay }}">$1' . str_replace('$', '\$', $new) . '$2</a>', $html);
+            $html = $changed ?? $html; // not valid UTF-8: kept as it is, never emptied (reviews of #539)
         }
 
         return $html;

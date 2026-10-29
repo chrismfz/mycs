@@ -78,11 +78,11 @@ class Show extends Component
         return in_array($gatewayId, array_column($this->gateways(), 'id')) ? 'gateway-' . $gatewayId : null;
     }
 
-    /** The way the customer chose to pay, kept as its preferred one (as WHMCS keeps the one picked on the invoice). */
+    /** The way the customer chose to pay, kept as its preferred one (as WHMCS keeps the one picked), in the audit. */
     private function remember(int $gatewayId): void
     {
         if ((int) $this->invoice->preferred_gateway_id !== $gatewayId) {
-            Invoice::query()->whereKey($this->invoice->id)->update(['preferred_gateway_id' => $gatewayId]);
+            Invoice::query()->findOrFail($this->invoice->id)->forceFill(['preferred_gateway_id' => $gatewayId])->save();
             $this->invoice->preferred_gateway_id = $gatewayId;
         }
     }
@@ -182,8 +182,11 @@ class Show extends Component
             return $this->notify(__('Invalid payment method.'), 'error');
         }
 
-        $this->remember((int) $methodId);
         $this->pay = ExtensionHelper::pay(Gateway::where('id', $methodId)->first(), $this->invoice);
+        // Opened (its page, its window): the way chosen, kept; a refusal changes nothing (ADV-539-4).
+        if ($this->pay !== null && $this->pay !== false) {
+            $this->remember((int) $methodId);
+        }
 
         if (is_string($this->pay)) {
             $this->redirect($this->pay);
@@ -214,7 +217,6 @@ class Show extends Component
         if ($agreement->gateway === null || !in_array($agreement->gateway->id, array_column($this->paymentMethods, 'id'))) {
             return $this->notify(__('This payment method cannot be used for this invoice.'), 'error');
         }
-        $this->remember((int) $agreement->gateway->id);
 
         // The account's method for its renewals (decision 6), set by a login that may pay its invoices: one that can pay.
         if ($this->setAsDefault && $this->recurringServices()->exists()) {
@@ -231,6 +233,7 @@ class Show extends Component
         }
 
         if ($attempt->status === ChargeAttempt::STATUS_SUCCEEDED) {
+            $this->remember((int) $agreement->gateway->id); // paid with it: kept (a refused charge changes nothing)
             $this->notify(__('Successfully charged the saved payment method.'), 'success');
 
             return $this->redirect(route('invoices.show', $this->invoice) . '?checkPayment', true);

@@ -227,8 +227,8 @@ class EmailTemplateSeeder extends Seeder
                 - While paying you can update your card details if needed.
 
                 <div class="action">
-                	<a class="button button-blue" href="{{ urls.invoice }}">
-                		Pay invoice
+                	<a class="button button-blue" href="{{ urls.pay }}">
+                		{% if preferred_method %}Pay with {{ preferred_method }}{% else %}Pay invoice{% endif %}
                 	</a>
                 </div>
 
@@ -744,8 +744,8 @@ class EmailTemplateSeeder extends Seeder
                 {% endif %}
 
                 <div class="action">
-                	<a class="button button-blue" href="{{ urls.invoice }}">
-                		Pay invoice
+                	<a class="button button-blue" href="{{ urls.pay }}">
+                		{% if preferred_method %}Pay with {{ preferred_method }}{% else %}Pay invoice{% endif %}
                 	</a>
                 </div>
 
@@ -1298,8 +1298,8 @@ class EmailTemplateSeeder extends Seeder
                     - Κατά την πληρωμή μπορείτε να ενημερώσετε τα στοιχεία της κάρτας σας αν χρειαστεί.
 
                     <div class="action">
-                    	<a class="button button-blue" href="{{ urls.invoice }}">
-                    		Εξόφληση προτιμολογίου
+                    	<a class="button button-blue" href="{{ urls.pay }}">
+                    		{% if preferred_method %}Πληρωμή με {{ preferred_method }}{% else %}Εξόφληση προτιμολογίου{% endif %}
                     	</a>
                     </div>
 
@@ -1779,8 +1779,8 @@ class EmailTemplateSeeder extends Seeder
                     {% endif %}
 
                     <div class="action">
-                    	<a class="button button-blue" href="{{ urls.invoice }}">
-                    		Εξόφληση προτιμολογίου
+                    	<a class="button button-blue" href="{{ urls.pay }}">
+                    		{% if preferred_method %}Πληρωμή με {{ preferred_method }}{% else %}Εξόφληση προτιμολογίου{% endif %}
                     	</a>
                     </div>
 
@@ -1917,8 +1917,8 @@ class EmailTemplateSeeder extends Seeder
                     Η ανανέωσή του είναι στο προτιμολόγιο **#{{ invoice_number }}** ({{ invoice.formattedTotal }}). Μόλις εξοφληθεί, ανανεώνεται αμέσως.
 
                     <div class="action">
-                    	<a class="button button-blue" href="{{ urls.invoice }}">
-                    		Εξόφληση προτιμολογίου
+                    	<a class="button button-blue" href="{{ urls.pay }}">
+                    		{% if preferred_method %}Πληρωμή με {{ preferred_method }}{% else %}Εξόφληση προτιμολογίου{% endif %}
                     	</a>
                     </div>
                     {% else %}
