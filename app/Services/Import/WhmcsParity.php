@@ -73,6 +73,12 @@ final class WhmcsParity
             . implode(',', $parents) . ')')->fetchAll(PDO::FETCH_COLUMN));
         $onChildren = $parentPayments === [] ? 0 : (int) DB::table('invoice_transactions')->whereIn('id', $parentPayments)->where('is_credit_transaction', false)
             ->selectRaw('COALESCE(SUM(ROUND(amount * 100) - ROUND(credited_amount * 100)), 0) a')->value('a');
+        // As planned, before later refunds moved its credited part: a refund to credit raised it, a cash refund of credit
+        // («Removal of Credit», credit_out overpayment) lowered it (round 3 of #523).
+        $moved = fn (string $kind, string $cause) => $parentPayments === [] ? 0 : (int) DB::table('money_events')->where('source', MoneyTrail::SOURCE_IMPORT)
+            ->whereIn('invoice_transaction_id', $parentPayments)->where('kind', $kind)->where('cause', $cause)
+            ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a');
+        $onChildren += $moved('credit_in', MoneyTrail::CAUSE_REFUND_TO_CREDIT) - $moved('credit_out', MoneyTrail::CAUSE_OVERPAYMENT);
         $add('Credit applied to invoices', $this->count("SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit > 0 AND {$notParent}"),
             (int) DB::table('invoice_transactions')->where('is_credit_transaction', true)->where('status', 'succeeded')
                 ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a') + $onChildren);

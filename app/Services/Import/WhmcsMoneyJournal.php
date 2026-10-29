@@ -363,17 +363,27 @@ class WhmcsMoneyJournal
         foreach ($this->rows('SELECT id, clientid, date, description, amount FROM tblcredit WHERE amount <> 0 ORDER BY date, id') as $row) {
             $kind = self::kind((string) $row['description']);
             $currency = $currencies[(int) $row['clientid']] ?? null;
-            if (in_array($kind, self::FROM_INVOICES, true) || $currency === null || isset($this->creditRowsUsed[(int) $row['id']])) {
+            // WHMCS's «Mass Invoice Payment Credit for Invoice #N» names the child its parent's money went to. When no
+            // parent of that child is one here (one WHMCS refunded in full comes as an invoice of its own, its children
+            // paid from credit), the credit it gave is journaled (round 3 of #523); else the plan has it already.
+            $child = $kind === 'mass_pay' && preg_match('/#(\d+)/', (string) $row['description'], $found) ? (int) $found[1] : null;
+            $notParent = $child !== null && ($this->massPayParentsOf()[$child] ?? []) !== []
+                && array_filter($this->massPayParentsOf()[$child], fn (int $parent) => isset($this->parents[$parent])) === [];
+            $massPayOf = $child;
+            if ((in_array($kind, self::FROM_INVOICES, true) && !$notParent) || $currency === null || isset($this->creditRowsUsed[(int) $row['id']])) {
                 continue;
             }
             $cents = WhmcsMassPay::cents($row['amount']);
             $cause = match (true) {
+                $notParent => MoneyTrail::CAUSE_OVERPAYMENT,
                 $kind === 'refund' && $cents > 0 => MoneyTrail::CAUSE_REFUND_TO_CREDIT,
                 $kind === 'downgrade' && $cents > 0 => MoneyTrail::CAUSE_DOWNGRADE,
                 default => MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
             };
             $this->move($cents > 0 ? MoneyEventKind::CreditIn : MoneyEventKind::CreditOut, abs($cents), $cause, self::date($row['date']),
-                ['client_id' => (int) $row['clientid'], 'currency_code' => $currency], note: 'WHMCS: ' . trim((string) $row['description']),
+                ['client_id' => (int) $row['clientid'], 'currency_code' => $currency]
+                    + ($notParent && isset($this->invoices[$massPayOf]) ? ['invoice_id' => $massPayOf] : []),
+                note: 'WHMCS: ' . trim((string) $row['description']),
                 dayOnly: strlen(trim((string) $row['date'])) <= 10);
             $this->summary['from_history']++;
         }
@@ -536,6 +546,22 @@ class WhmcsMoneyJournal
         }
 
         return $dates;
+    }
+
+    /** @var array<int, list<int>>|null child invoice => the WHMCS Mass Pay invoices that billed it */
+    private ?array $massPayParentsOf = null;
+
+    /** @return array<int, list<int>> */
+    private function massPayParentsOf(): array
+    {
+        if ($this->massPayParentsOf === null) {
+            $this->massPayParentsOf = [];
+            foreach ($this->rows("SELECT invoiceid, relid FROM tblinvoiceitems WHERE type = 'Invoice' AND relid > 0") as $row) {
+                $this->massPayParentsOf[(int) $row['relid']][] = (int) $row['invoiceid'];
+            }
+        }
+
+        return $this->massPayParentsOf;
     }
 
     /** @return array<int, string> customer id => its currency, for the customers imported */

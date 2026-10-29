@@ -93,7 +93,7 @@ class ImportMoneyJournalRound3Test extends TestCase
     /**
      * ADV-523-R3-1. A Mass Pay WHMCS refunded in full. WHMCS sets a parent whose money all went back to «Refunded»; its
      * children stay Paid, each with the «credit» the parent's payment put on them (tblcredit: «Mass Invoice Payment
-     * Credit for Invoice #900» +25, «Credit Applied to Invoice #801/#802» -10/-15). WhmcsMassPay::PARENTS_SQL keeps only
+     * Credit for Invoice #801/#802» +10/+15, one per child, naming the child, «Credit Applied to Invoice #801/#802» -10/-15). WhmcsMassPay::PARENTS_SQL keeps only
      * a Paid parent (or one with no money), so 900 comes as an ordinary invoice with its payment and refund, while
      * creditApplied() turns the children's credit into credit payments out of the customer's own balance. The «Mass
      * Invoice Payment» row that brought that credit in is skipped (FROM_INVOICES, «rebuilt from the invoices», but 900 is
@@ -108,7 +108,9 @@ class ImportMoneyJournalRound3Test extends TestCase
         $this->item(900, 'Invoice', 801, 10);
         $this->item(900, 'Invoice', 802, 15);
         $this->payment(31, 900, 25);
-        $this->history('2026-09-03', 'Mass Invoice Payment Credit for Invoice #900', 25);
+        // WHMCS writes one row per child, naming the child (as in both real copies, 388 rows on nixpal).
+        $this->history('2026-09-03', 'Mass Invoice Payment Credit for Invoice #801', 10);
+        $this->history('2026-09-03', 'Mass Invoice Payment Credit for Invoice #802', 15);
         $this->history('2026-09-03', 'Credit Applied to Invoice #801', -10, 801);
         $this->history('2026-09-03', 'Credit Applied to Invoice #802', -15, 802);
         $this->payment(32, 900, 0, out: 25, refundOf: 31, date: '2026-09-06 10:00:00', gateway: '', description: 'Refund of Transaction ID tr_31');

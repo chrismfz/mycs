@@ -1566,9 +1566,12 @@ class ImportFromWhmcs extends Command
             // More than the invoice kept, in cash: WHMCS took the rest back from the credit the payment gave, when it
             // says so; as here, where only what is not credit can be refunded.
             $fromCredit = 0;
-            if (!$credit && $take < $cents) {
+            if (!$credit) {
+                // A cash refund of credit the payment gave (WHMCS: «Removal of Credit from Invoice #N», to refund it):
+                // whenever WHMCS says so, even when what the invoice kept could have taken it (round 3 of #523).
+                $room = WhmcsMassPay::cents($payment->amount) - $refunded - $credited;
                 foreach ($removed[$whmcsInvoice] ?? [] as $index => $row) {
-                    if ($row['cents'] === $cents - max(0, $take) && $row['cents'] <= $credited) {
+                    if ($row['cents'] <= min($cents, $credited) && $cents - $row['cents'] <= $room) {
                         $fromCredit = $row['cents'];
                         $this->creditRowsUsed[] = $row['id'];
                         unset($removed[$whmcsInvoice][$index]);
