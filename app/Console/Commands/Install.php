@@ -99,7 +99,9 @@ class Install extends Command
         // sells across the EU (myip has only Greece's).
         if ($this->option('eu-vat-rates') || ($this->input->isInteractive()
             && $this->confirm('Add the EU member states\' standard VAT rates to Tax Rates?', false))) {
-            $this->call('mycs:vat-rates:seed', ['--force' => true]); // asked for here: no second question
+            // Not forced: on an instance that already has rates (a re-run with --force) the seed asks again, or refuses
+            // without questions (adversarial ADV-525-2).
+            $this->call('mycs:vat-rates:seed');
         }
 
         if (!file_exists(public_path('storage'))) {

@@ -2,10 +2,12 @@
 
 namespace App\Services\Tax;
 
+use App\Classes\Settings;
 use App\Helpers\NotificationHelper;
 use App\Models\CronStat;
 use App\Models\Setting;
 use App\Models\TaxRate;
+use App\Providers\SettingsProvider;
 use App\Services\Chat\ChatNotifier;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Http;
@@ -33,6 +35,9 @@ final class EuVatRates
     /** The same differences are told again after this many days, until staff change the rate (or TEDB does). */
     public const REMIND_DAYS = 6;
 
+    /** The Company country the last seed wrote (the only rate's, kept), or null. */
+    public ?string $keptHomeCountry = null;
+
     public static function enabled(): bool
     {
         return (bool) config('settings.eu_vat_rates_check');
@@ -45,6 +50,9 @@ final class EuVatRates
      */
     public function seed(bool $dryRun = false): array
     {
+        // The company's country found as the only rate's (Settings::homeCountry, #524) is lost once there are more: kept
+        // as Company country, so an account without a country pays what it did, never 0% (adversarial ADV-525-1).
+        $implied = Settings::configuredHomeCountry() === null ? Settings::onlyRateCountry() : null;
         $existing = TaxRate::query()->pluck('country')->map(fn ($country) => strtoupper((string) $country))->all();
         $added = [];
         foreach (StandardRates::rates() as $iso => $rate) {
@@ -59,6 +67,11 @@ final class EuVatRates
                 }
             }
             $added[$iso] = $rate;
+        }
+        if ($implied !== null && $added !== [] && !$dryRun) {
+            Setting::query()->updateOrCreate(['key' => 'tax_home_country', 'settingable_type' => null], ['value' => $implied, 'type' => 'string']);
+            SettingsProvider::reload();
+            $this->keptHomeCountry = $implied;
         }
 
         return $added;
@@ -95,6 +108,7 @@ final class EuVatRates
                 $this->tell($differences);
             } catch (Throwable $e) {
                 report($e);
+                $tell = false; // not told: told again on the next run
             }
         }
         // TEDB's rates kept, so Automation Status compares them with Tax Rates as they are now (code review).

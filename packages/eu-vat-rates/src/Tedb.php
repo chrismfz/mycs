@@ -20,6 +20,11 @@ final class Tedb
 
     private const TYPES = 'urn:ec.europa.eu:taxud:tedb:services:v1:IVatRetrievalService:types';
 
+    /** A standard rate is at least 15% (Directive 2006/112/EC, art. 97); the highest today is 27%. Outside: no answer. */
+    public const MIN_STANDARD = 15;
+
+    public const MAX_STANDARD = 40;
+
     /** @param  list<string>  $countries ISO codes (GR is sent as TEDB's EL) */
     public static function request(\DateTimeInterface $on, array $countries = StandardRates::EU): string
     {
@@ -83,6 +88,14 @@ final class Tedb
                 $rate = Rate::normalize($value);
             } catch (\InvalidArgumentException) {
                 throw new TedbUnavailable("TEDB answered a standard rate for {$iso} that is not a rate: " . mb_substr($value, 0, 20));
+            }
+            if (self::cents($rate) < self::MIN_STANDARD * 100 || self::cents($rate) > self::MAX_STANDARD * 100) {
+                // Spain's Canary Islands answer 7% as a standard rate: a region's, lower, with a comment. Skipped here;
+                // the national one must still be there (adversarial ADV-525-3).
+                if (self::cents($rate) < self::MIN_STANDARD * 100 && trim((string) $xpath->evaluate('string(t:comment)', $result)) !== '') {
+                    continue;
+                }
+                throw new TedbUnavailable("TEDB answered a standard rate for {$iso} no member state can have: {$rate}%");
             }
             // The national rate is the highest: the regions' are lower.
             if (!isset($found[$iso]) || self::cents($rate) > self::cents($found[$iso])) {

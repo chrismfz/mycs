@@ -42,8 +42,10 @@ class EuVatRatesSeed extends Command
         $this->info(sprintf('%s %d rate(s), checked against TEDB on %s; %d countries already had one.',
             $dryRun ? 'Would add' : 'Added', count($added), StandardRates::checkedOn(), count(StandardRates::EU) - count($added)));
 
-        // More than one rate now: the only rate no longer stands for the company's country (Settings::homeCountry, #524).
-        if ($added !== [] && !$dryRun && Settings::configuredHomeCountry() === null) {
+        if ($rates->keptHomeCountry !== null) {
+            $this->line("Company country set to {$rates->keptHomeCountry} (Settings → Tax): the only rate's country, which stood for it until now.");
+        } elseif ($added !== [] && !$dryRun && Settings::configuredHomeCountry() === null) {
+            // More than one rate now: the only rate no longer stands for the company's country (Settings::homeCountry, #524).
             $this->line('Set «Company country» (Settings → Tax) if it is not set: with more than one rate, a customer without a country pays «All» or the company country\'s rate.');
         }
 
