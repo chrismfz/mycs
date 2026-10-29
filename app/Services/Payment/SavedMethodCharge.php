@@ -34,16 +34,26 @@ final class SavedMethodCharge
     public const KEY_REUSE_HOURS = 23;
 
     /**
+     * An earlier charge to this method of this invoice whose outcome is unknown (a timeout, a 5xx, or one started and never
+     * finished), still within the gateway's key window: sent again with its key, not a new charge.
+     */
+    public static function unknownAttempt(int $invoiceId, int $agreementId): ?ChargeAttempt
+    {
+        return ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+            ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
+                ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
+                    ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
+            ->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))
+            ->latest('id')->first();
+    }
+
+    /**
      * @param  PaymentGroup|null  $group  a customer's Mass Pay group: its total, charged on its first invoice (PR F2)
      *
      * @throws DisplayException nothing was sent: the invoice is not payable now, or a payment for it is already on its way
      */
     public function charge(Invoice $invoice, BillingAgreement $agreement, string $source, ?PaymentGroup $group = null): ChargeAttempt
     {
-        // A method of a gateway staff disabled is not charged, from anywhere: its payments on their way are still recorded.
-        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
-            throw new DisplayException(__('This payment method cannot be used now.'));
-        }
         $attempt = DB::transaction(function () use ($invoice, $agreement, $source, $group) {
             $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
             if ($locked->status !== Invoice::STATUS_UNPAID) {
@@ -55,14 +65,14 @@ final class SavedMethodCharge
             }
             // An earlier charge of the same amount to the same method whose outcome is unknown (a timeout, a 5xx): sent again
             // with its key, so the gateway answers with that charge instead of taking the money twice (adversarial ADV-3).
-            $unknown = ChargeAttempt::query()->where('invoice_id', $locked->id)->where('billing_agreement_id', $agreement->id)
-                ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
-                    ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
-                        ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
-                ->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))
-                ->latest('id')->first();
+            $unknown = self::unknownAttempt($locked->id, $agreement->id);
             if ($unknown !== null && RecordPaymentService::toCents($unknown->amount) !== $amount) {
                 $unknown = null; // another amount is another charge: held below until its outcome is known
+            }
+            // A method of a gateway staff disabled is not charged, from anywhere, before an attempt is written. Only a charge
+            // of unknown outcome is resent with its key: it takes no new money and records the one maybe taken (ADV-540-2).
+            if ($unknown === null && !ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
+                throw new DisplayException(__('This payment method cannot be used now.'));
             }
             if (self::onItsWay($locked, $group, except: $unknown?->id)) {
                 throw new DisplayException(__('A payment for this invoice is already on its way.'));

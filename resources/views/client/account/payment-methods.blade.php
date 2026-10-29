@@ -117,7 +117,11 @@
                             {{ __('account.expires', ['date' => \Carbon\Carbon::parse($agreement->expiry)->format('m/Y')]) }}
                         </div>
                         @endif
-                        @if((int) $defaultAgreementId === (int) $agreement->id)
+                        @if(!$agreement->gateway?->enabled)
+                        <div class="text-xs text-base/50 mt-1">
+                            {{ __('account.payment_method_unavailable') }}
+                        </div>
+                        @elseif((int) $defaultAgreementId === (int) $agreement->id)
                         <div class="text-xs text-base/50 mt-1">
                             {{ __('account.default_payment_method') }}
                         </div>
@@ -126,7 +130,7 @@
                 </div>
 
                 <div class="flex items-center gap-2">
-                    @if((int) $defaultAgreementId !== (int) $agreement->id)
+                    @if((int) $defaultAgreementId !== (int) $agreement->id && $agreement->gateway?->enabled)
                     <x-button.secondary class="!w-fit !px-2 text-sm" wire:click="makeDefault('{{ $agreement->ulid }}')" wire:loading.attr="disabled">
                         {{ __('account.make_default_payment_method') }}
                     </x-button.secondary>

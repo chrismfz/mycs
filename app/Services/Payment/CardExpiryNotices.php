@@ -27,8 +27,8 @@ final class CardExpiryNotices
         }
         $sent = 0;
         $due = BillingAgreement::query()->with('client')
-            // Its gateway removed: nothing is charged to it any more (code review CR-11).
-            ->whereHas('gateway')
+            // Its gateway removed (code review CR-11) or disabled (ADV-540-4): nothing is charged to it any more.
+            ->whereHas('gateway', fn ($gateway) => $gateway->where('enabled', true))
             ->whereNotNull('expiry')
             ->whereBetween('expiry', [$today->startOfMonth()->toDateString(), $today->endOfMonth()->toDateString()])
             ->where(fn ($query) => $query->whereNull('expiry_notified_at')->orWhere('expiry_notified_at', '<', $today->startOfMonth()))

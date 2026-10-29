@@ -73,12 +73,14 @@ final class AutoCharge
         if ($invoice->no_auto_charge) {
             return null; // staff keep it from being charged automatically (PR H2b)
         }
-        $agreement = $invoice->client?->autoChargeAgreement();
+        $agreement = $invoice->client?->autoChargeMethod();
         if ($agreement === null || $agreement->gateway === null) {
             return null;
         }
-        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
-            return null; // its gateway disabled by staff: the customer pays the invoice another way
+        // Its gateway disabled by staff: the customer pays the invoice another way. A charge of unknown outcome is still
+        // resent with its key, which takes no new money (adversarial ADV-540-2).
+        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id) && SavedMethodCharge::unknownAttempt($invoice->id, $agreement->id) === null) {
+            return null;
         }
         $max = max(0, (int) config('settings.autocharge_max_failures', 0));
         if ($max > 0 && $agreement->failed_count >= $max) {

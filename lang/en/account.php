@@ -119,6 +119,7 @@ return [
     'payment_method_add_failed' => 'Failed to add payment method. Please try again.',
     'default_payment_method' => 'Used for automatic payments',
     'make_default_payment_method' => 'Use for automatic payments',
+    'payment_method_unavailable' => 'Not available at the moment: not used for payments',
     'default_payment_method_saved' => 'Renewals will be charged to this payment method.',
     'auto_charge' => 'Charge renewals automatically',
     'auto_charge_description' => 'Renewal invoices are charged to the payment method used for automatic payments. Subscriptions are paid by their own provider.',

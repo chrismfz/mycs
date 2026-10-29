@@ -242,4 +242,29 @@ class DisabledGatewayTest extends TestCase
 
         $this->livewireAs($staff)->test(ListGateways::class)->assertCanSeeTableRecords([$bank, $this->off]);
     }
+
+    /** Code review #540 (2, 3): the service page, renewals and cycle changes read it to tell the customer it pays itself. */
+    public function test_a_disabled_gateways_default_method_is_not_the_accounts_auto_charge_method(): void
+    {
+        $agreement = $this->agreement($this->off, 'OFF');
+        $this->client->forceFill(['auto_charge' => true, 'default_billing_agreement_id' => $agreement->id])->save();
+
+        $this->assertNull($this->client->fresh()->autoChargeAgreement());
+        $this->assertSame($agreement->id, $this->client->fresh()->autoChargeMethod()?->id, 'kept: enabled again, it is charged again');
+
+        $this->off->update(['enabled' => true]);
+        $this->assertSame($agreement->id, $this->client->fresh()->autoChargeAgreement()?->id);
+    }
+
+    /** Code review #540 (2): the Payment Methods page marks it unavailable, neither «used for» nor «use for» automatic payments. */
+    public function test_payment_methods_marks_a_disabled_gateways_method_unavailable(): void
+    {
+        $this->agreement($this->off, 'OFF'); // the first: the account's default
+        $this->agreement($this->on, 'ON');
+
+        $this->livewireAs($this->user)->test(PaymentMethods::class)
+            ->assertSeeText(__('account.payment_method_unavailable'))
+            ->assertDontSeeText(__('account.default_payment_method'))
+            ->assertSeeText(__('account.make_default_payment_method'));
+    }
 }

@@ -141,11 +141,15 @@ class Adv540Test extends TestCase
      */
     public function test_adv_540_3_a_disabled_gateways_method_is_not_made_the_renewal_default(): void
     {
+        // The account's first method becomes its default on its own (ClientPaymentMethodTest): an enabled one here, so the
+        // test reads what «make default» does (author, round 1: the null default asserted first could never hold).
+        $kept = $this->agreement($this->on, 'ON');
         $agreement = $this->agreement($this->off, 'OFF');
+        $this->assertSame($kept->id, (int) $this->client->fresh()->default_billing_agreement_id);
 
         $this->livewireAs($this->user)->test(PaymentMethods::class)->call('makeDefault', $agreement->ulid);
 
-        $this->assertNull($this->client->fresh()->default_billing_agreement_id, 'a method that cannot be charged is not the renewals\' method');
+        $this->assertSame($kept->id, (int) $this->client->fresh()->default_billing_agreement_id, 'a method that cannot be charged is not the renewals\' method');
     }
 
     /**

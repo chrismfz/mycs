@@ -86,6 +86,10 @@ class PaymentMethods extends Component
         if (!$agreement) {
             return $this->notify(__('Billing agreement not found'), 'error');
         }
+        // One of a gateway staff disabled would never be charged (ADV-540-3).
+        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
+            return $this->notify(__('This payment method cannot be used now.'), 'error');
+        }
         CurrentClient::model()->update(['default_billing_agreement_id' => $agreement->id]);
         $this->notify(__('account.default_payment_method_saved'), 'success');
     }
