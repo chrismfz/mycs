@@ -252,8 +252,8 @@ final class MoveToClient
             // This item's lines move to a new invoice of the new client, as SplitInvoice moves them: issued when the first
             // was, kept from the cron's charge and as a debt as it was, pointing at it. Sent once, by its creation (after
             // the commit, its lines on it; adversarial ADV-3).
-            $new = new Invoice(['client_id' => $to->id, 'status' => $invoice->status, 'due_at' => $invoice->due_at, 'currency_code' => $invoice->currency_code,
-                'preferred_gateway_id' => $invoice->preferred_gateway_id]); // a gateway, not an account's card: it moves with it
+            // Its preferred method: the new account's own (the observer's), never the old account's card's gateway.
+            $new = new Invoice(['client_id' => $to->id, 'status' => $invoice->status, 'due_at' => $invoice->due_at, 'currency_code' => $invoice->currency_code]);
             $new->split_from_id = $invoice->id;
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;
             $new->no_auto_charge = (bool) $invoice->no_auto_charge;

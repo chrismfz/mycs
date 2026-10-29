@@ -177,7 +177,7 @@ final class TemplatePreview
             'domain_renewal_notice', 'domain_free_renewal_notice', 'domain_expired_notice' => ['domain' => $domain, 'fqdn' => 'example.gr',
                 'expires' => now()->addDays(30)->format('d/m/Y'), 'days_left' => 30, 'days_past' => 0, 'last_day' => now()->addDays(70)->format('d/m/Y'),
                 'stage_end' => now()->addDays(40)->format('d/m/Y'), 'free' => $key === 'domain_free_renewal_notice', 'price' => $money('12.00'),
-                'late_fee' => $money('30.00'), 'next_fee' => $money('80.00'), 'years' => 1, 'invoice' => $invoice, 'auto_charged' => false],
+                'late_fee' => $money('30.00'), 'next_fee' => $money('80.00'), 'years' => 1, 'invoice' => $invoice, 'auto_charged' => false, 'preferred_method' => 'PayPal'],
             'domain_registered', 'domain_transfer_started', 'domain_transferred', 'domain_renewed', 'domain_transfer_failed' => ['domain' => $domain, 'fqdn' => 'example.gr',
                 'expires' => now()->addYear()->format('d/m/Y'), 'years' => 1, 'nameservers' => 'ns1.example.net, ns2.example.net', 'reason' => 'auth'],
             'announcement', 'announcement_news' => ['subject' => 'Προγραμματισμένη συντήρηση', 'content' => new Html('<p>Την Κυριακή 02:00–04:00 θα γίνει συντήρηση.</p>'),

@@ -380,14 +380,23 @@ class NotificationHelper
         self::toAccount($client, $key, $data, $attachments);
     }
 
-    /** Its preferred payment method's name, only when unpaid and that gateway can take it (as its page offers it), else ''. */
-    private static function preferredMethod(Invoice $invoice): string
+    /**
+     * Its preferred payment method's name, only when unpaid and that gateway can take it (as its page offers it), else ''.
+     * A gateway that cannot be read never stops the email: only its button's label goes (R2-2 of #539).
+     */
+    public static function preferredMethod(Invoice $invoice): string
     {
         $gateway = $invoice->status === Invoice::STATUS_UNPAID ? $invoice->preferredGateway : null;
         if ($gateway === null) {
             return '';
         }
-        $usable = array_column(ExtensionHelper::getCheckoutGateways($invoice->total, $invoice->currency_code, 'invoice', $invoice->items), 'id');
+        try {
+            $usable = array_column(ExtensionHelper::getCheckoutGateways($invoice->total, $invoice->currency_code, 'invoice', $invoice->items), 'id');
+        } catch (Throwable $e) {
+            report($e);
+
+            return '';
+        }
 
         return in_array($gateway->id, $usable) ? (string) $gateway->name : '';
     }

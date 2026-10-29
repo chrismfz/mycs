@@ -14,6 +14,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
@@ -183,8 +184,9 @@ class Show extends Component
         }
 
         $this->pay = ExtensionHelper::pay(Gateway::where('id', $methodId)->first(), $this->invoice);
-        // Opened (its page, its window): the way chosen, kept; a refusal changes nothing (ADV-539-4).
-        if ($this->pay !== null && $this->pay !== false) {
+        // Opened (its page, its window): the way chosen, kept; a refusal changes nothing (ADV-539-4), nor one paid on its own
+        // (a saved method or a subscription: the bank transfer's «charged» page is a refusal, R2-1 of #539).
+        if ($this->pay !== null && $this->pay !== false && !PaymentReminders::chargedOnItsOwn($this->invoice)) {
             $this->remember((int) $methodId);
         }
 
