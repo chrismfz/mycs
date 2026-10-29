@@ -116,8 +116,11 @@ final class WhmcsPayMethodImport
     private ?array $usage = null;
 
     /**
-     * The default as WHMCS charged: the method whose gateway most of the client's live services and domains pay with
-     * (newer on a tie); none: no default, «Auto-charge» off (decision 6).
+     * The default as WHMCS charged (decision 6): the gateway most of the client's live services, addons and domains pay
+     * with, of all of them, not only those it saved a method for (R2-1 of #538: one service by card and three by bank
+     * transfer is a bank-transfer customer). That gateway has a saved method: its first by WHMCS's order. It has none, or
+     * it ties with one that has none: no default, «Auto-charge» off (as WHMCS charged it, never more). Two saved gateways
+     * tied: the one whose first method is the newer, still that gateway's first (R2-2).
      *
      * @param  list<array{id: int, module: string, whmcs_id: int}>  $imported
      */
@@ -127,22 +130,21 @@ final class WhmcsPayMethodImport
             return;
         }
         $usage = $this->usage()[$clientId] ?? [];
-        $best = null;
+        $first = []; // gateway module => its first imported method (they come in WHMCS's order)
         foreach ($imported as $agreement) {
-            $items = $usage[$agreement['module']] ?? 0;
-            // In WHMCS's order: within a gateway its first (as WHMCS charges), between two gateways of as many items the newer.
-            if ($items > 0 && ($best === null || $items > $best[0]
-                || ($items === $best[0] && $agreement['module'] !== $best[1]['module'] && $agreement['whmcs_id'] > $best[1]['whmcs_id']))) {
-                $best = [$items, $agreement];
-            }
+            $first[$agreement['module']] ??= $agreement;
         }
-        if ($best === null) {
+        $most = $usage === [] ? 0 : max($usage);
+        $leaders = $most > 0 ? array_keys($usage, $most, true) : [];
+        $saved = array_values(array_filter($leaders, fn (string $module) => isset($first[$module])));
+        if ($saved === [] || count($saved) < count($leaders)) {
             DB::table('clients')->where('id', $clientId)->update(['auto_charge' => false]);
             $this->counts['not_charged']++;
 
             return;
         }
-        if (DB::table('clients')->where('id', $clientId)->whereNull('default_billing_agreement_id')->update(['default_billing_agreement_id' => $best[1]['id']]) > 0) {
+        usort($saved, fn (string $a, string $b) => $first[$b]['whmcs_id'] <=> $first[$a]['whmcs_id']);
+        if (DB::table('clients')->where('id', $clientId)->whereNull('default_billing_agreement_id')->update(['default_billing_agreement_id' => $first[$saved[0]]['id']]) > 0) {
             $this->counts['defaults']++;
         }
     }
@@ -154,8 +156,10 @@ final class WhmcsPayMethodImport
             return $this->usage;
         }
         $this->usage = [];
+        // What WHMCS invoices: live services and their addons, domains active or in grace (never one long expired: R2-3).
         foreach (["SELECT userid, paymentmethod FROM tblhosting WHERE domainstatus IN ('Active', 'Suspended')",
-            "SELECT userid, paymentmethod FROM tbldomains WHERE status IN ('Active', 'Grace', 'Redemption', 'Expired')"] as $sql) {
+            "SELECT h.userid, a.paymentmethod FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ('Active', 'Suspended')",
+            "SELECT userid, paymentmethod FROM tbldomains WHERE status IN ('Active', 'Grace')"] as $sql) {
             try {
                 foreach ($this->whmcs->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $row) {
                     $module = strtolower(trim((string) $row['paymentmethod']));
@@ -233,6 +237,9 @@ final class WhmcsPayMethodImport
 
             return null;
         }
+        if (isset($reference['customer'])) {
+            $this->stripeCustomers[$reference['customer']][] = $clientId; // listed if shared, a duplicate too (R2-4)
+        }
         if (DB::table('billing_agreements')->where('external_reference', $reference['method'])->exists()) {
             $this->skip(1, "customer #{$clientId}'s {$extension} method #{$method['id']}: the same reference as one imported already");
 
@@ -253,9 +260,6 @@ final class WhmcsPayMethodImport
                 'name' => mb_substr($name, 0, 255), 'type' => $type, 'expiry' => $expiry, 'external_reference' => $reference['method'],
                 'created_at' => now(), 'updated_at' => now()]);
         });
-        if (isset($reference['customer'])) {
-            $this->stripeCustomers[$reference['customer']][] = $clientId;
-        }
         $this->counts['imported']++;
 
         return ['id' => $id, 'module' => $module, 'whmcs_id' => (int) $method['id']];
@@ -294,7 +298,8 @@ final class WhmcsPayMethodImport
     private static function paypal(string $token): ?array
     {
         $decoded = json_decode($token, true);
-        $value = is_array($decoded) ? ($decoded['vault_id'] ?? $decoded['payment_token'] ?? $decoded['token'] ?? $decoded['id'] ?? null) : trim($token);
+        // WHMCS's paypal_ppcpv: {"vaultId", "customerId", "transactionIdentifier"} (read on nixpal's WHMCS, 2026-10-29).
+        $value = is_array($decoded) ? ($decoded['vaultId'] ?? $decoded['vault_id'] ?? $decoded['payment_token'] ?? $decoded['token'] ?? $decoded['id'] ?? null) : trim($token);
         $method = is_string($value) ? $value : '';
 
         return $method !== '' && !str_contains($method, ' ') ? ['method' => $method] : null;

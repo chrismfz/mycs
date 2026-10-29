@@ -71,7 +71,9 @@ class ImportPayMethodsTest extends TestCase
             $this->client->id => [
                 ['id' => 11, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Visa1']), 'expiry_date' => '06/27', 'card_last_four' => '4242', 'card_type' => 'Visa'],
                 ['id' => 12, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Amex2']), 'expiry_date' => '01/28', 'card_last_four' => '0005', 'card_type' => 'American Express'],
-                ['id' => 13, 'remote_token' => '7XK31234AB567890C', 'expiry_date' => '', 'card_last_four' => 'maria@example.test', 'card_type' => 'PayPal'],
+                // WHMCS's paypal_ppcpv shape (read on nixpal's WHMCS; example values here).
+                ['id' => 13, 'remote_token' => json_encode(['vaultId' => '7XK31234AB567890C', 'customerId' => 'abcDEF123', 'transactionIdentifier' => '0AA0000TX']),
+                    'expiry_date' => '03/54', 'card_last_four' => 'maria@example.test', 'card_type' => 'PayPal'],
             ],
             // A bare payment method (no customer): never charged blind.
             $this->other->id => [['id' => 15, 'remote_token' => 'pm_Lonely3', 'expiry_date' => '12/26', 'card_last_four' => '4444', 'card_type' => 'MasterCard']],
