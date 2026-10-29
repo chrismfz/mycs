@@ -1636,13 +1636,13 @@ class ExtensionHelper
      *
      * @return array<string, mixed>
      */
-    private static function offlineTask(Service $service, string $recorded, string $module, string $action): array
+    private static function offlineTask(Service $service, string $recorded, string $module, string $action, string $noun = 'machine'): array
     {
         $what = trim(($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
 
         return self::staffTask($service, $recorded, $module, $action,
-            "By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.',
-            "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
+            "By hand: {$recorded} this {$noun}" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.',
+            "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a {$noun} with no API ({$module}): {$recorded} it by hand, "
             . 'then mark the task done in Pending Module Actions.');
     }
 
@@ -1656,16 +1656,19 @@ class ExtensionHelper
     {
         $now = now();
         // A new task each time (review of #443: the old open row was reused and staff were not told); older open ones
-        // of this machine that the new one makes moot are closed.
-        ModuleAction::query()->open()->where('service_id', $service->id)->where('subject', ModuleAction::SUBJECT_BY_HAND)
-            ->whereIn('action', ModuleAction::BY_HAND_SUPERSEDES[$recorded] ?? [$recorded])
-            ->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by a newer task: {$recorded}", 'updated_at' => $now]);
-        // A failed attempt of the same action before it (a retry that got this far) is done with.
-        ModuleAction::query()->open()->where('service_id', $service->id)->whereNull('subject')->where('action', $recorded)
-            ->update(['status' => ModuleAction::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'left to staff', 'updated_at' => $now]);
-        ModuleAction::query()->create(['service_id' => $service->id, 'action' => $recorded, 'subject' => ModuleAction::SUBJECT_BY_HAND,
-            'module' => $module, 'status' => ModuleAction::STATUS_OPEN, 'attempts' => 1, 'last_attempt_at' => $now, 'given_up_at' => $now,
-            'last_error' => $task]);
+        // of this machine that the new one makes moot are closed. One transaction: an older task is never closed for a
+        // newer one that was not made (R2-3 of #532).
+        DB::transaction(function () use ($service, $recorded, $module, $task, $now) {
+            ModuleAction::query()->open()->where('service_id', $service->id)->where('subject', ModuleAction::SUBJECT_BY_HAND)
+                ->whereIn('action', ModuleAction::BY_HAND_SUPERSEDES[$recorded] ?? [$recorded])
+                ->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by a newer task: {$recorded}", 'updated_at' => $now]);
+            // A failed attempt of the same action before it (a retry that got this far) is done with.
+            ModuleAction::query()->open()->where('service_id', $service->id)->whereNull('subject')->where('action', $recorded)
+                ->update(['status' => ModuleAction::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'left to staff', 'updated_at' => $now]);
+            ModuleAction::query()->create(['service_id' => $service->id, 'action' => $recorded, 'subject' => ModuleAction::SUBJECT_BY_HAND,
+                'module' => $module, 'status' => ModuleAction::STATUS_OPEN, 'attempts' => 1, 'last_attempt_at' => $now, 'given_up_at' => $now,
+                'last_error' => $task]);
+        });
         // Its details in the mail too (a deleted service takes them with it: review R5); after commit, and a mail that
         // fails never fails the action (R6).
         $details = $service->properties()->get()->map(fn ($p) => ($p->name ?: $p->key) . ': ' . str_replace("\n", ', ', (string) $p->value))->implode("\n");
@@ -1682,6 +1685,31 @@ class ExtensionHelper
         }
 
         return [];
+    }
+
+    /**
+     * A paid renewal of a service whose module renews by hand (OfflineSsl: a certificate is bought again at its provider):
+     * a task for staff, as its other actions (review of #532). Nothing for any other module: a renewal is no server
+     * action. A task that cannot be made never fails the payment: reported.
+     */
+    public static function renewByHand(Service $service, ?string $until = null, ?string $note = null): void
+    {
+        try {
+            $server = $service->provisioningServer();
+            $extension = $server !== null && filled($server->extension) ? self::getExtension('server', $server->extension, $server->settings) : null;
+            if (!$extension instanceof OfflineServer || !$extension->renewsByHand()) {
+                return;
+            }
+            $what = trim((string) $service->domain);
+            $noun = $extension->noun();
+            $paid = ($until !== null ? " (paid until {$until})" : '') . ($note !== null ? "; {$note}" : '');
+            self::staffTask($service, ModuleAction::RENEW, (string) $server->extension, 'renewServer',
+                "By hand: renew this {$noun}" . ($what !== '' ? " {$what}" : '') . " at its provider{$paid}, then mark this done.",
+                "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " was renewed{$paid}: its {$noun} has no API ({$server->extension}), renew it "
+                . 'by hand at its provider, then mark the task done in Pending Module Actions.');
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /** The service's machine has no API (OfflineServer): its server actions are staff's tasks. */
@@ -1721,9 +1749,9 @@ class ExtensionHelper
 
         try {
             $extension = self::getExtension('server', $server->extension, $server->settings);
-            // No API (OfflineVm, OfflineDedicated): the action is staff's, by hand (owner 2026-10-24).
+            // No API (OfflineVm, OfflineDedicated, OfflineSsl): the action is staff's, by hand (owner 2026-10-24).
             if ($extension instanceof OfflineServer) {
-                return self::offlineTask($service, $recorded, (string) $server->extension, $action);
+                return self::offlineTask($service, $recorded, (string) $server->extension, $action, $extension->noun());
             }
             try {
                 $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));

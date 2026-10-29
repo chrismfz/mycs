@@ -3,6 +3,7 @@
 namespace App\Services\Service;
 
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
@@ -82,7 +83,7 @@ class RenewServiceService
                 $start = $locked->paidThrough($current ?? CarbonImmutable::today(), lines: $lines);
                 $end = $locked->periodEnd($start, $lines);
                 $locked->rememberBillingDay($start);
-                $this->activate($locked, $end === null ? null : $locked->paidThrough($end, lines: $lines));
+                $this->activate($locked, $end === null ? null : $locked->paidThrough($end, lines: $lines), $start);
                 $service->setRawAttributes($locked->getAttributes(), true);
 
                 return;
@@ -121,13 +122,20 @@ class RenewServiceService
                 return; // a replay, a duplicate, or ahead of an unpaid period: nothing new is paid
             }
 
-            $this->activate($locked, $paidUntil); // never earlier than $current: the chain starts there
+            $this->activate($locked, $paidUntil, $item->period_start ? CarbonImmutable::parse($item->period_start) : null); // never earlier than $current: the chain starts there
             $service->setRawAttributes($locked->getAttributes(), true);
         });
     }
 
-    private function activate(Service $service, ?CarbonImmutable $paidUntil): void
+    private function activate(Service $service, ?CarbonImmutable $paidUntil, ?CarbonImmutable $periodStart = null): void
     {
+        // A renewal of one already running: a module that renews by hand gets a task (OfflineSsl). Only when this payment
+        // moves its paid date on, for a period that starts after the service did: the period it started with, paid after
+        // staff started it (by hand, accepted unpaid, set up on order), is its order, never a renewal (R2-1, R3-1 of #532).
+        $started = $service->activated_at ?? $service->created_at;
+        $renewal = $service->status !== Service::STATUS_PENDING && $paidUntil !== null
+            && ($service->expires_at === null || $paidUntil->greaterThan($service->expires_at))
+            && ($periodStart === null || $started === null || $periodStart->startOfDay()->greaterThan(CarbonImmutable::parse($started)->startOfDay()));
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
         // Suspended for non-payment and still overdue after this payment (another period unpaid): it stays suspended, else
         // the next cron run would suspend it again (Δ3a). Staff are told; they unsuspend it by hand if they wish.
@@ -176,6 +184,13 @@ class RenewServiceService
             $service->save();
         } finally {
             ServiceObserver::$renewing = false;
+        }
+        if ($renewal) {
+            // Still suspended after it (more owed, or staff's hold): the task says so, never a plain «buy it» (R2-2).
+            $id = $service->id;
+            $until = $paidUntil->toDateString();
+            $note = $manualHold ? 'it is still suspended (more owed, or held by staff): check before buying' : null;
+            DB::afterCommit(fn () => ($renewed = Service::query()->find($id)) !== null ? ExtensionHelper::renewByHand($renewed, $until, $note) : null);
         }
     }
 

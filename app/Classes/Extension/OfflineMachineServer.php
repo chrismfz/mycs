@@ -26,6 +26,16 @@ abstract class OfflineMachineServer extends Server implements OfflineServer
         return true;
     }
 
+    public function noun(): string
+    {
+        return 'machine';
+    }
+
+    public function renewsByHand(): bool
+    {
+        return false;
+    }
+
     public function createServer(Service $service, $settings, $properties)
     {
         throw new LogicException('An offline machine is created by hand (ExtensionHelper makes it a task).');

@@ -93,8 +93,8 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION],
-                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION]))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION]))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
@@ -193,7 +193,7 @@ class ModuleActionResource extends Resource
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN || $record->onHold()) // «Done by hand» after «stop it» (ADV-4 of #306)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done on the machine by hand: closes it.' : match ($record->action) {
+                    ->modalDescription(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done by hand: closes it.' : match ($record->action) {
                         ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Its transfer lock was put on at the registrar by hand: closes it.' : 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
@@ -231,6 +231,7 @@ class ModuleActionResource extends Resource
     {
         return match ($action) {
             'upgrade' => 'Change Package',
+            ModuleAction::RENEW => 'Renewal (by hand)',
             ModuleAction::DOMAIN_RENEW => 'Domain Renewal',
             ModuleAction::DOMAIN_REGISTER => 'Domain Registration',
             ModuleAction::DOMAIN_TRANSFER => 'Domain Transfer',
