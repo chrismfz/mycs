@@ -1593,7 +1593,9 @@ class ExtensionHelper
     {
         // The service's own server (WHMCS's tblhosting.server); chosen on its first creation (the product's group, or
         // the product's server), then kept.
-        $server = $action === 'createServer' ? ServerSelector::assign($service) : $service->provisioningServer();
+        // An account left on a server of WHMCS's: not created again elsewhere either, which would bind it (its username)
+        // to the server picked, failed or not (R3-1 of #530).
+        $server = $action === 'createServer' && !$service->serverLeftInWhmcs() ? ServerSelector::assign($service) : $service->provisioningServer();
 
         if (!$server && $service->server_id !== null) {
             // Its server was deleted: never quietly «nothing to do» (the jobs skip «no server»), nor another server.

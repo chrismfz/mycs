@@ -270,7 +270,7 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 servers του καταλόγου (γι' αυτό ο κατάλογος εισάγεται πρώτος). Κρατιέται και όπως ήταν, στο `services.whmcs_server_id`
 (0 = κανένας στο WHMCS). Μια υπηρεσία που ο λογαριασμός της είναι σε server του WHMCS που δεν υπάρχει εδώ (σβησμένος
 server, ή module χωρίς extension) **δεν** πέφτει στον server του προϊόντος, γιατί εκεί το ίδιο username μπορεί να ανήκει
-σε άλλον πελάτη (`Service::serverLeftInWhmcs`). Κάθε ενέργειά της εκτός από create αποτυγχάνει και πάει στο staff
+σε άλλον πελάτη (`Service::serverLeftInWhmcs`). Κάθε ενέργειά της, και το create, αποτυγχάνει και πάει στο staff
 (Pending Module Actions, «set its server first»). Ποτέ δεν παραλείπεται σιωπηλά: ούτε το terminate στη διαγραφή ή στην
 ακύρωση, ούτε το upgrade (`hasServerActions`). Το ίδιο ισχύει για το sync του cPanel, του mailcow και για τα bulk emails
 ανά server (`Service::scopeOnServers`). Δύο περιπτώσεις παίρνουν τον server του προϊόντος, όπως πριν: μια pending
