@@ -63,6 +63,9 @@ class ImportFromWhmcs extends Command
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
         {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
 
+    /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
+    private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
+
     /** A WHMCS service never suspended automatically («Override Auto-Suspend» without a date): a hold this far off. */
     public const NEVER_SUSPEND = '9999-12-31';
 
@@ -182,6 +185,7 @@ class ImportFromWhmcs extends Command
             $this->importKnowledgebase();
             $this->importOrders();
             $this->importServices();
+            $this->importOfflineSsl();
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
@@ -1333,6 +1337,83 @@ class ImportFromWhmcs extends Command
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
+    }
+
+    /**
+     * The certificates of a WHMCS SSL module with no extension here (TheSSLStore): their products and services on one
+     * Offline SSL server per provider, so that every action on them is a task for staff, never «nothing to do»; each
+     * one's order (WHMCS's tblsslorders, the module's orders table) kept in its fields. Nothing is asked of the provider.
+     */
+    private function importOfflineSsl()
+    {
+        $products = [];
+        foreach ($this->pdo->query('SELECT id, servertype FROM tblproducts')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $provider = self::OFFLINE_SSL_MODULES[strtolower(trim((string) ($row['servertype'] ?? '')))] ?? null;
+            if ($provider !== null) {
+                $products[$provider][] = (int) $row['id'];
+            }
+        }
+        $orders = $this->sslOrders();
+        foreach ($products as $provider => $ids) {
+            $server = Server::query()->firstOrCreate(['extension' => 'OfflineSsl', 'name' => "{$provider} (offline)"], ['type' => 'server', 'enabled' => true]);
+            DB::table('products')->whereIn('id', $ids)->whereNull('server_id')->update(['server_id' => $server->id]);
+            $services = DB::table('services')->whereIn('product_id', $ids)->whereNull('server_id')->get(['id', 'domain']);
+            DB::table('services')->whereIn('id', $services->pluck('id'))->update(['server_id' => $server->id]);
+            $properties = [];
+            foreach ($services as $service) {
+                $fields = ['ssl_provider' => $provider] + ($orders[$service->id] ?? []);
+                if (strcasecmp((string) ($fields['ssl_common_name'] ?? ''), (string) $service->domain) === 0) {
+                    unset($fields['ssl_common_name']); // the service's domain already
+                }
+                foreach (array_filter($fields, fn ($value) => $value !== null && $value !== '') as $key => $value) {
+                    $properties[] = ['model_type' => Service::class, 'model_id' => $service->id, 'key' => $key, 'name' => self::SSL_FIELD_NAMES[$key],
+                        'value' => mb_substr((string) $value, 0, 255), 'created_at' => now(), 'updated_at' => now()];
+                }
+            }
+            foreach (array_chunk($properties, 500) as $chunk) {
+                DB::table('properties')->insert($chunk);
+            }
+            $this->info(count($services) . " {$provider} certificate(s) on «{$server->name}» (Offline SSL): every action on them is a task for staff.");
+        }
+    }
+
+    private const SSL_FIELD_NAMES = ['ssl_provider' => 'Provider', 'ssl_order_id' => 'Order ID at the provider', 'ssl_vendor_order_id' => 'Order ID at the CA',
+        'ssl_product' => 'Certificate type', 'ssl_common_name' => 'Common name', 'ssl_status' => 'Status at the provider', 'ssl_expires_on' => 'Expires on'];
+
+    /**
+     * Each service's SSL order, by service id: WHMCS's own (tblsslorders, its latest) and TheSSLStore module's
+     * (mod_sslstore_orders_data, its latest), the module's winning where both have a field. Never their CSR, keys or
+     * authentication data.
+     *
+     * @return array<int, array<string, string|null>>
+     */
+    private function sslOrders(): array
+    {
+        $orders = [];
+        if ($this->sourceHas('tblsslorders')) {
+            foreach ($this->pdo->query('SELECT * FROM tblsslorders ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $orders[(int) $row['serviceid']] = [
+                    'ssl_order_id' => self::text($row['remoteid'] ?? null, 255),
+                    'ssl_product' => self::text($row['certtype'] ?? null, 255),
+                    'ssl_status' => self::text($row['status'] ?? null, 255),
+                    'ssl_expires_on' => substr((string) $this->validateDate($row['certificate_expiry_date'] ?? null), 0, 10) ?: null,
+                ];
+            }
+        }
+        if ($this->sourceHas('mod_sslstore_orders_data')) {
+            foreach ($this->pdo->query('SELECT * FROM mod_sslstore_orders_data ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $orders[(int) $row['service_id']] = array_merge($orders[(int) $row['service_id']] ?? [], array_filter([
+                    'ssl_order_id' => self::text((string) ($row['store_order_id'] ?? '') ?: null, 255),
+                    'ssl_vendor_order_id' => self::text($row['vendor_order_id'] ?? null, 255),
+                    'ssl_product' => self::text($row['product_code'] ?? null, 255),
+                    'ssl_common_name' => self::text($row['common_name'] ?? null, 255),
+                    'ssl_status' => self::text($row['ssl_status'] ?? null, 255),
+                    'ssl_expires_on' => substr((string) $this->validateDate($row['expiration_date'] ?? null), 0, 10) ?: null,
+                ], fn ($value) => $value !== null && $value !== ''));
+            }
+        }
+
+        return $orders;
     }
 
     /** nixpal's licenses (L3, docs/licensing.md); also on its own: app:import-whmcs-licensing. */

@@ -36,6 +36,19 @@ final class OfflineMachine
         return $extension instanceof OfflineServer ? $extension->serviceFields() : [];
     }
 
+    /** Its section's title: the module's noun («Machine», «Certificate»). */
+    public static function title(?Service $service): string
+    {
+        $server = $service?->provisioningServer();
+        try {
+            $extension = $server !== null && filled($server->extension) ? ExtensionHelper::getExtension('server', $server->extension, $server->settings) : null;
+        } catch (Throwable) {
+            $extension = null;
+        }
+
+        return ucfirst($extension instanceof OfflineServer ? $extension->noun() : 'machine');
+    }
+
     public static function value(Service $service, string $key): ?string
     {
         $value = $service->properties->firstWhere('key', $key)?->value;
@@ -45,7 +58,7 @@ final class OfflineMachine
 
     public static function editAction(): Action
     {
-        return Action::make('editMachine')->label('Edit machine details')->icon('heroicon-o-pencil-square')->color('gray')
+        return Action::make('editMachine')->label(fn (Service $record) => 'Edit ' . strtolower(self::title($record)) . ' details')->icon('heroicon-o-pencil-square')->color('gray')
             ->authorize(fn (Service $record) => (bool) auth()->user()?->can('update', $record))
             ->modalWidth('3xl')
             ->fillForm(fn (Service $record) => collect(self::fields($record))->mapWithKeys(fn (array $field) => [$field['name'] => self::value($record, $field['name'])])->all())

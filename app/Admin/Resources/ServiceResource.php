@@ -377,9 +377,9 @@ class ServiceResource extends Resource
                             ->label('Module')
                             ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record?->provisioningServer() !== null),
                     ]),
-                // A machine with no API (OfflineVm, OfflineDedicated, owner 2026-10-24): what staff keep about it, edited
-                // in one window. Its hostname and IPv4 are the account's domain and IPs above.
-                Section::make('Machine')
+                // A machine or certificate with no API (OfflineVm, OfflineDedicated, OfflineSsl, owner 2026-10-24): what
+                // staff keep about it, edited in one window. Its hostname and IPv4 are the account's domain and IPs above.
+                Section::make(fn (?Service $record) => OfflineMachine::title($record))
                     ->columns(3)
                     ->columnSpanFull()
                     ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && OfflineMachine::fields($record) !== [])
@@ -389,7 +389,7 @@ class ServiceResource extends Resource
                             ->fontFamily(in_array($field['type'], ['mac', 'ip'], true) ? 'mono' : null)
                             ->copyable(in_array($field['type'], ['mac', 'ip'], true))
                             ->columnSpan(in_array($field['type'], ['textarea'], true) ? 'full' : 1))->values()->all(),
-                        Actions::make([Action::make('machine_edit')->label('Edit machine details')->icon('heroicon-o-pencil-square')->size('sm')->color('gray')
+                        Actions::make([Action::make('machine_edit')->label(fn (Service $record) => 'Edit ' . strtolower(OfflineMachine::title($record)) . ' details')->icon('heroicon-o-pencil-square')->size('sm')->color('gray')
                             ->alpineClickHandler("\$wire.mountAction('editMachine')")
                             ->visible(fn (Service $record) => (bool) auth()->user()?->can('update', $record))]),
                     ]),

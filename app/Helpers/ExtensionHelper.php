@@ -1636,13 +1636,13 @@ class ExtensionHelper
      *
      * @return array<string, mixed>
      */
-    private static function offlineTask(Service $service, string $recorded, string $module, string $action): array
+    private static function offlineTask(Service $service, string $recorded, string $module, string $action, string $noun = 'machine'): array
     {
         $what = trim(($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
 
         return self::staffTask($service, $recorded, $module, $action,
-            "By hand: {$recorded} this machine" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.',
-            "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a machine with no API ({$module}): {$recorded} it by hand, "
+            "By hand: {$recorded} this {$noun}" . ($what !== '' ? " {$what}" : '') . ' (no API), then mark this done.',
+            "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " is on a {$noun} with no API ({$module}): {$recorded} it by hand, "
             . 'then mark the task done in Pending Module Actions.');
     }
 
@@ -1721,9 +1721,9 @@ class ExtensionHelper
 
         try {
             $extension = self::getExtension('server', $server->extension, $server->settings);
-            // No API (OfflineVm, OfflineDedicated): the action is staff's, by hand (owner 2026-10-24).
+            // No API (OfflineVm, OfflineDedicated, OfflineSsl): the action is staff's, by hand (owner 2026-10-24).
             if ($extension instanceof OfflineServer) {
-                return self::offlineTask($service, $recorded, (string) $server->extension, $action);
+                return self::offlineTask($service, $recorded, (string) $server->extension, $action, $extension->noun());
             }
             try {
                 $result = $extension->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));

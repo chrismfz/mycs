@@ -128,6 +128,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
     `app:import-whmcs-ip-pools`.
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
 - [x] ~~ngm (1), Hetzner (1): χειροκίνητα προϊόντα~~ **έγινε (feat/offline-modules):** modules «Offline VM» και «Offline Dedicated Server» χωρίς API· τα στοιχεία της μηχανής (VM ID, πάροχος, MAC, IPv6· rack, U, IPMI IP και MAC, serial, θύρα switch/PDU) στην υπηρεσία, κάθε ενέργεια εργασία του staff στα Pending Module Actions. Επόμενο, αν χρειαστεί: η τρέχουσα IP του IPMI από τα DHCP leases του MikroTik με το MAC του.
+- [x] ~~TheSSLStore (12): χωρίς module~~ **έγινε (feat/offline-ssl):** module «Offline SSL», ίδιο με τα offline modules.
+  Τα στοιχεία της παραγγελίας μένουν στην υπηρεσία, και κάθε ενέργεια γίνεται εργασία του staff. Ο importer βάζει εκεί τα
+  πιστοποιητικά του WHMCS (`importer.md`). Στη λήξη περνούν στο Openprovider SSL.
 - [x] ~~Συμφιλίωση κατάστασης cPanel~~ **έγινε:** «Differs» στο Hosting Accounts (φίλτρο) και στη σελίδα της υπηρεσίας:
       active εδώ/suspended εκεί, suspended εδώ/active εκεί, ended εδώ/υπάρχει ακόμα εκεί (μόνο αφού ο server διαβαστεί
       μετά την αλλαγή της υπηρεσίας).

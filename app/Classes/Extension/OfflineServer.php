@@ -17,4 +17,7 @@ interface OfflineServer
      * @return list<array{name: string, label: string, type: string, help?: string}>
      */
     public function serviceFields(): array;
+
+    /** What it is, in a sentence and as its section's title («machine», «certificate»). */
+    public function noun(): string;
 }

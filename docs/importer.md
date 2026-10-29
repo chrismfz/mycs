@@ -617,7 +617,13 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
     ή του domain, τα marks `ekdosi_documents`·
   - `mod_timologia*`: αρχείο.
 - **Δεν έχουν extension στη MyCS:**
-  - TheSSLStore: 12 ενεργές υπηρεσίες. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
+  - TheSSLStore: 12 ενεργές υπηρεσίες. Ο importer τις βάζει σε server «TheSSLStore (offline)» του module **Offline
+    SSL**, μαζί με τα προϊόντα τους (`importOfflineSsl`). Κάθε ενέργεια (έκδοση, suspend, terminate, αλλαγή) γίνεται
+    εργασία του staff στα Pending Module Actions, ποτέ σιωπηλό «τίποτα». Τα στοιχεία της παραγγελίας μπαίνουν στην
+    υπηρεσία: πάροχος, αριθμοί παραγγελίας (provider, CA), τύπος, common name όταν διαφέρει από το domain, κατάσταση και
+    λήξη. Έρχονται από το `tblsslorders` (το τελευταίο ανά υπηρεσία) και το `mod_sslstore_orders_data` του module (αυτό
+    υπερισχύει). Ποτέ το CSR, τα κλειδιά ή το `authdata`. Στο myip υπάρχουν στοιχεία για 4 από τις 12· στις άλλες τα
+    συμπληρώνει το staff. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
   - Hetzner Cloud: 1 υπηρεσία. Γίνεται Offline VM.
   - ngm: 1 υπηρεσία. Γίνεται Offline VM.
 - **Centova:** custom fields `port`, `username`, `sourcepassword` (μυστικό, κρυπτογραφείται), `servertype`, `sourcetype`,
