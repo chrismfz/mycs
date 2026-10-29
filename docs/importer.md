@@ -266,6 +266,23 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 (χωρίς όριο)· ένα `tblhosting.server` που δείχνει σε server που δεν υπάρχει μένει null (όχι ο server του προϊόντος). myip: 6 cPanel servers (657 λογαριασμοί),
 7 groups· nixpal: 1 server.
 
+**Ο server κάθε λογαριασμού (AUD4-1):** το `tblhosting.server` γίνεται `services.server_id` μέσω του `whmcs_id` των
+servers του καταλόγου (γι' αυτό ο κατάλογος εισάγεται πρώτος). Κρατιέται και όπως ήταν, στο `services.whmcs_server_id`
+(0 = κανένας στο WHMCS). Μια υπηρεσία από το WHMCS χωρίς server εδώ (σβησμένος server, module χωρίς extension, ή 0)
+**δεν** πέφτει στον server του προϊόντος, γιατί εκεί το ίδιο username μπορεί να ανήκει σε άλλον πελάτη. Οποιαδήποτε
+ενέργεια εκτός από create αποτυγχάνει και πάει στο staff (Pending Module Actions, «set its server first»). Το ίδιο
+ισχύει για το sync του cPanel, του mailcow και για τα bulk emails ανά server (`Service::scopeOnServers`). Ο importer
+δείχνει στο τέλος τις ζωντανές υπηρεσίες χωρίς server εδώ. Το staff τους ορίζει server πριν τρέξει οποιοδήποτε cron.
+
+**Suspended σε Centova και mailcow (AUD4-2):** όταν το WHMCS κάνει suspend, το module του απενεργοποιεί τον σταθμό ή
+κλειδώνει τον admin του domain. Τα modules εδώ ξανανοίγουν μόνο ό,τι έκλεισαν τα ίδια, γι' αυτό ο importer βάζει το mark
+τους σε κάθε υπηρεσία Suspended αυτών των modules: `centova_disabled_by_us` = `down` και `mailcow_locked_by_us` = `1`.
+Το module βρίσκεται από τον server της υπηρεσίας ή, αν δεν έχει, από τον server του προϊόντος. Έτσι η πληρωμή ανοίγει
+πάλι τον λογαριασμό. Το stream δεν ξεκινά αυτόματα· το ξεκινά ο πελάτης από το panel, όπως θα το άφηνε το WHMCS.
+Ο importer τυπώνει τη λίστα τους. **Πριν το cut-over**, για καθεμία: ο λογαριασμός πρέπει να είναι πράγματι
+disabled ή locked στον server. Αν τον είχε κλείσει το staff με το χέρι (π.χ. για abuse), το mark σβήνεται για να μείνει
+κλειστός.
+
 ## Κατάλογος (`app:import-whmcs-catalog`, 2026-10-16)
 Ένα «carbon copy» της εγκατάστασης **χωρίς πελάτες** (απόφαση ιδιοκτήτη 2026-10-16): νομίσματα (το default του
 WHMCS γίνεται default εδώ, εκτός με `--keep-default-currency`), product groups, products με plans και τιμές (WHMCS `-1` =

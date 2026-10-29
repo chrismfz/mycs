@@ -115,8 +115,7 @@ final class AccountSync
 
         return Service::query()->with(['product', 'client', 'properties'])
             ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
-            ->where(fn ($q) => $q->whereIn('server_id', $servers)
-                ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->whereIn('server_id', $servers))))
+            ->onServers($servers)
             ->get()
             ->filter(function (Service $service) use ($live, $mapped) {
                 if (isset($mapped[$service->id])) {

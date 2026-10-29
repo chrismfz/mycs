@@ -50,6 +50,27 @@ class AuditFlow4Test extends TestCase
         return $server;
     }
 
+    /** One WHMCS account (tblhosting) on WHMCS server $server, imported here. */
+    private function importService(int $id, int $clientId, int $productId, int $server, string $status, string $username): void
+    {
+        $whmcs = new PDO('sqlite::memory:');
+        $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, currency INT)');
+        $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, orderid INT, packageid INT, server INT, regdate TEXT, domain TEXT, qty INT,
+            amount REAL, billingcycle TEXT, nextduedate TEXT, domainstatus TEXT, username TEXT, password TEXT, notes TEXT, suspendreason TEXT, dedicatedip TEXT,
+            assignedips TEXT, overideautosuspend INT, overidesuspenduntil TEXT)');
+        $whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD')");
+        $whmcs->exec("INSERT INTO tblclients VALUES ({$clientId}, 1)");
+        $whmcs->prepare("INSERT INTO tblhosting VALUES (?, ?, NULL, ?, ?, '2024-01-01', 'shop.example.test', 1, 10, 'Monthly', '2026-12-01', ?,
+            ?, '', '', ?, '', '', 0, '0000-00-00')")->execute([$id, $clientId, $productId, $server, $status, $username, $status === 'Suspended' ? 'Overdue on Payment' : '']);
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $command->setOutput(new OutputStyle(new ArrayInput([]), new NullOutput));
+        (new ReflectionMethod($command, 'importServices'))->invoke($command);
+    }
+
     /**
      * AUD4-1 (High). WHMCS keeps each account's server (tblhosting.server: myip has 6 cPanel servers, 657 accounts); the
      * importer never brings it, so every imported service has server_id null and Service::provisioningServer() falls back
@@ -67,22 +88,7 @@ class AuditFlow4Test extends TestCase
         $product->plan->update(['name' => 'Monthly']);
         $product->product->update(['server_id' => $productServer->id]);
 
-        $whmcs = new PDO('sqlite::memory:');
-        $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
-        $whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, currency INT)');
-        $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, orderid INT, packageid INT, server INT, regdate TEXT, domain TEXT, qty INT,
-            amount REAL, billingcycle TEXT, nextduedate TEXT, domainstatus TEXT, username TEXT, password TEXT, notes TEXT, suspendreason TEXT, dedicatedip TEXT,
-            assignedips TEXT, overideautosuspend INT, overidesuspenduntil TEXT)');
-        $whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD')");
-        $whmcs->exec("INSERT INTO tblclients VALUES ({$client->id}, 1)");
-        $whmcs->prepare("INSERT INTO tblhosting VALUES (501, ?, NULL, ?, 2, '2024-01-01', 'shop.example.test', 1, 10, 'Monthly', '2026-12-01', 'Active',
-            'shopexam', '', '', '', '', '', 0, '0000-00-00')")->execute([$client->id, $product->product->id]);
-
-        $command = app(ImportFromWhmcs::class);
-        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
-        $command->setOutput(new OutputStyle(new ArrayInput([]), new NullOutput));
-        (new ReflectionMethod($command, 'importServices'))->invoke($command);
+        $this->importService(501, $client->id, $product->product->id, 2, 'Active', 'shopexam');
 
         $service = Service::query()->findOrFail(501);
         $this->assertSame($ownServer->id, $service->server_id, 'the account\'s own WHMCS server (tblhosting.server), not none');
@@ -97,11 +103,12 @@ class AuditFlow4Test extends TestCase
     }
 
     /**
-     * AUD4-2 (High, at the cut-over). A Centova station suspended by WHMCS (its module disabled the account) comes in
+     * AUD4-2 (High, at the cut-over). A Centova station suspended by WHMCS (its module disabled the account) came in
      * suspended, without the «disabled by us» mark (centova_disabled_by_us) the module wants before it enables anything.
-     * Its customer pays: UnsuspendJob runs, CentovaCast::unsuspendServer returns true with no call, the module action is
-     * «completed», the customer is mailed «unsuspended», and the station stays disabled on Centova. Mailcow's
-     * mailcow_locked_by_us has the same shape for a domain admin locked under WHMCS.
+     * Its customer pays: UnsuspendJob runs, CentovaCast::unsuspendServer returned true with no call, the module action
+     * «completed», the customer was mailed «unsuspended», and the station stayed disabled on Centova. Mailcow's
+     * mailcow_locked_by_us has the same shape for a domain admin locked under WHMCS. Through the importer (the fix: it
+     * sets the mark), not a service made by hand without one: one staff disabled by hand stays disabled (by design).
      */
     public function test_aud4_2_an_imported_suspended_centova_station_is_enabled_again_when_paid(): void
     {
@@ -109,13 +116,13 @@ class AuditFlow4Test extends TestCase
         foreach (['host' => 'https://stream.test:2199', 'username' => 'admin', 'password' => 'admin-secret'] as $key => $value) {
             $server->settings()->create(['key' => $key, 'value' => $value]);
         }
+        $server->forceFill(['whmcs_id' => 7])->save();
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
-        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
-            'product_id' => $product->product->id, 'server_id' => $server->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD',
-            'price' => 10, 'expires_at' => now()->addMonth(), 'username' => 'radio1']);
-        // As the importer leaves it: WHMCS's username (and the custom field), suspended there; then paid here (active).
-        $service->properties()->create(['key' => 'centova_username', 'name' => 'Centova username', 'value' => 'radio1']);
+        // Suspended by WHMCS (its module disabled the station), imported; then paid here (active again).
+        $this->importService(601, User::factory()->create()->client()->id, $product->product->id, 7, 'Suspended', 'radio1');
+        DB::table('services')->where('id', 601)->update(['status' => Service::STATUS_ACTIVE]);
+        $service = Service::query()->findOrFail(601);
 
         $calls = [];
         Http::fake(function (Request $request) use (&$calls) {

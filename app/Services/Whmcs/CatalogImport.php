@@ -40,10 +40,10 @@ use Throwable;
 final class CatalogImport
 {
     /** WHMCS's server module → MyCS's server extension; the others are reported and skipped. */
-    private const SERVER_MODULES = ['cpanel' => 'CPanel'];
+    private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow'];
 
     /** A module's default port when WHMCS has none (its admin API over TLS). */
-    private const SERVER_PORTS = ['cpanel' => 2087];
+    private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199];
 
     /** WHMCS's recurring cycles → [plan name, billing period, unit, setup fee column]. */
     private const CYCLES = [
@@ -141,6 +141,35 @@ final class CatalogImport
         }
         if (!$dryRun && $this->settingsChanged) {
             SettingsProvider::flushCache();
+        }
+
+        return ['counts' => $this->counts, 'notes' => $this->notes];
+    }
+
+    /**
+     * The full importer's step (app:import-from-whmcs, after its products): WHMCS's servers and server groups, and each
+     * product's group and server as run() gives them, so that every account comes in on its own server (AUD4-1). A
+     * product is found by its `whmcs_id`, else by the same id (the full importer keeps WHMCS's).
+     *
+     * @return array{counts: array<string, int>, notes: list<string>}
+     */
+    public function serversForFullImport(): array
+    {
+        $this->servers();
+        $this->serverGroups();
+        foreach ($this->rows('SELECT id, name, servertype, servergroup FROM tblproducts ORDER BY id') as $row) {
+            $product = Product::query()->where('whmcs_id', (int) $row['id'])->first() ?? Product::query()->whereNull('whmcs_id')->find((int) $row['id']);
+            $module = strtolower((string) ($row['servertype'] ?? ''));
+            if ($product === null || !isset(self::SERVER_MODULES[$module])) {
+                continue;
+            }
+            $group = $this->groupIds[(int) ($row['servergroup'] ?? 0)] ?? null;
+            $product->forceFill(['server_group_id' => $product->server_group_id ?? $group]);
+            $product->server_id ??= $this->productServer($module, $group);
+            if ($product->server_id === null) {
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: no {$module} server imported, set its server by hand.";
+            }
+            $product->save();
         }
 
         return ['counts' => $this->counts, 'notes' => $this->notes];

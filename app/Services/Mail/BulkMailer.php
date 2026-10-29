@@ -223,9 +223,8 @@ final class BulkMailer
             $services->whereIn('product_id', $products);
         }
         if (($servers = array_filter((array) ($filters['servers'] ?? []))) !== []) {
-            // Its own server, or its product's (Service::effectiveServer).
-            $services->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
-                ->orWhere(fn (Builder $product) => $product->whereNull('server_id')->whereHas('product', fn (Builder $p) => $p->whereIn('server_id', $servers))));
+            // Its own server, or its product's (Service::provisioningServer).
+            $services->onServers($servers);
         }
 
         return $services;

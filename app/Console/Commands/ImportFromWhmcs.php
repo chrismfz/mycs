@@ -13,6 +13,7 @@ use App\Models\Order;
 use App\Models\PaymentGroup;
 use App\Models\Product;
 use App\Models\Role;
+use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
@@ -24,6 +25,7 @@ use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Tax\EuVat;
+use App\Services\Whmcs\CatalogImport;
 use App\Support\Locales;
 use Closure;
 use DB;
@@ -34,6 +36,8 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Log;
+use MyCS\Extensions\Servers\CentovaCast\CentovaCast;
+use MyCS\Extensions\Servers\Mailcow\Mailcow;
 use MyCS\Pricing\LinePricer;
 use PDO;
 use PDOException;
@@ -172,6 +176,7 @@ class ImportFromWhmcs extends Command
             $this->importCategories();
             $this->importConfigOptions();
             $this->importProducts();
+            $this->importServers();
             $this->importPromotions();
             $this->importTickets();
             $this->importKnowledgebase();
@@ -1198,8 +1203,15 @@ class ImportFromWhmcs extends Command
         // WHMCS's Suspend Days, for when a service it suspended for non-payment was suspended (it keeps no date of its own).
         $suspendDays = $this->sourceHas('tblconfiguration')
             ? (int) ($this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'AutoSuspensionDays'")->fetchColumn() ?: 0) : 0;
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays) {
+        // Each account's own server (tblhosting.server), by the catalog's WHMCS ids; one not here (deleted, or a module
+        // with no extension) stays none, never the product's (AUD4-1).
+        $servers = Server::query()->whereNotNull('whmcs_id')->get(['id', 'whmcs_id', 'extension'])->keyBy('whmcs_id');
+        $productServers = DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')->pluck('extensions.extension', 'products.id');
+        $withoutServer = [];
+        $marked = [];
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked) {
             $data = [];
+            $marks = [];
             foreach ($records as $record) {
                 // Get currency from user
                 $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
@@ -1226,9 +1238,29 @@ class ImportFromWhmcs extends Command
                     })
                     ->first()?->id;
 
+                $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
+                $server = $whmcsServer ? $servers->get($whmcsServer) : null;
+                if ($whmcsServer && $server === null && in_array($record['domainstatus'], ['Active', 'Suspended'], true)) {
+                    $withoutServer[] = [(int) $record['id'], $whmcsServer];
+                }
+                // Suspended by WHMCS's module: its station disabled, its domain admin locked. Our mark, so a payment here
+                // enables what WHMCS disabled (AUD4-2); a stream WHMCS stopped is started by the customer, as WHMCS left it.
+                $mark = $record['domainstatus'] !== 'Suspended' ? null : match ($server->extension ?? $productServers[$record['packageid']] ?? null) {
+                    'CentovaCast' => [CentovaCast::DISABLED, 'Centova account disabled by suspend', 'down'],
+                    'Mailcow' => [Mailcow::LOCKED, 'mailcow admin locked by suspend', '1'],
+                    default => null,
+                };
+                if ($mark !== null) {
+                    $marks[] = ['model_type' => Service::class, 'model_id' => $record['id'], 'key' => $mark[0], 'name' => $mark[1], 'value' => $mark[2],
+                        'created_at' => now(), 'updated_at' => now()];
+                    $marked[] = [(int) $record['id'], $mark[0] === Mailcow::LOCKED ? 'mailcow' : 'Centova', (string) ($record['username'] ?: $record['domain'])];
+                }
+
                 $data[] = [
                     'id' => $record['id'],
                     'order_id' => $record['orderid'],
+                    'server_id' => $server?->id,
+                    'whmcs_server_id' => $whmcsServer,
                     'product_id' => $record['packageid'],
                     'status' => match ($record['domainstatus']) {
                         'Active' => 'active',
@@ -1277,7 +1309,30 @@ class ImportFromWhmcs extends Command
             }
 
             DB::table('services')->insert($data);
+            DB::table('properties')->insert($marks);
         });
+        if ($withoutServer !== []) {
+            $this->warn(count($withoutServer) . ' live service(s) whose WHMCS server is not here: no server action until staff set one.');
+            $this->table(['Service', 'WHMCS server'], $withoutServer);
+        }
+        if ($marked !== []) {
+            // Before the cut-over: each one checked disabled (Centova) or locked (mailcow) there, as WHMCS left it.
+            $this->info(count($marked) . ' suspended service(s) marked as suspended by us: a payment enables them again.');
+            $this->table(['Service', 'Module', 'Account'], $marked);
+        }
+    }
+
+    /** WHMCS's servers and groups, and its products' (the catalog's step): before the services, which come on theirs. */
+    private function importServers()
+    {
+        if (!$this->sourceHas('tblservers')) {
+            return;
+        }
+        $result = (new CatalogImport($this->pdo))->serversForFullImport();
+        $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
     }
 
     /** nixpal's licenses (L3, docs/licensing.md); also on its own: app:import-whmcs-licensing. */

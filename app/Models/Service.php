@@ -882,7 +882,24 @@ class Service extends Model implements Auditable
      */
     public function provisioningServer(): ?Server
     {
-        return $this->server_id !== null ? $this->server : $this->product?->server;
+        if ($this->server_id !== null) {
+            return $this->server;
+        }
+
+        // An account brought from WHMCS is on its own server there or on none here: never its product's, where the same
+        // username may be another customer's account (AUD4-1). checkServer() sends it to staff.
+        return $this->whmcs_server_id === null ? $this->product?->server : null;
+    }
+
+    /**
+     * The services on these servers, as provisioningServer() resolves them: their own, or their product's when they have
+     * none and did not come from WHMCS. @param Builder<Service> $query @param array<int, int> $servers
+     */
+    public function scopeOnServers(Builder $query, array $servers): void
+    {
+        $query->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
+            ->orWhere(fn (Builder $product) => $product->whereNull('server_id')->whereNull('whmcs_server_id')
+                ->whereHas('product', fn (Builder $p) => $p->whereIn('server_id', $servers))));
     }
 
     /** @return HasManyThrough<LicenseAccessLog, License, $this> its license's access log */
