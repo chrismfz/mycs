@@ -231,6 +231,7 @@ class ModuleActionResource extends Resource
     {
         return match ($action) {
             'upgrade' => 'Change Package',
+            ModuleAction::RENEW => 'Renewal (by hand)',
             ModuleAction::DOMAIN_RENEW => 'Domain Renewal',
             ModuleAction::DOMAIN_REGISTER => 'Domain Registration',
             ModuleAction::DOMAIN_TRANSFER => 'Domain Transfer',

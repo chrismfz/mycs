@@ -129,12 +129,11 @@ class RenewServiceService
 
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
-        // A renewal of one already running (not its first start): a module that renews by hand gets a task (OfflineSsl).
-        if ($service->status !== Service::STATUS_PENDING) {
-            $id = $service->id;
-            $until = $paidUntil?->toDateString();
-            DB::afterCommit(fn () => ($renewed = Service::query()->find($id)) !== null ? ExtensionHelper::renewByHand($renewed, $until) : null);
-        }
+        // A renewal of one already running: a module that renews by hand gets a task (OfflineSsl). Only when this payment
+        // moves its paid date on: an order line staff had already started by hand adds no time and is no renewal (R2-1
+        // of #532).
+        $renewal = $service->status !== Service::STATUS_PENDING && $paidUntil !== null
+            && ($service->expires_at === null || $paidUntil->greaterThan($service->expires_at));
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
         // Suspended for non-payment and still overdue after this payment (another period unpaid): it stays suspended, else
         // the next cron run would suspend it again (Δ3a). Staff are told; they unsuspend it by hand if they wish.
@@ -183,6 +182,13 @@ class RenewServiceService
             $service->save();
         } finally {
             ServiceObserver::$renewing = false;
+        }
+        if ($renewal) {
+            // Still suspended after it (more owed, or staff's hold): the task says so, never a plain «buy it» (R2-2).
+            $id = $service->id;
+            $until = $paidUntil->toDateString();
+            $note = $manualHold ? 'it is still suspended (more owed, or held by staff): check before buying' : null;
+            DB::afterCommit(fn () => ($renewed = Service::query()->find($id)) !== null ? ExtensionHelper::renewByHand($renewed, $until, $note) : null);
         }
     }
 

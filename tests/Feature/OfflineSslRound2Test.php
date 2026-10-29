@@ -113,7 +113,9 @@ class OfflineSslRound2Test extends TestCase
         ExtensionHelper::renewByHand($service, '2027-11-01');
         $this->assertCount(1, $this->renewTasks($service));
 
-        ModuleAction::creating(fn () => throw new RuntimeException('Deadlock found when trying to get lock'));
+        // A failed insert (not a «deadlock» message: inside RefreshDatabase's outer transaction Laravel leaves a nested one
+        // to its outer on a deadlock, as MariaDB rolls the whole back; after the payment's commit it is the outer one).
+        ModuleAction::creating(fn () => throw new RuntimeException('the insert failed'));
         ExtensionHelper::renewByHand($service->fresh(), '2028-11-01');
 
         $this->assertCount(1, $this->renewTasks($service),
