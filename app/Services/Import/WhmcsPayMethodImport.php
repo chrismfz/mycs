@@ -60,6 +60,7 @@ final class WhmcsPayMethodImport
             return ['counts' => $this->counts, 'notes' => $this->notes];
         }
         if ($this->api === null) {
+            $this->openInvoicesKeepTheirWay(); // needs nothing of the API (R3-541-1)
             $this->counts['skipped'] = count($methods);
             $this->notes[] = count($methods) . ' saved payment method(s) not imported: WHMCS\'s API is needed for their references '
                 . '(--whmcs-api-url, WHMCS_API_IDENTIFIER, WHMCS_API_SECRET in the environment).';
