@@ -5,6 +5,7 @@ namespace MyCS\Extensions\Gateways\Mollie;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
@@ -194,24 +195,24 @@ class Mollie extends Gateway
             ],
         ];
 
-        // What Mollie gave back already, read before anything is sent (AUD2-1). More than MyCS recorded is a refund whose
-        // answer was lost and whose webhook has not come yet: refused, so a retry never pays it a second time. Mollie keeps
-        // an idempotency key for an hour only, so the key alone is not enough.
-        $atMollie = 0;
+        // Mollie's refunds of this payment, read before anything is sent (AUD2-1). One giving money back that MyCS has not
+        // recorded by its id is a refund whose answer was lost and whose webhook has not come yet: refused, so a retry never
+        // pays it a second time, however late (Mollie keeps an idempotency key for an hour only). By id, not by amount: a
+        // refund recorded by hand or a chargeback must not hide it (ADV-517-R2-1, R2-2).
         $listed = $this->listOf($paymentId, 'refunds');
+        $known = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->where('gateway', 'Mollie')
+            ->whereIn('origin', [GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_HAND])
+            ->pluck('reference')->all();
         foreach ($listed as $made) {
-            if (in_array($made['status'] ?? null, ['queued', 'pending', 'processing', 'refunded'], true)) {
-                $atMollie += RecordPaymentService::toCents((float) ($made['amount']['value'] ?? 0));
+            if (in_array($made['status'] ?? null, ['queued', 'pending', 'processing', 'refunded'], true) && !in_array($made['id'] ?? null, $known, true)) {
+                throw new Exception('Mollie shows refund ' . ($made['id'] ?? '?') . ' of this payment, which MyCS has not recorded yet: wait for its webhook, or check Mollie, before refunding again.');
             }
-        }
-        if ($atMollie > RecordPaymentService::toCents((float) $transaction->refunded_amount)) {
-            throw new Exception('Mollie shows refunds of this payment that MyCS has not recorded yet: wait for its webhook, or check Mollie, before refunding again.');
         }
 
         // Two clicks of the same refund before Mollie lists the first share a key: Mollie gives the first answer back.
         // Any refund Mollie lists since, made, failed or canceled, makes a new key, so the next one is a refund of its own
         // (ADV-517-1, ADV-517-2).
-        $key = 'refund-' . $transaction->id . '-' . count($listed) . '-' . $atMollie . '-' . RecordPaymentService::toCents($amount);
+        $key = 'refund-' . $transaction->id . '-' . count($listed) . '-' . RecordPaymentService::toCents($amount);
         try {
             $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data, $key);
         } catch (ConnectionException $e) {
