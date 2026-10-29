@@ -464,7 +464,7 @@ class DomainSyncService
         if ($line === null || !self::renewalTransferShort($domain, $record)) {
             // Its years there without a purchase (the transfer added them, or the target caught up): told now, if its years
             // were more than a transfer adds (ADV-537-3 of #537).
-            if ($line !== null && !empty($record['tell_later'])) {
+            if ($line !== null && !empty($record['tell_later']) && $line->invoice?->status === Invoice::STATUS_PAID) {
                 DomainRenewalService::tellRenewedAfterTransfer($domain, Carbon::parse($line->period_end));
             }
             $this->settleRenewTransfer($domain, 'covered');

@@ -426,7 +426,6 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertNull($line->fresh()->applied_at);
         app(DomainRenewalService::class)->renewLine($line->id);
         $cmd = collect($this->cnic)->first(fn ($c) => str_starts_with($c, 'COMMAND=RenewDomain'));
-        fwrite(STDERR, 'CMD: ' . str_replace("\n", ' | ', (string) $cmd) . "\n");
         $this->assertStringContainsString('PERIOD=3', (string) $cmd);
         $this->assertCount(1, $this->op);
     }

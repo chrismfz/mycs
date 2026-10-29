@@ -13,6 +13,7 @@ use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
@@ -146,6 +147,11 @@ class RenewAsTransfer
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
             $meta['renew_transfer']['sent_at'] = now()->toIso8601String();
+            // Paid for more years than its transfer adds: its «renewed» once they are there (ADV-537-3 of #537).
+            if ($line->period_start !== null && $line->period_end !== null
+                && Carbon::parse($line->period_start)->diffInMonths(Carbon::parse($line->period_end)) > 13) {
+                $meta['renew_transfer']['tell_later'] = true;
+            }
             unset($meta['transfer_failed']);
             $fresh->forceFill(['registrar_connection_id' => $to->id, 'status' => DomainStatus::PendingTransfer, 'meta' => $meta,
                 'registrar_domain_id' => $result->registrarDomainId ?? $fresh->registrar_domain_id])->save();
