@@ -6,6 +6,7 @@ use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Nixpal\Licensing\Tests\WhmcsSchema;
 use PDO;
 use Tests\TestCase;
@@ -22,16 +23,22 @@ class ImportFromWhmcsSafetyTest extends TestCase
     /** @var list<string> */
     private array $opened = [];
 
+    private PDO $source;
+
     protected function setUp(): void
     {
         parent::setUp();
         $whmcs = new PDO('sqlite::memory:');
         $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         WhmcsSchema::create($whmcs);
-        ImportFromWhmcs::$connect = function (string $dsn) use ($whmcs) {
+        foreach (['tblconfiguration', 'tblcurrencies'] as $table) { // what the shape check also asks for, if the fixture lacks it
+            $whmcs->exec("CREATE TABLE IF NOT EXISTS {$table} (id INTEGER PRIMARY KEY)");
+        }
+        $this->source = $whmcs;
+        ImportFromWhmcs::$connect = function (string $dsn) {
             $this->opened[] = $dsn;
 
-            return $whmcs;
+            return $this->source;
         };
         putenv('WHMCS_SOURCE_PASSWORD=secret');
         Client::factory()->create(); // something of this instance's own, that an import would empty
@@ -86,5 +93,28 @@ class ImportFromWhmcsSafetyTest extends TestCase
             ->assertFailed()->expectsOutputToContain('this instance\'s own database');
 
         $this->assertSame(1, Client::query()->count());
+    }
+
+    /** Review of #515: a source that is not WHMCS is refused before the target is emptied, confirmed or not. */
+    public function test_a_source_that_is_not_whmcs_is_refused_before_anything_is_emptied(): void
+    {
+        $this->source = new PDO('sqlite::memory:');
+        $this->source->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $this->artisan('app:import-from-whmcs', ['dbname' => 'not_whmcs', '--source-user' => 'reader', '--source-host' => 'db.example.test',
+            '--confirm-database' => $this->target()])
+            ->assertFailed()->expectsOutputToContain('not a WHMCS database');
+
+        $this->assertSame(1, Client::query()->count(), 'nothing emptied');
+    }
+
+    /** Review of #515: the dry run on a new instance, not migrated yet (the cut-over's case), says so instead of failing. */
+    public function test_a_dry_run_on_an_instance_not_migrated_yet_says_so(): void
+    {
+        Schema::disableForeignKeyConstraints();
+        Schema::drop('staff');
+
+        $this->artisan('app:import-from-whmcs', ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test', '--dry-run' => true])
+            ->assertSuccessful()->expectsOutputToContain('staff not migrated');
     }
 }

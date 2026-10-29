@@ -30,6 +30,7 @@ use Illuminate\Console\Command;
 use Illuminate\Http\Client\Batch;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Log;
 use MyCS\Pricing\LinePricer;
@@ -123,7 +124,21 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
+        // A WHMCS database, by its own tables, before anything is emptied (review of #515: a wrong source, confirmed,
+        // would have emptied the target and only then failed).
+        $missing = array_values(array_filter(['tblclients', 'tblconfiguration', 'tblcurrencies'], fn (string $table) => !$this->sourceHas($table)));
+        if ($missing !== []) {
+            $this->error('The source is not a WHMCS database (no ' . implode(', ', $missing) . '): nothing done.');
+
+            return self::FAILURE;
+        }
+
         $target = (string) DB::connection()->getDatabaseName();
+        if ($target === '') {
+            $this->error('This instance has no database name to confirm: nothing done.');
+
+            return self::FAILURE;
+        }
         if ($this->option('dry-run')) {
             $this->dryRun($target);
 
@@ -168,13 +183,30 @@ class ImportFromWhmcs extends Command
 
             SettingsProvider::flushCache();
         } catch (PDOException $e) {
-            $this->fail('Import failed: ' . $e->getMessage());
+            // The SQL state only: a query's message carries its values (emails, hashes); the whole in the log.
+            Log::error($e);
+            $this->fail('Import failed (SQLSTATE ' . $e->getCode() . '): see the application log.');
         }
 
         return self::SUCCESS;
     }
 
-    /** Whether the source named is this instance's own database (same name, same server). */
+    private function sourceHas(string $table): bool
+    {
+        try {
+            $this->pdo->query("SELECT 1 FROM {$table} LIMIT 1");
+
+            return true;
+        } catch (PDOException) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether the source named is this instance's own database: the same name, on a local host or the same host and
+     * port. A first, cheap check only: a copy under another name, or the server reached by its own hostname, is not
+     * seen (the WHMCS tables' check catches those).
+     */
     private function isOwnDatabase(string $dbname, string $host, string $port, string $socket): bool
     {
         $own = DB::connection()->getConfig();
@@ -201,7 +233,8 @@ class ImportFromWhmcs extends Command
             }
         }
         $this->table(['WHMCS table', 'Rows'], $rows);
-        $existing = collect(['clients', 'staff', 'services', 'invoices'])->mapWithKeys(fn (string $t) => [$t => DB::table($t)->count()]);
+        // A new instance, not migrated yet (the cut-over's case), has none of these tables: told, not a crash (review of #515).
+        $existing = collect(['clients', 'staff', 'services', 'invoices'])->mapWithKeys(fn (string $t) => [$t => Schema::hasTable($t) ? DB::table($t)->count() : 'not migrated']);
         $this->line("Target: this instance's database «{$target}» (" . $existing->map(fn ($n, $t) => "{$t} {$n}")->implode(', ') . ').');
         $this->line("Dry run: nothing written. To import: --confirm-database={$target} (it empties «{$target}» first).");
     }
