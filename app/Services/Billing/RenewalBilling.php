@@ -39,7 +39,7 @@ final class RenewalBilling
     /** @var array<string, int> this run's groups: key => invoice id */
     private array $renewalGroups = [];
 
-    /** @var array<int, int|null> this run's customers: client => its account's preferred gateway (Invoice::preferredGatewayFor) */
+    /** @var array<int, int|null> this run's customers: client => its saved method's gateway (Invoice::savedMethodGatewayFor) */
     private array $accountGateways = [];
 
     /** @var array<string, Throwable> mailed to staff, the run succeeds */
@@ -267,8 +267,7 @@ final class RenewalBilling
             // Finalized, emailed and paid by credit once all its lines are on it (finishRenewalInvoices): marked
             // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
             $invoice->finalize_later = true;
-            // Billed apart for one paid another way: never charged by the account's saved method (#541), decided now, as made.
-            $invoice->forceFill(['finish_pending_at' => now(), 'no_auto_charge' => $own !== null]);
+            $invoice->forceFill(['finish_pending_at' => now()]);
             $invoice->save();
             // Known to the group once this service's transaction commits (adversarial C1-ADV-1): one rolled back leaves
             // no invoice behind for the next line to land on.
@@ -284,6 +283,8 @@ final class RenewalBilling
             'description' => $service->describeLine($periodStart, $periodEnd) . self::groupNote($service),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            // Its way as billed: a saved method of another gateway never charges this invoice (#541).
+            'payment_gateway_id' => ItemPaymentMethod::live($service),
         ]);
 
         return 1;
@@ -367,8 +368,7 @@ final class RenewalBilling
             $invoice = new Invoice(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $due,
                 'currency_code' => $domain->currency_code] + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             $invoice->finalize_later = true;
-            // Billed apart for one paid another way: never charged by the account's saved method (#541), decided now, as made.
-            $invoice->forceFill(['finish_pending_at' => now(), 'no_auto_charge' => $own !== null]);
+            $invoice->forceFill(['finish_pending_at' => now()]);
             $invoice->save();
             $this->remember($key, (int) $invoice->id);
         }
@@ -380,6 +380,7 @@ final class RenewalBilling
             'description' => $domain->describeRenewal($periodStart, $periodEnd, $years),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            'payment_gateway_id' => ItemPaymentMethod::live($domain),
         ]);
 
         return 1;
@@ -484,7 +485,7 @@ final class RenewalBilling
         }
         $client = (int) $item->client_id;
         if (!array_key_exists($client, $this->accountGateways)) {
-            $this->accountGateways[$client] = Invoice::preferredGatewayFor($client);
+            $this->accountGateways[$client] = Invoice::savedMethodGatewayFor($client);
         }
 
         return ItemPaymentMethod::apart($item, $this->accountGateways[$client]);

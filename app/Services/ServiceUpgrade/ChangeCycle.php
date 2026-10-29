@@ -225,7 +225,6 @@ final class ChangeCycle
                 'due_at' => $start,
                 'currency_code' => $locked->currency_code,
             ] + (($own = ItemPaymentMethod::apart($locked)) !== null ? ['preferred_gateway_id' => $own] : []));
-            $invoice->forceFill(['no_auto_charge' => $own !== null]); // paid another way: not the card's (#541)
             $invoice->save();
             $invoice->items()->create([
                 'reference_id' => $locked->id,
@@ -235,6 +234,7 @@ final class ChangeCycle
                 'description' => $locked->describeLine($start, $end),
                 'period_start' => $start,
                 'period_end' => $end,
+                'payment_gateway_id' => ItemPaymentMethod::live($locked), // its way as billed (#541)
             ]);
 
             return $invoice->refresh();

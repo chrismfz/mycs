@@ -14,7 +14,7 @@ use Illuminate\Support\Collection;
 /**
  * A service's or domain's own payment method (owner 2026-10-29, as WHMCS's paymentmethod): none is its account's (the
  * saved method charges its renewals, as before); a gateway's, its renewals are invoiced apart with it preferred, and a
- * saved method of another gateway never charges them (AutoCharge::paidAnotherWay). Set by the customer on its page, by
+ * saved method of another gateway never charges them (their lines record it: AutoCharge::agreementFor). Set by the customer on its page, by
  * staff in the admin, from WHMCS at import; an invoice's own choice stays the invoice's.
  */
 final class ItemPaymentMethod
@@ -39,18 +39,27 @@ final class ItemPaymentMethod
         $item->update(['payment_gateway_id' => $gatewayId]);
     }
 
+    /** Its own payment method's gateway, still there (a deleted one: none, the account's). Its lines record it when billed. */
+    public static function live(Service|Domain $item): ?int
+    {
+        $own = $item->payment_gateway_id === null ? null : (int) $item->payment_gateway_id;
+
+        return $own !== null && Gateway::query()->whereKey($own)->exists() ? $own : null;
+    }
+
     /**
-     * The payment method its renewals go apart by (WHMCS bills each payment method on its own invoice): its own, unless it
-     * is its account's (its saved method's gateway, else the last one it paid with; given, or read) or deleted since: none
-     * then, with the rest as before.
+     * The payment method its renewals go apart by (WHMCS bills each payment method on its own invoice): its own (live),
+     * unless it is its account's saved method's gateway (given, or read), which charges the rest: none then, one invoice
+     * with them. Not the gateway it last paid with (round 2 of #541: a card saved later would find a PayPal line among
+     * the ones it should charge).
      */
     public static function apart(Service|Domain $item, int|false|null $account = false): ?int
     {
-        $own = $item->payment_gateway_id === null ? null : (int) $item->payment_gateway_id;
-        if ($own === null || !Gateway::query()->whereKey($own)->exists()) {
+        $own = self::live($item);
+        if ($own === null) {
             return null;
         }
-        $account = $account === false ? Invoice::preferredGatewayFor((int) $item->client_id) : $account;
+        $account = $account === false ? Invoice::savedMethodGatewayFor((int) $item->client_id) : $account;
 
         return $own === $account ? null : $own;
     }

@@ -55,6 +55,8 @@ final class WhmcsPayMethodImport
         $methods = $this->methods();
         $this->counts['methods'] = count($methods);
         if ($methods === []) {
+            $this->openInvoicesKeepTheirWay();
+
             return ['counts' => $this->counts, 'notes' => $this->notes];
         }
         if ($this->api === null) {
@@ -98,6 +100,9 @@ final class WhmcsPayMethodImport
             $this->chooseDefault($clientId, $imported);
         }
         $this->sharedCustomers();
+        // Every run, every customer (round 2 of #541): a re-run imports nothing new, yet WHMCS made invoices since.
+        $this->openInvoicesKeepTheirWay();
+        $this->defaultsItemsFollowTheAccount();
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
@@ -170,22 +175,57 @@ final class WhmcsPayMethodImport
         if (DB::table('clients')->where('id', $clientId)->whereNull('default_billing_agreement_id')->update(['default_billing_agreement_id' => $first[$default]['id']]) > 0) {
             $this->counts['defaults']++;
         }
-        // Its open invoices of another way stay so (WHMCS charges a saved method only for an invoice of its gateway): an
-        // invoice made by WHMCS is not charged here by the card it would not have charged (#541).
-        $other = array_keys(array_filter($this->unpaidInvoices()[$clientId] ?? [], fn (string $module) => $module !== $default));
-        foreach (array_chunk($other, 1000) as $chunk) {
-            DB::table('invoices')->whereIn('id', $chunk)->where('client_id', $clientId)->update(['no_auto_charge' => true]);
-        }
-        // Its default's own items follow the account's way (code review of #541): a default changed later charges them,
-        // as it does the services ordered here; only those of another way keep theirs.
-        if ($gateway !== null) {
-            foreach (['services', 'domains'] as $table) {
-                DB::table($table)->where('client_id', $clientId)->where('payment_gateway_id', $gateway)->update(['payment_gateway_id' => null]);
+    }
+
+    /**
+     * WHMCS's open invoices keep their way (WHMCS charges a saved method only for an invoice of its gateway): one of a way
+     * a saved method can charge here (Stripe, PayPal's wallet) records it on its lines, so only a method of that gateway
+     * charges it (AutoCharge::paidAnotherWay); any other way (bank transfer, a vPOS redirect, a module with no gateway
+     * here) is never charged automatically (no_auto_charge, staff's to turn on). Only invoices still open here.
+     */
+    private function openInvoicesKeepTheirWay(): void
+    {
+        $gatewayOf = $this->itemGateway ?? $this->gateway;
+        $extensions = DB::table('extensions')->where('type', 'gateway')->pluck('extension', 'id');
+        foreach ($this->unpaidInvoices() as $clientId => $invoices) {
+            $byModule = [];
+            foreach ($invoices as $id => $module) {
+                $byModule[$module][] = $id;
+            }
+            foreach ($byModule as $module => $ids) {
+                if ($module === '') {
+                    continue; // none: the account's, as one made here
+                }
+                $gateway = $gatewayOf($module);
+                $extension = $gateway === null ? null : ($extensions[$gateway] ?? DB::table('extensions')->where('id', $gateway)->value('extension'));
+                $charged = $extension === 'Stripe' || ($extension === 'PayPal' && in_array($module, self::PAYPAL_WALLETS, true));
+                foreach (array_chunk($ids, 1000) as $chunk) {
+                    $open = DB::table('invoices')->whereIn('id', $chunk)->where('client_id', $clientId)->where('status', 'unpaid')->pluck('id');
+                    if ($charged) {
+                        DB::table('invoice_items')->whereIn('invoice_id', $open)->update(['payment_gateway_id' => $gateway]);
+                    } else {
+                        DB::table('invoices')->whereIn('id', $open)->update(['no_auto_charge' => true]);
+                    }
+                }
             }
         }
     }
 
-    /** @var array<int, array<int, string>>|null client => its unpaid WHMCS invoice => its payment method module */
+    /**
+     * The items of a customer's default's gateway follow the account's way (code review 4 of #541): a default changed
+     * later charges them, as the services ordered here; only those of another way keep theirs. Every run (R2-541-6).
+     */
+    private function defaultsItemsFollowTheAccount(): void
+    {
+        foreach (['services', 'domains'] as $table) {
+            DB::table($table)->whereNotNull('payment_gateway_id')->whereIn('client_id', DB::table('clients')
+                ->join('billing_agreements', 'billing_agreements.id', '=', 'clients.default_billing_agreement_id')
+                ->whereNull('billing_agreements.deleted_at')->whereColumn('billing_agreements.gateway_id', "{$table}.payment_gateway_id")
+                ->select('clients.id'))->update(['payment_gateway_id' => null]);
+        }
+    }
+
+    /** @var array<int, array<int, string>>|null client => its open WHMCS invoice => its payment method module */
     private ?array $unpaid = null;
 
     /** @return array<int, array<int, string>> */
@@ -193,7 +233,8 @@ final class WhmcsPayMethodImport
     {
         if ($this->unpaid === null) {
             $this->unpaid = [];
-            foreach ($this->all("SELECT id, userid, paymentmethod FROM tblinvoices WHERE status = 'Unpaid'") as $row) {
+            // Open as the importer makes them (invoiceStatus: «Payment Pending», «Collections» too; R2-541-5).
+            foreach ($this->all("SELECT id, userid, paymentmethod FROM tblinvoices WHERE status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')") as $row) {
                 $this->unpaid[(int) $row['userid']][(int) $row['id']] = strtolower(trim((string) $row['paymentmethod']));
             }
         }

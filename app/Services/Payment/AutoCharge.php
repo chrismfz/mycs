@@ -8,6 +8,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Domain;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
@@ -28,8 +29,8 @@ use Throwable;
  * autocharge_max_failures days in a row (staff are told; the method is kept).
  *
  * Only renewal invoices of the customer's services, all active and not paid by a gateway subscription: an order or an
- * invoice staff made is paid by the customer (as before). Nor one billed apart for a service or domain paid another way
- * (no_auto_charge set then: RenewalBilling, ChangeCycle, the importer).
+ * invoice staff made is paid by the customer (as before). Nor one with a line of a service or domain paid another way
+ * (paidAnotherWay), nor a WHMCS one of another way (no_auto_charge, set at import).
  */
 final class AutoCharge
 {
@@ -70,10 +71,10 @@ final class AutoCharge
     public static function agreementFor(Invoice $invoice): ?BillingAgreement
     {
         if ($invoice->no_auto_charge) {
-            return null; // staff keep it from being charged automatically (PR H2b)
+            return null; // staff keep it from being charged automatically (PR H2b), or WHMCS made it of another way (#541)
         }
         $agreement = $invoice->client?->autoChargeAgreement();
-        if ($agreement === null || $agreement->gateway === null) {
+        if ($agreement === null || $agreement->gateway === null || self::paidAnotherWay($invoice, (int) $agreement->gateway_id)) {
             return null;
         }
         $max = max(0, (int) config('settings.autocharge_max_failures', 0));
@@ -83,6 +84,17 @@ final class AutoCharge
         $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('billing_agreement_id', $agreement->id)->latest('id')->value('status');
 
         return $last === ChargeAttempt::STATUS_ACTION_REQUIRED ? null : $agreement;
+    }
+
+    /**
+     * A line billed for a service or domain paid another way (its way as billed, InvoiceItem::payment_gateway_id; #541):
+     * WHMCS charges a saved method only for its own gateway's invoices. As billed, not as the item says now: an open
+     * invoice keeps the way it was made with. A gateway since deleted: the account's again.
+     */
+    private static function paidAnotherWay(Invoice $invoice, int $gatewayId): bool
+    {
+        return $invoice->items()->whereNotNull('payment_gateway_id')->where('payment_gateway_id', '!=', $gatewayId)
+            ->whereIn('payment_gateway_id', Gateway::query()->select('id'))->exists();
     }
 
     /** @return Builder<Invoice> open renewal invoices due in the window, of customers with «Auto-charge» on */

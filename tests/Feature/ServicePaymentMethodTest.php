@@ -213,7 +213,7 @@ class ServicePaymentMethodTest extends TestCase
 
         $line = (new \ReflectionMethod(DomainRenewalService::class, 'billedOrBill'))->invoke(app(DomainRenewalService::class), $domain);
 
-        $this->assertSame([$this->paypal->id, true], [(int) $line->invoice->preferred_gateway_id, (bool) $line->invoice->no_auto_charge]);
+        $this->assertSame([$this->paypal->id, $this->paypal->id], [(int) $line->invoice->preferred_gateway_id, (int) $line->payment_gateway_id], 'its line records its way');
         $this->assertNull(AutoCharge::agreementFor($line->invoice));
     }
 }

@@ -50,6 +50,7 @@ class InvoiceItem extends Model implements Auditable
         'kind',
         'period_start',
         'period_end',
+        'payment_gateway_id',
         'taxed',
         'tax_rate',
     ];
