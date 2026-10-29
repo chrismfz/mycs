@@ -882,7 +882,44 @@ class Service extends Model implements Auditable
      */
     public function provisioningServer(): ?Server
     {
-        return $this->server_id !== null ? $this->server : $this->product?->server;
+        if ($this->server_id !== null) {
+            return $this->server;
+        }
+
+        // An account on a WHMCS server that is not here: never its product's, where the same username may be another
+        // customer's account (AUD4-1). checkServer() sends its actions to staff.
+        return $this->serverLeftInWhmcs() ? null : $this->product?->server;
+    }
+
+    /**
+     * Brought from WHMCS with its account on a server of WHMCS's that is not here (deleted, or a module with no
+     * extension): no server action until staff set its server. Not one WHMCS had on no server (0), nor a pending one
+     * (no account yet: its creation picks a server, as for any order).
+     */
+    public function serverLeftInWhmcs(): bool
+    {
+        return $this->server_id === null && (int) $this->whmcs_server_id > 0 && $this->status !== self::STATUS_PENDING;
+    }
+
+    /**
+     * Whether its server actions run: a server to act on, or an account (or an order, pending) on a server of WHMCS's not
+     * here. Those fail to staff in checkServer(), never skipped (reviews of #530).
+     */
+    public function hasServerActions(): bool
+    {
+        return $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
+    }
+
+    /**
+     * The services on these servers, as provisioningServer() resolves them: their own, or their product's when they have
+     * none (and not one left on a server of WHMCS's). @param Builder<Service> $query @param array<int, int> $servers
+     */
+    public function scopeOnServers(Builder $query, array $servers): void
+    {
+        $query->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
+            ->orWhere(fn (Builder $product) => $product->whereNull('server_id')
+                ->where(fn (Builder $whmcs) => $whmcs->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0)->orWhere('status', self::STATUS_PENDING))
+                ->whereHas('product', fn (Builder $p) => $p->whereIn('server_id', $servers))));
     }
 
     /** @return HasManyThrough<LicenseAccessLog, License, $this> its license's access log */

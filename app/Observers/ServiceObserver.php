@@ -82,6 +82,12 @@ class ServiceObserver
         if ($service->isDirty('status')) {
             self::refuseUnknownStatus($service); // a row that already holds one stays editable otherwise
         }
+        if ($service->isDirty('status') && $service->getOriginal('status') === Service::STATUS_PENDING && $service->server_id === null
+            && (int) $service->whmcs_server_id > 0) {
+            // A pending order from WHMCS started here without a server (accepted without its creation, or set active by
+            // staff): its account, if any, was made here, not left on WHMCS's server (R2-3 of #530).
+            $service->whmcs_server_id = null;
+        }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
             // Back to active from a suspension for non-payment, with a suspension window set: not suspended again the same
             // day (the hourly run would, within the hour, of a service staff just unsuspended: review of #411). A hold

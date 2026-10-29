@@ -54,8 +54,7 @@ class MailcowDomain extends Model
             ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where(fn ($q) => $q->where('domain', $this->domain)
                 ->orWhereHas('properties', fn ($q) => $q->where('key', 'domain')->where('value', $this->domain)))
-            ->where(fn ($q) => $q->where('server_id', $this->server_id)
-                ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->where('server_id', $this->server_id))))
+            ->onServers([$this->server_id])
             ->limit(10)->get()
             ->filter(function (Service $service) {
                 $admin = $service->properties->firstWhere('key', 'mailcow_username')->value ?? $service->username;

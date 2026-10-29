@@ -167,7 +167,8 @@ class CentovaCast extends Server implements ReadsServiceUsage
 
     /**
      * The other services on this Centova with this name, as their username or one of these properties: on it by their own
-     * server or, with none, by their product's (as Service::provisioningServer(), R2-4 of #329); names compared as
+     * server or, with none, by their product's (as Service::provisioningServer(), R2-4 of #329; one left on a server of
+     * WHMCS's counts too, on the safe side: a name it may hold is not given again); names compared as
      * username() reads them, trimmed of any whitespace and in any case (ADV-4, R2-3).
      *
      * @param  list<string>  $keys

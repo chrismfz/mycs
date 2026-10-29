@@ -202,8 +202,7 @@ class CpanelAccount extends Model
             return null;
         }
         $ids = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
-            ->where(fn ($q) => $q->where('server_id', $this->server_id)
-                ->orWhere(fn ($q) => $q->whereNull('server_id')->whereHas('product', fn ($q) => $q->where('server_id', $this->server_id))))
+            ->onServers([$this->server_id])
             // Compared lower-cased, as the extension does (an imported «Bob» is bob on any database: review of #495).
             ->where(fn ($q) => $q->whereHas('properties', fn ($q) => $q->where('key', 'cpanel_username')->whereRaw('lower(value) = ?', [$this->user]))
                 ->orWhere(fn ($q) => $q->whereDoesntHave('properties', fn ($q) => $q->where('key', 'cpanel_username'))->whereRaw('lower(username) = ?', [$this->user])))

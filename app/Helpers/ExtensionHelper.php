@@ -1593,11 +1593,18 @@ class ExtensionHelper
     {
         // The service's own server (WHMCS's tblhosting.server); chosen on its first creation (the product's group, or
         // the product's server), then kept.
-        $server = $action === 'createServer' ? ServerSelector::assign($service) : $service->provisioningServer();
+        // An account left on a server of WHMCS's: not created again elsewhere either, which would bind it (its username)
+        // to the server picked, failed or not (R3-1 of #530).
+        $server = $action === 'createServer' && !$service->serverLeftInWhmcs() ? ServerSelector::assign($service) : $service->provisioningServer();
 
         if (!$server && $service->server_id !== null) {
             // Its server was deleted: never quietly «nothing to do» (the jobs skip «no server»), nor another server.
             throw new Exception("The service's server #{$service->server_id} no longer exists: set its server first");
+        }
+        if (!$server && (int) $service->whmcs_server_id > 0) {
+            // Its account is on a server of WHMCS's not here, never assumed on its product's (AUD4-1); or, pending, its
+            // product has no server here to make it on (a module with no extension: R2-2 of #530). Staff set it.
+            throw new Exception("The service came from WHMCS without its server here (WHMCS server #{$service->whmcs_server_id}): set its server first");
         }
         if (!$server) {
             throw new NothingToDoOnServer('No server assigned to this product');

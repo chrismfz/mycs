@@ -121,7 +121,7 @@ final class CancelOrder
                 }
                 $running = in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true);
                 $service->update(['status' => Service::STATUS_CANCELLED]);
-                if ($running && $terminate && $service->provisioningServer() !== null) {
+                if ($running && $terminate && $service->hasServerActions()) {
                     TerminateJob::dispatch($service, false)->afterCommit();
                 }
                 if ($service->product?->stock !== null) {
