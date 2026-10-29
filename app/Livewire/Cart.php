@@ -169,10 +169,12 @@ class Cart extends Component
                 app(DomainOffer::class)->check($item->domain['fqdn'], $item->domain['operation'],
                     (int) $item->domain['years'], (string) ClassesCart::get()->currency_code);
             }
-            $placed = DB::transaction(function () {
-                // The order is the current account's; a login without any account gets its own here (WHMCS opens the
-                // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).
-                $client = CurrentClient::model() ?? Client::openFor(Auth::user());
+            // The order is the current account's; a login without any account gets its own here (WHMCS opens the client
+            // account at checkout), kept even when the order is refused: its owner fills in the country (AUD5-1) there.
+            $opened = CurrentClient::model() ?? Client::openFor(Auth::user());
+            $placed = DB::transaction(function () use ($opened) {
+                // Its row first, as every payment path locks it (no lock-order deadlock).
+                $client = $opened;
                 Client::lock($client->id);
 
                 // The cart read again under its lock (CART-6): a second checkout of it (another tab) finds it gone.

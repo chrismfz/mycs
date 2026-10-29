@@ -52,10 +52,10 @@ class ReauthSensitiveTest extends TestCase
     {
         $this->as();
 
-        Livewire::test(Account::class)->set('email', 'new@example.test')->set('email_password', 'wrong')->call('submit')->assertHasErrors(['email_password']);
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'new@example.test')->set('email_password', 'wrong')->call('submit')->assertHasErrors(['email_password']);
         $this->assertSame('old@example.test', $this->user->fresh()->email);
 
-        Livewire::test(Account::class)->set('email', 'new@example.test')->set('email_password', 'Right-Pass-1')->call('submit')->assertHasNoErrors();
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'new@example.test')->set('email_password', 'Right-Pass-1')->call('submit')->assertHasNoErrors();
         $this->assertSame('new@example.test', $this->user->fresh()->email);
         $this->assertSame(1, EmailLog::query()->where('to', 'old@example.test')->where('subject', __('account.notifications.email_changed_subject'))->count());
     }
@@ -64,7 +64,7 @@ class ReauthSensitiveTest extends TestCase
     {
         $this->as();
 
-        Livewire::test(Account::class)->set('first_name', 'Maria')->call('submit')->assertHasNoErrors();
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('first_name', 'Maria')->call('submit')->assertHasNoErrors();
 
         $this->assertSame('Maria', $this->user->fresh()->first_name);
     }
@@ -91,7 +91,7 @@ class ReauthSensitiveTest extends TestCase
         $this->as(['impersonating' => $this->user->id]);
         session(['impersonating' => $this->user->id]);
 
-        Livewire::test(Account::class)->set('email', 'staff@example.test')->set('email_password', 'Right-Pass-1')->call('submit')->assertHasErrors(['email']);
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'staff@example.test')->set('email_password', 'Right-Pass-1')->call('submit')->assertHasErrors(['email']);
         Livewire::test(Security::class)->set('disable_password', 'Right-Pass-1')->set('disable_code', $this->code($secret))->call('disableTwoFactor');
 
         $this->assertSame(['old@example.test', $secret], [$this->user->fresh()->email, $this->user->fresh()->tfa_secret]);

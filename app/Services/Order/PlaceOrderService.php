@@ -19,6 +19,7 @@ use App\Models\Service;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Service\RenewServiceService;
+use App\Services\Tax\EuVat;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -47,6 +48,11 @@ final class PlaceOrderService
     {
         if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
+        }
+        // The VAT is the account's country's: without one, only an «all» rate would apply, else 0% with no reason, a
+        // consumer's sale without the VAT the company owes (AUD5-1). Asked first, as WHMCS always does.
+        if (config('settings.tax_enabled') && EuVat::iso($client->country) === null) {
+            throw new DisplayException(__('product.country_required'));
         }
         foreach ($lines as $line) {
             if ($line->quantity < 1) {

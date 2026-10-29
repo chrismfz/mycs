@@ -42,6 +42,7 @@ return [
     'also_for' => 'Also for :cycles',
     'select_plan' => 'Billing cycle',
     'continue_shopping' => 'Continue shopping',
+    'country_required' => 'Please choose your country in your account details first: the VAT depends on it.',
     'empty_cart_text' => 'Choose a service from our products to start.',
     'coupon' => 'Coupon',
     'each' => ':price each',
