@@ -428,7 +428,10 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 - **Υπηρεσία suspended από το WHMCS για «Overdue on Payment»:** το marker της αναστολής παίρνει τη λήξη + Suspend Days
   (ποτέ μετά το «τώρα»), ώστε ο τερματισμός να μην αργεί μία ημέρα.
 - Οι 12 suspended υπηρεσίες της myip (2026-10-29) **δεν** έχουν override (`overideautosuspend` = 0), και καμία δεν είναι
-  «Overdue on Payment» (11 χωρίς λόγο, 1 με άλλον): μπαίνουν ως κράτηση του staff, που ο τερματισμός του cron δεν
+  «Overdue on Payment» (11 χωρίς λόγο, 1 με άλλον): το cron του WHMCS αφήνει τον λόγο κενό. Μια suspended
+  **χωρίς λόγο** που έχει απλήρωτη γραμμή Hosting/PromoHosting με ληγμένο `duedate` έρχεται ως suspend για χρέος
+  (AUD9-3, απόφαση του υπεύθυνου 2026-10-29): η πληρωμή κάνει unsuspend, και το cron μπορεί να την τερματίσει. Οι
+  υπόλοιπες (χωρίς τίποτα ληγμένο, ή με άλλον λόγο) μπαίνουν ως κράτηση του staff, που ο τερματισμός του cron δεν
   αγγίζει.
 - **Όρια:**
   - Το `CloseInactiveTickets` σε ώρες ως δέκα χρόνια.
@@ -459,7 +462,12 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 - **Ακραίες περιπτώσεις:**
   - 48 πληρωμένα τιμολόγια του 2019–2020 **χωρίς αριθμό** (σύνολο 23 €): γίνονται δεκτά.
   - 1 πληρωμή Stripe με ημερομηνία `0000-00-00` και ποσό 0.
-  - Ο μετρητής αρίθμησης είναι σήμερα **6845** (`SequentialInvoiceNumberValue`) και ξαναδιαβάζεται τη μέρα του cut-over.
+  - Ο μετρητής αρίθμησης είναι σήμερα **6845** (`SequentialInvoiceNumberValue`, ο **επόμενος**). Ο importer τον
+    διαβάζει μόνος του (AUD9-1): με το sequential numbering του WHMCS, ο μετρητής εδώ = `SequentialInvoiceNumberValue` − 1,
+    και έρχονται `invoice_proforma`, `invoice_number_format` (`{YEAR}` → `{year}` κ.λπ.) και `invoice_number_is_id` = off.
+    Χωρίς αυτό (myip): αριθμός = id, ο μετρητής στο μεγαλύτερο id.
+- **Ημερομηνία λήξης τιμολογίου:** `tblinvoices.duedate` → `invoices.due_at` (AUD9-2): οι υπενθυμίσεις overdue και το
+  dunning μετρούν από αυτήν.
 
 ### Χρειάζονται απόφαση
 - **3η υπενθύμιση overdue την ημέρα λήξης:** το `SendThirdOverdueInvoiceReminder` είναι κενό, και το WHMCS το διαβάζει
