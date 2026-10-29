@@ -58,6 +58,10 @@ final class Tedb
         if (!$loaded) {
             throw new TedbUnavailable('TEDB answered something that is not XML');
         }
+        // A SOAP answer has no DOCTYPE: one is refused before anything is read (no entity of any kind).
+        if ($document->doctype !== null) {
+            throw new TedbUnavailable('TEDB answered a document with a DOCTYPE');
+        }
         $xpath = new \DOMXPath($document);
         $xpath->registerNamespace('env', 'http://schemas.xmlsoap.org/soap/envelope/');
         $xpath->registerNamespace('t', self::TYPES);

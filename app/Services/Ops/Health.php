@@ -319,10 +319,12 @@ final class Health
         if (!EuVatRates::enabled()) {
             return ['status' => self::OK, 'detail' => 'The weekly check is off (Settings → Tax)'];
         }
-        $state = app(EuVatRates::class)->state();
+        $rates = app(EuVatRates::class);
+        $state = $rates->state();
         $checked = isset($state['checked_at']) ? Carbon::parse($state['checked_at']) : null;
         $failed = isset($state['failed_at']) ? Carbon::parse($state['failed_at']) : null;
-        $differences = $state['differences'] ?? [];
+        // Against Tax Rates as they are now: a rate staff fixed after the check is ok at once (code review).
+        $differences = isset($state['tedb']) ? $rates->compare($state['tedb'])['differences'] : ($state['differences'] ?? []);
         $found = [];
         if ($differences !== []) {
             $found[] = 'Differs from TEDB: ' . implode(', ', array_map(fn (array $difference) => "{$difference['country']} {$difference['ours']}% here, {$difference['tedb']}% in TEDB", $differences));

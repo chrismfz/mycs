@@ -84,35 +84,63 @@ final class EuVatRates
             throw $e instanceof TedbUnavailable ? $e : new TedbUnavailable($error, previous: $e);
         }
 
-        $differences = [];
-        $ours = TaxRate::query()->whereIn('country', StandardRates::EU)->pluck('rate', 'country');
-        foreach ($ours as $country => $rate) {
-            try {
-                $rate = Rate::normalize($rate);
-            } catch (\InvalidArgumentException) {
-                $rate = (string) $rate;
-            }
-            if ($rate !== $tedb[$country]) {
-                $differences[] = ['country' => (string) $country, 'ours' => $rate, 'tedb' => $tedb[$country]];
-            }
-        }
+        ['differences' => $differences, 'compared' => $compared] = $this->compare($tedb);
         $state = $this->state();
         $told = $state['told_at'] ?? null;
         $tell = $differences !== [] && (($state['told'] ?? null) !== $differences || $told === null
             || now()->subDays(self::REMIND_DAYS)->gt($told));
         if ($tell) {
-            $this->tell($differences);
+            // A mail that fails is not a check that failed: the state is kept, the failure reported (code review).
+            try {
+                $this->tell($differences);
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
-        $this->keep(['checked_at' => now()->toIso8601String(), 'failed_at' => null, 'error' => null, 'compared' => $ours->count(),
-            'differences' => $differences] + ($tell ? ['told' => $differences, 'told_at' => now()->toIso8601String()] : ($differences === [] ? ['told' => null, 'told_at' => null] : [])));
+        // TEDB's rates kept, so Automation Status compares them with Tax Rates as they are now (code review).
+        $this->keep(['checked_at' => now()->toIso8601String(), 'failed_at' => null, 'error' => null, 'compared' => $compared,
+            'tedb' => $tedb, 'differences' => $differences] + ($tell ? ['told' => $differences, 'told_at' => now()->toIso8601String()] : ($differences === [] ? ['told' => null, 'told_at' => null] : [])));
 
-        return ['differences' => $differences, 'compared' => $ours->count()];
+        return ['differences' => $differences, 'compared' => $compared];
+    }
+
+    /**
+     * Tax Rates now against TEDB's rates: only the member states the instance has a rate for, by country (the same
+     * differences compare equal whatever order the database reads them in). A country written in lower case is its
+     * upper case one (MariaDB's collation finds it).
+     *
+     * @param  array<string, string>  $tedb
+     * @return array{differences: list<array{country: string, ours: string, tedb: string}>, compared: int}
+     */
+    public function compare(array $tedb): array
+    {
+        $differences = [];
+        $compared = 0;
+        $ours = TaxRate::query()->whereIn('country', StandardRates::EU)->orderBy('country')->get(['country', 'rate']);
+        foreach ($ours as $row) {
+            $country = strtoupper(trim((string) $row->country));
+            if (!isset($tedb[$country])) {
+                continue;
+            }
+            $compared++;
+            try {
+                $rate = Rate::normalize($row->rate);
+            } catch (\InvalidArgumentException) {
+                $rate = (string) $row->rate;
+            }
+            if ($rate !== $tedb[$country]) {
+                $differences[] = ['country' => $country, 'ours' => $rate, 'tedb' => $tedb[$country]];
+            }
+        }
+        usort($differences, fn (array $a, array $b) => strcmp($a['country'], $b['country']));
+
+        return ['differences' => $differences, 'compared' => $compared];
     }
 
     /**
      * The last check: when it ran, what it found, the last failure.
      *
-     * @return array{checked_at?: string, failed_at?: ?string, error?: ?string, compared?: int, differences?: list<array{country: string, ours: string, tedb: string}>, told?: list<array<string, string>>, told_at?: string}
+     * @return array{checked_at?: string, failed_at?: ?string, error?: ?string, compared?: int, tedb?: array<string, string>, differences?: list<array{country: string, ours: string, tedb: string}>, told?: list<array<string, string>>, told_at?: string}
      */
     public function state(): array
     {

@@ -229,6 +229,19 @@ class EuVatRatesTest extends TestCase
         $this->assertSame(Health::OK, Health::report()['checks']['vat_rates']['status']);
     }
 
+    public function test_a_rate_staff_fix_after_the_check_is_ok_at_once(): void
+    {
+        TaxRate::query()->create(['name' => 'ΦΠΑ', 'rate' => 23, 'country' => 'GR']);
+        $this->tedbAnswers($this->answer());
+        $this->artisan('mycs:vat-rates:check')->assertSuccessful();
+        $this->assertSame(Health::WARN, Health::report()['checks']['vat_rates']['status']);
+
+        TaxRate::query()->where('country', 'GR')->update(['rate' => 24]);
+
+        $this->assertSame(Health::OK, Health::report()['checks']['vat_rates']['status']);
+        Http::assertSentCount(1); // Automation Status reads the kept answer, never TEDB
+    }
+
     public function test_a_check_not_run_for_over_a_week_is_seen(): void
     {
         TaxRate::query()->create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
