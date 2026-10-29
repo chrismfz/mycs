@@ -190,13 +190,13 @@ class AuditFlow5Test extends TestCase
         $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
     }
 
-    /** A country that is no country (free text, imported) counts as none: the home rate, and no order (review of #524). */
+    /** A country that is no country (a code no country has, imported) counts as none: the home rate, and no order (review of #524). */
     public function test_aud5_1_a_country_that_is_no_country_counts_as_none(): void
     {
         $this->nixpal(); // home EE, 24%
         $user = User::factory()->create();
         $client = $user->client();
-        $client->primaryContact->forceFill(['country' => 'Hellas'])->saveQuietly();
+        $client->primaryContact->forceFill(['country' => 'QQ'])->saveQuietly(); // two letters, as the column holds, and no country
 
         $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
         $this->assertNull($this->attemptCheckout($user->fresh()), 'an account whose country is no country ordered');
