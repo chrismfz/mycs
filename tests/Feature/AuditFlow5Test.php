@@ -15,6 +15,7 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\TaxRate;
 use App\Models\User;
+use App\Services\Ops\Health;
 use App\Services\Order\OrderPricing;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -176,5 +177,47 @@ class AuditFlow5Test extends TestCase
         $client->primaryContact->update(['country' => null]);
 
         $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
+    }
+
+    /** myip (no EU VAT, no home): an account without a country pays the company country's rate (review of #524). */
+    public function test_aud5_1_myip_an_account_without_a_country_pays_the_company_countrys_rate(): void
+    {
+        $this->myip();
+        config(['settings.tax_home_country' => 'GR']);
+        $client = User::factory()->create()->client();
+        $client->primaryContact->update(['country' => null]);
+
+        $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
+    }
+
+    /** A country that is no country (free text, imported) counts as none: the home rate, and no order (review of #524). */
+    public function test_aud5_1_a_country_that_is_no_country_counts_as_none(): void
+    {
+        $this->nixpal(); // home EE, 24%
+        $user = User::factory()->create();
+        $client = $user->client();
+        $client->primaryContact->forceFill(['country' => 'Hellas'])->saveQuietly();
+
+        $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
+        $this->assertNull($this->attemptCheckout($user->fresh()), 'an account whose country is no country ordered');
+    }
+
+    /** /health: tax on with no company country is red, a single rate or «All» amber, the country set green (owner). */
+    public function test_health_reports_a_missing_company_country(): void
+    {
+        $check = fn () => Health::report()['checks']['tax']['status'];
+        config(['settings.eu_vat_enabled' => false, 'settings.tax_home_country' => null, 'settings.eu_vat_home_country' => null]);
+        TaxRate::create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
+        TaxRate::create(['name' => 'MwSt', 'rate' => 19, 'country' => 'DE']);
+        $this->assertSame(Health::FAIL, $check(), 'two rates, no company country, no «All»: 0% for an account without one');
+
+        TaxRate::query()->where('country', 'DE')->delete();
+        $this->assertSame(Health::WARN, $check(), 'the only rate is used until the company country is set');
+
+        config(['settings.tax_home_country' => 'GR']);
+        $this->assertSame(Health::OK, $check());
+
+        config(['settings.tax_enabled' => false, 'settings.tax_home_country' => null]);
+        $this->assertSame(Health::OK, $check(), 'tax off');
     }
 }
