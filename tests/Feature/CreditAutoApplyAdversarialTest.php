@@ -177,7 +177,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
-        $this->assertSame($expires->copy()->addMonth()->toDateString(), $service->fresh()->expires_at->toDateString());
+        $this->assertSame($expires->copy()->addMonthNoOverflow()->toDateString(), $service->fresh()->expires_at->toDateString());
         $this->assertSame(4000, $this->balanceCents());
         $this->assertSame(0, $this->creditAppliedNotes(), 'a full payment sends «Invoice paid», not «credit applied»');
         $this->assertJournalHolds();
