@@ -128,7 +128,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
 | 8 | Ops, ρυθμίσεις | 1 (2026-10-29, `main` @ 279a5a69) | 1 (AUD8-1) | 6 (AUD8-2…7) | #529 | **έτοιμο** (#529) |
 | 9 | Importer | 1 (2026-10-29, `main` @ 67ad3c09, import nixpal ×2 και myip σε scratch βάσεις) | 3 (AUD9-1…3) | 0 | #531 | **έτοιμο** (#531)· ό,τι γραφτεί ακόμα (D6 κ.λπ.) ελέγχεται μόνο του |
-| 10 | Ασφάλεια, κώδικας και live | 1 (2026-10-29, `main` @ ed271f6b· live στο `mycs.myip.gr`) | 0 | 0 | #PRNUM (5 Low) | **έτοιμο** |
+| 10 | Ασφάλεια, κώδικας και live | 1 (2026-10-29, `main` @ ed271f6b· live στο `mycs.myip.gr`) | 0 | 0 | #536 (5 Low) | **έτοιμο** |
 
 ### Ροή 1: σημειώσεις (2026-10-29)
 Καθαρός γύρος: κανένα Critical/High/Medium. Ελέγχθηκαν διπλό τιμολόγιο και περίοδος δύο φορές (`RenewalBilling`, lock
@@ -318,9 +318,9 @@ Operator, και ο δεύτερος με ρόλους που άλλαζαν):
 
 | ID | Σοβαρότητα | Τι | Κατάσταση |
 |---|---|---|---|
-| AUD10-1 | Low | Ειδοποιήσεις του staff με κείμενο από server, registrar ή exception, ή με το όνομα πελάτη: το Filament τις δείχνει ως HTML χωρίς scripts, άρα `<img>`, `<a>` και `style` περνούν | **#PRNUM:** `e()` σε κάθε τέτοιο title/body, και test που το φυλάει |
-| AUD10-2 | Low | Discord webhook: οποιοδήποτε URL, με redirects (blind SSRF· μόνο full admin, το extension κλειστό) | **#PRNUM:** μόνο `https://discord.com/api/webhooks/…`, στη φόρμα και στο job, χωρίς redirects |
-| AUD10-3 | Info | `X-Powered-By: PHP/…` | **#PRNUM:** το βγάζει το `SecurityHeaders`, και `fastcgi_hide_header` στο `nginx.conf.example` |
+| AUD10-1 | Low | Ειδοποιήσεις του staff με κείμενο από server, registrar ή exception, ή με το όνομα πελάτη: το Filament τις δείχνει ως HTML χωρίς scripts, άρα `<img>`, `<a>` και `style` περνούν | **#536:** `e()` σε κάθε τέτοιο title/body, και test που το φυλάει |
+| AUD10-2 | Low | Discord webhook: οποιοδήποτε URL, με redirects (blind SSRF· μόνο full admin, το extension κλειστό) | **#536:** μόνο `https://discord.com/api/webhooks/…`, στη φόρμα και στο job, χωρίς redirects |
+| AUD10-3 | Info | `X-Powered-By: PHP/…` | **#536:** το βγάζει το `SecurityHeaders`, και `fastcgi_hide_header` στο `nginx.conf.example` |
 | AUD10-4 | Info | Διπλά X-Frame-Options, nosniff, Referrer-Policy | Το `nginx.conf.example` είναι ήδη σωστό· το config του devbox είναι παλιότερο. **Cut-over:** το config του orion από το example |
 | AUD10-5 | Low | `GET /offer/{offer}` γεμίζει το καλάθι από ξένο site· `GET …/ssl/{v}/key` καίει το όριο λήψεων (20/ώρα) | ανοιχτό: τίποτα δεν χρεώνεται ούτε διαρρέει |
 
