@@ -135,7 +135,8 @@ class Adv525Test extends TestCase
 
         $this->artisan('mycs:vat-rates:seed', ['--force' => true])->assertSuccessful();
 
-        $this->assertSame(0, TaxRate::query()->where('country', 'GR')->count());
+        // One Greece, staff's: compared in upper case, as MariaDB's collation finds «gr» for «GR» and SQLite does not.
+        $this->assertSame(['gr'], TaxRate::query()->whereRaw('upper(country) = ?', ['GR'])->pluck('country')->all());
         $this->assertSame(28, TaxRate::query()->count());
     }
 }
