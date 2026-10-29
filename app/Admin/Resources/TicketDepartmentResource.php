@@ -109,7 +109,7 @@ class TicketDepartmentResource extends Resource
             ->authorize(fn (TicketDepartment $record) => auth('staff')->user()?->can('update', $record) ?? false)
             ->action(function (TicketDepartment $record) {
                 $result = app(Mailbox::class)->test($record->mailboxSettings());
-                Notification::make()->title($result->ok ? 'Connected' : 'Could not connect')->body($result->detail)
+                Notification::make()->title($result->ok ? 'Connected' : 'Could not connect')->body(e($result->detail))
                     ->{$result->ok ? 'success' : 'danger'}()->send();
             });
     }

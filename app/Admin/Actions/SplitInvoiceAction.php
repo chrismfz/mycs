@@ -77,7 +77,7 @@ class SplitInvoiceAction
         try {
             $new = (new SplitInvoice)->handle($record->id, $lines);
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Invoice not split'))->body($e->getMessage())->send();
+            Notification::make()->danger()->title(__('Invoice not split'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
         }

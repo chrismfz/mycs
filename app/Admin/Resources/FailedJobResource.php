@@ -88,7 +88,7 @@ class FailedJobResource extends Resource
                             } catch (Exception $e) {
                                 report($e);
                                 Notification::make()
-                                    ->title($e->getMessage())
+                                    ->title(e($e->getMessage()))
                                     ->warning()
                                     ->send();
                             }

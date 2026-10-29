@@ -29,7 +29,7 @@ class ListMailcowDomains extends ListRecords
                                 ->body("{$result['seen']} domain(s), {$result['new']} new, {$result['gone']} gone, {$result['mailboxes']} mailbox(es)")->send();
                         } catch (Throwable $e) {
                             report($e);
-                            Notification::make()->danger()->title($server->name)->body(Redact::text($e->getMessage()))->send();
+                            Notification::make()->danger()->title($server->name)->body(e(Redact::text($e->getMessage())))->send();
                         }
                     }
                 }),

@@ -25,7 +25,7 @@ class EditConfigOption extends EditRecord
         try {
             parent::save($shouldRedirect, $shouldSendSavedNotification);
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Option not saved'))->body($e->getMessage())->send();
+            Notification::make()->danger()->title(__('Option not saved'))->body(e($e->getMessage()))->send();
         }
     }
 

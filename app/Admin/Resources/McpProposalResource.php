@@ -89,13 +89,13 @@ class McpProposalResource extends Resource
                         try {
                             $done = Proposals::approve($record, self::staff());
                         } catch (InvalidArgumentException $e) {
-                            Notification::make()->warning()->title($e->getMessage())->send();
+                            Notification::make()->warning()->title(e($e->getMessage()))->send();
 
                             return;
                         }
                         $done->status === McpProposal::STATUS_DONE
-                            ? Notification::make()->success()->title('Done')->body($done->result)->send()
-                            : Notification::make()->danger()->title('It failed')->body($done->result)->send();
+                            ? Notification::make()->success()->title('Done')->body(e($done->result))->send()
+                            : Notification::make()->danger()->title('It failed')->body(e($done->result))->send();
                     }),
                 Action::make('reject')->label('Reject')->icon('ri-close-line')->color('gray')->requiresConfirmation()
                     ->visible(fn (McpProposal $record) => $record->isOpen())

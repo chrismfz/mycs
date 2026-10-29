@@ -157,7 +157,7 @@ final class TicketBulkActionsMenu
         try {
             $message = $do();
         } catch (InvalidArgumentException $e) {
-            Notification::make()->title($e->getMessage())->body(__('Nothing was changed.'))->danger()->send();
+            Notification::make()->title(e($e->getMessage()))->body(__('Nothing was changed.'))->danger()->send();
 
             return;
         }

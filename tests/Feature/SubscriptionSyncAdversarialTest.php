@@ -217,8 +217,8 @@ class SubscriptionSyncAdversarialTest extends TestCase
     public function test_holds_discord_shows_old_and_new_value_after_commit(): void
     {
         $service = $this->service('stripe');
-        Http::fake(['https://discord.test/*' => Http::response([])]);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Service Updated'], 'ping_type' => 'none']))->boot();
+        Http::fake(['https://discord.com/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['Service Updated'], 'ping_type' => 'none']))->boot();
 
         DB::transaction(function () use ($service) {
             $service->update(['status' => Service::STATUS_CANCELLED]);
@@ -309,9 +309,9 @@ class SubscriptionSyncAdversarialTest extends TestCase
         $b = $this->service('stripe', ['_sub' => 'b']);
         $this->fakeStripe();
         (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
-        Http::fake(['https://discord.test/*' => Http::failedConnection()]);
+        Http::fake(['https://discord.com/*' => Http::failedConnection()]);
         config(['settings.debug' => true]);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Service Updated'], 'ping_type' => 'none']))->boot();
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['Service Updated'], 'ping_type' => 'none']))->boot();
 
         foreach ([$a, $b] as $s) {
             $s->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()->subDays(20), 'expires_at' => now()->subDays(30)])->saveQuietly();

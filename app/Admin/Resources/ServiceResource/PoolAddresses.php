@@ -36,7 +36,7 @@ final class PoolAddresses
                     $ip = IpAllocator::assign($record, IpPool::query()->findOrFail($data['pool']),
                         filled($data['address'] ?? null) ? IpAddress::query()->find($data['address']) : null);
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title('Not given')->body($e->getMessage())->send();
+                    Notification::make()->danger()->title('Not given')->body(e($e->getMessage()))->send();
 
                     return;
                 }
@@ -60,7 +60,7 @@ final class PoolAddresses
                     $ip ?? throw new DisplayException('No longer this service\'s.');
                     IpAllocator::release($ip, $record->id);
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title('Not released')->body($e->getMessage())->send();
+                    Notification::make()->danger()->title('Not released')->body(e($e->getMessage()))->send();
 
                     return;
                 }

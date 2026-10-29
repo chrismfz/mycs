@@ -44,7 +44,7 @@ class MergeInvoicesAction
                 try {
                     $target = (new MergeInvoices)->handle((int) $data['target'], $records->pluck('id')->map(fn ($id) => (int) $id)->all());
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Invoices not merged'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Invoices not merged'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

@@ -197,7 +197,7 @@ class UsersRelationManager extends RelationManager
                         try {
                             $client->revoke($record);
                         } catch (DisplayException $e) {
-                            Notification::make()->danger()->title($e->getMessage())->send();
+                            Notification::make()->danger()->title(e($e->getMessage()))->send();
                         }
                     }),
                 Action::make('restore')->label(__('Restore access'))->icon('heroicon-o-arrow-uturn-left')

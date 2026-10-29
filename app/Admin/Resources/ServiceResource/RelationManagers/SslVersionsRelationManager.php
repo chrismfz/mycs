@@ -191,7 +191,7 @@ class SslVersionsRelationManager extends RelationManager
                             try {
                                 $pfx = app(SslVault::class)->pfx($record, (string) $data['password'], 'admin');
                             } catch (ServerRefused $e) {
-                                Notification::make()->danger()->title('No .pfx')->body($e->getMessage())->send();
+                                Notification::make()->danger()->title('No .pfx')->body(e($e->getMessage()))->send();
                                 $action->halt();
 
                                 return null;
@@ -213,7 +213,7 @@ class SslVersionsRelationManager extends RelationManager
                                 app(SslVault::class)->attachKey($record, (string) $data['key']);
                             } catch (ServerRefused $e) {
                                 // Closed, never left open with the pasted key in the page's state (review 5).
-                                Notification::make()->danger()->title('Not attached')->body($e->getMessage())->send();
+                                Notification::make()->danger()->title('Not attached')->body(e($e->getMessage()))->send();
                                 $action->cancel();
 
                                 return;
@@ -320,7 +320,7 @@ class SslVersionsRelationManager extends RelationManager
                         throw new Exception('Openprovider did not confirm it');
                     }
                 } catch (ServerRefused $e) {
-                    Notification::make()->danger()->title('Not done')->body($e->getMessage())->send();
+                    Notification::make()->danger()->title('Not done')->body(e($e->getMessage()))->send();
                     $action->halt();
 
                     return;

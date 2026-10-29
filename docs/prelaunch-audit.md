@@ -98,6 +98,7 @@
 | 7 | **Contracts: `zlic.php` και bridge Ekdosi** | `md5hash`/`localkey` byte-for-byte απέναντι στα fixtures· rate limit που κόβει νόμιμους· HMAC (timing-safe σύγκριση, replay, ίδια ops και error codes)· feed που στέλνει ό,τι δεν πρέπει | `public/zlic.php`, `packages/nixpal-licensing`, `app/Services/Licensing`, `app/Services/Ekdosi`, `/api/ekdosi` | `licensing.md`, `ekdosi-bridge.md` |
 | 8 | **Ops και ρυθμίσεις** | `Settings.php` και `SettingsProvider`: defaults που ενεργοποιούν κάτι επικίνδυνο, cache με secrets, worker που τρέχει με λάθος ρυθμίσεις· `deploy/update.sh` (αποτυχία που μοιάζει με επιτυχία, βλ. MariaDB OOM)· `/health` που λέει «εντάξει» ενώ το cron ή η ουρά έχουν σταματήσει | `app/Classes/Settings.php`, `SettingsProvider.php`, `deploy/`, `app/Services/Ops` | `ops.md`, `install.md` |
 | 9 | **Importer** | Όταν τελειώσει (`ROADMAP.md` γραμμή 9): απώλεια ή διπλά στο re-run, ποσά και υπόλοιπα που δεν βγαίνουν ίδια με το WHMCS, αρίθμηση, κωδικοί/secrets. Εκτός από review, **dry-run σε αντίγραφο και `mycs:parity`** | `ImportFromWhmcs.php`, `app/Services/Import` | `importer.md` |
+| 10 | **Ασφάλεια, κώδικας και live** | Οι κατηγορίες του report μας για το Blesta (εκτός repo) στο MyCS: stored XSS από πελάτη προς staff, GET που αλλάζει κατάσταση, mass assignment, SSRF, path traversal, webhooks χωρίς υπογραφή. Και **live**, ως επιτιθέμενος, στο τοπικό instance με δοκιμαστικούς λογαριασμούς (πελάτες και staff με διάφορους ρόλους): IDOR, authz, Livewire replay, headers, cookies, TLS, ανοιχτά paths | όλος ο κώδικας· `mycs.myip.gr` | `history/audit-security.md` |
 
 Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση και εμφάνιση. Μπαίνουν μόνο ό,τι στέλνουν σε πελάτη (μέσα στις ροές
 1–2) και η αποθήκευση των εισερχόμενων emails (ροή 3).
@@ -126,7 +127,8 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 6 | Domains | 1 (2026-10-29, `main` @ c94aa7bf) | 0 | 1 (AUD6-1) | #526 | **έτοιμο** (#526) |
 | 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
 | 8 | Ops, ρυθμίσεις | 1 (2026-10-29, `main` @ 279a5a69) | 1 (AUD8-1) | 6 (AUD8-2…7) | #529 | **έτοιμο** (#529) |
-| 9 | Importer | 1 (2026-10-29, `main` @ 67ad3c09, import nixpal ×2 και myip σε scratch βάσεις) | 3 (AUD9-1…3) | 0 | #531 | διορθώσεις στο #531· ό,τι γραφτεί ακόμα (D6 κ.λπ.) ελέγχεται μόνο του |
+| 9 | Importer | 1 (2026-10-29, `main` @ 67ad3c09, import nixpal ×2 και myip σε scratch βάσεις) | 3 (AUD9-1…3) | 0 | #531 | **έτοιμο** (#531)· ό,τι γραφτεί ακόμα (D6 κ.λπ.) ελέγχεται μόνο του |
+| 10 | Ασφάλεια, κώδικας και live | 1 (2026-10-29, `main` @ ed271f6b· live στο `mycs.myip.gr`) | 0 | 0 | #536 (5 Low) | **έτοιμο** |
 
 ### Ροή 1: σημειώσεις (2026-10-29)
 Καθαρός γύρος: κανένα Critical/High/Medium. Ελέγχθηκαν διπλό τιμολόγιο και περίοδος δύο φορές (`RenewalBilling`, lock
@@ -298,3 +300,29 @@ guard για APP_DEBUG και dev packages, ERR trap και snapshot (umask 077)
 
 **Cut-over:** σταματά το `schedule:run` όσο τρέχει το import (ένα import που κόπηκε αφήνει μισή βάση, και το cron τρέχει
 πάνω της). Στο runbook (`ROADMAP.md` γραμμή 10).
+
+### Ροή 10: σημειώσεις (2026-10-29)
+Κανένα Critical, High ή Medium, ούτε στον κώδικα ούτε live. Live, με δύο πελάτες και δύο staff (full admin, Sales
+Operator, και ο δεύτερος με ρόλους που άλλαζαν):
+- ξένα τιμολόγια, PDF, υπηρεσίες, κονσόλα, SSL, tickets και domains: 404· ticket με ξένη υπηρεσία: απορρίπτεται·
+- XSS σε όνομα, εταιρεία, διεύθυνση, τηλέφωνο και ticket: ως κείμενο στο client area και στο admin (ticket, πελάτης,
+  λίστες, dashboard, audits, αναζήτηση)· το `{{7*7}}` μένει όπως είναι (όχι template injection)·
+- Sales Operator: 403/404 σε 144 από τις 150 σελίδες του admin (οι 6 χωρίς δεδομένα)· `role_id` στο προφίλ αγνοείται·
+  replay ενός Livewire snapshot του admin (EditStaff, ListRoles): 403· ρόλος που δίνει στον εαυτό του `*`, τιμολόγια ή
+  ρυθμίσεις, ή παίρνει μεγαλύτερο ρόλο: απορρίπτεται·
+- πλαστό IPN στο legacy URL του PayPal: 400, τίποτα δεν καταγράφεται· τα άλλα gateways (κλειστά εκεί) στον κώδικα·
+- login με captcha και throttle· `.env`, `.git`, `storage`: 403· telescope, debugbar, `vendor`: 404· cookie
+  `__Host-`, Secure, HttpOnly, SameSite=Lax· TLS 1.3.
+
+Μόνο στον κώδικα: ο λόγος ακύρωσης (escape) και το preview του μαζικού email (iframe με `sandbox`).
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD10-1 | Low | Ειδοποιήσεις του staff με κείμενο από server, registrar ή exception, ή με το όνομα πελάτη (και το «Test connection» ενός server, refunds, registry, IMAP): το Filament τις δείχνει ως HTML χωρίς scripts, άρα `<img>`, `<a>` και `style` περνούν | **#536:** `e()` σε όσα βρέθηκαν (sweep και code review)· ένα test φυλάει τις συνηθισμένες μορφές (`$e->getMessage()`, `last_error`, `Redact::text(…)`) |
+| AUD10-2 | Low | Discord webhook: οποιοδήποτε URL, με redirects (blind SSRF· μόνο full admin, το extension κλειστό) | **#536:** μόνο `https://discord.com/api/(vN/)webhooks/<id>/<token>`, στη φόρμα και στο job, χωρίς redirects |
+| AUD10-3 | Info | `X-Powered-By: PHP/…` | **#536:** το βγάζει το `SecurityHeaders`, και `fastcgi_hide_header` στο `nginx.conf.example` |
+| AUD10-4 | Info | Διπλά X-Frame-Options, nosniff, Referrer-Policy | Το `nginx.conf.example` είναι ήδη σωστό· το config του devbox είναι παλιότερο. **Cut-over:** το config του orion από το example |
+| AUD10-5 | Low | `GET /offer/{offer}` γεμίζει το καλάθι από ξένο site· `GET …/ssl/{v}/key` καίει το όριο λήψεων (20/ώρα) | ανοιχτό: τίποτα δεν χρεώνεται ούτε διαρρέει |
+
+Μένει: ο ίδιος live έλεγχος στο `mycs.nixpal.com` πριν αλλάξει το DNS (headers, TLS, paths, cookies του server
+της παραγωγής).

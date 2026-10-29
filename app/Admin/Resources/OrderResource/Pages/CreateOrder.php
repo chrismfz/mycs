@@ -46,7 +46,7 @@ class CreateOrder extends CreateRecord
                 notes: $data['notes'] ?? null,
             )->order;
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title($e->getMessage())->send();
+            Notification::make()->danger()->title(e($e->getMessage()))->send();
 
             throw new Halt;
         }

@@ -354,8 +354,8 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
     public function test_holds_the_discord_job_runs_from_the_database_queue(): void
     {
         config(['queue.default' => 'database']);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Invoice Paid'], 'ping_type' => 'none']))->boot();
-        Http::fake(['https://discord.test/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['Invoice Paid'], 'ping_type' => 'none']))->boot();
+        Http::fake(['https://discord.com/*' => Http::response([])]);
         MailFacade::fake();
 
         $invoice = $this->invoice();
@@ -366,6 +366,6 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
         }
 
         $this->assertSame(0, DB::table('failed_jobs')->count());
-        Http::assertSent(fn ($request) => str_contains($request->url(), 'discord.test'));
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'discord.com/api/webhooks'));
     }
 }

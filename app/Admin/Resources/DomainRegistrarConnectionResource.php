@@ -153,7 +153,7 @@ class DomainRegistrarConnectionResource extends Resource
                 $balance = $record->balance ?? [];
                 $error = $balance['error'] ?? null;
                 Notification::make()->title($error !== null ? __('Could not read the balance') : __('Balance: :amount', ['amount' => trim(($balance['amount'] ?? '—') . ' ' . ($balance['currency'] ?? ''))]))
-                    ->body($error ?? RegistrarBalances::problemText($record))->{$error !== null ? 'danger' : 'success'}()->send();
+                    ->body(e($error ?? RegistrarBalances::problemText($record)))->{$error !== null ? 'danger' : 'success'}()->send();
             });
     }
 
@@ -188,7 +188,7 @@ class DomainRegistrarConnectionResource extends Resource
                     if (!$e instanceof DisplayException) {
                         throw $e;
                     }
-                    Notification::make()->danger()->title($e->getMessage())->send();
+                    Notification::make()->danger()->title(e($e->getMessage()))->send();
                     $action->halt();
                 }
                 $action->redirect(static::getUrl('index'));

@@ -79,7 +79,7 @@ class PayInvoicesAction
                     [, $others] = (new PayInvoices)->recordByStaff($records->pluck('id')->map(fn ($id) => (int) $id)->all(), $gateway,
                         $data['amount'], $data['transaction_id'] ?? null, Carbon::parse($data['paid_at'])->setTimeFrom(now()));
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Payment not recorded'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Payment not recorded'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

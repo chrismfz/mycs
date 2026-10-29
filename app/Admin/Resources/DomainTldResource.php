@@ -112,7 +112,7 @@ class DomainTldResource extends Resource
                     $changed = app(TldCostSync::class)->sync($record);
                     Notification::make()->success()->title(__(':count cost(s) updated; no price changed.', ['count' => $changed]))->send();
                 } catch (Throwable $e) {
-                    Notification::make()->danger()->title(__('The costs could not be read.'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('The costs could not be read.'))->body(e($e->getMessage()))->send();
                 }
             });
     }

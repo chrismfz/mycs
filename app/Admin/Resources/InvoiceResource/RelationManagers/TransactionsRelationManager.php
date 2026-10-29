@@ -253,7 +253,7 @@ class TransactionsRelationManager extends RelationManager
     {
         Notification::make()
             ->title(__($success ? 'invoices.refund_success' : 'invoices.refund_failed'))
-            ->when(!$success, fn (Notification $notification) => $notification->body($errorMessage))
+            ->when(!$success, fn (Notification $notification) => $notification->body(e((string) $errorMessage)))
             ->{$success ? 'success' : 'danger'}()
             ->send();
     }

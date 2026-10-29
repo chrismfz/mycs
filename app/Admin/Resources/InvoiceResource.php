@@ -502,7 +502,7 @@ class InvoiceResource extends Resource
                                 'cancellation_reason' => $data['cancellation_reason'],
                             ]);
                         } catch (DisplayException $e) { // it holds payments: refund them first (PR 2c)
-                            Notification::make()->danger()->title(__('Invoice not cancelled'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Invoice not cancelled'))->body(e($e->getMessage()))->send();
 
                             throw new Halt;
                         }

@@ -401,7 +401,7 @@ class ImportSsl extends Page implements HasForms
             $this->fetched = SslCatalog::entries($extension->catalogue());
         } catch (Throwable $e) {
             report($e);
-            Notification::make()->danger()->title(__('Openprovider could not be read'))->body(Redact::text($e->getMessage()))->send();
+            Notification::make()->danger()->title(__('Openprovider could not be read'))->body(e(Redact::text($e->getMessage())))->send();
 
             return;
         }
@@ -507,7 +507,7 @@ class ImportSsl extends Page implements HasForms
             $typed = $this->typedFor($entries, $options);
             $count = SslCatalog::import($server, array_values($entries), $options, $category, (bool) ($this->form->getState()['hidden'] ?? true), $typed);
         } catch (InvalidArgumentException $e) {
-            Notification::make()->warning()->title(__('Nothing was imported'))->body($e->getMessage())->send();
+            Notification::make()->warning()->title(__('Nothing was imported'))->body(e($e->getMessage()))->send();
 
             return;
         }

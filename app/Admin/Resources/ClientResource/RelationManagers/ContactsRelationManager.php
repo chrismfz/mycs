@@ -111,7 +111,7 @@ class ContactsRelationManager extends RelationManager
                         try {
                             $record->archive();
                         } catch (DisplayException $e) {
-                            Notification::make()->danger()->title($e->getMessage())->send();
+                            Notification::make()->danger()->title(e($e->getMessage()))->send();
                         }
                     }),
                 Action::make('restore')->label(__('Restore'))->icon('heroicon-o-arrow-uturn-left')

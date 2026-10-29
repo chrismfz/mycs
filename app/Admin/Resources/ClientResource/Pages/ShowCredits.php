@@ -103,7 +103,7 @@ class ShowCredits extends ManageRelatedRecords
                         ? $ledger->add($clientId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason'])
                         : $ledger->remove($clientId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason']);
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Credit not changed'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Credit not changed'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

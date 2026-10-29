@@ -57,7 +57,7 @@ class VoidAdjustmentNote
                             ? AdjustmentNoteStatus::Active : AdjustmentNoteStatus::Voided]);
                     });
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Adjustment note not changed'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Adjustment note not changed'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

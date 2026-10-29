@@ -33,6 +33,7 @@ server {
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         fastcgi_param DOCUMENT_ROOT $realpath_root;
         fastcgi_read_timeout 120s;
+        fastcgi_hide_header X-Powered-By;
     }
 
     location ~ ^/index\.php$ {
@@ -43,6 +44,7 @@ server {
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         fastcgi_param DOCUMENT_ROOT $realpath_root;
         fastcgi_read_timeout 120s;
+        fastcgi_hide_header X-Powered-By;
     }
 
     # The customers' VPS consoles (docs/proxmox.md, B6): a websocket to the relay (deploy/mycs-console.service.example),

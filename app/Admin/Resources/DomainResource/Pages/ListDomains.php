@@ -41,7 +41,7 @@ class ListDomains extends ListRecords
                         $domain = app(DomainAdopter::class)->adopt((string) $data['domain'], Client::query()->findOrFail((int) $data['client_id']),
                             DomainRegistrarConnection::query()->findOrFail((int) $data['connection_id']), $data['currency_code'] ?: null);
                     } catch (DisplayException $e) {
-                        Notification::make()->danger()->title($e->getMessage())->send();
+                        Notification::make()->danger()->title(e($e->getMessage()))->send();
                         $action->halt();
 
                         return;

@@ -38,7 +38,7 @@ class DeleteInvoiceTransaction
             }
             (new RecordPaymentService)->deleteTransaction($record, $allowNegativeCredit);
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Transaction not deleted'))->body($e->getMessage())->send();
+            Notification::make()->danger()->title(__('Transaction not deleted'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
         }

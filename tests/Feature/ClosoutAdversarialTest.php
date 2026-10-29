@@ -238,9 +238,9 @@ class ClosoutAdversarialTest extends TestCase
     public function test_hold_an_other_extension_without_given_settings_reads_its_record(): void
     {
         $record = ExtensionModel::query()->create(['extension' => 'DiscordNotifications', 'name' => 'Discord', 'type' => 'other', 'enabled' => false]);
-        $record->settings()->create(['key' => 'webhook_url', 'value' => 'https://discord.test/hook']);
+        $record->settings()->create(['key' => 'webhook_url', 'value' => 'https://discord.com/api/webhooks/1/test']);
 
-        $this->assertSame('https://discord.test/hook', ExtensionHelper::getExtension('other', 'DiscordNotifications')->config('webhook_url'));
+        $this->assertSame('https://discord.com/api/webhooks/1/test', ExtensionHelper::getExtension('other', 'DiscordNotifications')->config('webhook_url'));
     }
 
     /** From inside the module with several servers and no settings: refuses (the PR's rule). */

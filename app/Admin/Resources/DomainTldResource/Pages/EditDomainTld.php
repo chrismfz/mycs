@@ -30,7 +30,7 @@ class EditDomainTld extends EditRecord
                         if (!$e instanceof DisplayException) {
                             throw $e;
                         }
-                        Notification::make()->danger()->title($e->getMessage())->send();
+                        Notification::make()->danger()->title(e($e->getMessage()))->send();
                         $action->halt();
                     }
                     $action->redirect(DomainTldResource::getUrl('index'));
