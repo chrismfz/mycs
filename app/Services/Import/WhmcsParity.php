@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Console\Commands\ImportFromWhmcs;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Services\Money\MoneyTrail;
 use App\Services\Tax\EuVat;
@@ -104,6 +105,15 @@ final class WhmcsParity
         $merged = $this->hasColumn('tbltickets', 'merged_ticket_id') ? ' WHERE NOT (merged_ticket_id > 0 AND merged_ticket_id <> id)' : '';
         $add('Tickets', $this->count('SELECT COUNT(*) FROM tbltickets' . $merged), Schema::hasTable('tickets') ? DB::table('tickets')->count() : 0);
         $add('Domains', $this->count('SELECT COUNT(*) FROM tbldomains'), Schema::hasTable('domains') ? DB::table('domains')->count() : 0);
+        // D6: the live ones by status, and the invoice lines of a domain now on it (a domain's line whose domain is here).
+        if (Schema::hasTable('domains') && $this->hasColumn('tbldomains', 'status') && $this->hasColumn('tbldomains', 'recurringamount')) {
+            $add('Domains active', $this->count("SELECT COUNT(*) FROM tbldomains WHERE status = 'Active'"), DB::table('domains')->where('status', 'active')->count());
+            $add('Domains, recurring amount', $this->count("SELECT COALESCE(SUM(ROUND(recurringamount * 100)), 0) FROM tbldomains WHERE status = 'Active'"),
+                (int) DB::table('domains')->where('status', 'active')->selectRaw('COALESCE(SUM(ROUND(recurring_amount * 100)), 0) a')->value('a'));
+            $add('Domain invoice lines', $this->count("SELECT COUNT(*) FROM tblinvoiceitems ii JOIN tbldomains d ON d.id = ii.relid JOIN tblinvoices i ON i.id = ii.invoiceid
+                WHERE ii.type LIKE 'Domain%' AND {$notParent}"),
+                DB::table('invoice_items')->where('reference_type', Domain::class)->count());
+        }
 
         return $rows;
     }

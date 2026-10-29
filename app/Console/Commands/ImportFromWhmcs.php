@@ -18,6 +18,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
@@ -187,6 +188,7 @@ class ImportFromWhmcs extends Command
             $this->importOrders();
             $this->importServices();
             $this->importOfflineSsl();
+            $this->importDomains();
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
@@ -1443,6 +1445,20 @@ class ImportFromWhmcs extends Command
         return $orders;
     }
 
+    /** The domains (D6): their registrar connections and TLDs, each domain, its handles and notices sent (WhmcsDomainImport). */
+    private function importDomains()
+    {
+        $this->info('Importing domains... (' . $this->count('tbldomains') . ' records)');
+        $this->domains = new WhmcsDomainImport($this->pdo);
+        $result = $this->domains->run();
+        $c = $result['counts'];
+        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
+            . "{$c['handles']} handle(s) linked, {$c['handles_kept']} kept for staff; {$c['reminders']} notice(s) already sent.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
     /** nixpal's licenses (L3, docs/licensing.md); also on its own: app:import-whmcs-licensing. */
     private function importLicensing()
     {
@@ -1606,10 +1622,17 @@ class ImportFromWhmcs extends Command
         // Each line with the tax it was issued with (Δ1): WHMCS keeps amounts net, «taxed» per line and the rate on the
         // invoice (TaxPerLineItem: rounded per line, as here). The second tax (taxrate2) is not used by either company.
         // Ordered, so the batches are stable.
-        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate, i.id AS invoice_found, i.status AS invoice_status, i.datepaid AS invoice_datepaid, i.date AS invoice_date FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
+                    continue;
+                }
+                // A line of an invoice WHMCS deleted (it keeps the line), or one the import did not bring (its customer not
+                // here): no invoice here to be on, never one without (importer.md: myip 1,344, nixpal 2; reviews of #535).
+                if ($record['invoice_found'] === null || !isset($this->importedInvoices()[(int) $record['invoiceid']])) {
+                    $this->orphanLines++;
+
                     continue;
                 }
                 $taxed = (bool) ($record['taxed'] ?? false) && (float) ($record['invoice_taxrate'] ?? 0) > 0;
@@ -1624,14 +1647,25 @@ class ImportFromWhmcs extends Command
                     'tax_rate' => $taxed ? $record['invoice_taxrate'] : 0,
                     'tax_amount' => $line['tax'],
                     'line_total' => $line['total'],
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    // Its invoice's date: which fee is which renewal's is told by it (R2-4 of #535), never all «now».
+                    'created_at' => $this->validateDate($record['invoice_date'] ?? null) ?? now(),
+                    'updated_at' => $this->validateDate($record['invoice_date'] ?? null) ?? now(),
                 ] + $this->lineReference($record);
             }
 
             DB::table('invoice_items')->insert($data);
         });
+        $this->domains?->recordDoneYears();
+        foreach ($this->domains?->lineNotes() ?? [] as $note) {
+            $this->warn($note);
+        }
+        if ($this->orphanLines > 0) {
+            $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS, or not imported: not imported.");
+        }
     }
+
+    /** Lines of an invoice WHMCS deleted, skipped. */
+    private int $orphanLines = 0;
 
     /**
      * What a WHMCS invoice line is for (tblinvoiceitems.type, relid), so income goes to its product (#504):
@@ -1640,13 +1674,26 @@ class ImportFromWhmcs extends Command
      *   tblupgrades of a package or its options, on its service): the service's, `kind = charge`, never a period: a
      *   payment renews nothing with it, and the billing never takes it for a period (docs/importer.md).
      * - AddFunds: a credit purchase, as MyCS's own: never income (the credit is, when it pays; #275).
-     * - Anything else (domains until D6, a late fee, a group discount, by hand): no type, its relid kept as it was.
-     * A line whose service is not here (deleted in WHMCS) has no type either: never attached by guess.
+     * - A domain's (D6, WhmcsDomainImport::line): its renewal with its period, applied when paid; a registration or a
+     *   transfer as such; anything else of it a charge.
+     * - Anything else (a late fee, a group discount, by hand): no type, its relid kept as it was.
+     * A line whose service or domain is not here (deleted in WHMCS) has no type either: never attached by guess.
      *
      * @param  array<string, mixed>  $record  a tblinvoiceitems row
-     * @return array{reference_type: string|null, reference_id: mixed, kind: string|null}
+     * @return array{reference_type: string|null, reference_id: mixed, kind: string|null, period_start: string|null, period_end: string|null, applied_at: string|null, forgone_at: string|null}
      */
     private function lineReference(array $record): array
+    {
+        $domain = $this->domains?->line($record);
+        if ($domain !== null) {
+            return $domain;
+        }
+
+        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $this->serviceLineReference($record);
+    }
+
+    /** @return array{reference_type: string|null, reference_id: mixed, kind: string|null} */
+    private function serviceLineReference(array $record): array
     {
         $type = (string) $record['type'];
         $relid = (int) $record['relid'];
@@ -1664,6 +1711,9 @@ class ImportFromWhmcs extends Command
             default => ['reference_type' => null, 'reference_id' => $record['relid'], 'kind' => null],
         };
     }
+
+    /** The domain step (D6): what a domain's invoice line is (null before it ran: a test of the lines alone). */
+    private ?WhmcsDomainImport $domains = null;
 
     /** @var array<int, true>|null the services imported (their WHMCS ids) */
     private ?array $importedServices = null;

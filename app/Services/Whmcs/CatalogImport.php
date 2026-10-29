@@ -127,7 +127,7 @@ final class CatalogImport
             $this->serverGroups();
             $this->configOptions();
             $this->products();
-            $this->tlds($connection);
+            $this->tlds($connection !== null ? [$connection->registrar => $connection] : []);
             $dryRun ? DB::rollBack() : DB::commit();
         } catch (Throwable $e) {
             DB::rollBack();
@@ -171,6 +171,22 @@ final class CatalogImport
             }
             $product->save();
         }
+
+        return ['counts' => $this->counts, 'notes' => $this->notes];
+    }
+
+    /**
+     * The full importer's TLD step (D6, before its domains): WHMCS's TLDs and their prices as run() brings them, each one
+     * automatically registered at the connection made for its WHMCS registrar module, if any. Currencies are the full
+     * importer's already: only read here (never a new default).
+     *
+     * @param  array<string, DomainRegistrarConnection>  $connections  WHMCS's registrar module => the connection here
+     * @return array{counts: array<string, int>, notes: list<string>}
+     */
+    public function tldsForFullImport(array $connections): array
+    {
+        $this->currencies();
+        $this->tlds($connections);
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
@@ -520,10 +536,13 @@ final class CatalogImport
 
     // ---- TLDs ------------------------------------------------------------------------------------------------------
 
-    private function tlds(?DomainRegistrarConnection $connection): void
+    /** @param  array<string, DomainRegistrarConnection>  $connections  WHMCS's registrar module => the connection here */
+    private function tlds(array $connections): void
     {
-        if ($connection !== null && !$connection->is_active) {
-            $this->notes[] = "Registrar connection #{$connection->id} «{$connection->label}» is not active: its TLDs register nothing until it is.";
+        foreach ($connections as $connection) {
+            if (!$connection->is_active) {
+                $this->notes[] = "Registrar connection #{$connection->id} «{$connection->label}» is not active: its TLDs register nothing until it is.";
+            }
         }
         $default = $this->whmcsDefault ?? (string) config('settings.default_currency', 'USD');
         foreach ($this->rows('SELECT * FROM tbldomainpricing ORDER BY `order`, id') as $row) {
@@ -555,8 +574,8 @@ final class CatalogImport
                 'redemption_days' => (int) ($row['redemption_grace_period'] ?? -1) >= 0 ? (int) $row['redemption_grace_period'] : null,
                 'sort' => (int) ($row['order'] ?? 0),
             ]);
-            if ($autoreg !== '' && $connection !== null && $connection->registrar === $autoreg) {
-                $tld->registrar_connection_id = $connection->id;
+            if ($autoreg !== '' && isset($connections[$autoreg])) {
+                $tld->registrar_connection_id = $connections[$autoreg]->id;
             } elseif ($autoreg !== '') {
                 $this->notes[] = ".{$name}: automatic registration at «{$autoreg}» in WHMCS: no matching connection given, left by hand.";
             }
