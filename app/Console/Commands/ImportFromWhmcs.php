@@ -218,6 +218,19 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /** A WHMCS invoice's status here; parity maps it the same way (anything else, e.g. «Payment Pending», is unpaid). */
+    public static function invoiceStatus(string $whmcs): string
+    {
+        return match ($whmcs) {
+            'Draft' => 'draft',
+            'Paid' => 'paid',
+            'Unpaid' => 'unpaid',
+            'Cancelled' => 'cancelled',
+            'Refunded' => 'refunded',
+            default => 'unpaid',
+        };
+    }
+
     /**
      * Whether the source named is this instance's own database: the same name, on a local host or the same host and
      * port. A first, cheap check only: a copy under another name, or the server reached by its own hostname, is not
@@ -1301,14 +1314,7 @@ class ImportFromWhmcs extends Command
                     'id' => $record['id'],
                     'number' => $invoiceNumber,
                     'client_id' => $record['userid'],
-                    'status' => match ($record['status']) {
-                        'Draft' => 'draft',
-                        'Paid' => 'paid',
-                        'Unpaid' => 'unpaid',
-                        'Cancelled' => 'cancelled',
-                        'Refunded' => 'refunded',
-                        default => 'unpaid',
-                    },
+                    'status' => self::invoiceStatus((string) $record['status']),
                     'currency_code' => $user['code'],
                     // When it was paid (WHMCS datepaid): the revenue reports count by it (#275).
                     'paid_at' => $record['status'] === 'Paid' ? $this->validateDate($record['datepaid'] ?? null) : null,
@@ -1747,13 +1753,7 @@ class ImportFromWhmcs extends Command
     /** @return array<int, true> */
     private function massPayParents(): array
     {
-        return $this->massPayParents ??= array_fill_keys(array_map('intval', $this->pdo->query(
-            "SELECT DISTINCT ii.invoiceid FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid JOIN tblinvoices p ON p.id = ii.invoiceid
-            WHERE ii.type = 'Invoice' AND c.userid = p.userid
-            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems n WHERE n.invoiceid = c.id AND n.type = 'Invoice')
-            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems o WHERE o.invoiceid = p.id AND o.type <> 'Invoice')
-            AND (p.status = 'Paid' OR NOT EXISTS (SELECT 1 FROM tblaccounts a WHERE a.invoiceid = p.id AND a.amountin > 0))"
-        )->fetchAll(PDO::FETCH_COLUMN)), true);
+        return $this->massPayParents ??= array_fill_keys(array_map('intval', $this->pdo->query(WhmcsMassPay::PARENTS_SQL)->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
     /**

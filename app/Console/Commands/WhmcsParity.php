@@ -56,7 +56,16 @@ class WhmcsParity extends Command
             return self::FAILURE;
         }
 
-        $rows = (new Parity($pdo))->rows();
+        try {
+            $parity = new Parity($pdo);
+            $rows = $parity->rows();
+            $notes = $parity->notes();
+        } catch (PDOException $e) {
+            // The SQL state only: a query's message carries its values.
+            $this->error('The comparison stopped (SQLSTATE ' . $e->getCode() . '): a WHMCS table it reads may be missing.');
+
+            return self::FAILURE;
+        }
         $differ = array_values(array_filter($rows, fn (array $row) => !$row['same']));
         $shown = $this->option('only-differences') ? $differ : $rows;
         $this->table(['', 'WHMCS', 'MyCS', 'Difference'], array_map(fn (array $row) => [
@@ -65,6 +74,9 @@ class WhmcsParity extends Command
             self::show($row['metric'], $row['mycs']),
             $row['same'] ? '' : self::show($row['metric'], (int) $row['mycs'] - (int) $row['whmcs'], true),
         ], $shown));
+        foreach ($notes as $note) {
+            $this->warn($note);
+        }
         if ($differ === []) {
             $this->info('No difference.');
 
