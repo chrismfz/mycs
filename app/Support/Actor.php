@@ -92,9 +92,25 @@ class Actor
     }
 
     /**
+     * What giving a login each permission takes from staff, where «Login as client» needs less (STAFF_PERMISSION_AS
+     * otherwise): there, staff only see the account and the domain pages check each change; on a login of their own,
+     * nothing does. So the read permissions take the admin's view of the same records, and managing domains the admin's
+     * registrar permissions (round 2 of #519, ADV-519-R2-1, R2-2).
+     */
+    public const GRANT_PERMISSION_AS = [
+        'products' => 'admin.services.viewAny',
+        'domains' => 'admin.domains.viewAny',
+        'invoices' => 'admin.invoices.viewAny',
+        'quotes' => 'admin.invoices.viewAny',
+        'tickets' => 'admin.tickets.viewAny',
+        'emails' => ['admin.email_logs.viewAny', 'admin.email_logs.view'],
+        'managedomains' => ['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp'],
+    ];
+
+    /**
      * Staff may give a login these permissions of an account (null: all of them) over the ones it has ($had, null: all):
-     * only the ones they could use themselves in «Login as client» (STAFF_PERMISSION_AS), so a login of their own on the
-     * account never takes them past their role (AUD3-1). A permission none is listed for (chat) needs nothing.
+     * only the ones their role covers (GRANT_PERMISSION_AS, else what «Login as client» takes, STAFF_PERMISSION_AS), so a
+     * login of their own on the account never takes them past their role (AUD3-1). Chat needs nothing.
      *
      * @param  list<string>|null  $permissions
      * @param  list<string>|null  $had
@@ -106,7 +122,8 @@ class Actor
         }
         $added = array_diff($permissions ?? ClientUser::PERMISSIONS, $had ?? ClientUser::PERMISSIONS);
         foreach ($added as $permission) {
-            foreach ((array) (self::STAFF_PERMISSION_AS[$permission] ?? null) as $admin) {
+            $needs = array_key_exists($permission, self::GRANT_PERMISSION_AS) ? self::GRANT_PERMISSION_AS[$permission] : (self::STAFF_PERMISSION_AS[$permission] ?? null);
+            foreach ((array) $needs as $admin) {
                 if (!$staff->hasPermission($admin)) {
                     return false;
                 }

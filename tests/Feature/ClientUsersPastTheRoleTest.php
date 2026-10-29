@@ -29,6 +29,11 @@ class ClientUsersPastTheRoleTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** What giving every permission takes (Actor::GRANT_PERMISSION_AS and STAFF_PERMISSION_AS). */
+    private const EVERYTHING = ['admin.services.sso', 'admin.services.update', 'admin.orders.create', 'admin.services.viewAny',
+        'admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp', 'admin.invoices.viewAny', 'admin.tickets.viewAny',
+        'admin.email_logs.viewAny', 'admin.email_logs.view'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -55,7 +60,7 @@ class ClientUsersPastTheRoleTest extends TestCase
     public function test_a_role_that_could_log_in_to_the_panel_and_manage_services_gives_every_permission(): void
     {
         $client = User::factory()->create()->client();
-        $staff = $this->staff(['admin.services.sso', 'admin.services.update', 'admin.orders.create']);
+        $staff = $this->staff(self::EVERYTHING);
         $login = User::factory()->withoutClient()->create();
 
         $this->usersTab($staff, $client)->callTableAction('add', data: ['user_id' => $login->id, 'all' => true]);
@@ -67,7 +72,7 @@ class ClientUsersPastTheRoleTest extends TestCase
     public function test_a_role_without_them_gives_what_it_could_use_itself(): void
     {
         $client = User::factory()->create()->client();
-        $staff = $this->staff([]);
+        $staff = $this->staff(['admin.tickets.viewAny', 'admin.invoices.viewAny']);
         $login = User::factory()->withoutClient()->create();
 
         $this->usersTab($staff, $client)->callTableAction('add', data: ['user_id' => $login->id, 'all' => false, 'permissions' => ['tickets', 'invoices', 'profile']]);
@@ -78,7 +83,7 @@ class ClientUsersPastTheRoleTest extends TestCase
     public function test_a_permission_the_login_has_is_kept_when_another_is_added(): void
     {
         $client = User::factory()->create()->client();
-        $staff = $this->staff([]);
+        $staff = $this->staff(['admin.tickets.viewAny']);
         $login = User::factory()->withoutClient()->create();
         $grant = ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $login->id, 'permissions' => ['manageproducts'], 'granted_at' => now()]);
 
@@ -108,7 +113,7 @@ class ClientUsersPastTheRoleTest extends TestCase
         $this->usersTab($this->staff([]), $client)->filterTable('revoked', true)->callTableAction('restore', $grant);
         $this->assertNull($this->grant($client, $login), 'restored past the role');
 
-        $this->usersTab($this->staff(['admin.services.sso', 'admin.services.update', 'admin.orders.create']), $client)->filterTable('revoked', true)->callTableAction('restore', $grant->fresh());
+        $this->usersTab($this->staff(self::EVERYTHING), $client)->filterTable('revoked', true)->callTableAction('restore', $grant->fresh());
         $this->assertNotNull($this->grant($client, $login));
     }
 
@@ -147,7 +152,7 @@ class ClientUsersPastTheRoleTest extends TestCase
     public function test_in_login_as_client_a_role_that_could_use_them_invites_with_every_permission(): void
     {
         $client = User::factory()->create()->client();
-        $this->loginAsClient($client, ['admin.clients.update', 'admin.services.sso', 'admin.services.update', 'admin.orders.create']);
+        $this->loginAsClient($client, ['admin.clients.update', ...self::EVERYTHING]);
 
         Livewire::test(ClientAreaUsers::class)->set('email', 'mine@example.test')->set('allPermissions', true)->call('invite');
 

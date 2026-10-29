@@ -67,9 +67,9 @@ class ClientUsersCodeReviewTest extends TestCase
         Mail::fake();
         config(['settings.default_currency' => 'USD']);
         $owner = User::factory()->create();
-        $staff = Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
+        $staff = Staff::factory()->withPermissions(['admin.users.impersonate', 'admin.tickets.viewAny'])->create();
 
-        // Within the role: a staff member with only «Login as client» gives no permission past it (AUD3-1).
+        // Within the role: staff give a login only what their role covers (AUD3-1), here the tickets they may view.
         // Real requests, as staff in «Login as client» (the session carries the impersonation).
         $this->actingAs($owner); // what ImpersonateMiddleware sets on each request
         $html = $this->actingAs($staff, 'staff')->withSession($this->loginUser($owner, ['impersonating' => $owner->id]))
