@@ -189,12 +189,26 @@ class ResendWelcomeTest extends TestCase
         $this->assertSame($log->id, $this->events('welcome_resent')->sole()->new_values['email_log_id']);
     }
 
+    public function test_the_modal_submits_with_send(): void
+    {
+        $submit = $this->page()->mountAction('resendWelcome')->instance()->getMountedAction()?->getModalSubmitAction();
+
+        $this->assertSame('submit', $submit?->getName());
+        $this->assertSame(__('Send'), $submit?->getLabel());
+        $this->assertFalse($submit->isDisabled());
+        $this->assertTrue($submit->canSubmitForm());
+    }
+
     public function test_send_is_disabled_when_it_would_be_refused(): void
     {
         $this->service->forceFill(['password' => null])->save();
 
         $page = $this->page()->mountAction('resendWelcome');
-        $this->assertTrue((bool) $page->instance()->getMountedAction()?->getModalSubmitAction()?->isDisabled());
+        $submit = $page->instance()->getMountedAction()?->getModalSubmitAction();
+        // The modal's own «Send», not the action again (re-review of #533: a closure parameter not named $action got it).
+        $this->assertSame('submit', $submit?->getName());
+        $this->assertTrue((bool) $submit?->isDisabled());
+        $this->assertFalse((bool) $page->instance()->getMountedAction()?->isDisabled());
         $page->callMountedAction();
         $this->assertSame([], $this->welcomes());
     }

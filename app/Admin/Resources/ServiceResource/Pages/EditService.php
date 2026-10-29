@@ -419,7 +419,7 @@ class EditService extends EditRecord
                     ->modalDescription(fn (Service $record) => WelcomeMail::refusal($record)
                         ?? __('The welcome email goes again to the account\'s owner (:email), with the login details and the password stored on the service now.', ['email' => WelcomeMail::recipient($record)]))
                     ->modalSubmitActionLabel(__('Send'))
-                    ->modalSubmitAction(fn (Action $submit, Service $record) => $submit->disabled(WelcomeMail::refusal($record) !== null))
+                    ->modalSubmitAction(fn (Action $action, Service $record) => $action->disabled(WelcomeMail::refusal($record) !== null))
                     ->action(fn (Service $record) => $this->resendWelcome($record)),
 
                 // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared
