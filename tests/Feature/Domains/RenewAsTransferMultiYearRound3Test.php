@@ -293,7 +293,8 @@ class RenewAsTransferMultiYearRound3Test extends TestCase
             app(DomainRenewalService::class)->renewLine($next->id);
         }
 
-        $this->assertArrayHasKey('renew_transfer', $domain->fresh()->meta, 'the transfer still unsettled (the target lags)');
+        // A one-year transfer holds nothing (the fix: it brings its year itself), so the later year renews and the record
+        // settles; what matters is that the paid year is never held with nothing open.
         $this->assertTrue($next->fresh()->applied_at !== null || ModuleAction::query()->open()->where('invoice_item_id', $next->id)->exists(),
             'a paid year held for three weeks, past the expiry the target shows, with nothing open for staff');
     }

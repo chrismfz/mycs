@@ -148,8 +148,9 @@ class RenewAsTransfer
             $meta['sent_at'] = now()->toIso8601String();
             $meta['renew_transfer']['sent_at'] = now()->toIso8601String();
             // Paid for more years than its transfer adds: its «renewed» once they are there (ADV-537-3 of #537).
+            // Its years as the renewal counts them (DomainRenewalService::periodYears), never another rule.
             if ($line->period_start !== null && $line->period_end !== null
-                && Carbon::parse($line->period_start)->diffInMonths(Carbon::parse($line->period_end)) > 13) {
+                && (int) round(Carbon::parse($line->period_start)->diffInYears(Carbon::parse($line->period_end))) > 1) {
                 $meta['renew_transfer']['tell_later'] = true;
             }
             unset($meta['transfer_failed']);

@@ -213,15 +213,18 @@ class DomainRenewalService
         // A transfer that replaced another paid renewal is not settled yet (its years still to come at the target): this
         // one waits for it, else it would buy its own year from the short expiry and the earlier line then settle «covered»
         // with this one's year (R537-2 of #537). With staff: said on this one too, never held back silently.
-        // Only while that line still needs them: there, paid, and waiting (or about to be opened again); a refunded,
-        // deleted or done one never holds the domain (R2-1 of #537). Staff's Retry of this one goes on regardless.
+        // Only while that line still needs them: a transfer of more years than it adds (tell_later; one of one year brings
+        // its year itself: R3-2), there, paid, and waiting or about to be opened again; a refunded, deleted or done one
+        // never holds the domain (R2-1 of #537). Staff's Retry too: going past it would take the transfer's years (R3-1).
         $record = $domain->meta['renew_transfer'] ?? null;
-        $earlier = is_array($record) && !empty($record['done_at']) && (int) ($record['line'] ?? 0) !== $line->id
+        $earlier = is_array($record) && !empty($record['done_at']) && !empty($record['tell_later']) && (int) ($record['line'] ?? 0) !== $line->id
             ? InvoiceItem::query()->with('invoice')->find((int) $record['line']) : null;
-        if (!$retry && $earlier !== null && $earlier->invoice?->status === Invoice::STATUS_PAID
+        if ($earlier !== null && $earlier->invoice?->status === Invoice::STATUS_PAID
             && (empty($record['reopened_at']) ? $earlier->applied_at !== null : $earlier->applied_at === null)) {
-            // With staff (told, or a task open for it): said on this one too, never held with nothing open (R2-3).
-            if (!empty($record['told_at']) || ModuleAction::query()->open()->where('invoice_item_id', $earlier->id)->exists()) {
+            // With staff (told, a task open for it, a Retry of this one, or held two weeks: the target lagging its transfer):
+            // said on this one too, never held with nothing open (R2-3, R3-2).
+            if (!empty($record['told_at']) || $retry || ModuleAction::query()->open()->where('invoice_item_id', $earlier->id)->exists()
+                || Carbon::parse($record['done_at'])->lessThan(now()->subDays(self::TRANSFER_HOLD_DAYS))) {
                 $this->staffDecides($domain, $line, $connection->registrar, "Waits for the transfer that replaced an earlier paid renewal (invoice line #{$earlier->id}) "
                     . 'to get its years: resolve that one first, then Retry this.');
             }
@@ -348,7 +351,15 @@ class DomainRenewalService
             }
         }
         if (is_string($registry)) {
-            $years = min($years, self::yearsShort(Carbon::parse($registry)->startOfDay(), $target));
+            try {
+                $from = Carbon::parse($registry)->startOfDay();
+            } catch (Throwable) {
+                $this->staffDecides($domain, $line, $connection->registrar, "Transferred in place of this renewal; its registry's expiry «{$registry}» cannot be read: "
+                    . 'check the registry, renew the missing years by hand at the registrar, then close this.');
+
+                return self::FAILED;
+            }
+            $years = min($years, self::yearsShort($from, $target));
             if ($years < 1) {
                 return $this->apply($domain, $line, $connection, $staff, $now, true); // the registry has them: adopted
             }
@@ -498,6 +509,9 @@ class DomainRenewalService
         return $result->status === DomainStatus::Active && $until !== null
             && Carbon::parse($until)->greaterThanOrEqualTo($target->copy()->subDays(self::TOLERANCE_DAYS));
     }
+
+    /** Days a later renewal waits for a transfer's years before staff are told (the target lagging its own transfer). */
+    public const TRANSFER_HOLD_DAYS = 14;
 
     /** The whole years from $from to reach $target (0 to 10), within the tolerance. */
     private static function yearsShort(Carbon $from, Carbon $target): int
