@@ -18,11 +18,11 @@ use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
+use App\Services\Import\WhmcsMoneyJournal;
 use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
-use App\Services\Money\MoneyTrail;
 use App\Support\Locales;
 use Brick\Math\BigDecimal;
 use Closure;
@@ -183,6 +183,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->journalMoney();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -641,18 +642,8 @@ class ImportFromWhmcs extends Command
                 DB::table('contacts')->insert($contacts);
             }
             if (count($credits) > 0) {
+                // Its journal, from WHMCS's history, once the invoices are in (journalMoney).
                 DB::table('credits')->insert($credits);
-                // The journal opens with the imported balance, so credits = Σ events (docs/money-trail.md §2).
-                DB::table('money_events')->insert(array_map(fn (array $credit) => [
-                    'kind' => 'credit_in',
-                    'amount' => $credit['amount'],
-                    'currency_code' => $credit['currency_code'],
-                    'client_id' => $credit['client_id'],
-                    'credit_balance_after' => $credit['amount'],
-                    'source' => MoneyTrail::SOURCE_IMPORT,
-                    'cause' => MoneyTrail::CAUSE_OPENING_BALANCE,
-                    'occurred_at' => now(),
-                ], $credits));
             }
         });
     }
@@ -1462,15 +1453,18 @@ class ImportFromWhmcs extends Command
                 if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
                     continue;
                 }
-                // Get currency from user
-                $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-                $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
-                $user->execute();
-                $user = $user->fetch(PDO::FETCH_ASSOC);
-                if (!$user) {
+                // Only money in: a refund's own row is on the payment it gave back (importRefunds); a row of nothing (WHMCS
+                // writes one when staff mark a free invoice paid) is no payment.
+                if ((float) ($record['amountin'] ?? 0) <= 0) {
                     continue;
                 }
+                // Money on no invoice imported (WHMCS lets staff record one on none): never a payment of invoice #0.
+                if (!isset($this->importedInvoices()[(int) $record['invoiceid']])) {
+                    $this->paymentsWithoutInvoice[] = (int) $record['id'];
 
+                    continue;
+                }
+                // Whose it is, by its invoice (WHMCS leaves a payment's own customer 0 at times).
                 $data[] = [
                     'id' => $record['id'],
                     'invoice_id' => $record['invoiceid'],
@@ -1491,6 +1485,22 @@ class ImportFromWhmcs extends Command
         });
         $this->importRefunds();
         $this->reportUnmappedGateways();
+        if ($this->paymentsWithoutInvoice !== []) {
+            $this->warn('Payments on no imported invoice, not imported (record them by hand if they are money still owed): WHMCS tblaccounts #'
+                . implode(', #', $this->paymentsWithoutInvoice) . '.');
+        }
+    }
+
+    /** @var list<int> WHMCS payments (tblaccounts) on no imported invoice */
+    private array $paymentsWithoutInvoice = [];
+
+    /** @var array<int, true>|null */
+    private ?array $importedInvoices = null;
+
+    /** @return array<int, true> the invoices imported */
+    private function importedInvoices(): array
+    {
+        return $this->importedInvoices ??= array_fill_keys(DB::table('invoices')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
     }
 
     /**
@@ -1771,7 +1781,7 @@ class ImportFromWhmcs extends Command
         $parents = array_map(fn (int $id) => $this->row('SELECT id, userid, status, total, credit, date, datepaid FROM tblinvoices WHERE id = ?', [$id]), $parentIds);
         $parents = array_values(array_filter($parents, fn (?array $parent) => $parent !== null && $parent['status'] === 'Paid'));
         usort($parents, fn (array $a, array $b) => [(string) $a['datepaid'], (int) $a['id']] <=> [(string) $b['datepaid'], (int) $b['id']]);
-        $childCredit = [];
+        $childCredit = &$this->childCredit;
         // Allocations get ids above every WHMCS payment: a later parent keeps its payment's id (F3 review CR-1).
         $nextId = max((int) $this->pdo->query('SELECT MAX(id) FROM tblaccounts')->fetchColumn(), (int) DB::table('invoice_transactions')->max('id')) + 1;
 
@@ -1867,6 +1877,44 @@ class ImportFromWhmcs extends Command
                 'amount' => $invoice['amount'] / 100,
             ], $plan['group']['invoices'], array_keys($plan['group']['invoices'])));
         }
+    }
+
+    /** @var array<int, int> Mass Pay child => cents of its WHMCS credit its parents did not pay (importMassPay) */
+    private array $childCredit = [];
+
+    /**
+     * The money journal (WhmcsMoneyJournal): the credit applied to each invoice as a credit payment, overpayments as
+     * credit, then every payment, refund and credit move as an event, so the import passes the money checks. Customers
+     * whose WHMCS balance is not what its history adds up to get one adjustment each, listed here.
+     */
+    private function journalMoney(): void
+    {
+        $this->info('Writing the money journal...');
+        $journal = new WhmcsMoneyJournal($this->pdo);
+        $journal->creditApplied($this->massPayParents(), $this->childCredit);
+        $journal->overpayments();
+        $journal->refundNotes();
+        $adjustments = $journal->write();
+
+        $summary = $journal->summary;
+        $this->line("Payments {$summary['payments']} (of credit {$summary['credit_payments']}), refunds {$summary['refunds']}, overpayments {$summary['overpayments']},"
+            . " credit purchases {$summary['purchases']}, negative invoices {$summary['negative_invoices']}, refund notes {$summary['refund_notes']}, other credit moves from WHMCS's history {$summary['from_history']}.");
+        if ($summary['no_invoice'] > 0) {
+            $this->warn("Payments without an imported invoice, not journaled: {$summary['no_invoice']}.");
+        }
+        foreach ($summary['unplaced'] as $unplaced) {
+            $this->warn("Overpayment not placed: {$unplaced}.");
+        }
+        if ($adjustments === []) {
+            return;
+        }
+        $this->warn(count($adjustments) . ' customer(s) whose WHMCS credit balance is not what its history adds up to: their balance is kept,'
+            . ' with one adjustment each (cause opening_balance). Check them, most recent first:');
+        $money = fn (int $cents) => number_format($cents / 100, 2, '.', '');
+        $this->table(['Customer', 'Currency', 'Balance', 'History', 'Adjustment', 'Last move'], array_map(fn (array $row) => [
+            $row['client_id'], $row['currency_code'], $money($row['balance']), $money($row['history']),
+            $money($row['balance'] - $row['history']), $row['last'] ?? '',
+        ], $adjustments));
     }
 
     /** @return array<string, mixed>|null */

@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Invoice;
+use App\Services\Money\MoneyTrail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PDO;
@@ -62,13 +63,19 @@ final class WhmcsParity
         $add('Money in', $this->count('SELECT COALESCE(SUM(ROUND(amountin * 100)), 0) FROM tblaccounts'), (int) $money->amount);
         $add('Money out (refunds)', $this->count('SELECT COALESCE(SUM(ROUND(amountout * 100)), 0) FROM tblaccounts'), (int) $money->refunded);
         $add('Gateway fees', $this->count('SELECT COALESCE(SUM(ROUND(fees * 100)), 0) FROM tblaccounts'), (int) $money->fee);
-        // The customers' account credit, on both sides: a Mass Pay child's «credit» in WHMCS is its parent's money (here a
-        // payment, or an allocation of one), so children are left out there, allocations of a payment here (review of #521).
-        $children = $parents === [] ? [] : array_map('intval', $this->whmcs->query("SELECT DISTINCT relid FROM tblinvoiceitems WHERE type = 'Invoice' AND invoiceid IN ("
+        // The customers' account credit applied to invoices, on both sides. A Mass Pay child's «credit» in WHMCS is its
+        // parent's money and its customer's own credit; here the parent's payment lands on the child as a payment (the
+        // part the child took of it) and as allocations, the customer's credit as credit payments (WhmcsMoneyJournal).
+        $parentPayments = $parents === [] ? [] : array_map('intval', $this->whmcs->query('SELECT id FROM tblaccounts WHERE invoiceid IN ('
             . implode(',', $parents) . ')')->fetchAll(PDO::FETCH_COLUMN));
-        $add('Credit applied to invoices', $this->count('SELECT COALESCE(SUM(ROUND(credit * 100)), 0) FROM tblinvoices'
-            . ($children === [] ? '' : ' WHERE id NOT IN (' . implode(',', $children) . ')')),
-            (int) DB::table('invoice_transactions')->where('is_credit_transaction', true)->whereNull('source_transaction_id')->where('status', 'succeeded')
+        $onChildren = $parentPayments === [] ? 0 : (int) DB::table('invoice_transactions')->whereIn('id', $parentPayments)->where('is_credit_transaction', false)
+            ->selectRaw('COALESCE(SUM(ROUND(amount * 100) - ROUND(credited_amount * 100)), 0) a')->value('a');
+        $add('Credit applied to invoices', $this->count("SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit > 0 AND {$notParent}"),
+            (int) DB::table('invoice_transactions')->where('is_credit_transaction', true)->where('status', 'succeeded')
+                ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a') + $onChildren);
+        // A negative invoice gave its customer credit (WHMCS: a negative «credit» on it).
+        $add('Credit from negative invoices', -$this->count("SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit < 0 AND {$notParent}"),
+            (int) DB::table('money_events')->where('source', MoneyTrail::SOURCE_IMPORT)->where('cause', MoneyTrail::CAUSE_INVOICE_REDUCED)
                 ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a'));
 
         $add('Customers with credit', $this->count('SELECT COUNT(*) FROM tblclients WHERE credit > 0'), DB::table('credits')->where('amount', '>', 0)->count());
@@ -93,19 +100,29 @@ final class WhmcsParity
     {
         $currencies = (int) $this->whmcs->query('SELECT COUNT(DISTINCT c.currency) FROM tblinvoices i JOIN tblclients c ON c.id = i.userid')->fetchColumn();
 
-        return $currencies > 1 ? ["The invoices are in {$currencies} currencies: their amounts are summed together here."] : [];
+        $notes = $currencies > 1 ? ["The invoices are in {$currencies} currencies: their amounts are summed together here."] : [];
+        // Money WHMCS recorded on no invoice: not imported (ImportFromWhmcs::importPayments names them), so «Money in» is short by it.
+        $orphans = $this->whmcs->query('SELECT COUNT(*) n, COALESCE(SUM(ROUND(amountin * 100)), 0) cents FROM tblaccounts a WHERE amountin > 0'
+            . ' AND NOT EXISTS (SELECT 1 FROM tblinvoices i WHERE i.id = a.invoiceid)')->fetch(PDO::FETCH_ASSOC);
+        if ((int) $orphans['n'] > 0) {
+            $notes[] = "{$orphans['n']} WHMCS payment(s) on no invoice, " . number_format((int) $orphans['cents'] / 100, 2, '.', '')
+                . ' in all, are not imported: «Money in» is short by them.';
+        }
+
+        return $notes;
     }
 
-    /** @return array<string, array{n: int, amount: int}> by status: how many, and their totals in cents (as the app sums them) */
+    /** @return array<string, array{n: int, amount: int}> by status: how many, and what their lines bill, in cents */
     private function mycsInvoices(): array
     {
         $out = [];
-        Invoice::query()->with(['items', 'adjustmentNotes'])->orderBy('id')->chunk(500, function ($invoices) use (&$out) {
+        Invoice::query()->with('items')->orderBy('id')->chunk(500, function ($invoices) use (&$out) {
             foreach ($invoices as $invoice) {
                 $status = (string) $invoice->status;
                 $out[$status] ??= ['n' => 0, 'amount' => 0];
                 $out[$status]['n']++;
-                $out[$status]['amount'] += (int) round($invoice->total * 100);
+                // What it billed (its lines), as WHMCS's subtotal + taxes: a refund's note here is no part of it.
+                $out[$status]['amount'] += (int) $invoice->items->sum(fn ($item) => (int) round((float) $item->line_total * 100));
             }
         });
 
