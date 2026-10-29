@@ -121,6 +121,68 @@
   server (`revealPassword`, μόνο όποιος διαχειρίζεται την υπηρεσία, 10/λεπτό, εκτός snapshot του Livewire). Παλιά
   email logs με κωδικούς σβήνονται στις 90 μέρες.
 
+## Κωδικός υπηρεσίας και welcome email (υπεύθυνος, 2026-10-29)
+Από τις συνήθειες του WHMCS. Στη σελίδα της υπηρεσίας του staff, στο «More»:
+- **«Resend welcome email»** (το «Resend Welcome Email» του WHMCS, `App\Services\Service\WelcomeMail`): το ίδιο mail με
+  την ενεργοποίηση (`new_server_created`, `serverCreatedNotification`), με τον κωδικό που είναι αποθηκευμένος **τώρα**.
+  - Πάει μόνο στον κάτοχο του λογαριασμού, χωρίς CC/BCC (private template). Το email log το κρατά χωρίς τον κωδικό,
+    όπως το πρώτο.
+  - Με επιβεβαίωση που λέει σε ποια διεύθυνση πάει· ο κωδικός δεν φαίνεται πουθενά σε αυτή τη ροή.
+  - Το πολύ 3 σε οποιαδήποτε 60 λεπτά ανά υπηρεσία (μαζί με το «και στείλε το welcome email» παρακάτω): κυλιόμενο
+    παράθυρο από τα audits `welcome_resent`, με lock ώστε δύο ταυτόχρονα κλικ να μετρηθούν το ένα μετά το άλλο.
+  - Μόνο το email, όπως στο WHMCS: χωρίς νέα ειδοποίηση στην εφαρμογή ή push «η υπηρεσία είναι ενεργή».
+  - Το «Send» είναι απενεργό όταν δεν μπορεί να σταλεί, και το παράθυρο λέει γιατί.
+  - Στο audit της υπηρεσίας ως `welcome_resent`: ποιο staff, σε ποια διεύθυνση, ποιο email log.
+  - Μόνο σε **active** υπηρεσία: το mail λέει «η υπηρεσία είναι ενεργή», και μια suspended δεν δέχεται σύνδεση.
+  - Δεν στέλνεται όταν η υπηρεσία έχει username αλλά όχι κωδικό (π.χ. υπηρεσία του WHMCS πριν το βήμα αποκρυπτογράφησης
+    των κωδικών, `importer.md`), ούτε όταν δεν έχει ούτε στοιχεία σύνδεσης ούτε άδεια. Κωδικός χωρίς username (ο root
+    ενός VPS, προϊόν χωρίς module) στέλνεται: το προεπιλεγμένο template τον δείχνει πια και χωρίς username (το migration
+    `2027_01_23_000000` αλλάζει μόνο ένα template που δεν το έχει πειράξει το staff). Μια άδεια nixpal χωρίς login
+    στέλνεται (το κλειδί της από το `{{ service.license.license_key }}` του προϊόντος).
+  - Ούτε όταν το template είναι κλειστό, το mail απενεργοποιημένο ή ο πελάτης το έχει κλείσει: το staff βλέπει τον λόγο.
+- **«Change password on server»** (υπήρχε): τώρα με **«Generate»** δίπλα στο πεδίο (`App\Support\ServicePassword`: 16
+  χαρακτήρες από CSPRNG, κεφαλαία, πεζά, αριθμοί και λίγα σύμβολα `-_.!@` που δέχονται όλα τα modules, χωρίς 0/O, 1/l/I),
+  που φαίνεται με το μάτι για να το αντιγράψει το staff. Και checkbox «και στείλε το welcome email με τον νέο κωδικό».
+  - Το mail φεύγει μόνο αν ο νέος κωδικός **αποθηκεύτηκε** στην υπηρεσία. Αν ο server τον πήρε αλλά η αποθήκευση απέτυχε
+    (το cPanel το αναφέρει), το staff ειδοποιείται να τον αποθηκεύσει με το παρακάτω και δεν στέλνεται τίποτα.
+  - Audit: `password_changed_on_server` (ποιο staff). Η αλλαγή της στήλης έχει και το δικό της audit, χωρίς την τιμή.
+- **«Save a password set elsewhere»**: για κωδικό που άλλαξε ο πελάτης στον server, ή εμείς αλλού (WHM, panel του
+  Centova/mailcow). Τον αποθηκεύει **μόνο** στην υπηρεσία, χωρίς καμία κλήση στον server, ώστε το επόμενο welcome email
+  να στείλει αυτόν που δουλεύει. Ίδιο checkbox για το welcome email. Audit: `password_stored`. Χωρίς τον κανόνα των 10
+  χαρακτήρων: είναι ό,τι ισχύει ήδη στον server.
+- Το πεδίο «Password» της φόρμας κάνει το ίδιο (αποθήκευση μόνο εδώ) και το λέει πια στο hint του.
+- Όλα θέλουν `update` στις υπηρεσίες (`admin.services.update`), όπως η σελίδα.
+- **Ο πελάτης:** στη φόρμα «Αλλαγή κωδικού» της υπηρεσίας του (cPanel, mailcow, Centova), κουμπί «Δημιουργία ισχυρού
+  κωδικού»: συμπληρώνει και τα δύο πεδία και τον δείχνει για αντιγραφή, ως την αλλαγή.
+
+**Ανά module:**
+
+| Module | Αλλαγή στον server | Αποθήκευση μόνο εδώ | Resend |
+|---|---|---|---|
+| cPanel | ναι (`passwd`, και MySQL αν ζητηθεί) | ναι | ναι |
+| mailcow | ναι (κωδικός του domain admin) | ναι | ναι |
+| CentovaCast | ναι (`adminpassword`) | ναι | ναι |
+| Proxmox | **όχι** (παρακάτω) | ναι | ναι, με τον αποθηκευμένο κωδικό |
+| Nixpal Licensing | δεν έχει κωδικό | — | ναι (το κλειδί) |
+| Offline VM / Dedicated (ngm, Hetzner) | όχι (χωρίς API) | ναι | ναι, αν έχει username/κωδικό |
+| DirectAdmin | όχι ακόμα (παρακάτω) | ναι | ναι |
+
+- **Proxmox, γιατί όχι:** δύο δρόμοι, κανένας έτοιμος.
+  - Ο QEMU guest agent (`agent/set-user-password`): θέλει τον agent σε κάθε guest (οι 8 VPS στήθηκαν από ISO, άγνωστο
+    αν τον έχουν), δικαίωμα που ο ρόλος `MyCSLifecycle` δεν έχει (`VM.GuestAgent.Unrestricted` στο PVE 9, `VM.Monitor`
+    στο 8), και τον σωστό χρήστη ανά λειτουργικό (root, Administrator).
+  - Το cloud-init (`cipassword`): μόνο σε VM από cloud-init template, και εφαρμόζεται στο επόμενο boot. Ανήκει στο PR 6
+    του `proxmox.md` (reinstall και reset κωδικού).
+  - Μισή λύση (π.χ. «άλλαξε μόνο αν τρέχει ο agent») δεν χτίστηκε. Ως τότε: ο κωδικός αλλάζει μέσα στο VM (κονσόλα) και
+    αποθηκεύεται με το «Save a password set elsewhere».
+- **DirectAdmin, αργότερα** (3 υπηρεσίες στο WHMCS· το extension του upstream κάνει create/suspend/terminate): το
+  `changePassword` θα είναι το `CMD_API_USER_PASSWD` (POST `username`, `passwd`, `passwd2`, ως admin ή reseller), με
+  τον ίδιο τρόπο με το cPanel: πρώτα ο server, μετά `services.password`, `ServerRefused` στην άρνηση. Με αυτό ανάβει
+  μόνο του και το κουμπί, ο generator και το checkbox. Πριν από αυτό: live δοκιμή σε DirectAdmin με άδεια του
+  υπεύθυνου, και έλεγχος ότι οι κανόνες κωδικού του (`DIFFICULT_PASSWORD_ENFORCEMENT`) δέχονται τα σύμβολα του generator.
+- **ngm, αργότερα** (1 υπηρεσία, Offline VM): αν ο πάροχος δώσει API για reset του root, γίνεται module με
+  `changePassword`· αλλιώς μένει «Save a password set elsewhere» μετά την αλλαγή στο panel του ngm.
+
 ## Provisioning fixes (sweep §2, §4, §7)
 - **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:
   το WHM το αγνοεί (μόνο ένα «Unrecognized modifyacct parameter» στο log του) και απαντά `result: 1`, «Account

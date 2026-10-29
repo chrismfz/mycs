@@ -57,7 +57,7 @@ class NotificationHelper
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toAccount(Client $client, string $key, array $data, array $attachments = []): void
+    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false): void
     {
         $owner = $client->owner();
         if ($owner === null) {
@@ -66,7 +66,7 @@ class NotificationHelper
         $previous = self::$account;
         self::$account = $client;
         try {
-            self::sendNotification($key, $data, $owner, $attachments);
+            self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly);
         } finally {
             self::$account = $previous;
         }
@@ -225,7 +225,8 @@ class NotificationHelper
         User $user,
         array $attachments = [],
         bool $show_in_app = true,
-        bool $show_as_push = true
+        bool $show_as_push = true,
+        bool $mailOnly = false,
     ): void {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
@@ -233,7 +234,7 @@ class NotificationHelper
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push));
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly));
     }
 
     /**
@@ -262,7 +263,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push): void
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false): void
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -283,7 +284,8 @@ class NotificationHelper
         // After the mail: any failure here is reported, not thrown, so the queued listener is not retried into mailing
         // the customer twice (review R-3 of Σ4).
         try {
-            if ($notification->isEnabledForPreference($userPreference, 'app')) {
+            // A mail sent again (the welcome's resend) is not news in the app or by push (ADV-533-3).
+            if (!$mailOnly && $notification->isEnabledForPreference($userPreference, 'app')) {
                 self::sendInAppNotification($notification, $data, $user, $show_in_app, $show_as_push);
             }
         } catch (Throwable $e) {
@@ -460,7 +462,8 @@ class NotificationHelper
         self::toAccount($client, 'new_order_created', $data);
     }
 
-    public static function serverCreatedNotification(Client $client, Service $service, array $data = []): void
+    /** $resend: staff's «Resend welcome email», the mail only (WHMCS's), no new in-app or push notification. */
+    public static function serverCreatedNotification(Client $client, Service $service, array $data = [], bool $resend = false): void
     {
         // Its license as it is now: one read before the module issued it is not the welcome mail's (code review of #291).
         $service->unsetRelation('license');
@@ -468,7 +471,7 @@ class NotificationHelper
         // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
         // can read the password (Service::TEMPLATE_HIDDEN).
         $data['service_password'] ??= rescue(fn () => $service->password, null);
-        self::toAccount($client, 'new_server_created', $data);
+        self::toAccount($client, 'new_server_created', $data, mailOnly: $resend);
     }
 
     /** A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. */

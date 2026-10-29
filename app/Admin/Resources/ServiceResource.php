@@ -350,6 +350,7 @@ class ServiceResource extends Resource
                         // Hidden from serialization, so filled from the record here (else a save would wipe it); emptied,
                         // it is cleared (review F3).
                         TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
+                            ->hintIcon(...$hint(__('Stored here only: saving the form changes nothing on the server. «More» has «Change password on server» and «Resend welcome email».')))
                             ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state(rescue(fn () => $record?->password, null, false)))
                             ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),

@@ -294,6 +294,11 @@ class EmailTemplateSeeder extends Seeder
                 {% if service_password %}
                 - Password: {{ service_password }}
                 {% endif %}
+                {% else %}
+                {% if service_password %}
+                **Login details**
+                - Password: {{ service_password }}
+                {% endif %}
                 {% endif %}
 
                 {% if product_info %}
@@ -1354,6 +1359,11 @@ class EmailTemplateSeeder extends Seeder
                     **Στοιχεία σύνδεσης**
                     - Όνομα χρήστη: {{ service.username }}
                     {% if service_password %}
+                    - Κωδικός: {{ service_password }}
+                    {% endif %}
+                    {% else %}
+                    {% if service_password %}
+                    **Στοιχεία σύνδεσης**
                     - Κωδικός: {{ service_password }}
                     {% endif %}
                     {% endif %}

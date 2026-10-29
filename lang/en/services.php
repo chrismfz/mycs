@@ -78,6 +78,8 @@ return [
         'confirm_password' => 'Confirm new password',
         'mysql_too' => 'Change the MySQL password too',
         'password_hint' => 'At least 10 characters, with upper and lower case letters and numbers.',
+        'password_generate' => 'Generate a strong password',
+        'password_generated' => 'Your new password (copy it before you change it):',
         'password_change' => 'Change password',
         'password_changed' => 'The password was changed.',
         'password_refused' => 'The password was not changed: :reason',

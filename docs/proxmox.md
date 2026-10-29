@@ -200,6 +200,8 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
    - **Από τον υπεύθυνο:** cloud-init templates (Debian 13, Ubuntu 24.04).
 5. [ ] **PR 6, reinstall και reset κωδικού:** reinstall από template (σβήνει τα δεδομένα, με επιβεβαίωση) και reset
    του root password μέσω cloud-init. Το ISO, αν χρειαστεί, έρχεται μαζί με την κονσόλα.
+   Ως τότε, το «Change password on server» δεν προσφέρεται στο Proxmox (`provisioning.md`, «Κωδικός υπηρεσίας και
+   welcome email»): ο κωδικός αλλάζει μέσα στο VM και αποθηκεύεται με το «Save a password set elsewhere».
 6. [x] **PR 7, κονσόλα noVNC (υπεύθυνος 2026-10-28: PHP relay, και τις αλλαγές στον server τις κάνει το deploy):**
    - Στο panel του VPS υπάρχει «Κονσόλα», όσο η υπηρεσία είναι active και το VM τρέχει. Ανοίγει σε δική της καρτέλα,
      με noVNC (`@novnc/novnc` 1.7.0, MPL-2.0). Την ανοίγει όποιος κάνει και power (`can:update`).
