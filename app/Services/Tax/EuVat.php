@@ -126,14 +126,17 @@ final class EuVat
         $country = trim($country);
         $countries = (array) config('app.countries');
         if (strlen($country) !== 2) {
-            $country = (string) (array_search($country, $countries, true) ?: '');
+            // A name in any case («CYPRUS», «greece»: typed by hand in WHMCS, ADV-528-1).
+            $names = array_map(fn ($name) => mb_strtolower((string) $name), $countries);
+            $country = (string) (array_search(mb_strtolower($country), $names, true) ?: '');
         }
         $country = strtoupper($country);
         if ($country === 'EL') {
             return 'GR';
         }
 
-        return array_key_exists($country, $countries) ? $country : null;
+        // Never the list's empty «Select a country» key: no country is none (review of #524).
+        return $country !== '' && array_key_exists($country, $countries) ? $country : null;
     }
 
     /** The member state whose VAT a country pays: Monaco France's, the others their own. */

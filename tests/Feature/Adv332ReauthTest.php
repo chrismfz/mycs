@@ -89,9 +89,9 @@ class Adv332ReauthTest extends TestCase
         $this->as();
 
         for ($i = 0; $i < 25; $i++) {
-            Livewire::test(Account::class)->set('email', 'attacker@example.test')->set('email_password', 'guess-' . $i)->call('submit');
+            Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'attacker@example.test')->set('email_password', 'guess-' . $i)->call('submit');
         }
-        Livewire::test(Account::class)->set('email', 'attacker@example.test')->set('email_password', 'Right-Pass-1')->call('submit');
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'attacker@example.test')->set('email_password', 'Right-Pass-1')->call('submit');
 
         $this->assertSame('old@example.test', $this->user->fresh()->email);
     }
@@ -119,7 +119,7 @@ class Adv332ReauthTest extends TestCase
         $this->user->refresh();
         $this->as();
 
-        Livewire::test(Account::class)->set('email', 'new@example.test')->set('email_password', 'legacy')->call('submit')->assertHasErrors(['email_password']);
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('email', 'new@example.test')->set('email_password', 'legacy')->call('submit')->assertHasErrors(['email_password']);
 
         $this->assertSame('old@example.test', $this->user->fresh()->email);
     }

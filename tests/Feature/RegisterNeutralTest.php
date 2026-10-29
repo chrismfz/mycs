@@ -30,7 +30,7 @@ class RegisterNeutralTest extends TestCase
 
     private function register(string $email)
     {
-        return Livewire::test(Register::class)->set('first_name', 'Eve')->set('last_name', 'Probe')->set('email', $email)
+        return Livewire::test(Register::class)->set('contact.country', 'GR')->set('first_name', 'Eve')->set('last_name', 'Probe')->set('email', $email)
             ->set('password', 'Probe-Pass-1')->set('password_confirmation', 'Probe-Pass-1')->call('submit');
     }
 

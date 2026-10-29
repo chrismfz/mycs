@@ -121,11 +121,11 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 1 | Cron χρέωσης, κύκλος ζωής | 1 (2026-10-29, `main` @ e298c168) | 0 | 0 | — | **έτοιμο** |
 | 2 | Πληρωμές, πιστώσεις, τιμολόγια | 1 (2026-10-29, `main` @ e298c168) | 0 | 1 (AUD2-1, Mollie) | #517 | **έτοιμο** (το AUD2-1 στο #517) |
 | 3 | Auth, δικαιώματα, επιφάνεια | 1 (2026-10-29, `main` @ 147b9496) | 1 (AUD3-1) | 1 (AUD3-2) | #519 | **έτοιμο** (#519, 3 γύροι review) |
-| 4 | Provisioning | | | | | ανοιχτό |
-| 5 | Παραγγελίες, ΦΠΑ, promotions | | | | | ανοιχτό |
-| 6 | Domains | | | | | ανοιχτό |
-| 7 | `zlic.php`, bridge | | | | | ανοιχτό |
-| 8 | Ops, ρυθμίσεις | | | | | ανοιχτό |
+| 4 | Provisioning | 1 (2026-10-29, `main` @ 1390a389) | 2 (AUD4-1, AUD4-2: του importer) | 0 | στο session του importer | **έτοιμο** για ό,τι φτιάχνει η MyCS· **πύλη του cut-over** τα AUD4-1/2 |
+| 5 | Παραγγελίες, ΦΠΑ, promotions | 1 (2026-10-29, `main` @ 1390a389) | 1 (AUD5-1) | 0 | #524 | **έτοιμο** (#524, 2 γύροι review) |
+| 6 | Domains | 1 (2026-10-29, `main` @ c94aa7bf) | 0 | 1 (AUD6-1) | #526 | **έτοιμο** (#526) |
+| 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
+| 8 | Ops, ρυθμίσεις | 1 (2026-10-29, `main` @ 279a5a69) | 1 (AUD8-1) | 6 (AUD8-2…7) | #529 | **έτοιμο** (#529) |
 | 9 | Importer | | | | | όταν τελειώσει ο importer |
 
 ### Ροή 1: σημειώσεις (2026-10-29)
@@ -183,3 +183,97 @@ Low, ανοιχτά (δεν διορθώνονται τώρα):
 
 **Cut-over:** τα trusted proxies στον orion μόνο το IP του server και `127.0.0.1`. Οι ρόλοι του staff να ξαναδούν τα
 δικαιώματα που δίνουν (τώρα το «δίνω σε μια σύνδεση» ακολουθεί το admin).
+
+### Ροή 4: σημειώσεις (2026-10-29)
+Για υπηρεσίες που φτιάχνει η MyCS, καθαρός γύρος. Ελέγχθηκαν: `ExtensionHelper::serverAction` (το `false` γίνεται
+exception, server που σβήστηκε δεν είναι «τίποτα να γίνει»), ModuleAction Retry/Mark resolved (ίδια job, ίδιοι έλεγχοι,
+terminate μόνο σε υπηρεσία που έληξε, create υπό lock), jobs και `ServiceObserver` (ξαναδιαβάζουν την κατάσταση,
+`after_commit`), cPanel (idempotent create, προστατευμένοι λογαριασμοί, `terminatereseller` με πληκτρολόγηση του
+username), Proxmox `GuestLifecycle` (pool, templates, MACs, VMID που ξαναχρησιμοποιήθηκε), mailcow (`ownedAdmin`,
+`lock_only`), Centova (`disable_only`), SSL, `ServerSelector`, secrets στο `last_error` και στα emails. Τα modules που
+καμία εταιρεία δεν χρησιμοποιεί (Convoy, Virtualizor, Pterodactyl, Enhance, DirectAdmin, Plesk, Virtfusion) δεν
+ελέγχθηκαν σε βάθος.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD4-1 | High | Ο importer δεν φέρνει το `tblhosting.server` στο `services.server_id` (το `importer.md` λέει ότι το φέρνει): κάθε υπηρεσία που έρχεται παίρνει τον server του προϊόντος. Στο myip (6 cPanel servers) ένα terminate πάει σε λάθος server και σβήνει λογαριασμό άλλου πελάτη με το ίδιο username· και το `provisioningServer()` πέφτει στον server του προϊόντος όταν ο server της υπηρεσίας λείπει | στο session του importer, με τα tests του `adv/audit-flow4` (15c91aa2). **Κανένα cron και κανένα Retry σε υπηρεσίες που εισήχθησαν πριν κλείσει** |
+| AUD4-2 | High (cut-over) | Σταθμός Centova ή λογαριασμός mailcow που τον έκανε suspend το WHMCS έρχεται χωρίς το mark μας: στην πληρωμή το unsuspend λέει «έγινε» χωρίς να καλέσει τον server, ο πελάτης παίρνει email, η υπηρεσία μένει κλειστή | στο session του importer (ο importer βάζει τα marks). Πριν το cut-over: λίστα των suspended Centova/mailcow |
+
+Όχι εύρημα: αλλαγή προϊόντος από το staff σε άλλο module (`keepServerOfProductsModule`) αφήνει τον παλιό λογαριασμό στον
+παλιό server· είναι ενέργεια του staff και φαίνεται.
+
+### Ροή 5: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: τιμή ξανά στον server υπό lock (`PlaceOrderService`/`OrderPricing`, BigDecimal), `plan_id`, config options,
+κρυφές επιλογές, νόμισμα, ποσότητα και stock, κουπόνια υπό lock (ημερομηνίες, προϊόντα, κύκλοι, όρια), προσφορές, ομάδες
+πελατών, VIES (fail closed), καλάθι (καμία IDOR), provisioning μόνο μετά από πληρωμή ή αποδοχή, domains στο checkout.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD5-1 | High | Λογαριασμός χωρίς χώρα ταίριαζε μόνο σε συντελεστή «All»· χωρίς τέτοιον, τιμολόγιο **0% χωρίς αιτία** (εγγραφή χωρίς χώρα, λογαριασμός από το καλάθι, χώρα που σβήνεται) | **#524** (απόφαση υπευθύνου): χώρα υποχρεωτική στην εγγραφή και στα στοιχεία· παραγγελία χωρίς έγκυρη χώρα απορρίπτεται· τιμολόγιο για λογαριασμό χωρίς χώρα παίρνει «All», αλλιώς τη νέα ρύθμιση **«Company country»** (υποχρεωτική με φόρο, εκτός αν υπάρχει EU VAT home country· `/health` κόκκινο όσο λείπει), αλλιώς τον μοναδικό συντελεστή. Τα reviews βρήκαν το myip χωρίς home, χώρα που δεν είναι χώρα ('XX', `EuVat::iso('')`), και τη ρύθμιση που μπλόκαρε κάθε save (3 Medium): κλειστά |
+
+Αποφάσεις και σημειώσεις:
+- Η χώρα που δηλώνει ο πελάτης **δεν** κλειδώνει (υπεύθυνος, 2026-10-29): μια χώρα εκτός ΕΕ δίνει 0% (`outside_eu`), όπως
+  στο WHMCS χωρίς «Locked Client Profile Fields».
+- Κουπόνι σταθερού ποσού αφαιρεί το ίδιο νούμερο σε κάθε νόμισμα (δεν μετατρέπεται): μετράει μόνο με δεύτερο νόμισμα.
+- **Cut-over:** «Company country» myip = GR, nixpal (ή το `eu_vat_home_country` EE). Ο importer μετρά στα dumps τους
+  πελάτες χωρίς χώρα ή με χώρα που δεν αναγνωρίζεται, και περνά τη χώρα από το `EuVat::iso()` (όχι `substr(…, 0, 2)`).
+  Προ-συμπλήρωση των συντελεστών της ΕΕ και εβδομαδιαίος έλεγχος: σε δικό του session.
+
+### Ροή 6: σημειώσεις (2026-10-29)
+Μόνο τα αλλαγμένα μετά το sweep της 22/10. Ελέγχθηκαν: μαζικές ενέργειες στο portal (μόνο του λογαριασμού, ένα τιμολόγιο
+ανά νόμισμα, κανένα διπλό με το cron), μεταφορά σε άλλο πελάτη (`MoveToClient`), G8-5b, `DomainRecordCorrections`,
+εισαγωγή τιμών TLD, Registrar Log (χωρίς EPP code), η ροή ανανέωσης. Πέρασαν τα 1.018 tests των domains.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD6-1 | Medium | Αλλαγή κατόχου .gr «με μεταφορά στον νέο κάτοχο»: γινόταν στο Μητρώο ενώ η μεταφορά αρνιόταν, και έμενε «done» με το domain (EPP code, NS) στον πωλητή και κάτοχο τον αγοραστή, χωρίς κανείς να το μάθει | **#526:** η μεταφορά ελέγχεται πριν (`MoveToClient::domainRefusal`, χωρίς εγγραφή): στο αίτημα και ξανά πριν σταλεί (refused, τίποτα στο Μητρώο)· αν αποτύχει αφού έγινε εκεί (ΕΕΤΤ αργότερα), email στο staff |
+
+Low, ανοιχτά: «staff gone» σε αλλαγή με μεταφορά (ακύρωση και νέο αίτημα· ένα πληρωμένο τιμολόγιο θέλει refund ή πίστωση,
+ο υπάρχων κανόνας)· προσωρινές αρνήσεις της μεταφοράς γίνονται refused και θέλουν «Send again»· η μεταφορά μέσα από την
+αλλαγή κατόχου θέλει μόνο το `admin.domains.owner_change`, όχι και το `move`. **Cut-over:** τα 8 ερωτήματα του sweep της
+22/10 μένουν (κυρίως τα domains του CNIC σε AUTORENEW)· η τιμή `domain_gr_owner_change_price`.
+
+### Ροή 7: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: LocalKey και md5hash απέναντι στον αυθεντικό κώδικα, input (POST πριν από GET), σειρά ελέγχων status, IP
+binding υπό race, rate limit του zlic, HMAC της γέφυρας (`hash_equals` στο raw body, replay idempotent), ops και error
+codes, feed (ignore, επαφές), `add_payment`, «issued is final», E5. Πέρασαν τα 295 tests του licensing και του Ekdosi.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD7-1 | High (contract) | Το αυθεντικό `zlic.php` διαβάζει το verify.php με `/<(.*?)>([^<]+)<\/\1>/`: κενό tag δεν ταιριάζει, λείπει από JSON και localkey. Το δικό μας έστελνε `companyname` (ιδιώτες), `billingcycle`, `validdirectory` κενά | **#527:** τα κενά tags φεύγουν πριν από το md5hash και το localkey |
+
+Low, ανοιχτό: τιμή με `<` (π.χ. εταιρεία «A<B»): το WHMCS την αποθηκεύει ως `&lt;` και το verify.php τη στέλνει έτσι· το
+MyCS στέλνει `<`. Κανένας client δεν διαβάζει το `companyname`. **Cut-over:** shadow-run με άδεια ιδιώτη και με όνομα με
+`&`/`'`· ίδια DNS records του `clients.nixpal.com` (όχι νέο AAAA, αλλιώς οι dual-stack clients έρχονται από IPv6 και παίρνουν
+«IP Address Invalid»)· τα ops του plugin `resellers`, `invoiced_flags`, `legacy_invoice_links`, `custom_fields` δεν υπάρχουν
+στη MyCS (400 `unknown_op`): να επιβεβαιωθεί ότι το K1 δεν τα καλεί.
+
+### Ροή 8: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: save του Settings (μετρητές, secrets, `permission`), cache των settings (κρυπτογραφημένα), `config:cache`,
+`BootFailure` (κανένα run με defaults), defaults, `mycs:install`, schedule και lock του cron, `/health`, `build.json`,
+guard για APP_DEBUG και dev packages, ERR trap και snapshot (umask 077), migrate πάνω στο squashed schema.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD8-1 | High | Πληρωμή Cardlink στη διάρκεια deploy: το return του vPOS έπαιρνε 503, η τράπεζα είχε χρεώσει, τίποτα δεν καταγραφόταν | **#529:** το `extensions/cardlink/return` περνά το maintenance, όπως το `zlic.php` (τα webhooks των Stripe/PayPal/Mollie ξαναστέλνονται) |
+| AUD8-2 | Medium | `app:settings:change … false` άφηνε ένα boolean ανοιχτό (`(bool) 'false'`) | **#529:** `filter_var(FILTER_VALIDATE_BOOLEAN)` |
+| AUD8-3 | Medium | `flushCache()` αγνοούσε ένα `Cache::forget` που απέτυχε (αρχείο του root): οι workers και το cron διάβαζαν τις παλιές ρυθμίσεις | **#529:** γράφεται από πάνω με τις τωρινές τιμές· αλλιώς `report()` |
+| AUD8-4 | Medium | Το `/health` μετρούσε μόνο τον πίνακα `jobs`: με redis «0 queued, ok» ενώ ο worker ήταν νεκρός | **#529:** διαβάζει την ουρά που χρησιμοποιεί η εφαρμογή· fail όταν δεν απαντά |
+| AUD8-5 | Medium | `deploy/update.sh`: ο worker ξανασηκωνόταν στη διάρκεια του maintenance με τον παλιό κώδικα, ως και μία ώρα | **#529:** `queue:restart` και μετά το `up` |
+| AUD8-6 | Medium | «✓ Deployed» με exit 0 ενώ το site απαντούσε 5xx· `APP_URL` με εισαγωγικά | **#529:** exit 1 χωρίς 200 στην αρχική· εισαγωγικά έξω· προειδοποίηση για το `/health` |
+| AUD8-7 | Medium (doc) | Το rollback του `install.md`: η επαναφορά του snapshot σβήνει ό,τι μπήκε μετά και γυρίζει τους μετρητές | **#529:** «μόνο αμέσως, με το site down· αργότερα διόρθωση προς τα εμπρός» |
+
+**Cut-over (orion):**
+- **Το schema dump έχει 136 `DROP TABLE`:** ποτέ `migrate` ή `mycs:install` σε βάση με δεδομένα και **άδειο** `migrations`
+  (π.χ. restore που κόπηκε).
+- **`.env`:** ρητά `CACHE_STORE`, `QUEUE_CONNECTION`, `SESSION_DRIVER` (το example και τα defaults είναι redis). Κοινό redis
+  χωρίς κωδικό στον orion το διαβάζει κάθε χρήστης του cPanel (sessions, cache με serialized τιμές): file/database, ή redis με
+  κωδικό.
+- **Worker:** χωρίς systemd ανά χρήστη στον orion: `QUEUE_STOP_CMD`/`QUEUE_START_CMD`, ή το `queue:restart` του script.
+- **CageFS:** `mariadb-dump` και `curl` μέσα στο cage, αλλιώς το deploy σταματά στο snapshot.
+- **Το cron του WHMCS σβήνει τη μέρα του cut-over** (αλλιώς suspend, terminate, χρεώσεις και emails παράλληλα).
+- **Ρυθμίσεις πριν από το πρώτο cron:** από τη σελίδα Settings. `find storage -not -user <χρήστης>` πριν από το cut-over.
+- **`cronjob_time`:** όχι 03:00–04:00 (αλλαγή ώρας: δύο runs ή κανένα).
+- **Νέα email templates** δεν φτάνουν σε υπάρχοντα instances με το deploy (δεν τρέχει seed): θέλουν migration.
+- Αν το vPOS του Cardlink ξαναστέλνει μετά από σφάλμα μένει άγνωστο (`payments.md`): το matching της τράπεζας πιάνει την
+  πίστωση στον λογαριασμό.

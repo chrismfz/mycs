@@ -32,7 +32,10 @@ class Saving
 
         switch ($setting->type) {
             case 'boolean':
-                $setting->value = (bool) $setting->value;
+                // 'false', 'off', 'no' and '0' are false (AUD8-2: `app:settings:change … false` left it on).
+                $setting->value = is_string($setting->value)
+                    ? filter_var($setting->value, FILTER_VALIDATE_BOOLEAN)
+                    : (bool) $setting->value;
                 break;
             case 'integer':
                 $setting->value = (int) $setting->value;

@@ -71,7 +71,9 @@ php artisan mycs:install                    # ρωτάει εταιρεία, URL
 MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   --company="nixpal" --url=https://my.nixpal.com --first-name=… --last-name=… --email=…
 ```
-Επιλογές: `--language=el`, `--timezone=Europe/Athens`, `--currency=EUR|USD`.
+Επιλογές: `--language=el`, `--timezone=Europe/Athens`, `--currency=EUR|USD`, `--eu-vat-rates` (οι κανονικοί συντελεστές
+ΦΠΑ των 27 χωρών της ΕΕ στο Tax Rates, μόνο όσες χώρες δεν έχουν· χωρίς το flag το ρωτά, προεπιλογή όχι). Αργότερα:
+`php artisan mycs:vat-rates:seed` (`docs/eu-vat.md`).
 
 Μετά: `deploy/private-files.sh` (το cached config, το `.env`, τα logs, τα PDF, τα tickets και τα snapshots μόνο για τον
 χρήστη της εφαρμογής· το ξανατρέχει κάθε `deploy/update.sh`), cron `* * * * * php artisan schedule:run`, queue worker
@@ -87,12 +89,25 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 
 ## Αν κάτι πάει στραβά
 Δεν υπάρχει αυτόματο rollback (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + backup). Το όνομα του snapshot
-έχει το commit που έτρεχε πριν (`<βάση>-<ημερομηνία>-<sha>.sql.gz`). Χειροκίνητα:
+έχει το commit που έτρεχε πριν (`<βάση>-<ημερομηνία>-<sha>.sql.gz`).
+
+**Πρώτα: άλλαξε το σχήμα;** (AUD8-7)
+- Αν το deploy **δεν** είχε migrations, αρκεί ο παλιός κώδικας (χωρίς επαναφορά της βάσης).
+- Αν **είχε**, ο παλιός κώδικας πάνω στο νέο σχήμα μπορεί να μη δουλεύει: χρειάζεται και η επαναφορά.
+- **Η επαναφορά σβήνει ό,τι μπήκε μετά το snapshot:** πληρωμές, τιμολόγια, tickets από την ώρα που το site ξαναάνοιξε,
+  και γυρίζει πίσω τους μετρητές αρίθμησης (διπλοί αριθμοί, παραστατικά ήδη στο Ekdosi). Μόνο αμέσως, με το site σε
+  `down`, πριν μπουν νέα δεδομένα. Αργότερα: διόρθωση προς τα εμπρός (νέο deploy), όχι επαναφορά.
+- **Και με το site σε maintenance μπαίνουν πληρωμές:** το return του Cardlink απαντιέται και τότε (AUD8-1). Πριν από την
+  επαναφορά, κράτα όσες μπήκαν μετά το snapshot (η ώρα του είναι στο όνομά του), και ξαναπέρασέ τες μετά, γιατί αλλιώς η
+  τράπεζα έχει τα χρήματα και η MyCS όχι (ADV-529-2):
+  `select i.id, t.transaction_id, t.amount, t.created_at from invoice_transactions t join invoices i on i.id = t.invoice_id where t.created_at >= '<ώρα του snapshot>';`
+
+Χειροκίνητα:
 ```bash
 cd /var/www/mycs && php artisan down
 git checkout <sha του snapshot>                 # η έκδοση που δούλευε
 composer install --no-dev --optimize-autoloader && npm ci && npm run build
-gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν το migrate άλλαξε δεδομένα
+gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν άλλαξε το σχήμα ή τα δεδομένα, και αμέσως (βλ. πάνω)
 php artisan optimize && php artisan up
 ```
 Τα snapshots είναι στον ίδιο server: δεν αντικαθιστούν τα backups εκτός server, που είναι το JetBackup του root.

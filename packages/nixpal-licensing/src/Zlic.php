@@ -161,8 +161,12 @@ final class Zlic
                 'validip' => $license->validIp,
                 'validdirectory' => $license->validDirectory,
             ];
+        // WHMCS's zlic.php reads verify.php's answer with /<(.*?)>([^<]+)<\/\1>/: a tag with nothing in it never matches,
+        // so it is in neither the answer nor the local key (AUD7-1: a private customer's empty companyname, an empty
+        // billingcycle or validdirectory). Left out here the same way, byte for byte.
+        $results = array_filter($results, fn ($value) => $value !== null && $value !== '');
         // verify.php puts customfields after the bindings.
-        if (array_key_exists('customfields', $license->serviceTags)) {
+        if (array_key_exists('customfields', $results)) {
             $customfields = $results['customfields'];
             unset($results['customfields']);
             $results['customfields'] = $customfields;

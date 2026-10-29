@@ -159,9 +159,14 @@ class CreditAutoApply
         if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Processing->value)->lockForUpdate()->exists()) {
             return false;
         }
-        // Staff took a credit payment off this invoice: the credit stays where they put it.
+        // Staff took a credit payment off this invoice: the credit stays where they put it. One made here (source credit)
+        // or brought by the WHMCS import (source import: its credit_out, credit_payment, reversed; review of #523).
         if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('kind', MoneyEventKind::Reversal->value)
-            ->where('cause', MoneyTrail::CAUSE_TRANSACTION_DELETED)->where('source', MoneyTrail::SOURCE_CREDIT)->exists()) {
+            ->where('cause', MoneyTrail::CAUSE_TRANSACTION_DELETED)
+            ->where(fn ($reversal) => $reversal->where('source', MoneyTrail::SOURCE_CREDIT)
+                ->orWhereIn('reverses_id', MoneyEvent::query()->select('id')->where('invoice_id', $invoice->id)
+                    ->where('cause', MoneyTrail::CAUSE_CREDIT_PAYMENT)))
+            ->exists()) {
             return false;
         }
         // Staff refunded money of this invoice to credit (PR 2c): paid straight back into it, the refund would be undone

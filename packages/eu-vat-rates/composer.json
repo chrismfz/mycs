@@ -1,0 +1,25 @@
+{
+    "name": "mycs/eu-vat-rates",
+    "description": "The EU member states' standard VAT rates: a checked list to start from, and the request and parser for the European Commission's TEDB web service (Taxes in Europe Database). Framework-free; the caller sends the request.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3",
+        "ext-dom": "*",
+        "ext-json": "*",
+        "ext-libxml": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\EuVatRates\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\EuVatRates\\Tests\\": "tests/"
+        }
+    }
+}

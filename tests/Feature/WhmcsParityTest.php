@@ -119,8 +119,8 @@ class WhmcsParityTest extends TestCase
     }
 
     /**
-     * Review of #521: a Mass Pay child's «credit» in WHMCS is its parent's money (a payment here, or an allocation of one),
-     * so neither side counts it as account credit; a merged ticket is its root's.
+     * Review of #521: a Mass Pay child's «credit» in WHMCS is its parent's money; here the part of the parent's payment
+     * the child took (the payment keeps its WHMCS id), so both sides count it the same; a merged ticket is its root's.
      */
     public function test_a_mass_pay_childs_credit_and_a_merged_ticket_are_no_difference(): void
     {
@@ -128,16 +128,31 @@ class WhmcsParityTest extends TestCase
         $this->whmcs->exec("INSERT INTO tblinvoices (id, status, subtotal, credit, total) VALUES (12, 'Paid', 10, 10, 0)");
         $this->whmcs->exec("INSERT INTO tblinvoices (id, status, subtotal, total) VALUES (13, 'Paid', 10, 10)");
         $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES (12, 'Hosting', 0, 10), (13, 'Invoice', 12, 10)");
-        $this->whmcs->exec('INSERT INTO tblaccounts (invoiceid, amountin) VALUES (13, 10)');
+        $this->whmcs->exec('INSERT INTO tblaccounts (id, invoiceid, amountin) VALUES (501, 13, 10)');
         $this->whmcs->exec('INSERT INTO tbltickets (id, merged_ticket_id) VALUES (1, 0), (2, 1)');
         $child = Invoice::factory()->create(['client_id' => Invoice::query()->value('client_id'), 'status' => 'unpaid', 'currency_code' => 'USD']);
         $child->items()->delete();
         $child->items()->create(['description' => 'Hosting', 'price' => 10, 'quantity' => 1]);
         DB::table('invoices')->where('id', $child->id)->update(['status' => 'paid']);
-        DB::table('invoice_transactions')->insert(['invoice_id' => $child->id, 'amount' => 10, 'is_credit_transaction' => false, 'status' => 'succeeded',
+        DB::table('invoice_transactions')->insert(['id' => 501, 'invoice_id' => $child->id, 'amount' => 10, 'is_credit_transaction' => false, 'status' => 'succeeded',
             'created_at' => now(), 'updated_at' => now()]);
         DB::table('tickets')->insert(['client_id' => Invoice::query()->value('client_id'), 'subject' => 'Root', 'status' => 'closed', 'created_at' => now(), 'updated_at' => now()]);
 
         $this->parity()->assertSuccessful()->expectsOutputToContain('No difference.');
+    }
+
+    /** A customer without a country the app knows (EuVat::iso, as the importer reads it) is counted on both sides (#524). */
+    public function test_customers_without_a_country_are_counted_on_both_sides(): void
+    {
+        $this->sameOnBothSides();
+        $this->whmcs->exec('ALTER TABLE tblclients ADD COLUMN country TEXT');
+        $this->whmcs->exec("UPDATE tblclients SET country = 'XX'");
+        DB::table('contacts')->whereNotNull('primary_of_client_id')->update(['country' => null]);
+
+        $this->parity()->assertSuccessful()->expectsOutputToContain('No difference.');
+
+        DB::table('contacts')->whereNotNull('primary_of_client_id')->update(['country' => 'GR']);
+
+        $this->parity()->assertFailed()->expectsOutputToContain('Customers without a country');
     }
 }

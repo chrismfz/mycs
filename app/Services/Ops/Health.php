@@ -2,6 +2,7 @@
 
 namespace App\Services\Ops;
 
+use App\Classes\Settings;
 use App\Console\Commands\Domains\SyncDomains;
 use App\Console\Commands\MailSweep;
 use App\Enums\DomainStatus;
@@ -11,14 +12,17 @@ use App\Models\EmailLog;
 use App\Models\License;
 use App\Models\ModuleAction;
 use App\Models\Setting;
+use App\Models\TaxRate;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
 use App\Services\Mcp\McpOauth;
+use App\Services\Tax\EuVatRates;
 use App\Support\StaffTwoFactor;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -108,7 +112,7 @@ final class Health
     public static function report(): array
     {
         $checks = [];
-        foreach (['build', 'runtime', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail'] as $name) {
+        foreach (['build', 'runtime', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail', 'tax', 'vat_rates'] as $name) {
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
@@ -207,6 +211,25 @@ final class Health
 
     private static function queue(): array
     {
+        // The queue the app uses (AUD8-4): a redis or other one read through it, or failed when it cannot be reached.
+        $connection = (string) config('queue.default');
+        if (!in_array($connection, ['database', 'sync'], true)) {
+            try {
+                $queue = Queue::connection($connection);
+                $size = $queue->size();
+                // How long the oldest job has waited, as the database queue's check (ADV-529-1: a dead worker with redis up).
+                $oldest = $queue->creationTimeOfOldestPendingJob();
+            } catch (Throwable $e) {
+                return ['status' => self::FAIL, 'detail' => "The {$connection} queue cannot be read: " . Scrub::text($e->getMessage())];
+            }
+            $waiting = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : 0;
+            $failed = DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count();
+            $status = $waiting > 600 ? self::FAIL : ($failed > 0 || $waiting > 120 ? self::WARN : self::OK);
+
+            return ['status' => $status, 'detail' => "{$size} queued ({$connection}, oldest waiting {$waiting}s), {$failed} failed in 24h",
+                'data' => ['queued' => $size, 'connection' => $connection, 'oldest_waiting_seconds' => $waiting, 'failed_24h' => $failed,
+                    'failed_total' => DB::table('failed_jobs')->count()]];
+        }
         $jobs = Schema::hasTable('jobs') ? DB::table('jobs')->count() : 0;
         $oldest = Schema::hasTable('jobs') ? DB::table('jobs')->whereNull('reserved_at')->min('available_at') : null;
         $waiting = $oldest ? now()->getTimestamp() - (int) $oldest : 0;
@@ -215,6 +238,27 @@ final class Health
 
         return ['status' => $status, 'detail' => "{$jobs} queued (oldest waiting {$waiting}s), {$failed} failed in 24h",
             'data' => ['queued' => $jobs, 'oldest_waiting_seconds' => $waiting, 'failed_24h' => $failed, 'failed_total' => DB::table('failed_jobs')->count()]];
+    }
+
+    /**
+     * With tax on, an account without a country pays the «All» rate or the company's (AUD5-1): without either, its
+     * invoices would be 0% with no reason. The company country is required (owner, 2026-10-29).
+     */
+    private static function tax(): array
+    {
+        if (!config('settings.tax_enabled')) {
+            return ['status' => self::OK, 'detail' => 'Tax off'];
+        }
+        $all = TaxRate::query()->where('country', 'all')->exists();
+        $home = Settings::configuredHomeCountry();
+        $status = $home !== null ? self::OK : ($all || Settings::onlyRateCountry() !== null ? self::WARN : self::FAIL);
+        $detail = match ($status) {
+            self::OK => 'Company country ' . $home,
+            self::WARN => 'Set the Company country (Settings, Tax): accounts without a country pay ' . ($all ? 'the «All» rate' : 'the only rate') . ' until then',
+            default => 'Tax is on with no Company country and no «All» rate: an account without a country is invoiced at 0%',
+        };
+
+        return ['status' => $status, 'detail' => $detail, 'data' => ['company_country' => $home, 'all_rate' => $all]];
     }
 
     private static function mail(): array
@@ -307,5 +351,36 @@ final class Health
             . ($erring !== [] ? 'Errors: ' . Scrub::text(implode('; ', $erring)) . '. ' : '')
             . "{$departments->count()} mailboxes read, {$waiting} quarantined mails waiting over a day",
             'data' => ['mailboxes' => $departments->count(), 'not_read' => $failing, 'quarantine_waiting' => $waiting, 'errors' => $erring]];
+    }
+
+    /**
+     * The weekly comparison of Tax Rates with TEDB (docs/eu-vat.md): a difference found, TEDB not answering, or no
+     * check for over a week. Off, or not run yet since turned on, is ok.
+     */
+    private static function vat_rates(): array
+    {
+        if (!EuVatRates::enabled()) {
+            return ['status' => self::OK, 'detail' => 'The weekly check is off (Settings → Tax)'];
+        }
+        $rates = app(EuVatRates::class);
+        $state = $rates->state();
+        $checked = isset($state['checked_at']) ? Carbon::parse($state['checked_at']) : null;
+        $failed = isset($state['failed_at']) ? Carbon::parse($state['failed_at']) : null;
+        // Against Tax Rates as they are now: a rate staff fixed after the check is ok at once (code review).
+        $differences = isset($state['tedb']) ? $rates->compare($state['tedb'])['differences'] : ($state['differences'] ?? []);
+        $found = [];
+        if ($differences !== []) {
+            $found[] = 'Differs from TEDB: ' . implode(', ', array_map(fn (array $difference) => "{$difference['country']} {$difference['ours']}% here, {$difference['tedb']}% in TEDB", $differences));
+        }
+        if ($failed !== null && ($checked === null || $failed->gt($checked))) {
+            $found[] = 'TEDB did not answer ' . $failed->diffForHumans() . ': ' . Scrub::text((string) ($state['error'] ?? ''));
+        }
+        if ($checked !== null && $checked->lt(now()->subDays(EuVatRates::STALE_DAYS))) {
+            $found[] = 'Last checked ' . $checked->diffForHumans();
+        }
+
+        return ['status' => $found !== [] ? self::WARN : self::OK,
+            'detail' => $found !== [] ? implode('; ', $found) : ($checked ? ($state['compared'] ?? 0) . ' rates as in TEDB, checked ' . $checked->diffForHumans() : 'Not checked yet (weekly, Mondays)'),
+            'data' => ['checked_at' => $checked?->toIso8601String(), 'failed_at' => $failed?->toIso8601String(), 'differences' => $differences]];
     }
 }

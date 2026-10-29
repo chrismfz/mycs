@@ -306,6 +306,18 @@ class Settings
                     'default' => false,
                 ],
                 [
+                    // The rate of an account without a country (imported): never 0% for want of one (AUD5-1). EU VAT
+                    // or not; empty: the EU VAT home country.
+                    'name' => 'tax_home_country',
+                    'label' => 'Company country',
+                    'type' => 'select',
+                    'options' => array_slice((array) config('app.countries'), 1, null, true),
+                    // Required with tax on (owner, 2026-10-29), unless the EU VAT home country gives it already: an
+                    // install upgraded with tax on still saves its other tabs (ADV-524-R2-1). /health tells what is missing.
+                    'required' => fn (Get $get) => (bool) $get('tax_enabled') && blank($get('eu_vat_home_country')),
+                    'description' => 'The country whose rate an account without a country pays (an «All» rate comes first). Required with tax on; empty: the EU VAT home country.',
+                ],
+                [
                     'name' => 'tax_type',
                     'label' => 'Tax Type',
                     'type' => 'select',
@@ -339,6 +351,15 @@ class Settings
                     'type' => 'text',
                     'required' => false,
                     'description' => 'Sent to VIES with each check, so it answers with a consultation number: the proof the customer\'s number was valid.',
+                ],
+                // The weekly comparison with TEDB (docs/eu-vat.md): a call out, so off until staff turn it on (CLAUDE.md).
+                [
+                    'name' => 'eu_vat_rates_check',
+                    'label' => 'Check EU VAT rates weekly',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Once a week the EU standard VAT rates are read from the European Commission (TEDB) and compared with Tax Rates. Staff are mailed (and told in chat) of a difference; nothing is changed.',
                 ],
             ],
             'mail' => [
@@ -1466,29 +1487,60 @@ class Settings
         );
     }
 
+    /**
+     * The company's country, ISO (AUD5-1, reviews of #524): its own setting, else the EU VAT home country; until one is
+     * set, the country of the only rate there is (myip's Greece); or null.
+     */
+    public static function homeCountry(): ?string
+    {
+        $set = self::configuredHomeCountry();
+        if ($set !== null) {
+            return $set;
+        }
+        // Once per request/job, with the rates (a list of accounts without a country asks it per row).
+        $rates = app('settings.tax-rates');
+        if (!$rates->offsetExists('only-rate-country')) {
+            $rates['only-rate-country'] = self::onlyRateCountry() ?? '';
+        }
+
+        return $rates['only-rate-country'] ?: null;
+    }
+
+    /** The country of the only rate there is, when there is one (and no more), ISO. */
+    public static function onlyRateCountry(): ?string
+    {
+        $countries = TaxRate::query()->where('country', '!=', 'all')->distinct()->limit(2)->pluck('country');
+
+        return $countries->count() === 1 ? EuVat::iso($countries->first()) : null;
+    }
+
+    /** The company's country as staff set it (Company country, else the EU VAT home country), or null. */
+    public static function configuredHomeCountry(): ?string
+    {
+        return EuVat::iso(config('settings.tax_home_country')) ?? EuVat::iso(config('settings.eu_vat_home_country'));
+    }
+
     public static function tax(?Client $client = null)
     {
         // The account's country (docs/accounts.md, PR 2a): the given one, or in the client area the current one.
         $client ??= Auth::guard('web')->check() ? CurrentClient::model() : null;
-        // The account's country is its primary contact's (PR 3a), an ISO code.
-        $country = $client?->country;
-
-        // Change country to a two-letter country code if it's not already
-        if ($country) {
-            $country = array_search($country, config('app.countries')) ?: $country;
-        }
+        // The account's country is its primary contact's (PR 3a), as an ISO code (a name too, as imported); one that is
+        // no country at all counts as none (review of #524).
+        $iso = EuVat::iso($client?->country);
         // EU VAT (PR G): EL is Greece, and Monaco pays France's VAT (adversarial ADV-3/4).
-        if (EuVat::enabled() && ($iso = EuVat::iso($country)) !== null) {
-            $country = EuVat::territory($iso);
-        }
+        $country = $iso !== null && EuVat::enabled() ? EuVat::territory($iso) : $iso;
 
         // Once per country and request/job (product pages build many prices); reset between requests and queued
         // jobs. Per country, not per user: a customer whose country changes in the request gets the new rate.
+        // An account with no country (imported, or older than the required field, AUD5-1) pays the «all» rate, and
+        // without one the company's own (its country, else the EU VAT home country), never 0% for want of a country.
+        $home = $country === null && $client !== null ? self::homeCountry() : null;
         $rates = app('settings.tax-rates');
-        $key = $country ?? '';
+        $key = ($country ?? '') . '|' . ($home ?? '');
         if (!$rates->offsetExists($key)) {
-            $rates[$key] = TaxRate::whereIn('country', [$country, 'all'])
-                ->orderByRaw('country = ? desc', [$country])
+            $rates[$key] = TaxRate::whereIn('country', array_values(array_filter([$country, 'all', $home])))
+                ->orderByRaw('country = ? desc', [(string) $country])
+                ->orderByRaw("country = 'all' desc")
                 ->first() ?: 0;
         }
 

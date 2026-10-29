@@ -129,7 +129,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 |---|---|---|---|
 | Αυτόματη εφαρμογή πίστωσης | **off** (`NoAutoApplyCredit`) | on | **P:** `credits_auto_use` |
 | Add funds | on | on (με παραγγελία) | **P:** `credits_enabled`, min/max |
-| Φόρος | 24% exclusive, ένας κανόνας | EU VAT 27 χώρες, VIES, reverse charge | P~ `tax_enabled`, `tax_type`· PR G: `eu_vat_enabled` (nixpal ναι, myip όχι), `eu_vat_home_country` (nixpal EE), `eu_vat_requester` (`eu-vat.md`) |
+| Φόρος | 24% exclusive, ένας κανόνας | EU VAT 27 χώρες, VIES, reverse charge | P~ `tax_enabled`, `tax_type`· PR G: `eu_vat_enabled` (nixpal ναι, myip όχι), `eu_vat_home_country` (nixpal EE), `eu_vat_requester`, `eu_vat_rates_check` (εβδομαδιαίος έλεγχος με το TEDB, κλειστός by default) (`eu-vat.md`) |
 
 ## Συμπέρασμα
 Η αρίθμηση και το proforma της nixpal **υπάρχουν ήδη ως ρυθμίσεις στο upstream** (`invoice_number_format`

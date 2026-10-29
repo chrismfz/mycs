@@ -69,6 +69,20 @@ trait EditsContact
         ];
     }
 
+    /**
+     * The account's details (its primary contact): the country is required, as WHMCS asks it, because the VAT is the
+     * country's (AUD5-1). Other contacts may leave it empty.
+     *
+     * @return array<string, mixed>
+     */
+    protected function primaryContactRules(string $prefix = 'contact'): array
+    {
+        $rules = $this->contactRules($prefix);
+        $rules["{$prefix}.country"][0] = 'required';
+
+        return $rules;
+    }
+
     /** @return array<string, mixed> The validated values, empty strings as null. */
     protected function contactValues(): array
     {

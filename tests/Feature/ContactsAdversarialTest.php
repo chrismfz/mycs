@@ -73,7 +73,7 @@ class ContactsAdversarialTest extends TestCase
         $member = $this->member($client, ['tickets', 'contacts']);
 
         $this->livewireOn($member, $client);
-        Livewire::test(Account::class)
+        Livewire::test(Account::class)->set('contact.country', 'GR')
             ->set('canEditDetails', true)
             ->set('contact', ['type' => 'business', 'company_name' => 'Hijacked', 'country' => 'US', 'email' => 'evil@example.test',
                 'email_preferences' => []])
@@ -130,7 +130,7 @@ class ContactsAdversarialTest extends TestCase
         $this->assertSame($victim->primaryContact->id, $victim->fresh()->primaryContact->id);
 
         // The same through the account page (the primary contact).
-        Livewire::test(Account::class)
+        Livewire::test(Account::class)->set('contact.country', 'GR')
             ->set('contact.primary_of_client_id', $victim->id)->set('contact.client_id', $victim->id)->set('contact.notes', 'x')
             ->call('submit');
         $primary = $client->fresh()->primaryContact;
@@ -208,7 +208,7 @@ class ContactsAdversarialTest extends TestCase
 
     public function test_holds_registration_and_staff_creation_give_exactly_one_primary(): void
     {
-        Livewire::test(Register::class)
+        Livewire::test(Register::class)->set('contact.country', 'GR')
             ->set('first_name', 'A')->set('last_name', 'B')->set('email', 'reg@example.test')
             ->set('password', 'secret-pass-1')->set('password_confirmation', 'secret-pass-1')
             ->call('submit')->assertHasNoErrors();
@@ -224,7 +224,7 @@ class ContactsAdversarialTest extends TestCase
     {
         foreach ([['contact.country', 'XX'], ['contact.country', 'gr'], ['contact.country', 'Greece'], ['contact.vat_number', '<b>x</b>'],
             ['contact.type', 'admin'], ['contact.document_type', 'credit_note'], ['contact.email_preferences', ['all']]] as $i => [$field, $value]) {
-            Livewire::test(Register::class)
+            Livewire::test(Register::class)->set('contact.country', 'GR')
                 ->set('first_name', 'A')->set('last_name', 'B')->set('email', "bad{$i}@example.test")
                 ->set('password', 'secret-pass-1')->set('password_confirmation', 'secret-pass-1')
                 ->set($field, $value)

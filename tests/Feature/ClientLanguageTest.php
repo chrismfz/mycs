@@ -48,11 +48,11 @@ class ClientLanguageTest extends TestCase
     {
         $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $this->user->client()->id]));
 
-        Livewire::test(Account::class)->set('language', 'en')->call('submit')->assertHasNoErrors();
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('language', 'en')->call('submit')->assertHasNoErrors();
         $this->assertSame('en', $this->user->client()->fresh()->language);
 
-        Livewire::test(Account::class)->set('language', 'xx')->call('submit')->assertHasErrors('language');
-        Livewire::test(Account::class)->set('language', '')->call('submit')->assertHasNoErrors();
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('language', 'xx')->call('submit')->assertHasErrors('language');
+        Livewire::test(Account::class)->set('contact.country', 'GR')->set('language', '')->call('submit')->assertHasNoErrors();
         $this->assertNull($this->user->client()->fresh()->language);
     }
 
@@ -88,6 +88,6 @@ class ClientLanguageTest extends TestCase
         $this->user->client()->forceFill(['language' => 'de'])->save();
         $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $this->user->client()->id]));
 
-        Livewire::test(Account::class)->assertSet('language', '')->call('submit')->assertHasNoErrors();
+        Livewire::test(Account::class)->set('contact.country', 'GR')->assertSet('language', '')->call('submit')->assertHasNoErrors();
     }
 }
