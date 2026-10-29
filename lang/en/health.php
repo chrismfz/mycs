@@ -13,4 +13,5 @@ return [
     'domains' => 'Domains',
     'runtime' => 'PHP and production settings',
     'ticket_mail' => 'Ticket mailboxes',
+    'vat_rates' => 'EU VAT rates',
 ];

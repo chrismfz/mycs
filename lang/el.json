@@ -1288,6 +1288,7 @@
     "Service unsuspended": "Επαναφορά υπηρεσίας",
     "Service terminated": "Τερματισμός υπηρεσίας",
     "Cancellation requested": "Αίτημα ακύρωσης",
+    "EU VAT rate differs from TEDB": "Συντελεστής ΦΠΑ ΕΕ διαφέρει από το TEDB",
     "Preview": "Προεπισκόπηση",
     "Send test to me": "Δοκιμαστική αποστολή σε εμένα",
     "The texts on the form now, with made-up data, to :email, in each language.": "Τα κείμενα όπως είναι τώρα στη φόρμα, με δοκιμαστικά δεδομένα, στο :email, σε κάθε γλώσσα.",

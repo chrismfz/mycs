@@ -112,7 +112,7 @@ class ImportGatewaysPromotionsAdversarialTest extends TestCase
         $this->whmcs->exec("INSERT INTO tblaccounts VALUES (1, {$this->clientId}, 101, 'stripe', '2026-09-03 10:00:00', 10, 0, 0.59, 'pi_whmcs_1', 0)");
         $this->whmcs->exec("INSERT INTO tblaccounts VALUES (2, {$this->clientId}, 101, 'stripe', '2026-09-05 10:00:00', 0, 10, 0, '', 1)");
 
-        $this->import('importInvoices', 'importInvoiceItems', 'importPayments');
+        $this->import('importInvoices', 'importInvoiceItems', 'importPayments', 'importRefunds');
 
         $payment = InvoiceTransaction::query()->findOrFail(1);
         $this->assertSame(0.0, (float) $payment->refundable_amount, 'WHMCS refunded it: nothing left to give back');

@@ -71,7 +71,7 @@ class ImportMassPayTest extends TestCase
         (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
         $this->output = new BufferedOutput;
         $command->setOutput(new OutputStyle(new ArrayInput([]), $this->output));
-        foreach (['importInvoices', 'importInvoiceItems', 'importPayments', 'importMassPay'] as $step) {
+        foreach (['importInvoices', 'importInvoiceItems', 'importPayments', 'importMassPay', 'importRefunds'] as $step) {
             (new ReflectionMethod($command, $step))->invoke($command);
         }
     }
@@ -146,7 +146,7 @@ class ImportMassPayTest extends TestCase
         $credit = InvoiceTransaction::query()->where('invoice_id', 821)->sole();
         $this->assertSame(['10.00', true, null], [(string) $credit->amount, (bool) $credit->is_credit_transaction, $credit->source_transaction_id]);
         $this->assertNull(InvoiceTransaction::query()->find(7020), 'a refund on a parent is left to staff');
-        $this->assertStringContainsString('refund 7020', $this->output->fetch());
+        $this->assertStringContainsString('Money out on no payment imported, not imported (a chargeback or a refund typed by hand in WHMCS): WHMCS tblaccounts #7020', $this->output->fetch());
     }
 
     /** A parent whose children were all deleted in WHMCS stays an invoice with its payment: no money is lost. */
