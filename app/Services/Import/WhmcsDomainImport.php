@@ -57,6 +57,15 @@ final class WhmcsDomainImport
     /** @var list<string> */
     private array $notes = [];
 
+    /** @var list<string> what line() found, said after the invoice lines (run() has reported by then) */
+    private array $lineNotes = [];
+
+    /** @return list<string> */
+    public function lineNotes(): array
+    {
+        return $this->lineNotes;
+    }
+
     /** @var array<string, DomainRegistrarConnection> WHMCS registrar module => its connection here */
     private array $connections = [];
 
@@ -110,7 +119,7 @@ final class WhmcsDomainImport
             $short = $done && $renewal['period_end'] !== null && !$domain['ended']
                 && ($domain['expires'] === null || Carbon::parse($domain['expires'])->addDays(self::COVERED_WITHIN_DAYS)->lessThan(Carbon::parse($renewal['period_end'])));
             if ($short) {
-                $this->notes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}, WHMCS's expiry is "
+                $this->lineNotes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}, WHMCS's expiry is "
                     . ($domain['expires'] ?? 'none') . ': left to be renewed (the registrar read first: only the years it lacks).';
             }
             // Cancelled in WHMCS for a period already due: given up, as a cancellation here does (Δ3a, InvoiceObserver).

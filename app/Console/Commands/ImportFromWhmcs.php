@@ -1654,6 +1654,9 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_items')->insert($data);
         });
+        foreach ($this->domains?->lineNotes() ?? [] as $note) {
+            $this->warn($note);
+        }
         if ($this->orphanLines > 0) {
             $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS, or not imported: not imported.");
         }

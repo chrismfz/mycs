@@ -289,5 +289,15 @@ class ImportDomainsTest extends TestCase
             $line->period_start?->toDateString(), $line->period_end?->toDateString()]);
         $this->assertNotNull($line->applied_at);
         $this->assertStringContainsString('1 invoice line(s) of invoices deleted in WHMCS, or not imported: not imported', $output->fetch());
+
+        // Paid, but WHMCS's expiry never reached its end: left to be applied, said after the lines.
+        DB::table('invoice_items')->delete();
+        $this->whmcs->exec("UPDATE tbldomains SET expirydate = '2026-03-01' WHERE id = 71");
+        DB::table('domains')->where('id', 71)->update(['expires_at' => '2026-03-01']);
+        (new ReflectionProperty($import = (new ReflectionProperty($command, 'domains'))->getValue($command), 'imported'))->setValue($import, null);
+        (new ReflectionProperty($command, 'importedInvoices'))->setValue($command, null);
+        (new ReflectionMethod($command, 'importInvoiceItems'))->invoke($command);
+        $this->assertNull(InvoiceItem::query()->findOrFail(11)->applied_at, 'the registrar read first when it runs: adopted, or only the years it lacks');
+        $this->assertStringContainsString('Domain #71: invoice #1 paid its renewal to 2027-03-01', $output->fetch());
     }
 }
