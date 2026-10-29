@@ -158,7 +158,7 @@ class SuspensionWindowRound2Test extends TestCase
         AcPay::$charges = [];
         $user = User::factory()->create();
         $client = $user->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card']);
         $client->refresh();
         $client->forceFill(['auto_charge' => true])->save();

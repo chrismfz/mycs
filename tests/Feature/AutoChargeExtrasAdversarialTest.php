@@ -78,7 +78,7 @@ class AutoChargeExtrasAdversarialTest extends TestCase
         };
         Carbon::setTestNow('2026-11-10 09:00:00');
         $this->client = User::factory()->create()->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway', 'enabled' => true]);
         $this->agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card', 'expiry' => '2026-11-30']);
         $this->client->refresh();

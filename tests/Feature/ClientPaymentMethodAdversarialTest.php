@@ -89,7 +89,7 @@ class ClientPaymentMethodAdversarialTest extends TestCase
 
     private function agreementOf(Client $client, string $extension = 'C2AdvPay'): BillingAgreement
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => $extension], ['name' => $extension, 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => $extension], ['name' => $extension, 'type' => 'gateway', 'enabled' => true]);
 
         return BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Card ' . uniqid(),
             'external_reference' => 'ref-' . uniqid('', true)]);

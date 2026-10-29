@@ -440,7 +440,7 @@ class DomainsD5b1AdversarialTest extends TestCase
         }
         AcPay::$charges = [];
         AcPay::$answer = null;
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card']);
         $this->assertNotNull($this->user->client()->fresh()->autoChargeAgreement(), 'precondition: a default saved method');

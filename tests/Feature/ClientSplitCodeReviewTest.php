@@ -39,7 +39,7 @@ class ClientSplitCodeReviewTest extends TestCase
 
     private function agreementOf(Client $client, string $ref): BillingAgreement
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
 
         return BillingAgreement::create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal',
             'external_reference' => $ref, 'type' => 'paypal']);

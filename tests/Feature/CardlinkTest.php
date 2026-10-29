@@ -44,7 +44,7 @@ class CardlinkTest extends TestCase
         Cache::flush();
         config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $this->user = User::factory()->create();
-        $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'Cardlink'], ['name' => 'Cardlink', 'type' => 'gateway']);
+        $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'Cardlink'], ['name' => 'Cardlink', 'type' => 'gateway', 'enabled' => true]);
         foreach ($this->config() as $key => $value) {
             $this->gateway->settings()->updateOrCreate(['key' => $key], ['value' => $value]);
         }

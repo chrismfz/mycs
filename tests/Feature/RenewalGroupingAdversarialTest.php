@@ -133,7 +133,7 @@ class RenewalGroupingAdversarialTest extends TestCase
 
     private function agreement(): BillingAgreement
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupingFakePay'], ['name' => 'Fake', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupingFakePay'], ['name' => 'Fake', 'type' => 'gateway', 'enabled' => true]);
 
         return BillingAgreement::create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'Card',
             'external_reference' => 'VAULT-C1', 'type' => 'card']);

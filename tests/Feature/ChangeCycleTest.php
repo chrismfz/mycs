@@ -269,7 +269,7 @@ class ChangeCycleTest extends TestCase
                 public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
         }
         $service = $this->service();
-        $gateway = Gateway::query()->create(['extension' => 'CycleFakePay', 'name' => 'CycleFakePay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->create(['extension' => 'CycleFakePay', 'name' => 'CycleFakePay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $service->client_id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'c-1']);
 
         $invoice = ChangeCycle::apply($service->fresh(), $this->monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
