@@ -52,7 +52,7 @@
 - **Pending υπηρεσίες με μόνο ακυρωμένα τιμολόγια** (BIL-12, #75): στο πρώτο run του cron μετά το cut-over
   ακυρώνονται όλες μαζί (παλαιότερες από `cronjob_order_cancel` ημέρες) και το stock τους επιστρέφει. Να μετρηθούν
   πριν από το cut-over και να αποφασίσει το staff (να γίνουν cancelled στο import ή να μείνουν).
-- **Ρυθμίσεις αυτοματισμού (έγινε, 2026-10-29: `importAutomationSettings`):** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
+- **Ρυθμίσεις αυτοματισμού (έγινε, 2026-10-29: `importAutomationSettings`· η πλήρης λίστα, με υπενθυμίσεις, πίστωση και το override ανά υπηρεσία, στο «Ρυθμίσεις αυτοματισμού» παρακάτω):** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
 - **Mass Pay:** τα γονικά τιμολόγια δεν γίνονται τιμολόγια· η πληρωμή τους πάει στα παιδιά (`WhmcsMassPay`, PR F3,
   `payments.md`). Parity: πλήθος πληρωμένων γονικών = ομάδες με `whmcs_invoice_id`· χρήματα γονικών = άμεσα + allocations.
 - **Ό,τι άλλο βγάλει η απογραφή χρήσης του WHMCS** (`whmcs-usage.md`): mass pay/merge, πιστώσεις, promotions και εκπτώσεις ομάδων, κανόνες ΦΠΑ/VIES, custom fields, suspend overrides, guest tickets.
@@ -276,6 +276,10 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - Οι τρεις υπενθυμίσεις overdue → `cronjob_overdue_reminders`, ως λίστα (myip 1,3,5). Στη nixpal ισχύει η απόφαση
     του υπευθύνου, **1,3,7**, που ορίζεται με το χέρι στο cut-over της.
   - `NoAutoApplyCredit` → `credits_auto_use`, ανάποδα. Η myip έχει την αυτόματη χρήση πίστωσης **κλειστή**.
+  - Η ίδια η πίστωση, `credits_enabled`: on όπου το WHMCS επιτρέπει «Add Funds» ή κάποιος πελάτης έχει υπόλοιπο. Και
+    στις δύο εταιρείες είναι on. Κλειστή, η αυτόματη χρήση δεν θα έκανε τίποτα και τα υπόλοιπα δεν θα ξοδεύονταν
+    (round 3 του #518).
+  - Με το «Payment Reminder Emails» (`SendReminder`) off, σταματούν και οι υπενθυμίσεις overdue, όπως στο WHMCS.
 - **Τιμές εκτός ορίων:** ό,τι λείπει ή ξεπερνά τις 3.650 ημέρες κρατά την τιμή της MyCS, και το import το λέει.
 - **Ημέρες τιμολόγησης ανά κύκλο** (myip: μήνας 10, τρίμηνο 15, εξάμηνο και έτος 20): η MyCS κρατά μία τιμή
   (`cronjob_invoice`). Το import το λέει, και η τιμή αποφασίζεται πριν από το πρώτο cron.
@@ -286,11 +290,13 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   Το cron δεν τις αναστέλλει και δεν τις τερματίζει.
 - **Υπηρεσία suspended από το WHMCS για «Overdue on Payment»:** το marker της αναστολής παίρνει τη λήξη + Suspend Days
   (ποτέ μετά το «τώρα»), ώστε ο τερματισμός να μην αργεί μία ημέρα.
-- Οι 12 suspended υπηρεσίες της myip (2026-10-29) έχουν όλες override και καμία «Overdue on Payment»: μπαίνουν ως
-  κράτηση του staff.
+- Οι 12 suspended υπηρεσίες της myip (2026-10-29) **δεν** έχουν override (`overideautosuspend` = 0), και καμία δεν είναι
+  «Overdue on Payment» (11 χωρίς λόγο, 1 με άλλον): μπαίνουν ως κράτηση του staff, που ο τερματισμός του cron δεν
+  αγγίζει.
 - **Όρια:**
   - Το `CloseInactiveTickets` σε ώρες ως δέκα χρόνια.
-  - Οι υπενθυμίσεις overdue ως τις 365 ημέρες, όσες στέλνει το cron· μια πιο αργή μένει εκτός και το import το λέει.
+  - Οι υπενθυμίσεις overdue ως τις 365 ημέρες, όσες στέλνει το cron. Μια πιο αργή, ή μια που δεν είναι αριθμός, μένει
+    εκτός, και το import το λέει.
 - **Να ελεγχθεί πριν από το cut-over** (round 2 του #518, όχι επιβεβαιωμένο): πιθανόν το AutoTermination του WHMCS
   παρακάμπτει κάθε υπηρεσία με `overideautosuspend`, όποια κι αν είναι η ημερομηνία. Αν ναι, μια υπηρεσία με override
   που έχει λήξει και την κρατούσε το WHMCS εδώ τερματίζεται. Στις 2026-10-29 η myip δεν έχει καμία τέτοια.

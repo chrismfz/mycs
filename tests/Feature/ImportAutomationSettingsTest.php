@@ -23,12 +23,19 @@ class ImportAutomationSettingsTest extends TestCase
 
     private BufferedOutput $output;
 
+    /** @var list<float> the source's customers' credit balances */
+    private array $balances = [];
+
     /** @param array<string, string> $config */
     private function import(array $config): void
     {
         $whmcs = new PDO('sqlite::memory:');
         $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT PRIMARY KEY, value TEXT)');
+        $whmcs->exec('CREATE TABLE IF NOT EXISTS tblclients (id INTEGER PRIMARY KEY, credit REAL DEFAULT 0)');
+        foreach ($this->balances as $credit) {
+            $whmcs->exec('INSERT INTO tblclients (credit) VALUES (' . (float) $credit . ')');
+        }
         $insert = $whmcs->prepare('INSERT INTO tblconfiguration VALUES (?, ?)');
         foreach ($config as $setting => $value) {
             $insert->execute([$setting, $value]);
@@ -114,7 +121,24 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame(['1', 'boolean'], $settings['cronjob_terminate_enabled'], '«On» is on');
         $this->assertNotSame('99999999999999999999', $settings['cronjob_order_terminate'][0] ?? null, 'a «never» typed as a huge number is not a number of days');
         $this->assertSame(['0', 'string'], $settings['cronjob_close_ticket'], 'empty is never, as in WHMCS');
-        $this->assertSame(['2', 'string'], $settings['cronjob_overdue_reminders'], 'once each, the empty one left out');
+        $this->assertSame(['', 'string'], $settings['cronjob_overdue_reminders'], '«Payment Reminder Emails» off stops the overdue notices too');
         $this->assertStringContainsString('never 03:xx', $this->output->fetch());
+    }
+
+    /** Round 3 of #518: credit itself is on, so the auto-apply and the imported balances work; a reminder list kept to what the cron sends. */
+    public function test_credit_is_on_where_whmcs_lets_customers_add_funds_or_one_has_a_balance(): void
+    {
+        $credits = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'credits_enabled')->value('value');
+        $this->import(['AddFundsEnabled' => 'on', 'NoAutoApplyCredit' => '']);
+        $this->assertSame('1', $credits());
+
+        $this->balances = [12.5];
+        $this->import(['AddFundsEnabled' => '', 'SendReminder' => 'on', 'SendFirstOverdueInvoiceReminder' => '1',
+            'SendSecondOverdueInvoiceReminder' => '400', 'SendThirdOverdueInvoiceReminder' => '5000']);
+        $this->assertSame('1', $credits(), 'a customer\'s balance must stay spendable');
+        $this->assertSame('1', Setting::query()->whereNull('settingable_type')->where('key', 'cronjob_overdue_reminders')->value('value'));
+        $output = $this->output->fetch();
+        $this->assertStringContainsString('400', $output);
+        $this->assertStringContainsString('5000', $output);
     }
 }

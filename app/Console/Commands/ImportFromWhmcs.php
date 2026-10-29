@@ -396,7 +396,13 @@ class ImportFromWhmcs extends Command
             . " 'SendReminder', 'SendInvoiceReminderDays', 'SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder',"
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
-            . " 'CreateInvoiceDaysBeforeTriennially')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled')")->fetchAll(PDO::FETCH_KEY_PAIR);
+        // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
+        try {
+            $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
+        } catch (PDOException) {
+            $balances = 0; // a source without tblclients.credit (a test's): none
+        }
         $has = fn (string $key) => array_key_exists($key, $config);
         // WHMCS writes «on»; anything else that reads as yes is yes too (review of #518).
         $on = fn (string $key) => in_array(strtolower(trim((string) ($config[$key] ?? ''))), ['on', '1', 'yes', 'true'], true);
@@ -414,13 +420,23 @@ class ImportFromWhmcs extends Command
         $hours = trim((string) ($config['CloseInactiveTickets'] ?? ''));
         $closeHours = $has('CloseInactiveTickets') && $hours === '' ? '0'
             : (ctype_digit($hours) && strlen($hours) <= 6 && (int) $hours <= 3650 * 24 ? (string) (int) $hours : null);
-        $overdue = array_values(array_unique(array_filter(array_map(fn (string $key) => (int) ($days($key) ?? 0),
-            ['SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder', 'SendThirdOverdueInvoiceReminder']), fn (int $day) => $day > 0)));
+        // Only days the cron sends on (PaymentReminders::MAX_DAYS; the Settings page takes at most three digits): any other,
+        // or one that is no number, is left out and said (review of #518, R2-2 and round 3).
+        $overdue = [];
+        $dropped = [];
+        foreach (['SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder', 'SendThirdOverdueInvoiceReminder'] as $key) {
+            $value = trim((string) ($config[$key] ?? ''));
+            if ($value === '' || $value === '0') {
+                continue;
+            }
+            if (ctype_digit($value) && (int) $value <= PaymentReminders::MAX_DAYS) {
+                $overdue[] = (int) $value;
+            } else {
+                $dropped[] = $value;
+            }
+        }
+        $overdue = array_values(array_unique($overdue));
         sort($overdue);
-        // Only days the cron sends on (PaymentReminders::MAX_DAYS; the Settings page takes at most three digits): one later
-        // is left out and said (review of #518, R2-2).
-        $dropped = array_values(array_filter($overdue, fn (int $day) => $day > PaymentReminders::MAX_DAYS));
-        $overdue = array_values(array_diff($overdue, $dropped));
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
@@ -433,8 +449,14 @@ class ImportFromWhmcs extends Command
             // The unpaid reminder, days before the due date; its switch off is 0 (review of #518: myip 1, the default 6).
             'cronjob_payment_reminder' => $has('SendReminder') && !$on('SendReminder') ? ['string', '0']
                 : (($v = $days('SendInvoiceReminderDays')) !== null ? ['string', $v] : null),
-            // The overdue notices, days after it, in order (myip 1,3,5; nixpal's owner decision, 1,3,7, is set at its cut-over).
-            'cronjob_overdue_reminders' => $has('SendFirstOverdueInvoiceReminder') ? ['string', implode(',', $overdue)] : null,
+            // The overdue notices, days after it, in order (myip 1,3,5; nixpal's owner decision, 1,3,7, is set at its cut-over);
+            // none with «Payment Reminder Emails» off, which in WHMCS stops these too (round 3 of #518).
+            'cronjob_overdue_reminders' => $has('SendReminder') && !$on('SendReminder') ? ['string', '']
+                : ($has('SendFirstOverdueInvoiceReminder') ? ['string', implode(',', $overdue)] : null),
+            // Credit itself: on where WHMCS lets customers add funds, or any customer has a balance. Off, the auto-apply
+            // below is a dead letter and imported balances cannot be spent (round 3 of #518: nixpal's renewals,
+            // paid from credit in WHMCS, would have gone unpaid to reminders and suspension).
+            'credits_enabled' => $has('AddFundsEnabled') || $balances > 0 ? ['boolean', $on('AddFundsEnabled') || $balances > 0 ? '1' : '0'] : null,
             // WHMCS's «Disable Credit Auto-Apply» is MyCS's credit auto-apply, inverted (review of #518: myip has it on).
             'credits_auto_use' => $has('NoAutoApplyCredit') ? ['boolean', $on('NoAutoApplyCredit') ? '0' : '1'] : null,
         ];
