@@ -5,7 +5,6 @@ namespace MyCS\Extensions\Gateways\Mollie;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
-use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
@@ -195,10 +194,24 @@ class Mollie extends Gateway
             ],
         ];
 
-        // The same refund (transaction, what was refunded before, amount) keeps the same key: a retry after a timeout gets
-        // Mollie's first answer instead of a second refund (AUD2-1, as Stripe's key and PayPal's request id).
-        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
-        $key = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
+        // What Mollie gave back already, read before anything is sent (AUD2-1). More than MyCS recorded is a refund whose
+        // answer was lost and whose webhook has not come yet: refused, so a retry never pays it a second time. Mollie keeps
+        // an idempotency key for an hour only, so the key alone is not enough.
+        $atMollie = 0;
+        $listed = $this->listOf($paymentId, 'refunds');
+        foreach ($listed as $made) {
+            if (in_array($made['status'] ?? null, ['queued', 'pending', 'processing', 'refunded'], true)) {
+                $atMollie += RecordPaymentService::toCents((float) ($made['amount']['value'] ?? 0));
+            }
+        }
+        if ($atMollie > RecordPaymentService::toCents((float) $transaction->refunded_amount)) {
+            throw new Exception('Mollie shows refunds of this payment that MyCS has not recorded yet: wait for its webhook, or check Mollie, before refunding again.');
+        }
+
+        // Two clicks of the same refund before Mollie lists the first share a key: Mollie gives the first answer back.
+        // Any refund Mollie lists since, made, failed or canceled, makes a new key, so the next one is a refund of its own
+        // (ADV-517-1, ADV-517-2).
+        $key = 'refund-' . $transaction->id . '-' . count($listed) . '-' . $atMollie . '-' . RecordPaymentService::toCents($amount);
         try {
             $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data, $key);
         } catch (ConnectionException $e) {
@@ -206,12 +219,18 @@ class Mollie extends Gateway
 
             throw $e;
         } catch (Exception $e) {
-            // Mollie's own failure (5xx) may come after the refund was made: unknown, as a timeout. A 4xx is a refusal.
-            if ($e->getCode() >= 500) {
+            // Mollie's own failure (5xx), or the same key still being processed (409), may end in a refund: unknown, as a
+            // timeout. Any other 4xx is a refusal.
+            if ($e->getCode() >= 500 || $e->getCode() === 409) {
                 $this->outcomeUnknown($transaction, $paymentId, $amount, $key, 'HTTP ' . $e->getCode());
             }
 
             throw $e;
+        }
+
+        // A refund that does not give money back is not one, whatever the key handed back (ADV-517-2).
+        if (in_array($refund['status'] ?? null, ['failed', 'canceled'], true)) {
+            throw new Exception('Mollie answered with refund ' . ($refund['id'] ?? '?') . ', which is ' . $refund['status'] . ': nothing was refunded.');
         }
 
         return (string) ($refund['id'] ?? '') ?: true;
@@ -219,7 +238,7 @@ class Mollie extends Gateway
 
     private function outcomeUnknown(InvoiceTransaction $transaction, string $paymentId, $amount, string $key, string $why): void
     {
-        Log::critical('Mollie refund outcome unknown (' . $why . '): check Mollie before retrying; a retry reuses the idempotency key.', [
+        Log::critical('Mollie refund outcome unknown (' . $why . '): check Mollie before retrying; MyCS refuses another refund of this payment until Mollie\'s refunds are recorded.', [
             'transaction_id' => $transaction->id, 'payment_id' => $paymentId, 'amount' => $amount, 'idempotency_key' => $key,
         ]);
     }
