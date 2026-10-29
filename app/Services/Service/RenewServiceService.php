@@ -3,6 +3,7 @@
 namespace App\Services\Service;
 
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
@@ -128,6 +129,12 @@ class RenewServiceService
 
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
+        // A renewal of one already running (not its first start): a module that renews by hand gets a task (OfflineSsl).
+        if ($service->status !== Service::STATUS_PENDING) {
+            $id = $service->id;
+            $until = $paidUntil?->toDateString();
+            DB::afterCommit(fn () => ($renewed = Service::query()->find($id)) !== null ? ExtensionHelper::renewByHand($renewed, $until) : null);
+        }
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
         // Suspended for non-payment and still overdue after this payment (another period unpaid): it stays suspended, else
         // the next cron run would suspend it again (Δ3a). Staff are told; they unsuspend it by hand if they wish.

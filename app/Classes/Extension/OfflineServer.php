@@ -20,4 +20,7 @@ interface OfflineServer
 
     /** What it is, in a sentence and as its section's title («machine», «certificate»). */
     public function noun(): string;
+
+    /** Whether a paid renewal is a task too (a certificate is bought again at its provider; a machine just runs on). */
+    public function renewsByHand(): bool;
 }

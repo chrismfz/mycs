@@ -103,4 +103,46 @@ class OfflineSslTest extends TestCase
         $this->assertStringContainsString('2 TheSSLStore certificate(s) on «TheSSLStore (offline)»', $output->fetch());
         $this->assertTrue(Service::query()->find(801)->hasServerActions(), 'its actions reach staff, never «nothing to do»');
     }
+
+    /** Reviews of #532: a paid renewal of a certificate is a task, of a machine none; its first start is its creation's. */
+    public function test_a_paid_renewal_is_a_task_for_a_certificate_only(): void
+    {
+        foreach (['OfflineSsl' => 1, 'OfflineVm' => 0] as $module => $tasks) {
+            $server = Server::query()->create(['name' => $module, 'extension' => $module, 'type' => 'server', 'enabled' => true]);
+            $product = $this->createProduct();
+            $product->product->update(['server_id' => $server->id]);
+            $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+                'product_id' => $product->product->id, 'server_id' => $server->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD',
+                'price' => 10, 'expires_at' => now()->addDays(5), 'domain' => 'shop.example.test']);
+
+            ExtensionHelper::renewByHand($service, '2027-11-01');
+
+            $this->assertSame($tasks, ModuleAction::query()->open()->where('service_id', $service->id)->where('action', ModuleAction::RENEW)->count(), $module);
+        }
+        $task = ModuleAction::query()->where('action', ModuleAction::RENEW)->sole();
+        $this->assertStringContainsString('By hand: renew this certificate shop.example.test at its provider (paid until 2027-11-01)', (string) $task->last_error);
+        $this->assertSame(ModuleAction::SUBJECT_BY_HAND, $task->subject);
+    }
+
+    public function test_the_imported_products_are_retired_and_every_service_of_them_is_moved(): void
+    {
+        $ssl = $this->createProduct();
+        $whmcs = new PDO('sqlite::memory:');
+        $whmcs->exec('CREATE TABLE tblproducts (id INTEGER PRIMARY KEY, servertype TEXT)');
+        $whmcs->prepare("INSERT INTO tblproducts VALUES (?, 'TheSSLStoreFullV2 ')")->execute([$ssl->product->id]);
+        $cpanel = Server::query()->create(['name' => 'web1', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        DB::table('services')->insert(['id' => 811, 'client_id' => User::factory()->create()->client()->id, 'product_id' => $ssl->product->id,
+            'plan_id' => $ssl->plan->id, 'status' => 'active', 'price' => 10, 'quantity' => 1, 'currency_code' => 'USD', 'server_id' => $cpanel->id]);
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        (new ReflectionMethod($command, 'importOfflineSsl'))->invoke($command);
+
+        $product = $ssl->product->fresh();
+        $this->assertTrue($product->hidden && $product->retired, 'not sold any more: new certificates are Openprovider SSL\'s');
+        $this->assertSame(Server::query()->where('extension', 'OfflineSsl')->value('id'), Service::query()->find(811)->server_id);
+        $this->assertStringContainsString('1 TheSSLStore service(s) moved from another module\'s server', $output->fetch());
+    }
 }

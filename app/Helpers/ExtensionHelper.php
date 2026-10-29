@@ -1684,6 +1684,31 @@ class ExtensionHelper
         return [];
     }
 
+    /**
+     * A paid renewal of a service whose module renews by hand (OfflineSsl: a certificate is bought again at its provider):
+     * a task for staff, as its other actions (review of #532). Nothing for any other module: a renewal is no server
+     * action. A task that cannot be made never fails the payment: reported.
+     */
+    public static function renewByHand(Service $service, ?string $until = null): void
+    {
+        try {
+            $server = $service->provisioningServer();
+            $extension = $server !== null && filled($server->extension) ? self::getExtension('server', $server->extension, $server->settings) : null;
+            if (!$extension instanceof OfflineServer || !$extension->renewsByHand()) {
+                return;
+            }
+            $what = trim((string) $service->domain);
+            $noun = $extension->noun();
+            $paid = $until !== null ? " (paid until {$until})" : '';
+            self::staffTask($service, ModuleAction::RENEW, (string) $server->extension, 'renewServer',
+                "By hand: renew this {$noun}" . ($what !== '' ? " {$what}" : '') . " at its provider{$paid}, then mark this done.",
+                "Service #{$service->id}" . ($what !== '' ? " ({$what})" : '') . " was renewed{$paid}: its {$noun} has no API ({$server->extension}), renew it "
+                . 'by hand at its provider, then mark the task done in Pending Module Actions.');
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
     /** The service's machine has no API (OfflineServer): its server actions are staff's tasks. */
     public static function isOffline(Service $service): bool
     {

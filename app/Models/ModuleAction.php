@@ -71,13 +71,17 @@ class ModuleAction extends Model
     /** A server action on a machine with no API (OfflineServer): a task for staff, never run (no Retry). */
     public const SUBJECT_BY_HAND = 'by hand';
 
+    /** A paid renewal done by hand (an offline module that renews so: OfflineSsl), never run by a module. */
+    public const RENEW = 'renew';
+
     /** A newer task on the same machine makes these older ones moot (the machine goes where the newer one says). */
     public const BY_HAND_SUPERSEDES = [
         'create' => ['create'],
         'suspend' => ['suspend', 'unsuspend'],
         'unsuspend' => ['suspend', 'unsuspend'],
-        'terminate' => ['create', 'suspend', 'unsuspend', 'upgrade', 'terminate'],
+        'terminate' => ['create', 'suspend', 'unsuspend', 'upgrade', 'terminate', self::RENEW],
         'upgrade' => ['upgrade'],
+        self::RENEW => [self::RENEW],
     ];
 
     /** The resolution of an order staff closed «stop it»: on hold, its unconfirmed request still for them to say. */

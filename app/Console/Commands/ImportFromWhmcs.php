@@ -1341,8 +1341,9 @@ class ImportFromWhmcs extends Command
 
     /**
      * The certificates of a WHMCS SSL module with no extension here (TheSSLStore): their products and services on one
-     * Offline SSL server per provider, so that every action on them is a task for staff, never «nothing to do»; each
-     * one's order (WHMCS's tblsslorders, the module's orders table) kept in its fields. Nothing is asked of the provider.
+     * Offline SSL server per provider, so that every action on them (a paid renewal too) is a task for staff, never
+     * «nothing to do»; each one's order (WHMCS's tblsslorders, the module's orders table) kept in its fields. Nothing is
+     * asked of the provider. Its products are retired (owner 2026-10-29): new certificates are Openprovider SSL's.
      */
     private function importOfflineSsl()
     {
@@ -1356,8 +1357,14 @@ class ImportFromWhmcs extends Command
         $orders = $this->sslOrders();
         foreach ($products as $provider => $ids) {
             $server = Server::query()->firstOrCreate(['extension' => 'OfflineSsl', 'name' => "{$provider} (offline)"], ['type' => 'server', 'enabled' => true]);
-            DB::table('products')->whereIn('id', $ids)->whereNull('server_id')->update(['server_id' => $server->id]);
-            $services = DB::table('services')->whereIn('product_id', $ids)->whereNull('server_id')->get(['id', 'domain']);
+            DB::table('products')->whereIn('id', $ids)->update(['server_id' => $server->id, 'hidden' => true, 'retired' => true]);
+            // Every one of the module's, on whatever server tblhosting.server left it (WHMCS's module is its product's: a
+            // cPanel server there never ran it), listed when moved (reviews of #532).
+            $services = DB::table('services')->whereIn('product_id', $ids)->get(['id', 'domain', 'server_id']);
+            $moved = $services->filter(fn ($service) => $service->server_id !== null && (int) $service->server_id !== $server->id);
+            if ($moved->isNotEmpty()) {
+                $this->warn($moved->count() . " {$provider} service(s) moved from another module's server to «{$server->name}»: " . $moved->pluck('id')->implode(', ') . '.');
+            }
             DB::table('services')->whereIn('id', $services->pluck('id'))->update(['server_id' => $server->id]);
             $properties = [];
             foreach ($services as $service) {
@@ -1373,7 +1380,8 @@ class ImportFromWhmcs extends Command
             foreach (array_chunk($properties, 500) as $chunk) {
                 DB::table('properties')->insert($chunk);
             }
-            $this->info(count($services) . " {$provider} certificate(s) on «{$server->name}» (Offline SSL): every action on them is a task for staff.");
+            $this->info(count($services) . " {$provider} certificate(s) on «{$server->name}» (Offline SSL): every action on them is a task for staff; "
+                . count($ids) . ' product(s) retired.');
         }
     }
 
@@ -1381,18 +1389,23 @@ class ImportFromWhmcs extends Command
         'ssl_product' => 'Certificate type', 'ssl_common_name' => 'Common name', 'ssl_status' => 'Status at the provider', 'ssl_expires_on' => 'Expires on'];
 
     /**
-     * Each service's SSL order, by service id: WHMCS's own (tblsslorders, its latest) and TheSSLStore module's
-     * (mod_sslstore_orders_data, its latest), the module's winning where both have a field. Never their CSR, keys or
-     * authentication data.
+     * Each service's SSL order, by service id: the module's latest (mod_sslstore_orders_data), whole, never mixed with an
+     * older order of the service; WHMCS's own latest of the module (tblsslorders, not another module's or an addon's)
+     * where the module has none or it is the same order, filling what the module's row leaves empty. Never their CSR,
+     * keys or authentication data (reviews of #532).
      *
      * @return array<int, array<string, string|null>>
      */
     private function sslOrders(): array
     {
-        $orders = [];
+        $whmcs = [];
         if ($this->sourceHas('tblsslorders')) {
             foreach ($this->pdo->query('SELECT * FROM tblsslorders ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $orders[(int) $row['serviceid']] = [
+                if ((array_key_exists('module', $row) && !isset(self::OFFLINE_SSL_MODULES[strtolower(trim((string) $row['module']))]))
+                    || (int) ($row['addon_id'] ?? 0) !== 0) {
+                    continue;
+                }
+                $whmcs[(int) $row['serviceid']] = [
                     'ssl_order_id' => self::text($row['remoteid'] ?? null, 255),
                     'ssl_product' => self::text($row['certtype'] ?? null, 255),
                     'ssl_status' => self::text($row['status'] ?? null, 255),
@@ -1400,17 +1413,26 @@ class ImportFromWhmcs extends Command
                 ];
             }
         }
+        $module = [];
         if ($this->sourceHas('mod_sslstore_orders_data')) {
             foreach ($this->pdo->query('SELECT * FROM mod_sslstore_orders_data ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $orders[(int) $row['service_id']] = array_merge($orders[(int) $row['service_id']] ?? [], array_filter([
+                $module[(int) $row['service_id']] = [
                     'ssl_order_id' => self::text((string) ($row['store_order_id'] ?? '') ?: null, 255),
                     'ssl_vendor_order_id' => self::text($row['vendor_order_id'] ?? null, 255),
                     'ssl_product' => self::text($row['product_code'] ?? null, 255),
                     'ssl_common_name' => self::text($row['common_name'] ?? null, 255),
                     'ssl_status' => self::text($row['ssl_status'] ?? null, 255),
                     'ssl_expires_on' => substr((string) $this->validateDate($row['expiration_date'] ?? null), 0, 10) ?: null,
-                ], fn ($value) => $value !== null && $value !== ''));
+                ];
             }
+        }
+        $orders = [];
+        foreach (array_unique([...array_keys($whmcs), ...array_keys($module)]) as $serviceId) {
+            $own = $module[$serviceId] ?? null;
+            $theirs = $whmcs[$serviceId] ?? null;
+            $sameOrder = $own === null || $theirs === null || $own['ssl_order_id'] === null || $own['ssl_order_id'] === $theirs['ssl_order_id'];
+            $orders[$serviceId] = $own === null ? $theirs : ($sameOrder && $theirs !== null
+                ? array_merge($theirs, array_filter($own, fn ($value) => $value !== null)) : $own);
         }
 
         return $orders;

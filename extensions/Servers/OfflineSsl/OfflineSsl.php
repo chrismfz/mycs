@@ -23,6 +23,12 @@ class OfflineSsl extends OfflineMachineServer
         return 'certificate';
     }
 
+    /** Its paid renewal: bought again at its provider (or its successor, Openprovider SSL), by hand. */
+    public function renewsByHand(): bool
+    {
+        return true;
+    }
+
     public function serviceFields(): array
     {
         return [
