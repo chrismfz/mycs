@@ -312,9 +312,10 @@ class Settings
                     'label' => 'Company country',
                     'type' => 'select',
                     'options' => array_slice((array) config('app.countries'), 1, null, true),
-                    // Required with tax on (owner, 2026-10-29); /health is red until it is set.
-                    'required' => fn (Get $get) => (bool) $get('tax_enabled'),
-                    'description' => 'The country whose rate an account without a country pays (an «All» rate comes first). Required with tax on.',
+                    // Required with tax on (owner, 2026-10-29), unless the EU VAT home country gives it already: an
+                    // install upgraded with tax on still saves its other tabs (ADV-524-R2-1). /health tells what is missing.
+                    'required' => fn (Get $get) => (bool) $get('tax_enabled') && blank($get('eu_vat_home_country')),
+                    'description' => 'The country whose rate an account without a country pays (an «All» rate comes first). Required with tax on; empty: the EU VAT home country.',
                 ],
                 [
                     'name' => 'tax_type',
