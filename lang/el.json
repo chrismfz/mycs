@@ -1544,5 +1544,7 @@
     "The welcome email was sent :count times in the last hour: try again later.": "Το welcome email στάλθηκε :count φορές την τελευταία ώρα: δοκιμάστε αργότερα.",
     "The welcome email was not sent: its template could not be rendered (see the error log).": "Το welcome email δεν στάλθηκε: το πρότυπό του δεν αποδόθηκε (δείτε το error log).",
     "Queued for :email.": "Στην ουρά αποστολής προς :email.",
-    "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο."
+    "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο.",
+    "The account's (its saved method)": "Του λογαριασμού (ο αποθηκευμένος τρόπος)",
+    "Another gateway than the saved method's: its renewals are invoiced apart and never charged automatically.": "Άλλος τρόπος από του αποθηκευμένου: οι ανανεώσεις του τιμολογούνται χωριστά και δεν χρεώνονται ποτέ αυτόματα."
 }

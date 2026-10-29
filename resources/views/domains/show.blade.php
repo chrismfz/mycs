@@ -60,6 +60,22 @@
                     <span class="text-base/50">{{ trans_choice('domains.portal.years_option', max(1, (int) $domain->years), ['years' => max(1, (int) $domain->years)]) }}</span>
                     @endif
                 </div>
+                @if ($paymentMethodOptions !== null)
+                {{-- Its own payment method (owner 2026-10-29, as WHMCS's): none, the account's; another gateway's is never charged by the saved method. --}}
+                <div class="flex items-center gap-2">
+                    <span>{{ __('services.payment_method') }}:</span>
+                    <select class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm"
+                        wire:change="setPaymentMethod($event.target.value || 0)" wire:loading.attr="disabled" aria-label="{{ __('services.payment_method') }}">
+                        <option value="">{{ __('services.payment_method_account') }}</option>
+                        @foreach ($paymentMethodOptions as $gateway)
+                        <option value="{{ $gateway->id }}" @selected((int) $gateway->id === (int) $domain->payment_gateway_id)>{{ $gateway->name }}</option>
+                        @endforeach
+                        @if ($domain->paymentGateway && !$paymentMethodOptions->contains('id', $domain->payment_gateway_id))
+                        <option value="{{ $domain->payment_gateway_id }}" selected>{{ $domain->paymentGateway->name }}</option>
+                        @endif
+                    </select>
+                </div>
+                @endif
             </div>
 
             {{-- At the registrar --}}

@@ -13,6 +13,7 @@ use App\Models\SslVersion;
 use App\Models\User;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\Ssl\SslVault;
 use App\Support\Actor;
@@ -173,6 +174,30 @@ class Show extends Component
         }
         $this->label = $this->service->label;
         $this->contactId = $this->service->contact_id;
+        $this->paymentGatewayId = $this->service->payment_gateway_id;
+    }
+
+    /** Its own payment method (ItemPaymentMethod): '' or null, the account's. */
+    public $paymentGatewayId = null;
+
+    /** Who sets its payment method: a login that manages the service and pays the account's invoices. */
+    private function canSetPaymentMethod(): bool
+    {
+        return Gate::allows('update', $this->service) && $this->ownsWith('invoices');
+    }
+
+    public function updatedPaymentGatewayId($value)
+    {
+        abort_unless($this->canSetPaymentMethod(), 403);
+        try {
+            ItemPaymentMethod::set($this->service, $value === '' || $value === null ? null : (int) $value);
+        } catch (DisplayException $e) {
+            $this->paymentGatewayId = $this->service->payment_gateway_id;
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        $this->notify(__('services.payment_method_saved'), 'success');
     }
 
     /**
@@ -851,6 +876,8 @@ class Show extends Component
         return view('services.show', [
             'extensionView' => $view,
             'canEditContact' => $canEditContact,
+            'canSetPaymentMethod' => $canSetPaymentMethod = $this->canSetPaymentMethod(),
+            'paymentMethodOptions' => $canSetPaymentMethod ? ItemPaymentMethod::options($this->service) : collect(),
             'canSeeContact' => $canEditContact || $this->canSeeContact(),
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),

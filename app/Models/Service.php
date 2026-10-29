@@ -43,6 +43,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $cancellable
  * @property-read mixed $upgradable
  * @property int $client_id
+ * @property int|null $payment_gateway_id
  */
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
@@ -110,6 +111,7 @@ class Service extends Model implements Auditable
         'client_id',
         'contact_id',
         'currency_code',
+        'payment_gateway_id',
         'suspend_hold_until',
         // WHMCS's tblhosting fields (2026_11_02 migration)
         'server_id',
@@ -204,6 +206,15 @@ class Service extends Model implements Auditable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * @return BelongsTo<Gateway, $this> its own payment method (WHMCS's paymentmethod): its renewals are invoiced apart with
+     *                                   it preferred, and a saved method of another gateway never charges them; none: the account's
+     */
+    public function paymentGateway(): BelongsTo
+    {
+        return $this->belongsTo(Gateway::class, 'payment_gateway_id');
     }
 
     /**

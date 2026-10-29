@@ -85,11 +85,50 @@ class ImportPayMethodsTest extends TestCase
         }]);
     }
 
-    private function import(?WhmcsApi $api): array
+    private function import(?WhmcsApi $api, ?\Closure $itemGateway = null): array
     {
         return (new WhmcsPayMethodImport($this->whmcs, $api, fn (string $module) => match ($module) {
             'stripe', 'stripe_sepa' => $this->gateways['Stripe'], 'paypal_ppcpv' => $this->gateways['PayPal'], 'mollie' => $this->gateways['Mollie'], default => null,
-        }))->run();
+        }, $itemGateway))->run();
+    }
+
+    /**
+     * One service by card and three by bank transfer (owner 2026-10-29): each keeps its own payment method, so the card
+     * is the default and charges the one, as WHMCS did; a second saved method's items are listed, paid by hand.
+     */
+    public function test_a_card_for_some_items_is_the_default_when_the_others_keep_their_own_way(): void
+    {
+        $this->fakeApi();
+        $bank = (int) DB::table('extensions')->insertGetId(['name' => 'Bank Transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true,
+            'created_at' => now(), 'updated_at' => now()]);
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES ({$c}, 'Active', 'banktransfer'), ({$c}, 'Active', 'banktransfer'),
+            ({$c}, 'Active', 'banktransfer'), ({$c}, 'Active', 'paypal_ppcpv')");
+        $items = fn (string $module) => match ($module) {
+            'banktransfer' => $bank, 'stripe' => $this->gateways['Stripe'], 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
+        };
+
+        $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $client = $this->client->fresh();
+        $this->assertSame('pm_Amex2', BillingAgreement::query()->find($client->default_billing_agreement_id)?->external_reference, 'the card\'s, its first by WHMCS\'s order');
+        $this->assertTrue((bool) $client->auto_charge, 'the bank transfer ones keep their own way: never charged by it');
+        $this->assertSame(0, $result['counts']['not_charged']);
+        $this->assertStringContainsString("Customer #{$c}: 1 live item(s) charged by a second saved method in WHMCS («paypal_ppcpv»)", implode("\n", $result['notes']));
+    }
+
+    /** One of another way with no payment method here would be charged by the card: «Auto-charge» off, listed (R3-1). */
+    public function test_a_way_with_no_payment_method_here_keeps_auto_charge_off(): void
+    {
+        $this->fakeApi();
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES ({$c}, 'Active', 'banktransfer')");
+
+        $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), fn (string $module) => $module === 'stripe' ? $this->gateways['Stripe'] : null);
+
+        $this->assertFalse((bool) $this->client->fresh()->auto_charge);
+        $this->assertNull($this->client->fresh()->default_billing_agreement_id);
+        $this->assertStringContainsString("Customer #{$c}: 2 of its 3 live item(s) paid by a saved method in WHMCS, 1 by a way with no payment method here", implode("\n", $result['notes']));
     }
 
     public function test_the_methods_come_with_their_references_names_expiry_and_default(): void

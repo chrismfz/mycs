@@ -39,6 +39,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property Carbon|null $redemption_ends_on
  * @property int $years
  * @property string $currency_code
+ * @property int|null $payment_gateway_id
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
@@ -69,7 +70,7 @@ class Domain extends Model implements Auditable
 
     protected $fillable = [
         'client_id', 'order_id', 'epp_code', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
-        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'recurring_amount',
+        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'payment_gateway_id', 'recurring_amount',
         'auto_renew', 'transfer_lock', 'id_protection', 'dns_management', 'email_forwarding', 'dnssec_enabled',
         'contact_id', 'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
         'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle',
@@ -171,6 +172,15 @@ class Domain extends Model implements Auditable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * @return BelongsTo<Gateway, $this> its own payment method (WHMCS's paymentmethod): its renewals are invoiced apart with
+     *                                   it preferred, and a saved method of another gateway never charges them; none: the account's
+     */
+    public function paymentGateway(): BelongsTo
+    {
+        return $this->belongsTo(Gateway::class, 'payment_gateway_id');
     }
 
     /** @return BelongsTo<DomainTld, $this> */

@@ -19,6 +19,7 @@ use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use App\Support\Domains\DnssecOptions;
@@ -588,6 +589,25 @@ class Show extends Component
         }
     }
 
+    /** Its own payment method (ItemPaymentMethod): 0, the account's. Who manages it and pays the account's invoices. */
+    public function setPaymentMethod(int $gatewayId): void
+    {
+        abort_unless($this->setsPaymentMethod(), 403);
+        try {
+            ItemPaymentMethod::set($this->domain, $gatewayId > 0 ? $gatewayId : null);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        $this->notify(__('services.payment_method_saved'), 'success');
+    }
+
+    private function setsPaymentMethod(): bool
+    {
+        return Gate::allows('update', $this->domain) && $this->staffMay('admin.domains.update') && $this->seesInvoices();
+    }
+
     public function addNameserver(): void
     {
         if (count($this->nameservers) < 13) {
@@ -760,6 +780,8 @@ class Show extends Component
             'yearOptions' => $canManage && $this->staffMay('admin.domains.update') && DomainRenewalYears::clientMay($this->domain)
                 ? DomainRenewalYears::choices($this->domain) : [],
             'manageable' => $manageable,
+            'paymentMethodOptions' => ($setsPaymentMethod = $this->setsPaymentMethod() && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true))
+                ? ItemPaymentMethod::options($this->domain) : null,
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),
             'showEpp' => $manageable && $this->staffMay('admin.domains.epp'),
