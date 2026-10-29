@@ -239,7 +239,8 @@ class ClientUsersTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $client = User::factory()->create()->client();
         $other = User::factory()->withoutClient()->create();
-        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update'])->create();
+        // Invoices: what it gives, its role may view (AUD3-1).
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.invoices.viewAny', 'admin.invoices.update'])->create();
         $page = fn () => $this->livewireAs($staff)->test(UsersRelationManager::class, ['ownerRecord' => $client->fresh(), 'pageClass' => EditClient::class]);
 
         $page()->callTableAction('add', data: ['user_id' => $other->id, 'all' => false, 'permissions' => ['invoices']])->assertHasNoTableActionErrors();

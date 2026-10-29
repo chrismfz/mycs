@@ -202,6 +202,8 @@ class Settings
 
                 [
                     'name' => 'trusted_proxies',
+                    // Who may set the client IP: allowlists, the zlic IP binding and the throttles trust it (AUD3-2).
+                    'permission' => '*',
                     'label' => 'Trusted Proxies',
                     'type' => 'tags',
                     'database_type' => 'array',
@@ -832,7 +834,7 @@ class Settings
                 [
                     'name' => 'theme_home_page_text',
                     // Markdown that may hold raw HTML, shown on this site's origin (the admin's too): custom code.
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'label' => 'Home Page Text',
                     'type' => 'markdown',
                     'default' => 'Welcome!',
@@ -980,7 +982,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_css',
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'validation' => 'max:65000',
                     'label' => 'Custom CSS',
                     'type' => 'textarea',
@@ -991,7 +993,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_head',
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'validation' => 'max:65000',
                     'label' => 'Custom <head> HTML',
                     'type' => 'textarea',
@@ -1002,7 +1004,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_header',
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'validation' => 'max:65000',
                     'label' => 'Custom header HTML',
                     'type' => 'textarea',
@@ -1013,7 +1015,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_footer',
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'validation' => 'max:65000',
                     'label' => 'Custom footer HTML',
                     'type' => 'textarea',
@@ -1024,7 +1026,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_assets',
-                    'permission' => 'admin.settings.custom_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'label' => 'Files',
                     'type' => 'file',
                     'multiple' => true,

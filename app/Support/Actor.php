@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\ApiKey;
+use App\Models\ClientUser;
 use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -84,6 +85,52 @@ class Actor
         foreach ((array) self::STAFF_PERMISSION_AS[$permission] as $admin) {
             if (!$staff->hasPermission($admin)) {
                 return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * What giving a login each permission takes from staff, where «Login as client» needs less (STAFF_PERMISSION_AS
+     * otherwise): there, staff only see the account and the domain pages check each change; on a login of their own,
+     * nothing does. So the read permissions take the admin's view of the same records, and managing domains the admin's
+     * registrar permissions (round 2 of #519, ADV-519-R2-1, R2-2).
+     */
+    public const GRANT_PERMISSION_AS = [
+        'products' => 'admin.services.viewAny',
+        'domains' => 'admin.domains.viewAny',
+        // The login pays with the account's credit and saved cards too (round 3, ADV-519-R3-1): «pay» in Login as client.
+        'invoices' => ['admin.invoices.viewAny', 'admin.invoices.update'],
+        'quotes' => 'admin.invoices.viewAny',
+        'tickets' => 'admin.tickets.viewAny',
+        'emails' => ['admin.email_logs.viewAny', 'admin.email_logs.view'],
+        // The SSL private keys come with managing the services (ADV-519-R3-2).
+        'manageproducts' => ['admin.services.update', 'admin.services.ssl_keys'],
+        // Auto renew, the renewal years and a renewal's invoice too (ADV-519-R3-3).
+        'managedomains' => ['admin.domains.viewAny', 'admin.domains.update', 'admin.domains.manage', 'admin.domains.epp', 'admin.invoices.create'],
+    ];
+
+    /**
+     * Staff may give a login these permissions of an account (null: all of them) over the ones it has ($had, null: all):
+     * only the ones their role covers (GRANT_PERMISSION_AS, else what «Login as client» takes, STAFF_PERMISSION_AS), so a
+     * login of their own on the account never takes them past their role (AUD3-1). Chat needs nothing.
+     *
+     * @param  list<string>|null  $permissions
+     * @param  list<string>|null  $had
+     */
+    public static function staffMayGrant(?Staff $staff, ?array $permissions, ?array $had = []): bool
+    {
+        if ($staff === null) {
+            return false;
+        }
+        $added = array_diff($permissions ?? ClientUser::PERMISSIONS, $had ?? ClientUser::PERMISSIONS);
+        foreach ($added as $permission) {
+            $needs = array_key_exists($permission, self::GRANT_PERMISSION_AS) ? self::GRANT_PERMISSION_AS[$permission] : (self::STAFF_PERMISSION_AS[$permission] ?? null);
+            foreach ((array) $needs as $admin) {
+                if (!$staff->hasPermission($admin)) {
+                    return false;
+                }
             }
         }
 

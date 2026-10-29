@@ -151,6 +151,7 @@ return [
     'invite_email' => 'Email address',
     'invite_sent' => 'The invitation was sent.',
     'all_permissions' => 'All permissions',
+    'grant_past_role' => 'You cannot give a login permissions your own role does not have in the admin.',
     'permissions' => 'Permissions',
     'owner' => 'Owner',
     'you' => 'you',

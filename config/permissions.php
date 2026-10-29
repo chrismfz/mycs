@@ -8,7 +8,6 @@ return [
             'settings' => [
                 'view' => 'View Settings',
                 'update' => 'Update Settings',
-                'custom_code' => 'Update Custom Code and Files (Appearance)',
             ],
             // The customer accounts (docs/accounts.md, PR 2a), WHMCS «Clients».
             'clients' => [
