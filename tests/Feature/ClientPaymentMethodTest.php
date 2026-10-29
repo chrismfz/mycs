@@ -32,7 +32,7 @@ class ClientPaymentMethodTest extends TestCase
                 public function supportsBillingAgreements() { return true; } public function cancelBillingAgreement($agreement): bool { return true; }
                 public function charge($invoice, $amount, $agreement) { return false; } }');
         }
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'CpmPay'], ['name' => 'CpmPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'CpmPay'], ['name' => 'CpmPay', 'type' => 'gateway', 'enabled' => true]);
 
         return BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal ' . $ref,
             'external_reference' => $ref, 'type' => 'paypal']);

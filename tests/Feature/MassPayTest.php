@@ -85,7 +85,7 @@ class MassPayTest extends TestCase
 
     private function mollie(): Gateway
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Mollie'], ['name' => 'Mollie', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Mollie'], ['name' => 'Mollie', 'type' => 'gateway', 'enabled' => true]);
         $gateway->settings()->updateOrCreate(['key' => 'api_key'], ['value' => 'test_key']);
         (new Mollie(['api_key' => 'test_key']))->boot();
 

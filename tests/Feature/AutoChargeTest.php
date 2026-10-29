@@ -66,7 +66,7 @@ class AutoChargeTest extends TestCase
         MailFacade::fake();
         Carbon::setTestNow('2026-11-10 09:00:00');
         $this->client = User::factory()->create()->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway', 'enabled' => true]);
         $this->agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card']);
         $this->client->refresh();
@@ -305,7 +305,7 @@ class AutoChargeTest extends TestCase
     /** Stripe: the attempt's key goes as Idempotency-Key, and «authentication_required» is the bank asking the customer. */
     public function test_stripe_sends_the_key_and_reads_an_authentication_request(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa',
             'external_reference' => 'pm_s', 'type' => 'card']);
         $this->client->properties()->updateOrCreate(['key' => 'stripe_id'], ['value' => 'cus_1']);

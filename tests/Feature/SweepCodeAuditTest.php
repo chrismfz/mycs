@@ -92,7 +92,7 @@ class SweepCodeAuditTest extends TestCase
      */
     public function test_a_card_charged_by_the_hourly_run_is_not_suspended_the_same_second(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_t', 'type' => 'card']);
         $this->client->refresh();
@@ -115,7 +115,7 @@ class SweepCodeAuditTest extends TestCase
     /** H13b. The same in the daily run, with no window: retry days past Suspend Days («to the last retry day set»). */
     public function test_a_card_charged_by_the_daily_run_on_a_retry_day_past_suspend_days_is_not_suspended_in_the_same_run(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_t', 'type' => 'card']);
         $this->client->refresh();
@@ -212,7 +212,7 @@ class SweepCodeAuditTest extends TestCase
      */
     public function test_an_invoice_whose_charge_is_on_its_way_is_not_merged_into_one_the_cron_charges_again(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'TakenPay'], ['name' => 'TakenPay', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_t', 'type' => 'card']);
         $this->client->refresh();

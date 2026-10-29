@@ -40,6 +40,10 @@ final class SavedMethodCharge
      */
     public function charge(Invoice $invoice, BillingAgreement $agreement, string $source, ?PaymentGroup $group = null): ChargeAttempt
     {
+        // A method of a gateway staff disabled is not charged, from anywhere: its payments on their way are still recorded.
+        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
+            throw new DisplayException(__('This payment method cannot be used now.'));
+        }
         $attempt = DB::transaction(function () use ($invoice, $agreement, $source, $group) {
             $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
             if ($locked->status !== Invoice::STATUS_UNPAID) {

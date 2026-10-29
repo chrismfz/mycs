@@ -13,11 +13,13 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
@@ -87,6 +89,13 @@ class GatewayResource extends Resource
                         ->getChildComponentContainer()
                         ->fill())
                     ->placeholder('Select the type of the gateway'),
+                // Off: customers no longer see or pick it (checkout, invoices, Add Funds, Mass Pay, saved methods) and the
+                // cron charges none of its saved methods; its webhooks and refunds keep working. A gateway the WHMCS
+                // importer installed starts off until its keys are set.
+                Toggle::make('enabled')
+                    ->label('Enabled')
+                    ->helperText('When off, customers cannot pay with this gateway. Payments already on their way, webhooks and refunds still work.')
+                    ->hiddenOn('create'),
                 Section::make('Gateway Settings')
                     ->columnSpanFull()
                     ->description('Specific settings for the selected gateway')
@@ -101,6 +110,7 @@ class GatewayResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('name')->searchable(),
+                IconColumn::make('enabled')->label('Enabled')->boolean(),
             ])
             ->filters([
                 //

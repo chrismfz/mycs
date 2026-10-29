@@ -47,7 +47,7 @@ class BankTransferAdversarialTest extends TestCase
     {
         parent::setUp();
         $this->user = User::factory()->create();
-        $this->gateway = Gateway::query()->create(['extension' => 'BankTransfer', 'name' => 'Bank transfer', 'type' => 'gateway']);
+        $this->gateway = Gateway::query()->create(['extension' => 'BankTransfer', 'name' => 'Bank transfer', 'type' => 'gateway', 'enabled' => true]);
         $this->gateway->settings()->create(['key' => 'accounts', 'value' => self::ACCOUNTS]);
     }
 

@@ -73,7 +73,8 @@ class Show extends Component
     #[Computed]
     public function savedPaymentMethods()
     {
-        return $this->accountAgreements()->with('gateway')->get();
+        // Only those of a gateway customers may pay through: a disabled gateway's methods are kept, not offered.
+        return $this->accountAgreements()->whereHas('gateway', fn ($gateway) => $gateway->where('enabled', true))->with('gateway')->get();
     }
 
     /**

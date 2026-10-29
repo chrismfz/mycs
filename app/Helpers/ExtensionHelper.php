@@ -523,6 +523,24 @@ class ExtensionHelper
     }
 
     /**
+     * The gateways a customer may choose: the enabled ones. A disabled gateway is still booted (bootable()), so its
+     * webhooks, refunds and the payments already on their way are recorded; it is only not offered (checkout, an
+     * invoice, Add Funds, Mass Pay, saving a payment method), nor charged by the cron.
+     *
+     * @return Collection<int, Gateway>
+     */
+    public static function customerGateways(): Collection
+    {
+        return Gateway::with('settings')->where('enabled', true)->get();
+    }
+
+    /** Whether customers may pay through this gateway now (customerGateways()), read again from the database. */
+    public static function gatewayEnabled(?int $gatewayId): bool
+    {
+        return $gatewayId !== null && Gateway::query()->whereKey($gatewayId)->where('enabled', true)->exists();
+    }
+
+    /**
      * Get every gateway which allows to checkout with
      *
      * @return array
@@ -531,7 +549,7 @@ class ExtensionHelper
     {
         $gateways = [];
 
-        foreach (Gateway::with('settings')->get() as $gateway) {
+        foreach (self::customerGateways() as $gateway) {
             if (self::hasFunction($gateway, 'canUseGateway')) {
                 if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->canUseGateway($total, $currency, $type, $items)) {
                     $gateways[] = $gateway;
@@ -603,7 +621,7 @@ class ExtensionHelper
     {
         $gateways = [];
 
-        foreach (Gateway::with('settings')->get() as $gateway) {
+        foreach (self::customerGateways() as $gateway) {
             if (self::hasFunction($gateway, 'supportsBillingAgreements')) {
                 if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->supportsBillingAgreements()) {
                     $gateways[] = $gateway;

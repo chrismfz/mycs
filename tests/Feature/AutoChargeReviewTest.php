@@ -69,7 +69,7 @@ class AutoChargeReviewTest extends TestCase
         MailFacade::fake();
         Carbon::setTestNow('2026-11-10 09:00:00');
         $this->client = User::factory()->create()->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcrPay'], ['name' => 'AcrPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcrPay'], ['name' => 'AcrPay', 'type' => 'gateway', 'enabled' => true]);
         $this->agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_r1', 'type' => 'card']);
         $this->client->refresh();
@@ -170,7 +170,7 @@ class AutoChargeReviewTest extends TestCase
      */
     public function test_cr2_a_timed_out_charge_frees_the_invoice_and_the_next_one_uses_a_new_key(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa',
             'external_reference' => 'pm_s', 'type' => 'card']);
         $this->client->properties()->updateOrCreate(['key' => 'stripe_id'], ['value' => 'cus_1']);

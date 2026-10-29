@@ -73,10 +73,10 @@ final class BankTransferDetails
         return (string) preg_replace('/^(\d+)([.)])/', '$1\\\\$2', $text);
     }
 
-    /** The accounts staff set for this currency, when the method is installed (and shown on invoices). */
+    /** The accounts staff set for this currency, when the method is installed and enabled (and shown on invoices). */
     private static function accounts(?string $currency, bool $forInvoices): ?string
     {
-        $gateway = Gateway::query()->where('extension', self::EXTENSION)->orderBy('id')->with('settings')->first();
+        $gateway = Gateway::query()->where('extension', self::EXTENSION)->where('enabled', true)->orderBy('id')->with('settings')->first();
         if ($gateway === null) {
             return null;
         }

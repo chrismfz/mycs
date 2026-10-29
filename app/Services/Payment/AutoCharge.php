@@ -4,6 +4,7 @@ namespace App\Services\Payment;
 
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
@@ -61,10 +62,11 @@ final class AutoCharge
     }
 
     /**
-     * The method the cron charges this invoice to, or null: the account's (Auto-charge on), its gateway still there, not
-     * stopped at autocharge_max_failures, and not one the bank asked the customer to confirm a charge of this invoice
-     * with (a new default method is charged; adversarial ADV-7), nor an invoice staff keep from it (PR H2b). Also what
-     * the reminder before the due date tells the customer (PaymentReminders::chargedOnItsOwn, adversarial ADV-6).
+     * The method the cron charges this invoice to, or null: the account's (Auto-charge on), its gateway still there and
+     * enabled (ExtensionHelper::customerGateways()), not stopped at autocharge_max_failures, and not one the bank asked the
+     * customer to confirm a charge of this invoice with (a new default method is charged; adversarial ADV-7), nor an
+     * invoice staff keep from it (PR H2b). Also what the reminder before the due date tells the customer
+     * (PaymentReminders::chargedOnItsOwn, adversarial ADV-6).
      */
     public static function agreementFor(Invoice $invoice): ?BillingAgreement
     {
@@ -74,6 +76,9 @@ final class AutoCharge
         $agreement = $invoice->client?->autoChargeAgreement();
         if ($agreement === null || $agreement->gateway === null) {
             return null;
+        }
+        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
+            return null; // its gateway disabled by staff: the customer pays the invoice another way
         }
         $max = max(0, (int) config('settings.autocharge_max_failures', 0));
         if ($max > 0 && $agreement->failed_count >= $max) {
