@@ -100,11 +100,15 @@ class Actor
     public const GRANT_PERMISSION_AS = [
         'products' => 'admin.services.viewAny',
         'domains' => 'admin.domains.viewAny',
-        'invoices' => 'admin.invoices.viewAny',
+        // The login pays with the account's credit and saved cards too (round 3, ADV-519-R3-1): «pay» in Login as client.
+        'invoices' => ['admin.invoices.viewAny', 'admin.invoices.update'],
         'quotes' => 'admin.invoices.viewAny',
         'tickets' => 'admin.tickets.viewAny',
         'emails' => ['admin.email_logs.viewAny', 'admin.email_logs.view'],
-        'managedomains' => ['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp'],
+        // The SSL private keys come with managing the services (ADV-519-R3-2).
+        'manageproducts' => ['admin.services.update', 'admin.services.ssl_keys'],
+        // Auto renew, the renewal years and a renewal's invoice too (ADV-519-R3-3).
+        'managedomains' => ['admin.domains.viewAny', 'admin.domains.update', 'admin.domains.manage', 'admin.domains.epp', 'admin.invoices.create'],
     ];
 
     /**

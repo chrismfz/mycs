@@ -30,8 +30,9 @@ class ClientUsersPastTheRoleTest extends TestCase
     use RefreshDatabase;
 
     /** What giving every permission takes (Actor::GRANT_PERMISSION_AS and STAFF_PERMISSION_AS). */
-    private const EVERYTHING = ['admin.services.sso', 'admin.services.update', 'admin.orders.create', 'admin.services.viewAny',
-        'admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp', 'admin.invoices.viewAny', 'admin.tickets.viewAny',
+    private const EVERYTHING = ['admin.services.sso', 'admin.services.update', 'admin.services.ssl_keys', 'admin.orders.create',
+        'admin.services.viewAny', 'admin.domains.viewAny', 'admin.domains.update', 'admin.domains.manage', 'admin.domains.epp',
+        'admin.invoices.viewAny', 'admin.invoices.update', 'admin.invoices.create', 'admin.tickets.viewAny',
         'admin.email_logs.viewAny', 'admin.email_logs.view'];
 
     protected function setUp(): void
@@ -72,7 +73,7 @@ class ClientUsersPastTheRoleTest extends TestCase
     public function test_a_role_without_them_gives_what_it_could_use_itself(): void
     {
         $client = User::factory()->create()->client();
-        $staff = $this->staff(['admin.tickets.viewAny', 'admin.invoices.viewAny']);
+        $staff = $this->staff(['admin.tickets.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
         $login = User::factory()->withoutClient()->create();
 
         $this->usersTab($staff, $client)->callTableAction('add', data: ['user_id' => $login->id, 'all' => false, 'permissions' => ['tickets', 'invoices', 'profile']]);
