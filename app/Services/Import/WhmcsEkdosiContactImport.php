@@ -73,6 +73,15 @@ final class WhmcsEkdosiContactImport
             if ($applied === []) {
                 continue;
             }
+            // A country written that the app cannot read is never sent as none, which Ekdosi reads as Greece (R3-542-1):
+            // not assigned, its documents go to its account until staff set it.
+            $written = trim((string) ($contact['country'] ?? ''));
+            if ($written !== '' && self::country($written) === null) {
+                $this->skip(count($applied), "Ekdosi contact #{$id} (customer #{$client}): its country «{$written}» is not one the app knows: "
+                    . 'not imported nor assigned, its documents go to its account until staff add it');
+
+                continue;
+            }
             $receipts = count(array_filter($applied, fn (array $row) => (bool) ($row['is_receipt'] ?? false)));
             if ($receipts > 0 && $receipts < count($applied)) {
                 $this->notes[] = "Ekdosi contact #{$id} (customer #{$client}): {$receipts} of its " . count($applied)
@@ -186,14 +195,29 @@ final class WhmcsEkdosiContactImport
     }
 
     /** Greek names the plugin's contacts have («ΕΛΛΑΔΑ», «Κύπρος»: 126 on myip's copy), beside what EuVat knows. */
-    private const GREEK_NAMES = ['ΕΛΛΑΔΑ' => 'GR', 'ΕΛΛΑΣ' => 'GR', 'ΚΥΠΡΟΣ' => 'CY'];
+    private const GREEK_NAMES = [
+        'ΕΛΛΑΔΑ' => 'GR', 'ΕΛΛΑΣ' => 'GR', 'ΕΛΛΗΝΙΚΗ ΔΗΜΟΚΡΑΤΙΑ' => 'GR', 'ΚΥΠΡΟΣ' => 'CY',
+        // Ekdosi's IsoCountry resolves these too (R3-542-1): an EU or nearby country written in Greek.
+        'ΙΤΑΛΙΑ' => 'IT', 'ΓΕΡΜΑΝΙΑ' => 'DE', 'ΓΑΛΛΙΑ' => 'FR', 'ΙΣΠΑΝΙΑ' => 'ES', 'ΒΟΥΛΓΑΡΙΑ' => 'BG', 'ΡΟΥΜΑΝΙΑ' => 'RO',
+        'ΟΛΛΑΝΔΙΑ' => 'NL', 'ΚΑΤΩ ΧΩΡΕΣ' => 'NL', 'ΒΕΛΓΙΟ' => 'BE', 'ΑΥΣΤΡΙΑ' => 'AT', 'ΠΟΛΩΝΙΑ' => 'PL', 'ΠΟΡΤΟΓΑΛΙΑ' => 'PT',
+        'ΣΟΥΗΔΙΑ' => 'SE', 'ΔΑΝΙΑ' => 'DK', 'ΙΡΛΑΝΔΙΑ' => 'IE', 'ΦΙΝΛΑΝΔΙΑ' => 'FI', 'ΛΟΥΞΕΜΒΟΥΡΓΟ' => 'LU', 'ΜΑΛΤΑ' => 'MT',
+        'ΣΛΟΒΕΝΙΑ' => 'SI', 'ΣΛΟΒΑΚΙΑ' => 'SK', 'ΚΡΟΑΤΙΑ' => 'HR', 'ΕΣΘΟΝΙΑ' => 'EE', 'ΛΕΤΟΝΙΑ' => 'LV', 'ΛΙΘΟΥΑΝΙΑ' => 'LT',
+        'ΤΣΕΧΙΑ' => 'CZ', 'ΤΣΕΧΙΚΗ ΔΗΜΟΚΡΑΤΙΑ' => 'CZ', 'ΟΥΓΓΑΡΙΑ' => 'HU', 'ΕΛΒΕΤΙΑ' => 'CH', 'ΝΟΡΒΗΓΙΑ' => 'NO',
+        'ΑΓΓΛΙΑ' => 'GB', 'ΒΡΕΤΑΝΙΑ' => 'GB', 'ΜΕΓΑΛΗ ΒΡΕΤΑΝΙΑ' => 'GB', 'ΗΝΩΜΕΝΟ ΒΑΣΙΛΕΙΟ' => 'GB', 'ΗΠΑ' => 'US',
+        'ΗΝΩΜΕΝΕΣ ΠΟΛΙΤΕΙΕΣ' => 'US', 'ΑΜΕΡΙΚΗ' => 'US', 'ΑΛΒΑΝΙΑ' => 'AL', 'ΣΕΡΒΙΑ' => 'RS', 'ΤΟΥΡΚΙΑ' => 'TR',
+        'ΒΟΡΕΙΑ ΜΑΚΕΔΟΝΙΑ' => 'MK', 'ΣΚΟΠΙΑ' => 'MK', 'ΠΓΔΜ' => 'MK', 'ΡΩΣΙΑ' => 'RU', 'ΟΥΚΡΑΝΙΑ' => 'UA', 'ΙΣΡΑΗΛ' => 'IL',
+        // Codes and names EuVat does not read as these (Ekdosi's aliases).
+        'UK' => 'GB', 'EL' => 'GR', 'HELLAS' => 'GR', 'GRC' => 'GR', 'CYP' => 'CY', 'GBR' => 'GB', 'ENGLAND' => 'GB',
+        'GREAT BRITAIN' => 'GB', 'USA' => 'US', 'HOLLAND' => 'NL', 'DEUTSCHLAND' => 'DE', 'ITALIA' => 'IT', 'ESPANA' => 'ES',
+    ];
 
     private static function country(?string $name): ?string
     {
         if ($name === null) {
             return null;
         }
-        $upper = strtr(mb_strtoupper($name), ['Ά' => 'Α', 'Έ' => 'Ε', 'Ή' => 'Η', 'Ί' => 'Ι', 'Ό' => 'Ο', 'Ύ' => 'Υ', 'Ώ' => 'Ω']);
+        $upper = preg_replace('/\s+/u', ' ', trim(strtr(mb_strtoupper($name), ['Ά' => 'Α', 'Έ' => 'Ε', 'Ή' => 'Η', 'Ί' => 'Ι', 'Ό' => 'Ο',
+            'Ύ' => 'Υ', 'Ώ' => 'Ω', 'Ϊ' => 'Ι', 'Ϋ' => 'Υ', '.' => '']))) ?? '';
 
         return self::GREEK_NAMES[$upper] ?? EuVat::iso($name);
     }
