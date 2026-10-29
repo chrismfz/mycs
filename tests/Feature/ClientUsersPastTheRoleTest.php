@@ -5,15 +5,20 @@ namespace Tests\Feature;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
+use App\Livewire\Client\Users as ClientAreaUsers;
 use App\Models\Client;
+use App\Models\ClientInvite;
 use App\Models\ClientUser;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\CurrentClient;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Field;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -105,6 +110,49 @@ class ClientUsersPastTheRoleTest extends TestCase
 
         $this->usersTab($this->staff(['admin.services.sso', 'admin.services.update', 'admin.orders.create']), $client)->filterTable('revoked', true)->callTableAction('restore', $grant->fresh());
         $this->assertNotNull($this->grant($client, $login));
+    }
+
+    /** «Login as client» on $client's owner, as staff with these permissions besides impersonating. @param  list<string>  $permissions */
+    private function loginAsClient(Client $client, array $permissions): void
+    {
+        $owner = $client->grants()->whereNotNull('owner_of_client_id')->sole()->user;
+        session(['impersonating' => $owner->id, CurrentClient::SESSION_KEY => $client->id, CurrentClient::IMPERSONATING_KEY => $client->id]);
+        Auth::guard('staff')->setUser(Staff::factory()->withPermissions(['admin.users.impersonate', ...$permissions])->create());
+        Auth::guard('web')->setUser($owner);
+        app(CurrentClient::class)->forget();
+    }
+
+    public function test_in_login_as_client_an_invite_past_the_role_is_refused(): void
+    {
+        $client = User::factory()->create()->client();
+        $this->loginAsClient($client, ['admin.clients.update']);
+
+        Livewire::test(ClientAreaUsers::class)->set('email', 'mine@example.test')->set('allPermissions', true)->call('invite');
+
+        $this->assertSame(0, ClientInvite::query()->where('client_id', $client->id)->count(), 'Update Clients alone invited a login with every permission');
+    }
+
+    public function test_in_login_as_client_widening_a_login_past_the_role_is_refused(): void
+    {
+        $client = User::factory()->create()->client();
+        $login = User::factory()->withoutClient()->create();
+        $grant = ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $login->id, 'permissions' => ['tickets'], 'granted_at' => now()]);
+        $this->loginAsClient($client, ['admin.clients.update']);
+
+        Livewire::test(ClientAreaUsers::class)->call('edit', $grant->id)->set('editAll', true)->call('savePermissions');
+
+        $this->assertSame(['tickets'], $grant->fresh()->permissions);
+    }
+
+    public function test_in_login_as_client_a_role_that_could_use_them_invites_with_every_permission(): void
+    {
+        $client = User::factory()->create()->client();
+        $this->loginAsClient($client, ['admin.clients.update', 'admin.services.sso', 'admin.services.update', 'admin.orders.create']);
+
+        Livewire::test(ClientAreaUsers::class)->set('email', 'mine@example.test')->set('allPermissions', true)->call('invite');
+
+        $invite = ClientInvite::query()->where('client_id', $client->id)->sole();
+        $this->assertNull($invite->permissions);
     }
 
     /** @return list<string> */

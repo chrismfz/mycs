@@ -68,6 +68,9 @@ class Users extends Component
 
             return;
         }
+        if ($this->pastTheRole($this->allPermissions ? null : array_values($this->permissions))) {
+            return;
+        }
         $limits = ['minute' => [5, 60], 'hour' => [20, 3600], 'day' => [50, 86400]];
         foreach ($limits as $window => [$max]) {
             if (RateLimiter::tooManyAttempts("client-invite:{$window}:{$client->id}", $max)) {
@@ -111,6 +114,9 @@ class Users extends Component
             'editPermissions.*' => [Rule::in(ClientUser::PERMISSIONS)],
         ]);
         $grant = $this->grant((int) $this->editing);
+        if ($this->pastTheRole($this->editAll ? null : array_values($this->editPermissions), $grant->permissions)) {
+            return;
+        }
         $this->account()->grantTo($grant->user, $this->editAll ? null : $this->editPermissions);
 
         $this->editing = null;
@@ -121,6 +127,27 @@ class Users extends Component
     {
         $this->account()->revoke($this->grant($grantId));
         $this->notify(__('account.access_removed'), 'success');
+    }
+
+    /**
+     * Staff in «Login as client» give a login only what they could use there themselves, as in the admin's Users tab
+     * (AUD3-1, its review): told, and nothing changes, otherwise. The owner is not limited.
+     *
+     * @param  list<string>|null  $permissions
+     * @param  list<string>|null  $had
+     */
+    private function pastTheRole(?array $permissions, ?array $had = []): bool
+    {
+        if (!Actor::impersonating()) {
+            return false;
+        }
+        $staff = Auth::guard('staff')->user();
+        if (Actor::staffMayGrant($staff instanceof Staff ? $staff : null, $permissions, $had)) {
+            return false;
+        }
+        $this->notify(__('account.grant_past_role'), 'error');
+
+        return true;
     }
 
     /** A live grant of this account that is not the owner's. */

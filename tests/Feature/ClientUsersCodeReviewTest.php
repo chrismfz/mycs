@@ -69,6 +69,7 @@ class ClientUsersCodeReviewTest extends TestCase
         $owner = User::factory()->create();
         $staff = Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
 
+        // Within the role: a staff member with only «Login as client» gives no permission past it (AUD3-1).
         // Real requests, as staff in «Login as client» (the session carries the impersonation).
         $this->actingAs($owner); // what ImpersonateMiddleware sets on each request
         $html = $this->actingAs($staff, 'staff')->withSession($this->loginUser($owner, ['impersonating' => $owner->id]))
@@ -77,7 +78,7 @@ class ClientUsersCodeReviewTest extends TestCase
         $snapshot = collect($m[1])->map(fn ($s) => html_entity_decode($s))->first(fn ($s) => str_contains($s, '"name":"client.users"'));
         $this->assertNotNull($snapshot);
         $this->withHeaders(['X-Livewire' => 'true'])->postJson(app('livewire')->getUpdateUri(), ['_token' => csrf_token(), 'components' => [[
-            'snapshot' => $snapshot, 'updates' => ['email' => 'x@example.test'], 'calls' => [['method' => 'invite', 'params' => [], 'metadata' => []]],
+            'snapshot' => $snapshot, 'updates' => ['email' => 'x@example.test', 'allPermissions' => false, 'permissions' => ['tickets']], 'calls' => [['method' => 'invite', 'params' => [], 'metadata' => []]],
         ]]])->assertOk();
 
         $invite = ClientInvite::query()->sole();
