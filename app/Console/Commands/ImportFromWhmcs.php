@@ -58,6 +58,9 @@ class ImportFromWhmcs extends Command
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
         {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
 
+    /** A WHMCS service never suspended automatically («Override Auto-Suspend» without a date): a hold this far off. */
+    public const NEVER_SUSPEND = '9999-12-31';
+
     /** @var (Closure(string, string, string): PDO)|null how the source is opened (tests: a fixture database) */
     public static ?Closure $connect = null;
 
@@ -190,6 +193,17 @@ class ImportFromWhmcs extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /** A service WHMCS suspended for non-payment: on its due date plus the Suspend Days, or now if that is still ahead. */
+    private static function suspendedOn(?string $due, int $suspendDays): Carbon
+    {
+        if ($due === null) {
+            return now();
+        }
+        $on = Carbon::parse($due)->addDays($suspendDays);
+
+        return $on->lessThan(now()) ? $on : now();
     }
 
     private function sourceHas(string $table): bool
@@ -368,42 +382,58 @@ class ImportFromWhmcs extends Command
     public ?WhmcsSecondFactor $secondFactor = null;
 
     /**
-     * WHMCS logins (`tblusers`) → users, with their own ids, emails, passwords and 2FA (docs/accounts.md, PR 4;
-     * security audit AUTHN-11): those of no account too (108 on myip), so no login is lost. A ticket reply's user is
-     * then the same id (WhmcsTicketImport::userOf).
-     */
-    /**
      * The company's automation, from its tblconfiguration (docs/settings-map.md, «Αυτοματισμοί»): left at MyCS's defaults,
      * the cron would end services earlier than WHMCS did (myip terminates at 120 days, the default is 60: pre-launch audit,
-     * flow 1, 2026-10-29). Only the settings that are the same thing on both sides; what the owner decided otherwise
-     * (the overdue reminders, 1,3,7) is set by hand at the cut-over. A value WHMCS lacks, or one out of range, keeps
-     * MyCS's own, and is said.
+     * flow 1, 2026-10-29). Only the settings that are the same thing on both sides. A value WHMCS lacks, or one out of
+     * range, keeps MyCS's own, and is said. What MyCS cannot hold yet (invoice days per billing cycle) is said too.
      */
     private function importAutomationSettings(): void
     {
         $this->info('Importing automation settings...');
         $config = $this->pdo->query("SELECT setting, value FROM tblconfiguration WHERE setting IN ('AutoSuspension', 'AutoSuspensionDays',"
-            . " 'AutoTermination', 'AutoTerminationDays', 'CreateInvoiceDaysBefore', 'DailyCronExecutionHour', 'CloseInactiveTickets')")
-            ->fetchAll(PDO::FETCH_KEY_PAIR);
-        $days = fn (string $key) => isset($config[$key]) && ctype_digit(trim((string) $config[$key])) ? (string) (int) $config[$key] : null;
+            . " 'AutoTermination', 'AutoTerminationDays', 'CreateInvoiceDaysBefore', 'DailyCronExecutionHour', 'CloseInactiveTickets',"
+            . " 'SendReminder', 'SendInvoiceReminderDays', 'SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder',"
+            . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
+            . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
+            . " 'CreateInvoiceDaysBeforeTriennially')")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $has = fn (string $key) => array_key_exists($key, $config);
+        // WHMCS writes «on»; anything else that reads as yes is yes too (review of #518).
+        $on = fn (string $key) => in_array(strtolower(trim((string) ($config[$key] ?? ''))), ['on', '1', 'yes', 'true'], true);
+        // Whole days up to ten years: a «never» typed as a huge number is kept as MyCS's own, never an overflow that makes
+        // every suspended service terminable (review of #518).
+        $days = function (string $key) use ($config): ?string {
+            $value = trim((string) ($config[$key] ?? ''));
+
+            return ctype_digit($value) && strlen($value) <= 4 && (int) $value <= 3650 ? (string) (int) $value : null;
+        };
         $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
             ? (int) $config['DailyCronExecutionHour'] : null;
-        $closeHours = $days('CloseInactiveTickets');
+        // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 or empty is never, on both sides.
+        $closeHours = $has('CloseInactiveTickets') && trim((string) $config['CloseInactiveTickets']) === '' ? '0' : $days('CloseInactiveTickets');
+        $overdue = array_values(array_unique(array_filter(array_map(fn (string $key) => (int) ($days($key) ?? 0),
+            ['SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder', 'SendThirdOverdueInvoiceReminder']), fn (int $day) => $day > 0)));
+        sort($overdue);
         $settings = [
-            'cronjob_suspend_enabled' => isset($config['AutoSuspension']) ? ['boolean', $config['AutoSuspension'] === 'on' ? '1' : '0'] : null,
+            'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
-            'cronjob_terminate_enabled' => isset($config['AutoTermination']) ? ['boolean', $config['AutoTermination'] === 'on' ? '1' : '0'] : null,
+            'cronjob_terminate_enabled' => $has('AutoTermination') ? ['boolean', $on('AutoTermination') ? '1' : '0'] : null,
             'cronjob_order_terminate' => ($v = $days('AutoTerminationDays')) !== null ? ['string', $v] : null,
             'cronjob_invoice' => ($v = $days('CreateInvoiceDaysBefore')) !== null ? ['string', $v] : null,
             // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
             'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
-            // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 is never, on both sides.
             'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,
+            // The unpaid reminder, days before the due date; its switch off is 0 (review of #518: myip 1, the default 6).
+            'cronjob_payment_reminder' => $has('SendReminder') && !$on('SendReminder') ? ['string', '0']
+                : (($v = $days('SendInvoiceReminderDays')) !== null ? ['string', $v] : null),
+            // The overdue notices, days after it, in order (myip 1,3,5; nixpal's owner decision, 1,3,7, is set at its cut-over).
+            'cronjob_overdue_reminders' => $has('SendFirstOverdueInvoiceReminder') ? ['string', implode(',', $overdue)] : null,
+            // WHMCS's «Disable Credit Auto-Apply» is MyCS's credit auto-apply, inverted (review of #518: myip has it on).
+            'credits_auto_use' => $has('NoAutoApplyCredit') ? ['boolean', $on('NoAutoApplyCredit') ? '0' : '1'] : null,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
             if ($setting === null) {
-                $rows[] = [$key, 'kept (WHMCS has none, or one out of range)'];
+                $rows[] = [$key, $key === 'cronjob_time' && $hour === 3 ? 'kept: never 03:xx, the clock changes then (BIL-16)' : 'kept (WHMCS has none, or one out of range)'];
 
                 continue;
             }
@@ -412,8 +442,20 @@ class ImportFromWhmcs extends Command
             $rows[] = [$key, $value];
         }
         $this->table(['Setting', 'Value'], $rows);
+        // Invoice days per billing cycle: MyCS holds one value (ROADMAP: per cycle, «Ν»): said, for staff to choose.
+        $perCycle = array_filter(['Monthly', 'Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
+            fn (string $cycle) => $days('CreateInvoiceDaysBefore' . $cycle) !== null && (int) $days('CreateInvoiceDaysBefore' . $cycle) > 0);
+        if ($perCycle !== []) {
+            $this->warn('WHMCS invoices per billing cycle (' . implode(', ', array_map(fn (string $c) => $c . ' ' . $days('CreateInvoiceDaysBefore' . $c), $perCycle))
+                . '); MyCS has one value, cronjob_invoice = ' . ($days('CreateInvoiceDaysBefore') ?? 'unchanged') . ': check it before the first cron run.');
+        }
     }
 
+    /**
+     * WHMCS logins (`tblusers`) → users, with their own ids, emails, passwords and 2FA (docs/accounts.md, PR 4;
+     * security audit AUTHN-11): those of no account too (108 on myip), so no login is lost. A ticket reply's user is
+     * then the same id (WhmcsTicketImport::userOf).
+     */
     private function importLogins(): void
     {
         $this->info('Importing logins... (' . $this->count('tblusers') . ' records)');
@@ -1076,7 +1118,10 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing services... (' . $this->count('tblhosting') . ' records)');
 
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) {
+        // WHMCS's Suspend Days, for when a service it suspended for non-payment was suspended (it keeps no date of its own).
+        $suspendDays = $this->sourceHas('tblconfiguration')
+            ? (int) ($this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'AutoSuspensionDays'")->fetchColumn() ?: 0) : 0;
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays) {
             $data = [];
             foreach ($records as $record) {
                 // Get currency from user
@@ -1127,8 +1172,17 @@ class ImportFromWhmcs extends Command
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Any other reason
                     // (or none) was staff's: a manual hold (docs/billing-cursor.md).
+                    // When: its due date and the Suspend Days, as WHMCS's own run did; never later than now. The cron counts
+                    // the days it has been suspended (review of #518: «now» put a termination due on the first night a day late).
                     'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'
-                        && strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0 ? now() : null,
+                        && strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0
+                        ? self::suspendedOn($this->validateDate($record['nextduedate']), $suspendDays) : null,
+                    // WHMCS's «Override Auto-Suspend» (review of #518, ADV-518-1: on myip 36 active services): suspended
+                    // until its date, or never (no date) as a hold far off; the cron neither suspends nor terminates it.
+                    'suspend_hold_until' => in_array(strtolower(trim((string) ($record['overideautosuspend'] ?? ''))), ['1', 'on'], true)
+                        ? ($this->validateDate($record['overidesuspenduntil'] ?? null) !== null
+                            ? substr((string) $this->validateDate($record['overidesuspenduntil']), 0, 10) : self::NEVER_SUSPEND)
+                        : null,
                     // tblhosting's own fields (native here). The password is WHMCS-encrypted (its cc_encryption_hash, not in
                     // the database): brought by its own step through WHMCS's DecryptPassword, before the cut-over.
                     'domain' => self::text($record['domain'] ?? null, 255),

@@ -85,4 +85,36 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame(['2', 'string'], $settings['cronjob_close_ticket'], '25 hours are two days, not one');
         $this->assertStringContainsString('kept', $this->output->fetch());
     }
+
+    /** Review of #518 (M2–M4): myip's reminders and credit come as WHMCS has them, the per-cycle days are said. */
+    public function test_myips_reminders_and_credit_come_and_its_invoice_days_per_cycle_are_said(): void
+    {
+        $this->import(['SendReminder' => 'on', 'SendInvoiceReminderDays' => '1', 'SendFirstOverdueInvoiceReminder' => '1',
+            'SendSecondOverdueInvoiceReminder' => '3', 'SendThirdOverdueInvoiceReminder' => '5', 'NoAutoApplyCredit' => 'on',
+            'CreateInvoiceDaysBefore' => '14', 'CreateInvoiceDaysBeforeMonthly' => '10', 'CreateInvoiceDaysBeforeAnnually' => '20']);
+
+        $settings = $this->settings() + Setting::query()->whereNull('settingable_type')->where('key', 'credits_auto_use')->get()
+            ->mapWithKeys(fn (Setting $s) => [$s->key => [$s->getRawOriginal('value'), $s->type]])->all();
+        $this->assertSame(['1', 'string'], $settings['cronjob_payment_reminder']);
+        $this->assertSame(['1,3,5', 'string'], $settings['cronjob_overdue_reminders']);
+        $this->assertSame(['0', 'boolean'], $settings['credits_auto_use'], 'WHMCS does not apply credit on its own: neither does MyCS');
+        $output = $this->output->fetch();
+        $this->assertStringContainsString('Monthly 10, Annually 20', $output);
+    }
+
+    /** Review of #518 (M3, L1–L3, L5): switches and values in their odd forms. */
+    public function test_odd_values_and_switches(): void
+    {
+        $this->import(['SendReminder' => '', 'SendInvoiceReminderDays' => '6', 'AutoTermination' => 'On', 'AutoTerminationDays' => '99999999999999999999',
+            'CloseInactiveTickets' => '', 'DailyCronExecutionHour' => '3', 'SendFirstOverdueInvoiceReminder' => '2', 'SendSecondOverdueInvoiceReminder' => '',
+            'SendThirdOverdueInvoiceReminder' => '2']);
+
+        $settings = $this->settings();
+        $this->assertSame(['0', 'string'], $settings['cronjob_payment_reminder'], 'the reminder switched off');
+        $this->assertSame(['1', 'boolean'], $settings['cronjob_terminate_enabled'], '«On» is on');
+        $this->assertNotSame('99999999999999999999', $settings['cronjob_order_terminate'][0] ?? null, 'a «never» typed as a huge number is not a number of days');
+        $this->assertSame(['0', 'string'], $settings['cronjob_close_ticket'], 'empty is never, as in WHMCS');
+        $this->assertSame(['2', 'string'], $settings['cronjob_overdue_reminders'], 'once each, the empty one left out');
+        $this->assertStringContainsString('never 03:xx', $this->output->fetch());
+    }
 }

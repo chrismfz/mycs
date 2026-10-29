@@ -262,16 +262,32 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 
 ### Ρυθμίσεις αυτοματισμού (2026-10-29)
 Τις φέρνει το import, αλλιώς το cron θα τερμάτιζε υπηρεσίες της myip στις 60 ημέρες, ενώ το WHMCS τις κρατά ως τις
-120 (pre-launch audit, ροή 1).
-- `AutoSuspension`/`AutoTermination` → `cronjob_suspend_enabled`/`cronjob_terminate_enabled`.
-- `AutoSuspensionDays` → `cronjob_order_suspend` και `AutoTerminationDays` → `cronjob_order_terminate`.
-- `CreateInvoiceDaysBefore` → `cronjob_invoice`.
-- `DailyCronExecutionHour` → `cronjob_time` (ποτέ 03:xx).
-- `CloseInactiveTickets`, σε ώρες → `cronjob_close_ticket`, σε ημέρες, με στρογγυλοποίηση προς τα πάνω: 48 → 2.
-- Ό,τι λείπει ή είναι εκτός ορίων κρατά την τιμή της MyCS, και το import το λέει.
-- Οι υπενθυμίσεις overdue **δεν** έρχονται: εκεί ισχύει η απόφαση του υπευθύνου (1,3,7), που ορίζεται στο cut-over.
+120 (pre-launch audit, ροή 1· reviews του #518).
+- **Διακόπτες και ημέρες:**
+  - `AutoSuspension`/`AutoTermination` → `cronjob_suspend_enabled`/`cronjob_terminate_enabled`· «on», «1», «yes», «true»
+    σημαίνουν on.
+  - `AutoSuspensionDays`/`AutoTerminationDays` → `cronjob_order_suspend`/`cronjob_order_terminate`.
+  - `CreateInvoiceDaysBefore` → `cronjob_invoice`.
+  - `DailyCronExecutionHour` → `cronjob_time` (ποτέ 03:xx).
+  - `CloseInactiveTickets`, σε ώρες → `cronjob_close_ticket`, σε ημέρες, με στρογγυλοποίηση προς τα πάνω (48 → 2). Κενό
+    ή 0 σημαίνει ποτέ.
+- **Υπενθυμίσεις και πίστωση:**
+  - `SendInvoiceReminderDays` → `cronjob_payment_reminder` (με το `SendReminder` off: 0).
+  - Οι τρεις υπενθυμίσεις overdue → `cronjob_overdue_reminders`, ως λίστα (myip 1,3,5). Στη nixpal ισχύει η απόφαση
+    του υπευθύνου, **1,3,7**, που ορίζεται με το χέρι στο cut-over της.
+  - `NoAutoApplyCredit` → `credits_auto_use`, ανάποδα. Η myip έχει την αυτόματη χρήση πίστωσης **κλειστή**.
+- **Τιμές εκτός ορίων:** ό,τι λείπει ή ξεπερνά τις 3.650 ημέρες κρατά την τιμή της MyCS, και το import το λέει.
+- **Ημέρες τιμολόγησης ανά κύκλο** (myip: μήνας 10, τρίμηνο 15, εξάμηνο και έτος 20): η MyCS κρατά μία τιμή
+  (`cronjob_invoice`). Το import το λέει, και η τιμή αποφασίζεται πριν από το πρώτο cron.
+- **Ανά υπηρεσία, «Override Auto-Suspend»** (myip: 36 ενεργές, από αυτές 32 «ποτέ»):
+  - με ημερομηνία → `suspend_hold_until` σε αυτή·
+  - χωρίς ημερομηνία → `9999-12-31`.
+
+  Το cron δεν τις αναστέλλει και δεν τις τερματίζει.
+- **Υπηρεσία suspended από το WHMCS για «Overdue on Payment»:** το marker της αναστολής παίρνει τη λήξη + Suspend Days
+  (ποτέ μετά το «τώρα»), ώστε ο τερματισμός να μην αργεί μία ημέρα.
 - Οι 12 suspended υπηρεσίες της myip (2026-10-29) έχουν όλες override και καμία «Overdue on Payment»: μπαίνουν ως
-  κράτηση του staff, που ο τερματισμός του cron δεν την αγγίζει.
+  κράτηση του staff.
 
 ### Λείπουν από τον importer
 - **Ετικέτες υπηρεσιών του πελάτη:** `mod_clientproductdescriptions` (type `tblhosting`, pid = service id), 310 εγγραφές,
