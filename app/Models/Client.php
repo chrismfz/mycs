@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Models\Traits\HasProperties;
 use App\Observers\ClientObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -302,6 +303,18 @@ class Client extends Model implements Auditable
 
     /** The method the cron charges: its default, unless «Auto-charge» is off or the method is gone. */
     public function autoChargeAgreement(): ?BillingAgreement
+    {
+        $agreement = $this->autoChargeMethod();
+
+        // Of a gateway staff disabled: kept, but it pays nothing on its own (ExtensionHelper::customerGateways()).
+        return $agreement !== null && ExtensionHelper::gatewayEnabled($agreement->gateway_id) ? $agreement : null;
+    }
+
+    /**
+     * The account's method for its renewals with «Auto-charge» on, whether its gateway is enabled or not: the cron still
+     * resends a charge of unknown outcome on it with its key (AutoCharge::agreementFor, adversarial ADV-540-2).
+     */
+    public function autoChargeMethod(): ?BillingAgreement
     {
         if (!$this->auto_charge || $this->default_billing_agreement_id === null) {
             return null;

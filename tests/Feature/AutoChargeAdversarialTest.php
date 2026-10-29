@@ -68,7 +68,7 @@ class AutoChargeAdversarialTest extends TestCase
         MailFacade::fake();
         Carbon::setTestNow('2026-11-10 09:00:00');
         $this->client = User::factory()->create()->client();
-        $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'AdvPay'], ['name' => 'AdvPay', 'type' => 'gateway']);
+        $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'AdvPay'], ['name' => 'AdvPay', 'type' => 'gateway', 'enabled' => true]);
         $this->agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $this->gateway->id,
             'name' => 'Card 0000', 'external_reference' => 'pm_adv_1', 'type' => 'card']);
         $this->client->refresh();
@@ -193,7 +193,7 @@ class AutoChargeAdversarialTest extends TestCase
      */
     public function test_adv3b_stripe_5xx_then_a_second_click_reuses_the_idempotency_key(): void
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa',
             'external_reference' => 'pm_s', 'type' => 'card']);
         $this->client->properties()->updateOrCreate(['key' => 'stripe_id'], ['value' => 'cus_adv']);

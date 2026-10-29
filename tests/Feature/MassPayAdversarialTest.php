@@ -49,7 +49,7 @@ class MassPayAdversarialTest extends TestCase
         Cache::forget('settings.rows');
         config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $this->user = User::factory()->create();
-        Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
     }
 
     protected function tearDown(): void
@@ -78,7 +78,7 @@ class MassPayAdversarialTest extends TestCase
 
     private function mollie(): Gateway
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Mollie'], ['name' => 'Mollie', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Mollie'], ['name' => 'Mollie', 'type' => 'gateway', 'enabled' => true]);
         $gateway->settings()->updateOrCreate(['key' => 'api_key'], ['value' => 'test_key']);
         (new Mollie(['api_key' => 'test_key']))->boot();
 

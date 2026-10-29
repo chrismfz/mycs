@@ -55,7 +55,7 @@ class SuspensionWindowRound4Test extends TestCase
         }
         RwPay::$charges = [];
         $this->client = User::factory()->create()->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'RwPay'], ['name' => 'RwPay', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'RwPay'], ['name' => 'RwPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_w4', 'type' => 'card']);
         $this->client->refresh();

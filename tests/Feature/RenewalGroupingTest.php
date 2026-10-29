@@ -215,7 +215,7 @@ class RenewalGroupingTest extends TestCase
                 public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
         }
         GroupFake::$charges = [];
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupFake'], ['name' => 'GroupFake', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupFake'], ['name' => 'GroupFake', 'type' => 'gateway', 'enabled' => true]);
 
         return BillingAgreement::query()->create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'ref-' . uniqid()]);
     }

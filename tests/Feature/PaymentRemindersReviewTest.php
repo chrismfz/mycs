@@ -74,7 +74,7 @@ class PaymentRemindersReviewTest extends TestCase
     public function test_a_billing_agreement_invoice_is_told_it_will_be_charged_on_its_due_date(): void
     {
         $invoice = $this->invoice('2026-10-25');
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::create(['client_id' => $invoice->client_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
         $this->assertSame($agreement->id, (int) $invoice->client->fresh()->default_billing_agreement_id, 'precondition: the account\'s method (decision 6)');
 

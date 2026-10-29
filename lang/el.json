@@ -269,6 +269,7 @@
     "Charge renewals automatically": "Αυτόματη χρέωση ανανεώσεων",
     "You switched account in another window: reload this page.": "Αλλάξατε λογαριασμό σε άλλο παράθυρο: φορτώστε ξανά αυτή τη σελίδα.",
     "This payment method was removed.": "Αυτός ο τρόπος πληρωμής έχει αφαιρεθεί.",
+    "This payment method cannot be used now.": "Αυτός ο τρόπος πληρωμής δεν μπορεί να χρησιμοποιηθεί αυτή τη στιγμή.",
     "Renewal invoices are charged to the saved payment method below.": "Τα τιμολόγια ανανέωσης χρεώνονται στον αποθηκευμένο τρόπο πληρωμής παρακάτω.",
     "Payment method for renewals": "Τρόπος πληρωμής ανανεώσεων",
     "None": "Κανένας",

@@ -80,6 +80,8 @@ class Credits extends Component
         if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
             return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
         }
+        // Read again: a gateway staff disabled since the page was opened is not opened (code review, ADV-540-1).
+        $this->gateways = ExtensionHelper::getCheckoutGateways($this->amount, $this->currency, 'credits');
         $this->validate([
             'currency' => 'required|exists:currencies,code',
             'amount' => 'required|numeric|min:' . config('settings.credits_minimum_deposit') . '|max:' . config('settings.credits_maximum_deposit'),

@@ -35,15 +35,22 @@ class EditGateway extends EditRecord
 
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
+        $wasEnabled = (bool) $record->getAttribute('enabled');
         $record->update(Arr::except($data, ['settings']));
-
-        if (!isset($data['settings'])) {
-            return $record;
+        // Turned off, the extension is told as on delete; turned on, after its settings below, as on create.
+        $toggled = array_key_exists('enabled', $data) && (bool) $data['enabled'] !== $wasEnabled;
+        if ($toggled && !$data['enabled']) {
+            ExtensionHelper::call($record, 'disabled', [$record], mayFail: true);
         }
 
-        ExtensionHelper::saveSettings($record, $record instanceof Extension ? ExtensionHelper::withStoredSecrets($record, $data['settings']) : $data['settings']);
+        if (isset($data['settings'])) {
+            ExtensionHelper::saveSettings($record, $record instanceof Extension ? ExtensionHelper::withStoredSecrets($record, $data['settings']) : $data['settings']);
 
-        ExtensionHelper::call($record, 'updated', [$record], mayFail: true);
+            ExtensionHelper::call($record, 'updated', [$record], mayFail: true);
+        }
+        if ($toggled && $data['enabled']) {
+            ExtensionHelper::call($record, 'enabled', [$record], mayFail: true);
+        }
 
         // Maybe the extension changed the record, so we need to refresh it
         return $record->refresh();
