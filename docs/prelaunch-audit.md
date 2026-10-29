@@ -126,7 +126,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 6 | Domains | 1 (2026-10-29, `main` @ c94aa7bf) | 0 | 1 (AUD6-1) | #526 | **έτοιμο** (#526) |
 | 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
 | 8 | Ops, ρυθμίσεις | 1 (2026-10-29, `main` @ 279a5a69) | 1 (AUD8-1) | 6 (AUD8-2…7) | #529 | **έτοιμο** (#529) |
-| 9 | Importer | 1 (2026-10-29, `main` @ 67ad3c09, import nixpal ×2 και myip σε scratch βάσεις) | 3 (AUD9-1…3) | 0 | #PRNUM | διορθώσεις στο #PRNUM· ό,τι γραφτεί ακόμα (D6 κ.λπ.) ελέγχεται μόνο του |
+| 9 | Importer | 1 (2026-10-29, `main` @ 67ad3c09, import nixpal ×2 και myip σε scratch βάσεις) | 3 (AUD9-1…3) | 0 | #531 | διορθώσεις στο #531· ό,τι γραφτεί ακόμα (D6 κ.λπ.) ελέγχεται μόνο του |
 
 ### Ροή 1: σημειώσεις (2026-10-29)
 Καθαρός γύρος: κανένα Critical/High/Medium. Ελέγχθηκαν διπλό τιμολόγιο και περίοδος δύο φορές (`RenewalBilling`, lock
@@ -292,9 +292,9 @@ guard για APP_DEBUG και dev packages, ERR trap και snapshot (umask 077)
 
 | ID | Σοβαρότητα | Τι | Κατάσταση |
 |---|---|---|---|
-| AUD9-1 | High | Ο μετρητής έπαιρνε το μεγαλύτερο **id** (nixpal 7269), όχι τον αριθμό του WHMCS (6860 ο επόμενος): το πρώτο πληρωμένο μετά το cut-over θα ήταν `2026-7270`, ~410 αριθμοί κενό | **#PRNUM:** μετρητής = `SequentialInvoiceNumberValue` − 1, και έρχονται proforma, format και «αριθμός = id» |
-| AUD9-2 | High | Το `tblinvoices.duedate` δεν ερχόταν: κανένα τιμολόγιο overdue, καμία υπενθύμιση, ενώ το cron έκανε suspend (myip: 117 απλήρωτα, 14.020,32 €) | **#PRNUM:** `due_at` από το `duedate` |
-| AUD9-3 | High (cut-over) | Το cron του WHMCS αφήνει κενό το `suspendreason` (myip: 0 από 123 «Overdue on Payment»): ως κράτηση του staff, η πληρωμή δεν έκανε unsuspend και το cron δεν τερμάτιζε | **#PRNUM** (απόφαση του υπεύθυνου): κενός λόγος + απλήρωτη ανανέωση ληγμένη → suspend για χρέος· αλλιώς κράτηση |
+| AUD9-1 | High | Ο μετρητής έπαιρνε το μεγαλύτερο **id** (nixpal 7269), όχι τον αριθμό του WHMCS (6860 ο επόμενος): το πρώτο πληρωμένο μετά το cut-over θα ήταν `2026-7270`, ~410 αριθμοί κενό | **#531:** μετρητής = `SequentialInvoiceNumberValue` − 1, και έρχονται proforma, format και «αριθμός = id» |
+| AUD9-2 | High | Το `tblinvoices.duedate` δεν ερχόταν: κανένα τιμολόγιο overdue, καμία υπενθύμιση, ενώ το cron έκανε suspend (myip: 117 απλήρωτα, 14.020,32 €) | **#531:** `due_at` από το `duedate` |
+| AUD9-3 | High (cut-over) | Το cron του WHMCS αφήνει κενό το `suspendreason` (myip: 0 από 123 «Overdue on Payment»): ως κράτηση του staff, η πληρωμή δεν έκανε unsuspend και το cron δεν τερμάτιζε | **#531** (απόφαση του υπεύθυνου): κενός λόγος + απλήρωτη ανανέωση ληγμένη → suspend για χρέος· αλλιώς κράτηση |
 
 **Cut-over:** σταματά το `schedule:run` όσο τρέχει το import (ένα import που κόπηκε αφήνει μισή βάση, και το cron τρέχει
 πάνω της). Στο runbook (`ROADMAP.md` γραμμή 10).
