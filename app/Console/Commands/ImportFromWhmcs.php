@@ -1511,14 +1511,15 @@ class ImportFromWhmcs extends Command
      */
     private function importRefunds(): void
     {
-        $refunds = $this->sourceRows('SELECT id, refundid, amountout, date, description FROM tblaccounts WHERE amountout > 0 ORDER BY date, id')
-            ?? $this->sourceRows('SELECT id, refundid, amountout, date FROM tblaccounts WHERE amountout > 0 ORDER BY date, id')
+        $refunds = $this->sourceRows('SELECT id, invoiceid, refundid, amountout, date, description FROM tblaccounts WHERE amountout > 0 ORDER BY date, id')
+            ?? $this->sourceRows('SELECT id, invoiceid, refundid, amountout, date FROM tblaccounts WHERE amountout > 0 ORDER BY date, id')
             // A WHMCS without refundid (an old version): money out on no payment, named.
-            ?? $this->sourceRows('SELECT id, amountout, date FROM tblaccounts WHERE amountout > 0 ORDER BY date, id') ?? [];
+            ?? $this->sourceRows('SELECT id, invoiceid, amountout, date FROM tblaccounts WHERE amountout > 0 ORDER BY date, id') ?? [];
         // WHMCS's own record of a refund to credit, by invoice: «Credit from Refund of Invoice ID N».
         $toCredit = [];
-        foreach ($this->sourceRows("SELECT id, description, amount FROM tblcredit WHERE amount > 0 AND description LIKE 'Credit from Refund of Invoice ID %'") ?? [] as $row) {
-            $toCredit[(int) substr((string) $row['description'], strlen('Credit from Refund of Invoice ID '))][] = ['id' => (int) $row['id'], 'cents' => WhmcsMassPay::cents($row['amount'])];
+        foreach ($this->sourceRows("SELECT id, date, description, amount FROM tblcredit WHERE amount > 0 AND description LIKE 'Credit from Refund of Invoice ID %' ORDER BY date, id") ?? [] as $row) {
+            $toCredit[(int) substr((string) $row['description'], strlen('Credit from Refund of Invoice ID '))][] = ['id' => (int) $row['id'],
+                'cents' => WhmcsMassPay::cents($row['amount']), 'day' => substr((string) $row['date'], 0, 10)];
         }
         // ... and of taking back the credit an overpayment gave, to refund it in cash: «Removal of Credit from Invoice #N».
         $removed = [];
@@ -1536,17 +1537,27 @@ class ImportFromWhmcs extends Command
 
                 continue;
             }
+            // WHMCS names the invoice the refund was on (a Mass Pay parent's, not the child the payment landed on here).
+            $whmcsInvoice = (int) ($refund['invoiceid'] ?? 0) ?: (int) $payment->invoice_id;
+            // Its own words first: «... to Credit Balance» is one, any other description a cash refund (round 2 of #523).
+            // With none (an older WHMCS), WHMCS's credit row for its invoice and amount, the same day first, tells.
+            $description = trim((string) ($refund['description'] ?? ''));
             $match = null;
-            foreach ($toCredit[(int) $payment->invoice_id] ?? [] as $index => $row) {
-                if ($row['cents'] === $cents) {
-                    $match = $index;
-                    break;
+            if ($description === '' || str_contains($description, 'to Credit Balance')) {
+                $day = substr((string) $refund['date'], 0, 10);
+                foreach ($toCredit[$whmcsInvoice] ?? [] as $index => $row) {
+                    if ($row['cents'] === $cents && ($match === null || $row['day'] === $day)) {
+                        $match = $index;
+                        if ($row['day'] === $day) {
+                            break;
+                        }
+                    }
                 }
             }
-            $credit = $match !== null || str_contains((string) ($refund['description'] ?? ''), 'to Credit Balance');
+            $credit = $match !== null || str_contains($description, 'to Credit Balance');
             if ($match !== null) {
-                $this->creditRowsUsed[] = $toCredit[(int) $payment->invoice_id][$match]['id'];
-                unset($toCredit[(int) $payment->invoice_id][$match]);
+                $this->creditRowsUsed[] = $toCredit[$whmcsInvoice][$match]['id'];
+                unset($toCredit[$whmcsInvoice][$match]);
             }
 
             $refunded = WhmcsMassPay::cents($payment->refunded_amount);
@@ -1556,11 +1567,11 @@ class ImportFromWhmcs extends Command
             // says so; as here, where only what is not credit can be refunded.
             $fromCredit = 0;
             if (!$credit && $take < $cents) {
-                foreach ($removed[(int) $payment->invoice_id] ?? [] as $index => $row) {
+                foreach ($removed[$whmcsInvoice] ?? [] as $index => $row) {
                     if ($row['cents'] === $cents - max(0, $take) && $row['cents'] <= $credited) {
                         $fromCredit = $row['cents'];
                         $this->creditRowsUsed[] = $row['id'];
-                        unset($removed[(int) $payment->invoice_id][$index]);
+                        unset($removed[$whmcsInvoice][$index]);
                         $credited -= $fromCredit;
                         $take = $cents;
                         break;
