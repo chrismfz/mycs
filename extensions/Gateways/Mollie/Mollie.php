@@ -5,12 +5,16 @@ namespace MyCS\Extensions\Gateways\Mollie;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayReference;
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 #[ExtensionMeta(
     name: 'Mollie Gateway',
@@ -27,15 +31,18 @@ class Mollie extends Gateway
         // Register webhook route
     }
 
-    private function request($url, $method = 'get', $data = [])
+    /** @throws Exception Mollie's error, with its HTTP status as the code */
+    private function request($url, $method = 'get', $data = [], ?string $idempotencyKey = null)
     {
-        $response = Http::withHeaders([
+        $response = Http::withHeaders(array_filter([
             'Authorization' => 'Bearer ' . $this->config('api_key'),
             'Content-Type' => 'application/json',
-        ])->$method('https://api.mollie.com' . $url, $data);
+            'Idempotency-Key' => $idempotencyKey,
+        ]))->$method('https://api.mollie.com' . $url, $data);
 
         if (!$response->successful()) {
-            throw new Exception('Mollie API error: ' . $response->json()['detail']);
+            $detail = $response->json('detail');
+            throw new Exception('Mollie API error: ' . (is_string($detail) ? $detail : 'HTTP ' . $response->status()), $response->status());
         }
 
         return $response->json();
@@ -188,8 +195,32 @@ class Mollie extends Gateway
             ],
         ];
 
-        $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data);
+        // The same refund (transaction, what was refunded before, amount) keeps the same key: a retry after a timeout gets
+        // Mollie's first answer instead of a second refund (AUD2-1, as Stripe's key and PayPal's request id).
+        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
+        $key = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
+        try {
+            $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data, $key);
+        } catch (ConnectionException $e) {
+            $this->outcomeUnknown($transaction, $paymentId, $amount, $key, 'no answer');
+
+            throw $e;
+        } catch (Exception $e) {
+            // Mollie's own failure (5xx) may come after the refund was made: unknown, as a timeout. A 4xx is a refusal.
+            if ($e->getCode() >= 500) {
+                $this->outcomeUnknown($transaction, $paymentId, $amount, $key, 'HTTP ' . $e->getCode());
+            }
+
+            throw $e;
+        }
 
         return (string) ($refund['id'] ?? '') ?: true;
+    }
+
+    private function outcomeUnknown(InvoiceTransaction $transaction, string $paymentId, $amount, string $key, string $why): void
+    {
+        Log::critical('Mollie refund outcome unknown (' . $why . '): check Mollie before retrying; a retry reuses the idempotency key.', [
+            'transaction_id' => $transaction->id, 'payment_id' => $paymentId, 'amount' => $amount, 'idempotency_key' => $key,
+        ]);
     }
 }
