@@ -97,6 +97,10 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 - **Η επαναφορά σβήνει ό,τι μπήκε μετά το snapshot:** πληρωμές, τιμολόγια, tickets από την ώρα που το site ξαναάνοιξε,
   και γυρίζει πίσω τους μετρητές αρίθμησης (διπλοί αριθμοί, παραστατικά ήδη στο Ekdosi). Μόνο αμέσως, με το site σε
   `down`, πριν μπουν νέα δεδομένα. Αργότερα: διόρθωση προς τα εμπρός (νέο deploy), όχι επαναφορά.
+- **Και με το site σε maintenance μπαίνουν πληρωμές:** το return του Cardlink απαντιέται και τότε (AUD8-1). Πριν από την
+  επαναφορά, κράτα όσες μπήκαν μετά το snapshot (η ώρα του είναι στο όνομά του), και ξαναπέρασέ τες μετά, γιατί αλλιώς η
+  τράπεζα έχει τα χρήματα και η MyCS όχι (ADV-529-2):
+  `select i.id, t.transaction_id, t.amount, t.created_at from invoice_transactions t join invoices i on i.id = t.invoice_id where t.created_at >= '<ώρα του snapshot>';`
 
 Χειροκίνητα:
 ```bash

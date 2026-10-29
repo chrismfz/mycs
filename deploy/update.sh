@@ -241,8 +241,8 @@ $ART proxmox:console-relay --restart >/dev/null 2>&1 || true
 # The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
 _url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"
 if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
-  _code="$(curl -s -o /dev/null -w '%{http_code}' "$_url/" || true)"
-  _health="$(curl -s -o /dev/null -w '%{http_code}' "$_url/health" || true)"
+  _code="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/" || true)"
+  _health="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/health" || true)"
   if [[ "$_code" != "200" ]]; then
     # Never «Deployed» over a site that does not answer (AUD8-6): the release is in place, the site is up, look now.
     fail "Smoke check: $_url → ${_code:-no answer}. The new release is live: check it NOW (rollback: docs/install.md)."

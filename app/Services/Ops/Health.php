@@ -215,14 +215,20 @@ final class Health
         $connection = (string) config('queue.default');
         if (!in_array($connection, ['database', 'sync'], true)) {
             try {
-                $size = Queue::connection($connection)->size();
+                $queue = Queue::connection($connection);
+                $size = $queue->size();
+                // How long the oldest job has waited, as the database queue's check (ADV-529-1: a dead worker with redis up).
+                $oldest = $queue->creationTimeOfOldestPendingJob();
             } catch (Throwable $e) {
                 return ['status' => self::FAIL, 'detail' => "The {$connection} queue cannot be read: " . Scrub::text($e->getMessage())];
             }
+            $waiting = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : 0;
             $failed = DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count();
+            $status = $waiting > 600 ? self::FAIL : ($failed > 0 || $waiting > 120 ? self::WARN : self::OK);
 
-            return ['status' => $failed > 0 ? self::WARN : self::OK, 'detail' => "{$size} queued ({$connection}), {$failed} failed in 24h",
-                'data' => ['queued' => $size, 'connection' => $connection, 'failed_24h' => $failed, 'failed_total' => DB::table('failed_jobs')->count()]];
+            return ['status' => $status, 'detail' => "{$size} queued ({$connection}, oldest waiting {$waiting}s), {$failed} failed in 24h",
+                'data' => ['queued' => $size, 'connection' => $connection, 'oldest_waiting_seconds' => $waiting, 'failed_24h' => $failed,
+                    'failed_total' => DB::table('failed_jobs')->count()]];
         }
         $jobs = Schema::hasTable('jobs') ? DB::table('jobs')->count() : 0;
         $oldest = Schema::hasTable('jobs') ? DB::table('jobs')->whereNull('reserved_at')->min('available_at') : null;
