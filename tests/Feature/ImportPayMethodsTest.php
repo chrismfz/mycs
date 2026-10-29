@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsPayMethodImport;
@@ -108,8 +109,15 @@ class ImportPayMethodsTest extends TestCase
             'banktransfer' => $bank, 'stripe' => $this->gateways['Stripe'], 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
         };
 
+        // Its open WHMCS invoices: one of the card's, one by bank transfer (never charged by the card there).
+        $byCard = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        $byBank = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, status TEXT, paymentmethod TEXT)');
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$byCard->id}, {$c}, 'Unpaid', 'stripe'), ({$byBank->id}, {$c}, 'Unpaid', 'banktransfer')");
+
         $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
 
+        $this->assertSame([false, true], [(bool) $byCard->fresh()->no_auto_charge, (bool) $byBank->fresh()->no_auto_charge]);
         $client = $this->client->fresh();
         $this->assertSame('pm_Amex2', BillingAgreement::query()->find($client->default_billing_agreement_id)?->external_reference, 'the card\'s, its first by WHMCS\'s order');
         $this->assertTrue((bool) $client->auto_charge, 'the bank transfer ones keep their own way: never charged by it');

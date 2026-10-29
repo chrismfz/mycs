@@ -17,6 +17,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
 use Illuminate\Console\OutputStyle;
@@ -114,20 +115,24 @@ class ServicePaymentMethodTest extends TestCase
         $this->assertNull(AutoCharge::agreementFor(Invoice::query()->find($c)), 'the card never charges what is paid by PayPal');
     }
 
-    public function test_an_invoice_with_a_line_paid_another_way_is_not_charged(): void
+    /**
+     * Decided on the invoice as it was made (code review of #541): a change of an item counts from its next renewal, an
+     * open invoice keeps its way. A gateway deleted since: the item is the account's again, billed with the rest.
+     */
+    public function test_an_invoice_keeps_the_way_it_was_made_with(): void
     {
-        $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
-        foreach ([$this->service(), $this->service($this->bank)] as $service) {
-            $invoice->items()->create(['description' => 'Renewal', 'price' => '10.00', 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => $service->id]);
-        }
-        $this->assertNull(AutoCharge::agreementFor($invoice->fresh()), 'staff merged it, say: one line is paid by bank transfer, none of it is charged');
+        $byPayPal = $this->service($this->paypal);
+        [$a, $c] = $this->bill($this->service(), $byPayPal);
+        ItemPaymentMethod::set(Service::query()->find(Invoice::query()->find($a)->items()->value('reference_id')), $this->bank->id);
+        $this->assertSame($this->card->id, AutoCharge::agreementFor(Invoice::query()->find($a))?->id, 'the open invoice keeps its way');
+        ItemPaymentMethod::set($byPayPal, null);
+        $this->assertNull(AutoCharge::agreementFor(Invoice::query()->find($c)), 'PayPal\'s stays PayPal\'s');
 
+        $this->paypal->delete();
         $domain = Domain::factory()->create(['client_id' => $this->client->id, 'payment_gateway_id' => $this->paypal->id]);
-        $other = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
-        $other->items()->create(['description' => 'Domain', 'price' => '10.00', 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
-        $this->assertNull(AutoCharge::agreementFor($other->fresh()), 'a domain\'s too');
-        $this->assertNull(ItemPaymentMethod::chargedBy($domain));
-        $this->assertSame($this->card->id, ItemPaymentMethod::chargedBy($this->service($this->stripe))?->id);
+        $this->assertNull(ItemPaymentMethod::apart($domain), 'nor billed apart for a deleted gateway');
+        $this->assertSame($this->card->id, ItemPaymentMethod::chargedBy($domain->fresh())?->id);
+        $this->assertNull(ItemPaymentMethod::chargedBy($this->service($this->bank)));
     }
 
     public function test_the_customer_changes_it_on_the_service_page(): void
@@ -189,5 +194,26 @@ class ServicePaymentMethodTest extends TestCase
             'a module with no gateway here leaves it as it was');
         $this->assertSame($this->paypal->id, $domain->fresh()->payment_gateway_id);
         $this->assertSame($gateways, Gateway::query()->count(), 'none installed');
+
+        // myip's Eurobank vPOS (eurobanklib): Cardlink's, once it is here (a redirect, paid from the invoice: never charged).
+        $cardlink = Gateway::query()->create(['name' => 'Cardlink', 'extension' => 'Cardlink', 'type' => 'gateway', 'enabled' => true]);
+        $command = app(ImportFromWhmcs::class); // a run of its own: a run reads each module's gateway once
+        (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput));
+        (new \ReflectionMethod($command, 'importItemPaymentMethods'))->invoke($command);
+        $this->assertSame($cardlink->id, $c->fresh()->payment_gateway_id);
+        $this->assertNull(ItemPaymentMethod::chargedBy($c->fresh()), 'the Stripe card never charges it');
+    }
+
+    /** A domain renewed on an invoice of its own (staff's renewal): its way too, never the card's. */
+    public function test_a_domains_own_renewal_invoice_is_its_way(): void
+    {
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'currency_code' => 'USD', 'years' => 1, 'recurring_amount' => '12.00',
+            'expires_at' => '2026-11-05', 'payment_gateway_id' => $this->paypal->id]);
+
+        $line = (new \ReflectionMethod(DomainRenewalService::class, 'billedOrBill'))->invoke(app(DomainRenewalService::class), $domain);
+
+        $this->assertSame([$this->paypal->id, true], [(int) $line->invoice->preferred_gateway_id, (bool) $line->invoice->no_auto_charge]);
+        $this->assertNull(AutoCharge::agreementFor($line->invoice));
     }
 }

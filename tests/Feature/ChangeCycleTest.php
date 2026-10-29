@@ -277,6 +277,25 @@ class ChangeCycleTest extends TestCase
         $this->assertSame([[(int) $invoice->id, '12.00']], CycleFakePay::$charges);
     }
 
+    /** The service paid another way (its own payment method, #541): its new period is invoiced with it, never charged by the card. */
+    public function test_now_never_charges_the_card_for_a_service_paid_another_way(): void
+    {
+        if (!class_exists(CycleFakePay::class)) {
+            eval('namespace MyCS\\Extensions\\Gateways\\CycleFakePay; class CycleFakePay { public static array $charges = []; public function __construct($config = []) {}
+                public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
+        }
+        CycleFakePay::$charges = [];
+        $bank = Gateway::query()->create(['extension' => 'BankTransfer', 'name' => 'Bank Transfer', 'type' => 'gateway']);
+        $service = $this->service(['payment_gateway_id' => $bank->id]);
+        $gateway = Gateway::query()->create(['extension' => 'CycleFakePay', 'name' => 'CycleFakePay', 'type' => 'gateway']);
+        BillingAgreement::query()->create(['client_id' => $service->client_id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'c-1']);
+
+        $invoice = ChangeCycle::apply($service->fresh(), $this->monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $this->assertSame([], CycleFakePay::$charges);
+        $this->assertSame($bank->id, $invoice->preferred_gateway_id);
+    }
+
     public function test_now_is_refused_for_a_renewal_paid_ahead(): void
     {
         $service = $this->service(['expires_at' => '2028-01-01']);

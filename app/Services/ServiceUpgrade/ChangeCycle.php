@@ -17,6 +17,8 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\Order\OrderPricing;
+use App\Services\Payment\AutoCharge;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Payment\SavedMethodCharge;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
@@ -222,7 +224,8 @@ final class ChangeCycle
                 'status' => Invoice::STATUS_UNPAID,
                 'due_at' => $start,
                 'currency_code' => $locked->currency_code,
-            ]);
+            ] + (($own = ItemPaymentMethod::apart($locked)) !== null ? ['preferred_gateway_id' => $own] : []));
+            $invoice->forceFill(['no_auto_charge' => $own !== null]); // paid another way: not the card's (#541)
             $invoice->save();
             $invoice->items()->create([
                 'reference_id' => $locked->id,
@@ -242,9 +245,10 @@ final class ChangeCycle
         }
         // As a renewal (CronJob::billRenewal): the credit pays what it covers, then a saved payment method the rest (S2).
         // The account's saved method (decision 6), read again after the credit (a method removed meanwhile is not charged).
-        (new CreditAutoApply)->toInvoice($invoice, notify: $invoice->client?->autoChargeAgreement() === null);
+        // AutoCharge's rule: not one paid another way (the service's own payment method, code review of #541).
+        (new CreditAutoApply)->toInvoice($invoice, notify: AutoCharge::agreementFor($invoice) === null);
         $invoice->refresh();
-        $agreement = $invoice->client?->fresh()?->autoChargeAgreement();
+        $agreement = AutoCharge::agreementFor($invoice->setRelation('client', $invoice->client?->fresh()));
         if ($agreement !== null && $invoice->status === Invoice::STATUS_UNPAID) {
             // One charge at a time, with its idempotency key (PR H); a declined one tells the customer.
             try {

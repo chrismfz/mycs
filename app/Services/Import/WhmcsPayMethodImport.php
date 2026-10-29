@@ -170,6 +170,35 @@ final class WhmcsPayMethodImport
         if (DB::table('clients')->where('id', $clientId)->whereNull('default_billing_agreement_id')->update(['default_billing_agreement_id' => $first[$default]['id']]) > 0) {
             $this->counts['defaults']++;
         }
+        // Its open invoices of another way stay so (WHMCS charges a saved method only for an invoice of its gateway): an
+        // invoice made by WHMCS is not charged here by the card it would not have charged (#541).
+        $other = array_keys(array_filter($this->unpaidInvoices()[$clientId] ?? [], fn (string $module) => $module !== $default));
+        foreach (array_chunk($other, 1000) as $chunk) {
+            DB::table('invoices')->whereIn('id', $chunk)->where('client_id', $clientId)->update(['no_auto_charge' => true]);
+        }
+        // Its default's own items follow the account's way (code review of #541): a default changed later charges them,
+        // as it does the services ordered here; only those of another way keep theirs.
+        if ($gateway !== null) {
+            foreach (['services', 'domains'] as $table) {
+                DB::table($table)->where('client_id', $clientId)->where('payment_gateway_id', $gateway)->update(['payment_gateway_id' => null]);
+            }
+        }
+    }
+
+    /** @var array<int, array<int, string>>|null client => its unpaid WHMCS invoice => its payment method module */
+    private ?array $unpaid = null;
+
+    /** @return array<int, array<int, string>> */
+    private function unpaidInvoices(): array
+    {
+        if ($this->unpaid === null) {
+            $this->unpaid = [];
+            foreach ($this->all("SELECT id, userid, paymentmethod FROM tblinvoices WHERE status = 'Unpaid'") as $row) {
+                $this->unpaid[(int) $row['userid']][(int) $row['id']] = strtolower(trim((string) $row['paymentmethod']));
+            }
+        }
+
+        return $this->unpaid;
     }
 
     /** @return array<int, array<string, int>> */

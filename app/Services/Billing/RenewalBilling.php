@@ -16,6 +16,8 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Order\OrderPricing;
+use App\Services\Payment\AutoCharge;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\RenewServiceService;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
@@ -265,7 +267,8 @@ final class RenewalBilling
             // Finalized, emailed and paid by credit once all its lines are on it (finishRenewalInvoices): marked
             // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
             $invoice->finalize_later = true;
-            $invoice->forceFill(['finish_pending_at' => now()]);
+            // Billed apart for one paid another way: never charged by the account's saved method (#541), decided now, as made.
+            $invoice->forceFill(['finish_pending_at' => now(), 'no_auto_charge' => $own !== null]);
             $invoice->save();
             // Known to the group once this service's transaction commits (adversarial C1-ADV-1): one rolled back leaves
             // no invoice behind for the next line to land on.
@@ -364,7 +367,8 @@ final class RenewalBilling
             $invoice = new Invoice(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $due,
                 'currency_code' => $domain->currency_code] + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             $invoice->finalize_later = true;
-            $invoice->forceFill(['finish_pending_at' => now()]);
+            // Billed apart for one paid another way: never charged by the account's saved method (#541), decided now, as made.
+            $invoice->forceFill(['finish_pending_at' => now(), 'no_auto_charge' => $own !== null]);
             $invoice->save();
             $this->remember($key, (int) $invoice->id);
         }
@@ -472,11 +476,7 @@ final class RenewalBilling
         });
     }
 
-    /**
-     * The payment method a service's or domain's renewals go apart by (WHMCS bills each payment method on its own
-     * invoice): its own, unless it is its account's (its saved method's gateway, else the last one it paid with), which
-     * the rest already go by: none then, one invoice with them as before.
-     */
+    /** ItemPaymentMethod::apart, its account's gateway read once a run. */
     private function ownGateway(Service|Domain $item): ?int
     {
         if ($item->payment_gateway_id === null) {
@@ -487,7 +487,7 @@ final class RenewalBilling
             $this->accountGateways[$client] = Invoice::preferredGatewayFor($client);
         }
 
-        return (int) $item->payment_gateway_id === $this->accountGateways[$client] ? null : (int) $item->payment_gateway_id;
+        return ItemPaymentMethod::apart($item, $this->accountGateways[$client]);
     }
 
     /**
@@ -553,7 +553,8 @@ final class RenewalBilling
                     $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
                         ->orderBy('id')->first();
                     $subscription = (string) $service?->subscription_id !== '';
-                    $agreement = $subscription ? null : $invoice->client?->autoChargeAgreement();
+                    // Not one paid another way either (ADV-541-7): the card never charges the rest, so the customer is told.
+                    $agreement = $subscription ? null : AutoCharge::agreementFor($invoice);
                     if (!$this->creditOnFinish) {
                         return;
                     }

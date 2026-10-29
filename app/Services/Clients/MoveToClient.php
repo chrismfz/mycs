@@ -240,8 +240,10 @@ final class MoveToClient
             if ($whole) {
                 $order?->forceFill(['client_id' => $to->id])->save();
                 $invoice->client_id = $to->id;
-                // Its preferred method: the new account's own, as a split's (R3-2 of #539), never the old card's gateway.
-                $invoice->preferred_gateway_id = Invoice::preferredGatewayFor($to->id);
+                // Its preferred method: the new account's own, as a split's (R3-2 of #539), never the old card's gateway;
+                // one billed apart for an item paid another way keeps that way (ADV-541-6), as the item does.
+                $invoice->preferred_gateway_id = $invoice->no_auto_charge && $invoice->preferred_gateway_id !== null
+                    && self::paidByAnItem($invoice) ? $invoice->preferred_gateway_id : Invoice::preferredGatewayFor($to->id);
                 $invoice->save();
                 $invoice->setRelation('client', $to);
                 $this->retax($lines, $invoice);
@@ -327,5 +329,15 @@ final class MoveToClient
             'body' => __("clients.move.note_from_{$what}", ['item' => $label, 'client' => $to->name . ' (#' . $to->id . ')'])]);
         ClientNote::query()->create(['client_id' => $to->id, 'staff_id' => $by->id, 'sticky' => false,
             'body' => __("clients.move.note_to_{$what}", ['item' => $label, 'client' => $from->name . ' (#' . $from->id . ')'])]);
+    }
+
+    /** An item of the invoice pays with its preferred gateway (its own payment method): it was billed apart for it. */
+    private static function paidByAnItem(Invoice $invoice): bool
+    {
+        $gateway = (int) $invoice->preferred_gateway_id;
+
+        return $invoice->items()->where(fn ($lines) => $lines
+            ->where(fn ($line) => $line->where('reference_type', Service::class)->whereIn('reference_id', Service::query()->select('id')->where('payment_gateway_id', $gateway)))
+            ->orWhere(fn ($line) => $line->where('reference_type', Domain::class)->whereIn('reference_id', Domain::query()->select('id')->where('payment_gateway_id', $gateway))))->exists();
     }
 }

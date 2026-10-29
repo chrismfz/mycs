@@ -1466,8 +1466,12 @@ class ImportFromWhmcs extends Command
         }
     }
 
-    /** WHMCS's modules that are a gateway here for an invoice's preferred method, beside the payment ones (GATEWAYS). */
-    private const PREFERRED_GATEWAYS = ['banktransfer' => 'BankTransfer'];
+    /**
+     * WHMCS's modules that are a gateway here for an invoice's or item's preferred method, beside the payment ones
+     * (GATEWAYS): bank transfer, and myip's Eurobank vPOS (eurobanklib: a redirect to the bank, nothing saved, paid from
+     * the invoice; owner 2026-10-29). Not for its payments: those stay manual, never refunded through a gateway.
+     */
+    private const PREFERRED_GATEWAYS = ['banktransfer' => 'BankTransfer', 'eurobanklib' => 'Cardlink'];
 
     /**
      * Each invoice's preferred payment method (WHMCS's tblinvoices.paymentmethod): its page opens with it chosen, its
@@ -1501,11 +1505,19 @@ class ImportFromWhmcs extends Command
      */
     private function existingGateway(string $module): ?int
     {
+        // Once per module and run: what the preferences and the items got is what the saved methods' step reads, though
+        // it installs gateways after (ADV-541-8).
+        if (array_key_exists($module, $this->itemGateways)) {
+            return $this->itemGateways[$module];
+        }
         $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
         $id = $extension === null ? null : DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
 
-        return $id === null ? null : (int) $id;
+        return $this->itemGateways[$module] = $id === null ? null : (int) $id;
     }
+
+    /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
+    private array $itemGateways = [];
 
     /**
      * Each service's and domain's own payment method (tblhosting/tbldomains.paymentmethod, owner 2026-10-29): its renewals
@@ -1544,6 +1556,7 @@ class ImportFromWhmcs extends Command
             return;
         }
         $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module),
+            // What the item step wrote (ADV-541-8: a gateway installed since is not on its items).
             fn (string $module) => $this->existingGateway($module)))->run();
         $c = $result['counts'];
         $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default; {$c['not_charged']} with «Auto-charge» off, "

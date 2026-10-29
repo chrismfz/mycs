@@ -7,6 +7,7 @@ use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Domain;
 use App\Models\Gateway;
+use App\Models\Invoice;
 use App\Models\Service;
 use Illuminate\Support\Collection;
 
@@ -38,11 +39,28 @@ final class ItemPaymentMethod
         $item->update(['payment_gateway_id' => $gatewayId]);
     }
 
+    /**
+     * The payment method its renewals go apart by (WHMCS bills each payment method on its own invoice): its own, unless it
+     * is its account's (its saved method's gateway, else the last one it paid with; given, or read) or deleted since: none
+     * then, with the rest as before.
+     */
+    public static function apart(Service|Domain $item, int|false|null $account = false): ?int
+    {
+        $own = $item->payment_gateway_id === null ? null : (int) $item->payment_gateway_id;
+        if ($own === null || !Gateway::query()->whereKey($own)->exists()) {
+            return null;
+        }
+        $account = $account === false ? Invoice::preferredGatewayFor((int) $item->client_id) : $account;
+
+        return $own === $account ? null : $own;
+    }
+
     /** The saved method that charges its renewals: the account's, unless its own payment method is another gateway's. */
     public static function chargedBy(Service|Domain $item): ?BillingAgreement
     {
         $agreement = $item->client?->autoChargeAgreement();
-        if ($agreement === null || ($item->payment_gateway_id !== null && (int) $item->payment_gateway_id !== (int) $agreement->gateway_id)) {
+        $own = $item->payment_gateway_id === null || $item->paymentGateway === null ? null : (int) $item->payment_gateway_id; // deleted: the account's
+        if ($agreement === null || ($own !== null && $own !== (int) $agreement->gateway_id)) {
             return null;
         }
 

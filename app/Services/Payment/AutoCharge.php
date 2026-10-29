@@ -28,8 +28,8 @@ use Throwable;
  * autocharge_max_failures days in a row (staff are told; the method is kept).
  *
  * Only renewal invoices of the customer's services, all active and not paid by a gateway subscription: an order or an
- * invoice staff made is paid by the customer (as before). Nor one of a service or domain whose own payment method is
- * another gateway's (paidAnotherWay).
+ * invoice staff made is paid by the customer (as before). Nor one billed apart for a service or domain paid another way
+ * (no_auto_charge set then: RenewalBilling, ChangeCycle, the importer).
  */
 final class AutoCharge
 {
@@ -73,7 +73,7 @@ final class AutoCharge
             return null; // staff keep it from being charged automatically (PR H2b)
         }
         $agreement = $invoice->client?->autoChargeAgreement();
-        if ($agreement === null || $agreement->gateway === null || self::paidAnotherWay($invoice, (int) $agreement->gateway_id)) {
+        if ($agreement === null || $agreement->gateway === null) {
             return null;
         }
         $max = max(0, (int) config('settings.autocharge_max_failures', 0));
@@ -83,19 +83,6 @@ final class AutoCharge
         $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('billing_agreement_id', $agreement->id)->latest('id')->value('status');
 
         return $last === ChargeAttempt::STATUS_ACTION_REQUIRED ? null : $agreement;
-    }
-
-    /**
-     * A line of a service or domain with its own payment method of another gateway (owner 2026-10-29, as WHMCS charged a
-     * saved method for its own gateway's invoices only): the customer pays it that way, the saved method never.
-     */
-    private static function paidAnotherWay(Invoice $invoice, int $gatewayId): bool
-    {
-        $other = fn (string $model) => $model::query()->select('id')->whereNotNull('payment_gateway_id')->where('payment_gateway_id', '!=', $gatewayId);
-
-        return $invoice->items()->where(fn ($lines) => $lines
-            ->where(fn ($line) => $line->where('reference_type', Service::class)->whereIn('reference_id', $other(Service::class)))
-            ->orWhere(fn ($line) => $line->where('reference_type', Domain::class)->whereIn('reference_id', $other(Domain::class))))->exists();
     }
 
     /** @return Builder<Invoice> open renewal invoices due in the window, of customers with «Auto-charge» on */
