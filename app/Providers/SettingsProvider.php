@@ -117,7 +117,15 @@ class SettingsProvider extends ServiceProvider
     public static function flushCache()
     {
         app()->forgetInstance(self::FLUSH_PENDING);
-        Cache::forget(self::CACHE_KEY);
+        if (!Cache::forget(self::CACHE_KEY) && Cache::has(self::CACHE_KEY)) {
+            // Not deleted (a cache file the app cannot remove, AUD8-3): written over with the rows as they are now, so the
+            // cron and the workers never keep reading old values; told when even that fails.
+            $rows = Setting::query()->whereNull('settingable_type')->toBase()->get(['key', 'value', 'type', 'encrypted'])
+                ->map(fn ($row) => (array) $row)->all();
+            if (!Cache::put(self::CACHE_KEY, $rows)) {
+                report(new \RuntimeException('The settings cache could not be cleared nor written: other processes read old settings. Check storage/framework/cache is the app user\'s.'));
+            }
+        }
         Cache::forget('settings');
         // Restart queue worker
         Artisan::call('queue:restart');

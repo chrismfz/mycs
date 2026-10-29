@@ -22,6 +22,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -210,6 +211,25 @@ final class Health
 
     private static function queue(): array
     {
+        // The queue the app uses (AUD8-4): a redis or other one read through it, or failed when it cannot be reached.
+        $connection = (string) config('queue.default');
+        if (!in_array($connection, ['database', 'sync'], true)) {
+            try {
+                $queue = Queue::connection($connection);
+                $size = $queue->size();
+                // How long the oldest job has waited, as the database queue's check (ADV-529-1: a dead worker with redis up).
+                $oldest = $queue->creationTimeOfOldestPendingJob();
+            } catch (Throwable $e) {
+                return ['status' => self::FAIL, 'detail' => "The {$connection} queue cannot be read: " . Scrub::text($e->getMessage())];
+            }
+            $waiting = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : 0;
+            $failed = DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count();
+            $status = $waiting > 600 ? self::FAIL : ($failed > 0 || $waiting > 120 ? self::WARN : self::OK);
+
+            return ['status' => $status, 'detail' => "{$size} queued ({$connection}, oldest waiting {$waiting}s), {$failed} failed in 24h",
+                'data' => ['queued' => $size, 'connection' => $connection, 'oldest_waiting_seconds' => $waiting, 'failed_24h' => $failed,
+                    'failed_total' => DB::table('failed_jobs')->count()]];
+        }
         $jobs = Schema::hasTable('jobs') ? DB::table('jobs')->count() : 0;
         $oldest = Schema::hasTable('jobs') ? DB::table('jobs')->whereNull('reserved_at')->min('available_at') : null;
         $waiting = $oldest ? now()->getTimestamp() - (int) $oldest : 0;
