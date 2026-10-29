@@ -39,7 +39,6 @@ use PDOStatement;
 use Throwable;
 
 use function Laravel\Prompts\password;
-use function Laravel\Prompts\text;
 
 class ImportFromWhmcs extends Command
 {
@@ -48,14 +47,29 @@ class ImportFromWhmcs extends Command
      *
      * @var string
      */
-    protected $signature = 'app:import-from-whmcs {dbname} {username?} {host?} {port?} {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
+    protected $signature = 'app:import-from-whmcs {dbname : the WHMCS database (a copy, never the live one)}
+        {username? : its user (or --source-user)} {host? : its host (or --source-host)} {port? : its port (or --source-port)}
+        {--source-user= : the WHMCS database\'s user}
+        {--source-host= : the WHMCS database\'s host}
+        {--source-port=3306 : the WHMCS database\'s port}
+        {--source-socket= : the WHMCS database\'s unix socket, instead of host and port}
+        {--dry-run : connect to both, count what would come, write nothing}
+        {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
+        {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
+
+    /** @var (Closure(string, string, string): PDO)|null how the source is opened (tests: a fixture database) */
+    public static ?Closure $connect = null;
+
+    /** Read from the source and counted by --dry-run. */
+    private const DRY_RUN_TABLES = ['tblclients', 'tblusers', 'tblcontacts', 'tblhosting', 'tbldomains', 'tblinvoices', 'tblinvoiceitems',
+        'tblaccounts', 'tblcredit', 'tblorders', 'tbltickets', 'tblproducts', 'tblpromotions', 'tbladmins'];
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Import a WHMCS database (a copy) into this instance: empties this instance\'s database first';
 
     /**
      * The PDO connection to WHMCS database
@@ -77,18 +91,54 @@ class ImportFromWhmcs extends Command
         // Set max memory to 1GB
         ini_set('memory_limit', '1024M');
 
-        $dbname = $this->argument('dbname');
-        $host = $this->askOrUseENV(argument: 'host', env: 'DB_HOST', question: 'Enter the host:', placeholder: 'localhost');
-        $port = $this->askOrUseENV(argument: 'port', env: 'DB_PORT', question: 'Enter the port:', placeholder: '3306');
-        $username = $this->askOrUseENV(argument: 'username', env: 'DB_USERNAME', question: 'Enter the username:', placeholder: 'mycs');
-        $password = password("Enter the password for user '$username':", required: true);
+        // The source only from what is given here, never from this instance's DB_* (they are MyCS's own database: the
+        // import would read it, and its migrate:fresh empty it; review of the importer, 2026-10-29).
+        $dbname = (string) $this->argument('dbname');
+        $username = (string) ($this->option('source-user') ?: $this->argument('username') ?: '');
+        $host = (string) ($this->option('source-host') ?: $this->argument('host') ?: '');
+        $port = (string) ($this->argument('port') ?: $this->option('source-port'));
+        $socket = (string) $this->option('source-socket');
+        if ($username === '' || ($host === '' && $socket === '')) {
+            $this->error('The WHMCS database\'s user and host (or socket) are needed: --source-user and --source-host or --source-socket.');
 
+            return self::FAILURE;
+        }
+        // From the environment for a run without a terminal (WHMCS_SOURCE_PASSWORD), else asked; never an argument (the
+        // process list would show it).
+        $password = (string) (getenv('WHMCS_SOURCE_PASSWORD') ?: password("Enter the password for user '$username':", required: true));
+
+        $dsn = $socket !== '' ? "mysql:unix_socket=$socket;dbname=$dbname;charset=utf8mb4" : "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
         try {
-            $this->pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4", $username, $password);
+            $this->pdo = self::$connect !== null ? (self::$connect)($dsn, $username, $password) : new PDO($dsn, $username, $password);
             $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-            $this->info('Connected to WHMCS database, Starting migration...');
+        } catch (PDOException $e) {
+            $this->error('Connection to WHMCS failed: ' . $e->getMessage());
 
+            return self::FAILURE;
+        }
+        if ($this->isOwnDatabase($dbname, $host, $port, $socket)) {
+            $this->error('The source is this instance\'s own database: nothing to import from, and it would be emptied.');
+
+            return self::FAILURE;
+        }
+
+        $target = (string) DB::connection()->getDatabaseName();
+        if ($this->option('dry-run')) {
+            $this->dryRun($target);
+
+            return self::SUCCESS;
+        }
+        // The import empties this instance's database (migrate:fresh): only one named here, by its name.
+        if ($this->option('confirm-database') !== $target) {
+            $this->error("The import empties this instance's database «{$target}» first. Run it again with --confirm-database={$target} if that is meant"
+                . ' (a test copy, or the new instance before the cut-over); --dry-run writes nothing.');
+
+            return self::FAILURE;
+        }
+
+        $this->info('Connected to WHMCS database, Starting migration...');
+        try {
             $this->prepareDatabase();
 
             DB::statement('SET foreign_key_checks=0');
@@ -118,8 +168,42 @@ class ImportFromWhmcs extends Command
 
             SettingsProvider::flushCache();
         } catch (PDOException $e) {
-            $this->fail('Connection failed: ' . $e->getMessage());
+            $this->fail('Import failed: ' . $e->getMessage());
         }
+
+        return self::SUCCESS;
+    }
+
+    /** Whether the source named is this instance's own database (same name, same server). */
+    private function isOwnDatabase(string $dbname, string $host, string $port, string $socket): bool
+    {
+        $own = DB::connection()->getConfig();
+        if ($dbname !== (string) ($own['database'] ?? '')) {
+            return false;
+        }
+        $local = fn (string $h) => in_array($h, ['', 'localhost', '127.0.0.1', '::1'], true);
+        if ($socket !== '' || ($own['unix_socket'] ?? '') !== '') {
+            return $local((string) ($own['host'] ?? '')) || $local($host);
+        }
+
+        return ($local($host) && $local((string) ($own['host'] ?? ''))) || ($host === (string) ($own['host'] ?? '') && $port === (string) ($own['port'] ?? '3306'));
+    }
+
+    /** What would come, from the source, and where it would go: nothing written anywhere. */
+    private function dryRun(string $target): void
+    {
+        $rows = [];
+        foreach (self::DRY_RUN_TABLES as $table) {
+            try {
+                $rows[] = [$table, $this->count($table)];
+            } catch (PDOException) {
+                $rows[] = [$table, 'missing'];
+            }
+        }
+        $this->table(['WHMCS table', 'Rows'], $rows);
+        $existing = collect(['clients', 'staff', 'services', 'invoices'])->mapWithKeys(fn (string $t) => [$t => DB::table($t)->count()]);
+        $this->line("Target: this instance's database «{$target}» (" . $existing->map(fn ($n, $t) => "{$t} {$n}")->implode(', ') . ').');
+        $this->line("Dry run: nothing written. To import: --confirm-database={$target} (it empties «{$target}» first).");
     }
 
     private function prepareDatabase()
@@ -128,21 +212,6 @@ class ImportFromWhmcs extends Command
         $this->call('migrate:fresh', ['--force' => true]);
         // Seed default data
         $this->call('db:seed', ['--force' => true]);
-    }
-
-    protected function askOrUseENV(string $argument, string $env, string $question, string $placeholder): string
-    {
-        $arg_value = $this->argument($argument);
-        if ($arg_value) {
-            return $arg_value;
-        }
-
-        $env_value = env($env);
-        if (!is_null($env_value) && $env_value !== '') {
-            return $env_value;
-        }
-
-        return text($question, required: true, placeholder: $placeholder);
     }
 
     protected function validateDate($date): ?string
