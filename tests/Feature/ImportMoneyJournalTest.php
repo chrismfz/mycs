@@ -8,12 +8,15 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditAutoApply;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use PDO;
+use PDOException;
 use ReflectionMethod;
 use ReflectionProperty;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -303,6 +306,106 @@ class ImportMoneyJournalTest extends TestCase
 
         $this->assertSame([12], InvoiceTransaction::query()->pluck('id')->all());
         $this->assertStringContainsString('WHMCS tblaccounts #14', $this->output->fetch());
+        $this->assertChecksPass();
+    }
+
+    /**
+     * Review of #523: staff take an imported credit payment off an open invoice after the cut-over; the daily pass must
+     * not pay it straight back (CreditAutoApply::eligible saw only source «credit» reversals).
+     */
+    public function test_an_imported_credit_payment_staff_took_off_is_not_paid_back(): void
+    {
+        config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
+        $this->invoice(201, 'Unpaid', 30, credit: 10);
+        $this->history('2026-08-01', 'Bank transfer kept as credit', 10);
+        $this->history('2026-09-02', 'Credit Applied to Invoice #201', -10, 201);
+        $this->balance(0);
+        $this->import();
+
+        (new RecordPaymentService)->deleteTransaction(InvoiceTransaction::query()->where('invoice_id', 201)->where('is_credit_transaction', true)->sole());
+        $this->assertSame(10.0, (float) Credit::query()->where('client_id', $this->clientId)->value('amount'), 'the credit came back');
+
+        (new CreditAutoApply)->forCustomer($this->clientId, 'EUR');
+
+        $this->assertSame(0, InvoiceTransaction::query()->where('invoice_id', 201)->where('is_credit_transaction', true)->count(),
+            'the credit stays where staff put it');
+    }
+
+    /** Review of #523: each WHMCS refund is its own event, on its own date, as each refund here is. */
+    public function test_each_refund_is_its_own_event(): void
+    {
+        $this->invoice(110, 'Paid', 50);
+        $this->payment(15, 110, 50);
+        $this->payment(16, 110, 0, out: 10, refundOf: 15, date: '2026-09-05 10:00:00');
+        $this->payment(17, 110, 0, out: 5, refundOf: 15, date: '2026-09-07 10:00:00');
+
+        $this->import();
+
+        $this->assertSame([['10.00', '2026-09-05 10:00:00'], ['5.00', '2026-09-07 10:00:00']], MoneyEvent::query()->where('kind', 'refund')->orderBy('id')
+            ->get()->map(fn (MoneyEvent $event) => [(string) $event->amount, $event->occurred_at->toDateTimeString()])->all());
+        $this->assertSame('15.00', (string) InvoiceTransaction::query()->findOrFail(15)->refunded_amount);
+        $this->assertChecksPass();
+    }
+
+    /** Review of #523: money out on no payment (a chargeback, a refund typed by hand) is named, not dropped silently. */
+    public function test_money_out_on_no_payment_is_named(): void
+    {
+        $this->invoice(111, 'Paid', 20);
+        $this->payment(18, 111, 20);
+        $this->payment(19, 111, 0, out: 20);
+
+        $this->import();
+
+        $this->assertStringContainsString('Money out on no payment imported', $output = $this->output->fetch());
+        $this->assertStringContainsString('tblaccounts #19', $output);
+        $this->assertSame('0.00', (string) InvoiceTransaction::query()->findOrFail(18)->refunded_amount);
+    }
+
+    /** A payment WHMCS dated 0000-00-00 is journaled on its invoice's date, never the day of the import. */
+    public function test_a_payment_without_a_date_takes_its_invoices(): void
+    {
+        $this->invoice(112, 'Paid', 20);
+        $this->payment(20, 112, 20, date: '0000-00-00 00:00:00');
+
+        $this->import();
+
+        $this->assertSame('2026-09-01', MoneyEvent::query()->where('kind', 'payment')->sole()->occurred_at->toDateString());
+    }
+
+    /** Review of #523: a source query that fails for any reason but a missing table stops the import, never reads as «no history». */
+    public function test_a_failing_history_query_stops_the_import(): void
+    {
+        // A history whose every read fails (an integer overflow), not one that is missing.
+        $this->whmcs->exec('DROP TABLE tblcredit');
+        $this->whmcs->exec("CREATE VIEW tblcredit AS SELECT abs(-9223372036854775807 - 1) AS id, 1 AS clientid, '2026-09-01' AS date,
+            'Credit Applied to Invoice #1' AS description, -1 AS amount, 1 AS relid");
+
+        $this->expectException(PDOException::class);
+        $this->import();
+    }
+
+    /**
+     * WHMCS gave a second payment to credit (Overpayment), then took that credit back («Removal of Credit from Invoice
+     * #N») to refund the payment in cash: the refund takes the payment's credited part, as one here could only after the
+     * credit came back.
+     */
+    public function test_a_cash_refund_of_an_overpayment_takes_back_its_credit(): void
+    {
+        $this->invoice(113, 'Paid', 60);
+        $this->payment(21, 113, 60);
+        $this->payment(22, 113, 90, date: '2026-09-04 10:00:00');
+        $this->history('2026-09-04', 'Invoice #113 Overpayment', 90, 113);
+        $this->history('2026-09-06', 'Removal of Credit from Invoice #113', -90, 113);
+        $this->payment(23, 113, 0, out: 90, refundOf: 22, date: '2026-09-06 10:00:00');
+        $this->balance(0);
+
+        $this->import();
+
+        $payment = InvoiceTransaction::query()->findOrFail(22);
+        $this->assertSame(['90.00', '0.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
+        $this->assertSame([['payment', null, '60.00'], ['payment', null, '90.00'], ['credit_in', 'overpayment', '90.00'],
+            ['credit_out', 'overpayment', '90.00'], ['refund', null, '90.00']], $this->journal());
+        $this->assertSame(0, DB::table('adjustment_notes')->count(), 'the invoice kept its 60');
         $this->assertChecksPass();
     }
 }

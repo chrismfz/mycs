@@ -30,8 +30,17 @@ class WhmcsMoneyJournal
     /** Kinds of tblcredit rows, by WHMCS's own descriptions: those with an invoice are rebuilt from the invoices. */
     public const FROM_INVOICES = ['applied', 'removed', 'overpayment', 'mass_pay', 'add_funds'];
 
-    /** @var array<int, array{client_id: int, currency_code: string, status: string, paid_at: ?string}> */
+    /** @var array<int, array{client_id: int, currency_code: string, status: string, paid_at: ?string, created_at: ?string}> */
     private array $invoices = [];
+
+    /** @var array<int, true> credit payments WHMCS dated by the day only (tblcredit.date): ordered after that day's money in */
+    private array $dayOnly = [];
+
+    /** @var list<array{transaction_id: int, cents: int, to_credit: bool, from_credit: int, at: ?string}> the refunds imported (ImportFromWhmcs::importRefunds) */
+    private array $refunds = [];
+
+    /** @var array<int, true> tblcredit rows a refund to credit stands for */
+    private array $creditRowsUsed = [];
 
     /** @var list<array<string, mixed>> the events, in the order written (as RecordPaymentService writes them) */
     private array $moves = [];
@@ -39,11 +48,18 @@ class WhmcsMoneyJournal
     /** @var array<int, true> Mass Pay parents (not invoices here) */
     private array $parents = [];
 
-    /** @var array{payments: int, refunds: int, credit_payments: int, overpayments: int, purchases: int, negative_invoices: int, refund_notes: int, from_history: int, no_invoice: int, unplaced: list<string>} */
+    /** @var array{payments: int, refunds: int, credit_payments: int, overpayments: int, purchases: int, negative_invoices: int, refund_notes: int, from_history: int, no_invoice: int, no_money: int, unplaced: list<string>} */
     public array $summary = ['payments' => 0, 'refunds' => 0, 'credit_payments' => 0, 'overpayments' => 0, 'purchases' => 0,
-        'negative_invoices' => 0, 'refund_notes' => 0, 'from_history' => 0, 'no_invoice' => 0, 'unplaced' => []];
+        'negative_invoices' => 0, 'refund_notes' => 0, 'from_history' => 0, 'no_invoice' => 0, 'no_money' => 0, 'unplaced' => []];
 
     public function __construct(private PDO $whmcs) {}
+
+    /** A table or column the source has not (an older WHMCS, a test fixture), as against any other failure. */
+    public static function isMissing(PDOException $e): bool
+    {
+        return in_array((string) $e->getCode(), ['42S02', '42S22'], true)
+            || str_contains($e->getMessage(), 'no such table') || str_contains($e->getMessage(), 'no such column');
+    }
 
     /** What a tblcredit row is, by its description (WHMCS writes them in English, whatever the language). */
     public static function kind(string $description): string
@@ -65,14 +81,16 @@ class WhmcsMoneyJournal
      * Pay parent is not an invoice here; a child takes only what its parents did not pay ($childCredit, from
      * importMassPay: the rest of its credit was the parent's money, already an allocation of it).
      *
+     * Dated when WHMCS applied it (tblcredit, by the day only): at the time the invoice was paid if that was the same day.
+     *
      * @param  array<int, true>  $parents  Mass Pay parents
      * @param  array<int, int>  $childCredit  child id => cents of its credit not paid by a parent
+     * @param  array<int, true>  $imported  the invoices imported
      */
-    public function creditApplied(array $parents, array $childCredit): void
+    public function creditApplied(array $parents, array $childCredit, array $imported): void
     {
         $this->parents = $parents;
         $rows = $this->rows('SELECT id, credit, date, datepaid FROM tblinvoices WHERE credit > 0 ORDER BY id');
-        $imported = DB::table('invoices')->pluck('id')->flip();
         $appliedOn = $this->appliedDates();
         // Above every WHMCS payment and every allocation (importMassPay), as the allocations' ids.
         $nextId = max((int) ($this->rows('SELECT MAX(id) AS id FROM tblaccounts')[0]['id'] ?? 0), (int) DB::table('invoice_transactions')->max('id')) + 1;
@@ -85,7 +103,15 @@ class WhmcsMoneyJournal
             if ($cents <= 0) {
                 continue;
             }
-            $at = $appliedOn[$id] ?? self::date($row['datepaid']) ?? self::date($row['date']);
+            $paid = self::date($row['datepaid']);
+            $at = $appliedOn[$id] ?? $paid ?? self::date($row['date']);
+            if (isset($appliedOn[$id])) {
+                if ($paid !== null && substr($paid, 0, 10) === substr($appliedOn[$id], 0, 10)) {
+                    $at = $paid;
+                } else {
+                    $this->dayOnly[$nextId] = true;
+                }
+            }
             $insert[] = ['id' => $nextId++, 'invoice_id' => $id, 'amount' => $cents / 100, 'is_credit_transaction' => true,
                 'created_at' => $at, 'updated_at' => $at];
         }
@@ -95,20 +121,39 @@ class WhmcsMoneyJournal
     }
 
     /**
-     * What a paid invoice took over its amount (WHMCS: «Overpayment», to the customer's credit) is its payments'
-     * credited_amount, newest first, as RecordPaymentService records an overpayment.
+     * What a paid (or since refunded) invoice took over its amount (WHMCS: «Overpayment», to the customer's credit) is
+     * its payments' credited_amount, newest first, as RecordPaymentService records an overpayment: as much as WHMCS
+     * recorded giving to credit for it (tblcredit), else what its refunds did not take back. Run before the refunds: a
+     * later refund gives back what the invoice kept, never the credit the payment already gave (ADV-523-2).
      */
     public function overpayments(): void
     {
-        $totals = DB::table('invoice_items')->whereIn('invoice_id', DB::table('invoices')->where('status', Invoice::STATUS_PAID)->select('id'))
+        $settled = DB::table('invoices')->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->select('id');
+        $totals = DB::table('invoice_items')->whereIn('invoice_id', $settled)
             ->groupBy('invoice_id')->selectRaw('invoice_id, SUM(ROUND(line_total * 100)) cents')->pluck('cents', 'invoice_id');
-        $paid = DB::table('invoice_transactions')->where('status', 'succeeded')
-            ->whereIn('invoice_id', DB::table('invoices')->where('status', Invoice::STATUS_PAID)->select('id'))
+        $paid = DB::table('invoice_transactions')->where('status', 'succeeded')->whereIn('invoice_id', $settled)
             ->groupBy('invoice_id')->selectRaw('invoice_id, SUM(ROUND(amount * 100) - ROUND(refunded_amount * 100) - ROUND(credited_amount * 100)) cents')
             ->pluck('cents', 'invoice_id');
 
+        // What WHMCS itself gave to credit for each invoice («Invoice #N Overpayment»), and what it refunded of each.
+        $recorded = [];
+        foreach ($this->rows("SELECT relid, SUM(amount) amount FROM tblcredit WHERE relid > 0 AND amount > 0 AND description LIKE '%Overpayment%' GROUP BY relid") as $row) {
+            $recorded[(int) $row['relid']] = WhmcsMassPay::cents($row['amount']);
+        }
+        $refundedOf = [];
+        $refunds = $this->rows('SELECT refundid, SUM(amountout) amount FROM tblaccounts WHERE refundid > 0 AND amountout > 0 GROUP BY refundid');
+        $invoiceOf = DB::table('invoice_transactions')->whereIn('id', array_map(fn (array $row) => (int) $row['refundid'], $refunds))->pluck('invoice_id', 'id');
+        foreach ($refunds as $row) {
+            if (isset($invoiceOf[(int) $row['refundid']])) {
+                $refundedOf[(int) $invoiceOf[(int) $row['refundid']]] = ($refundedOf[(int) $invoiceOf[(int) $row['refundid']]] ?? 0) + WhmcsMassPay::cents($row['amount']);
+            }
+        }
+
         foreach ($paid as $invoiceId => $cents) {
-            $over = (int) $cents - (int) ($totals[$invoiceId] ?? 0);
+            // As much as WHMCS recorded giving to credit; with no record, what the refunds did not take back (paid twice,
+            // one given back: no credit).
+            $excess = (int) $cents - (int) ($totals[$invoiceId] ?? 0);
+            $over = isset($recorded[$invoiceId]) ? min($excess, $recorded[$invoiceId]) : $excess - ($refundedOf[$invoiceId] ?? 0);
             if ($over <= 0) {
                 continue;
             }
@@ -134,9 +179,23 @@ class WhmcsMoneyJournal
     }
 
     /**
+     * The refunds the importer put on the payments, for their events and notes; the tblcredit rows a refund to credit
+     * stands for are not journaled again from the history.
+     *
+     * @param  list<array{transaction_id: int, cents: int, to_credit: bool, from_credit: int, at: ?string}>  $refunds
+     * @param  list<int>  $creditRowsUsed
+     */
+    public function refunds(array $refunds, array $creditRowsUsed): void
+    {
+        $this->refunds = $refunds;
+        $this->creditRowsUsed = array_fill_keys($creditRowsUsed, true);
+    }
+
+    /**
      * A paid invoice whose money went back stays settled: a credit note takes what its refunds left unpaid off its
-     * total, as a refund here does (ExtensionHelper::afterRefund). A refund of a second payment (paid twice, one given
-     * back) leaves it paid in full: no note. One WHMCS marked refunded with no money on it owes nothing either.
+     * total, as a refund here does (ExtensionHelper::afterRefund, back or to credit). A refund of a second payment (paid
+     * twice, one given back) leaves it paid in full: no note. One WHMCS marked refunded with no money on it owes nothing
+     * either.
      */
     public function refundNotes(): void
     {
@@ -145,24 +204,29 @@ class WhmcsMoneyJournal
         $totals = DB::table('invoice_items')->whereIn('invoice_id', $settled)->groupBy('invoice_id')
             ->selectRaw('invoice_id, SUM(ROUND(line_total * 100)) cents')->pluck('cents', 'invoice_id');
         $payments = DB::table('invoice_transactions')->where('status', 'succeeded')->whereIn('invoice_id', $settled)->orderBy('id')
-            ->get(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount', 'transaction_id', 'updated_at'])->groupBy('invoice_id');
+            ->get(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount', 'transaction_id'])->groupBy('invoice_id');
         $refundedInvoices = DB::table('invoices')->where('status', Invoice::STATUS_REFUNDED)->pluck('id')->flip();
+        $byTransaction = collect($this->refunds)->groupBy('transaction_id');
 
         $notes = [];
         foreach ($totals as $invoiceId => $total) {
             $paid = $payments->get($invoiceId, collect());
             $kept = (int) $paid->sum(fn ($payment) => WhmcsMassPay::cents($payment->amount) - WhmcsMassPay::cents($payment->refunded_amount)
                 - WhmcsMassPay::cents($payment->credited_amount));
-            $refunds = $paid->filter(fn ($payment) => WhmcsMassPay::cents($payment->refunded_amount) > 0);
-            $short = min((int) $total - $kept, $refunds->isEmpty() ? (int) $total : (int) $refunds->sum(fn ($payment) => WhmcsMassPay::cents($payment->refunded_amount)));
+            $refunds = $paid->flatMap(fn ($payment) => $byTransaction->get($payment->id, collect())
+                ->map(fn (array $refund) => $refund + ['transid' => $payment->transaction_id]));
+            $short = min((int) $total - $kept, $refunds->isEmpty() ? (int) $total : (int) $refunds->sum('cents'));
             if ($short <= 0 || ($refunds->isEmpty() && ($paid->isNotEmpty() || !isset($refundedInvoices[$invoiceId])))) {
                 continue;
             }
+            // In the words of the refund here (ExtensionHelper::refundToCredit, refundLocally).
             $notes[] = ['invoice_id' => $invoiceId, 'type' => AdjustmentNoteType::Credit->value, 'amount' => -$short / 100,
                 'description' => $refunds->isEmpty() ? 'Refunded in WHMCS, with no payment on it'
-                    : 'Refund for transaction ' . $refunds->map(fn ($payment) => '#' . $payment->id . ' (' . ($payment->transaction_id ?: 'manual') . ')')->implode(', '),
+                    : $refunds->unique(fn (array $refund) => $refund['transaction_id'] . '|' . (int) $refund['to_credit'])
+                        ->map(fn (array $refund) => $refund['to_credit'] ? 'Refund to account credit for transaction #' . $refund['transaction_id']
+                            : 'Refund for transaction #' . $refund['transaction_id'] . ' (' . ($refund['transid'] ?: 'manual') . ')')->implode(', '),
                 'status' => 'active', 'is_refund' => $refunds->isNotEmpty(),
-                'created_at' => $refunds->max('updated_at') ?? $now, 'updated_at' => $now];
+                'created_at' => $refunds->max('at') ?? $now, 'updated_at' => $now];
         }
         foreach (array_chunk($notes, 1000) as $chunk) {
             DB::table('adjustment_notes')->insert($chunk);
@@ -178,9 +242,10 @@ class WhmcsMoneyJournal
      */
     public function write(): array
     {
-        $this->invoices = DB::table('invoices')->get(['id', 'client_id', 'currency_code', 'status', 'paid_at'])
+        $this->invoices = DB::table('invoices')->get(['id', 'client_id', 'currency_code', 'status', 'paid_at', 'created_at'])
             ->mapWithKeys(fn ($invoice) => [(int) $invoice->id => ['client_id' => (int) $invoice->client_id,
-                'currency_code' => (string) $invoice->currency_code, 'status' => (string) $invoice->status, 'paid_at' => $invoice->paid_at]])
+                'currency_code' => (string) $invoice->currency_code, 'status' => (string) $invoice->status, 'paid_at' => $invoice->paid_at,
+                'created_at' => $invoice->created_at]])
             ->all();
 
         $this->transactions();
@@ -194,41 +259,55 @@ class WhmcsMoneyJournal
         return $adjustments;
     }
 
-    /** Each transaction's payment event; a credit payment's move out of credit; an overpayment's move in; a refund. */
+    /**
+     * Each transaction's payment event; a credit payment's move out of credit; an overpayment's move in; each refund,
+     * back to the customer (a refund event) or to their credit (a move in, as ExtensionHelper::refundToCredit).
+     */
     private function transactions(): void
     {
-        $refundedOn = $this->refundDates();
+        $refunds = collect($this->refunds)->groupBy('transaction_id');
         DB::table('invoice_transactions')->where('status', 'succeeded')->orderBy('id')
-            ->select(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount', 'is_credit_transaction', 'source_transaction_id', 'created_at'])
-            ->chunk(1000, function ($transactions) use ($refundedOn) {
+            ->select(['id', 'invoice_id', 'amount', 'credited_amount', 'is_credit_transaction', 'source_transaction_id', 'created_at'])
+            ->chunk(1000, function ($transactions) use ($refunds) {
                 foreach ($transactions as $transaction) {
                     $invoice = $this->invoices[(int) $transaction->invoice_id] ?? null;
                     $cents = WhmcsMassPay::cents($transaction->amount);
                     if ($invoice === null || $cents <= 0) {
-                        $this->summary['no_invoice']++;
+                        $this->summary[$invoice === null ? 'no_invoice' : 'no_money']++;
 
                         continue;
                     }
                     $on = ['client_id' => $invoice['client_id'], 'currency_code' => $invoice['currency_code'],
                         'invoice_id' => (int) $transaction->invoice_id, 'invoice_transaction_id' => (int) $transaction->id];
+                    // A payment WHMCS dated 0000-00-00: its invoice's date, never the day of the import.
+                    $at = $transaction->created_at ?? $invoice['created_at'];
+                    $dayOnly = isset($this->dayOnly[(int) $transaction->id]);
                     // A share of one sale paying other invoices is grouped under that sale (RecordPaymentService::spendCredit).
                     $group = $transaction->source_transaction_id === null ? null : 'transaction:' . $transaction->source_transaction_id;
 
                     if ($transaction->is_credit_transaction) {
-                        $this->move(MoneyEventKind::CreditOut, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, $transaction->created_at, $on, $group);
+                        $this->move(MoneyEventKind::CreditOut, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, $at, $on, $group, dayOnly: $dayOnly);
                         $this->summary['credit_payments']++;
                     }
-                    $this->add(MoneyEventKind::Payment, $cents, $transaction->created_at, $on + ['group_reference' => $group]);
+                    $this->add(MoneyEventKind::Payment, $cents, $at, $on + ['group_reference' => $group], dayOnly: $dayOnly);
                     $this->summary['payments']++;
 
-                    $credited = WhmcsMassPay::cents($transaction->credited_amount);
-                    if ($credited > 0) {
-                        $this->move(MoneyEventKind::CreditIn, $credited, MoneyTrail::CAUSE_OVERPAYMENT, $transaction->created_at, $on);
+                    $own = $refunds->get($transaction->id, collect());
+                    // What it gave to credit when it came: its credited part now, less refunds to credit, plus what refunds took back.
+                    $overpaid = WhmcsMassPay::cents($transaction->credited_amount) - (int) $own->where('to_credit', true)->sum('cents')
+                        + (int) $own->sum('from_credit');
+                    if ($overpaid > 0) {
+                        $this->move(MoneyEventKind::CreditIn, $overpaid, MoneyTrail::CAUSE_OVERPAYMENT, $at, $on);
                         $this->summary['overpayments']++;
                     }
-                    $refunded = WhmcsMassPay::cents($transaction->refunded_amount);
-                    if ($refunded > 0) {
-                        $this->add(MoneyEventKind::Refund, $refunded, $refundedOn[(int) $transaction->id] ?? $transaction->created_at, $on);
+                    foreach ($own as $refund) {
+                        if ($refund['from_credit'] > 0) {
+                            $this->move(MoneyEventKind::CreditOut, $refund['from_credit'], MoneyTrail::CAUSE_OVERPAYMENT, $refund['at'] ?? $at, $on,
+                                note: 'WHMCS: Removal of Credit from Invoice #' . $transaction->invoice_id . ', refunded');
+                        }
+                        $refund['to_credit']
+                            ? $this->move(MoneyEventKind::CreditIn, $refund['cents'], MoneyTrail::CAUSE_REFUND_TO_CREDIT, $refund['at'] ?? $at, $on)
+                            : $this->add(MoneyEventKind::Refund, $refund['cents'], $refund['at'] ?? $at, $on);
                         $this->summary['refunds']++;
                     }
                 }
@@ -249,7 +328,8 @@ class WhmcsMoneyJournal
             }
             $this->move(MoneyEventKind::CreditIn, -WhmcsMassPay::cents($row['credit']), MoneyTrail::CAUSE_INVOICE_REDUCED,
                 $credited[(int) $row['id']] ?? self::date($row['datepaid']) ?? self::date($row['date']),
-                ['client_id' => $invoice['client_id'], 'currency_code' => $invoice['currency_code'], 'invoice_id' => (int) $row['id']]);
+                ['client_id' => $invoice['client_id'], 'currency_code' => $invoice['currency_code'], 'invoice_id' => (int) $row['id']],
+                dayOnly: isset($credited[(int) $row['id']]));
             $this->summary['negative_invoices']++;
         }
     }
@@ -263,7 +343,9 @@ class WhmcsMoneyJournal
         foreach ($items as $item) {
             $invoice = $this->invoices[(int) $item->invoice_id];
             $cents = WhmcsMassPay::cents($item->line_total);
-            $at = $invoice['paid_at'];
+            // WHMCS's datepaid, else when its money came (a datepaid of 0000-00-00 in old data, ADV-523-5), else its date.
+            $at = $invoice['paid_at'] ?? DB::table('invoice_transactions')->where('invoice_id', $item->invoice_id)->where('status', 'succeeded')
+                ->max('created_at') ?? $invoice['created_at'];
             DB::table('invoice_items')->where('id', $item->id)->update(['applied_at' => $at ?? now()]);
             if ($cents <= 0) {
                 continue;
@@ -278,10 +360,10 @@ class WhmcsMoneyJournal
     private function history(): void
     {
         $currencies = $this->clientCurrencies();
-        foreach ($this->rows('SELECT clientid, date, description, amount FROM tblcredit WHERE amount <> 0 ORDER BY date, id') as $row) {
+        foreach ($this->rows('SELECT id, clientid, date, description, amount FROM tblcredit WHERE amount <> 0 ORDER BY date, id') as $row) {
             $kind = self::kind((string) $row['description']);
             $currency = $currencies[(int) $row['clientid']] ?? null;
-            if (in_array($kind, self::FROM_INVOICES, true) || $currency === null) {
+            if (in_array($kind, self::FROM_INVOICES, true) || $currency === null || isset($this->creditRowsUsed[(int) $row['id']])) {
                 continue;
             }
             $cents = WhmcsMassPay::cents($row['amount']);
@@ -291,7 +373,8 @@ class WhmcsMoneyJournal
                 default => MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
             };
             $this->move($cents > 0 ? MoneyEventKind::CreditIn : MoneyEventKind::CreditOut, abs($cents), $cause, self::date($row['date']),
-                ['client_id' => (int) $row['clientid'], 'currency_code' => $currency], note: 'WHMCS: ' . trim((string) $row['description']));
+                ['client_id' => (int) $row['clientid'], 'currency_code' => $currency], note: 'WHMCS: ' . trim((string) $row['description']),
+                dayOnly: strlen(trim((string) $row['date'])) <= 10);
             $this->summary['from_history']++;
         }
     }
@@ -366,33 +449,46 @@ class WhmcsMoneyJournal
     }
 
     /**
-     * The keys of $rows in time order: an undated one last, an opening balance first among its time, then as written.
+     * The keys of $rows in time order, by day: an opening balance first; a move WHMCS dated by the day only before
+     * that day's timed money if it brought credit, after it if it took some (it was spent from what came that day,
+     * ADV-523-4); then by time, then as written. An undated one last.
      *
      * @param  list<array<string, mixed>>  $rows
      * @return list<int>
      */
     private function inTimeOrder(array $rows): array
     {
+        $key = function (int $index) use ($rows): array {
+            $row = $rows[$index];
+            $at = $row['occurred_at'] ?? '9999-12-31 23:59:59';
+            $band = match (true) {
+                !empty($row['opening']) => 0,
+                empty($row['day_only']) => 2,
+                $row['kind'] === MoneyEventKind::CreditIn->value => 1,
+                default => 3,
+            };
+
+            return [substr($at, 0, 10), $band, substr($at, 11), $index];
+        };
         $order = array_keys($rows);
-        usort($order, fn (int $a, int $b) => [$rows[$a]['occurred_at'] ?? '9999', empty($rows[$a]['opening']) ? 1 : 0, $a]
-            <=> [$rows[$b]['occurred_at'] ?? '9999', empty($rows[$b]['opening']) ? 1 : 0, $b]);
+        usort($order, fn (int $a, int $b) => $key($a) <=> $key($b));
 
         return $order;
     }
 
     /** A move of credit. @param  array<string, mixed>  $on */
-    private function move(MoneyEventKind $kind, int $cents, string $cause, mixed $at, array $on, ?string $group = null, ?string $note = null): void
+    private function move(MoneyEventKind $kind, int $cents, string $cause, mixed $at, array $on, ?string $group = null, ?string $note = null, bool $dayOnly = false): void
     {
-        $this->add($kind, $cents, $at, $on + ['group_reference' => $group, 'cause' => $cause], $note);
+        $this->add($kind, $cents, $at, $on + ['group_reference' => $group, 'cause' => $cause], $note, $dayOnly);
     }
 
     /** @param  array<string, mixed>  $on */
-    private function add(MoneyEventKind $kind, int $cents, mixed $at, array $on, ?string $note = null): void
+    private function add(MoneyEventKind $kind, int $cents, mixed $at, array $on, ?string $note = null, bool $dayOnly = false): void
     {
         $this->moves[] = ['kind' => $kind->value, 'amount' => $cents / 100, 'source' => MoneyTrail::SOURCE_IMPORT,
             'occurred_at' => $at === null ? null : Carbon::parse($at)->toDateTimeString()]
             + $on + ['client_id' => null, 'currency_code' => null, 'invoice_id' => null, 'invoice_transaction_id' => null,
-                'group_reference' => null, 'cause' => null, 'credit_balance_after' => null, 'cents' => $cents, 'note' => $note];
+                'group_reference' => null, 'cause' => null, 'credit_balance_after' => null, 'cents' => $cents, 'note' => $note, 'day_only' => $dayOnly];
     }
 
     /** Every event in time order (the journal's ids follow it); a move's note apart, by its event's id. */
@@ -404,7 +500,7 @@ class WhmcsMoneyJournal
         foreach ($this->inTimeOrder($rows) as $index) {
             $row = $rows[$index];
             $note = $row['note'] ?? null;
-            unset($row['cents'], $row['note'], $row['opening']);
+            unset($row['cents'], $row['note'], $row['opening'], $row['day_only']);
             $row['occurred_at'] ??= $now;
             if ($note === null) {
                 $pending[] = $row;
@@ -442,19 +538,6 @@ class WhmcsMoneyJournal
         return $dates;
     }
 
-    /** @return array<int, string> payment id => when it was last refunded */
-    private function refundDates(): array
-    {
-        $dates = [];
-        foreach ($this->rows('SELECT refundid, MAX(date) date FROM tblaccounts WHERE refundid > 0 AND amountout > 0 GROUP BY refundid') as $row) {
-            if (($date = self::date($row['date'])) !== null) {
-                $dates[(int) $row['refundid']] = $date;
-            }
-        }
-
-        return $dates;
-    }
-
     /** @return array<int, string> customer id => its currency, for the customers imported */
     private function clientCurrencies(): array
     {
@@ -470,7 +553,8 @@ class WhmcsMoneyJournal
     }
 
     /**
-     * Rows of a query that a WHMCS without the table or column (an old version, a test fixture) does not have: none.
+     * Rows of a query; none from a WHMCS without the table or column (an old version, a test fixture). Any other failure
+     * stops the import: an empty history read as «no moves» would turn into one adjustment per customer.
      *
      * @return list<array<string, mixed>>
      */
@@ -478,8 +562,11 @@ class WhmcsMoneyJournal
     {
         try {
             return $this->whmcs->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException) {
-            return [];
+        } catch (PDOException $e) {
+            if (self::isMissing($e)) {
+                return [];
+            }
+            throw $e;
         }
     }
 

@@ -61,7 +61,10 @@ final class WhmcsParity
         $money = DB::table('invoice_transactions')->where('is_credit_transaction', false)->where('status', 'succeeded')
             ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) amount, COALESCE(SUM(ROUND(refunded_amount * 100)), 0) refunded, COALESCE(SUM(ROUND(COALESCE(fee, 0) * 100)), 0) fee')->first();
         $add('Money in', $this->count('SELECT COALESCE(SUM(ROUND(amountin * 100)), 0) FROM tblaccounts'), (int) $money->amount);
-        $add('Money out (refunds)', $this->count('SELECT COALESCE(SUM(ROUND(amountout * 100)), 0) FROM tblaccounts'), (int) $money->refunded);
+        // WHMCS's money out includes its refunds to credit: here a payment's credited part (refund_to_credit, as refundToCredit).
+        $toCredit = (int) DB::table('money_events')->where('source', MoneyTrail::SOURCE_IMPORT)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
+            ->whereNotNull('invoice_transaction_id')->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a');
+        $add('Money out (refunds)', $this->count('SELECT COALESCE(SUM(ROUND(amountout * 100)), 0) FROM tblaccounts'), (int) $money->refunded + $toCredit);
         $add('Gateway fees', $this->count('SELECT COALESCE(SUM(ROUND(fees * 100)), 0) FROM tblaccounts'), (int) $money->fee);
         // The customers' account credit applied to invoices, on both sides. A Mass Pay child's «credit» in WHMCS is its
         // parent's money and its customer's own credit; here the parent's payment lands on the child as a payment (the
@@ -101,12 +104,31 @@ final class WhmcsParity
         $currencies = (int) $this->whmcs->query('SELECT COUNT(DISTINCT c.currency) FROM tblinvoices i JOIN tblclients c ON c.id = i.userid')->fetchColumn();
 
         $notes = $currencies > 1 ? ["The invoices are in {$currencies} currencies: their amounts are summed together here."] : [];
-        // Money WHMCS recorded on no invoice: not imported (ImportFromWhmcs::importPayments names them), so «Money in» is short by it.
-        $orphans = $this->whmcs->query('SELECT COUNT(*) n, COALESCE(SUM(ROUND(amountin * 100)), 0) cents FROM tblaccounts a WHERE amountin > 0'
-            . ' AND NOT EXISTS (SELECT 1 FROM tblinvoices i WHERE i.id = a.invoiceid)')->fetch(PDO::FETCH_ASSOC);
-        if ((int) $orphans['n'] > 0) {
-            $notes[] = "{$orphans['n']} WHMCS payment(s) on no invoice, " . number_format((int) $orphans['cents'] / 100, 2, '.', '')
+        // Money the importer leaves out, by its own rule (ImportFromWhmcs::importPayments, importRefunds): payments on no
+        // invoice here (none in WHMCS, or one not imported), and money out on no payment here. «Money in» and «Money out»
+        // are short by them.
+        $here = array_fill_keys(DB::table('invoices')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+        $parents = array_fill_keys(array_map('intval', $this->whmcs->query(WhmcsMassPay::PARENTS_SQL)->fetchAll(PDO::FETCH_COLUMN)), true);
+        $payments = array_fill_keys(DB::table('invoice_transactions')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+        $in = ['n' => 0, 'cents' => 0];
+        $out = ['n' => 0, 'cents' => 0];
+        foreach ($this->whmcs->query('SELECT * FROM tblaccounts WHERE amountin > 0 OR amountout > 0')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ((float) $row['amountin'] > 0 && !isset($here[(int) $row['invoiceid']]) && !isset($parents[(int) $row['invoiceid']])) {
+                $in['n']++;
+                $in['cents'] += WhmcsMassPay::cents($row['amountin']);
+            }
+            if ((float) $row['amountout'] > 0 && !isset($payments[(int) ($row['refundid'] ?? 0)])) {
+                $out['n']++;
+                $out['cents'] += WhmcsMassPay::cents($row['amountout']);
+            }
+        }
+        if ($in['n'] > 0) {
+            $notes[] = "{$in['n']} WHMCS payment(s) on no invoice here, " . number_format($in['cents'] / 100, 2, '.', '')
                 . ' in all, are not imported: «Money in» is short by them.';
+        }
+        if ($out['n'] > 0) {
+            $notes[] = "{$out['n']} WHMCS money out on no payment here, " . number_format($out['cents'] / 100, 2, '.', '')
+                . ' in all, is not imported: «Money out» is short by it.';
         }
 
         return $notes;

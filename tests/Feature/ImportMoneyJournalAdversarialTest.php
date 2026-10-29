@@ -170,7 +170,7 @@ class ImportMoneyJournalAdversarialTest extends TestCase
 
         $payment = InvoiceTransaction::query()->findOrFail(31);
         $this->assertSame('5.00', (string) $payment->refunded_amount, 'what WHMCS gave back of it');
-        $this->assertSame('5.00', (string) MoneyEvent::query()->where('kind', 'refund')->where('invoice_transaction_id', 31)->sum('amount'));
+        $this->assertSame(5.0, (float) MoneyEvent::query()->where('kind', 'refund')->where('invoice_transaction_id', 31)->sum('amount'));
     }
 
     /**
