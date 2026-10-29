@@ -23,6 +23,7 @@ use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
+use App\Services\Tax\EuVat;
 use App\Support\Locales;
 use Closure;
 use DB;
@@ -285,7 +286,9 @@ class ImportFromWhmcs extends Command
         try {
             $dateTime = \DateTime::createFromFormat('Y-m-d H:i:s', $date);
             if (!$dateTime) {
-                $dateTime = \DateTime::createFromFormat('Y-m-d', $date);
+                // Midnight: without «!» the missing time is the clock's now (an invoice at the time of the run; a run at
+                // 03:00 on a day the clocks went forward stopped the import of myip, 2026-10-29).
+                $dateTime = \DateTime::createFromFormat('!Y-m-d', $date);
             }
             if (!$dateTime) {
                 return null;
@@ -615,7 +618,9 @@ class ImportFromWhmcs extends Command
                     'tax_id' => $value('tax_id'), 'email' => $value('email'), 'phone' => $value('phonenumber'),
                     'address1' => $value('address1'), 'address2' => $value('address2'), 'city' => $value('city'),
                     'state' => $value('state'), 'postcode' => $value('postcode'),
-                    'country' => $value('country') !== null ? strtoupper(substr($value('country'), 0, 2)) : null,
+                    // A country the app knows (EuVat::iso: a code, a name, EL → GR), else none: never the first two letters of
+                    // a name («Germany» → GE, Georgia). The ones left without are listed (reportCountries).
+                    'country' => $this->country($record),
                     'created_at' => end($data)['created_at'], 'updated_at' => now(),
                 ];
 
@@ -645,6 +650,42 @@ class ImportFromWhmcs extends Command
                 DB::table('credits')->insert($credits);
             }
         });
+        $this->reportCountries();
+    }
+
+    /** @var array<int, string> customers imported without a country the app knows => what WHMCS had */
+    private array $withoutCountry = [];
+
+    /** @param  array<string, mixed>  $record  a tblclients row */
+    private function country(array $record): ?string
+    {
+        $iso = EuVat::iso($record['country'] ?? null);
+        if ($iso === null) {
+            $this->withoutCountry[(int) $record['id']] = trim((string) ($record['country'] ?? ''));
+        }
+
+        return $iso;
+    }
+
+    /**
+     * The customers left without a country, for staff (#524): they cannot order until they set one, and their invoices
+     * take the rate of «All», else the company's country. With their active services, the ones billed first.
+     */
+    private function reportCountries(): void
+    {
+        if ($this->withoutCountry === []) {
+            return;
+        }
+        $active = [];
+        foreach ($this->sourceRows("SELECT userid, COUNT(*) n FROM tblhosting WHERE domainstatus IN ('Active', 'Suspended') GROUP BY userid") ?? [] as $row) {
+            $active[(int) $row['userid']] = (int) $row['n'];
+        }
+        $rows = array_map(fn (int $id, string $had) => [$id, $had === '' ? '(empty)' : $had, $active[$id] ?? 0],
+            array_keys($this->withoutCountry), $this->withoutCountry);
+        usort($rows, fn (array $a, array $b) => [$b[2], $a[0]] <=> [$a[2], $b[0]]);
+        $this->warn(count($rows) . ' customer(s) without a country the app knows: they cannot order until they set one, and their invoices'
+            . ' take the «All» rate, else the company\'s country. Ask them to set it:');
+        $this->table(['Customer', 'In WHMCS', 'Active services'], $rows);
     }
 
     /**
@@ -1938,6 +1979,11 @@ class ImportFromWhmcs extends Command
                 'updated_at' => $this->validateDate($byId[$planned['id']]['date']),
             ], $plan['payments']));
             DB::table('invoice_transactions')->insert(array_map(function (array $allocation) use (&$nextId, $parent) {
+                // Dated by the parent's day alone (no payment, no datepaid): the journal orders it as such (ADV-528-2).
+                if ($allocation['date'] === null && $this->validateDate($parent['datepaid']) === null) {
+                    $this->dayOnly[] = $nextId;
+                }
+
                 return [
                     'id' => $nextId++,
                     'invoice_id' => $allocation['invoice_id'],
@@ -1971,6 +2017,9 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /** @var list<int> transactions dated by a day only (importMassPay), for the journal's order */
+    private array $dayOnly = [];
+
     /** @var array<int, int> Mass Pay child => cents of its WHMCS credit its parents did not pay (importMassPay) */
     private array $childCredit = [];
 
@@ -1983,7 +2032,7 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Writing the money journal...');
         $journal = new WhmcsMoneyJournal($this->pdo);
-        $journal->creditApplied($this->massPayParents(), $this->childCredit, $this->importedInvoices());
+        $journal->creditApplied($this->massPayParents(), $this->childCredit, $this->importedInvoices(), $this->dayOnly);
         $journal->overpayments();
         // After the overpayments: a refund takes what the invoice kept, never the credit the payment already gave.
         $this->importRefunds();

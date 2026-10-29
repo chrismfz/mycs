@@ -86,10 +86,12 @@ class WhmcsMoneyJournal
      * @param  array<int, true>  $parents  Mass Pay parents
      * @param  array<int, int>  $childCredit  child id => cents of its credit not paid by a parent
      * @param  array<int, true>  $imported  the invoices imported
+     * @param  list<int>  $dayOnly  transactions the importer dated by a day only (a Mass Pay parent's own credit)
      */
-    public function creditApplied(array $parents, array $childCredit, array $imported): void
+    public function creditApplied(array $parents, array $childCredit, array $imported, array $dayOnly = []): void
     {
         $this->parents = $parents;
+        $this->dayOnly = array_fill_keys($dayOnly, true);
         $rows = $this->rows('SELECT id, credit, date, datepaid FROM tblinvoices WHERE credit > 0 ORDER BY id');
         $appliedOn = $this->appliedDates();
         // Above every WHMCS payment and every allocation (importMassPay), as the allocations' ids.
@@ -111,6 +113,8 @@ class WhmcsMoneyJournal
                 } else {
                     $this->dayOnly[$nextId] = true;
                 }
+            } elseif ($paid === null) {
+                $this->dayOnly[$nextId] = true; // the invoice's day alone (ADV-528-R2-1)
             }
             $insert[] = ['id' => $nextId++, 'invoice_id' => $id, 'amount' => $cents / 100, 'is_credit_transaction' => true,
                 'created_at' => $at, 'updated_at' => $at];
@@ -279,9 +283,9 @@ class WhmcsMoneyJournal
                     }
                     $on = ['client_id' => $invoice['client_id'], 'currency_code' => $invoice['currency_code'],
                         'invoice_id' => (int) $transaction->invoice_id, 'invoice_transaction_id' => (int) $transaction->id];
-                    // A payment WHMCS dated 0000-00-00: its invoice's date, never the day of the import.
+                    // A payment WHMCS dated 0000-00-00: its invoice's date (a day only), never the day of the import.
                     $at = $transaction->created_at ?? $invoice['created_at'];
-                    $dayOnly = isset($this->dayOnly[(int) $transaction->id]);
+                    $dayOnly = isset($this->dayOnly[(int) $transaction->id]) || $transaction->created_at === null;
                     // A share of one sale paying other invoices is grouped under that sale (RecordPaymentService::spendCredit).
                     $group = $transaction->source_transaction_id === null ? null : 'transaction:' . $transaction->source_transaction_id;
 

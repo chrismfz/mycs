@@ -140,4 +140,19 @@ class WhmcsParityTest extends TestCase
 
         $this->parity()->assertSuccessful()->expectsOutputToContain('No difference.');
     }
+
+    /** A customer without a country the app knows (EuVat::iso, as the importer reads it) is counted on both sides (#524). */
+    public function test_customers_without_a_country_are_counted_on_both_sides(): void
+    {
+        $this->sameOnBothSides();
+        $this->whmcs->exec('ALTER TABLE tblclients ADD COLUMN country TEXT');
+        $this->whmcs->exec("UPDATE tblclients SET country = 'XX'");
+        DB::table('contacts')->whereNotNull('primary_of_client_id')->update(['country' => null]);
+
+        $this->parity()->assertSuccessful()->expectsOutputToContain('No difference.');
+
+        DB::table('contacts')->whereNotNull('primary_of_client_id')->update(['country' => 'GR']);
+
+        $this->parity()->assertFailed()->expectsOutputToContain('Customers without a country');
+    }
 }
