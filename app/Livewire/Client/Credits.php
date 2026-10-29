@@ -124,6 +124,8 @@ class Credits extends Component
                 'currency_code' => $this->currency,
                 'due_at' => now(),
                 'status' => Invoice::STATUS_UNPAID,
+                // The gateway the customer chose for it: its preferred one (never the account's saved card instead).
+                'preferred_gateway_id' => $this->gateway ? (int) $this->gateway : null,
             ]);
 
             $invoice->items()->create([

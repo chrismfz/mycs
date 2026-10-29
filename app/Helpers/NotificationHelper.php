@@ -354,6 +354,8 @@ class NotificationHelper
             'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $statement['total'],
             // Unpaid: the bank transfer accounts, line by line, and the reference to write (null without them).
             'bank_transfer' => BankTransferDetails::forTemplate($invoice),
+            // Its preferred payment method's name, for the button («Pay with PayPal»): its page opens with it chosen.
+            'preferred_method' => self::preferredMethod($invoice),
         ];
 
         // Generate the invoice PDF, in the customer's language
@@ -376,6 +378,28 @@ class NotificationHelper
         ];
 
         self::toAccount($client, $key, $data, $attachments);
+    }
+
+    /**
+     * Its preferred payment method's name, only when unpaid and that gateway can take it (as its page offers it), else ''.
+     * A gateway that cannot be read never stops the email: only its button's label goes (R2-2 of #539).
+     */
+    public static function preferredMethod(Invoice $invoice): string
+    {
+        // Paid on its own (a subscription, a saved method on its due date): no button names a way to pay it (R3-1 of #539).
+        $gateway = $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice) ? $invoice->preferredGateway : null;
+        if ($gateway === null) {
+            return '';
+        }
+        try {
+            $usable = array_column(ExtensionHelper::getCheckoutGateways($invoice->total, $invoice->currency_code, 'invoice', $invoice->items), 'id');
+        } catch (Throwable $e) {
+            report($e);
+
+            return '';
+        }
+
+        return in_array($gateway->id, $usable) ? (string) $gateway->name : '';
     }
 
     public static function invoiceCreatedNotification(Client $client, Invoice $invoice): void

@@ -50,6 +50,7 @@ final class SplitInvoice
                 'currency_code' => $invoice->currency_code,
                 'due_at' => $invoice->due_at,
                 'status' => Invoice::STATUS_UNPAID,
+                'preferred_gateway_id' => $invoice->preferred_gateway_id, // as WHMCS keeps it on a split
             ]);
             $new->send_create_email = false;
             $new->split_from_id = $invoice->id;

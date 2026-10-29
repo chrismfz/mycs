@@ -14,6 +14,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
@@ -55,6 +56,36 @@ class Show extends Component
 
         if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
             $this->showPayModal = false;
+        }
+        $this->selectedMethod ??= $this->preferredChoice();
+    }
+
+    /**
+     * Its preferred payment method, chosen to start with (WHMCS's invoice payment method): the account's saved method when
+     * it is on that gateway and may pay, else the gateway when this invoice can use it; else none. The customer may pick
+     * another.
+     */
+    private function preferredChoice(): ?string
+    {
+        $gatewayId = $this->invoice->preferred_gateway_id;
+        // Paid on its own: nothing chosen for it (a bank transfer would refuse it: R3-1 of #539).
+        if ($gatewayId === null || $this->invoice->status !== Invoice::STATUS_UNPAID || PaymentReminders::chargedOnItsOwn($this->invoice)) {
+            return null;
+        }
+        $default = $this->accountAgreements()->whereKey($this->invoice->client->default_billing_agreement_id ?? 0)->where('gateway_id', $gatewayId)->first();
+        if ($default !== null && in_array($gatewayId, array_column($this->paymentMethods(), 'id'))) {
+            return $default->ulid;
+        }
+
+        return in_array($gatewayId, array_column($this->gateways(), 'id')) ? 'gateway-' . $gatewayId : null;
+    }
+
+    /** The way the customer chose to pay, kept as its preferred one (as WHMCS keeps the one picked), in the audit. */
+    private function remember(int $gatewayId): void
+    {
+        if ((int) $this->invoice->preferred_gateway_id !== $gatewayId) {
+            Invoice::query()->findOrFail($this->invoice->id)->forceFill(['preferred_gateway_id' => $gatewayId])->save();
+            $this->invoice->preferred_gateway_id = $gatewayId;
         }
     }
 
@@ -155,6 +186,11 @@ class Show extends Component
         }
 
         $this->pay = ExtensionHelper::pay(Gateway::where('id', $methodId)->first(), $this->invoice);
+        // Opened (its page, its window): the way chosen, kept; a refusal changes nothing (ADV-539-4), nor one paid on its own
+        // (a saved method or a subscription: the bank transfer's «charged» page is a refusal, R2-1 of #539).
+        if ($this->pay !== null && $this->pay !== false && !PaymentReminders::chargedOnItsOwn($this->invoice)) {
+            $this->remember((int) $methodId);
+        }
 
         if (is_string($this->pay)) {
             $this->redirect($this->pay);
@@ -201,6 +237,7 @@ class Show extends Component
         }
 
         if ($attempt->status === ChargeAttempt::STATUS_SUCCEEDED) {
+            $this->remember((int) $agreement->gateway->id); // paid with it: kept (a refused charge changes nothing)
             $this->notify(__('Successfully charged the saved payment method.'), 'success');
 
             return $this->redirect(route('invoices.show', $this->invoice) . '?checkPayment', true);

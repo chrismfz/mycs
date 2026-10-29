@@ -55,7 +55,8 @@ class NotificationTemplateTest extends TestCase
         $this->assertStringContainsString('Hosting &lt;b&gt;Pro&lt;/b&gt;', $body);
         $this->assertStringNotContainsString('<b>Pro</b>', $body);
         $this->assertStringContainsString('Domain', $body);
-        $this->assertStringContainsString('href="' . route('invoices.show', $invoice) . '"', $body);
+        // Its button opens the invoice's payment (urls.pay: the page with ?pay=1, its preferred method chosen there).
+        $this->assertStringContainsString('href="' . route('invoices.show', ['invoice' => $invoice, 'pay' => 1]) . '"', $body);
         $this->assertStringNotContainsString('active subscription', $body);
         $this->assertStringNotContainsString('{{', $body);
         $this->assertStringNotContainsString('{%', $body);
