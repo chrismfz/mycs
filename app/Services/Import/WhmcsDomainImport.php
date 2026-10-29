@@ -239,7 +239,7 @@ final class WhmcsDomainImport
                 'registrant_handle' => $roleHandles['registrant'] ?? null,
                 'admin_handle' => $roleHandles['admin'] ?? null,
                 'notes' => trim((string) ($row['additionalnotes'] ?? '')) ?: null,
-                'meta' => ($meta = array_filter($meta)) !== [] ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null,
+                'meta' => $meta !== [] ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null,
                 'created_at' => $this->date($row['created_at'] ?? null) ?? $this->date($row['registrationdate'] ?? null) ?? now()->toDateTimeString(),
                 'updated_at' => $this->date($row['updated_at'] ?? null) ?? now()->toDateTimeString(),
             ];

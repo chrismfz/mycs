@@ -106,7 +106,7 @@ final class WhmcsParity
         $add('Tickets', $this->count('SELECT COUNT(*) FROM tbltickets' . $merged), Schema::hasTable('tickets') ? DB::table('tickets')->count() : 0);
         $add('Domains', $this->count('SELECT COUNT(*) FROM tbldomains'), Schema::hasTable('domains') ? DB::table('domains')->count() : 0);
         // D6: the live ones by status, and the invoice lines of a domain now on it (a domain's line whose domain is here).
-        if (Schema::hasTable('domains')) {
+        if (Schema::hasTable('domains') && $this->hasColumn('tbldomains', 'status') && $this->hasColumn('tbldomains', 'recurringamount')) {
             $add('Domains active', $this->count("SELECT COUNT(*) FROM tbldomains WHERE status = 'Active'"), DB::table('domains')->where('status', 'active')->count());
             $add('Domains, recurring amount', $this->count("SELECT COALESCE(SUM(ROUND(recurringamount * 100)), 0) FROM tbldomains WHERE status = 'Active'"),
                 (int) DB::table('domains')->where('status', 'active')->selectRaw('COALESCE(SUM(ROUND(recurring_amount * 100)), 0) a')->value('a'));
