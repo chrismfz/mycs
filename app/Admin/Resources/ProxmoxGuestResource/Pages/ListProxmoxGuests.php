@@ -38,7 +38,7 @@ class ListProxmoxGuests extends ListRecords
                                 ->body("{$result['seen']} guest(s), {$result['new']} new, {$result['gone']} gone")->send();
                         } catch (Throwable $e) {
                             report($e);
-                            Notification::make()->danger()->title($server->name)->body(Redact::text($e->getMessage()))->send();
+                            Notification::make()->danger()->title($server->name)->body(e(Redact::text($e->getMessage())))->send();
                         }
                     }
                 }),

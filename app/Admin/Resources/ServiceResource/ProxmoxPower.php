@@ -60,7 +60,7 @@ final class ProxmoxPower
                     $extension->lifecycle($record)->power($record, $power);
                 } catch (Throwable $e) {
                     report($e);
-                    Notification::make()->danger()->title('Not done')->body(Redact::text($e->getMessage()))->send();
+                    Notification::make()->danger()->title('Not done')->body(e(Redact::text($e->getMessage())))->send();
 
                     return;
                 }

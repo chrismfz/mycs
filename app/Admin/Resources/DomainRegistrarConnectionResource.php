@@ -153,7 +153,7 @@ class DomainRegistrarConnectionResource extends Resource
                 $balance = $record->balance ?? [];
                 $error = $balance['error'] ?? null;
                 Notification::make()->title($error !== null ? __('Could not read the balance') : __('Balance: :amount', ['amount' => trim(($balance['amount'] ?? '—') . ' ' . ($balance['currency'] ?? ''))]))
-                    ->body($error ?? RegistrarBalances::problemText($record))->{$error !== null ? 'danger' : 'success'}()->send();
+                    ->body(e($error ?? RegistrarBalances::problemText($record)))->{$error !== null ? 'danger' : 'success'}()->send();
             });
     }
 

@@ -318,8 +318,8 @@ Operator, και ο δεύτερος με ρόλους που άλλαζαν):
 
 | ID | Σοβαρότητα | Τι | Κατάσταση |
 |---|---|---|---|
-| AUD10-1 | Low | Ειδοποιήσεις του staff με κείμενο από server, registrar ή exception, ή με το όνομα πελάτη: το Filament τις δείχνει ως HTML χωρίς scripts, άρα `<img>`, `<a>` και `style` περνούν | **#536:** `e()` σε κάθε τέτοιο title/body, και test που το φυλάει |
-| AUD10-2 | Low | Discord webhook: οποιοδήποτε URL, με redirects (blind SSRF· μόνο full admin, το extension κλειστό) | **#536:** μόνο `https://discord.com/api/webhooks/…`, στη φόρμα και στο job, χωρίς redirects |
+| AUD10-1 | Low | Ειδοποιήσεις του staff με κείμενο από server, registrar ή exception, ή με το όνομα πελάτη (και το «Test connection» ενός server, refunds, registry, IMAP): το Filament τις δείχνει ως HTML χωρίς scripts, άρα `<img>`, `<a>` και `style` περνούν | **#536:** `e()` σε όσα βρέθηκαν (sweep και code review)· ένα test φυλάει τις συνηθισμένες μορφές (`$e->getMessage()`, `last_error`, `Redact::text(…)`) |
+| AUD10-2 | Low | Discord webhook: οποιοδήποτε URL, με redirects (blind SSRF· μόνο full admin, το extension κλειστό) | **#536:** μόνο `https://discord.com/api/(vN/)webhooks/<id>/<token>`, στη φόρμα και στο job, χωρίς redirects |
 | AUD10-3 | Info | `X-Powered-By: PHP/…` | **#536:** το βγάζει το `SecurityHeaders`, και `fastcgi_hide_header` στο `nginx.conf.example` |
 | AUD10-4 | Info | Διπλά X-Frame-Options, nosniff, Referrer-Policy | Το `nginx.conf.example` είναι ήδη σωστό· το config του devbox είναι παλιότερο. **Cut-over:** το config του orion από το example |
 | AUD10-5 | Low | `GET /offer/{offer}` γεμίζει το καλάθι από ξένο site· `GET …/ssl/{v}/key` καίει το όριο λήψεων (20/ώρα) | ανοιχτό: τίποτα δεν χρεώνεται ούτε διαρρέει |

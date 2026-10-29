@@ -104,7 +104,7 @@ class ServerResource extends Resource
                                         ->success()->send();
                                 } else {
                                     Notification::make()
-                                        ->title('Connection failed: ' . $connection)
+                                        ->title('Connection failed: ' . e((string) $connection))
                                         ->danger()->send();
                                 }
                             })

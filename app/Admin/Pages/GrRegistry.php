@@ -80,7 +80,7 @@ class GrRegistry extends Page
         $connection = self::connections()->firstWhere('id', $connection) ?? abort(404);
         app(RegistrarBalances::class)->refresh($connection);
         $error = $connection->refresh()->balance['error'] ?? null;
-        Notification::make()->{$error ? 'danger' : 'success'}()->title($error ?: __('domains.gr_registry.balance_read'))->send();
+        Notification::make()->{$error ? 'danger' : 'success'}()->title($error ? e($error) : __('domains.gr_registry.balance_read'))->send();
     }
 
     /** The names checked at the registry, «under restrictions» told apart (geographic terms, .gov.gr). */

@@ -19,7 +19,7 @@ class PostToDiscord implements ShouldBeEncrypted, ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable;
 
     /** Discord's webhook URLs; a saved URL that is not one is never posted to, and no redirect is followed. */
-    public const WEBHOOK = '#^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[^/?\#]+/[^/?\#]+$#';
+    public const WEBHOOK = '#^https://(ptb\.|canary\.)?discord(app)?\.com/api/(v\d+/)?webhooks/\d+/[\w-]+(\?[\w=&%-]*)?$#';
 
     public int $tries = 3;
 

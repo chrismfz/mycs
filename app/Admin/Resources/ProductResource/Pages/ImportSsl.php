@@ -401,7 +401,7 @@ class ImportSsl extends Page implements HasForms
             $this->fetched = SslCatalog::entries($extension->catalogue());
         } catch (Throwable $e) {
             report($e);
-            Notification::make()->danger()->title(__('Openprovider could not be read'))->body(Redact::text($e->getMessage()))->send();
+            Notification::make()->danger()->title(__('Openprovider could not be read'))->body(e(Redact::text($e->getMessage())))->send();
 
             return;
         }

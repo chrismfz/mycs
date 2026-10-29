@@ -18,12 +18,20 @@ class AuditFlow10LowsTest extends TestCase
     {
         Http::fake();
 
-        foreach (['http://discord.com/api/webhooks/1/a', 'https://127.0.0.1/api/webhooks/1/a', 'https://discord.com.evil.test/api/webhooks/1/a',
+        foreach (['http://discord.com/api/webhooks/1/a', 'https://discord.com/api/webhooks/1/a/../../x', 'https://discord.com@127.0.0.1/api/webhooks/1/a', 'https://127.0.0.1/api/webhooks/1/a', 'https://discord.com.evil.test/api/webhooks/1/a',
             'https://169.254.169.254/latest/meta-data/'] as $url) {
             (new PostToDiscord($url, ['content' => 'hi']))->handle();
         }
 
         Http::assertNothingSent();
+    }
+
+    public function test_discords_own_forms_of_a_webhook_url_are_accepted(): void
+    {
+        foreach (['https://discord.com/api/webhooks/123/tok-en_1', 'https://discordapp.com/api/webhooks/123/tok', 'https://ptb.discord.com/api/v10/webhooks/123/tok',
+            'https://discord.com/api/webhooks/123/tok?thread_id=456&wait=true'] as $url) {
+            $this->assertSame(1, preg_match(PostToDiscord::WEBHOOK, $url), $url);
+        }
     }
 
     public function test_a_discord_webhook_is_posted_to_without_following_a_redirect(): void
@@ -46,7 +54,7 @@ class AuditFlow10LowsTest extends TestCase
         $raw = [];
         foreach ((new Finder)->in([base_path('app'), base_path('extensions')])->name('*.php')->files() as $file) {
             foreach (explode("\n", $file->getContents()) as $n => $line) {
-                if (preg_match('/->(title|body)\(\(?(string\) )?\$[a-z]+->(getMessage\(\)|last_error|result)\)/', $line) === 1) {
+                if (preg_match('/->(title|body)\((\(string\) )?(Redact::text\()?\$[a-z]+->(getMessage\(\)|last_error|result|detail)\)/', $line) === 1) {
                     $raw[] = $file->getRelativePathname() . ':' . ($n + 1);
                 }
             }
