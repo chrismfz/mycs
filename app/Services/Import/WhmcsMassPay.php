@@ -17,6 +17,16 @@ namespace App\Services\Import;
 final class WhmcsMassPay
 {
     /**
+     * WHMCS Mass Pay parents: every line of theirs pays another invoice of the same customer that is no parent itself,
+     * and they were paid or took no money. The importer's rule, and parity's (they must never drift apart).
+     */
+    public const PARENTS_SQL = "SELECT DISTINCT ii.invoiceid FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid JOIN tblinvoices p ON p.id = ii.invoiceid
+            WHERE ii.type = 'Invoice' AND c.userid = p.userid
+            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems n WHERE n.invoiceid = c.id AND n.type = 'Invoice')
+            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems o WHERE o.invoiceid = p.id AND o.type <> 'Invoice')
+            AND (p.status = 'Paid' OR NOT EXISTS (SELECT 1 FROM tblaccounts a WHERE a.invoiceid = p.id AND a.amountin > 0))";
+
+    /**
      * @param  array{id: int, total: int, credit: int}  $parent  the total of its lines (WHMCS keeps `total` net of credit:
      *                                                           pass total + credit) and the part paid from account credit, in cents
      * @param  list<array{child: int, amount: int}>  $lines  the parent's «Invoice» lines: each child and its share
