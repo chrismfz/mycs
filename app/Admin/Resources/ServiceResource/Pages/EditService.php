@@ -110,7 +110,7 @@ class EditService extends EditRecord
         try {
             $record->applyStaffChanges(Arr::except($data, ['ends_billing']), $this->filledAttributes ?: null, (bool) ($data['ends_billing'] ?? false));
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Not saved'))->body($e->getMessage())->send();
+            Notification::make()->danger()->title(__('Not saved'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
         }
@@ -232,7 +232,7 @@ class EditService extends EditRecord
         try {
             $log = WelcomeMail::resend($record, $staff);
         } catch (DisplayException $e) {
-            Notification::make()->title(__('Welcome email not sent'))->body($e->getMessage())->danger()->send();
+            Notification::make()->title(__('Welcome email not sent'))->body(e($e->getMessage()))->danger()->send();
 
             return;
         }
@@ -278,7 +278,7 @@ class EditService extends EditRecord
                         try {
                             (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
                         } catch (DisplayException $e) {
-                            Notification::make('Error')->title(__('Service not deleted'))->body($e->getMessage())->danger()->send();
+                            Notification::make('Error')->title(__('Service not deleted'))->body(e($e->getMessage()))->danger()->send();
 
                             return;
                         } catch (Exception $e) {
@@ -286,7 +286,7 @@ class EditService extends EditRecord
 
                             Notification::make('Error')
                                 ->title('Error occured while deleting the related server:')
-                                ->body($e->getMessage() . ' The service was not deleted (untick the server deletion to delete it anyway).')
+                                ->body(e($e->getMessage() . ' The service was not deleted (untick the server deletion to delete it anyway).'))
                                 ->danger()
                                 ->send();
 
@@ -326,7 +326,7 @@ class EditService extends EditRecord
                             }
                             $invoice = ChangeCycle::apply($record, $plan, $data['mode'], MoneyTrail::SOURCE_STAFF);
                         } catch (DisplayException $e) {
-                            Notification::make()->title('Not changed')->body($e->getMessage())->danger()->send();
+                            Notification::make()->title('Not changed')->body(e($e->getMessage()))->danger()->send();
                             $action->halt();
 
                             return;
@@ -369,7 +369,7 @@ class EditService extends EditRecord
                             // The server's own refusal: not changed. No answer (a timeout, an HTTP error): it may have been (ADV-3 of #318).
                             $refused = $e instanceof ServerRefused;
                             Notification::make()->title($refused ? 'Password not changed' : 'No clear answer from the server: the password may have changed')
-                                ->body($refused ? $reason : 'Check by logging in with the new password before trying again. ' . $reason)->danger()->send();
+                                ->body(e($refused ? $reason : 'Check by logging in with the new password before trying again. ' . $reason))->danger()->send();
                             $action->halt();
 
                             return;
@@ -458,14 +458,14 @@ class EditService extends EditRecord
                         try {
                             $result = app(MoveToClient::class)->service($record, $to, $staff);
                         } catch (DisplayException $e) {
-                            Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
+                            Notification::make()->title('Not moved')->body(e($e->getMessage()))->danger()->send();
                             $action->halt();
 
                             return;
                         }
                         $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
                             . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
-                        Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
+                        Notification::make()->title('Moved to ' . e($to->name))->body($told !== '' ? e($told) : null)->success()->send();
                         $this->redirect(static::getResource()::getUrl('edit', ['record' => $record]));
                     }),
 
@@ -557,7 +557,7 @@ class EditService extends EditRecord
                                     }
                                     // Only once the server is gone (it threw otherwise).
                                     foreach ($record->markTerminated() as $left) {
-                                        Notification::make()->title('Left open for staff')->body($left->getMessage())->warning()->persistent()->send();
+                                        Notification::make()->title('Left open for staff')->body(e($left->getMessage()))->warning()->persistent()->send();
                                     }
                                     break;
                                 case 'upgrade':
@@ -571,7 +571,7 @@ class EditService extends EditRecord
                             report($e);
                             Notification::make('Error')
                                 ->title('Error occured while triggering the action:')
-                                ->body($e->getMessage())
+                                ->body(e($e->getMessage()))
                                 ->danger()
                                 ->send();
                             $action->halt();
@@ -597,7 +597,7 @@ class EditService extends EditRecord
                         try {
                             Licenses::reissue($record->license, (string) request()->ip(), byStaff: true);
                         } catch (DisplayException $e) {
-                            Notification::make()->danger()->title('Not reissued')->body($e->getMessage())->send();
+                            Notification::make()->danger()->title('Not reissued')->body(e($e->getMessage()))->send();
 
                             return;
                         }

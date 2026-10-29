@@ -73,7 +73,7 @@ class RegistrarLogsRelationManager extends RelationManager
                             app(DomainManagementService::class)->setNameservers($domain, array_values(array_map('strval', (array) $record->request['before'])), Auth::guard('staff')->user());
                             Notification::make()->success()->title(__('Nameservers restored.'))->send();
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('Not restored'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Not restored'))->body(e($e->getMessage()))->send();
                         }
                     }),
                 RegistrarLogTable::viewAction(),

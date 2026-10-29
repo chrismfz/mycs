@@ -41,7 +41,7 @@ class EditNotificationTemplate extends EditRecord
                         }
                     } catch (Throwable $e) {
                         report($e);
-                        Notification::make()->danger()->title(__('Not sent'))->body($e->getMessage())->send();
+                        Notification::make()->danger()->title(__('Not sent'))->body(e($e->getMessage()))->send();
 
                         return;
                     }

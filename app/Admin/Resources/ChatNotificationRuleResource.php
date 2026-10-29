@@ -70,7 +70,7 @@ class ChatNotificationRuleResource extends Resource
                         try {
                             SendChatNotification::post((string) $record->webhook_url, '👋 ' . __('MyCS: a test of «:name».', ['name' => $record->name]));
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('Not sent'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Not sent'))->body(e($e->getMessage()))->send();
 
                             return;
                         }

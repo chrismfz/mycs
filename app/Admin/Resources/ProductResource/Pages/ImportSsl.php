@@ -507,7 +507,7 @@ class ImportSsl extends Page implements HasForms
             $typed = $this->typedFor($entries, $options);
             $count = SslCatalog::import($server, array_values($entries), $options, $category, (bool) ($this->form->getState()['hidden'] ?? true), $typed);
         } catch (InvalidArgumentException $e) {
-            Notification::make()->warning()->title(__('Nothing was imported'))->body($e->getMessage())->send();
+            Notification::make()->warning()->title(__('Nothing was imported'))->body(e($e->getMessage()))->send();
 
             return;
         }

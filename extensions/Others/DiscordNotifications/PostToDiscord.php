@@ -18,6 +18,9 @@ class PostToDiscord implements ShouldBeEncrypted, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable;
 
+    /** Discord's webhook URLs; a saved URL that is not one is never posted to, and no redirect is followed. */
+    public const WEBHOOK = '#^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[^/?\#]+/[^/?\#]+$#';
+
     public int $tries = 3;
 
     /** @var list<int> seconds */
@@ -28,6 +31,12 @@ class PostToDiscord implements ShouldBeEncrypted, ShouldQueue
 
     public function handle(): void
     {
-        Http::post($this->webhookUrl, $this->message)->throw();
+        if (preg_match(self::WEBHOOK, $this->webhookUrl) !== 1) {
+            $this->fail(new \RuntimeException('Discord: the webhook URL is not a Discord webhook; nothing was posted.'));
+
+            return;
+        }
+
+        Http::withoutRedirecting()->post($this->webhookUrl, $this->message)->throw();
     }
 }

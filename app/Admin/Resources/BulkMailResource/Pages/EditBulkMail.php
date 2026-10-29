@@ -49,7 +49,7 @@ class EditBulkMail extends EditRecord
                     try {
                         $count = app(BulkMailer::class)->start($record->refresh(), auth('staff')->user());
                     } catch (DisplayException $e) {
-                        Notification::make()->title($e->getMessage())->danger()->send();
+                        Notification::make()->title(e($e->getMessage()))->danger()->send();
 
                         return;
                     }

@@ -92,7 +92,7 @@ class ViewDomain extends ViewRecord
                 $do();
                 Notification::make()->success()->title($done)->send();
             } catch (Throwable $e) {
-                Notification::make()->danger()->title(__('domains.owner_change.title'))->body($e->getMessage())->send();
+                Notification::make()->danger()->title(__('domains.owner_change.title'))->body(e($e->getMessage()))->send();
             }
         };
 
@@ -297,9 +297,9 @@ class ViewDomain extends ViewRecord
                             if (array_key_exists('nameservers', $data) && !app(DomainManagementService::class)->isManageable($record->refresh())) {
                                 $corrections->setNameserversByHand($record, preg_split('/\R/', (string) $data['nameservers']) ?: [], $staff);
                             }
-                            Notification::make()->success()->title(__('Corrected.'))->body($said)->send();
+                            Notification::make()->success()->title(__('Corrected.'))->body(e($said))->send();
                         } catch (DisplayException $e) {
-                            Notification::make()->danger()->title(__('Not corrected'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Not corrected'))->body(e($e->getMessage()))->send();
                         }
                         $this->redirect(DomainResource::getUrl('view', ['record' => $record->refresh()]));
                     }),
@@ -325,14 +325,14 @@ class ViewDomain extends ViewRecord
                         try {
                             $result = app(MoveToClient::class)->domain($record, $to, $staff);
                         } catch (DisplayException $e) {
-                            Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
+                            Notification::make()->title('Not moved')->body(e($e->getMessage()))->danger()->send();
                             $action->halt();
 
                             return;
                         }
                         $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
                             . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
-                        Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
+                        Notification::make()->title('Moved to ' . e($to->name))->body($told !== '' ? e($told) : null)->success()->send();
                         $this->redirect(static::getResource()::getUrl('view', ['record' => $record]));
                     }),
                 // All its history: staff's changes, the customer's, the sync's (owner 2026-10-23, as the service's).
@@ -589,7 +589,7 @@ class ViewDomain extends ViewRecord
                             Notification::make()->success()->title(__('domains.owner_change.requested'))
                                 ->body(__($change->free ? 'domains.owner_change.requested_now' : 'domains.owner_change.requested_invoice'))->send();
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('domains.owner_change.title'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('domains.owner_change.title'))->body(e($e->getMessage()))->send();
                         }
                     }),
                 ...self::ownerChangeActions(),
@@ -602,9 +602,9 @@ class ViewDomain extends ViewRecord
                     ->action(function (Domain $record) {
                         try {
                             $said = app(DomainManagementService::class)->recall($record, self::staff());
-                            Notification::make()->success()->title(__('Recalled'))->body($said)->send();
+                            Notification::make()->success()->title(__('Recalled'))->body(e($said))->send();
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('Not recalled'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Not recalled'))->body(e($e->getMessage()))->send();
                         }
                     }),
                 // The .gr registry never gives the code: it emails the registrant a reset link (DACoR, G4b of grepp).
@@ -616,9 +616,9 @@ class ViewDomain extends ViewRecord
                     ->action(function (Domain $record) {
                         try {
                             $said = app(DomainManagementService::class)->emailAuthCode($record, self::staff());
-                            Notification::make()->success()->title(__('Sent'))->body($said)->send();
+                            Notification::make()->success()->title(__('Sent'))->body(e($said))->send();
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('Not sent'))->body($e->getMessage())->send();
+                            Notification::make()->danger()->title(__('Not sent'))->body(e($e->getMessage()))->send();
                         }
                     }),
                 Action::make('eppCode')->label(__('Get EPP code'))->icon('heroicon-o-key')
@@ -669,7 +669,7 @@ class ViewDomain extends ViewRecord
                         try {
                             $outcome = app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true);
                         } catch (DisplayException $e) {
-                            Notification::make()->danger()->title($e->getMessage())->send();
+                            Notification::make()->danger()->title(e($e->getMessage()))->send();
 
                             return;
                         }

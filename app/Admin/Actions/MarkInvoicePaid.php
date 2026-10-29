@@ -89,7 +89,7 @@ class MarkInvoicePaid
                         upToRemaining: true,
                     );
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Payment not recorded'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Payment not recorded'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

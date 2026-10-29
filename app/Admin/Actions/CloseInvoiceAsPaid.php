@@ -52,7 +52,7 @@ class CloseInvoiceAsPaid
                 try {
                     $closed = (new RecordPaymentService)->settle($record);
                 } catch (DisplayException $e) {
-                    Notification::make()->danger()->title(__('Invoice not closed'))->body($e->getMessage())->send();
+                    Notification::make()->danger()->title(__('Invoice not closed'))->body(e($e->getMessage()))->send();
 
                     throw new Halt;
                 }

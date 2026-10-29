@@ -297,8 +297,8 @@ class ServiceOrderDeleteReviewTest extends TestCase
         $plain = $this->renewal($service);
         $withMoney = $this->renewal($service);
         ExtensionHelper::addPayment($withMoney->id, 'Stripe', 4.00, null, 'pi_d1', currency: 'usd');
-        Http::fake(['https://discord.test/*' => Http::response([])]);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Invoice Updated'], 'ping_type' => 'none']))->boot();
+        Http::fake(['https://discord.com/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['Invoice Updated'], 'ping_type' => 'none']))->boot();
 
         try {
             (new DeleteService)->handle($service->fresh());
@@ -307,7 +307,7 @@ class ServiceOrderDeleteReviewTest extends TestCase
         }
 
         $this->assertSame(Invoice::STATUS_UNPAID, $plain->fresh()->status);
-        $announced = Http::recorded()->filter(fn ($pair) => str_contains($pair[0]->url(), 'discord.test'))
+        $announced = Http::recorded()->filter(fn ($pair) => str_contains($pair[0]->url(), 'discord.com/api/webhooks'))
             ->map(fn ($pair) => collect($pair[0]['embeds'][0]['fields'])->pluck('value')->implode(', '));
         $this->assertEmpty($announced->filter(fn ($fields) => str_contains($fields, 'cancelled'))->all(), 'Discord announced a cancellation the dry run rolled back');
     }

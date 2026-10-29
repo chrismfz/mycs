@@ -95,7 +95,7 @@ class AddressesRelationManager extends RelationManager
                         try {
                             $result = $this->pool()->add((string) $data['lines']);
                         } catch (InvalidArgumentException $e) {
-                            Notification::make()->danger()->title('Nothing added')->body($e->getMessage())->send();
+                            Notification::make()->danger()->title('Nothing added')->body(e($e->getMessage()))->send();
                             $action->halt();
 
                             return;
@@ -190,7 +190,7 @@ class AddressesRelationManager extends RelationManager
         try {
             $change();
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title('Not done')->body($e->getMessage())->send();
+            Notification::make()->danger()->title('Not done')->body(e($e->getMessage()))->send();
 
             return;
         }

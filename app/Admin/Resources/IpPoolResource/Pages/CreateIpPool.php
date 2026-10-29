@@ -30,7 +30,7 @@ class CreateIpPool extends CreateRecord
         try {
             $result = $pool->add($pool->network);
         } catch (InvalidArgumentException $e) {
-            Notification::make()->warning()->title('Pool saved, no addresses added')->body($e->getMessage())->send();
+            Notification::make()->warning()->title('Pool saved, no addresses added')->body(e($e->getMessage()))->send();
 
             return;
         }

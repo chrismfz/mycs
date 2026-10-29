@@ -131,7 +131,7 @@ class TicketQuarantineResource extends Resource
             $action();
             Notification::make()->success()->title($done)->send();
         } catch (InvalidArgumentException $e) {
-            Notification::make()->warning()->title($e->getMessage())->send();
+            Notification::make()->warning()->title(e($e->getMessage()))->send();
         }
     }
 

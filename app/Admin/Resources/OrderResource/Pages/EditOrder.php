@@ -51,7 +51,7 @@ class EditOrder extends EditRecord
                         if (!$e instanceof DisplayException) {
                             report($e);
                         }
-                        Notification::make()->danger()->title('The order was not accepted')->body($e->getMessage())->send();
+                        Notification::make()->danger()->title('The order was not accepted')->body(e($e->getMessage()))->send();
 
                         return;
                     }
@@ -111,12 +111,12 @@ class EditOrder extends EditRecord
                     $left = CancelOrder::handle($record, (bool) ($data['terminate'] ?? false), $refund ? $data['method'] : null, $fraud);
                 } catch (Throwable $e) {
                     report($e);
-                    Notification::make()->danger()->title('The order was not cancelled')->body($e->getMessage())->send();
+                    Notification::make()->danger()->title('The order was not cancelled')->body(e($e->getMessage()))->send();
 
                     return;
                 }
                 foreach ($left as $notice) {
-                    Notification::make()->warning()->title('Left for staff')->body($notice->getMessage())->persistent()->send();
+                    Notification::make()->warning()->title('Left for staff')->body(e($notice->getMessage()))->persistent()->send();
                 }
                 Notification::make()->success()->title($fraud ? 'Order set as fraud' : 'Order cancelled')->send();
                 $this->refreshFormData(['status']);

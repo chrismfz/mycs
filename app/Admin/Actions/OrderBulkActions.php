@@ -57,7 +57,7 @@ final class OrderBulkActions
                         throw new DisplayException('It has a payment or a running service: cancel it from its page (refund, terminate).');
                     }
                     foreach (CancelOrder::handle($order, false, null, false) as $notice) {
-                        Notification::make()->warning()->title("Order #{$order->id}: left for staff")->body($notice->getMessage())->persistent()->send();
+                        Notification::make()->warning()->title("Order #{$order->id}: left for staff")->body(e($notice->getMessage()))->persistent()->send();
                     }
                 });
             });
@@ -80,7 +80,7 @@ final class OrderBulkActions
                 if (!$e instanceof DisplayException) {
                     report($e);
                 }
-                Notification::make()->danger()->title("Order #{$order->id} not {$done}")->body($e->getMessage())->send();
+                Notification::make()->danger()->title("Order #{$order->id} not {$done}")->body(e($e->getMessage()))->send();
             }
         }
         if ($ok > 0) {

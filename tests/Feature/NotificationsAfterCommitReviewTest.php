@@ -93,8 +93,8 @@ class NotificationsAfterCommitReviewTest extends TestCase
     public function test_r1_discord_announces_an_admin_made_invoice_with_its_total(): void
     {
         MailFacade::fake();
-        Http::fake(['https://discord.test/*' => Http::response([])]);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Invoice Created'], 'ping_type' => 'none']))->boot();
+        Http::fake(['https://discord.com/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['Invoice Created'], 'ping_type' => 'none']))->boot();
 
         // As the PlaceOrderService and the admin CreateInvoice page: invoice saved, then its lines, in
         // the page's transaction (fixed: $hasDatabaseTransactions).
@@ -103,7 +103,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
             $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         });
 
-        $posted = Http::recorded()->filter(fn ($pair) => str_contains($pair[0]->url(), 'discord.test'))
+        $posted = Http::recorded()->filter(fn ($pair) => str_contains($pair[0]->url(), 'discord.com/api/webhooks'))
             ->map(fn ($pair) => collect($pair[0]['embeds'][0]['fields'])->pluck('value')->implode(', '))->implode(' | ');
         $this->assertStringContainsString('10', $posted, "Discord announced the invoice before its lines: {$posted}");
     }
@@ -186,12 +186,12 @@ class NotificationsAfterCommitReviewTest extends TestCase
     /** Check (passes): the Discord closure job serializes (no $this captured) and posts on a real (sync) queue. */
     public function test_check_discord_job_serializes_and_posts(): void
     {
-        Http::fake(['https://discord.test/*' => Http::response([])]);
-        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['User Created'], 'ping_type' => 'none']))->boot();
+        Http::fake(['https://discord.com/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.com/api/webhooks/1/test', 'events' => ['User Created'], 'ping_type' => 'none']))->boot();
 
         DB::transaction(fn () => User::factory()->create(['first_name' => 'Ada']));
 
-        Http::assertSent(fn ($request) => str_contains($request->url(), 'discord.test') && str_contains(json_encode($request->data()), 'Ada'));
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'discord.com/api/webhooks') && str_contains(json_encode($request->data()), 'Ada'));
         $job = CallQueuedClosure::create(fn () => 1);
         $this->assertIsString(serialize($job));
     }

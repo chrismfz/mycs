@@ -109,7 +109,7 @@ class ModuleActionResource extends Resource
                             $done = RetryModuleAction::run($record);
                         } catch (Throwable $e) {
                             report($e);
-                            Notification::make()->danger()->title('The server refused it again')->body($e->getMessage())->send();
+                            Notification::make()->danger()->title('The server refused it again')->body(e($e->getMessage()))->send();
 
                             return;
                         }
@@ -135,7 +135,7 @@ class ModuleActionResource extends Resource
                             DomainOrderFulfilment::WAITING => Notification::make()->warning()->title('Not paid')->body('Its invoice is not paid (or its line is gone): nothing sent.')->send(),
                             DomainOrderFulfilment::DONE => Notification::make()->warning()->title('Nothing to send')->body('Already sent, on hold, or no longer pending (cancelled): close this action.')->send(),
                             DomainOrderFulfilment::BUSY => Notification::make()->warning()->title('Busy')->body('Another change to this domain is under way: try again in a minute.')->send(),
-                            default => Notification::make()->danger()->title('Not sent')->body((string) $record->last_error)->send(),
+                            default => Notification::make()->danger()->title('Not sent')->body(e((string) $record->last_error))->send(),
                         };
                     }),
                 Action::make('notDone')->label('Not done there')->icon('ri-arrow-go-back-line')->color('gray')
@@ -169,7 +169,7 @@ class ModuleActionResource extends Resource
                             DomainRenewalService::WAITING => Notification::make()->warning()->title('Not now')
                                 ->body('Busy, or a charge is still unconfirmed: check the registrar. Do not mark it renewed unless the registrar shows it.')->send(),
                             DomainRenewalService::NOTHING => Notification::make()->warning()->title('Nothing to do')->body('The renewal is no longer a paid one waiting.')->send(),
-                            default => Notification::make()->danger()->title('Not renewed')->body((string) $record->last_error)->send(),
+                            default => Notification::make()->danger()->title('Not renewed')->body(e((string) $record->last_error))->send(),
                         };
                     }),
                 // P1b-2: the domain's contacts sent again to its registrar (each role's handle, with its contact's details now).
@@ -204,7 +204,7 @@ class ModuleActionResource extends Resource
                         try {
                             $record->markResolved(self::staff());
                         } catch (Throwable $e) {
-                            Notification::make()->danger()->title('Not applied')->body($e->getMessage())->send();
+                            Notification::make()->danger()->title('Not applied')->body(e($e->getMessage()))->send();
                         }
                     }),
                 Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (stop it)')
@@ -247,7 +247,7 @@ class ModuleActionResource extends Resource
         try {
             $action();
         } catch (RuntimeException $e) {
-            Notification::make()->warning()->title('Not now')->body($e->getMessage())->send();
+            Notification::make()->warning()->title('Not now')->body(e($e->getMessage()))->send();
         }
     }
 
