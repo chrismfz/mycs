@@ -13,6 +13,7 @@ use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
@@ -20,8 +21,9 @@ use Throwable;
 /**
  * A paid renewal transferred to another registrar instead of renewed at its own (owner 2026-10-21: the WHMCS hook
  * DomainMigration, CNIC → Openprovider, as a setting of any connection: DomainRegistrarConnection::renewTransferTarget).
- * Its transfer adds the year paid for. Called by DomainRenewalService under the domain's lock, after it read the domain
- * at its registrar: active there, the period not covered, one year lacking, no charge unconfirmed.
+ * Its transfer adds one year; more years paid are renewed at the target once it is there (DomainSyncService::
+ * renewAfterTransfer, never more than the registry lacks). Called by DomainRenewalService under the domain's lock, after
+ * it read the domain at its registrar: active there, the period not covered, nothing charged for it, no charge unconfirmed.
  *
  * As the hook (its log 2026-02 … 10: 189 sent, 26 refused by the target): unlocked, its EPP code read (never stored), the
  * transfer asked of the target with the nameservers it has. Unlike the hook, the domain moves to the target only once the
@@ -145,6 +147,12 @@ class RenewAsTransfer
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
             $meta['renew_transfer']['sent_at'] = now()->toIso8601String();
+            // Paid for more years than its transfer adds: its «renewed» once they are there (ADV-537-3 of #537).
+            // Its years as the renewal counts them (DomainRenewalService::periodYears), never another rule.
+            if ($line->period_start !== null && $line->period_end !== null
+                && (int) round(Carbon::parse($line->period_start)->diffInYears(Carbon::parse($line->period_end))) > 1) {
+                $meta['renew_transfer']['tell_later'] = true;
+            }
             unset($meta['transfer_failed']);
             $fresh->forceFill(['registrar_connection_id' => $to->id, 'status' => DomainStatus::PendingTransfer, 'meta' => $meta,
                 'registrar_domain_id' => $result->registrarDomainId ?? $fresh->registrar_domain_id])->save();

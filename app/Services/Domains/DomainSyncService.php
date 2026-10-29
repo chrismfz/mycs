@@ -462,6 +462,11 @@ class DomainSyncService
         $line = InvoiceItem::query()->with('invoice')->find($record['line'] ?? null);
         // The year there (by its transfer, late, or renewed by hand after staff were told): settled (R2-3 of #304).
         if ($line === null || !self::renewalTransferShort($domain, $record)) {
+            // Its years there without a purchase (the transfer added them, or the target caught up): told now, if its years
+            // were more than a transfer adds (ADV-537-3 of #537).
+            if ($line !== null && !empty($record['tell_later']) && $line->invoice?->status === Invoice::STATUS_PAID) {
+                DomainRenewalService::tellRenewedAfterTransfer($domain, Carbon::parse($line->period_end));
+            }
             $this->settleRenewTransfer($domain, 'covered');
 
             return;
@@ -484,7 +489,7 @@ class DomainSyncService
             $registry === null => 'its registry (RDAP) could not confirm the year is missing',
             default => null,
         };
-        DB::transaction(function () use ($domain, $line, $why) {
+        DB::transaction(function () use ($domain, $line, $why, $registry) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id); // the domain first (D5b-1 lock order)
             $locked = InvoiceItem::query()->with('invoice')->lockForUpdate()->find($line->id);
             $meta = $fresh->meta ?? [];
@@ -508,6 +513,8 @@ class DomainSyncService
                 return;
             }
             $meta['renew_transfer']['reopened_at'] = now()->toIso8601String();
+            // What the registry itself showed: the years bought at the target are never more than it lacks (R537-1).
+            $meta['renew_transfer']['registry_expiry'] = $registry->toDateString();
             $fresh->forceFill(['meta' => $meta])->save();
             $locked->forceFill(['applied_at' => null])->save();
         });
