@@ -160,7 +160,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       backup του λογαριασμού είναι του JetBackup (το backup του cPanel κλειστό στον rigel): αργότερα από το JetBackup.
 - [x] ~~Resend welcome email, generator κωδικού, κωδικός που ορίστηκε αλλού~~ **έγινε (feat/resend-welcome, υπεύθυνος
       2026-10-29):** στη σελίδα της υπηρεσίας «Resend welcome email» (ο κωδικός που είναι αποθηκευμένος τώρα, στον κάτοχο,
-      3/ώρα, audit), «Generate» και «και στείλε το welcome email» στο «Change password on server», «Save a password set
+      3 σε κάθε 60 λεπτά, μόνο το email, audit), «Generate» και «και στείλε το welcome email» στο «Change password on server», «Save a password set
       elsewhere» χωρίς κλήση στον server· «Δημιουργία ισχυρού κωδικού» και για τον πελάτη (`provisioning.md`, «Κωδικός
       υπηρεσίας και welcome email»). cPanel, mailcow, Centova αλλάζουν στον server· Proxmox όχι ακόμα (PR 6 του
       `proxmox.md`).

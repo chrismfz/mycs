@@ -5,11 +5,13 @@ namespace Tests\Feature;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
+use App\Helpers\NotificationHelper;
 use App\Livewire\Services\Show;
 use App\Mail\Mail as MyCSMail;
 use App\Models\Audit;
 use App\Models\EmailLog;
 use App\Models\License;
+use App\Models\Notification;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
@@ -66,7 +68,6 @@ class ResendWelcomeTest extends TestCase
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampl']);
         Http::fake(fn (Request $request) => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/passwd')
             ? Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]) : Http::response([], 404));
-        RateLimiter::clear(WelcomeMail::limiterKey($this->service));
         RateLimiter::clear('service-password:' . $this->service->id);
     }
 
@@ -171,6 +172,72 @@ class ResendWelcomeTest extends TestCase
 
         [$mail] = $this->welcomes();
         $this->assertStringContainsString('ZCAgent-0123456789abcdef', $mail->renderedHtml);
+    }
+
+    public function test_the_audit_names_this_services_mail_not_another_ones(): void
+    {
+        // Another service of the same account mailed at the same moment (code review of #533).
+        $other = $this->service->replicate()->fill(['domain' => 'other.test']);
+        $other->save();
+        Service::created(fn () => null);
+        NotificationHelper::serverCreatedNotification($other->client, $other);
+        $staff = $this->staff();
+
+        $log = WelcomeMail::resend($this->service, $staff);
+
+        $this->assertSame($this->service->id, (int) $log->related_id);
+        $this->assertSame($log->id, $this->events('welcome_resent')->sole()->new_values['email_log_id']);
+    }
+
+    public function test_send_is_disabled_when_it_would_be_refused(): void
+    {
+        $this->service->forceFill(['password' => null])->save();
+
+        $page = $this->page()->mountAction('resendWelcome');
+        $this->assertTrue((bool) $page->instance()->getMountedAction()?->getModalSubmitAction()?->isDisabled());
+        $page->callMountedAction();
+        $this->assertSame([], $this->welcomes());
+    }
+
+    public function test_a_password_without_a_username_is_in_the_welcome(): void
+    {
+        // A VPS's root password, a product with no module (ADV-533-1).
+        $this->service->forceFill(['username' => null, 'password' => 'Vps-Root-Pass-77'])->save();
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        $this->assertStringContainsString('Vps-Root-Pass-77', $mail->renderedHtml);
+        $this->assertStringNotContainsString('Vps-Root-Pass-77', (string) EmailLog::query()->sole()->body);
+    }
+
+    public function test_the_migration_updates_a_seeded_welcome_and_leaves_an_edited_one(): void
+    {
+        $migration = include base_path('database/migrations/2027_01_23_000000_welcome_mail_password_without_username.php');
+        $template = fn () => \DB::table('notification_templates')->where('key', WelcomeMail::TEMPLATE)->first();
+        $seeded = $template();
+
+        $migration->down(); // as an install seeded before this change
+        $this->assertStringNotContainsString('{% else %}', $template()->body);
+        $this->assertStringNotContainsString('{% else %}', json_decode($template()->translations, true)['el']['body']);
+        $migration->up();
+        $this->assertSame($seeded->body, $template()->body);
+        $this->assertSame(json_decode($seeded->translations, true), json_decode($template()->translations, true));
+        $migration->up(); // twice: no change
+        $this->assertSame($seeded->body, $template()->body);
+
+        $edited = 'Hello {{ service.username }} {{ service_password }}';
+        \DB::table('notification_templates')->where('key', WelcomeMail::TEMPLATE)->update(['body' => $edited]);
+        $migration->up();
+        $this->assertSame($edited, $template()->body);
+    }
+
+    public function test_a_resend_is_the_mail_only(): void
+    {
+        $this->page()->callAction('resendWelcome');
+
+        $this->assertCount(1, $this->welcomes());
+        $this->assertSame(0, Notification::query()->where('user_id', $this->owner->id)->count());
     }
 
     public function test_it_is_limited_per_hour(): void
@@ -294,6 +361,10 @@ class ResendWelcomeTest extends TestCase
         $this->assertSame($generated, $page->get('newPassword'));
         $this->assertSame($generated, $page->get('newPasswordConfirmation'));
         $page->assertSee($generated);
+
+        // Typed over: the box no longer shows a password that would not be set (code review of #533).
+        $page->set('newPassword', 'Typed-0ver-pass')->assertDontSee($generated)
+            ->set('newPassword', $generated);
 
         $page->call('changeServicePassword');
         $this->assertSame($generated, $this->service->fresh()->password);

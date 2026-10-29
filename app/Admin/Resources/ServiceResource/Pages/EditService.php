@@ -190,7 +190,17 @@ class EditService extends EditRecord
     {
         return Checkbox::make('sendWelcome')->label(__('Then send the welcome email with the new password'))->default(false)
             ->visible(fn (Service $record) => in_array($record->status, WelcomeMail::STATUSES, true))
-            ->helperText(fn (Service $record) => __('To the account\'s owner (:email).', ['email' => WelcomeMail::recipient($record) ?? '—']));
+            // The reason it would not go, before staff count on it (a stored password lifts «no password» once saved).
+            ->helperText(fn (Service $record) => self::welcomeBlocker($record)
+                ?? __('To the account\'s owner (:email).', ['email' => WelcomeMail::recipient($record) ?? '—']));
+    }
+
+    /** A refusal that a new password does not lift (not «no password»: the action stores one). */
+    private static function welcomeBlocker(Service $record): ?string
+    {
+        $probe = (clone $record)->forceFill(['password' => 'x']);
+
+        return WelcomeMail::refusal($probe);
     }
 
     /** Who stored a password and how (the attribute's own audit shows only that it changed, never its value). */
@@ -201,13 +211,16 @@ class EditService extends EditRecord
         $record->auditCustomOld = [];
         $record->auditCustomNew = ['staff_id' => Auth::guard('staff')->id()];
         event(new AuditCustom($record));
+        $record->isCustomEvent = false; // a later save of this instance audits as usual (password redacted)
+        $record->auditCustomNew = [];
     }
 
     /** The form shows the password stored now, and a save diffs against it (not the old one). */
     private function passwordStored(): void
     {
+        $attributes = $this->getRecord()->refresh()->getAttributes();
         $this->refreshFormData(['password']);
-        if (array_key_exists('password', $attributes = $this->getRecord()->refresh()->getAttributes())) {
+        if (array_key_exists('password', $attributes)) {
             $this->filledAttributes['password'] = $attributes['password'];
         }
     }
@@ -223,7 +236,7 @@ class EditService extends EditRecord
 
             return;
         }
-        Notification::make()->title(__('Welcome email sent'))->body(__('To :email.', ['email' => $log->to]))->success()->send();
+        Notification::make()->title(__('Welcome email sent'))->body(__('Queued for :email.', ['email' => $log->to]))->success()->send();
     }
 
     protected function getHeaderActions(): array
@@ -406,6 +419,7 @@ class EditService extends EditRecord
                     ->modalDescription(fn (Service $record) => WelcomeMail::refusal($record)
                         ?? __('The welcome email goes again to the account\'s owner (:email), with the login details and the password stored on the service now.', ['email' => WelcomeMail::recipient($record)]))
                     ->modalSubmitActionLabel(__('Send'))
+                    ->modalSubmitAction(fn (Action $submit, Service $record) => $submit->disabled(WelcomeMail::refusal($record) !== null))
                     ->action(fn (Service $record) => $this->resendWelcome($record)),
 
                 // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared

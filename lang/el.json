@@ -1533,7 +1533,6 @@
     "To the account's owner (:email).": "Στον κάτοχο του λογαριασμού (:email).",
     "Welcome email not sent": "Το welcome email δεν στάλθηκε",
     "Welcome email sent": "Το welcome email στάλθηκε",
-    "To :email.": "Προς :email.",
     "Stored here only: saving the form changes nothing on the server. «More» has «Change password on server» and «Resend welcome email».": "Αποθηκεύεται μόνο εδώ: η αποθήκευση της φόρμας δεν αλλάζει τίποτα στον server. Στο «More» είναι η «Αλλαγή κωδικού στον server» και η «Επαναποστολή welcome email».",
     "Only an active service gets its welcome email again.": "Το welcome email ξαναστέλνεται μόνο σε ενεργή υπηρεσία.",
     "The account has no owner to send it to.": "Ο λογαριασμός δεν έχει κάτοχο να το λάβει.",
@@ -1543,5 +1542,7 @@
     "This service has no login details or license to send.": "Η υπηρεσία δεν έχει στοιχεία σύνδεσης ή άδεια για αποστολή.",
     "The service no longer exists.": "Η υπηρεσία δεν υπάρχει πια.",
     "The welcome email was sent :count times in the last hour: try again later.": "Το welcome email στάλθηκε :count φορές την τελευταία ώρα: δοκιμάστε αργότερα.",
-    "The welcome email was not sent: its template could not be rendered (see the error log).": "Το welcome email δεν στάλθηκε: το πρότυπό του δεν αποδόθηκε (δείτε το error log)."
+    "The welcome email was not sent: its template could not be rendered (see the error log).": "Το welcome email δεν στάλθηκε: το πρότυπό του δεν αποδόθηκε (δείτε το error log).",
+    "Queued for :email.": "Στην ουρά αποστολής προς :email.",
+    "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο."
 }

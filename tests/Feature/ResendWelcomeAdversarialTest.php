@@ -65,7 +65,6 @@ class ResendWelcomeAdversarialTest extends TestCase
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampl']);
         Http::fake(fn (Request $request) => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/passwd')
             ? Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]) : Http::response([], 404));
-        RateLimiter::clear(WelcomeMail::limiterKey($this->service));
         RateLimiter::clear('service-password:' . $this->service->id);
     }
 
