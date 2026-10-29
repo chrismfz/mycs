@@ -42,7 +42,7 @@ class DeleteService
             ]));
         }
         $outside = false; // something done outside the database: the server's account, the gateway's subscription
-        if ($terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->provisioningServer() !== null) {
+        if ($terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->hasServerActions()) {
             ExtensionHelper::terminateServer($service); // throws when the server refuses: nothing is deleted
             $outside = true;
         }

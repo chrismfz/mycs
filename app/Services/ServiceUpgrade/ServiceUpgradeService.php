@@ -128,7 +128,7 @@ class ServiceUpgradeService
                     }
                 }));
 
-            if ($service->provisioningServer()) {
+            if ($service->hasServerActions()) {
                 UpgradeJob::dispatch($service);
             }
 

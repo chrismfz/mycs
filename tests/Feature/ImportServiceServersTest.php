@@ -8,6 +8,7 @@ use App\Models\ModuleAction;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Service\DeleteService;
 use Exception;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -192,5 +193,45 @@ class ImportServiceServersTest extends TestCase
         $this->assertSame($servers[1], $hosting->product->fresh()->server_id);
         $this->assertSame($servers[3], $radio->product->fresh()->server_id);
         $this->assertSame('down', DB::table('properties')->where('model_id', 733)->where('key', 'centova_disabled_by_us')->value('value'));
+    }
+
+    /** Review of #530, R1 and R3: no account yet (pending), or none on a server in WHMCS (0): its product's, as before. */
+    public function test_a_pending_account_or_one_on_no_whmcs_server_takes_its_products_server(): void
+    {
+        $productServer = $this->server('CPanel', 1, 'https://orion.test:2087');
+        $product = $this->createProduct();
+        $product->product->update(['server_id' => $productServer->id]);
+        $this->account(741, $product->product->id, 9, 'Pending'); // ordered on a server since deleted: its creation picks one
+        $this->account(742, $product->product->id, 0, 'Active');
+        $this->import();
+
+        foreach ([741, 742] as $id) {
+            $service = Service::query()->find($id);
+            $this->assertFalse($service->serverLeftInWhmcs());
+            $this->assertSame($productServer->id, $service->provisioningServer()?->id, "#{$id}");
+        }
+        $this->assertSame([741, 742], Service::query()->onServers([$productServer->id])->orderBy('id')->pluck('id')->all());
+    }
+
+    /** Review of #530, R2: a delete with terminate is refused, not done without its account (a gate that skipped silently). */
+    public function test_deleting_an_account_left_on_a_whmcs_server_fails_to_staff(): void
+    {
+        $productServer = $this->server('CPanel', 1, 'https://orion.test:2087');
+        $product = $this->createProduct();
+        $product->product->update(['server_id' => $productServer->id]);
+        $this->account(751, $product->product->id, 9, 'Active');
+        $this->import();
+        $service = Service::query()->find(751);
+        $this->assertTrue($service->hasServerActions());
+
+        try {
+            app(DeleteService::class)->handle($service, terminate: true);
+            $this->fail('the delete goes on without its account terminated');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('came from WHMCS without its server', $e->getMessage());
+        }
+        $this->assertNotNull(Service::query()->find(751), 'nothing deleted');
+        $this->assertSame(1, ModuleAction::query()->where('service_id', 751)->count());
+        Http::assertNothingSent();
     }
 }

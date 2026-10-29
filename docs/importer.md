@@ -268,11 +268,15 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 
 **Ο server κάθε λογαριασμού (AUD4-1):** το `tblhosting.server` γίνεται `services.server_id` μέσω του `whmcs_id` των
 servers του καταλόγου (γι' αυτό ο κατάλογος εισάγεται πρώτος). Κρατιέται και όπως ήταν, στο `services.whmcs_server_id`
-(0 = κανένας στο WHMCS). Μια υπηρεσία από το WHMCS χωρίς server εδώ (σβησμένος server, module χωρίς extension, ή 0)
-**δεν** πέφτει στον server του προϊόντος, γιατί εκεί το ίδιο username μπορεί να ανήκει σε άλλον πελάτη. Οποιαδήποτε
-ενέργεια εκτός από create αποτυγχάνει και πάει στο staff (Pending Module Actions, «set its server first»). Το ίδιο
-ισχύει για το sync του cPanel, του mailcow και για τα bulk emails ανά server (`Service::scopeOnServers`). Ο importer
-δείχνει στο τέλος τις ζωντανές υπηρεσίες χωρίς server εδώ. Το staff τους ορίζει server πριν τρέξει οποιοδήποτε cron.
+(0 = κανένας στο WHMCS). Μια υπηρεσία που ο λογαριασμός της είναι σε server του WHMCS που δεν υπάρχει εδώ (σβησμένος
+server, ή module χωρίς extension) **δεν** πέφτει στον server του προϊόντος, γιατί εκεί το ίδιο username μπορεί να ανήκει
+σε άλλον πελάτη (`Service::serverLeftInWhmcs`). Κάθε ενέργειά της εκτός από create αποτυγχάνει και πάει στο staff
+(Pending Module Actions, «set its server first»). Ποτέ δεν παραλείπεται σιωπηλά: ούτε το terminate στη διαγραφή ή στην
+ακύρωση, ούτε το upgrade (`hasServerActions`). Το ίδιο ισχύει για το sync του cPanel, του mailcow και για τα bulk emails
+ανά server (`Service::scopeOnServers`). Δύο περιπτώσεις παίρνουν τον server του προϊόντος, όπως πριν: μια pending
+υπηρεσία, που δεν έχει ακόμη λογαριασμό και τη δημιουργία της τη διαλέγει server, και μια με server 0 στο WHMCS. Ο
+importer δείχνει στο τέλος τις ζωντανές υπηρεσίες χωρίς server εδώ. Το staff τους ορίζει server πριν τρέξει οποιοδήποτε
+cron.
 
 **Suspended σε Centova και mailcow (AUD4-2):** όταν το WHMCS κάνει suspend, το module του απενεργοποιεί τον σταθμό ή
 κλειδώνει τον admin του domain. Τα modules εδώ ξανανοίγουν μόνο ό,τι έκλεισαν τα ίδια, γι' αυτό ο importer βάζει το mark
