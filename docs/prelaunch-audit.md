@@ -120,7 +120,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 |---|---|---|---|---|---|---|
 | 1 | Cron χρέωσης, κύκλος ζωής | 1 (2026-10-29, `main` @ e298c168) | 0 | 0 | — | **έτοιμο** |
 | 2 | Πληρωμές, πιστώσεις, τιμολόγια | 1 (2026-10-29, `main` @ e298c168) | 0 | 1 (AUD2-1, Mollie) | #517 | **έτοιμο** (το AUD2-1 στο #517) |
-| 3 | Auth, δικαιώματα, επιφάνεια | | | | | ανοιχτό |
+| 3 | Auth, δικαιώματα, επιφάνεια | 1 (2026-10-29, `main` @ 147b9496) | 1 (AUD3-1) | 1 (AUD3-2) | #519 | **έτοιμο** (#519, 3 γύροι review) |
 | 4 | Provisioning | | | | | ανοιχτό |
 | 5 | Παραγγελίες, ΦΠΑ, promotions | | | | | ανοιχτό |
 | 6 | Domains | | | | | ανοιχτό |
@@ -162,3 +162,24 @@ receiver), διπλή χρέωση vault (`SavedMethodCharge`, idempotency key),
 - **Cut-over:** το IPN (PayPal Standard) της MyCS καταγράφει πληρωμή με το `item_number` του URL, χωρίς σήμανση ότι
   τη ξεκινήσαμε εμείς. Ασφαλές όσο το IPN URL της MyCS **δεν** μπαίνει ως IPN URL στο προφίλ του λογαριασμού PayPal και
   οι πληρωμές της εποχής WHMCS πάνε στο legacy URL. Έλεγχος της ρύθμισης του PayPal τη μέρα του cut-over.
+
+### Ροή 3: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: IDOR σε όλα τα Livewire του portal, πληρωμές από το portal, SSO, κονσόλα noVNC (ticket 30 s), MCP OAuth
+(PKCE, rotation, consent με 2FA), admin API (allowlist, δικαιώματα του δημιουργού), `PermissionGuard`, login/2FA/
+recovery codes, password reset, social login, invites, impersonation και συνεδρίες staff, uploads, templates (όχι Blade),
+`Redact`, κλειδιά SSL, open redirect.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD3-1 | High | Ένα staff με μόνο «Update Clients» έδινε σε μια δική του σύνδεση πελάτη όλα τα δικαιώματα σε οποιονδήποτε λογαριασμό: SSO στο panel, κονσόλα, διαχείριση υπηρεσιών | **#519:** ένα staff δίνει σε μια σύνδεση μόνο ό,τι καλύπτει ο ρόλος του στο admin (`Actor::staffMayGrant`, `GRANT_PERMISSION_AS`), στην καρτέλα Users και στη σελίδα Users του client area. Τα reviews βρήκαν και το client area (High), τα read/`managedomains` χωρίς δικαίωμα (High, Medium), invoices/SSL keys/ανανεώσεις domains (3 Medium): όλα κλειστά |
+| AUD3-2 | Medium (απόφαση υπευθύνου) | Το custom code του client area τρέχει στο origin του admin· τα trusted proxies αποφασίζουν το IP σε κάθε έλεγχο | **#519:** μόνο full admin (`'*'`)· το `admin.settings.custom_code` καταργήθηκε |
+
+Low, ανοιχτά (δεν διορθώνονται τώρα):
+- Bulk delete των API keys ελέγχει μόνο το `deleteAny`, όχι το ανά key `canGrantAllApi` (διακοπή, όχι κλιμάκωση).
+- System Cleanup σβήνει audits staff/ρόλων/keys χωρίς ελάχιστη ηλικία.
+- `StaffResource`: όποιος έχει `staff.update` αλλάζει το δικό του email/κωδικό χωρίς τον τρέχοντα, και κάνει reset στο δικό του 2FA.
+- `Domains/Show.php:93`: τα emails των επαφών με βάση τον τρέχοντα λογαριασμό (θέλει login με grants σε δύο λογαριασμούς).
+- Τα tickets: μια σύνδεση με `tickets` ανοίγει/απαντά tickets, όπως και το «Login as client»· τίποτα παραπάνω.
+
+**Cut-over:** τα trusted proxies στον orion μόνο το IP του server και `127.0.0.1`. Οι ρόλοι του staff να ξαναδούν τα
+δικαιώματα που δίνουν (τώρα το «δίνω σε μια σύνδεση» ακολουθεί το admin).
