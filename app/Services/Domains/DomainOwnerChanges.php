@@ -5,6 +5,7 @@ namespace App\Services\Domains;
 use App\Contracts\ChangesOwner;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
+use App\Helpers\NotificationHelper;
 use App\Jobs\Domains\SendDomainOwnerChangeJob;
 use App\Models\Client;
 use App\Models\Contact;
@@ -87,6 +88,10 @@ class DomainOwnerChanges
             throw new DisplayException(__('domains.owner_change.other_currency', ['currency' => $domain->currency_code]));
         }
         $moveTo = $moveToHolder && $kind === ChangesOwner::OWNER && (int) $holder->client_id !== (int) $domain->client_id ? (int) $holder->client_id : null;
+        // The move asked with it checked first (AUD6-1): refused here, never a holder changed at the registry and not here.
+        if ($moveTo !== null && ($why = app(MoveToClient::class)->domainRefusal($domain, Client::query()->findOrFail($moveTo))) !== null) {
+            throw new DisplayException(__('domains.owner_change.move_refused', ['why' => $why]));
+        }
 
         $change = DB::transaction(function () use ($domain, $holder, $kind, $staff, $declaration, $declarationName, $sendNow, $price, $currency, $moveTo) {
             $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
@@ -157,6 +162,23 @@ class DomainOwnerChanges
         if (!$change->free && $change->line?->invoice?->status !== Invoice::STATUS_PAID) {
             return $change->status; // paid, then the payment taken off: not sent
         }
+        // The move asked with it checked again before the registry is (AUD6-1: the seller's invoices may have changed since
+        // it was asked): refused, nothing sent, staff told why on the .gr Registry page.
+        if ($change->move_to_client_id !== null && (int) $change->domain->client_id !== (int) $change->move_to_client_id) {
+            $to = Client::query()->find($change->move_to_client_id);
+            $why = match (true) {
+                $change->staff === null => __('domains.owner_change.staff_gone'),
+                // The new holder's account gone (its contact holds it while the change is open; a guard): refused, not an error.
+                $to === null => __('domains.owner_change.account_gone'),
+                default => app(MoveToClient::class)->domainRefusal($change->domain, $to),
+            };
+            if ($why !== null) {
+                $refused = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_DUE)
+                    ->update(['status' => DomainOwnerChange::STATUS_REFUSED, 'result' => __('domains.owner_change.move_refused', ['why' => $why]), 'updated_at' => now()]);
+
+                return $refused === 1 ? DomainOwnerChange::STATUS_REFUSED : (string) DomainOwnerChange::query()->whereKey($change->id)->value('status');
+            }
+        }
         $claimed = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_DUE)
             ->update(['status' => DomainOwnerChange::STATUS_SENDING, 'sent_at' => now(), 'updated_at' => now()]);
         if ($claimed !== 1) {
@@ -215,6 +237,13 @@ class DomainOwnerChanges
             $change->line?->forceFill(['applied_at' => now()])->save();
         });
         $this->end($change, DomainOwnerChange::STATUS_DONE, is_string($moved) ? __('domains.owner_change.not_moved', ['why' => $moved]) : null, done: true);
+        if (is_string($moved)) {
+            // Done at the registry, the domain still on the old account (the move refused since it was checked, e.g. when
+            // the EETT approved it days later): staff told, as the change leaves the .gr Registry page's list (AUD6-1).
+            NotificationHelper::sendSystemEmailNotification('Domain holder changed, domain not moved', e(__('domains.owner_change.not_moved_mail', [
+                'domain' => $domain->fqdn, 'why' => $moved,
+            ])));
+        }
     }
 
     /** Staff: the EETT approved it (seen at the registry). */
