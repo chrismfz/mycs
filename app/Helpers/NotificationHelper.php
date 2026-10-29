@@ -354,6 +354,8 @@ class NotificationHelper
             'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $statement['total'],
             // Unpaid: the bank transfer accounts, line by line, and the reference to write (null without them).
             'bank_transfer' => BankTransferDetails::forTemplate($invoice),
+            // Its preferred payment method's name, for the button («Pay with PayPal»): its page opens with it chosen.
+            'preferred_method' => $invoice->status === Invoice::STATUS_UNPAID ? (string) ($invoice->preferredGateway->name ?? '') : '',
         ];
 
         // Generate the invoice PDF, in the customer's language

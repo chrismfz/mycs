@@ -56,6 +56,35 @@ class Show extends Component
         if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
             $this->showPayModal = false;
         }
+        $this->selectedMethod ??= $this->preferredChoice();
+    }
+
+    /**
+     * Its preferred payment method, chosen to start with (WHMCS's invoice payment method): the account's saved method when
+     * it is on that gateway and may pay, else the gateway when this invoice can use it; else none. The customer may pick
+     * another.
+     */
+    private function preferredChoice(): ?string
+    {
+        $gatewayId = $this->invoice->preferred_gateway_id;
+        if ($gatewayId === null || $this->invoice->status !== Invoice::STATUS_UNPAID) {
+            return null;
+        }
+        $default = $this->accountAgreements()->whereKey($this->invoice->client->default_billing_agreement_id ?? 0)->where('gateway_id', $gatewayId)->first();
+        if ($default !== null && in_array($gatewayId, array_column($this->paymentMethods(), 'id'))) {
+            return $default->ulid;
+        }
+
+        return in_array($gatewayId, array_column($this->gateways(), 'id')) ? 'gateway-' . $gatewayId : null;
+    }
+
+    /** The way the customer chose to pay, kept as its preferred one (as WHMCS keeps the one picked on the invoice). */
+    private function remember(int $gatewayId): void
+    {
+        if ((int) $this->invoice->preferred_gateway_id !== $gatewayId) {
+            Invoice::query()->whereKey($this->invoice->id)->update(['preferred_gateway_id' => $gatewayId]);
+            $this->invoice->preferred_gateway_id = $gatewayId;
+        }
     }
 
     #[Computed]
@@ -153,6 +182,7 @@ class Show extends Component
             return $this->notify(__('Invalid payment method.'), 'error');
         }
 
+        $this->remember((int) $methodId);
         $this->pay = ExtensionHelper::pay(Gateway::where('id', $methodId)->first(), $this->invoice);
 
         if (is_string($this->pay)) {
@@ -184,6 +214,7 @@ class Show extends Component
         if ($agreement->gateway === null || !in_array($agreement->gateway->id, array_column($this->paymentMethods, 'id'))) {
             return $this->notify(__('This payment method cannot be used for this invoice.'), 'error');
         }
+        $this->remember((int) $agreement->gateway->id);
 
         // The account's method for its renewals (decision 6), set by a login that may pay its invoices: one that can pay.
         if ($this->setAsDefault && $this->recurringServices()->exists()) {

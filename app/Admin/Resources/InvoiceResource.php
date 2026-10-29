@@ -266,6 +266,13 @@ class InvoiceResource extends Resource
                                     ->required()
                                     ->relationship('currency', 'code')
                                     ->placeholder('Select the currency'),
+                                // As WHMCS's invoice payment method: its page opens with it, its email names it; the customer
+                                // may still pay another way. Empty: the account's own (set when the invoice is made).
+                                Select::make('preferred_gateway_id')
+                                    ->label('Preferred payment method')
+                                    ->relationship('preferredGateway', 'name')
+                                    ->placeholder('None: every method offered')
+                                    ->helperText('Chosen first on its payment page and named on its email\'s button; the customer may pay another way.'),
                                 Toggle::make('send_email')
                                     ->label('Send Email')
                                     ->hiddenOn('edit')

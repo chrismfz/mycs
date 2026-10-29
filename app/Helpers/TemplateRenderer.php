@@ -337,6 +337,8 @@ class TemplateRenderer
             'security' => route('account.security'),
             'payment_methods' => route('account.payment-methods'),
             'invoice' => $invoice instanceof Invoice ? route('invoices.show', $invoice) : null,
+            // Its page with the payment window open (its preferred method chosen there).
+            'pay' => $invoice instanceof Invoice ? route('invoices.show', ['invoice' => $invoice, 'pay' => 1]) : null,
             'service' => $service instanceof Service ? route('services.show', $service) : null,
             'domain' => ($data['domain'] ?? null) instanceof Domain ? route('domains.show', $data['domain']) : null,
             'ticket' => $ticketMessage instanceof TicketMessage ? route('tickets.show', $ticketMessage->ticket_id) : null,

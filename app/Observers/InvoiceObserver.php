@@ -38,6 +38,8 @@ class InvoiceObserver
         if ($invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('An invoice is created unpaid: it becomes paid when its payment is recorded.'));
         }
+        // Its preferred payment method, as WHMCS's default gateway; one given (a checkout's gateway, staff) stays.
+        $invoice->preferred_gateway_id ??= Invoice::preferredGatewayFor($invoice->client_id);
         event(new InvoiceEvent\Creating($invoice));
     }
 

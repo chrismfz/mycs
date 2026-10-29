@@ -192,7 +192,7 @@ class Invoice extends Model implements Auditable
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
     public const OPEN_STATUSES = [self::STATUS_UNPAID, self::STATUS_DRAFT];
 
-    protected $fillable = ['number', 'client_id', 'currency_code', 'due_at', 'status', 'cancellation_reason'];
+    protected $fillable = ['number', 'client_id', 'currency_code', 'due_at', 'status', 'cancellation_reason', 'preferred_gateway_id'];
 
     protected $casts = [
         'due_at' => 'date',
@@ -609,6 +609,34 @@ class Invoice extends Model implements Auditable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /** @return BelongsTo<Gateway, $this> its preferred payment method (WHMCS's paymentmethod): chosen on its page, named in its email */
+    public function preferredGateway(): BelongsTo
+    {
+        return $this->belongsTo(Gateway::class, 'preferred_gateway_id');
+    }
+
+    /**
+     * A new invoice's preferred payment method, as WHMCS's default gateway: its account's saved method's gateway, else the
+     * gateway it last paid with, else none (every method offered as before).
+     */
+    public static function preferredGatewayFor(?int $clientId): ?int
+    {
+        if ($clientId === null) {
+            return null;
+        }
+        $default = DB::table('clients')->join('billing_agreements', 'billing_agreements.id', '=', 'clients.default_billing_agreement_id')
+            ->where('clients.id', $clientId)->whereNull('billing_agreements.deleted_at')->value('billing_agreements.gateway_id');
+        if ($default !== null) {
+            return (int) $default;
+        }
+        $last = DB::table('invoice_transactions')->join('invoices', 'invoices.id', '=', 'invoice_transactions.invoice_id')
+            ->where('invoices.client_id', $clientId)->where('invoice_transactions.status', InvoiceTransactionStatus::Succeeded->value)
+            ->whereNotNull('invoice_transactions.gateway_id')->where('invoice_transactions.is_credit_transaction', false)
+            ->orderByDesc('invoice_transactions.id')->value('invoice_transactions.gateway_id');
+
+        return $last !== null ? (int) $last : null;
     }
 
     /** @return HasMany<InvoiceItem, $this> */
