@@ -10,6 +10,7 @@ use App\Models\ClientInvite;
 use App\Models\ClientUser;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Actor;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
@@ -53,21 +54,49 @@ class UsersRelationManager extends RelationManager
         return $staff instanceof Staff ? $staff : null;
     }
 
-    /** @return array<string, string> */
-    private static function permissionOptions(): array
+    /**
+     * The permissions staff may tick: the ones they could use in «Login as client», and the ones the login has already
+     * (kept, never added past the role: AUD3-1).
+     *
+     * @return array<string, string>
+     */
+    private static function permissionOptions(?ClientUser $grant = null): array
     {
-        return collect(ClientUser::PERMISSIONS)->mapWithKeys(fn (string $name) => [$name => __('account.permission.' . $name)])->all();
+        $had = $grant->permissions ?? [];
+
+        return collect(ClientUser::PERMISSIONS)
+            ->filter(fn (string $name) => in_array($name, $had, true) || Actor::staffMayGrant(self::staff(), [$name]))
+            ->mapWithKeys(fn (string $name) => [$name => __('account.permission.' . $name)])->all();
     }
 
     /** @return array<int, mixed> */
     private static function permissionFields(?ClientUser $grant = null): array
     {
+        $all = Actor::staffMayGrant(self::staff(), null, $grant->permissions ?? []);
+
         return [
-            Toggle::make('all')->label(__('account.all_permissions'))->default($grant === null || $grant->permissions === null)->live(),
-            CheckboxList::make('permissions')->label(__('account.permissions'))->options(self::permissionOptions())
+            Toggle::make('all')->label(__('account.all_permissions'))->default($all && ($grant === null || $grant->permissions === null))
+                ->visible($all)->live(),
+            CheckboxList::make('permissions')->label(__('account.permissions'))->options(self::permissionOptions($grant))
                 ->default($grant->permissions ?? [])->columns(2)
                 ->hidden(fn (Get $get) => (bool) $get('all')),
         ];
+    }
+
+    /**
+     * Refused, and staff told, when the permissions go past what their role could use as the customer (AUD3-1).
+     *
+     * @param  list<string>|null  $permissions
+     * @param  list<string>|null  $had
+     */
+    private static function refusedPastTheRole(?array $permissions, ?array $had = []): bool
+    {
+        if (Actor::staffMayGrant(self::staff(), $permissions, $had)) {
+            return false;
+        }
+        Notification::make()->danger()->title(__('account.grant_past_role'))->send();
+
+        return true;
     }
 
     /**
@@ -119,6 +148,9 @@ class UsersRelationManager extends RelationManager
                         ...self::permissionFields(),
                     ])
                     ->action(function (array $data) use ($client) {
+                        if (self::refusedPastTheRole(self::chosen($data))) {
+                            return;
+                        }
                         $client->grantTo(User::query()->findOrFail($data['user_id']), self::chosen($data), self::staff());
                         Notification::make()->success()->title(__('account.permissions_saved'))->send();
                     }),
@@ -129,6 +161,9 @@ class UsersRelationManager extends RelationManager
                         ...self::permissionFields(),
                     ])
                     ->action(function (array $data) use ($client) {
+                        if (self::refusedPastTheRole(self::chosen($data))) {
+                            return;
+                        }
                         [$invite, $token] = ClientInvite::issue($client, $data['email'], self::chosen($data), self::staff());
                         NotificationHelper::clientInviteNotification($invite, $token);
                         Notification::make()->success()->title(__('account.invite_sent'))->send();
@@ -139,13 +174,22 @@ class UsersRelationManager extends RelationManager
                     ->visible(fn (ClientUser $record) => self::canManage() && !$record->owner && $record->revoked_at === null)
                     ->schema(fn (ClientUser $record) => self::permissionFields($record))
                     ->action(function (ClientUser $record, array $data) use ($client) {
+                        if (self::refusedPastTheRole(self::chosen($data), $record->permissions)) {
+                            return;
+                        }
                         $client->grantTo($record->user, self::chosen($data), self::staff());
                         Notification::make()->success()->title(__('account.permissions_saved'))->send();
                     }),
                 Action::make('owner')->label(__('Make owner'))->icon('heroicon-o-star')->requiresConfirmation()
                     ->modalDescription(__('The current owner keeps access with all permissions.'))
-                    ->visible(fn (ClientUser $record) => self::canManage() && !$record->owner && $record->revoked_at === null)
-                    ->action(fn (ClientUser $record) => $client->transferOwnership($record->user, self::staff())),
+                    ->visible(fn (ClientUser $record) => self::canManage() && !$record->owner && $record->revoked_at === null
+                        && Actor::staffMayGrant(self::staff(), null, $record->permissions))
+                    ->action(function (ClientUser $record) use ($client) {
+                        // The owner has every permission.
+                        if (!self::refusedPastTheRole(null, $record->permissions)) {
+                            $client->transferOwnership($record->user, self::staff());
+                        }
+                    }),
                 Action::make('revoke')->label(__('account.remove_access'))->icon('heroicon-o-no-symbol')->color('danger')
                     ->requiresConfirmation()
                     ->visible(fn (ClientUser $record) => self::canManage() && !$record->owner && $record->revoked_at === null)
@@ -158,7 +202,11 @@ class UsersRelationManager extends RelationManager
                     }),
                 Action::make('restore')->label(__('Restore access'))->icon('heroicon-o-arrow-uturn-left')
                     ->visible(fn (ClientUser $record) => self::canManage() && $record->revoked_at !== null)
-                    ->action(fn (ClientUser $record) => $client->grantTo($record->user, $record->permissions, self::staff())),
+                    ->action(function (ClientUser $record) use ($client) {
+                        if (!self::refusedPastTheRole($record->permissions)) {
+                            $client->grantTo($record->user, $record->permissions, self::staff());
+                        }
+                    }),
                 Action::make('open')->label(__('Open'))
                     ->url(fn (ClientUser $record) => UserResource::getUrl('edit', ['record' => $record->user_id])),
             ]);

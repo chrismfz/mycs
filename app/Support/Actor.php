@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\ApiKey;
+use App\Models\ClientUser;
 use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -84,6 +85,31 @@ class Actor
         foreach ((array) self::STAFF_PERMISSION_AS[$permission] as $admin) {
             if (!$staff->hasPermission($admin)) {
                 return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Staff may give a login these permissions of an account (null: all of them) over the ones it has ($had, null: all):
+     * only the ones they could use themselves in «Login as client» (STAFF_PERMISSION_AS), so a login of their own on the
+     * account never takes them past their role (AUD3-1). A permission none is listed for (chat) needs nothing.
+     *
+     * @param  list<string>|null  $permissions
+     * @param  list<string>|null  $had
+     */
+    public static function staffMayGrant(?Staff $staff, ?array $permissions, ?array $had = []): bool
+    {
+        if ($staff === null) {
+            return false;
+        }
+        $added = array_diff($permissions ?? ClientUser::PERMISSIONS, $had ?? ClientUser::PERMISSIONS);
+        foreach ($added as $permission) {
+            foreach ((array) (self::STAFF_PERMISSION_AS[$permission] ?? null) as $admin) {
+                if (!$staff->hasPermission($admin)) {
+                    return false;
+                }
             }
         }
 

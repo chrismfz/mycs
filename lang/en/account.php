@@ -151,6 +151,7 @@ return [
     'invite_email' => 'Email address',
     'invite_sent' => 'The invitation was sent.',
     'all_permissions' => 'All permissions',
+    'grant_past_role' => 'You cannot give a login permissions your own role could not use as the customer (Log in to panel, Update Services, Create Orders).',
     'permissions' => 'Permissions',
     'owner' => 'Owner',
     'you' => 'you',
