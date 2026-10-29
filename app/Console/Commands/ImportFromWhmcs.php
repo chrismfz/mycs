@@ -20,6 +20,7 @@ use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
 use App\Support\Locales;
@@ -409,10 +410,17 @@ class ImportFromWhmcs extends Command
         $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
             ? (int) $config['DailyCronExecutionHour'] : null;
         // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 or empty is never, on both sides.
-        $closeHours = $has('CloseInactiveTickets') && trim((string) $config['CloseInactiveTickets']) === '' ? '0' : $days('CloseInactiveTickets');
+        // Hours, so their own limit (ten years of them), not the days' (review of #518, R2-1: 8760 hours, a year, was kept as 5 days).
+        $hours = trim((string) ($config['CloseInactiveTickets'] ?? ''));
+        $closeHours = $has('CloseInactiveTickets') && $hours === '' ? '0'
+            : (ctype_digit($hours) && strlen($hours) <= 6 && (int) $hours <= 3650 * 24 ? (string) (int) $hours : null);
         $overdue = array_values(array_unique(array_filter(array_map(fn (string $key) => (int) ($days($key) ?? 0),
             ['SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder', 'SendThirdOverdueInvoiceReminder']), fn (int $day) => $day > 0)));
         sort($overdue);
+        // Only days the cron sends on (PaymentReminders::MAX_DAYS; the Settings page takes at most three digits): one later
+        // is left out and said (review of #518, R2-2).
+        $dropped = array_values(array_filter($overdue, fn (int $day) => $day > PaymentReminders::MAX_DAYS));
+        $overdue = array_values(array_diff($overdue, $dropped));
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
@@ -442,6 +450,9 @@ class ImportFromWhmcs extends Command
             $rows[] = [$key, $value];
         }
         $this->table(['Setting', 'Value'], $rows);
+        if ($dropped !== []) {
+            $this->warn('Overdue reminders after ' . PaymentReminders::MAX_DAYS . ' days are not sent by MyCS: left out (' . implode(', ', $dropped) . ').');
+        }
         // Invoice days per billing cycle: MyCS holds one value (ROADMAP: per cycle, «Ν»): said, for staff to choose.
         $perCycle = array_filter(['Monthly', 'Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
             fn (string $cycle) => $days('CreateInvoiceDaysBefore' . $cycle) !== null && (int) $days('CreateInvoiceDaysBefore' . $cycle) > 0);
