@@ -150,4 +150,20 @@ class AuditFlow8Test extends TestCase
 
         $this->assertNotSame(Health::OK, $queue['status'], 'the queue the app uses cannot even be reached, yet Health says: ' . $queue['detail']);
     }
+
+    /** AUD8-5, AUD8-6: workers asked to exit again after `up`; a smoke check that fails exits, never «Deployed». */
+    public function test_aud8_5_6_the_deploy_restarts_workers_after_up_and_fails_on_a_red_smoke_check(): void
+    {
+        $script = (string) file_get_contents(base_path('deploy/update.sh'));
+        $up = strpos($script, '$ART up');
+        $this->assertNotFalse($up);
+        $start = strpos($script, 'start_queue_worker', $up);
+        $this->assertNotFalse($start, 'the worker is started after up');
+        $this->assertMatchesRegularExpression('/restart\)\s+log "Queue: workers asked to exit again[^\n]*\$ART queue:restart/', $script);
+
+        $smoke = substr($script, (int) strpos($script, '_code="$(curl'));
+        $this->assertMatchesRegularExpression('/if \[\[ "\$_code" != "200" \]\]; then.*?exit 1.*?fi/s', $smoke);
+        $this->assertLessThan(strpos($smoke, 'ok "Deployed'), strpos($smoke, 'exit 1'), '«Deployed» only after the smoke check passed');
+        $this->assertStringContainsString('tr -d', $script, 'a quoted APP_URL is read without its quotes');
+    }
 }

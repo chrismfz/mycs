@@ -39,7 +39,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // zlic.php is a machine contract (CLAUDE.md, review ADV-L4/L7): answered during a deploy too (its own
         // «Remote Check Failed» is what clients fall back on), and its input as sent, never trimmed or nulled. So is the
         // Cardlink vPOS return: its digest signs the values as posted, an empty or padded one included (PR H2a, CR-1).
-        $middleware->preventRequestsDuringMaintenance(except: ['zlic.php']);
+        // That return is also the only word of a card payment the bank has taken: a 503 during a deploy lost it (AUD8-1;
+        // whether the vPOS sends it again is not known). Answered during a deploy too; Stripe, PayPal and Mollie send
+        // their webhooks again, so those wait.
+        $middleware->preventRequestsDuringMaintenance(except: ['zlic.php', 'extensions/cardlink/return']);
         $middleware->trimStrings(except: [fn ($request) => $request->is('zlic.php', 'extensions/cardlink/return')]);
         $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('zlic.php', 'extensions/cardlink/return')]);
         $middleware->alias([

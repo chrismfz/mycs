@@ -122,7 +122,9 @@ start_queue_worker() {
     hook)    [[ -n "${QUEUE_START_CMD:-}" ]] && { log "Starting queue worker (QUEUE_START_CMD)"; eval "${QUEUE_START_CMD}" || true; } ;;
     systemd) log "Starting queue worker (systemd: ${QUEUE_SERVICE})"; systemctl --no-ask-password start "${QUEUE_SERVICE}" 2>/dev/null \
                || fail "Could not start ${QUEUE_SERVICE} — START IT YOURSELF NOW." ;;
-    restart) log "Queue: workers were asked to exit — their supervisor (systemd/cron) restarts them." ;;
+    # A worker its supervisor brought back during maintenance holds the old code, config and settings (AUD8-5):
+    # asked to exit once more, now that the new release is up.
+    restart) log "Queue: workers asked to exit again, to start on the new release"; $ART queue:restart || true ;;
   esac
   return 0
 }
@@ -236,9 +238,18 @@ start_queue_worker
 # the new code. Its consoles drop; the customer reconnects.
 $ART proxmox:console-relay --restart >/dev/null 2>&1 || true
 
-_url="$(grep -E '^APP_URL=' .env | cut -d= -f2-)"
+# The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
+_url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"
 if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
   _code="$(curl -s -o /dev/null -w '%{http_code}' "$_url/" || true)"
-  [[ "$_code" == "200" ]] && ok "Smoke check: $_url → 200" || warn "Smoke check: $_url → ${_code:-no answer}"
+  _health="$(curl -s -o /dev/null -w '%{http_code}' "$_url/health" || true)"
+  if [[ "$_code" != "200" ]]; then
+    # Never «Deployed» over a site that does not answer (AUD8-6): the release is in place, the site is up, look now.
+    fail "Smoke check: $_url → ${_code:-no answer}. The new release is live: check it NOW (rollback: docs/install.md)."
+    exit 1
+  fi
+  ok "Smoke check: $_url → 200"
+  # /health is 503 while the scheduler has not run since the maintenance window: told, not a failed deploy.
+  [[ "$_health" == "200" ]] || warn "/health → ${_health:-no answer}: look at it in a few minutes (docs/ops.md)."
 fi
 ok "Deployed $(git rev-parse --short HEAD) ($REF). Previous: ${CURRENT_SHA:0:8} — rollback: deploy/update.sh ${CURRENT_SHA:0:8} with ALLOW_DOWNGRADE=1 (+ restore the snapshot if migrations changed data)."

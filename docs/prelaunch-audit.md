@@ -125,7 +125,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 5 | Παραγγελίες, ΦΠΑ, promotions | 1 (2026-10-29, `main` @ 1390a389) | 1 (AUD5-1) | 0 | #524 | **έτοιμο** (#524, 2 γύροι review) |
 | 6 | Domains | 1 (2026-10-29, `main` @ c94aa7bf) | 0 | 1 (AUD6-1) | #526 | **έτοιμο** (#526) |
 | 7 | `zlic.php`, bridge | 1 (2026-10-29, `main` @ c94aa7bf) | 1 (AUD7-1) | 0 | #527 | **έτοιμο** (#527) |
-| 8 | Ops, ρυθμίσεις | | | | | ανοιχτό |
+| 8 | Ops, ρυθμίσεις | 1 (2026-10-29, `main` @ 279a5a69) | 1 (AUD8-1) | 6 (AUD8-2…7) | #529 | **έτοιμο** (#529) |
 | 9 | Importer | | | | | όταν τελειώσει ο importer |
 
 ### Ροή 1: σημειώσεις (2026-10-29)
@@ -247,3 +247,33 @@ MyCS στέλνει `<`. Κανένας client δεν διαβάζει το `com
 `&`/`'`· ίδια DNS records του `clients.nixpal.com` (όχι νέο AAAA, αλλιώς οι dual-stack clients έρχονται από IPv6 και παίρνουν
 «IP Address Invalid»)· τα ops του plugin `resellers`, `invoiced_flags`, `legacy_invoice_links`, `custom_fields` δεν υπάρχουν
 στη MyCS (400 `unknown_op`): να επιβεβαιωθεί ότι το K1 δεν τα καλεί.
+
+### Ροή 8: σημειώσεις (2026-10-29)
+Ελέγχθηκαν: save του Settings (μετρητές, secrets, `permission`), cache των settings (κρυπτογραφημένα), `config:cache`,
+`BootFailure` (κανένα run με defaults), defaults, `mycs:install`, schedule και lock του cron, `/health`, `build.json`,
+guard για APP_DEBUG και dev packages, ERR trap και snapshot (umask 077), migrate πάνω στο squashed schema.
+
+| ID | Σοβαρότητα | Τι | Κατάσταση |
+|---|---|---|---|
+| AUD8-1 | High | Πληρωμή Cardlink στη διάρκεια deploy: το return του vPOS έπαιρνε 503, η τράπεζα είχε χρεώσει, τίποτα δεν καταγραφόταν | **#529:** το `extensions/cardlink/return` περνά το maintenance, όπως το `zlic.php` (τα webhooks των Stripe/PayPal/Mollie ξαναστέλνονται) |
+| AUD8-2 | Medium | `app:settings:change … false` άφηνε ένα boolean ανοιχτό (`(bool) 'false'`) | **#529:** `filter_var(FILTER_VALIDATE_BOOLEAN)` |
+| AUD8-3 | Medium | `flushCache()` αγνοούσε ένα `Cache::forget` που απέτυχε (αρχείο του root): οι workers και το cron διάβαζαν τις παλιές ρυθμίσεις | **#529:** γράφεται από πάνω με τις τωρινές τιμές· αλλιώς `report()` |
+| AUD8-4 | Medium | Το `/health` μετρούσε μόνο τον πίνακα `jobs`: με redis «0 queued, ok» ενώ ο worker ήταν νεκρός | **#529:** διαβάζει την ουρά που χρησιμοποιεί η εφαρμογή· fail όταν δεν απαντά |
+| AUD8-5 | Medium | `deploy/update.sh`: ο worker ξανασηκωνόταν στη διάρκεια του maintenance με τον παλιό κώδικα, ως και μία ώρα | **#529:** `queue:restart` και μετά το `up` |
+| AUD8-6 | Medium | «✓ Deployed» με exit 0 ενώ το site απαντούσε 5xx· `APP_URL` με εισαγωγικά | **#529:** exit 1 χωρίς 200 στην αρχική· εισαγωγικά έξω· προειδοποίηση για το `/health` |
+| AUD8-7 | Medium (doc) | Το rollback του `install.md`: η επαναφορά του snapshot σβήνει ό,τι μπήκε μετά και γυρίζει τους μετρητές | **#529:** «μόνο αμέσως, με το site down· αργότερα διόρθωση προς τα εμπρός» |
+
+**Cut-over (orion):**
+- **Το schema dump έχει 136 `DROP TABLE`:** ποτέ `migrate` ή `mycs:install` σε βάση με δεδομένα και **άδειο** `migrations`
+  (π.χ. restore που κόπηκε).
+- **`.env`:** ρητά `CACHE_STORE`, `QUEUE_CONNECTION`, `SESSION_DRIVER` (το example και τα defaults είναι redis). Κοινό redis
+  χωρίς κωδικό στον orion το διαβάζει κάθε χρήστης του cPanel (sessions, cache με serialized τιμές): file/database, ή redis με
+  κωδικό.
+- **Worker:** χωρίς systemd ανά χρήστη στον orion: `QUEUE_STOP_CMD`/`QUEUE_START_CMD`, ή το `queue:restart` του script.
+- **CageFS:** `mariadb-dump` και `curl` μέσα στο cage, αλλιώς το deploy σταματά στο snapshot.
+- **Το cron του WHMCS σβήνει τη μέρα του cut-over** (αλλιώς suspend, terminate, χρεώσεις και emails παράλληλα).
+- **Ρυθμίσεις πριν από το πρώτο cron:** από τη σελίδα Settings. `find storage -not -user <χρήστης>` πριν από το cut-over.
+- **`cronjob_time`:** όχι 03:00–04:00 (αλλαγή ώρας: δύο runs ή κανένα).
+- **Νέα email templates** δεν φτάνουν σε υπάρχοντα instances με το deploy (δεν τρέχει seed): θέλουν migration.
+- Αν το vPOS του Cardlink ξαναστέλνει μετά από σφάλμα μένει άγνωστο (`payments.md`): το matching της τράπεζας πιάνει την
+  πίστωση στον λογαριασμό.

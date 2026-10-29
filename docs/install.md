@@ -89,12 +89,21 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 
 ## Αν κάτι πάει στραβά
 Δεν υπάρχει αυτόματο rollback (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + backup). Το όνομα του snapshot
-έχει το commit που έτρεχε πριν (`<βάση>-<ημερομηνία>-<sha>.sql.gz`). Χειροκίνητα:
+έχει το commit που έτρεχε πριν (`<βάση>-<ημερομηνία>-<sha>.sql.gz`).
+
+**Πρώτα: άλλαξε το σχήμα;** (AUD8-7)
+- Αν το deploy **δεν** είχε migrations, αρκεί ο παλιός κώδικας (χωρίς επαναφορά της βάσης).
+- Αν **είχε**, ο παλιός κώδικας πάνω στο νέο σχήμα μπορεί να μη δουλεύει: χρειάζεται και η επαναφορά.
+- **Η επαναφορά σβήνει ό,τι μπήκε μετά το snapshot:** πληρωμές, τιμολόγια, tickets από την ώρα που το site ξαναάνοιξε,
+  και γυρίζει πίσω τους μετρητές αρίθμησης (διπλοί αριθμοί, παραστατικά ήδη στο Ekdosi). Μόνο αμέσως, με το site σε
+  `down`, πριν μπουν νέα δεδομένα. Αργότερα: διόρθωση προς τα εμπρός (νέο deploy), όχι επαναφορά.
+
+Χειροκίνητα:
 ```bash
 cd /var/www/mycs && php artisan down
 git checkout <sha του snapshot>                 # η έκδοση που δούλευε
 composer install --no-dev --optimize-autoloader && npm ci && npm run build
-gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν το migrate άλλαξε δεδομένα
+gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν άλλαξε το σχήμα ή τα δεδομένα, και αμέσως (βλ. πάνω)
 php artisan optimize && php artisan up
 ```
 Τα snapshots είναι στον ίδιο server: δεν αντικαθιστούν τα backups εκτός server, που είναι το JetBackup του root.
