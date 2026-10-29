@@ -165,8 +165,13 @@ class DomainOwnerChanges
         // The move asked with it checked again before the registry is (AUD6-1: the seller's invoices may have changed since
         // it was asked): refused, nothing sent, staff told why on the .gr Registry page.
         if ($change->move_to_client_id !== null && (int) $change->domain->client_id !== (int) $change->move_to_client_id) {
-            $why = $change->staff === null ? __('domains.owner_change.staff_gone')
-                : app(MoveToClient::class)->domainRefusal($change->domain, Client::query()->findOrFail($change->move_to_client_id));
+            $to = Client::query()->find($change->move_to_client_id);
+            $why = match (true) {
+                $change->staff === null => __('domains.owner_change.staff_gone'),
+                // The new holder's account gone (its contact holds it while the change is open; a guard): refused, not an error.
+                $to === null => __('domains.owner_change.account_gone'),
+                default => app(MoveToClient::class)->domainRefusal($change->domain, $to),
+            };
             if ($why !== null) {
                 $refused = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_DUE)
                     ->update(['status' => DomainOwnerChange::STATUS_REFUSED, 'result' => __('domains.owner_change.move_refused', ['why' => $why]), 'updated_at' => now()]);

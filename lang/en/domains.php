@@ -414,6 +414,7 @@ return [
         'no_staff' => 'Done; not moved: the staff member who asked it is gone.',
         'move_refused' => 'Not sent to the registry: the domain cannot move to the new holder\'s account (:why). Fix that, then send it again, or ask it without the move.',
         'staff_gone' => 'the staff member who asked it is gone',
+        'account_gone' => 'the new holder\'s account is gone',
         'not_moved_mail' => 'The holder of :domain changed at the registry, but the domain stays on the old account here: :why. Move it to the new holder\'s account by hand (Move to another client).',
         'stuck' => 'Sending for longer than the registry is asked: maybe done there. Look at the registry, then Done at the registry or Cancel.',
         'not_awaiting' => 'It is not awaiting the EETT.',
