@@ -1484,11 +1484,15 @@ class Settings
 
         // Once per country and request/job (product pages build many prices); reset between requests and queued
         // jobs. Per country, not per user: a customer whose country changes in the request gets the new rate.
+        // An account with no country (imported, or older than the required field, AUD5-1) pays the «all» rate, and
+        // without one the company's own (the EU VAT home country), never 0% for want of a country.
+        $home = blank($country) && $client !== null ? (config('settings.eu_vat_home_country') ?: null) : null;
         $rates = app('settings.tax-rates');
-        $key = $country ?? '';
+        $key = ($country ?? '') . '|' . ($home ?? '');
         if (!$rates->offsetExists($key)) {
-            $rates[$key] = TaxRate::whereIn('country', [$country, 'all'])
-                ->orderByRaw('country = ? desc', [$country])
+            $rates[$key] = TaxRate::whereIn('country', array_values(array_filter([$country, 'all', $home])))
+                ->orderByRaw('country = ? desc', [(string) $country])
+                ->orderByRaw("country = 'all' desc")
                 ->first() ?: 0;
         }
 

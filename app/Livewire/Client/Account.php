@@ -62,7 +62,7 @@ class Account extends ComponentWithProperties
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email,' . Auth::id(),
-        ], CurrentClient::allows('profile') ? $this->contactRules() + ['language' => ['nullable', 'string', Rule::in(array_keys(Locales::options()))]] : [],
+        ], CurrentClient::allows('profile') ? $this->primaryContactRules() + ['language' => ['nullable', 'string', Rule::in(array_keys(Locales::options()))]] : [],
             $this->getRulesForProperties());
     }
 

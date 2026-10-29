@@ -48,6 +48,11 @@ final class PlaceOrderService
         if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
         }
+        // The VAT is the account's country's: without one, only an «all» rate would apply, else 0% with no reason, a
+        // consumer's sale without the VAT the company owes (AUD5-1). Asked first, as WHMCS always does.
+        if (config('settings.tax_enabled') && blank($client->country)) {
+            throw new DisplayException(__('product.country_required'));
+        }
         foreach ($lines as $line) {
             if ($line->quantity < 1) {
                 throw new DisplayException(__('The quantity must be at least 1.'));

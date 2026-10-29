@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Livewire\Auth\Register;
 use App\Livewire\Cart as CartPage;
+use App\Livewire\Client\Account;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Cart;
 use App\Models\Client;
@@ -15,8 +16,8 @@ use App\Models\Product;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Services\Order\OrderPricing;
+use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Once;
 use Livewire\Livewire;
@@ -104,64 +105,76 @@ class AuditFlow5Test extends TestCase
         $this->assertSame('24.0000', number_format((float) $line->tax_rate, 4, '.', ''));
     }
 
-    /** nixpal: a consumer who signs up without choosing a country, then orders. */
-    public function test_aud5_1_a_signup_without_a_country_is_invoiced_without_vat(): void
+    /** A checkout that may be refused: the invoice it made, or null. */
+    private function attemptCheckout(User $user): ?Invoice
+    {
+        $product = $this->product();
+        $cart = Cart::create(['currency_code' => 'USD']);
+        $cart->items()->create(['product_id' => $product->id, 'plan_id' => $product->plans()->firstOrFail()->id,
+            'config_options' => [], 'checkout_config' => [], 'quantity' => 1]);
+        Once::flush();
+        app(CurrentClient::class)->forget(); // a new request: the account read again
+        $before = Invoice::query()->max('id');
+
+        Livewire::withCookie('cart', $cart->ulid)->actingAs($user)->test(CartPage::class)->call('checkout');
+
+        return Invoice::query()->where('id', '>', (int) $before)->latest('id')->first();
+    }
+
+    // The owner's decision (2026-10-29): the country is required everywhere, as WHMCS; an order from an account without
+    // one is refused («choose your country first»); an invoice the cron makes for one pays the company's own rate.
+
+    /** nixpal: signing up without a country is refused. */
+    public function test_aud5_1_a_signup_without_a_country_is_refused(): void
     {
         $this->nixpal();
 
         Livewire::test(Register::class)
             ->set('first_name', 'Maria')->set('last_name', 'Example')->set('email', 'maria@example.test')
             ->set('password', 'Corr3ct-Horse-Battery')->set('password_confirmation', 'Corr3ct-Horse-Battery')
-            ->call('submit')->assertHasNoErrors();
-        $user = User::query()->where('email', 'maria@example.test')->sole();
-        $this->assertNull($user->client()->country, 'precondition: registered without a country (the form allows it)');
-        Auth::logout();
+            ->call('submit')->assertHasErrors(['contact.country']);
 
-        $invoice = $this->checkout($user->fresh());
-
-        $this->assertNoUntaxedSale($invoice->items()->sole(), 'a nixpal consumer who left the country empty');
+        $this->assertSame(0, User::query()->where('email', 'maria@example.test')->count());
     }
 
-    /** nixpal: a login with no account of its own checks out; the cart opens one for it, with no country. */
-    public function test_aud5_1_the_account_opened_at_checkout_has_no_country_and_pays_no_vat(): void
+    /** nixpal: a login with no account checks out: refused, and the account it opened stays, for its country. */
+    public function test_aud5_1_the_account_opened_at_checkout_must_choose_a_country_first(): void
     {
         $this->nixpal();
         $user = User::factory()->create();
-        // As a login without an account (an invite never accepted, or its account removed): the cart opens one.
         $user->clients()->detach();
-        $this->assertSame(0, Client::query()->whereHas('users', fn ($q) => $q->whereKey($user->id))->count(), 'precondition');
 
-        $invoice = $this->checkout($user);
+        $this->assertNull($this->attemptCheckout($user), 'an account without a country ordered');
 
-        $this->assertNull($invoice->client->country, 'precondition: the account checkout opened has no country');
-        $this->assertNoUntaxedSale($invoice->items()->sole(), 'the account opened at checkout');
+        $client = Client::query()->whereHas('users', fn ($q) => $q->whereKey($user->id))->sole();
+        $this->assertNull($client->country);
+        $client->primaryContact->update(['country' => 'DE']);
+        $line = $this->attemptCheckout($user->fresh())->items()->sole();
+        $this->assertSame('19.0000', number_format((float) $line->tax_rate, 4, '.', ''));
     }
 
-    /** myip: a Greek consumer empties the country on the account page (allowed) and the next order has no VAT. */
-    public function test_aud5_1_a_greek_customer_who_clears_the_country_pays_no_vat(): void
+    /** myip: the account page refuses an empty country, and an account left without one (imported) cannot order. */
+    public function test_aud5_1_a_greek_customer_cannot_clear_the_country_nor_order_without_one(): void
     {
         $this->myip();
         $user = User::factory()->create();
         $client = $user->client();
         $client->primaryContact->update(['country' => 'GR']);
-        $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''), 'precondition: 24% in Greece');
 
-        // The account page's rule: country nullable (EditsContact::contactRules).
-        $rules = (new class
-        {
-            use EditsContact;
+        Livewire::actingAs($user)->test(Account::class)->set('contact.country', null)->call('submit')->assertHasErrors(['contact.country']);
+        $this->assertSame('GR', $client->fresh()->country);
 
-            public function rulesFor(): array
-            {
-                return $this->contactRules();
-            }
-        })->rulesFor();
-        $this->assertTrue(validator(['contact' => ['type' => 'individual', 'country' => null]], ['contact.type' => $rules['contact.type'], 'contact.country' => $rules['contact.country']])->passes(),
-            'precondition: the account page accepts an empty country');
+        $client->primaryContact->update(['country' => null]); // as one imported without a country
+        $this->assertNull($this->attemptCheckout($user->fresh()), 'an account without a country ordered');
+    }
+
+    /** nixpal: an invoice for an account without a country (imported) pays the company's own rate, never 0%. */
+    public function test_aud5_1_an_account_without_a_country_pays_the_home_rate(): void
+    {
+        $this->nixpal(); // home EE, 24%
+        $client = User::factory()->create()->client();
         $client->primaryContact->update(['country' => null]);
 
-        $invoice = $this->checkout($user->fresh());
-
-        $this->assertNoUntaxedSale($invoice->items()->sole(), 'a myip customer who cleared the country');
+        $this->assertSame('24.0000', number_format((float) OrderPricing::taxRate($client->fresh()), 4, '.', ''));
     }
 }
