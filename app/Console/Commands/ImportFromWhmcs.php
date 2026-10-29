@@ -199,8 +199,9 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
-            $this->importPayMethods();
             $this->journalMoney();
+            // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
+            $this->importPayMethods();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -1466,10 +1467,17 @@ class ImportFromWhmcs extends Command
     /** The saved payment methods (WhmcsPayMethodImport): their references through WHMCS's API, never its key. */
     private function importPayMethods()
     {
-        $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false)); // none in a step run alone (tests)
+        try {
+            $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false)); // none in a step run alone (tests)
+        } catch (\RuntimeException $e) {
+            $this->warn("Saved payment methods not imported: {$e->getMessage()}");
+
+            return;
+        }
         $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
         $c = $result['counts'];
-        $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default), {$c['skipped']} skipped.");
+        $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default; {$c['not_charged']} with «Auto-charge» off, "
+            . "none of their services on a saved method's gateway), {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }

@@ -48,6 +48,12 @@ class ImportPayMethodsTest extends TestCase
             payment_type TEXT, gateway_name TEXT, order_preference INT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
         $this->whmcs->exec('CREATE TABLE tblcreditcards (id INTEGER PRIMARY KEY, pay_method_id INT, card_type TEXT, last_four TEXT, expiry_date TEXT,
             card_data TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+        // The client's live services pay by Stripe (its default is a Stripe method: decision 6); the other's by bank transfer.
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, domainstatus TEXT, paymentmethod TEXT)');
+        $this->whmcs->exec('CREATE TABLE tbldomains (id INTEGER PRIMARY KEY, userid INT, status TEXT, paymentmethod TEXT)');
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES ({$this->client->id}, 'Active', 'stripe'),
+            ({$this->client->id}, 'Cancelled', 'paypal_ppcpv'), ({$this->other->id}, 'Active', 'banktransfer')");
+        $this->whmcs->exec("INSERT INTO tbldomains (userid, status, paymentmethod) VALUES ({$this->client->id}, 'Active', 'stripe')");
         $c = $this->client->id;
         $o = $this->other->id;
         $this->whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES
@@ -97,13 +103,15 @@ class ImportPayMethodsTest extends TestCase
             ['PayPal maria@example.test', 'paypal', null, '7XK31234AB567890C', $this->gateways['PayPal']],
         ], $agreements->map(fn ($a) => [$a->name, $a->type, $a->expiry, $a->external_reference, (int) $a->gateway_id])->all(),
             'by WHMCS\'s order; the deleted one never');
-        $this->assertSame($agreements[0]->id, $this->client->fresh()->default_billing_agreement_id, 'the first by WHMCS\'s order: as WHMCS charges');
+        $this->assertSame($agreements[0]->id, $this->client->fresh()->default_billing_agreement_id,
+            'the gateway its live services and domains pay with (Stripe), its first by WHMCS\'s order: as WHMCS charged');
+        $this->assertTrue((bool) $this->client->fresh()->auto_charge);
         $this->assertSame('cus_Alpha1', DB::table('properties')->where('model_type', Client::class)->where('model_id', $this->client->id)
             ->where('key', 'stripe_id')->value('value'), 'its Stripe customer, as the gateway keeps it');
 
         $this->assertSame(0, BillingAgreement::query()->where('client_id', $this->other->id)->count(), 'a bare payment method, Mollie: never guessed');
         $this->assertNull($this->other->fresh()->default_billing_agreement_id);
-        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'skipped' => 3], $result['counts']);
+        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'not_charged' => 0, 'skipped' => 3], $result['counts']);
         $notes = implode("\n", $result['notes']);
         $this->assertStringContainsString('customer #999999 not here', $notes);
         $this->assertStringContainsString('«mollie»', $notes);
@@ -118,6 +126,15 @@ class ImportPayMethodsTest extends TestCase
 
         $this->assertSame(0, BillingAgreement::query()->count());
         $this->assertStringContainsString('WHMCS\'s API is needed', implode("\n", $result['notes']));
+        $this->expectExceptionMessage('must be https');
+        putenv('WHMCS_API_IDENTIFIER=id-1');
+        putenv('WHMCS_API_SECRET=secret-1');
+        try {
+            WhmcsApi::fromEnvironment('http://whmcs.example.test');
+        } finally {
+            putenv('WHMCS_API_IDENTIFIER');
+            putenv('WHMCS_API_SECRET');
+        }
         Http::assertNothingSent();
     }
 

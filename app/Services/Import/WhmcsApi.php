@@ -7,13 +7,13 @@ use RuntimeException;
 
 /**
  * WHMCS's own API, for what its database keeps encrypted with a key that is not in it (cc_encryption_hash): the saved
- * payment methods' remote tokens (GetPayMethods), the services' passwords (DecryptPassword). Read-only actions only; its
- * identifier and secret from the environment (WHMCS_API_IDENTIFIER, WHMCS_API_SECRET), never an argument or a log line.
+ * payment methods' remote tokens (GetPayMethods). Only the reads a step needs (READS), over https only; its identifier
+ * and secret from the environment (WHMCS_API_IDENTIFIER, WHMCS_API_SECRET), never an argument or a log line.
  */
 final class WhmcsApi
 {
     /** The only actions asked: reads. */
-    private const READS = ['GetPayMethods', 'DecryptPassword', 'GetClientsProducts', 'WhmcsDetails'];
+    private const READS = ['GetPayMethods', 'WhmcsDetails']; // what the importer reads; another is added with its step
 
     public function __construct(
         private readonly string $url,
@@ -29,6 +29,10 @@ final class WhmcsApi
         if ($url === null || trim($url) === '' || $identifier === '' || $secret === '') {
             return null;
         }
+        // Its secret, and every customer's references in the answers: https only (ADV-538-2).
+        if (!str_starts_with(strtolower(trim($url)), 'https://')) {
+            throw new RuntimeException('WHMCS API: --whmcs-api-url must be https.');
+        }
 
         return new self(rtrim(trim($url), '/'), $identifier, $secret);
     }
@@ -41,6 +45,9 @@ final class WhmcsApi
     {
         if (!in_array($action, self::READS, true)) {
             throw new RuntimeException("WHMCS API: «{$action}» is not a read the importer asks.");
+        }
+        if (!str_starts_with(strtolower($this->url), 'https://')) {
+            throw new RuntimeException('WHMCS API: https only.');
         }
         $response = Http::asForm()->timeout(30)->retry(2, 500, throw: false)
             ->post($this->url . '/includes/api.php', ['identifier' => $this->identifier, 'secret' => $this->secret, 'action' => $action,
