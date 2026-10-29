@@ -1599,8 +1599,9 @@ class ExtensionHelper
             // Its server was deleted: never quietly «nothing to do» (the jobs skip «no server»), nor another server.
             throw new Exception("The service's server #{$service->server_id} no longer exists: set its server first");
         }
-        if (!$server && $service->serverLeftInWhmcs()) {
-            // Its account is on a server of WHMCS's not here, never assumed on its product's (AUD4-1): staff set it.
+        if (!$server && (int) $service->whmcs_server_id > 0) {
+            // Its account is on a server of WHMCS's not here, never assumed on its product's (AUD4-1); or, pending, its
+            // product has no server here to make it on (a module with no extension: R2-2 of #530). Staff set it.
             throw new Exception("The service came from WHMCS without its server here (WHMCS server #{$service->whmcs_server_id}): set its server first");
         }
         if (!$server) {

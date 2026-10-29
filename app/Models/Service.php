@@ -901,10 +901,13 @@ class Service extends Model implements Auditable
         return $this->server_id === null && (int) $this->whmcs_server_id > 0 && $this->status !== self::STATUS_PENDING;
     }
 
-    /** Whether its server actions run: a server to act on, or one left in WHMCS (the action then fails to staff, never skipped). */
+    /**
+     * Whether its server actions run: a server to act on, or an account (or an order, pending) on a server of WHMCS's not
+     * here. Those fail to staff in checkServer(), never skipped (reviews of #530).
+     */
     public function hasServerActions(): bool
     {
-        return $this->provisioningServer() !== null || $this->serverLeftInWhmcs();
+        return $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
     }
 
     /**

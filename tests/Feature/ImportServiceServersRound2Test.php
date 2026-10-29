@@ -113,7 +113,12 @@ class ImportServiceServersRound2Test extends TestCase
         $invoice = $service->invoices()->firstOrFail();
         $item = $invoice->items()->where('reference_id', $service->id)->firstOrFail();
         DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
-        (new RenewServiceService)->handle($service, $item);
+        try {
+            (new RenewServiceService)->handle($service, $item);
+        } catch (\Exception $e) {
+            // The sync queue runs its CreateJob at once: it records the failure, then rethrows (a real queue retries it).
+            $this->assertStringContainsString('set its server first', $e->getMessage());
+        }
 
         $service = $service->fresh();
         $this->assertTrue($service->status !== Service::STATUS_ACTIVE || ModuleAction::query()->where('service_id', $service->id)->exists(),

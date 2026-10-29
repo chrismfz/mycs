@@ -52,7 +52,7 @@ final class AcceptOrder
                 if (!$service->invoices()->where('invoices.status', Invoice::STATUS_PAID)->exists()) {
                     $service->forceFill(['started_unpaid_at' => now()])->save();
                 }
-                if ($runCreate && $service->provisioningServer() !== null) {
+                if ($runCreate && $service->hasServerActions()) {
                     CreateJob::dispatch($service, $sendEmail)->afterCommit();
 
                     continue;

@@ -195,7 +195,7 @@ class EditService extends EditRecord
                 DeleteAction::make()
                     ->form(function (DeleteAction $action) use ($record) {
                         // A record of an account already gone (terminated straight on the server): untick to delete only it.
-                        if ($record->isEnded() || $record->status === Service::STATUS_PENDING || $record->provisioningServer() === null) {
+                        if ($record->isEnded() || $record->status === Service::STATUS_PENDING || !$record->hasServerActions()) {
                             return [];
                         }
 

@@ -27,7 +27,7 @@ class SetUpOnOrder
         if ($service->plan?->type === 'one-time') {
             return;
         }
-        if ($service->provisioningServer() !== null) {
+        if ($service->hasServerActions()) {
             CreateJob::dispatch($service)->afterCommit();
 
             return;

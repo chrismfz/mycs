@@ -274,7 +274,10 @@ server, ή module χωρίς extension) **δεν** πέφτει στον server 
 (Pending Module Actions, «set its server first»). Ποτέ δεν παραλείπεται σιωπηλά: ούτε το terminate στη διαγραφή ή στην
 ακύρωση, ούτε το upgrade (`hasServerActions`). Το ίδιο ισχύει για το sync του cPanel, του mailcow και για τα bulk emails
 ανά server (`Service::scopeOnServers`). Δύο περιπτώσεις παίρνουν τον server του προϊόντος, όπως πριν: μια pending
-υπηρεσία, που δεν έχει ακόμη λογαριασμό και τη δημιουργία της τη διαλέγει server, και μια με server 0 στο WHMCS. Ο
+υπηρεσία, που δεν έχει ακόμη λογαριασμό και τη δημιουργία της τη διαλέγει server, και μια με server 0 στο WHMCS. Αν
+μια pending παραγγελία ήταν σε server του WHMCS και το προϊόν της δεν έχει server εδώ (π.χ. Proxmox, Hetzner), η
+δημιουργία της πάει στο staff, δεν «ενεργοποιείται» χωρίς τίποτα. Όταν μια pending ξεκινά εδώ χωρίς server (accept χωρίς
+create, ή active από το staff), το `whmcs_server_id` σβήνεται: ο λογαριασμός της έγινε εδώ. Ο
 importer δείχνει στο τέλος τις ζωντανές υπηρεσίες χωρίς server εδώ. Το staff τους ορίζει server πριν τρέξει οποιοδήποτε
 cron.
 
