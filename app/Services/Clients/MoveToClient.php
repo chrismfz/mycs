@@ -118,6 +118,27 @@ final class MoveToClient
         });
     }
 
+    /**
+     * Why the domain could not move to $to now, or null: the same checks as domain(), under the same locks, nothing
+     * written (AUD6-1: a .gr transfer of holder asks it before the registry is, so a move refused never leaves the buyer
+     * holding a domain the seller still manages here).
+     */
+    public function domainRefusal(Domain $domain, Client $to): ?string
+    {
+        try {
+            DB::transaction(function () use ($domain, $to) {
+                $from = $this->lockClients(Domain::query()->whereKey($domain->id)->value('client_id'), $to);
+                $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
+                $this->refuseChanged((int) $domain->client_id, $from);
+                $this->plan([[Domain::class, $domain->id]], $domain);
+            });
+        } catch (DisplayException $e) {
+            return $e->getMessage();
+        }
+
+        return null;
+    }
+
     /** Both customers locked, in id order, before the item and its invoices (RecordPaymentService::lockInvoice). */
     private function lockClients(mixed $fromId, Client $to): Client
     {
