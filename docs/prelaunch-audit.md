@@ -118,7 +118,7 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 
 | # | Ροή | Γύρος | Critical/High | Medium | PR διορθώσεων | Κατάσταση |
 |---|---|---|---|---|---|---|
-| 1 | Cron χρέωσης, κύκλος ζωής | | | | | ανοιχτό |
+| 1 | Cron χρέωσης, κύκλος ζωής | 1 (2026-10-29, `main` @ e298c168) | 0 | 0 | — | **έτοιμο** |
 | 2 | Πληρωμές, πιστώσεις, τιμολόγια | | | | | ανοιχτό |
 | 3 | Auth, δικαιώματα, επιφάνεια | | | | | ανοιχτό |
 | 4 | Provisioning | | | | | ανοιχτό |
@@ -127,3 +127,19 @@ Mail/tickets και reports μένουν έξω: κυρίως ανάγνωση �
 | 7 | `zlic.php`, bridge | | | | | ανοιχτό |
 | 8 | Ops, ρυθμίσεις | | | | | ανοιχτό |
 | 9 | Importer | | | | | όταν τελειώσει ο importer |
+
+### Ροή 1: σημειώσεις (2026-10-29)
+Καθαρός γύρος: κανένα Critical/High/Medium. Ελέγχθηκαν διπλό τιμολόγιο και περίοδος δύο φορές (`RenewalBilling`, lock
+της υπηρεσίας), χαμένη περίοδος (`applied_at`, οι 30 ημέρες προστασίας), suspend/terminate πελάτη που πλήρωσε ή έχει
+hold (`suspendable()`/`terminable()` ξανά υπό lock), δύο cron μαζί, μία υπηρεσία που σταματά το run, upgrade/ακύρωση
+απέναντι σε πληρωμή, σιωπηλές αποτυχίες. Πέρασαν τα 60 tests του cron (Cronjob, SuspensionRules, RenewalGrouping,
+BillingCursor). Για αργότερα, όχι ευρήματα:
+- **Πύλη για τον importer (ροή 9):** ο importer δεν φέρνει ακόμα τις ρυθμίσεις αυτοματισμού (`importer.md` γραμμή 39
+  τις έχει στο σχέδιο). Στο myip το `AutoTerminationDays` είναι 120 απέναντι στο default 60, και οι suspended υπηρεσίες
+  που έρχονται παίρνουν το marker αναστολής με `now()`: χωρίς τη ρύθμιση, από τη δεύτερη νύχτα το cron θα τερμάτιζε
+  υπηρεσίες που το WHMCS κρατούσε. **`cronjob_order_terminate` = 120 στο myip πριν από το πρώτο cron.** Στη nixpal 60,
+  ίδιο με το default.
+- Ο listener του Stripe καταπίνει τα σφάλματα του `cancelSubscription`/`updateSubscription` χωρίς `report()`
+  (`extensions/Gateways/Stripe/Stripe.php:72-84`). Δεν μετράει σήμερα: η MyCS δεν φτιάχνει συνδρομές και ο importer δεν
+  φέρνει `subscriptionid`. Μετράει μόνο αν μπει `subscription_id` με το χέρι.
+- Ο βρόχος `domain_invoices_cancelled` δεν έχει try ανά domain: μια αποτυχία σταματά τον βρόχο, αλλά αναφέρεται.
