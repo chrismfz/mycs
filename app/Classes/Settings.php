@@ -352,6 +352,15 @@ class Settings
                     'required' => false,
                     'description' => 'Sent to VIES with each check, so it answers with a consultation number: the proof the customer\'s number was valid.',
                 ],
+                // The weekly comparison with TEDB (docs/eu-vat.md): a call out, so off until staff turn it on (CLAUDE.md).
+                [
+                    'name' => 'eu_vat_rates_check',
+                    'label' => 'Check EU VAT rates weekly',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Once a week the EU standard VAT rates are read from the European Commission (TEDB) and compared with Tax Rates. Staff are mailed (and told in chat) of a difference; nothing is changed.',
+                ],
             ],
             'mail' => [
                 // SMTP etc

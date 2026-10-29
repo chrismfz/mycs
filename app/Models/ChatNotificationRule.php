@@ -29,6 +29,7 @@ class ChatNotificationRule extends Model implements Auditable
         'service_unsuspended' => 'Service unsuspended',
         'service_terminated' => 'Service terminated',
         'cancellation_requested' => 'Cancellation requested',
+        'vat_rate_differs' => 'EU VAT rate differs from TEDB',
     ];
 
     protected $fillable = ['name', 'webhook_url', 'events', 'enabled'];

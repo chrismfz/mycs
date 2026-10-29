@@ -7,6 +7,7 @@ use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\LicenseResource;
 use App\Admin\Resources\ModuleActionResource;
+use App\Admin\Resources\TaxRateResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Services\Ops\Health;
 use Filament\Widgets\StatsOverviewWidget;
@@ -30,6 +31,7 @@ class HealthChecks extends StatsOverviewWidget
         'licenses' => LicenseResource::class,
         'domains' => DomainResource::class,
         'ticket_mail' => TicketQuarantineResource::class,
+        'vat_rates' => TaxRateResource::class,
     ];
 
     protected function getHeading(): ?string

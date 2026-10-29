@@ -16,6 +16,7 @@ use App\Models\TaxRate;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
 use App\Services\Mcp\McpOauth;
+use App\Services\Tax\EuVatRates;
 use App\Support\StaffTwoFactor;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
@@ -110,7 +111,7 @@ final class Health
     public static function report(): array
     {
         $checks = [];
-        foreach (['build', 'runtime', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail', 'tax'] as $name) {
+        foreach (['build', 'runtime', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail', 'tax', 'vat_rates'] as $name) {
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
@@ -330,5 +331,36 @@ final class Health
             . ($erring !== [] ? 'Errors: ' . Scrub::text(implode('; ', $erring)) . '. ' : '')
             . "{$departments->count()} mailboxes read, {$waiting} quarantined mails waiting over a day",
             'data' => ['mailboxes' => $departments->count(), 'not_read' => $failing, 'quarantine_waiting' => $waiting, 'errors' => $erring]];
+    }
+
+    /**
+     * The weekly comparison of Tax Rates with TEDB (docs/eu-vat.md): a difference found, TEDB not answering, or no
+     * check for over a week. Off, or not run yet since turned on, is ok.
+     */
+    private static function vat_rates(): array
+    {
+        if (!EuVatRates::enabled()) {
+            return ['status' => self::OK, 'detail' => 'The weekly check is off (Settings → Tax)'];
+        }
+        $rates = app(EuVatRates::class);
+        $state = $rates->state();
+        $checked = isset($state['checked_at']) ? Carbon::parse($state['checked_at']) : null;
+        $failed = isset($state['failed_at']) ? Carbon::parse($state['failed_at']) : null;
+        // Against Tax Rates as they are now: a rate staff fixed after the check is ok at once (code review).
+        $differences = isset($state['tedb']) ? $rates->compare($state['tedb'])['differences'] : ($state['differences'] ?? []);
+        $found = [];
+        if ($differences !== []) {
+            $found[] = 'Differs from TEDB: ' . implode(', ', array_map(fn (array $difference) => "{$difference['country']} {$difference['ours']}% here, {$difference['tedb']}% in TEDB", $differences));
+        }
+        if ($failed !== null && ($checked === null || $failed->gt($checked))) {
+            $found[] = 'TEDB did not answer ' . $failed->diffForHumans() . ': ' . Scrub::text((string) ($state['error'] ?? ''));
+        }
+        if ($checked !== null && $checked->lt(now()->subDays(EuVatRates::STALE_DAYS))) {
+            $found[] = 'Last checked ' . $checked->diffForHumans();
+        }
+
+        return ['status' => $found !== [] ? self::WARN : self::OK,
+            'detail' => $found !== [] ? implode('; ', $found) : ($checked ? ($state['compared'] ?? 0) . ' rates as in TEDB, checked ' . $checked->diffForHumans() : 'Not checked yet (weekly, Mondays)'),
+            'data' => ['checked_at' => $checked?->toIso8601String(), 'failed_at' => $failed?->toIso8601String(), 'differences' => $differences]];
     }
 }

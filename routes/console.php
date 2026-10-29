@@ -4,6 +4,7 @@ use App\Console\Commands\CronJob;
 use App\Console\Commands\Domains\ReadBalances;
 use App\Console\Commands\Domains\SyncCosts;
 use App\Console\Commands\Domains\SyncDomains;
+use App\Console\Commands\EuVatRatesCheck;
 use App\Console\Commands\FetchTicketMail;
 use App\Console\Commands\GatewayLogPrune;
 use App\Console\Commands\MailSweep;
@@ -48,3 +49,5 @@ Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar
 Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 // EU VAT (PR G, docs/eu-vat.md): pending numbers until VIES answers, the others monthly. Nothing when EU VAT is off.
 Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping()->onOneServer();
+// The EU standard VAT rates against TEDB (docs/eu-vat.md): staff told of a difference, nothing changed. Off by default.
+Schedule::command(EuVatRatesCheck::class)->description('Compares Tax Rates with the EU standard VAT rates in TEDB (changes nothing)')->weeklyOn(1, '05:45')->withoutOverlapping()->onOneServer();
