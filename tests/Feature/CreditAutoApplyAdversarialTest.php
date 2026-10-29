@@ -177,7 +177,9 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
-        $this->assertSame($expires->copy()->addMonth()->toDateString(), $service->fresh()->expires_at->toDateString());
+        // A month on, ending at the month's end, as billing-period renews (Oct 31 → Nov 30): Carbon's addMonth() would
+        // overflow to Dec 1, and the test fail on any day two days before a 31st.
+        $this->assertSame($expires->copy()->addMonthNoOverflow()->toDateString(), $service->fresh()->expires_at->toDateString());
         $this->assertSame(4000, $this->balanceCents());
         $this->assertSame(0, $this->creditAppliedNotes(), 'a full payment sends «Invoice paid», not «credit applied»');
         $this->assertJournalHolds();
