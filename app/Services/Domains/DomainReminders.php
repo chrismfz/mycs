@@ -38,7 +38,7 @@ class DomainReminders
     public const MAX_DAYS = 365;
 
     /** An expiry moved by this many days or fewer is the same one: its notices are not sent again (review R5). */
-    private const SAME_EXPIRY_DAYS = 7;
+    public const SAME_EXPIRY_DAYS = 7;
 
     /** Before the expiry (status Active) and after it (still the customer's). */
     private const AFTER = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];

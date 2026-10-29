@@ -385,16 +385,57 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   παρακάτω) και ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά τους είναι του προϊόντος της υπηρεσίας. Το
   «System Maintenance», που θα γίνει ξεχωριστή υπηρεσία όταν εισαχθούν τα addons, μένει ως τότε στη γονική.
 - **Υπηρεσία που δεν υπάρχει** (σβήστηκε στο WHMCS, ή addon/upgrade χωρίς γραμμή): χωρίς τύπο, ποτέ με «μάντεμα».
-- **Domains:** δεν εισάγονται ακόμα (D6), άρα οι γραμμές τους μένουν χωρίς τύπο. Τα έσοδα ανά προϊόν τις βρίσκουν με το
-  relid και το όνομα στην περιγραφή (`ProductIncome::namesDomain`) όταν το domain υπάρχει με το WHMCS id του. Το D6 τις
-  συνδέει όπως λέει η επόμενη ενότητα, και τότε ο κανόνας αυτός φεύγει.
+- **Domains:** οι γραμμές τους πάνε στο domain τους (D6, επόμενη ενότητα). Μια γραμμή domain που δεν υπάρχει εδώ μένει
+  χωρίς τύπο, όπως πριν.
 
-## Γραμμές domain (D6): απαίτηση για όταν γραφτεί
-- Σήμερα ο importer γράφει τις γραμμές `Domain` του WHMCS **χωρίς** `reference_type` (βλ. πιο πάνω).
-- Όταν το D6 τις συνδέσει με domains: κάθε γραμμή ανανέωσης/εγγραφής/μεταφοράς μπαίνει με την **ιστορική** της περίοδο
-  και, αν είναι πληρωμένη, με `applied_at` (το έτος έχει ήδη γίνει στον registrar)· ό,τι άλλο με `kind = charge`.
-  **Ποτέ** χωρίς περίοδο και χωρίς `kind`, και ποτέ μέσω του `kind=renewal` (θα έπαιρνε την επόμενη μη τιμολογημένη
-  περίοδο και, πληρωμένη χωρίς `applied_at`, θα ανανέωνε μαζικά στον registrar· review F11 του #174).
+## Domains (D6, `WhmcsDomainImport`)
+Τρέχει μετά τους πελάτες, τις παραγγελίες και τις υπηρεσίες, πριν από τις γραμμές τιμολογίων.
+- **Registrars:** μία σύνδεση για κάθε module του WHMCS που έχει driver εδώ (`grepp`, `openprovider`, `cnic`),
+  **χωρίς credentials, off**: τα βάζει το staff (Domains → Registrars). Ένα module χωρίς driver (enom) αναφέρεται, και τα
+  domains του έρχονται χωρίς σύνδεση. Η σύνδεση του CNIC παίρνει «σε πληρωμένη ανανέωση: μεταφορά στο Openprovider»
+  (`renew_transfer_to_id`, απόφαση ιδιοκτήτη 2026-10-22): η μετακίνηση συνεχίζεται στις ανανεώσεις, όπως με το hook,
+  αλλά με αλλαγή registrar μόνο αφού το δεχτεί ο Openprovider.
+- **TLDs και τιμές:** όπως τα φέρνει ο κατάλογος (`CatalogImport::tldsForFullImport`). Το καθένα με αυτόματη καταχώριση
+  στη σύνδεση του module του.
+- **Κάθε domain:**
+  - με το WHMCS id του, το νόμισμα του πελάτη του, ημερομηνίες εγγραφής και λήξης, έτη, recurring amount, addons (DNS,
+    email forwarding, ID protection), DNSSEC (`tbldomains_extra`), IDN script·
+  - το «do not renew» γίνεται `auto_renew` ανάποδα, και οι σημειώσεις του έρχονται·
+  - το TLD είναι το μακρύτερο γνωστό (`com.gr` πριν από `gr`)·
+  - status όπως στο WHMCS: ένα pending γίνεται register ή transfer ανάλογα με τον τύπο του. Status που δεν το ξέρουμε
+    (μία γραμμή χωρίς status στο myip) έρχεται cancelled και αναφέρεται. Ένα δεύτερο live με το ίδιο όνομα έρχεται κι
+    αυτό cancelled και αναφέρεται·
+  - registrant και admin η κύρια επαφή του πελάτη, όπως στο `domains:adopt`·
+  - τα additional fields (`tbldomainsadditionalfields`, 1.567 στο myip) στο `meta.whmcs_fields`.
+- **Handles του Openprovider** (`wDomain_handle` → `wHandles`): ένα handle γίνεται του ρόλου (registrant, admin)
+  **μόνο** αν η επαφή του στο WHMCS έχει το email της κύριας επαφής, όπως ορίζει ο κανόνας του D4b. Όλα τα άλλα (άλλο
+  πρόσωπο, tech, billing) κρατιούνται στο `meta.whmcs_handles` για το staff. Από το αντικείμενο του module διαβάζεται
+  **μόνο** το email· τίποτα άλλο δεν κρατιέται (π.χ. αριθμός ταυτότητας, ημερομηνία γέννησης).
+- **Η μετακίνηση CNIC → Openprovider** (`mod_domain_migration`): το hook του WHMCS άλλαζε τον registrar *πριν* τη
+  μεταφορά. Για κάθε domain μετρά η τελευταία πραγματική απόπειρα (όχι dry run). Όταν δεν είναι «submitted» (failed,
+  triggered), το domain είναι ακόμη στον παλιό registrar και έρχεται στη σύνδεσή του, με αναφορά. Στο myip αυτό αφορά 25
+  failed και 1 triggered. Η απόπειρα κρατιέται στο `meta.whmcs_migration`, ποτέ το EPP code της. Ένα «submitted»
+  θεωρείται του Openprovider· το επιβεβαιώνει το πρώτο sync (πιο κάτω).
+- **Ειδοποιήσεις λήξης** (`tbldomainreminders`): όσες έστειλε το WHMCS για την **τρέχουσα** λήξη του domain (±7 μέρες)
+  μπαίνουν ως σταλμένες. Ως σταλμένες μπαίνουν και όλες οι μέρες ειδοποίησης εδώ που είναι στην ίδια ή μεγαλύτερη
+  απόσταση από τη λήξη με την πιο κοντινή του WHMCS. Παράδειγμα: αν το WHMCS έστειλε «10 μέρες», το «30 μέρες» δεν
+  ξαναφεύγει· τα 7, 1 και −3 φεύγουν κανονικά. Οι ειδοποιήσεις παλιότερων λήξεων είναι ιστορικό και δεν εισάγονται.
+- **Οι γραμμές τους** (`WhmcsDomainImport::line`):
+  - η ανανέωση (`Domain`) με την ιστορική της περίοδο: από τις ημερομηνίες της περιγραφής (στο `DateFormat` του
+    WHMCS), αλλιώς από το due date της, για τα έτη που λέει. Το τέλος της είναι η επόμενη λήξη (μία μέρα μετά από το
+    τέλος που γράφει το WHMCS)·
+  - εγγραφή και μεταφορά με `kind` register / transfer·
+  - redemption fee και addons με `kind = charge`·
+  - πληρωμένη ή επιστραμμένη γραμμή: με `applied_at` (η ημερομηνία πληρωμής), γιατί έγινε ήδη στον registrar. **Ποτέ**
+    δεν ξαναγίνεται εδώ (`DomainRenewalService::waitingLines`, review F11 του #174). Μια απλήρωτη ανανέωση,
+    πληρωμένη μετά το cut-over, ανανεώνεται τότε, όπως θα έκανε το WHMCS.
+- **Parity:** domains, ενεργά domains, recurring amount των ενεργών, γραμμές domain.
+- **Στο cut-over, μετά το import:**
+  1. Το staff βάζει τα credentials στις συνδέσεις και τις ανοίγει.
+  2. `php artisan domains:sync --dry-run`: η αναφορά διαφορών με τον κάθε registrar, χωρίς να γράψει τίποτα. Ένα domain
+     που δεν βρίσκεται στη σύνδεσή του (π.χ. μια μεταφορά «submitted» που δεν ολοκληρώθηκε) πάει στη σωστή σύνδεση με το
+     χέρι.
+  3. Μετά, το κανονικό sync.
 
 ## Product addons του WHMCS → επιλογές της υπηρεσίας (2026-10-21, `provisioning.md`)
 
@@ -480,10 +521,10 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   όσους έχουν πει όχι (GDPR).
 - **Κατάσταση υπενθυμίσεων:** των τιμολογίων **έγινε** (review του #531): κάθε απλήρωτο με `due_at` παίρνει ως «στάλθηκε»
   κάθε overdue ημέρα ως σήμερα, και το «due soon» όταν λήγει μέσα στις `SendInvoiceReminderDays` του WHMCS· οι επόμενες
-  είναι του cron. **Μένει** το `tbldomainreminders` → `domain_reminders` (με το D6).
+  είναι του cron. Των domains έγινε με το D6 (`domain_reminders`, ενότητα «Domains»).
 - **Spam filters των tickets:** `tblticketspamfilters` (54, όλα sender) → `TicketBlockedSender`.
 - **Announcements:** 4 δημοσιευμένα → extension Announcements, και τα URLs τους στον χάρτη 301.
-- **Handles του Openprovider:** `wHandles`, `wDomain_handle` → `domains.*_handle`, μαζί με το D6.
+- **Handles του Openprovider:** έγινε με το D6 (ενότητα «Domains»): μόνο όσα είναι της επαφής τους.
 - **Ακραίες περιπτώσεις:**
   - 48 πληρωμένα τιμολόγια του 2019–2020 **χωρίς αριθμό** (σύνολο 23 €): γίνονται δεκτά.
   - 1 πληρωμή Stripe με ημερομηνία `0000-00-00` και ποσό 0.
