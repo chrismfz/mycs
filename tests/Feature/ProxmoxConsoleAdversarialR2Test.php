@@ -70,7 +70,7 @@ class ProxmoxConsoleAdversarialR2Test extends TestCase
         return $service;
     }
 
-    private function relay(): ConsoleRelay
+    private function relay(int $budget = ConsoleRelay::BUDGET): ConsoleRelay
     {
         $this->node = stream_socket_server('tcp://127.0.0.1:0');
         $address = stream_socket_get_name($this->node, false);
@@ -85,7 +85,7 @@ class ProxmoxConsoleAdversarialR2Test extends TestCase
                 }
                 $this->logged[] = $message;
             }, fn () => $this->now,
-            fn (array $ticket) => $this->dbDown ? throw new RuntimeException('SQLSTATE[HY000] [2002] Connection refused') : ConsoleRelay::allowed($ticket));
+            fn (array $ticket) => $this->dbDown ? throw new RuntimeException('SQLSTATE[HY000] [2002] Connection refused') : ConsoleRelay::allowed($ticket), $budget);
     }
 
     /** @return resource */
@@ -191,25 +191,31 @@ class ProxmoxConsoleAdversarialR2Test extends TestCase
      */
     public function test_adv_506_r2_2_the_budget_spent_by_others_freezes_a_healthy_console(): void
     {
-        $this->relay();
+        // The same rule with a budget of 4 MB, passed with a few MB of frames (it was 96 MB, passed with ~860 MB of
+        // strings in one process: the worker crashed on CI's runners).
+        $this->relay(4 * 1024 * 1024);
         [$browser, $node] = $this->open($this->vps()); // the healthy customer's
-        $frame = WebSocket::encode(WebSocket::BINARY, str_repeat('s', ConsoleRelay::MAX_FRAME), false);
+        $frame = WebSocket::encode(WebSocket::BINARY, str_repeat('s', 256 * 1024), false);
         $budget = new \ReflectionMethod(ConsoleRelay::class, 'buffered');
         $bulk = [];
-        for ($v = 0; $v < 18; $v++) { // eighteen VPS, two consoles each (PER_SERVICE), their browsers reading nothing
+        for ($v = 0; $v < 2; $v++) { // two VPS, two consoles each (PER_SERVICE), their browsers reading nothing
             $service = $this->vps();
-            $bulk[] = $this->open($service) + [2 => str_repeat($frame, 6)];
-            $bulk[] = $this->open($service) + [2 => str_repeat($frame, 6)];
+            $bulk[] = $this->open($service);
+            $bulk[] = $this->open($service);
         }
-        for ($round = 0; $round < 600; $round++) { // all of it sent, the kernel's buffers full
-            foreach ($bulk as $k => [$b, $n, $left]) {
-                if ($left !== '') {
-                    $bulk[$k][2] = (string) substr($left, (int) @fwrite($n, $left));
+        // The same frame again and again, never a big string held here: as many bytes go through as the system's TCP
+        // buffers take, until the relay itself holds more than its budget.
+        $pending = array_fill(0, count($bulk), '');
+        for ($round = 0; $round < 3000 && $budget->invoke($this->relay) <= 4 * 1024 * 1024; $round++) {
+            foreach ($bulk as $k => [$b, $n]) {
+                if ($pending[$k] === '') {
+                    $pending[$k] = $frame;
                 }
+                $pending[$k] = (string) substr($pending[$k], (int) @fwrite($n, $pending[$k]));
             }
             $this->relay->tick(0.001);
         }
-        $this->assertGreaterThan(ConsoleRelay::BUDGET, $budget->invoke($this->relay), 'setup: the others\' consoles hold the budget');
+        $this->assertGreaterThan(4 * 1024 * 1024, $budget->invoke($this->relay), 'setup: the others\' consoles hold the budget');
 
         fwrite($browser, WebSocket::encode(WebSocket::BINARY, 'key: Enter', true));
         $got = '';

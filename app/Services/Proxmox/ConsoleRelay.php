@@ -86,9 +86,10 @@ final class ConsoleRelay
      *                                                                                                                                       a ticket's node, its connection begun (TLS spoken here when `tls`)
      * @param  Closure(string, array<string, mixed>): void|null  $log
      * @param  (Closure(array<string, mixed>): bool)|null  $allowed  whether a ticket's console may stay open (default: self::allowed)
+     * @param  int  $budget  all consoles' buffers together, at most (BUDGET; a test's smaller, to pass it with a few MB)
      */
     public function __construct(string $listen, private readonly string $origin, private readonly string $path, private readonly Closure $connect,
-        private readonly ?Closure $log = null, ?Closure $clock = null, ?Closure $allowed = null)
+        private readonly ?Closure $log = null, ?Closure $clock = null, ?Closure $allowed = null, private readonly int $budget = self::BUDGET)
     {
         $server = @stream_socket_server('tcp://' . $listen, $code, $message);
         if ($server === false) {
@@ -140,12 +141,12 @@ final class ConsoleRelay
         $read = count($this->consoles) < self::MAX_CONNECTIONS + 1 ? [$this->server] : [];
         $write = [];
         // Over BUDGET, only the consoles holding more than their share stop being read, not every one (ADV-506-R2-2).
-        $full = $this->buffered() > self::BUDGET;
+        $full = $this->buffered() > $this->budget;
         $again = false; // a stream left with bytes read next turn without waiting
         $readable = []; // the consoles read this turn: a leftover (`more`) is read only for them (ADV-506-R2-1)
         foreach ($this->consoles as $id => $c) {
             $backed = strlen($c['cout']) > self::MAX_PENDING || strlen($c['uout']) > self::MAX_PENDING
-                || ($full && self::held($c) > intdiv(self::BUDGET, self::MAX_CONNECTIONS));
+                || ($full && self::held($c) > intdiv($this->budget, self::MAX_CONNECTIONS));
             // Backed and no byte written since the last turn: a slow browser that reads is not «reads nothing» (round 3).
             $pending = strlen($c['cout']) + strlen($c['uout']);
             $progress = $pending < $c['pending'];
