@@ -88,7 +88,11 @@ final class WhmcsDomainImport
     /** @var array<string, DomainRegistrarConnection> WHMCS registrar module => its connection here */
     private array $connections = [];
 
-    /** @var array<int, array{expires: ?string, years: int, ended: bool}>|null the domains imported, by id */
+    /** @var array<int, array{expires: ?string, years: int, ended: bool, pending: bool}>|null the domains imported, by id */
+
+    /** @var array<int, list<string>>|null each domain's paid or open WHMCS renewal lines, by their period's start */
+    private ?array $standing = null;
+
     private ?array $imported = null;
 
     private ?string $dateFormat = null;
@@ -146,22 +150,37 @@ final class WhmcsDomainImport
                     && Carbon::parse($renewal['period_start'])->addYearsNoOverflow($done + 1)->lessThanOrEqualTo(Carbon::parse($domain['expires'])->addDays(self::COVERED_WITHIN_DAYS))) {
                     $done++;
                 }
-                if ($done > 0) {
+                if ($done >= $paidYears) {
+                    $short = false; // its description ran a little past its whole years: done (round 3 of #535)
+                } elseif ($done > 0) {
                     $this->doneYears[] = ['line' => (int) $record['id'], 'domain' => (int) $record['relid'], 'years' => $done, 'invoice' => (int) ($record['invoiceid'] ?? 0),
                         'at' => $applied];
                 }
-                $this->lineNotes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}"
-                    . " ({$paidYears} year(s)), WHMCS's expiry is " . ($domain['expires'] ?? 'none') . ($done > 0 ? " ({$done} done)" : '')
-                    . ': left to be renewed (the registrar read first: only the years it lacks).';
+                if ($short) {
+                    $this->lineNotes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}"
+                        . " ({$paidYears} year(s)), WHMCS's expiry is " . ($domain['expires'] ?? 'none') . ($done > 0 ? " ({$done} done)" : '')
+                        . ': left to be renewed (the registrar read first: only the years it lacks).';
+                }
             }
             // Cancelled in WHMCS for the period now due and not renewed (its expiry still at its start): given up, as a
             // cancellation here does (Δ3a). Never an alternative not taken (a longer one, the domain renewed by another):
             // given up, it would count as billed and stop the next renewal (R2-1 of #535).
+            // Nor one beside a paid or open renewal of the same period: that one stands for it (R3-1 of #535).
             $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] <= now()->toDateString()
                 && !$domain['ended'] && $domain['expires'] !== null
-                && abs(Carbon::parse($domain['expires'])->diffInDays(Carbon::parse($renewal['period_start']), false)) <= self::COVERED_WITHIN_DAYS;
+                && abs(Carbon::parse($domain['expires'])->diffInDays(Carbon::parse($renewal['period_start']), false)) <= self::COVERED_WITHIN_DAYS
+                && !$this->standsFor((int) $record['relid'], $renewal['period_start']);
 
             return ['applied_at' => $short ? null : $applied, 'forgone_at' => $forgone ? now()->toDateTimeString() : null] + $renewal;
+        }
+
+        // Paid, but the domain still pending (never registered, or its transfer not done): not done, so the order is sent
+        // to its registrar here (DomainOrderFulfilment), listed (R3-2 of #535).
+        $order = in_array($type, ['DomainRegister', 'DomainTransfer'], true);
+        if ($order && $done && $domain['pending']) {
+            $applied = null;
+            $this->lineNotes[] = "Domain #{$record['relid']}: its order paid on invoice #" . ($record['invoiceid'] ?? '?') . ', still pending in WHMCS: '
+                . 'sent to its registrar here once its connection is set up.';
         }
 
         return match ($type) {
@@ -172,6 +191,30 @@ final class WhmcsDomainImport
             'DomainGraceFee' => ['kind' => 'grace_fee'] + $line,
             default => $line, // an addon (ID protection, DNS, email forwarding): a charge, never a period
         };
+    }
+
+    /** A paid or open renewal of this domain starts (within the covered days) where this one does. */
+    private function standsFor(int $domain, string $start): bool
+    {
+        if ($this->standing === null) {
+            $this->standing = [];
+            if ($this->has('tblinvoiceitems') && $this->has('tblinvoices')) {
+                foreach ($this->rows("SELECT ii.relid, ii.description, ii.duedate FROM tblinvoiceitems ii JOIN tblinvoices i ON i.id = ii.invoiceid
+                    WHERE ii.type = 'Domain' AND i.status IN ('Paid', 'Unpaid', 'Payment Pending', 'Refunded')") as $row) {
+                    $period = $this->period($row, $this->imported()[(int) $row['relid']]['years'] ?? 1);
+                    if ($period['period_start'] !== null) {
+                        $this->standing[(int) $row['relid']][] = $period['period_start'];
+                    }
+                }
+            }
+        }
+        foreach ($this->standing[$domain] ?? [] as $other) {
+            if (abs(Carbon::parse($other)->diffInDays(Carbon::parse($start), false)) <= self::COVERED_WITHIN_DAYS) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ---- connections ------------------------------------------------------------------------------------------------
@@ -546,14 +589,15 @@ final class WhmcsDomainImport
         return $this->dateFormat;
     }
 
-    /** @return array<int, array{expires: ?string, years: int, ended: bool}> */
+    /** @return array<int, array{expires: ?string, years: int, ended: bool, pending: bool}> */
     private function imported(): array
     {
         $ended = [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value, DomainStatus::Deleted->value];
+        $pending = [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value];
 
         return $this->imported ??= DB::table('domains')->get(['id', 'expires_at', 'years', 'status'])
             ->mapWithKeys(fn ($domain) => [(int) $domain->id => ['expires' => $domain->expires_at !== null ? substr((string) $domain->expires_at, 0, 10) : null,
-                'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true)]])->all();
+                'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true), 'pending' => in_array($domain->status, $pending, true)]])->all();
     }
 
     private function date(mixed $value, bool $dateOnly = false): ?string
