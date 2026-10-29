@@ -414,8 +414,9 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 - **Η μετακίνηση CNIC → Openprovider** (`mod_domain_migration`): το hook του WHMCS άλλαζε τον registrar *πριν* τη
   μεταφορά. Η τελευταία πραγματική απόπειρα κάθε domain (όχι dry run) κρατιέται στο `meta.whmcs_migration` για το staff,
   ποτέ το EPP code της. **Δεν** υπερισχύει του registrar του WHMCS. Οι λίστες των ίδιων των registrars (2026-10-29,
-  read-only) έδειξαν ότι και τα 26 που το log γράφει failed ή triggered είναι πια στον Openprovider: μεταφέρθηκαν με το χέρι
-  αργότερα.
+  read-only) έδειξαν ότι τα 25 από τα 26 που το log γράφει failed ή triggered είναι πια στον Openprovider: είναι από την
+  εποχή που γραφόταν το hook και ολοκληρώθηκαν με το χέρι. Το 26ο έχει σβηστεί από το WHMCS. Όλα έχουν nameservers, και
+  κανένα δεν έχει τους default του Openprovider.
 - **Ειδοποιήσεις λήξης** (`tbldomainreminders`): όσες έστειλε το WHMCS για την **τρέχουσα** λήξη του domain (±7 μέρες)
   μπαίνουν ως σταλμένες. Ως σταλμένες μπαίνουν και όλες οι μέρες ειδοποίησης εδώ που είναι στην ίδια ή μεγαλύτερη
   απόσταση από τη λήξη με την πιο κοντινή του WHMCS. Παράδειγμα: αν το WHMCS έστειλε «10 μέρες», το «30 μέρες» δεν
@@ -430,17 +431,19 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
     δεν ξαναγίνεται εδώ (`DomainRenewalService::waitingLines`, review F11 του #174). Μια απλήρωτη ανανέωση,
     πληρωμένη μετά το cut-over, ανανεώνεται τότε, όπως θα έκανε το WHMCS.
 - **Γραμμές τιμολογίων που το WHMCS έσβησε** (η γραμμή μένει, το τιμολόγιο όχι): δεν εισάγονται, με αναφορά. Στο myip
-  είναι 1.346 (77 από αυτές domains), στη nixpal 2.
+  είναι 1.344 (77 από αυτές domains), στη nixpal 2.
 - **Parity:** domains, ενεργά domains, recurring amount των ενεργών, γραμμές domain.
 - **Σύγκριση με τους registrars (myip, 2026-10-29, read-only):** οι λίστες του Openprovider (289) και του CNIC (189)
   συγκρίθηκαν με το import:
-  - 397 ενεργά είναι εκεί όπου τα βάζει το import·
-  - 61 έχουν άλλη λήξη: 54 κατά ±1 μέρα, 7 ως έναν μήνα και 2 κατά έναν χρόνο ή παραπάνω, πάντα αργότερα στον registrar
+  - 458 ενεργά είναι εκεί όπου τα βάζει το import·
+  - 66 έχουν άλλη λήξη: 56 κατά ±1 μέρα, 8 ως έναν μήνα και 2 κατά έναν χρόνο ή παραπάνω, πάντα αργότερα στον registrar
     (ανανεώθηκαν εκεί). Το πρώτο sync τις πάει μπροστά·
   - 1 ενεργό είναι στον Openprovider ενώ το WHMCS γράφει CNIC, χωρίς log μετακίνησης·
   - 2 ενεργά που το WHMCS βάζει στον Openprovider δεν είναι σε κανέναν από τους δύο·
   - 1 cancelled βρίσκεται στον Openprovider·
-  - 14 domains των registrars δεν υπάρχουν στο WHMCS (10 Openprovider, 4 CNIC).
+  - 14 domains των registrars δεν υπάρχουν στο WHMCS (10 Openprovider, 4 CNIC)·
+  - nameservers: κανένα χωρίς. Ένα έχει τους default του Openprovider (το σημάδι μεταφοράς χωρίς nameservers). Από τα
+    26 της μετακίνησης, ένα είναι σε nameservers του afternic (παρκαρισμένο ή προς πώληση) και ένα σε flipconfig.
   Αυτά τα διορθώνει το staff πριν το cut-over. Η λίστα δεν είναι στο repo (στοιχεία πελατών).
   Τα .gr δεν ελέγχθηκαν: το registry δεν έχει λίστα, τα επιβεβαιώνει το sync.
 - **Στο cut-over, μετά το import:**
