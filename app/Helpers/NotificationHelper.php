@@ -386,7 +386,8 @@ class NotificationHelper
      */
     public static function preferredMethod(Invoice $invoice): string
     {
-        $gateway = $invoice->status === Invoice::STATUS_UNPAID ? $invoice->preferredGateway : null;
+        // Paid on its own (a subscription, a saved method on its due date): no button names a way to pay it (R3-1 of #539).
+        $gateway = $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice) ? $invoice->preferredGateway : null;
         if ($gateway === null) {
             return '';
         }

@@ -68,7 +68,8 @@ class Show extends Component
     private function preferredChoice(): ?string
     {
         $gatewayId = $this->invoice->preferred_gateway_id;
-        if ($gatewayId === null || $this->invoice->status !== Invoice::STATUS_UNPAID) {
+        // Paid on its own: nothing chosen for it (a bank transfer would refuse it: R3-1 of #539).
+        if ($gatewayId === null || $this->invoice->status !== Invoice::STATUS_UNPAID || PaymentReminders::chargedOnItsOwn($this->invoice)) {
             return null;
         }
         $default = $this->accountAgreements()->whereKey($this->invoice->client->default_billing_agreement_id ?? 0)->where('gateway_id', $gatewayId)->first();

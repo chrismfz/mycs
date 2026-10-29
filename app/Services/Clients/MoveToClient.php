@@ -240,6 +240,8 @@ final class MoveToClient
             if ($whole) {
                 $order?->forceFill(['client_id' => $to->id])->save();
                 $invoice->client_id = $to->id;
+                // Its preferred method: the new account's own, as a split's (R3-2 of #539), never the old card's gateway.
+                $invoice->preferred_gateway_id = Invoice::preferredGatewayFor($to->id);
                 $invoice->save();
                 $invoice->setRelation('client', $to);
                 $this->retax($lines, $invoice);
