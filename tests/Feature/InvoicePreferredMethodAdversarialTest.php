@@ -144,6 +144,10 @@ class InvoicePreferredMethodAdversarialTest extends TestCase
      */
     public function test_adv_539_5_the_button_migration_never_wipes_a_template(): void
     {
+        // MariaDB / MySQL (utf8mb4) refuse invalid UTF-8 on insert: such a body cannot exist there (as this review noted).
+        if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('utf8mb4 stores no invalid UTF-8: the case exists on SQLite only.');
+        }
         $body = "<p>Αγαπητέ πελάτη \xE1\xE3\xE1\xF0\xE7\xF4\xDD</p><a href=\"{{ urls.invoice }}\">View & pay invoice</a>";
         DB::table('notification_templates')->insert(['key' => 'legacy_latin', 'subject' => 's', 'enabled' => true, 'body' => $body, 'translations' => null]);
 
