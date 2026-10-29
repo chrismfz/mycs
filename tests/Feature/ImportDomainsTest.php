@@ -15,6 +15,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Import\WhmcsDomainImport;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PDO;
@@ -120,7 +121,8 @@ class ImportDomainsTest extends TestCase
         $this->assertSame(['2020-03-01', '2027-03-01', 'EUR', '12.50'], [$gr->registered_at->toDateString(), $gr->expires_at->toDateString(), $gr->currency_code, $gr->recurring_amount]);
         $this->assertTrue($gr->auto_renew && $gr->dns_management);
         $this->assertSame(['el', 'VIP'], [$gr->idn_script, $gr->notes]);
-        $this->assertSame('yes', $gr->meta['whmcs_fields']['Consent to Publish Domain Information']);
+        $fields = json_decode(Crypt::decryptString($gr->meta['whmcs_fields']), true);
+        $this->assertSame('yes', $fields['Consent to Publish Domain Information'], 'kept encrypted (birth dates, ID numbers)');
         $primary = $this->client->primaryContact->id;
         $this->assertSame([$primary, $primary, null, null], [$gr->registrant_contact_id, $gr->admin_contact_id, $gr->tech_contact_id, $gr->billing_contact_id]);
 
@@ -130,11 +132,13 @@ class ImportDomainsTest extends TestCase
         $this->assertNull($domains[14]->expires_at);
 
         $connections = DomainRegistrarConnection::query()->orderBy('registrar')->get();
-        $this->assertSame(['grepp', 'openprovider'], $connections->pluck('registrar')->all());
+        $this->assertSame(['grepp', 'manual', 'openprovider'], $connections->pluck('registrar')->all());
         $this->assertTrue($connections->every(fn ($c) => !$c->is_active && $c->mode === 'off'), 'off and without credentials until staff enter them');
         $this->assertSame($connections->firstWhere('registrar', 'grepp')->id, $gr->registrar_connection_id);
         $this->assertSame($connections->firstWhere('registrar', 'grepp')->id, DomainTld::query()->where('tld', 'gr')->value('registrar_connection_id'));
-        $this->assertNull($domains[15]->registrar_connection_id, 'enom: no driver here');
+        $manual = $connections->firstWhere('registrar', 'manual')->id;
+        $this->assertSame([$manual, $manual], [$domains[15]->registrar_connection_id, $domains[17]->registrar_connection_id],
+            'enom (no driver here) and none: the manual connection, never the TLD\'s registrar');
         $this->assertSame(DomainStatus::Cancelled, $domains[17]->status, 'no status in WHMCS: imported cancelled, listed');
         $notes = implode("\n", $result['notes']);
         $this->assertStringContainsString('«enom» in WHMCS has no driver here', $notes);
@@ -194,7 +198,7 @@ class ImportDomainsTest extends TestCase
         $register = $line(['type' => 'DomainRegister', 'description' => 'Κατοχύρωση Domain', 'invoice_status' => 'Paid']);
         $this->assertSame([InvoiceItem::KIND_REGISTER, '2026-02-20 09:00:00'], [$register['kind'], $register['applied_at']]);
         $fee = $line(['type' => 'DomainRedemptionFee', 'description' => 'Redemption', 'invoice_status' => 'Cancelled']);
-        $this->assertSame([InvoiceItem::KIND_CHARGE, null], [$fee['kind'], $fee['period_start']]);
+        $this->assertSame(['redemption_fee', null], [$fee['kind'], $fee['period_start']], 'a stage fee as the cron bills it: never added twice');
         $this->assertNull($import->line(['type' => 'Domain', 'relid' => 999, 'description' => '']), 'a domain not here: no type, as before');
         $this->assertNull($import->line(['type' => 'Hosting', 'relid' => 41, 'description' => '']));
 
@@ -284,6 +288,6 @@ class ImportDomainsTest extends TestCase
         $this->assertSame([Domain::class, 71, '2026-03-01', '2027-03-01'], [$line->reference_type, (int) $line->reference_id,
             $line->period_start?->toDateString(), $line->period_end?->toDateString()]);
         $this->assertNotNull($line->applied_at);
-        $this->assertStringContainsString('1 invoice line(s) of invoices deleted in WHMCS: not imported', $output->fetch());
+        $this->assertStringContainsString('1 invoice line(s) of invoices deleted in WHMCS, or not imported: not imported', $output->fetch());
     }
 }

@@ -232,8 +232,9 @@ class ImportDomainsAdversarialTest extends TestCase
 
         $this->import();
 
-        $this->assertNull(Domain::query()->find(84)->effectiveRegistrarConnection()?->registrar, 'enom: by hand, never at Openprovider');
-        $this->assertNull(Domain::query()->find(85)->effectiveRegistrarConnection()?->registrar, 'no registrar in WHMCS: by hand');
+        // The fix the reviews suggested: the manual connection (no API: staff renew it by hand, the sync never reads it there).
+        $this->assertSame('manual', Domain::query()->find(84)->effectiveRegistrarConnection()?->registrar, 'enom: by hand, never at Openprovider');
+        $this->assertSame('manual', Domain::query()->find(85)->effectiveRegistrarConnection()?->registrar, 'no registrar in WHMCS: by hand');
     }
 
     /**

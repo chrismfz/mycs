@@ -1628,9 +1628,9 @@ class ImportFromWhmcs extends Command
                 if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
                     continue;
                 }
-                // A line of an invoice WHMCS deleted (it keeps the line): no invoice here to be on, never one without
-                // (importer.md: myip 1,346, nixpal 2; review of D6: 77 of them a domain's).
-                if ($record['invoice_found'] === null) {
+                // A line of an invoice WHMCS deleted (it keeps the line), or one the import did not bring (its customer not
+                // here): no invoice here to be on, never one without (importer.md: myip 1,344, nixpal 2; reviews of #535).
+                if ($record['invoice_found'] === null || !isset($this->importedInvoices()[(int) $record['invoiceid']])) {
                     $this->orphanLines++;
 
                     continue;
@@ -1655,7 +1655,7 @@ class ImportFromWhmcs extends Command
             DB::table('invoice_items')->insert($data);
         });
         if ($this->orphanLines > 0) {
-            $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS: not imported.");
+            $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS, or not imported: not imported.");
         }
     }
 
@@ -1675,7 +1675,7 @@ class ImportFromWhmcs extends Command
      * A line whose service or domain is not here (deleted in WHMCS) has no type either: never attached by guess.
      *
      * @param  array<string, mixed>  $record  a tblinvoiceitems row
-     * @return array{reference_type: string|null, reference_id: mixed, kind: string|null, period_start: string|null, period_end: string|null, applied_at: string|null}
+     * @return array{reference_type: string|null, reference_id: mixed, kind: string|null, period_start: string|null, period_end: string|null, applied_at: string|null, forgone_at: string|null}
      */
     private function lineReference(array $record): array
     {
@@ -1684,7 +1684,7 @@ class ImportFromWhmcs extends Command
             return $domain;
         }
 
-        return ['period_start' => null, 'period_end' => null, 'applied_at' => null] + $this->serviceLineReference($record);
+        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $this->serviceLineReference($record);
     }
 
     /** @return array{reference_type: string|null, reference_id: mixed, kind: string|null} */

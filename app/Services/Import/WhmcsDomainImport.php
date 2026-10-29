@@ -11,6 +11,7 @@ use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\DomainReminders;
 use App\Services\Whmcs\CatalogImport;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use PDO;
 use PDOException;
@@ -43,6 +44,9 @@ final class WhmcsDomainImport
         'cancelled' => DomainStatus::Cancelled, 'fraud' => DomainStatus::Cancelled,
     ];
 
+    /** A paid renewal is done when WHMCS's expiry reaches its end within this many days (an expiry a sync moves a little). */
+    private const COVERED_WITHIN_DAYS = 31;
+
     /** WHMCS's date formats (DateFormat) → PHP's. */
     private const DATE_FORMATS = ['DD/MM/YYYY' => 'd/m/Y', 'DD.MM.YYYY' => 'd.m.Y', 'DD-MM-YYYY' => 'd-m-Y', 'MM/DD/YYYY' => 'm/d/Y',
         'YYYY/MM/DD' => 'Y/m/d', 'YYYY-MM-DD' => 'Y-m-d'];
@@ -56,7 +60,7 @@ final class WhmcsDomainImport
     /** @var array<string, DomainRegistrarConnection> WHMCS registrar module => its connection here */
     private array $connections = [];
 
-    /** @var array<int, array{expires: ?string, years: int}>|null the domains imported, by id */
+    /** @var array<int, array{expires: ?string, years: int, ended: bool}>|null the domains imported, by id */
     private ?array $imported = null;
 
     private ?string $dateFormat = null;
@@ -83,7 +87,7 @@ final class WhmcsDomainImport
      * A WHMCS invoice line of a domain imported: what it is here, or null (not a domain's, or its domain is not here).
      *
      * @param  array<string, mixed>  $record  a tblinvoiceitems row, with its invoice's status and datepaid
-     * @return array{reference_type: string, reference_id: int, kind: string|null, period_start: string|null, period_end: string|null, applied_at: string|null}|null
+     * @return array{reference_type: string, reference_id: int, kind: string|null, period_start: string|null, period_end: string|null, applied_at: string|null, forgone_at: string|null}|null
      */
     public function line(array $record): ?array
     {
@@ -92,17 +96,36 @@ final class WhmcsDomainImport
             return null;
         }
         $domain = $this->imported()[(int) $record['relid']];
+        $status = (string) ($record['invoice_status'] ?? '');
         // Paid (or refunded since): WHMCS did it at the registrar; never done again here (importer.md «Γραμμές domain»).
-        $done = in_array((string) ($record['invoice_status'] ?? ''), ['Paid', 'Refunded'], true);
+        $done = in_array($status, ['Paid', 'Refunded'], true);
         $applied = $done ? ($this->date($record['invoice_datepaid'] ?? null) ?? now()->toDateTimeString()) : null;
         $line = ['reference_type' => Domain::class, 'reference_id' => (int) $record['relid'], 'kind' => InvoiceItem::KIND_CHARGE,
-            'period_start' => null, 'period_end' => null, 'applied_at' => null];
+            'period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null];
+        if ($type === 'Domain') {
+            $renewal = ['kind' => null, ...$this->period($record, $domain['years'])] + $line;
+            // Paid, but WHMCS's expiry never reached its end (its renewal at the registrar not done, or a transfer that
+            // added one year of two: reviews of #535): left to be applied. The renewal reads the registrar first, adopts
+            // what it has and buys only the years it lacks; listed for staff. An ended domain's is history: applied.
+            $short = $done && $renewal['period_end'] !== null && !$domain['ended']
+                && ($domain['expires'] === null || Carbon::parse($domain['expires'])->addDays(self::COVERED_WITHIN_DAYS)->lessThan(Carbon::parse($renewal['period_end'])));
+            if ($short) {
+                $this->notes[] = "Domain #{$record['relid']}: invoice #" . ($record['invoiceid'] ?? '?') . " paid its renewal to {$renewal['period_end']}, WHMCS's expiry is "
+                    . ($domain['expires'] ?? 'none') . ': left to be renewed (the registrar read first: only the years it lacks).';
+            }
+            // Cancelled in WHMCS for a period already due: given up, as a cancellation here does (Δ3a, InvoiceObserver).
+            $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] <= now()->toDateString();
+
+            return ['applied_at' => $short ? null : $applied, 'forgone_at' => $forgone ? now()->toDateTimeString() : null] + $renewal;
+        }
 
         return match ($type) {
-            'Domain' => ['kind' => null, 'applied_at' => $applied, ...$this->period($record, $domain['years'])] + $line,
             'DomainRegister' => ['kind' => InvoiceItem::KIND_REGISTER, 'applied_at' => $applied] + $line,
             'DomainTransfer' => ['kind' => InvoiceItem::KIND_TRANSFER, 'applied_at' => $applied] + $line,
-            default => $line, // a redemption fee, an addon (ID protection, DNS): a charge, never a period
+            // A stage's fee as the cron bills it (D5b-1), so it is never added a second time to the same invoice.
+            'DomainRedemptionFee' => ['kind' => 'redemption_fee'] + $line,
+            'DomainGraceFee' => ['kind' => 'grace_fee'] + $line,
+            default => $line, // an addon (ID protection, DNS, email forwarding): a charge, never a period
         };
     }
 
@@ -117,7 +140,7 @@ final class WhmcsDomainImport
         }
         foreach (array_unique(array_filter($used)) as $module) {
             if (!in_array($module, $registry->keys(), true)) {
-                $this->notes[] = "Registrar «{$module}» in WHMCS has no driver here: its domains come without a connection (by hand).";
+                $this->notes[] = "Registrar «{$module}» in WHMCS has no driver here: its domains come on the manual connection (by hand).";
 
                 continue;
             }
@@ -138,6 +161,16 @@ final class WhmcsDomainImport
         }
     }
 
+    private ?DomainRegistrarConnection $manual = null;
+
+    /** The connection of domains at a registrar with no driver here (enom), or none: manual, staff renew them by hand. */
+    private function manual(): DomainRegistrarConnection
+    {
+        return $this->manual ??= DomainRegistrarConnection::query()->where('registrar', DomainRegistrarConnection::MANUAL)->orderBy('id')->first()
+            ?? DomainRegistrarConnection::query()->create(['registrar' => DomainRegistrarConnection::MANUAL, 'label' => 'Manual (from WHMCS)',
+                'is_active' => false, 'mode' => 'off']);
+    }
+
     // ---- domains ----------------------------------------------------------------------------------------------------
 
     private function domains(): void
@@ -152,6 +185,8 @@ final class WhmcsDomainImport
         $extra = $this->grouped('tbldomains_extra', 'SELECT domain_id AS domain, name, value FROM tbldomains_extra ORDER BY id');
         $handles = $this->handles();
         $migrations = $this->migrations();
+        $paidRenewals = $this->has('tblinvoiceitems') && $this->has('tblinvoices') ? array_flip(array_map('intval', $this->column("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii
+            JOIN tblinvoices i ON i.id = ii.invoiceid WHERE ii.type = 'Domain' AND i.status = 'Paid'"))) : [];
         $live = [];
         $rows = [];
         foreach ($this->rows('SELECT * FROM tbldomains ORDER BY id') as $row) {
@@ -179,15 +214,17 @@ final class WhmcsDomainImport
                 $status = DomainStatus::Cancelled;
                 $this->notes[] = "Domain #{$id} {$fqdn}: WHMCS status «{$row['status']}» unknown, imported cancelled: check it.";
             }
-            $ended = in_array($status, [DomainStatus::TransferredAway, DomainStatus::Cancelled, DomainStatus::Deleted], true);
-            if (!$ended && isset($live[$fqdn])) {
-                // One live row per name here (live_fqdn): a second one in WHMCS comes in cancelled, listed.
-                $this->notes[] = "Domain #{$id} {$fqdn}: also live as #{$live[$fqdn]} in WHMCS, imported cancelled: check them.";
-                $status = DomainStatus::Cancelled;
-                $ended = true;
+            // Still «Pending» in WHMCS, but registered (an order has no expiry until it is) or renewed and paid there: live,
+            // never an order the cron cancels as unpaid (review of #535).
+            $expires = $this->date($row['expirydate'] ?? null, dateOnly: true);
+            if (in_array($status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
+                && $expires !== null && ($expires >= now()->toDateString() || isset($paidRenewals[$id]))) {
+                $status = DomainStatus::Active;
+                $this->notes[] = "Domain #{$id} {$fqdn}: «Pending» in WHMCS with an expiry ({$expires}): imported active, check it.";
             }
+            $ended = in_array($status, [DomainStatus::TransferredAway, DomainStatus::Cancelled, DomainStatus::Deleted], true);
             if (!$ended) {
-                $live[$fqdn] = $id;
+                $live[$fqdn][] = count($rows);
             }
             $contact = $primary[(int) $row['userid']] ?? null;
             [$roleHandles, $kept] = $this->rolesHandles($handles[$id] ?? [], $contact?->email);
@@ -197,7 +234,8 @@ final class WhmcsDomainImport
             $meta = array_filter([
                 'whmcs' => array_filter(['registrar' => trim((string) $row['registrar']), 'status' => (string) $row['status'], 'type' => (string) $row['type'],
                     'next_due' => $this->date($row['nextduedate'] ?? null, dateOnly: true)]),
-                'whmcs_fields' => $fieldsOf,
+                // Encrypted: a registry's fields carry birth dates, ID and tax numbers (review of #535); staff read them here.
+                'whmcs_fields' => $fieldsOf !== [] ? Crypt::encryptString(json_encode($fieldsOf, JSON_UNESCAPED_UNICODE)) : null,
                 'whmcs_handles' => $kept,
             ]);
             $years = max(1, min(10, (int) ($row['registrationperiod'] ?? 1)));
@@ -211,7 +249,9 @@ final class WhmcsDomainImport
                 'client_id' => (int) $row['userid'],
                 'order_id' => isset($orders[(int) ($row['orderid'] ?? 0)]) ? (int) $row['orderid'] : null,
                 'domain_tld_id' => $tlds[$tld] ?? null,
-                'registrar_connection_id' => isset($this->connections[$registrar]) ? $this->connections[$registrar]->id : null,
+                // A module with no driver here, or none: the manual connection, never the TLD's registrar (reviews of #535: the
+                // sync would find it «not ours» there and end it).
+                'registrar_connection_id' => ($this->connections[$registrar] ?? $this->manual())->id,
                 'sld' => substr($fqdn, 0, -strlen($tld) - 1),
                 'tld' => $tld,
                 'fqdn' => $fqdn,
@@ -239,6 +279,21 @@ final class WhmcsDomainImport
             $this->counts['domains']++;
             $this->counts['handles'] += count($roleHandles);
             $this->counts['handles_kept'] += count($kept);
+        }
+        // One live row per name here (live_fqdn): of WHMCS's live rows of a name, the current one stays (active before
+        // pending, grace, redemption, expired; then the later expiry, then the newer row); the others come cancelled, listed.
+        $rank = [DomainStatus::Active->value => 0, DomainStatus::PendingTransfer->value => 1, DomainStatus::PendingRegister->value => 1,
+            DomainStatus::Grace->value => 2, DomainStatus::Redemption->value => 3, DomainStatus::Expired->value => 4];
+        foreach ($live as $fqdn => $indexes) {
+            if (count($indexes) < 2) {
+                continue;
+            }
+            usort($indexes, fn (int $a, int $b) => [$rank[$rows[$a]['status']] ?? 9, -strtotime((string) ($rows[$a]['expires_at'] ?? '1970-01-01')), -$rows[$a]['id']]
+                <=> [$rank[$rows[$b]['status']] ?? 9, -strtotime((string) ($rows[$b]['expires_at'] ?? '1970-01-01')), -$rows[$b]['id']]);
+            foreach (array_slice($indexes, 1) as $index) {
+                $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: also live as #{$rows[$indexes[0]]['id']} in WHMCS, imported cancelled: check them.";
+                $rows[$index]['status'] = DomainStatus::Cancelled->value;
+            }
         }
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('domains')->insert($chunk);
@@ -292,7 +347,9 @@ final class WhmcsDomainImport
             return [];
         }
         $handles = [];
-        foreach ($this->rows('SELECT dh.domain_id, dh.type, h.handle, h.data FROM wDomain_handle dh JOIN wHandles h ON h.id = dh.handle_id ORDER BY dh.id') as $row) {
+        // Openprovider's handles only (the module's), for a domain at Openprovider in WHMCS (reviews of #535).
+        foreach ($this->rows("SELECT dh.domain_id, dh.type, h.handle, h.data FROM wDomain_handle dh JOIN wHandles h ON h.id = dh.handle_id
+            JOIN tbldomains d ON d.id = dh.domain_id WHERE LOWER(h.registrar) = 'openprovider' AND LOWER(TRIM(d.registrar)) = 'openprovider' ORDER BY dh.id") as $row) {
             $role = strtolower(trim((string) $row['type']));
             $handle = trim((string) $row['handle']);
             if (!in_array($role, Domain::ROLES, true) || $handle === '') {
@@ -399,13 +456,18 @@ final class WhmcsDomainImport
     private function period(array $record, int $years): array
     {
         $description = (string) ($record['description'] ?? '');
-        if (preg_match('/(\d+)\s*(?:Year|Έτ)/u', $description, $count)) {
+        // Its years as it says them: «1 Year/s», «1 Έτος/η», and the older «2 Χρόνια» (review of #535: 800 on myip).
+        if (preg_match('/(\d+)\s*(?:Year|Έτ|Χρόν)/u', $description, $count)) {
             $years = max(1, min(10, (int) $count[1]));
         }
         $start = null;
-        if (preg_match('#\((\d{1,4}[./-]\d{1,2}[./-]\d{1,4})\s*-\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\)#', $description, $dates)) {
-            $parsed = \DateTime::createFromFormat('!' . $this->phpDateFormat(), $dates[1]);
-            $start = $parsed !== false ? Carbon::instance($parsed) : null;
+        if (preg_match('#\((\d{1,4}[./-]\d{1,2}[./-]\d{1,4})\s*-\s*(\d{1,4}[./-]\d{1,2}[./-]\d{1,4})\)#', $description, $dates)) {
+            $start = $this->parsed($dates[1]);
+            $end = $this->parsed($dates[2]);
+            // Its own dates win over any wording: WHMCS's end is the day before the next expiry.
+            if ($start !== null && $end !== null && $end->greaterThan($start)) {
+                $years = max(1, min(10, (int) round($start->diffInMonths($end->copy()->addDay()) / 12)));
+            }
         }
         $start ??= ($due = $this->date($record['duedate'] ?? null, dateOnly: true)) !== null ? Carbon::parse($due) : null;
         if ($start === null) {
@@ -413,6 +475,14 @@ final class WhmcsDomainImport
         }
 
         return ['period_start' => $start->toDateString(), 'period_end' => $start->copy()->addYearsNoOverflow($years)->toDateString()];
+    }
+
+    /** A date in WHMCS's DateFormat, never an overflowing one (31/02). */
+    private function parsed(string $value): ?Carbon
+    {
+        $parsed = \DateTime::createFromFormat('!' . $this->phpDateFormat(), $value);
+
+        return $parsed !== false && $parsed->format($this->phpDateFormat()) === $value ? Carbon::instance($parsed) : null;
     }
 
     private function phpDateFormat(): string
@@ -426,12 +496,14 @@ final class WhmcsDomainImport
         return $this->dateFormat;
     }
 
-    /** @return array<int, array{expires: ?string, years: int}> */
+    /** @return array<int, array{expires: ?string, years: int, ended: bool}> */
     private function imported(): array
     {
-        return $this->imported ??= DB::table('domains')->get(['id', 'expires_at', 'years'])
+        $ended = [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value, DomainStatus::Deleted->value];
+
+        return $this->imported ??= DB::table('domains')->get(['id', 'expires_at', 'years', 'status'])
             ->mapWithKeys(fn ($domain) => [(int) $domain->id => ['expires' => $domain->expires_at !== null ? substr((string) $domain->expires_at, 0, 10) : null,
-                'years' => max(1, (int) $domain->years)]])->all();
+                'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true)]])->all();
     }
 
     private function date(mixed $value, bool $dateOnly = false): ?string
