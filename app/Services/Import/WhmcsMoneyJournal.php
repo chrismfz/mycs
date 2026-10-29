@@ -113,6 +113,8 @@ class WhmcsMoneyJournal
                 } else {
                     $this->dayOnly[$nextId] = true;
                 }
+            } elseif ($paid === null) {
+                $this->dayOnly[$nextId] = true; // the invoice's day alone (ADV-528-R2-1)
             }
             $insert[] = ['id' => $nextId++, 'invoice_id' => $id, 'amount' => $cents / 100, 'is_credit_transaction' => true,
                 'created_at' => $at, 'updated_at' => $at];
