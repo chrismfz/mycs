@@ -5,6 +5,7 @@ namespace App\Services\Import;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Invoice;
 use App\Services\Money\MoneyTrail;
+use App\Services\Tax\EuVat;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PDO;
@@ -30,6 +31,11 @@ final class WhmcsParity
         };
 
         $add('Customers', $this->count('SELECT COUNT(*) FROM tblclients'), DB::table('clients')->count());
+        // Without a country the app knows (EuVat::iso, as the importer reads it): #524 stops their orders until they set one.
+        $this->hasColumn('tblclients', 'country') && $add('Customers without a country', count(array_filter($this->whmcs->query('SELECT country FROM tblclients')->fetchAll(PDO::FETCH_COLUMN),
+            fn ($country) => EuVat::iso($country) === null)),
+            DB::table('clients')->whereNotExists(fn ($contact) => $contact->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id')
+                ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
 
         foreach (['Active' => 'active', 'Suspended' => 'suspended', 'Terminated' => 'terminated', 'Cancelled' => 'cancelled', 'Pending' => 'pending'] as $whmcs => $mycs) {
             $add("Services {$mycs}", $this->count('SELECT COUNT(*) FROM tblhosting WHERE domainstatus = ?', [$whmcs]),
