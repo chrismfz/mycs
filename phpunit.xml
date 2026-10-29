@@ -15,6 +15,7 @@
             <directory>packages/bank-alerts/tests</directory>
             <directory>packages/billing-period/tests</directory>
             <directory>packages/cnic/tests</directory>
+            <directory>packages/eu-vat-rates/tests</directory>
             <directory>packages/gr-epp/tests</directory>
             <directory>packages/pricing/tests</directory>
             <directory>packages/proxmox/tests</directory>

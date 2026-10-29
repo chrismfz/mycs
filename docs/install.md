@@ -71,7 +71,9 @@ php artisan mycs:install                    # ρωτάει εταιρεία, URL
 MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   --company="nixpal" --url=https://my.nixpal.com --first-name=… --last-name=… --email=…
 ```
-Επιλογές: `--language=el`, `--timezone=Europe/Athens`, `--currency=EUR|USD`.
+Επιλογές: `--language=el`, `--timezone=Europe/Athens`, `--currency=EUR|USD`, `--eu-vat-rates` (οι κανονικοί συντελεστές
+ΦΠΑ των 27 χωρών της ΕΕ στο Tax Rates, μόνο όσες χώρες δεν έχουν· χωρίς το flag το ρωτά, προεπιλογή όχι). Αργότερα:
+`php artisan mycs:vat-rates:seed` (`docs/eu-vat.md`).
 
 Μετά: `deploy/private-files.sh` (το cached config, το `.env`, τα logs, τα PDF, τα tickets και τα snapshots μόνο για τον
 χρήστη της εφαρμογής· το ξανατρέχει κάθε `deploy/update.sh`), cron `* * * * * php artisan schedule:run`, queue worker

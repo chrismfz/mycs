@@ -14,7 +14,7 @@ Every command takes `--json` (for scripts and agents).
 
 | Command | What it says |
 |---|---|
-| `mycs:health` | build (deploy's `storage/app/build.json`), pending migrations, scheduler heartbeat (5 min), daily cron (25 h), queue (waiting, failed in 24 h), mail (sent / failed / stuck, disabled, SMTP set), module actions staff must see, license checks today and silent licenses. Exit 0 ok, 1 warn, 2 fail. |
+| `mycs:health` | build (deploy's `storage/app/build.json`), pending migrations, scheduler heartbeat (5 min), daily cron (25 h), queue (waiting, failed in 24 h), mail (sent / failed / stuck, disabled, SMTP set), module actions staff must see, license checks today and silent licenses, the weekly EU VAT rates check against TEDB (`docs/eu-vat.md`). Exit 0 ok, 1 warn, 2 fail. |
 | `mycs:service {id\|license key\|domain}` (of several with a domain, a live one) | status, plan, price, server, dates, order, cancellation, license (bindings, last good check, last failure), last invoices, module actions with their errors, mails, audit (fields only). |
 | `mycs:client {id\|email}` (a primary contact's, a login's, then any contact's; several accounts are named) | the account: login, credit, services, last invoices, open invoices, mails, audit. |
 | `mycs:invoice {number\|id\|#id}` (a number that is another invoice's id is asked) | lines (with what each bills and its period), transactions, mails, audit. |

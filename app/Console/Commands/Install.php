@@ -38,6 +38,7 @@ class Install extends Command
         {--language=el : Client area default language}
         {--timezone=Europe/Athens : Timezone}
         {--currency=EUR : Default currency (EUR or USD)}
+        {--eu-vat-rates : Add the EU member states\' standard VAT rates to Tax Rates (asked when interactive)}
         {--force : Run even if users already exist}';
 
     protected $description = 'First install: migrations, base data, company settings and the first admin.';
@@ -93,6 +94,13 @@ class Install extends Command
             'timezone' => $input['timezone'],
             'default_currency' => $input['currency'],
         ]);
+
+        // The EU standard VAT rates (docs/eu-vat.md), only where Tax Rates has none: asked, since not every company
+        // sells across the EU (myip has only Greece's).
+        if ($this->option('eu-vat-rates') || ($this->input->isInteractive()
+            && $this->confirm('Add the EU member states\' standard VAT rates to Tax Rates?', false))) {
+            $this->call('mycs:vat-rates:seed');
+        }
 
         if (!file_exists(public_path('storage'))) {
             Artisan::call('storage:link');

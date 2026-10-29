@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1ae849b1d382a2fa597c5b3f8e281e4c",
+    "content-hash": "e3999f8924bbdf9d35fa2f45439c9cfb",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -4771,6 +4771,43 @@
                 "proprietary"
             ],
             "description": "CentralNic Reseller (fka RRPproxy) API: its request and answer formats. Framework-free; the transport is the caller's.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/eu-vat-rates",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/eu-vat-rates",
+                "reference": "9b7b71426d24ea93eedeabe31471dcac0fd40e3a"
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-json": "*",
+                "ext-libxml": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\EuVatRates\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\EuVatRates\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "The EU member states' standard VAT rates: a checked list to start from, and the request and parser for the European Commission's TEDB web service (Taxes in Europe Database). Framework-free; the caller sends the request.",
             "transport-options": {
                 "symlink": true,
                 "relative": true

@@ -6,6 +6,7 @@ use App\Models\Currency;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\Staff;
+use App\Models\TaxRate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -105,5 +106,14 @@ class InstallTest extends TestCase
 
         $this->assertSame(0, Staff::query()->count());
         $this->assertNull($this->setting('company_name'));
+    }
+
+    public function test_the_eu_vat_rates_are_added_only_when_asked(): void
+    {
+        $this->artisan('mycs:install', self::OPTIONS)->assertSuccessful();
+        $this->assertSame(0, TaxRate::query()->count());
+
+        $this->artisan('mycs:install', ['--force' => true, '--eu-vat-rates' => true] + self::OPTIONS)->assertSuccessful();
+        $this->assertSame(27, TaxRate::query()->count());
     }
 }

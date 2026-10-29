@@ -10,6 +10,7 @@ parameters:
         - packages/bank-alerts/src/
         - packages/billing-period/src/
         - packages/cnic/src
+        - packages/eu-vat-rates/src/
         - packages/gr-epp/src/
         - packages/pricing/src/
         - packages/mail-template/src/
