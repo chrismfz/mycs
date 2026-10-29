@@ -18,10 +18,12 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
+use App\Services\Import\WhmcsPayMethodImport;
 use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
@@ -63,7 +65,8 @@ class ImportFromWhmcs extends Command
         {--source-socket= : the WHMCS database\'s unix socket, instead of host and port}
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
-        {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
+        {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
+        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
     private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
@@ -196,6 +199,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->importPayMethods();
             $this->journalMoney();
 
             DB::statement('SET foreign_key_checks=1');
@@ -1454,6 +1458,18 @@ class ImportFromWhmcs extends Command
         $c = $result['counts'];
         $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
             . "{$c['handles']} handle(s) linked, {$c['handles_kept']} kept for staff; {$c['reminders']} notice(s) already sent.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** The saved payment methods (WhmcsPayMethodImport): their references through WHMCS's API, never its key. */
+    private function importPayMethods()
+    {
+        $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false)); // none in a step run alone (tests)
+        $result = (new WhmcsPayMethodImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
+        $c = $result['counts'];
+        $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default), {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
