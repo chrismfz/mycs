@@ -742,17 +742,18 @@ class CronJob extends Command
             }
         }
         foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
+            $heldUntil = null;
             try {
-                $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly) {
+                $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly, &$heldUntil) {
                     $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
                     if ($service === null || self::chargeOnItsWay($service) || ($hourly && self::periodUnbilled($service))) {
                         return 0;
                     }
                     // Held until a date that passed unpaid, its customer told of it: staff are told it ended (sweep 9γ G1; not
                     // a hold of months ago, nor one never told: code review 1, ADV-HOLD-4).
-                    if (self::heldBack($service) && self::toldOfHold($service)) {
-                        $this->notices["held_suspended #{$id}"] = new DisplayException("Service #{$id} was suspended: its hold until "
-                            . $service->suspend_hold_until->toDateString() . ' ended with its invoice unpaid.');
+                    // Told after the suspension commits (ADV-HOLD-R2-2: one rolled back is not «suspended»).
+                    if (self::heldBack($service, $requiresInvoice) && self::toldOfHold($service)) {
+                        $heldUntil = $service->suspend_hold_until->toDateString();
                     }
                     // Register before Service Updated listeners, but execute only after the status commits.
                     SuspendJob::dispatch($service)->afterCommit();
@@ -763,6 +764,9 @@ class CronJob extends Command
                 $number += $done;
                 if ($done === 1) {
                     $this->suspended[] = (int) $id;
+                    if ($heldUntil !== null) {
+                        $this->notices["held_suspended #{$id}"] = new DisplayException("Service #{$id} was suspended: its hold until {$heldUntil} ended with its invoice unpaid.");
+                    }
                 }
             } catch (Throwable $e) {
                 report($e);
@@ -814,12 +818,24 @@ class CronJob extends Command
      * Its hold kept it from this suspension (ended after the day it would have been suspended without it), not one that
      * ended months ago, nor one before its Suspend Days were up anyway (code review 1 / ADV-HOLD-4).
      */
-    private static function heldBack(Service $service): bool
+    private static function heldBack(Service $service, bool $requiresInvoice = false): bool
     {
         if ($service->suspend_hold_until === null || $service->expires_at === null) {
             return false;
         }
-        $natural = Carbon::parse($service->expires_at)->startOfDay()->addDays(self::days('cronjob_order_suspend', 8) + 1);
+        $days = self::days('cronjob_order_suspend', 8);
+        $natural = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
+        // «Suspend only with an overdue invoice»: also its first open invoice's day, as suspendable() counts it
+        // (ADV-HOLD-R2-1).
+        if ($requiresInvoice) {
+            $invoiceDay = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+                ->map(fn (Invoice $invoice) => Carbon::parse($invoice->due_at ?? $invoice->created_at)->max(Carbon::parse($invoice->created_at))
+                    ->startOfDay()->addDays($days + 1))
+                ->min();
+            if ($invoiceDay !== null && $invoiceDay->greaterThan($natural)) {
+                $natural = $invoiceDay;
+            }
+        }
 
         return !Carbon::parse($service->suspend_hold_until)->startOfDay()->lessThan($natural);
     }
