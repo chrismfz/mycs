@@ -26,6 +26,7 @@ use App\Services\Import\WhmcsEkdosiContactImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
+use App\Services\Import\WhmcsNoteImport;
 use App\Services\Import\WhmcsPayMethodImport;
 use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
@@ -199,6 +200,7 @@ class ImportFromWhmcs extends Command
             $this->importLicensing();
             // After the licensing: a licensing product's fields are its import's (ADV-544-6).
             $this->importCustomFields();
+            $this->importNotes();
             $this->importCancellations();
             $this->importInvoices();
             $this->importReminderState();
@@ -1543,6 +1545,18 @@ class ImportFromWhmcs extends Command
 
     /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
     private array $itemGateways = [];
+
+    /** Staff's notes no other step brings (WhmcsNoteImport): the account's, an invoice's, an addon's. */
+    private function importNotes(): void
+    {
+        $result = (new WhmcsNoteImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Notes: {$c['notes']} staff note(s), {$c['account_notes']} account note(s), {$c['invoice_notes']} invoice note(s) on their accounts, "
+            . "{$c['addon_notes']} addon note(s) on their services; {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
 
     /** WHMCS's custom fields into MyCS's own fields (WhmcsCustomFieldImport): the account's fiscal details, IPs, Centova's. */
     private function importCustomFields(): void
