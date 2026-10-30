@@ -81,7 +81,8 @@ final class GuestSync
         $gone = ProxmoxGuest::query()->where('server_id', $server->id)->whereNull('gone_at')->whereNotIn('vmid', $seen ?: [0])
             ->update(['gone_at' => $now, 'status' => 'gone']);
 
-        $mapped = self::mapFromWhmcs($server);
+        // A read that listed nothing (a token that sees nothing yet) uses no VMID (R2-548-2).
+        $mapped = $seen === [] ? 0 : self::mapFromWhmcs($server);
 
         return ['seen' => count($seen), 'new' => $new, 'gone' => $gone, 'mapped' => $mapped];
     }
@@ -95,7 +96,8 @@ final class GuestSync
      */
     private static function mapFromWhmcs(Server $server): int
     {
-        if (self::servers()->count() !== 1) {
+        // Every Proxmox server, a disabled one too: its machines' VMIDs are as much its (R2-548-5).
+        if (Server::query()->where('extension', 'Proxmox')->count() !== 1) {
             return 0; // which cluster a VMID is in is staff's to say
         }
         $mapped = 0;
@@ -110,6 +112,8 @@ final class GuestSync
                     ->where('key', WhmcsProxmoxImport::WHMCS_VM_IP)->value('value');
                 Property::query()->where('model_type', $property->model_type)->where('model_id', $property->model_id)
                     ->whereIn('key', [WhmcsProxmoxImport::WHMCS_VMID, WhmcsProxmoxImport::WHMCS_VM_IP])->delete(); // once, whatever comes of it
+                Property::query()->updateOrCreate(['model_type' => $property->model_type, 'model_id' => $property->model_id, 'key' => WhmcsProxmoxImport::WHMCS_VMID_USED],
+                    ['name' => 'Proxmox VMID from WHMCS, used', 'value' => (string) $property->value]); // never brought back (R2-548-1)
                 if ($service === null || $guest === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING], true)
                     || ProxmoxGuest::query()->where('service_id', $service->id)->exists()
                     || ($service->server_id !== null && (int) $service->server_id !== (int) $server->id)
@@ -136,14 +140,21 @@ final class GuestSync
      */
     private static function sameMachine(ProxmoxGuest $guest, Service $service, ?string $address): bool
     {
+        $live = fn () => Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->whereKeyNot($service->id);
         $ips = array_map('strval', (array) $guest->ips);
-        foreach (array_filter([$address, $service->dedicated_ip]) as $ip) {
-            if (in_array((string) $ip, $ips, true)) {
+        foreach (array_unique(array_filter([$address, $service->dedicated_ip])) as $ip) {
+            // An address another live service holds too confirms nothing (R2-548-3: the pool gives addresses again).
+            $held = $live()->where('dedicated_ip', $ip)->exists() || Property::query()->where('model_type', (new Service)->getMorphClass())
+                ->where('key', WhmcsProxmoxImport::WHMCS_VM_IP)->where('value', $ip)->where('model_id', '!=', $service->id)->exists();
+            if (!$held && in_array((string) $ip, $ips, true)) {
                 return true;
             }
         }
+        $name = trim((string) $guest->name);
 
-        return filled($service->domain) && filled($guest->name) && strcasecmp(trim((string) $guest->name), trim((string) $service->domain)) === 0;
+        // A name another live service has too confirms nothing (R2-548-4: domains are not unique in WHMCS).
+        return filled($service->domain) && $name !== '' && strcasecmp($name, trim((string) $service->domain)) === 0
+            && !$live()->whereRaw('LOWER(TRIM(domain)) = ?', [mb_strtolower($name)])->exists();
     }
 
     /**

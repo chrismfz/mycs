@@ -19,6 +19,9 @@ final class WhmcsProxmoxImport
     /** The service's VMID in WHMCS's module, until the cluster's first read maps its guest (then it goes). */
     public const WHMCS_VMID = 'whmcs_vmid';
 
+    /** A VMID the cluster's read used already (mapped or not): an importer's later run never brings it back (R2-548-1). */
+    public const WHMCS_VMID_USED = 'whmcs_vmid_used';
+
     /** Its address in WHMCS's module: what the first read checks the guest by, beside its name (code review 1 of #548). */
     public const WHMCS_VM_IP = 'whmcs_vm_ip';
 
@@ -45,6 +48,7 @@ final class WhmcsProxmoxImport
             throw $e;
         }
         $services = DB::table('services')->pluck('status', 'id')->all();
+        $used = DB::table('properties')->where('model_type', Service::class)->where('key', self::WHMCS_VMID_USED)->pluck('model_id')->flip()->all();
         // Only a service of the module's products (code review 3 of #548: a VM WHMCS never suspended is not made one MyCS
         // suspends); the product ids are WHMCS's.
         $ofModule = DB::table('services')->whereIn('product_id', array_map('intval', $products))->pluck('id')->flip()->all();
@@ -56,7 +60,7 @@ final class WhmcsProxmoxImport
             $this->counts['vms']++;
             $id = (int) $vm['id']; // the module's row is its service's (tblhosting.id)
             $vmid = (int) ($vm['vmid'] ?? 0);
-            if ($vmid > 0 && in_array($services[$id] ?? null, self::LIVE, true) && isset($ofModule[$id])) {
+            if ($vmid > 0 && in_array($services[$id] ?? null, self::LIVE, true) && isset($ofModule[$id]) && !isset($used[$id])) {
                 $claims[$vmid][] = $id;
                 $ips[$id] = trim((string) ($vm['ipaddress'] ?? ''));
             }
