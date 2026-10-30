@@ -91,6 +91,7 @@ class SuspendHoldNoticeTest extends TestCase
     public function test_suspended_after_the_hold_staff_are_told_it_ended_unpaid(): void
     {
         $service = $this->held('2026-11-20');
+        $this->cron('2026-11-19 03:00:00'); // its customer told
 
         $this->cron('2026-11-21 03:00:00');
 
@@ -108,5 +109,16 @@ class SuspendHoldNoticeTest extends TestCase
         $this->cron('2026-11-19 03:00:00');
 
         $this->assertSame(0, $this->notices(), 'not overdue: nothing to warn of');
+    }
+
+    /** A hold of months ago, its customer never told of it: staff are not told it «ended» (code review 1, ADV-HOLD-4). */
+    public function test_a_stale_hold_tells_staff_nothing(): void
+    {
+        $service = $this->held('2026-03-01');
+
+        $this->cron('2026-11-21 03:00:00');
+
+        $this->assertSame('suspended', $service->fresh()->status);
+        $this->assertFalse(EmailLog::query()->where('body', 'like', '%its hold until 2026-03-01 ended%')->exists());
     }
 }

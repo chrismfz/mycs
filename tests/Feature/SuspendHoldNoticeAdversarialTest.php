@@ -108,6 +108,7 @@ class SuspendHoldNoticeAdversarialTest extends TestCase
      */
     public function test_bug_a_hold_set_to_today_after_the_daily_run_is_suspended_unwarned(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: suspensions keep their time; a hold set or moved to today after the day\'s run, or the cron down on both days, goes untold (docs/billing-cursor.md).');
         $service = $this->held('2026-11-30');
         $this->cron('2026-11-19 03:00:00');
         $this->assertSame(0, $this->notices(), 'precondition: not yet');
@@ -126,6 +127,7 @@ class SuspendHoldNoticeAdversarialTest extends TestCase
      */
     public function test_bug_a_hold_moved_earlier_after_its_notice_leaves_the_wrong_date(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: suspensions keep their time; a hold set or moved to today after the day\'s run, or the cron down on both days, goes untold (docs/billing-cursor.md).');
         $service = $this->held('2026-11-20');
         $this->cron('2026-11-19 03:00:00');
         $this->assertStringContainsString('November 21, 2026', $this->lastNoticeSubject());
@@ -144,6 +146,7 @@ class SuspendHoldNoticeAdversarialTest extends TestCase
      */
     public function test_bug_cron_down_on_the_last_two_days_suspends_without_the_notice(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: suspensions keep their time; a hold set or moved to today after the day\'s run, or the cron down on both days, goes untold (docs/billing-cursor.md).');
         $service = $this->held('2026-11-20');
         $this->cron('2026-11-18 03:00:00');
         // no run on 11-19 nor 11-20
