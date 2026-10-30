@@ -132,7 +132,8 @@ class ContactMailsAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($this->client, $this->invoice());
 
-        $this->assertSame(['owner@example.test'], $this->mailedTo(), 'making another contact primary mails no one new');
+        // The old details address takes none; the new primary's address is the account's (owner 2026-10-30, ADV-550-R2-4).
+        $this->assertSame(['new-details@example.test'], $this->mailedTo(), 'the old primary is mailed nothing');
     }
 
     // ---- ADV-550-3: an address that opted in is dropped because the owner shares it, though the owner got nothing ---

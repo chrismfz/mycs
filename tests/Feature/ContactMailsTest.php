@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Helpers\NotificationHelper;
+use App\Livewire\Client\Account;
 use App\Livewire\Client\Contacts;
 use App\Livewire\Client\Users;
 use App\Models\BulkMail;
@@ -223,5 +224,36 @@ class ContactMailsTest extends TestCase
             ->assertDispatched('notify', fn ($name, $params) => ($params[0]['type'] ?? null) === 'warning' && str_contains($params[0]['message'], 'Nikos'));
 
         $this->assertSame([], $this->client->contactsMailedAt('other@example.test')->all());
+    }
+
+    /** ADV-550-R2-4: the primary's own address is mailed as the account's; a member without every kind never moves it. */
+    public function test_a_member_without_every_kind_never_moves_the_primarys_address(): void
+    {
+        $member = User::factory()->withoutClient()->create(['email' => 'member@example.test']);
+        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $member->id, 'permissions' => ['profile'], 'granted_at' => now()]);
+        $this->client->primaryContact->update(['email' => 'books@example.test', 'country' => 'GR']);
+        app(CurrentClient::class)->forget();
+        $this->actingAs($member)->withSession($this->loginUser($member, [CurrentClient::SESSION_KEY => $this->client->id]));
+
+        Livewire::test(Account::class)->set('contact.email', 'member@example.test')->call('submit')
+            ->assertHasErrors(['contact.email']);
+
+        $this->assertSame('books@example.test', $this->client->primaryContact->fresh()->email);
+    }
+
+    /** Owner 2026-10-30, as WHMCS (tblemails: To the account's email): the account's address, the login only without one. */
+    public function test_the_accounts_mails_go_to_its_primary_contacts_address(): void
+    {
+        $this->client->primaryContact->update(['email' => 'accounts@example.test']);
+        $invoice = $this->invoice();
+
+        NotificationHelper::invoiceCreatedNotification($this->client->fresh(), $invoice);
+        $this->assertSame(['accounts@example.test'], $this->mailedTo());
+        $this->assertSame(1, Notification::query()->where('user_id', $this->owner->id)->count(), 'the in-app is the owner\'s');
+
+        $this->clean();
+        $this->client->primaryContact->update(['email' => null]);
+        NotificationHelper::invoiceCreatedNotification($this->client->fresh(), $invoice);
+        $this->assertSame(['owner@example.test'], $this->mailedTo(), 'none on the account: the owner\'s login');
     }
 }

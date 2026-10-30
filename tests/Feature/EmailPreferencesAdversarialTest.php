@@ -244,7 +244,9 @@ class EmailPreferencesAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($this->client->fresh(), $invoice->fresh());
 
-        $this->assertSame(['new_invoice_created'], $this->mailed(), 'the owner took every kind before staff changed the account\'s details');
+        // To the account's address, now the new primary's (owner 2026-10-30, Client::mailAddress).
+        $this->assertSame(['new_invoice_created'], EmailLog::query()->where('to', 'new@example.test')->pluck('template_key')->all(),
+            'the owner took every kind before staff changed the account\'s details');
     }
 
     // ---- ADV-545-7: WHMCS's own choices are not imported ------------------------------------------------------------

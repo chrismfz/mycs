@@ -320,9 +320,10 @@ class ContactsAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($client->fresh(), $invoice->fresh());
 
-        // The primary contact's address never: the owner's mail goes to the owner's login. Another contact gets the kinds
-        // it takes since owner 2026-10-30 (ContactMailsTest), and a member ticks only the kinds they may see.
-        $this->assertSame(0, EmailLog::query()->where('to', 'victim@example.test')->count());
+        // Since owner 2026-10-30 (ContactMailsTest): the primary's address gets the account's mails as WHMCS's
+        // tblclients.email (ADV-550-R2-4), another contact the kinds it takes; a member never moves either to their own
+        // address past their permissions (ADV-550-1, Account page).
+        $this->assertTrue(EmailLog::query()->where('to', 'victim@example.test')->exists());
         $this->assertTrue(EmailLog::query()->where('to', 'victim2@example.test')->exists());
     }
 
@@ -343,8 +344,9 @@ class ContactsAdversarialTest extends TestCase
         $page = $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
             ->callAction('sendEmail', data: ['template' => 'invoice_modified']);
 
-        $this->assertSame('owner@example.test', EmailLog::query()->latest('id')->value('to'));
-        $page->assertNotified('Email queued to owner@example.test');
+        // Since owner 2026-10-30 the account's mails go to its primary contact's address, as WHMCS's tblclients.email.
+        $this->assertTrue(EmailLog::query()->where('to', 'billing@example.test')->where('template_key', 'invoice_modified')->exists());
+        $page->assertNotified('Email queued to billing@example.test');
     }
 
     // ---- staff ---------------------------------------------------------------------------------------------------

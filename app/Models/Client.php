@@ -413,6 +413,17 @@ class Client extends Model implements Auditable
     }
 
     /**
+     * Where the account's mails go (owner 2026-10-30, as WHMCS's tblclients.email): its primary contact's address; the
+     * owner's login's when it has none that is valid. The login keeps its own (reset, verification) and the in-app.
+     */
+    public function mailAddress(): string
+    {
+        $email = trim((string) $this->primaryContact?->email);
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : (string) $this->owner()?->email;
+    }
+
+    /**
      * The account's contacts still mailed at this address (owner 2026-10-30): a member's own address on a contact keeps
      * taking the account's mails after their access is removed, so whoever removes it is told (ADV-550 note).
      *
@@ -422,8 +433,10 @@ class Client extends Model implements Auditable
     {
         $email = mb_strtolower(trim((string) $email));
 
-        return $email === '' ? collect() : $this->contacts()->active()->whereNull('primary_of_client_id')->get()
-            ->filter(fn (Contact $contact) => mb_strtolower(trim((string) $contact->email)) === $email && $contact->emailPreferencesShown() !== [])
+        // The primary too: its address is the account's (mailAddress).
+        return $email === '' ? collect() : $this->contacts()->active()->get()
+            ->filter(fn (Contact $contact) => mb_strtolower(trim((string) $contact->email)) === $email
+                && ($contact->isPrimary() || $contact->emailPreferencesShown() !== []))
             ->values();
     }
 

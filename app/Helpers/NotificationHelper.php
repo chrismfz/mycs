@@ -72,13 +72,16 @@ class NotificationHelper
         $previous = self::$account;
         self::$account = $client;
         try {
+            // To the account's address (its primary contact's, as WHMCS's tblclients.email: owner 2026-10-30), with the
+            // owner's preferences and in-app.
+            $address = $client->mailAddress();
             if (!($noMail && $mailOnly)) {
-                self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
+                self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail, mailTo: $address);
             }
             if ($toContacts) {
-                // The owner's address is theirs to choose for (their own preference, ADV-550-R2-2), unless only the
-                // primary's kinds kept the mail from them: then a contact sharing it gets its copy (ADV-550-3).
-                self::toContacts($client, $owner, $key, $data, $attachments, ownerAddressTaken: !$noMail);
+                // The account takes it (the primary's kinds, ALWAYS, or staff's hand): its address is the owner's to choose
+                // for (their own preference, ADV-550-R2-2). Else a contact sharing it still gets its own (ADV-550-3).
+                self::toContacts($client, $address, $key, $data, $attachments, accountTakes: !$noMail);
             }
         } finally {
             self::$account = $previous;
@@ -94,7 +97,7 @@ class NotificationHelper
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toContacts(Client $client, User $owner, string $key, array $data, array $attachments, bool $ownerAddressTaken): void
+    private static function toContacts(Client $client, string $accountAddress, string $key, array $data, array $attachments, bool $accountTakes): void
     {
         if (in_array($key, EmailKinds::OWNER_ONLY, true) || config('settings.mail_disable')) {
             return;
@@ -113,7 +116,7 @@ class NotificationHelper
             return;
         }
         $locale = self::localeFor($client);
-        $sent = $ownerAddressTaken ? [mb_strtolower((string) $owner->email) => true] : [];
+        $sent = $accountTakes ? [mb_strtolower(trim($accountAddress)) => true] : [];
         // The template's CC and BCC had the owner's mail already: not a second copy (round 2 of #550).
         foreach ([...(array) $template->cc, ...(array) $template->bcc] as $copy) {
             $sent[mb_strtolower(trim((string) $copy))] = true;
@@ -222,7 +225,10 @@ class NotificationHelper
         User $user,
         array $attachments = [],
         bool $copies = true,
+        ?string $to = null,
     ): void {
+        // The account's address when it is not the login's (toAccount); else the login's own.
+        $to ??= (string) $user->email;
         $mail = new Mail($notificationTemplate, $data);
         // Rendered (header and footer too) in the language it was written in, also by the queue worker.
         $mail->locale(app()->getLocale());
@@ -234,7 +240,7 @@ class NotificationHelper
         $emailLog = EmailLog::create([
             'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
-            'to' => $user->email,
+            'to' => $to,
             'body' => self::bodyForLog($mail, $notificationTemplate, $data),
             // The mail audit (docs/mail.md): from, copies, template and what it is about.
             'from_address' => config('settings.mail_from_address'),
@@ -251,7 +257,7 @@ class NotificationHelper
             $mail->attachFromStorage($attachment['path'], $attachment['name'], $attachment['options'] ?? []);
         }
 
-        FacadesMail::to($user->email)
+        FacadesMail::to($to)
             ->bcc($copies ? (array) $notificationTemplate->bcc : [])
             ->cc($copies ? (array) $notificationTemplate->cc : [])
             ->queue($mail);
@@ -319,6 +325,7 @@ class NotificationHelper
         bool $show_as_push = true,
         bool $mailOnly = false,
         bool $noMail = false,
+        ?string $mailTo = null,
     ): void {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
@@ -326,7 +333,7 @@ class NotificationHelper
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail, $mailTo));
     }
 
     /**
@@ -355,7 +362,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): void
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false, ?string $mailTo = null): void
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -368,7 +375,7 @@ class NotificationHelper
         try {
             // $noMail: the account's primary contact does not take this kind of mail (toAccount).
             if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
-                self::sendEmailNotification($notification, $data, $user, $attachments);
+                self::sendEmailNotification($notification, $data, $user, $attachments, to: $mailTo);
             }
         } catch (TemplateError $e) {
             report($e);

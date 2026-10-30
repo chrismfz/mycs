@@ -103,6 +103,15 @@ class Account extends ComponentWithProperties
         }
         $this->reset('email_password');
         $client = CurrentClient::allows('profile') ? CurrentClient::model() : null;
+        // The primary's address gets the account's mails (ADV-550-R2-4): a login that may not see every kind (or the
+        // ones that always go) never moves it to another address.
+        $primaryEmail = $client?->primaryContact?->email;
+        if ($client !== null && $this->kindsNotAllowed() !== []
+            && mb_strtolower(trim((string) ($this->contact['email'] ?? ''))) !== mb_strtolower(trim((string) $primaryEmail))) {
+            $this->addError('contact.email', __('account.contact_email_kinds_not_allowed'));
+
+            return;
+        }
         // All of it or nothing (code review of #247): the account's details refused (a domain's contact, P1b-1) leave the
         // login's name as it was too.
         $emailChanged = DB::transaction(function () use ($user, $client, $validatedData) {

@@ -57,8 +57,8 @@ final class EmailKinds
     public const ALWAYS = ['server_suspended', 'server_terminated', 'invoice_overdue', 'domain_expired_notice', 'new_ticket_message'];
 
     /**
-     * The owner's alone, never a contact's copy (toContacts): the welcome mail's password, and a ticket's message (its
-     * thread is the ticket opener's, docs/tickets.md §3 Γ).
+     * The account's address alone (Client::mailAddress), never a contact's copy (toContacts): the welcome mail's password,
+     * and a ticket's message (its thread is the account's, docs/tickets.md §3 Γ).
      */
     public const OWNER_ONLY = ['new_server_created', 'new_ticket_message', 'password_reset', 'email_verification', 'client_invite'];
 
