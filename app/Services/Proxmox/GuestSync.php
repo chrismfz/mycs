@@ -3,8 +3,11 @@
 namespace App\Services\Proxmox;
 
 use App\Helpers\ExtensionHelper;
+use App\Models\Property;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
+use App\Models\Service;
+use App\Services\Import\WhmcsProxmoxImport;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
@@ -18,7 +21,7 @@ use RuntimeException;
  */
 final class GuestSync
 {
-    /** @return array{seen: int, new: int, gone: int} */
+    /** @return array{seen: int, new: int, gone: int, mapped: int} */
     public static function sync(Server $server): array
     {
         $extension = ExtensionHelper::getExtension('server', $server->extension, $server->settings);
@@ -36,7 +39,7 @@ final class GuestSync
         }
     }
 
-    /** @return array{seen: int, new: int, gone: int} */
+    /** @return array{seen: int, new: int, gone: int, mapped: int} */
     private static function read(Server $server, Proxmox $extension): array
     {
         $guests = $extension->client()->guests(); // throws before anything is written: a failed read marks nothing gone
@@ -77,7 +80,38 @@ final class GuestSync
         $gone = ProxmoxGuest::query()->where('server_id', $server->id)->whereNull('gone_at')->whereNotIn('vmid', $seen ?: [0])
             ->update(['gone_at' => $now, 'status' => 'gone']);
 
-        return ['seen' => count($seen), 'new' => $new, 'gone' => $gone];
+        $mapped = self::mapFromWhmcs($server);
+
+        return ['seen' => count($seen), 'new' => $new, 'gone' => $gone, 'mapped' => $mapped];
+    }
+
+    /**
+     * The guests WHMCS's module knew (their VMID kept on the service by the importer, WhmcsProxmoxImport::WHMCS_VMID):
+     * an unmapped guest with that VMID becomes that service's, once (docs/proxmox.md A3). The VMID then goes, so a
+     * mapping staff clear later is never made again; a service mapped already, or a guest gone, internal or a template,
+     * is left to staff.
+     */
+    private static function mapFromWhmcs(Server $server): int
+    {
+        $mapped = 0;
+        $pending = Property::query()->where('model_type', (new Service)->getMorphClass())->where('key', WhmcsProxmoxImport::WHMCS_VMID)->get();
+        foreach ($pending as $property) {
+            $service = Service::query()->find($property->model_id);
+            $guest = ProxmoxGuest::whereUnmapped(ProxmoxGuest::query())->where('server_id', $server->id)->where('vmid', (int) $property->value)
+                ->whereNull('gone_at')->first();
+            if ($service === null || $guest === null || ProxmoxGuest::query()->where('service_id', $service->id)->exists()
+                || ($service->server_id !== null && (int) $service->server_id !== (int) $server->id)) {
+                continue; // another cluster's, or not here (yet): kept for its read
+            }
+            $guest->update(['service_id' => $service->id]);
+            if ($service->server_id === null) {
+                $service->forceFill(['server_id' => $server->id])->save();
+            }
+            $property->delete();
+            $mapped++;
+        }
+
+        return $mapped;
     }
 
     /**

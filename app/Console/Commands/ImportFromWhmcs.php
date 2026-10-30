@@ -28,6 +28,7 @@ use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
 use App\Services\Import\WhmcsNoteImport;
 use App\Services\Import\WhmcsPayMethodImport;
+use App\Services\Import\WhmcsProxmoxImport;
 use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsServicePasswordImport;
 use App\Services\Import\WhmcsTicketImport;
@@ -202,6 +203,7 @@ class ImportFromWhmcs extends Command
             // After the licensing: a licensing product's fields are its import's (ADV-544-6).
             $this->importCustomFields();
             $this->importNotes();
+            $this->importProxmoxVms();
             $this->importCancellations();
             $this->importInvoices();
             $this->importReminderState();
@@ -1547,6 +1549,19 @@ class ImportFromWhmcs extends Command
 
     /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
     private array $itemGateways = [];
+
+    /** WHMCS's Proxmox VPS (WhmcsProxmoxImport): each one's VMID, for the cluster's first read here to map its guest. */
+    private function importProxmoxVms(): void
+    {
+        $result = (new WhmcsProxmoxImport($this->pdo))->run();
+        $c = $result['counts'];
+        if ($c['vms'] > 0 || $c['unmapped'] > 0) {
+            $this->info("Proxmox: {$c['kept']} VPS's VMID kept for the cluster's first read to map them; {$c['unmapped']} live one(s) for staff to map.");
+        }
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
 
     /** Staff's notes no other step brings (WhmcsNoteImport): the account's, an invoice's, an addon's. */
     private function importNotes(): void

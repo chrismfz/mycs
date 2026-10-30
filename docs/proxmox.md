@@ -101,12 +101,17 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 2. [x] **Pool στη λίστα (PR 2, #447):** η στήλη «In MyCS pool» διαβάζεται από το `/cluster/resources`. Για όσα είναι
    αντιστοιχισμένα αλλά εκτός pool, η σελίδα δίνει έτοιμη την εντολή `pvesh set /pools --poolid mycs --vms …`, που την τρέχει
    ο υπεύθυνος. Το token της MyCS δεν παίρνει δικαίωμα να αλλάζει pools.
-3. [ ] **Importer (γραμμή 9 του ROADMAP):**
-   - Οι 8 VPS του myip γίνονται υπηρεσίες με server το cluster και `dedicated_ip`.
-   - Οι 6 που έχουν εγγραφή στο `mod_pvewhmcs_vms` αντιστοιχίζονται αυτόματα με το vmid. Οι 2 χειροκίνητοι γίνονται
-     από τη λίστα, με τη βοήθεια της πρότασης από IP/MAC.
-   - Re-runnable. Δεν αλλάζει αντιστοίχιση που έκανε το staff. Το parity μετρά «VPS του WHMCS = αντιστοιχισμένα
-     guests».
+3. [x] **Importer (γραμμή 9 του ROADMAP, `WhmcsProxmoxImport` + `GuestSync::mapFromWhmcs`, 2026-10-30):**
+   - Το import δεν χρειάζεται δίκτυο: κρατά σε κάθε υπηρεσία το vmid της από το `mod_pvewhmcs_vms` (property `whmcs_vmid`).
+     Μετά το import ο πίνακας `proxmox_guests` είναι άδειος.
+   - Μόλις το staff βάλει τον server του cluster και γίνει η πρώτη ανάγνωση (cron ή «Read the clusters now»):
+     - κάθε guest χωρίς υπηρεσία με αυτό το vmid γίνεται της υπηρεσίας·
+     - η υπηρεσία παίρνει server το cluster, αν δεν έχει·
+     - το vmid σβήνεται, ώστε μια αντιστοίχιση που καθάρισε το staff να μην ξαναγίνει ποτέ.
+   - Δεν αγγίζει υπηρεσία ήδη αντιστοιχισμένη, ούτε guest αντιστοιχισμένο, internal, template ή gone.
+   - Πρόβα στη myip (rollback): 5 με vmid, και 2 σε λειτουργία που δεν τις ήξερε ποτέ το module, τις οποίες το staff
+     αντιστοιχίζει από τη λίστα (πρόταση από IP/MAC/όνομα). Σύνολο 7 σε λειτουργία· ήταν 8 στις 2026-10-23.
+   - Οι IP τους έρχονται με το `app:import-whmcs-ip-pools` (5).
 4. [ ] **Προϊόντα:** τα «Cloud 2CPU‑8GB‑60GB», cloud‑1, Cloud‑2 και CS‑2 με module Proxmox. Τα πλάνα
    (`mod_pvewhmcs_plans`) γίνονται ρυθμίσεις του προϊόντος όταν έρθει το create (Β4). Ως τότε αρκεί το module, για
    suspend και terminate. Οι παλιές επιλογές Hetzner του CS‑2 δεν περνούν.

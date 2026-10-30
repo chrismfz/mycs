@@ -35,7 +35,7 @@ class ListProxmoxGuests extends ListRecords
                         try {
                             $result = GuestSync::sync($server);
                             Notification::make()->success()->title($server->name)
-                                ->body("{$result['seen']} guest(s), {$result['new']} new, {$result['gone']} gone")->send();
+                                ->body("{$result['seen']} guest(s), {$result['new']} new, {$result['gone']} gone, {$result['mapped']} mapped from WHMCS")->send();
                         } catch (Throwable $e) {
                             report($e);
                             Notification::make()->danger()->title($server->name)->body(e(Redact::text($e->getMessage())))->send();
