@@ -211,6 +211,9 @@ class Invoice extends Model implements Auditable
 
     public bool $send_create_email = true;
 
+    /** Staff made it with «Send Email» on (CreateInvoice): its mail goes whatever the contact takes (ADV-545-4). Not a column. */
+    public bool $create_email_by_staff = false;
+
     /** Finalized later, once all its lines are on it (a grouped renewal invoice, PR C): not when it is created. */
     public bool $finalize_later = false;
 

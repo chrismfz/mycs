@@ -413,9 +413,10 @@ class NotificationHelper
         return in_array($gateway->id, $usable) ? (string) $gateway->name : '';
     }
 
-    public static function invoiceCreatedNotification(Client $client, Invoice $invoice): void
+    /** $byStaff: an invoice staff made with «Send Email» on (CreateInvoice): sent whatever the contact takes. */
+    public static function invoiceCreatedNotification(Client $client, Invoice $invoice, bool $byStaff = false): void
     {
-        self::invoiceNotification($client, $invoice, 'new_invoice_created');
+        self::invoiceNotification($client, $invoice, 'new_invoice_created', byStaff: $byStaff);
     }
 
     public static function invoicePaidNotification(Client $client, Invoice $invoice): void
@@ -440,7 +441,7 @@ class NotificationHelper
      * A payment of the customer's went back (PR 2c-2, WHMCS's «Invoice Refund Confirmation»): to them (through the
      * gateway, or by hand) or to their account credit.
      */
-    public static function invoiceRefundedNotification(Client $client, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway): void
+    public static function invoiceRefundedNotification(Client $client, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway, bool $byStaff = false): void
     {
         $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
         self::toAccount($client, 'invoice_refunded', [
@@ -450,7 +451,7 @@ class NotificationHelper
                 'to_credit' => $toCredit,
                 'by_gateway' => $byGateway,
             ],
-        ]);
+        ], gated: !$byStaff);
     }
 
     /**
@@ -534,10 +535,11 @@ class NotificationHelper
         self::toAccount($client, 'server_suspended', $data);
     }
 
-    public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = []): void
+    /** $byStaff: staff's «Unsuspend» with «Send notification» (ADV-545-1): sent whatever the contact takes. */
+    public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = [], bool $byStaff = false): void
     {
         $data['service'] = $service;
-        self::toAccount($client, 'server_unsuspended', $data);
+        self::toAccount($client, 'server_unsuspended', $data, gated: !$byStaff);
     }
 
     /** An SSL certificate issued or reissued (OpenproviderSsl): its name, until when, the service page to take it from. */

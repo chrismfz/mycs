@@ -53,7 +53,7 @@ class SendMailListener implements ShouldQueue
     {
         if ($event instanceof InvoiceFinalized) {
             if ($event->invoice->client !== null) {
-                NotificationHelper::invoiceCreatedNotification($event->invoice->client, $event->invoice);
+                NotificationHelper::invoiceCreatedNotification($event->invoice->client, $event->invoice, $event->byStaff);
             }
         } elseif ($event instanceof InvoicePaid) {
             // An invoice left without a customer (deleted before money-trail §8) still records its money; no one to mail.

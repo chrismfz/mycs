@@ -818,7 +818,7 @@ class ExtensionHelper
                     ]);
                 }
                 if ($notify) {
-                    self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: true);
+                    self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: true, byStaff: true);
                 }
 
                 return true;
@@ -896,7 +896,7 @@ class ExtensionHelper
 
             self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
             if ($notify) {
-                self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: false);
+                self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: false, byStaff: true);
             }
         });
     }
@@ -935,7 +935,7 @@ class ExtensionHelper
             self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id);
             [$clientId, $currency] = [(int) $invoice->client_id, (string) $invoice->currency_code];
             if ($notify) {
-                self::notifyRefund($transaction, $cents, toCredit: true, byGateway: false);
+                self::notifyRefund($transaction, $cents, toCredit: true, byGateway: false, byStaff: true);
             }
         });
 
@@ -1535,16 +1535,20 @@ class ExtensionHelper
         ]);
     }
 
-    /** The customer is told of a refund, after the commit; a failing notification never undoes the refund. */
-    private static function notifyRefund(InvoiceTransaction $transaction, int $cents, bool $toCredit, bool $byGateway): void
+    /**
+     * The customer is told of a refund, after the commit; a failing notification never undoes the refund. $byStaff: a
+     * refund staff made (refund(), refundLocally(), refundToCredit(): the invoice's form, cancelling an order) with its
+     * mail on, sent whatever the contact takes (ADV-545-2); the gateway's own (its webhook) is gated.
+     */
+    private static function notifyRefund(InvoiceTransaction $transaction, int $cents, bool $toCredit, bool $byGateway, bool $byStaff = false): void
     {
         $invoice = $transaction->invoice;
         if ($invoice === null || $invoice->client === null) {
             return;
         }
-        DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway) {
+        DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway, $byStaff) {
             try {
-                NotificationHelper::invoiceRefundedNotification($invoice->client, $invoice->fresh(), $cents, $toCredit, $byGateway);
+                NotificationHelper::invoiceRefundedNotification($invoice->client, $invoice->fresh(), $cents, $toCredit, $byGateway, $byStaff);
             } catch (Throwable $e) {
                 report($e);
             }

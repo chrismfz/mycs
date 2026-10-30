@@ -26,6 +26,7 @@ class CreateInvoice extends CreateRecord
         $invoice = new Invoice;
         $invoice->fill($data);
         $invoice->send_create_email = $data['send_email'] ?? true;
+        $invoice->create_email_by_staff = $invoice->send_create_email;
         // Its issue date as staff chose it (INV-17), never after today; today's keeps the time it is made.
         $issued = EditInvoice::issuedAt($data['created_at'] ?? null);
         if ($issued !== null) {
