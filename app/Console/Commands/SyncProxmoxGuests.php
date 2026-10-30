@@ -30,7 +30,7 @@ class SyncProxmoxGuests extends Command
 
                 continue;
             }
-            $this->line("{$server->name}: {$result['seen']} guest(s), {$result['new']} new, {$result['gone']} gone, {$result['mapped']} mapped from WHMCS");
+            $this->line("{$server->name}: {$result['seen']} guest(s), {$result['new']} new, {$result['gone']} gone");
         }
 
         return $failed ? self::FAILURE : self::SUCCESS;

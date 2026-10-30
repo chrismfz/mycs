@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Import\WhmcsProxmoxImport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -44,6 +45,12 @@ class ProxmoxGuest extends Model
     public function suggestedServiceId(): ?int
     {
         $live = fn () => Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING]);
+        // WHMCS's module's VMID for one live service (WhmcsProxmoxImport): a suggestion staff confirm, never a mapping.
+        $byWhmcs = Property::query()->where('model_type', (new Service)->getMorphClass())->where('key', WhmcsProxmoxImport::WHMCS_VMID)
+            ->where('value', (string) $this->vmid)->whereIn('model_id', $live()->select('id'))->pluck('model_id');
+        if ($byWhmcs->count() === 1) {
+            return (int) $byWhmcs->first();
+        }
         foreach ((array) $this->ips as $ip) {
             if ($id = $live()->where('dedicated_ip', $ip)->value('id')) {
                 return (int) $id;

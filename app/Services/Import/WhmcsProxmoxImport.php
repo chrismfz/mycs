@@ -8,21 +8,18 @@ use PDO;
 use PDOException;
 
 /**
- * The VPS of WHMCS's Proxmox module (pvewhmcs, docs/proxmox.md A3): each one's VMID from mod_pvewhmcs_vms kept on its
- * service (WHMCS_VMID), for the first read of the cluster here to map its guest (GuestSync::mapFromWhmcs): the import
- * needs no network, and proxmox_guests starts empty after it. The live ones with no row (made by hand in WHMCS) are
- * listed: staff map them from Proxmox Guests (its suggestion from IP, MAC or name). Their IPs come with the IP pools'
- * import (app:import-whmcs-ip-pools).
+ * The VPS of WHMCS's Proxmox module (pvewhmcs, docs/proxmox.md A3): each live one's VMID and address from
+ * mod_pvewhmcs_vms kept on its service, for staff, who map the guests by hand from Proxmox Guests (owner 2026-10-30:
+ * never automatically; three review rounds kept finding a way an automatic match could give a service another
+ * customer's VM). The VMID is that page's first suggestion, never a mapping. The service, its billing, IPs and
+ * hostname come with the import as any other.
  */
 final class WhmcsProxmoxImport
 {
-    /** The service's VMID in WHMCS's module, until the cluster's first read maps its guest (then it goes). */
+    /** The service's VMID in WHMCS's module: for staff, and Proxmox Guests' suggestion (ProxmoxGuest::suggestedServiceId). */
     public const WHMCS_VMID = 'whmcs_vmid';
 
-    /** A VMID the cluster's read used already (mapped or not): an importer's later run never brings it back (R2-548-1). */
-    public const WHMCS_VMID_USED = 'whmcs_vmid_used';
-
-    /** Its address in WHMCS's module: what the first read checks the guest by, beside its name (code review 1 of #548). */
+    /** Its address in WHMCS's module, for staff. */
     public const WHMCS_VM_IP = 'whmcs_vm_ip';
 
     private const LIVE = [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING];
@@ -47,49 +44,34 @@ final class WhmcsProxmoxImport
             }
             throw $e;
         }
-        $services = DB::table('services')->pluck('status', 'id')->all();
-        $used = DB::table('properties')->where('model_type', Service::class)->where('key', self::WHMCS_VMID_USED)->pluck('model_id')->flip()->all();
-        // Only a service of the module's products (code review 3 of #548: a VM WHMCS never suspended is not made one MyCS
-        // suspends); the product ids are WHMCS's.
-        $ofModule = DB::table('services')->whereIn('product_id', array_map('intval', $products))->pluck('id')->flip()->all();
-        $ips = [];
-        // A live service's VMID only (ADV-548-1/2: an ended one's VMID Proxmox may have given another machine since), and
-        // only one claimed by a single live service (ADV-548-3: two claims are staff's to settle).
-        $claims = [];
+        $live = DB::table('services')->whereIn('status', self::LIVE)->pluck('id')->flip()->all();
+        $kept = [];
         foreach ($vms as $vm) {
             $this->counts['vms']++;
             $id = (int) $vm['id']; // the module's row is its service's (tblhosting.id)
             $vmid = (int) ($vm['vmid'] ?? 0);
-            if ($vmid > 0 && in_array($services[$id] ?? null, self::LIVE, true) && isset($ofModule[$id]) && !isset($used[$id])) {
-                $claims[$vmid][] = $id;
-                $ips[$id] = trim((string) ($vm['ipaddress'] ?? ''));
+            if ($vmid < 1 || !isset($live[$id])) {
+                continue; // an ended one's VMID Proxmox may have given another machine since
             }
-        }
-        $kept = [];
-        foreach ($claims as $vmid => $ids) {
-            if (count($ids) > 1) {
-                $this->notes[] = "VMID {$vmid} is claimed by " . count($ids) . ' live services in WHMCS\'s module (service #' . implode(', #', $ids)
-                    . '): none mapped from it, staff map the right one.';
-
-                continue;
-            }
-            $id = $ids[0];
             DB::table('properties')->updateOrInsert(['model_type' => Service::class, 'model_id' => $id, 'key' => self::WHMCS_VMID],
                 ['name' => 'Proxmox VMID (from WHMCS)', 'value' => (string) $vmid, 'created_at' => now(), 'updated_at' => now()]);
-            if (filter_var($ips[$id], FILTER_VALIDATE_IP) !== false) {
+            $ip = trim((string) ($vm['ipaddress'] ?? ''));
+            if (filter_var($ip, FILTER_VALIDATE_IP) !== false) {
                 DB::table('properties')->updateOrInsert(['model_type' => Service::class, 'model_id' => $id, 'key' => self::WHMCS_VM_IP],
-                    ['name' => 'Proxmox VM address (from WHMCS)', 'value' => $ips[$id], 'created_at' => now(), 'updated_at' => now()]);
+                    ['name' => 'Proxmox VM address (from WHMCS)', 'value' => $ip, 'created_at' => now(), 'updated_at' => now()]);
             }
             $kept[$id] = true;
             $this->counts['kept']++;
         }
-        // The live VPS WHMCS's module never knew (made by hand): for staff to map.
+        // An earlier run's, for a service no longer kept: never a stale hint (R3-548-1).
+        DB::table('properties')->where('model_type', Service::class)->whereIn('key', [self::WHMCS_VMID, self::WHMCS_VM_IP])
+            ->whereNotIn('model_id', array_keys($kept) ?: [0])->delete();
         $loose = DB::table('services')->whereIn('product_id', array_map('intval', $products))->whereIn('status', self::LIVE)->pluck('id')
             ->reject(fn ($id) => isset($kept[(int) $id]))->values()->all();
         $this->counts['unmapped'] = count($loose);
-        if ($loose !== []) {
-            $this->notes[] = count($loose) . ' live VPS with no VM in WHMCS\'s module (service #' . implode(', #', $loose)
-                . '): map them from Proxmox Guests once the cluster is read (its suggestion from IP, MAC or name).';
+        if ($vms !== [] || $loose !== []) {
+            $this->notes[] = "Proxmox: every VPS is mapped by staff from Proxmox Guests once the cluster is read ({$this->counts['kept']} with WHMCS's VMID as the suggestion"
+                . ($loose !== [] ? '; ' . count($loose) . ' with none: service #' . implode(', #', $loose) : '') . ').';
         }
 
         return ['counts' => $this->counts, 'notes' => $this->notes];

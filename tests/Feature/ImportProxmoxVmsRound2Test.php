@@ -101,9 +101,10 @@ class ImportProxmoxVmsRound2Test extends TestCase
         $this->row($a, 101);
         $this->import();
         $server = $this->cluster();
+        // Owner 2026-10-30: never mapped automatically; WHMCS's VMID is the staff's suggestion only.
         GuestSync::sync($server);
-        $this->assertSame($a->id, ProxmoxGuest::query()->where('vmid', 101)->value('service_id'), 'the first read maps it');
-
+        $this->assertNull(ProxmoxGuest::query()->where('vmid', 101)->value('service_id'), 'never by itself');
+        ProxmoxGuest::query()->where('vmid', 101)->update(['service_id' => $a->id]); // staff map it
         ProxmoxGuest::query()->where('vmid', 101)->update(['service_id' => null]); // staff: not its VM
         $this->import(); // the importer's next run before the cut-over
         GuestSync::sync($server); // the cron's next read
@@ -136,7 +137,9 @@ class ImportProxmoxVmsRound2Test extends TestCase
         $this->nodes = ['vega.example.test' => [['node' => 'vega', 'status' => 'online']]]; // the token fixed
         GuestSync::sync($server);
 
-        $this->assertSame($a->id, ProxmoxGuest::query()->where('vmid', 101)->value('service_id'), 'its VMID was not the blind read\'s to use');
+        $guest = ProxmoxGuest::query()->where('vmid', 101)->sole();
+        $this->assertNull($guest->service_id, 'never mapped by itself (owner 2026-10-30)');
+        $this->assertSame($a->id, $guest->suggestedServiceId(), 'its VMID still suggests it after a blind read');
     }
 
     /**

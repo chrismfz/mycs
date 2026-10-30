@@ -120,9 +120,12 @@ class ImportProxmoxVmsAdversarialTest extends TestCase
         $live->forceFill(['domain' => 'vps1'])->save(); // its VM by its name too (code review 1 of #548: a VMID alone is not enough)
         $this->import([$old->id => 101, $live->id => 101]);
 
+        // Owner 2026-10-30: never mapped automatically; WHMCS's VMID is the staff's suggestion only.
         GuestSync::sync($this->cluster());
 
-        $this->assertSame($live->id, ProxmoxGuest::query()->where('vmid', 101)->value('service_id'));
+        $guest = ProxmoxGuest::query()->where('vmid', 101)->sole();
+        $this->assertNull($guest->service_id, 'never mapped by itself');
+        $this->assertSame($live->id, $guest->suggestedServiceId(), 'the live service is the suggestion, not the old one');
     }
 
     /**

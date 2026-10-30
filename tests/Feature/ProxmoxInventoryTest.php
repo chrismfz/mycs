@@ -118,7 +118,7 @@ class ProxmoxInventoryTest extends TestCase
         $this->answers['cluster/resources'][0]['status'] = 'stopped'; // its agent not asked: its addresses kept
         array_pop($this->answers['cluster/resources']); // 102 deleted on the cluster
 
-        $this->assertSame(['seen' => 1, 'new' => 0, 'gone' => 1, 'mapped' => 0], GuestSync::sync($server));
+        $this->assertSame(['seen' => 1, 'new' => 0, 'gone' => 1], GuestSync::sync($server));
         $web->refresh();
         $this->assertSame([$service->id, 'stopped', ['203.0.113.10']], [$web->service_id, $web->status, $web->ips]);
         $this->assertNotNull(ProxmoxGuest::query()->where('vmid', 102)->value('gone_at'), 'kept, marked gone');
@@ -151,7 +151,7 @@ class ProxmoxInventoryTest extends TestCase
         GuestSync::sync($server);
         $this->answers['cluster/resources'] = []; // its nodes still seen: the token is fine
 
-        $this->assertSame(['seen' => 0, 'new' => 0, 'gone' => 2, 'mapped' => 0], GuestSync::sync($server));
+        $this->assertSame(['seen' => 0, 'new' => 0, 'gone' => 2], GuestSync::sync($server));
     }
 
     public function test_two_clusters_may_have_the_same_vmid(): void

@@ -67,40 +67,30 @@ class ImportProxmoxVmsTest extends TestCase
             'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1]);
     }
 
-    public function test_the_import_keeps_the_vmid_and_the_first_read_maps_the_guest_once(): void
+    /** Owner 2026-10-30: never mapped automatically; the live VPS's VMID is the staff's suggestion, a re-run drops a stale one. */
+    public function test_the_import_keeps_the_vmid_as_staffs_suggestion_never_a_mapping(): void
     {
-        [$a, $b, $manual] = [$this->vps(), $this->vps(), $this->vps()];
-        $a->forceFill(['domain' => 'vps1'])->save(); // its guest's name: more than its VMID says it is its VM
-        $this->whmcs->prepare('INSERT INTO tblproducts VALUES (?, ?)')->execute([$a->product_id, 'pvewhmcs']);
-        foreach ([$b, $manual] as $service) {
+        [$a, $ended, $manual] = [$this->vps(), $this->vps(), $this->vps()];
+        $ended->forceFill(['status' => Service::STATUS_TERMINATED])->save();
+        foreach ([$a, $ended, $manual] as $service) {
             $this->whmcs->prepare('INSERT OR IGNORE INTO tblproducts VALUES (?, ?)')->execute([$service->product_id, 'pvewhmcs']);
         }
-        $this->whmcs->prepare('INSERT INTO mod_pvewhmcs_vms VALUES (?, 101), (?, 102)')->execute([$a->id, $b->id]);
+        $this->whmcs->prepare('INSERT INTO mod_pvewhmcs_vms VALUES (?, 101), (?, 102)')->execute([$a->id, $ended->id]);
 
         $result = (new WhmcsProxmoxImport($this->whmcs))->run();
 
-        $this->assertSame(['vms' => 2, 'kept' => 2, 'unmapped' => 1], $result['counts']);
-        $this->assertStringContainsString("service #{$manual->id}", implode("\n", $result['notes']), 'made by hand in WHMCS: for staff');
-        $this->assertSame('101', Property::query()->where('model_id', $a->id)->where('key', WhmcsProxmoxImport::WHMCS_VMID)->value('value'));
-
-        // Staff map 102 to another service before the first read: theirs stays.
+        $this->assertSame(['vms' => 2, 'kept' => 1, 'unmapped' => 1], $result['counts'], 'an ended one\'s VMID is not kept');
+        $this->assertStringContainsString("service #{$manual->id}", implode("\n", $result['notes']));
         $server = $this->cluster();
-        $other = $this->vps();
-        ProxmoxGuest::query()->create(['server_id' => $server->id, 'vmid' => 102, 'service_id' => $other->id]);
-
-        $read = GuestSync::sync($server);
-
-        $this->assertSame(1, $read['mapped']);
-        $this->assertSame($a->id, ProxmoxGuest::query()->where('vmid', 101)->value('service_id'), 'its VMID in WHMCS: its guest');
-        $this->assertSame($server->id, $a->fresh()->server_id, 'the cluster is its server');
-        $this->assertSame($other->id, ProxmoxGuest::query()->where('vmid', 102)->value('service_id'), 'staff\'s mapping never redone');
-        $this->assertNull(ProxmoxGuest::query()->where('vmid', 103)->value('service_id'));
-        $this->assertFalse(Property::query()->where('model_id', $a->id)->where('key', WhmcsProxmoxImport::WHMCS_VMID)->exists(), 'once: the VMID goes');
-
-        // Staff clear it: the next read does not map it again.
-        ProxmoxGuest::query()->where('vmid', 101)->update(['service_id' => null]);
         GuestSync::sync($server);
-        $this->assertNull(ProxmoxGuest::query()->where('vmid', 101)->value('service_id'));
+        $this->assertSame(0, ProxmoxGuest::query()->whereNotNull('service_id')->count(), 'nothing mapped by itself');
+        $this->assertSame($a->id, ProxmoxGuest::query()->where('vmid', 101)->sole()->suggestedServiceId(), 'its VMID in WHMCS: the suggestion');
+        $this->assertNotSame($ended->id, ProxmoxGuest::query()->where('vmid', 102)->sole()->suggestedServiceId());
+
+        // A re-run where WHMCS no longer has its row: no stale suggestion.
+        $this->whmcs->exec('DELETE FROM mod_pvewhmcs_vms');
+        (new WhmcsProxmoxImport($this->whmcs))->run();
+        $this->assertFalse(Property::query()->where('key', WhmcsProxmoxImport::WHMCS_VMID)->exists());
     }
 
     public function test_a_whmcs_without_the_module_imports_nothing(): void
@@ -108,21 +98,5 @@ class ImportProxmoxVmsTest extends TestCase
         $result = (new WhmcsProxmoxImport(new PDO('sqlite::memory:')))->run();
 
         $this->assertSame(['vms' => 0, 'kept' => 0, 'unmapped' => 0], $result['counts']);
-    }
-
-    /** A guest under the VMID that neither WHMCS's address nor the service's name confirms is left to staff (code review 1). */
-    public function test_a_vmid_alone_maps_nothing(): void
-    {
-        $service = $this->vps();
-        $service->forceFill(['domain' => 'another.example.test'])->save();
-        $this->whmcs->prepare('INSERT INTO tblproducts VALUES (?, ?)')->execute([$service->product_id, 'pvewhmcs']);
-        $this->whmcs->prepare('INSERT INTO mod_pvewhmcs_vms VALUES (?, 101)')->execute([$service->id]);
-        (new WhmcsProxmoxImport($this->whmcs))->run();
-
-        $read = GuestSync::sync($this->cluster());
-
-        $this->assertSame(0, $read['mapped']);
-        $this->assertNull(ProxmoxGuest::query()->where('vmid', 101)->value('service_id'));
-        $this->assertNull($service->fresh()->server_id);
     }
 }

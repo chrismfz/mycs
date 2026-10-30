@@ -105,13 +105,15 @@ class ImportProxmoxVmsRound3Test extends TestCase
         $b = $this->vps();
         $this->row($b, 105, '203.0.113.60');
         $result = (new WhmcsProxmoxImport($this->whmcs))->run();
-        $this->assertStringContainsString('none mapped', implode(' ', $result['notes']));
+        $this->assertStringContainsString('mapped by staff', implode(' ', $result['notes']));
         $this->guests['vega.example.test'] = [['vmid' => 105, 'type' => 'lxc', 'node' => 'vega', 'name' => 'vps105', 'status' => 'running']];
         $this->configs['nodes/vega/lxc/105/config'] = ['net0' => 'name=eth0,hwaddr=BC:24:11:00:00:05,bridge=vmbr0,ip=203.0.113.50/24'];
 
         GuestSync::sync($this->cluster());
 
-        $this->assertNull(ProxmoxGuest::query()->where('vmid', 105)->value('service_id'), 'two live services claim VMID 105: staff\'s call');
+        $guest = ProxmoxGuest::query()->where('vmid', 105)->sole();
+        $this->assertNull($guest->service_id, 'two live services claim VMID 105: staff\'s call');
+        $this->assertNotSame($a->id, $guest->suggestedServiceId(), 'nor is either one the VMID\'s suggestion');
     }
 
     /**
