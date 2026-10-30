@@ -54,8 +54,12 @@ class ImportServicePasswordsRound2Test extends TestCase
     {
         $first = $this->service();
         $second = $this->service();
-        DB::unprepared("CREATE TRIGGER deny_first BEFORE UPDATE OF password ON services WHEN NEW.id = {$first->id}
-            BEGIN SELECT RAISE(ABORT, 'Access denied for user'); END");
+        // MyCS's own database refusing the write, in each database's trigger syntax (CI runs SQLite and MariaDB).
+        DB::unprepared(DB::connection()->getDriverName() === 'sqlite'
+            ? "CREATE TRIGGER deny_first BEFORE UPDATE OF password ON services WHEN NEW.id = {$first->id}
+                BEGIN SELECT RAISE(ABORT, 'Access denied for user'); END"
+            : "CREATE TRIGGER deny_first BEFORE UPDATE ON services FOR EACH ROW BEGIN
+                IF NEW.id = {$first->id} AND NEW.password IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Access denied for user'; END IF; END");
         Http::fake([self::URL . '/includes/api.php' => Http::response(['result' => 'success', 'password' => 'Invented-9'])]);
 
         $result = (new WhmcsServicePasswordImport($this->whmcs, new WhmcsApi(self::URL, 'id-test', 'secret-test')))->run();
