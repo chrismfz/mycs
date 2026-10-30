@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\Contact;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
 /**
@@ -65,10 +66,15 @@ class Contacts extends Component
         if ($this->editing !== null) {
             $contact = $this->contactOf($this->editing);
             $this->identityLocked = $contact->identityLocked();
-            $contact->update($this->contactValues());
+            // Another address on a contact taking a kind the login may not see would be theirs to read (code review 1 of #550).
+            $email = mb_strtolower(trim((string) ($this->contact['email'] ?? '')));
+            if ($email !== mb_strtolower(trim((string) $contact->email)) && array_intersect($contact->emailPreferencesShown(), $this->kindsNotAllowed()) !== []) {
+                throw ValidationException::withMessages(['contact.email' => __('account.contact_email_kinds_not_allowed')]);
+            }
+            $contact->update($this->withAllowedKinds($this->contactValues(), $contact));
         } else {
             $this->identityLocked = false;
-            $contact = $client->contacts()->create($this->contactValues());
+            $contact = $client->contacts()->create($this->withAllowedKinds($this->contactValues(), null));
         }
 
         $this->showForm = false;
@@ -92,6 +98,8 @@ class Contacts extends Component
             'contacts' => $contacts,
             // Where each is a domain's contact (P1b): its name stays as its registrars hold it, it is not archived.
             'uses' => Contact::domainRolesFor($contacts),
+            // Shown, not changeable: what the login may not see (withAllowedKinds keeps them as they were).
+            'lockedKinds' => $this->kindsNotAllowed(),
         ])->layoutData([
             'sidebar' => true,
             'title' => __('account.contacts'),

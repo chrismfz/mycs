@@ -9,7 +9,6 @@ use App\Models\EmailLog;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\Staff;
-use App\Models\User;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use OwenIt\Auditing\Events\AuditCustom;
@@ -72,7 +71,7 @@ class WelcomeMail
     /** Who it goes to (the account's owner), for staff to confirm. */
     public static function recipient(Service $service): ?string
     {
-        return $service->client?->owner()?->email;
+        return $service->client?->mailAddress(); // the account's address (owner 2026-10-30), as the mail goes
     }
 
     /**
@@ -109,10 +108,9 @@ class WelcomeMail
 
         $last = (int) EmailLog::query()->max('id');
         NotificationHelper::serverCreatedNotification($service->client, $service, resend: true);
-        /** @var User $owner */
-        $owner = $service->client->owner();
+        // The account's address (Client::mailAddress, ADV-550-R3-1); contacts never get it (EmailKinds::OWNER_ONLY).
         $log = EmailLog::query()->where('id', '>', $last)->where('client_id', $service->client_id)
-            ->where('template_key', self::TEMPLATE)->where('to', $owner->email)
+            ->where('template_key', self::TEMPLATE)->where('to', $service->client->mailAddress())
             ->where('related_type', $service->getMorphClass())->where('related_id', $service->id)->latest('id')->first();
         if ($log === null) {
             throw new DisplayException(__('The welcome email was not sent: its template could not be rendered (see the error log).'));

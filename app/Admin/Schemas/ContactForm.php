@@ -63,12 +63,18 @@ class ContactForm
                 ->options(collect(Contact::EMAIL_PREFERENCES)->mapWithKeys(fn ($kind) => [$kind => __('account.email_preference.' . $kind)])->all())
                 ->default($newPrimary ? Contact::EMAIL_PREFERENCES : [])
                 // The account's details: its ticks choose the owner's mails (EmailKinds).
-                ->helperText(fn ($record) => $newPrimary || ($record instanceof Contact && $record->isPrimary()) ? __('account.email_preferences_help') : null)
-                // None chosen (null, WHMCS's default) is every kind: shown ticked, or saving the form would take them all away.
-                // Read on the contact: the list's own state is [] for null too. A domain's contact is filled so (DomainContactActions).
+                // On a contact only: a domain's contact action passes the domain (code review 3 of #550).
+                ->helperText(fn ($record) => match (true) {
+                    $newPrimary || ($record instanceof Contact && $record->isPrimary()) => __('account.email_preferences_help'),
+                    $record instanceof Contact => __('account.contact_email_preferences_help'),
+                    default => null,
+                })
+                // None chosen (null): the primary's every kind, shown ticked, or saving the form would take them all away;
+                // another contact's none (Contact::takesEmail). Read on the contact: the list's own state is [] for null too.
+                // A domain's contact is filled so (DomainContactActions).
                 ->afterStateHydrated(function (CheckboxList $component, $record) {
                     if ($record instanceof Contact && $record->email_preferences === null) {
-                        $component->state(Contact::EMAIL_PREFERENCES);
+                        $component->state($record->emailPreferencesShown());
                     }
                 }),
             Textarea::make('notes')->label(__('Notes'))->rows(2)->columnSpanFull(),

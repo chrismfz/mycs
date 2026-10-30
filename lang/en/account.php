@@ -164,6 +164,7 @@ return [
     'remove_access' => 'Remove access',
     'remove_access_confirm' => 'Remove the access of :name to this account?',
     'access_removed' => 'The access was removed.',
+    'access_removed_contacts_mailed' => 'Its address still receives the account\'s mails as a contact: :contacts. Untick its mails or archive it in Contacts.',
     'permissions_saved' => 'The permissions were saved.',
     'only_owner_manages_users' => 'Only the owner of the account manages its users.',
     'permission' => [
@@ -219,7 +220,9 @@ return [
         'none' => 'None',
     ],
     'email_preferences_none' => 'None: only the ones that always go',
-    'email_preferences_help' => 'The account\'s mails go to its owner of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
+    'email_preferences_help' => 'The account\'s mails go to this email of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
+    'contact_email_preferences_help' => 'This contact gets its own copy of the account\'s mails of the kinds ticked here. Never a password or a ticket\'s reply: those go to the account\'s email only.',
+    'contact_email_kinds_not_allowed' => 'This contact takes mails you may not see: only the account\'s owner can change its email.',
     'email_preference' => [
         'general' => 'General',
         'invoice' => 'Invoices',

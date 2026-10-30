@@ -11,7 +11,7 @@
 
         @if($showForm)
         <div class="bg-background-secondary border border-neutral rounded-lg p-4 space-y-3">
-            <x-contact-fields :locked="$identityLocked" />
+            <x-contact-fields :locked="$identityLocked" :lockedKinds="$lockedKinds" />
             <x-button.primary class="w-full" wire:click="save">{{ __('general.update') }}</x-button.primary>
         </div>
         @endif

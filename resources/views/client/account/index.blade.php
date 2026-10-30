@@ -23,7 +23,7 @@
         @if($canEditDetails)
         <h3 class="text-lg font-semibold mt-8 mb-2">{{ __('account.account_details') }}</h3>
         <p class="text-sm text-base/70 mb-3">{{ __('account.account_details_description') }}</p>
-        <x-contact-fields :locked="$identityLocked" :primary="true" />
+        <x-contact-fields :locked="$identityLocked" :primary="true" :lockedKinds="$lockedKinds" />
         {{-- The account's mails and PDFs (docs/accounts.md). --}}
         <div class="grid md:grid-cols-2 gap-3 mt-3">
             <x-form.select name="language" :label="__('account.input.language')" wire:model="language">

@@ -125,8 +125,13 @@ class Users extends Component
 
     public function revoke(int $grantId): void
     {
-        $this->account()->revoke($this->grant($grantId));
+        $grant = $this->grant($grantId);
+        $this->account()->revoke($grant);
         $this->notify(__('account.access_removed'), 'success');
+        $contacts = $this->account()->contactsMailedAt($grant->user?->email);
+        if ($contacts->isNotEmpty()) {
+            $this->notify(__('account.access_removed_contacts_mailed', ['contacts' => $contacts->map->label()->implode(', ')]), 'warning');
+        }
     }
 
     /**

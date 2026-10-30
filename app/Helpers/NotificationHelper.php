@@ -4,11 +4,13 @@ namespace App\Helpers;
 
 use App\Classes\PDF;
 use App\Classes\Price;
+use App\Enums\NotificationEnabledStatus;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\ClientInvite;
+use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
@@ -52,30 +54,116 @@ class NotificationHelper
     private static ?Client $account = null;
 
     /**
-     * A notification about the account (invoice, service, ticket…): to its owner; none when the account has no owner
+     * A notification about the account (invoice, service, ticket…): to its address (Client::mailAddress), with its owner's
+     * preferences and in-app; none when the account has no owner
      * left. Its mail only when the primary contact takes the template's kind (EmailKinds, owner 2026-10-30), unless
      * not $gated: staff send it by hand, or its caller chose already (a mass mail). The in-app notification goes anyway.
+     * The account's other contacts get their copy of the kinds they take (toContacts), unless not $toContacts.
      *
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false, bool $gated = true): void
+    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false, bool $gated = true, bool $toContacts = true, bool $toLogin = false): void
     {
         $owner = $client->owner();
         if ($owner === null) {
             return;
         }
         $noMail = $gated && !EmailKinds::sends($client, $key);
-        if ($noMail && $mailOnly) {
-            return;
-        }
         $previous = self::$account;
         self::$account = $client;
         try {
-            self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
+            // To the account's address (its primary contact's, as WHMCS's tblclients.email: owner 2026-10-30), with the
+            // owner's preferences and in-app. $toLogin: the owner's login (a ticket's thread, whose answers the inbound
+            // router takes from a login; news, with the owner's own unsubscribe link: owner 2026-10-30, ADV-550-R3-3/5).
+            $address = $toLogin ? (string) $owner->email : $client->mailAddress();
+            if (!($noMail && $mailOnly)) {
+                self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail, mailTo: $address);
+            }
+            if ($toContacts) {
+                // The account takes it (the primary's kinds, ALWAYS, or staff's hand): its address is the owner's to choose
+                // for (their own preference, ADV-550-R2-2). Else a contact sharing it still gets its own (ADV-550-3).
+                self::toContacts($client, $address, $key, $data, $attachments, accountTakes: !$noMail);
+            }
         } finally {
             self::$account = $previous;
         }
+    }
+
+    /**
+     * The account's mail to its other contacts (WHMCS's tblcontacts flags, owner 2026-10-30): each one, by its own
+     * address, that takes the template's kind (Contact::takesEmail: one never chosen takes none). In the account's
+     * language, logged on the account; no in-app, the contacts have no login. Never a mail that is the owner's alone
+     * (EmailKinds::OWNER_ONLY: a password, a ticket's thread) or that carries a secret, nor twice to one address.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<int, array<string, mixed>>  $attachments
+     */
+    private static function toContacts(Client $client, string $accountAddress, string $key, array $data, array $attachments, bool $accountTakes): void
+    {
+        if (in_array($key, EmailKinds::OWNER_ONLY, true) || config('settings.mail_disable')) {
+            return;
+        }
+        $kind = EmailKinds::of($key);
+        $contacts = $client->contacts()->active()->whereNull('primary_of_client_id')->whereNotNull('email')->orderBy('id')->get()
+            ->filter(fn (Contact $contact) => $contact->takesEmail($kind) && filter_var($contact->email, FILTER_VALIDATE_EMAIL) !== false);
+        if ($contacts->isEmpty()) {
+            return;
+        }
+        // A template whose mail staff set to never, or off unless chosen, mails no contact (ADV-550-R2-1): they have no
+        // preferences of their own to choose it with.
+        $template = NotificationTemplate::where('key', $key)->first();
+        if (!$template || !$template->enabled
+            || !in_array($template->mail_enabled, [NotificationEnabledStatus::Force, NotificationEnabledStatus::ChoiceOn], true)) {
+            return;
+        }
+        $locale = self::localeFor($client);
+        $sent = $accountTakes ? [mb_strtolower(trim($accountAddress)) => true] : [];
+        // The template's CC and BCC had the owner's mail already: not a second copy (round 2 of #550).
+        foreach ([...(array) $template->cc, ...(array) $template->bcc] as $copy) {
+            $sent[mb_strtolower(trim((string) $copy))] = true;
+        }
+        foreach ($contacts as $contact) {
+            $address = mb_strtolower(trim((string) $contact->email));
+            if (isset($sent[$address])) {
+                continue;
+            }
+            $sent[$address] = true;
+            // Greeted by name, else by its company (a business contact, or a domain's with only an email: code review 5).
+            $named = filled($contact->first_name);
+            $recipient = new User(['email' => trim((string) $contact->email), 'first_name' => $named ? $contact->first_name : ($contact->company_name ?: null),
+                'last_name' => $named ? $contact->last_name : null]);
+            self::withLocale($locale, function () use ($template, $locale, $data, $recipient, $attachments) {
+                // Whatever fails here is reported, never thrown: the owner had the mail already, and a queued caller's
+                // retry would mail them twice (code review 6 of #550); the next contact still gets theirs.
+                try {
+                    $context = TemplateRenderer::context(array_diff_key($data, ['user' => true]), $recipient);
+                    // What is the owner's alone (a login link, a secret under its name, at any depth: a module's
+                    // ['account' => ['password' => …]], code review 2): not for a contact.
+                    if (self::secretsOf($template, $context) !== [] || self::hasNestedSecret($data)) {
+                        return;
+                    }
+                    self::sendEmailNotification($template->inLocale($locale), $context, $recipient, $attachments, copies: false);
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            });
+        }
+    }
+
+    /** Some value under a secret's name (Redact::isSecretKey), at any depth of the caller's data. */
+    private static function hasNestedSecret(array $data): bool
+    {
+        foreach ($data as $key => $value) {
+            if (Redact::isSecretKey($key) && $value !== null && $value !== '' && $value !== []) {
+                return true;
+            }
+            if (is_array($value) && self::hasNestedSecret($value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -137,19 +225,24 @@ class NotificationHelper
         NotificationTemplate $notificationTemplate,
         array $data,
         User $user,
-        array $attachments = []
+        array $attachments = [],
+        bool $copies = true,
+        ?string $to = null,
     ): void {
+        // The account's address when it is not the login's (toAccount); else the login's own.
+        $to ??= (string) $user->email;
         $mail = new Mail($notificationTemplate, $data);
         // Rendered (header and footer too) in the language it was written in, also by the queue worker.
         $mail->locale(app()->getLocale());
-        $copies = self::mayCopy($mail, $notificationTemplate, $data);
+        // Not $copies: a contact's copy of the owner's mail, whose CC and BCC had theirs already (toContacts).
+        $copies = $copies && self::mayCopy($mail, $notificationTemplate, $data);
 
         // The log keeps the mail without its secrets (sweep §6 #10): the welcome mail's password, or what a module gave
         // under a secret's name. The customer's mail keeps them.
         $emailLog = EmailLog::create([
             'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
-            'to' => $user->email,
+            'to' => $to,
             'body' => self::bodyForLog($mail, $notificationTemplate, $data),
             // The mail audit (docs/mail.md): from, copies, template and what it is about.
             'from_address' => config('settings.mail_from_address'),
@@ -166,7 +259,7 @@ class NotificationHelper
             $mail->attachFromStorage($attachment['path'], $attachment['name'], $attachment['options'] ?? []);
         }
 
-        FacadesMail::to($user->email)
+        FacadesMail::to($to)
             ->bcc($copies ? (array) $notificationTemplate->bcc : [])
             ->cc($copies ? (array) $notificationTemplate->cc : [])
             ->queue($mail);
@@ -234,6 +327,7 @@ class NotificationHelper
         bool $show_as_push = true,
         bool $mailOnly = false,
         bool $noMail = false,
+        ?string $mailTo = null,
     ): void {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
@@ -241,7 +335,7 @@ class NotificationHelper
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail, $mailTo));
     }
 
     /**
@@ -270,7 +364,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): void
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false, ?string $mailTo = null): void
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -283,7 +377,7 @@ class NotificationHelper
         try {
             // $noMail: the account's primary contact does not take this kind of mail (toAccount).
             if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
-                self::sendEmailNotification($notification, $data, $user, $attachments);
+                self::sendEmailNotification($notification, $data, $user, $attachments, to: $mailTo);
             }
         } catch (TemplateError $e) {
             report($e);
@@ -514,12 +608,14 @@ class NotificationHelper
     }
 
     /**
-     * A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. The
+     * A mass mail's message to an account (BulkMailer): to its address as every account mail (news to the owner's login),
+     * logged on the account. The
      * mailer chose already whether the account takes it (a skipped recipient, EmailKinds::ofBulkMail).
      */
     public static function announcementNotification(Client $client, string $key, array $data): void
     {
-        self::toAccount($client, $key, $data, gated: false);
+        // News carries the owner's own «stop these emails»: to their login only (owner 2026-10-30, ADV-550-R3-5).
+        self::toAccount($client, $key, $data, gated: false, toContacts: false, toLogin: filled($data['unsubscribe_url'] ?? null));
     }
 
     /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
@@ -565,7 +661,7 @@ class NotificationHelper
     public static function ticketMessageNotification(Client $client, TicketMessage $ticketMessage, array $data = []): void
     {
         $data['ticketMessage'] = $ticketMessage;
-        self::toAccount($client, 'new_ticket_message', $data);
+        self::toAccount($client, 'new_ticket_message', $data, toLogin: true);
     }
 
     /**

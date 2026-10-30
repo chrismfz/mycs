@@ -88,7 +88,7 @@ class EditBulkMail extends EditRecord
     {
         $recipients = app(BulkMailer::class)->recipients($record);
         $count = (clone $recipients)->count();
-        $first = (clone $recipients)->orderBy('id')->limit(25)->get()->map(fn (Client $client) => e($client->name . ' <' . $client->owner()?->email . '>'));
+        $first = (clone $recipients)->orderBy('id')->limit(25)->get()->map(fn (Client $client) => e($client->name . ' <' . ($record->kind === BulkMail::KIND_NEWS ? $client->owner()?->email : $client->mailAddress()) . '>'));
 
         return new HtmlString(e(__(':count customers.', ['count' => $count])) . ($first->isEmpty() ? '' : '<br><br>' . $first->implode('<br>') . ($count > 25 ? '<br>…' : '')));
     }

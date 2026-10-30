@@ -49,10 +49,32 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 
 ## Προτιμήσεις email ανά είδος (2026-10-30)
 Τα `email_preferences` της **κύριας επαφής** (general, invoice, support, product, domain, affiliate· το
-`tblclients.email_preferences` του WHMCS) αποφασίζουν ποια email του λογαριασμού παίρνει ο owner (`App\Support\EmailKinds`).
+`tblclients.email_preferences` του WHMCS) αποφασίζουν ποια email παίρνει ο λογαριασμός, στη διεύθυνσή του (`App\Support\EmailKinds`, `Client::mailAddress`).
 `null` = όλα τα είδη (ό,τι δεν όρισε ποτέ τίποτα, όπως στο WHMCS)· `[]` = κανένα. Αποφάσεις του ιδιοκτήτη:
-- **Παραλήπτης:** μόνο ο owner, όπως πριν. Οι άλλες επαφές δεν παίρνουν ακόμη email ανά είδος (το `tblcontacts` του WHMCS)·
-  αυτό είναι ξεχωριστή δουλειά.
+- **Παραλήπτης:** ο λογαριασμός (βλ. παρακάτω), και οι άλλες επαφές του λογαριασμού (`NotificationHelper::toContacts`, όπως τα flags του
+  `tblcontacts`): κάθε μία δικό της αντίγραφο για όσα είδη έχει επιλέξει, ανεξάρτητα από το αν το παίρνει ο λογαριασμός, στη
+  γλώσσα του λογαριασμού, γραμμένο στο email log του, χωρίς in-app (δεν έχουν login). Μια άλλη επαφή με `null` δεν
+  παίρνει **κανένα** (registrant ενός domain ή αποδέκτης τιμολόγησης του Ekdosi δεν διάλεξε ποτέ τα email του λογαριασμού)
+  και οι φόρμες τη δείχνουν χωρίς τσεκ. Ποτέ σε επαφή: ό,τι είναι μόνο του λογαριασμού (`EmailKinds::OWNER_ONLY`: το welcome
+  με τον κωδικό, απάντηση σε ticket, login links), ό,τι κουβαλά μυστικό, τα μαζικά email, τα «Πάντα» πέρα από τα είδη της.
+  Μία φορά ανά διεύθυνση (όχι στη διεύθυνση του λογαριασμού), αρχειοθετημένες εκτός, και τα CC/BCC του template μόνο στο
+  email του λογαριασμού.
+  Ένα μέλος του λογαριασμού τσεκάρει ή ξετσεκάρει σε επαφή μόνο τα είδη που του επιτρέπουν τα δικαιώματά του
+  (`EmailKinds::PERMISSIONS`: invoice → invoices, product → products, domain → domains, support → tickets, general →
+  emails): αλλιώς ένα μέλος με μόνο «contacts» θα έβαζε τη δική του διεύθυνση και θα διάβαζε τα τιμολόγια που του κρύβει
+  η σελίδα. Ένα μέλος δεν αλλάζει το email επαφής που παίρνει είδη που δεν βλέπει (ADV-550-1). Η παλιά κύρια επαφή, μετά
+  το «Make primary», δεν παίρνει κανένα (ADV-550-2).
+- **Η διεύθυνση του λογαριασμού** (υπεύθυνος 2026-10-30, ADV-550-R2-4): τα email του λογαριασμού πηγαίνουν στο email της
+  κύριας επαφής, όπως το `tblclients.email` (`Client::mailAddress`), όχι στο login του owner· στο login μόνο όταν η κύρια
+  επαφή δεν έχει έγκυρο email. Το login κρατά τα δικά του (reset, επιβεβαίωση, νέα σύνδεση) και το in-app. Στο `tblemails`
+  του myip, σε 41 από τους 42 λογαριασμούς με διαφορετικό login που πήραν email τον τελευταίο χρόνο, το To ήταν το
+  email του λογαριασμού. Ένα μέλος που δεν έχει τα δικαιώματα όλων των ειδών δεν το αλλάζει. **Στο login μένουν**
+  (υπεύθυνος 2026-10-30, ADV-550-R3-3/5): οι απαντήσεις σε ticket (ο inbound router δέχεται απαντήσεις μόνο από logins
+  με «tickets»), και τα «Νέα», που φέρουν το υπογεγραμμένο «stop these emails» του owner. Το welcome με τον κωδικό πάει
+  στο email του λογαριασμού, όπως στο WHMCS.
+- **Χωρίς επιβεβαίωση της διεύθυνσης** μιας επαφής, όπως το WHMCS (υπεύθυνος 2026-10-30, ADV-550-4 won't fix). Όταν
+  αφαιρείται η πρόσβαση ενός μέλους και η διεύθυνσή του είναι ακόμη επαφή που παίρνει email, όποιος την αφαιρεί
+  ειδοποιείται (client area και admin).
 - **Είδος κάθε template:** `EmailKinds::KINDS` (τιμολόγια, πληρωμές, κάρτες: invoice· υπηρεσίες και SSL: product· απάντηση
   σε ticket: support· domains: domain· νέα παραγγελία: general). Ένα νέο template του λογαριασμού πρέπει να μπει εκεί
   (το ελέγχει test).
@@ -62,7 +84,7 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 - **Το staff στέλνει πάντα:** «Send Email» στο τιμολόγιο, νέο τιμολόγιο από το admin με «Send Email», επιστροφή χρημάτων
   (φόρμα του τιμολογίου ή ακύρωση παραγγελίας· όχι το webhook της πύλης), «Resend welcome email», «Create» και «Unsuspend» με
   «Send notification», «Accept Order» με «Send welcome email», ξαναστάλσιμο από το email log.
-- Τα CC/BCC του template κόβονται μαζί με το email του owner (απόφαση 2026-10-30).
+- Τα CC/BCC του template κόβονται μαζί με το email του λογαριασμού (απόφαση 2026-10-30).
 - **Μαζικό email:** η σημαντική ενημέρωση είναι το είδος του στόχου της (υπηρεσίες: product, domains: domain, όλοι: general)·
   ο λογαριασμός που δεν το παίρνει γράφεται «skipped» με τον λόγο. Τα «Νέα» μόνο με τη δική τους απεγγραφή.
 - Κόβεται μόνο το email· η ειδοποίηση μέσα στην εφαρμογή μένει. Ένα email που κόπηκε δεν γράφεται στο email log.
