@@ -76,7 +76,7 @@ class ImportCustomFieldsTest extends TestCase
         $this->assertSame('receipt', $primary($b)->document_type);
         $this->assertFalse((bool) $b->fresh()->immediate_invoicing);
         $this->assertSame('011111111', $primary($c)->tax_id, 'a value the account has stays');
-        $this->assertSame(2, $result['counts']['accounts'], 'the third had its own already');
+        $this->assertSame(3, $result['counts']['accounts'], 'the third keeps its ΑΦΜ, and is a receipt: unticked, as Ekdosi read it');
     }
 
     public function test_a_services_ip_centova_fields_and_the_rest(): void
@@ -112,5 +112,20 @@ class ImportCustomFieldsTest extends TestCase
         $result = (new WhmcsCustomFieldImport(new PDO('sqlite::memory:')))->run();
 
         $this->assertStringContainsString('no tblcustomfields', implode("\n", $result['notes']));
+    }
+
+    /** A foreign EU VAT number in the ΑΦΜ field is the VIES one too (code review 3 of #544); a Greek one only the ΑΦΜ. */
+    public function test_a_foreign_vies_number_is_the_contacts_vat_number_too(): void
+    {
+        [$de, $gr] = [User::factory()->create()->client(), User::factory()->create()->client()];
+        $afm = $this->field('client', 0, 'ΑΦΜ / Vies Vat No');
+        $this->value($afm, $de->id, 'DE123456789');
+        $this->value($afm, $gr->id, 'EL099999999');
+
+        (new WhmcsCustomFieldImport($this->whmcs))->run();
+
+        $contact = fn ($client) => Contact::query()->where('primary_of_client_id', $client->id)->sole();
+        $this->assertSame(['DE123456789', 'DE123456789'], [$contact($de)->tax_id, $contact($de)->vat_number]);
+        $this->assertSame(['EL099999999', null], [$contact($gr)->tax_id, $contact($gr)->vat_number]);
     }
 }

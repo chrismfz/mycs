@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Models\Service;
+use App\Services\Tax\EuVat;
 use Illuminate\Support\Facades\DB;
 use PDO;
 use PDOException;
@@ -28,11 +29,24 @@ final class WhmcsCustomFieldImport
     /** @var list<string> */
     private array $notes = [];
 
-    /** The account's fields, by what their name starts with (folded). */
+    /**
+     * The account's fields, by their whole name (folded) and type: never a prefix (ADV-544-3: a «VAT exempt» tickbox is
+     * not the ΑΦΜ). One not here is listed (ADV-544-8).
+     */
     private const CLIENT_FIELDS = [
-        'ΑΦΜ' => 'tax_id', 'VAT' => 'tax_id', 'ΔΟΥ' => 'tax_office', 'ΔΡΑΣΤΗΡΙΟΤΗΤΑ' => 'activity',
-        'ΘΑ ΗΘΕΛΑ ΝΑ ΕΚΔΟΘΕΙ ΤΙΜΟΛΟΓΙΟ' => 'document_type', 'ΓΚΡΙΝΙΑΡΗΣ' => 'immediate_invoicing', 'ΣΗΜΕΙΩΣΕΙΣ' => 'note',
+        'ΑΦΜ / VIES VAT NO' => ['tax_id', 'text'], 'ΑΦΜ' => ['tax_id', 'text'], 'ΔΟΥ' => ['tax_office', 'text'],
+        'ΔΡΑΣΤΗΡΙΟΤΗΤΑ ΕΠΙΧΕΙΡΗΣΗΣ' => ['activity', 'text'], 'ΘΑ ΗΘΕΛΑ ΝΑ ΕΚΔΟΘΕΙ ΤΙΜΟΛΟΓΙΟ' => ['document_type', 'tickbox'],
+        'ΓΚΡΙΝΙΑΡΗΣ' => ['immediate_invoicing', 'tickbox'], 'ΣΗΜΕΙΩΣΕΙΣ' => ['note', 'textarea'],
     ];
+
+    /** The columns' sizes: a longer value is listed, never cut or failing the import on MariaDB (ADV-544-1). */
+    private const SIZES = ['tax_id' => 50, 'tax_office' => 255, 'activity' => 255];
+
+    /** Ticked, as Ekdosi's WHMCS path read a tickbox (PendingWhmcsInvoice, ADV-544-2). */
+    private const TICKED = ['on', '1', 'yes', 'true', 'ναι', 'checked'];
+
+    /** A secret, whatever it is called (ADV-544-4): its name or its label. */
+    private const SECRET = '/pass|pwd|\bpw\b|pw$|^pw|secret|token|api ?key|private|κωδικ|συνθηματικ/iu';
 
     private const IP_FIELDS = ['IP', 'IP ADDRESS', 'IPADDRESS', 'IPADDR', 'DEDICATED IP'];
 
@@ -69,37 +83,64 @@ final class WhmcsCustomFieldImport
                 default => null,
             };
         }
-        $this->clients($client);
+        $this->clients($client, $fields);
         $this->services($service);
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
 
-    /** @param array<int, list<array{0: array<string, mixed>, 1: string}>> $byClient */
-    private function clients(array $byClient): void
+    /**
+     * @param  array<int, list<array{0: array<string, mixed>, 1: string}>>  $byClient
+     * @param  list<array<string, mixed>>  $fields
+     */
+    private function clients(array $byClient, array $fields): void
     {
-        $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'tax_id', 'tax_office', 'activity', 'document_type'])
-            ->keyBy('primary_of_client_id');
-        foreach ($byClient as $clientId => $fields) {
-            $contact = $primary[$clientId] ?? null;
-            if ($contact === null) {
-                continue; // a customer not imported
+        $known = [];
+        foreach ($fields as $field) {
+            if (strtolower((string) $field['type']) !== 'client') {
+                continue;
             }
+            $target = self::clientTarget($field);
+            if ($target === null) {
+                $this->notes[] = "An account field «{$field['fieldname']}» is not one MyCS has: not imported.";
+            } else {
+                $known[$target] = true;
+            }
+        }
+        $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'tax_id', 'vat_number', 'tax_office', 'activity', 'document_type'])
+            ->keyBy('primary_of_client_id');
+        foreach ($primary as $clientId => $contact) {
             $set = [];
             $flags = [];
-            foreach ($fields as [$field, $value]) {
-                $target = self::clientTarget((string) $field['fieldname']);
-                $value = trim($value);
+            // The field there, the account's row missing: what Ekdosi read from WHMCS, unticked (a receipt; ADV-544-5).
+            if (isset($known['document_type'])) {
+                $set['document_type'] = 'receipt';
+            }
+            foreach ($byClient[$clientId] ?? [] as [$field, $value]) {
+                $target = self::clientTarget($field);
+                $value = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8')); // WHMCS keeps them escaped (ADV-544-7)
+                $ticked = in_array(mb_strtolower($value), self::TICKED, true);
                 if ($target === 'document_type') {
-                    $set['document_type'] = $value === 'on' ? 'invoice' : 'receipt'; // a row: chosen once, ticked or not
+                    $set['document_type'] = $ticked ? 'invoice' : 'receipt';
                 } elseif ($target === 'immediate_invoicing') {
-                    $flags['immediate_invoicing'] = $value === 'on';
+                    $flags['immediate_invoicing'] = $ticked;
                 } elseif ($target === 'note' && $value !== '') {
                     DB::table('client_notes')->insert(['client_id' => $clientId, 'staff_id' => null, 'sticky' => false,
                         'body' => "From WHMCS («{$field['fieldname']}»):\n{$value}", 'created_at' => now(), 'updated_at' => now()]);
                     $this->counts['notes']++;
                 } elseif ($target !== null && $target !== 'note' && $value !== '') {
-                    $set[$target] = mb_substr($value, 0, 255);
+                    if (mb_strlen($value) > self::SIZES[$target]) {
+                        $this->skip("Customer #{$clientId}: its «{$field['fieldname']}» is longer than the " . self::SIZES[$target] . ' characters kept: not imported, set it');
+
+                        continue;
+                    }
+                    $set[$target] = $value;
+                    // A foreign EU VAT number (its own prefix, not EL: 16 on myip) is the VIES one too, which MyCS's
+                    // VIES check and reverse charge read (code review 3 of #544); the ΑΦΜ stays as the plugin sent it.
+                    $vies = $target === 'tax_id' && ctype_alpha(substr($value, 0, 2)) ? EuVat::parse($value) : null;
+                    if ($vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50) {
+                        $set['vat_number'] = $vies->full();
+                    }
                 }
             }
             // A value the account already has (tblclients' own) stays.
@@ -110,7 +151,7 @@ final class WhmcsCustomFieldImport
             if (($flags['immediate_invoicing'] ?? false) === true) {
                 DB::table('clients')->where('id', $clientId)->update(['immediate_invoicing' => true]);
             }
-            if ($set !== [] || $flags !== []) {
+            if ($set !== [] || ($flags['immediate_invoicing'] ?? false)) {
                 $this->counts['accounts']++;
             }
         }
@@ -123,6 +164,11 @@ final class WhmcsCustomFieldImport
         $modules = array_column($this->rows('SELECT id, servertype FROM tblproducts') ?? [], 'servertype', 'id');
         $services = Service::query()->get(['id', 'dedicated_ip', 'notes'])->keyBy('id');
         $packages = array_column($this->rows('SELECT id, packageid FROM tblhosting') ?? [], 'packageid', 'id');
+        // A licensing product's fields are its import's (WhmcsLicensingImport::products), whatever the order (ADV-544-6).
+        $licensing = array_flip(array_map('intval', array_merge(
+            array_keys(array_filter($modules, fn ($module) => strtolower(trim((string) $module)) === 'licensing')),
+            array_column($this->rows('SELECT DISTINCT h.packageid FROM tblhosting h JOIN mod_licensing l ON l.serviceid = h.id') ?? [], 'packageid'),
+        )));
         $kept = DB::table('properties')->where('model_type', Service::class)->get(['model_id', 'key'])
             ->groupBy('model_id')->map(fn ($rows) => $rows->pluck('key')->flip()->all())->all();
         foreach ($byService as $key => $fields) {
@@ -132,16 +178,19 @@ final class WhmcsCustomFieldImport
                 continue; // a service not imported, an addon of none
             }
             $module = strtolower(trim((string) ($modules[$packages[$id] ?? 0] ?? '')));
+            if ($key > 0 && isset($licensing[(int) ($packages[$id] ?? 0)])) {
+                continue;
+            }
             $lines = [];
             foreach ($fields as [$field, $value]) {
-                $value = trim($value);
+                $value = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
                 $raw = (string) $field['fieldname'];
                 $name = trim(explode('|', $raw)[0]);
                 $label = trim(explode('|', $raw)[1] ?? $name);
                 if ($value === '' || isset($kept[$id][$raw])) {
                     continue; // nothing, or a licensing product's own field (its import's)
                 }
-                if (str_contains(strtolower($name), 'password')) {
+                if (preg_match(self::SECRET, $name . ' ' . $label) === 1) {
                     $this->skip("Service #{$id}: «{$label}» is a password: not imported");
 
                     continue;
@@ -177,16 +226,14 @@ final class WhmcsCustomFieldImport
         }
     }
 
-    private static function clientTarget(string $name): ?string
+    /** @param array<string, mixed> $field */
+    private static function clientTarget(array $field): ?string
     {
-        $folded = strtr(mb_strtoupper(trim($name)), ['Ά' => 'Α', 'Έ' => 'Ε', 'Ή' => 'Η', 'Ί' => 'Ι', 'Ό' => 'Ο', 'Ύ' => 'Υ', 'Ώ' => 'Ω', 'Ϊ' => 'Ι', 'Ϋ' => 'Υ']);
-        foreach (self::CLIENT_FIELDS as $start => $target) {
-            if (str_starts_with($folded, $start)) {
-                return $target;
-            }
-        }
+        $folded = preg_replace('/\s+/u', ' ', strtr(mb_strtoupper(trim((string) $field['fieldname'])), ['Ά' => 'Α', 'Έ' => 'Ε', 'Ή' => 'Η', 'Ί' => 'Ι',
+            'Ό' => 'Ο', 'Ύ' => 'Υ', 'Ώ' => 'Ω', 'Ϊ' => 'Ι', 'Ϋ' => 'Υ'])) ?? '';
+        [$target, $type] = self::CLIENT_FIELDS[$folded] ?? [null, null];
 
-        return null;
+        return $target !== null && strtolower((string) ($field['fieldtype'] ?? $type)) === $type ? $target : null;
     }
 
     /** @return list<array<string, mixed>>|null its rows, or null on a WHMCS without the table */

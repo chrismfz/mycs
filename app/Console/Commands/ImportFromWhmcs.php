@@ -196,8 +196,9 @@ class ImportFromWhmcs extends Command
             $this->importOfflineSsl();
             $this->importDomains();
             $this->importEkdosiContacts();
-            $this->importCustomFields();
             $this->importLicensing();
+            // After the licensing: a licensing product's fields are its import's (ADV-544-6).
+            $this->importCustomFields();
             $this->importCancellations();
             $this->importInvoices();
             $this->importReminderState();
