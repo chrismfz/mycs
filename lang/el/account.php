@@ -83,6 +83,7 @@ return [
     'credit_history_amount' => 'Ποσό',
     'credit_history_balance' => 'Υπόλοιπο μετά',
     'credit_history_causes' => [
+        'refunded_to_card' => 'Σας επιστράφηκε',
         'opening_balance' => 'Αρχικό υπόλοιπο',
         'overpayment' => 'Υπερπληρωμή τιμολογίου',
         'credit_payment' => 'Πληρωμή τιμολογίου από το υπόλοιπο',

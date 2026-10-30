@@ -83,6 +83,7 @@ return [
     'credit_history_amount' => 'Amount',
     'credit_history_balance' => 'Balance after',
     'credit_history_causes' => [
+        'refunded_to_card' => 'Refunded to you',
         'opening_balance' => 'Opening balance',
         'overpayment' => 'Overpayment of an invoice',
         'credit_payment' => 'Invoice paid with credit',
