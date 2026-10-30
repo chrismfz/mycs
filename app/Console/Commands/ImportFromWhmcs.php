@@ -20,6 +20,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsApi;
+use App\Services\Import\WhmcsContactImport;
 use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
@@ -199,6 +200,7 @@ class ImportFromWhmcs extends Command
             $this->importOfflineSsl();
             $this->importDomains();
             $this->importEkdosiContacts();
+            $this->importContacts();
             $this->importLicensing();
             // After the licensing: a licensing product's fields are its import's (ADV-544-6).
             $this->importCustomFields();
@@ -1582,6 +1584,17 @@ class ImportFromWhmcs extends Command
         $c = $result['counts'];
         $this->info("Custom fields: {$c['accounts']} account(s) given their fiscal details, {$c['notes']} note(s), {$c['ips']} IP(s), "
             . "{$c['centova']} Centova field(s), {$c['service_notes']} service(s) with the rest in their notes; {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** WHMCS's contacts (WhmcsContactImport) as the account's, after Ekdosi's: one that is one of those is not made twice. */
+    private function importContacts(): void
+    {
+        $result = (new WhmcsContactImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Contacts: {$c['contacts']} imported, {$c['merged']} completing an Ekdosi contact they are, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
