@@ -279,8 +279,40 @@ class ServiceUpgrade extends Model implements Auditable
      */
     public function needsStaff(): bool
     {
+        // An option value it takes that the catalog prices only in other currencies would read as free, and moving up
+        // to it as a downgrade with credit (ADV-551-R2-1): any change, not only a fallback.
+        if (!$this->chosenValuesPriced()) {
+            return true;
+        }
+
         return $this->changesOptionsOnly() && !$this->catalogPricesIt()
             && BigDecimal::of(number_format((float) $this->service->price, 2, '.', ''))->plus($this->optionsDifference())->isLessThanOrEqualTo(0);
+    }
+
+    /**
+     * Every option value the upgrade sets has a price in the service's currency for its cycle, or is free: a value
+     * priced for that cycle only in other currencies is not.
+     */
+    private function chosenValuesPriced(): bool
+    {
+        $service = $this->service;
+        $plan = $this->targetPlan() ?? $service->plan;
+        if ($plan === null) {
+            return true;
+        }
+        $values = ConfigOption::query()->whereIn('id', $this->configs->pluck('config_value_id')->filter()->all())->with('plans.prices')->get();
+        foreach ($values as $value) {
+            $forCycle = $value->plans->filter(fn (Plan $valuePlan) => $valuePlan->type === 'free'
+                || ((int) $valuePlan->billing_period === (int) $plan->billing_period && $valuePlan->billing_unit === $plan->billing_unit));
+            if ($forCycle->isEmpty() || $forCycle->contains(fn (Plan $valuePlan) => $valuePlan->type === 'free')) {
+                continue; // not priced for the cycle at all: free in every currency, as before
+            }
+            if (!$forCycle->contains(fn (Plan $valuePlan) => $valuePlan->prices->contains('currency_code', $service->currency_code))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** The plan it ends on has a price in the service's currency. */
