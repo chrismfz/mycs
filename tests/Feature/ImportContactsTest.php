@@ -63,17 +63,18 @@ class ImportContactsTest extends TestCase
         $this->assertSame(['contacts' => 1, 'merged' => 1, 'skipped' => 1], $result['counts']);
     }
 
-    public function test_the_ekdosi_one_linked_by_its_legacy_id(): void
+    /** legacy_contact_id is the old plugin's id, not tblcontacts': a coincidence never merges (code review 1 of #549). */
+    public function test_a_coinciding_legacy_id_never_merges(): void
     {
         $client = User::factory()->create()->client();
         $ekdosi = $client->contacts()->create(['type' => 'business', 'company_name' => 'Gamma ΟΕ', 'email' => 'gamma@example.test']);
         $this->whmcs->prepare("INSERT INTO mod_ekdosi_contacts VALUES (1, 7, ?, 'Gamma ΟΕ', 'gamma@example.test')")->execute([$client->id]);
-        $this->contact(7, $client->id, ['companyname' => 'Gamma O.E.', 'email' => 'other@example.test', 'city' => 'Patra']);
+        $this->contact(7, $client->id, ['companyname' => 'Delta', 'email' => 'other@example.test', 'city' => 'Patra']);
 
         (new WhmcsContactImport($this->whmcs))->run();
 
-        $this->assertSame(1, DB::table('contacts')->where('client_id', $client->id)->whereNull('primary_of_client_id')->count());
-        $this->assertSame('Patra', $ekdosi->fresh()->city);
+        $this->assertSame(2, DB::table('contacts')->where('client_id', $client->id)->whereNull('primary_of_client_id')->count(), 'its own contact');
+        $this->assertNull($ekdosi->fresh()->city, 'the Ekdosi contact untouched');
     }
 
     public function test_a_whmcs_without_contacts_imports_nothing(): void
