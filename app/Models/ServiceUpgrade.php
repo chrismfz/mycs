@@ -217,7 +217,7 @@ class ServiceUpgrade extends Model implements Auditable
      * The net recurring price per unit the service has after the upgrade, what `ServiceUpgradeService` stores.
      *
      * - Options only: the price it has, plus what the changed options cost more or less (as WHMCS: its staff price
-     *   stays, and an option that costs more never lowers it; F2 of the review).
+     *   stays, and an option that costs more never lowers it; F2 of the review). Never below zero: then as another plan.
      * - Another product or plan: its catalog price with the options it keeps and those the upgrade sets, and its coupon
      *   where that covers the new product, for the coupon cycle its price is in now (a coupon's last discounted cycle is
      *   not charged back: F3, code review 1). A staff price is not carried over (decided 2026-10-14).
@@ -236,7 +236,13 @@ class ServiceUpgrade extends Model implements Auditable
                     ->dividedBy(100, 2, RoundingMode::HalfUp);
             }
 
-            return (string) BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($net)->toScale(2);
+            $kept = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($net);
+            // Never below zero (sweep 9γ, owner 2026-10-30, as Blesta): a price under the catalog's (staff's, or one
+            // imported from WHMCS) less an option's catalog price can be; then it is the catalog's with the options it
+            // keeps, as a change of plan prices it.
+            if ($kept->isGreaterThanOrEqualTo(0)) {
+                return (string) $kept->toScale(2);
+            }
         }
 
         $after = $service->replicate();
@@ -252,7 +258,8 @@ class ServiceUpgrade extends Model implements Auditable
             'config_value_id' => $value,
         ]))->values());
 
-        return (string) $after->calculatePrice(cycle: $service->priceCycle());
+        return (string) BigDecimal::max(BigDecimal::of(number_format((float) $after->calculatePrice(cycle: $service->priceCycle()), 2, '.', '')),
+            BigDecimal::zero())->toScale(2);
     }
 
     /**
