@@ -46,7 +46,8 @@ final class WhmcsCustomFieldImport
     private const TICKED = ['on', '1', 'yes', 'true', 'ναι', 'checked'];
 
     /** A secret, whatever it is called (ADV-544-4): its name or its label. */
-    private const SECRET = '/pass|pwd|\bpw\b|pw$|^pw|secret|token|api ?key|private|κωδικ|συνθηματικ/iu';
+    private const SECRET = '/passw(or)?d|passphrase|(^|[\\s_.-])pass($|[\\s_.:-])|pwd|(^|[\\s_.-])pw($|[\\s_.:-])|secret|token|credential'
+        . '|(api|access|private|secret|ssh)[\\s_.-]?key|auth[\\s_.-]?code|\\bepp\\b|κωδικ|συνθηματικ/iu';
 
     private const IP_FIELDS = ['IP', 'IP ADDRESS', 'IPADDRESS', 'IPADDR', 'DEDICATED IP'];
 
@@ -137,7 +138,8 @@ final class WhmcsCustomFieldImport
                     $set[$target] = $value;
                     // A foreign EU VAT number (its own prefix, not EL: 16 on myip) is the VIES one too, which MyCS's
                     // VIES check and reverse charge read (code review 3 of #544); the ΑΦΜ stays as the plugin sent it.
-                    $vies = $target === 'tax_id' && ctype_alpha(substr($value, 0, 2)) ? EuVat::parse($value) : null;
+                    // Only with the ΑΦΜ it comes with (R2: never beside another one tblclients had).
+                    $vies = $target === 'tax_id' && blank($contact->tax_id) && ctype_alpha(substr($value, 0, 2)) ? EuVat::parse($value) : null;
                     if ($vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50) {
                         $set['vat_number'] = $vies->full();
                     }
@@ -151,8 +153,8 @@ final class WhmcsCustomFieldImport
             if (($flags['immediate_invoicing'] ?? false) === true) {
                 DB::table('clients')->where('id', $clientId)->update(['immediate_invoicing' => true]);
             }
-            if ($set !== [] || ($flags['immediate_invoicing'] ?? false)) {
-                $this->counts['accounts']++;
+            if (array_diff_key($set, ['document_type' => true]) !== [] || ($flags['immediate_invoicing'] ?? false)) {
+                $this->counts['accounts']++; // its fiscal details, not only the default receipt
             }
         }
     }

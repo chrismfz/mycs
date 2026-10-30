@@ -76,7 +76,7 @@ class ImportCustomFieldsTest extends TestCase
         $this->assertSame('receipt', $primary($b)->document_type);
         $this->assertFalse((bool) $b->fresh()->immediate_invoicing);
         $this->assertSame('011111111', $primary($c)->tax_id, 'a value the account has stays');
-        $this->assertSame(3, $result['counts']['accounts'], 'the third keeps its ΑΦΜ, and is a receipt: unticked, as Ekdosi read it');
+        $this->assertSame(1, $result['counts']['accounts'], 'only the first got fiscal details; a receipt alone is not counted');
     }
 
     public function test_a_services_ip_centova_fields_and_the_rest(): void
