@@ -14,7 +14,8 @@ use MyCS\Pricing\LinePricer;
 /**
  * The tax of an invoice line (Δ1, docs/orders.md): the rate is decided when the line is made, from the invoice's account
  * (its country, tax exempt) and the line's product (taxable), and kept: a later change of either does not change an
- * issued line. The amounts are worked out again whenever the price, quantity or rate changes. A line without VAT keeps
+ * issued line (but an open invoice moved to another customer is taxed again for it: InvoiceReaddress). The amounts are
+ * worked out again whenever the price, quantity or rate changes. A line without VAT keeps
  * why (tax_reason, PR G), for the proforma's note and Ekdosi's exemption category.
  */
 final class LineTax

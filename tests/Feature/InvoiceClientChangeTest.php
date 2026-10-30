@@ -61,4 +61,19 @@ class InvoiceClientChangeTest extends TestCase
         $this->assertSame(100.0, (float) $invoice->total);
         $this->assertStringContainsString('John', (string) $invoice->snapshot?->name, 'addressed to the new customer');
     }
+
+    /** Code review F2 of #554: moved and cancelled in one save, its credit note is the new total, never the old one. */
+    public function test_moved_and_cancelled_in_one_save_its_credit_note_is_the_new_total(): void
+    {
+        $greek = $this->customer('GR', 'Eleni');
+        $abroad = $this->customer('US', 'John');
+        $invoice = Invoice::query()->create(['client_id' => $greek->client()->id, 'currency_code' => 'EUR', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
+        $invoice->items()->create(['description' => 'Consulting', 'quantity' => 1, 'price' => 100]);
+        $invoice = Invoice::query()->with('items')->findOrFail($invoice->id);
+
+        $invoice->update(['client_id' => $abroad->client()->id, 'status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Wrong customer']);
+
+        $invoice = Invoice::query()->findOrFail($invoice->id);
+        $this->assertSame([100.0, 0.0], [(float) $invoice->items()->sum('line_total'), (float) $invoice->total], 'its note takes the new 100 to zero');
+    }
 }
