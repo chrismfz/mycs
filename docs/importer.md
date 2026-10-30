@@ -502,6 +502,19 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   Ένα token δεν τυπώνεται ποτέ.
 - **Τοπικά αντίγραφα:** nixpal 52 Stripe (36 πελάτες) και 15 PayPal· myip 51 Stripe, 49 PayPal και 4 Stripe SEPA.
 
+## Κωδικοί υπηρεσιών (`WhmcsServicePasswordImport`, 2026-10-30)
+- **Πού είναι:** το `tblhosting.password` είναι κρυπτογραφημένο με το `cc_encryption_hash` του WHMCS, που δεν είναι στη
+  βάση. Ο importer το ζητά από το **API του WHMCS** (`DecryptPassword`), όπως και τις αποθηκευμένες μεθόδους, και ποτέ δεν
+  διαβάζει το κλειδί.
+- **Πώς αποθηκεύεται:** όπως τον κρατά η MyCS, με το cast `encrypted` κάτω από το `APP_KEY` του instance.
+- **Ποιες υπηρεσίες:** μόνο όσες ζουν εδώ (active, suspended, pending: nixpal 356, myip 715). Ο κωδικός μιας υπηρεσίας που
+  έληξε δεν ζητιέται ποτέ.
+- **Αποτυχίες:** χωρίς το API δεν ζητιέται τίποτα, και το βήμα το λέει. Ένας κωδικός που αποτυγχάνει παραλείπεται και
+  μπαίνει σε λίστα με το id της υπηρεσίας, χωρίς να σταματά το import.
+- **Πουθενά σε καθαρό κείμενο:** ο κωδικός δεν τυπώνεται, δεν γράφεται σε log και δεν μένει πουθενά αλλού.
+- **Προϋπόθεση:** ο ρόλος των API credentials στο WHMCS (Setup → Staff Management → Manage API Credentials) πρέπει να
+  επιτρέπει το `DecryptPassword`, εκτός από το `GetPayMethods`. Τρέχει τελευταίο, μετά τις μεθόδους πληρωμής.
+
 ## Domains (D6, `WhmcsDomainImport`)
 Τρέχει μετά τους πελάτες, τις παραγγελίες και τις υπηρεσίες, πριν από τις γραμμές τιμολογίων.
 - **Registrars:** μία σύνδεση για κάθε module του WHMCS που έχει driver εδώ (`grepp`, `openprovider`, `cnic`),

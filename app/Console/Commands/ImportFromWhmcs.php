@@ -29,6 +29,7 @@ use App\Services\Import\WhmcsMoneyJournal;
 use App\Services\Import\WhmcsNoteImport;
 use App\Services\Import\WhmcsPayMethodImport;
 use App\Services\Import\WhmcsSecondFactor;
+use App\Services\Import\WhmcsServicePasswordImport;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
@@ -212,6 +213,7 @@ class ImportFromWhmcs extends Command
             $this->journalMoney();
             // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
             $this->importPayMethods();
+            $this->importServicePasswords();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -1605,6 +1607,24 @@ class ImportFromWhmcs extends Command
             }
         }
         $this->info("Services' and domains' payment method: {$set} set from WHMCS.");
+    }
+
+    /** The live services' passwords (WhmcsServicePasswordImport): through WHMCS's API (DecryptPassword), never its key. */
+    private function importServicePasswords(): void
+    {
+        try {
+            $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false));
+        } catch (\RuntimeException $e) {
+            $this->warn("Service passwords not imported: {$e->getMessage()}");
+
+            return;
+        }
+        $result = (new WhmcsServicePasswordImport($this->pdo, $api))->run();
+        $c = $result['counts'];
+        $this->info("Service passwords: {$c['imported']} of {$c['services']} live service(s) imported, {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
     }
 
     /** The saved payment methods (WhmcsPayMethodImport): their references through WHMCS's API, never its key. */
