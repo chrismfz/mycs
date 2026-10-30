@@ -1209,7 +1209,7 @@ class ImportFromWhmcs extends Command
                     'client_id' => $record['userid'],
                     'currency_code' => $user['code'],
                     // WHMCS «Order Notes» (the customer's at checkout, or staff's).
-                    'notes' => self::text($record['notes'] ?? null),
+                    'notes' => WhmcsNoteImport::text($record['notes'] ?? null), // unescaped, as every note (#546)
                     // Where it was placed from (WHMCS `ipaddress`): an address, or none (staff's, or anything else).
                     'ip_address' => filter_var(trim((string) ($record['ipaddress'] ?? '')), FILTER_VALIDATE_IP) ?: null,
                     // Its status as WHMCS has it (Σ1-b2): no observer runs on an import, and ~7.000 orders must not land in
@@ -1343,7 +1343,7 @@ class ImportFromWhmcs extends Command
                     'username' => self::text($record['username'] ?? null, 255),
                     'dedicated_ip' => self::text($record['dedicatedip'] ?? null, 45),
                     'assigned_ips' => self::text(str_replace("\r\n", "\n", (string) ($record['assignedips'] ?? ''))),
-                    'notes' => self::text(implode("\n\n", array_filter([$this->promotionStillRunning($record), trim((string) ($record['notes'] ?? ''))]))),
+                    'notes' => self::text(implode("\n\n", array_filter([$this->promotionStillRunning($record), (string) WhmcsNoteImport::text($record['notes'] ?? null)]))),
                     // Its promotion (tblhosting.promoid), for the record: its discount is in `price` already (WHMCS's
                     // recurring amount), so it is used up here and never moves the price (importer: no amount changes).
                     ...$this->serviceCoupon($record),
@@ -1699,6 +1699,11 @@ class ImportFromWhmcs extends Command
                     'paid_at' => $record['status'] === 'Paid' ? $this->validateDate($record['datepaid'] ?? null) : null,
                     // Its due date (AUD9-2): the overdue reminders and dunning go by it, as WHMCS's did.
                     'due_at' => $this->validateDate($record['duedate'] ?? null),
+                    // A cancelled one's notes are why (nixpal's «Automatic Cancellation after N days overdue», myip's
+                    // «Transferred Away»): its cancellation reason too, as staff see it (code review 3 of #546); the whole
+                    // text is a note on its account (WhmcsNoteImport).
+                    'cancellation_reason' => $record['status'] === 'Cancelled' && ($why = WhmcsNoteImport::text($record['notes'] ?? null)) !== null
+                        && mb_strlen($why) <= 255 ? $why : null,
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
                 ];

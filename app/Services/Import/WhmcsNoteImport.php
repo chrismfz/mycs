@@ -49,6 +49,9 @@ final class WhmcsNoteImport
                 continue;
             }
             $admin = (int) ($row['adminid'] ?? 0);
+            if ($admin > 0 && !isset($staff[$admin])) {
+                $body = "(WHMCS admin #{$admin})\n{$body}"; // its author, though not here (code review 5 of #546)
+            }
             $rows[] = ['client_id' => $client, 'staff_id' => isset($staff[$admin]) ? $admin : null, 'sticky' => (bool) ($row['sticky'] ?? false),
                 'body' => $body, 'created_at' => self::date($row['created'] ?? null) ?? now(), 'updated_at' => self::date($row['modified'] ?? null) ?? now()];
             $this->counts['notes']++;
@@ -80,17 +83,22 @@ final class WhmcsNoteImport
             $this->counts['invoice_notes']++;
         }
 
-        foreach (array_chunk($rows, 500) as $chunk) {
+        foreach (array_chunk($rows, 100) as $chunk) { // under MariaDB's packet with notes near 64 KB (code review 4)
             DB::table('client_notes')->insert($chunk);
         }
 
-        $this->addons();
+        $this->addons($clients);
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
 
-    /** An addon's notes: its service's, naming it (addons are its options here). */
-    private function addons(): void
+    /**
+     * An addon's notes: its service's, naming it (addons are its options here); a service WHMCS deleted: its account's
+     * (code review 1 of #546: every note).
+     *
+     * @param  array<int, mixed>  $clients
+     */
+    private function addons(array $clients): void
     {
         $services = DB::table('services')->pluck('notes', 'id')->all();
         foreach ($this->rows('SELECT * FROM tblhostingaddons ORDER BY id') ?? [] as $row) {
@@ -99,20 +107,31 @@ final class WhmcsNoteImport
                 continue;
             }
             $service = (int) ($row['hostingid'] ?? 0);
+            $name = trim((string) ($row['name'] ?? '')) !== '' ? $row['name'] : "#{$row['id']}";
             if (!array_key_exists($service, $services)) {
-                $this->skip("The notes of WHMCS addon #{$row['id']}: its service #{$service} is not here");
+                $client = (int) ($row['userid'] ?? 0);
+                if (!array_key_exists($client, $clients)) {
+                    $this->skip("The notes of WHMCS addon #{$row['id']}: neither its service #{$service} nor its customer #{$client} is here");
+
+                    continue;
+                }
+                DB::table('client_notes')->insert(['client_id' => $client, 'staff_id' => null, 'sticky' => false,
+                    'body' => "From WHMCS (addon «{$name}» of service #{$service}, which WHMCS deleted):\n{$body}", 'created_at' => now(), 'updated_at' => now()]);
+                $this->counts['addon_notes']++;
 
                 continue;
             }
-            $name = trim((string) ($row['name'] ?? '')) !== '' ? $row['name'] : "#{$row['id']}";
             $services[$service] = trim(trim((string) $services[$service]) . "\n\nAddon «{$name}» (WHMCS notes):\n{$body}");
             DB::table('services')->where('id', $service)->update(['notes' => $services[$service]]);
             $this->counts['addon_notes']++;
         }
     }
 
-    /** The text whole, WHMCS's HTML escaping undone; empty: none. */
-    private static function text(mixed $value): ?string
+    /**
+     * The text whole, WHMCS's HTML escaping undone (it stores every note escaped: a typed «&amp;» is «&amp;amp;»);
+     * empty: none. Every note step's (services, orders, domains: code review 2 of #546).
+     */
+    public static function text(mixed $value): ?string
     {
         $text = trim(html_entity_decode(preg_replace('#<br\s*/?>#i', "\n", (string) $value) ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
