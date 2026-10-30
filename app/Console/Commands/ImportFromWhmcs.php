@@ -71,7 +71,7 @@ class ImportFromWhmcs extends Command
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
         {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
-        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}';
+        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
     private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];

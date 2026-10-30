@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsServicePasswordImport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -73,5 +74,21 @@ class ImportServicePasswordsTest extends TestCase
         $this->assertNull($service->fresh()->password);
         $this->assertStringContainsString("WHMCS's API is needed", implode("\n", $result['notes']));
         Http::assertNothingSent();
+    }
+
+    /** A WHMCS that does not answer: 5 failures in a row, the rest not asked (code review M2), never a password logged. */
+    public function test_a_whmcs_that_does_not_answer_stops_the_step(): void
+    {
+        $client = User::factory()->create()->client();
+        foreach (range(1, 8) as $n) {
+            $service = Service::factory()->create(['client_id' => $client->id, 'status' => Service::STATUS_ACTIVE]);
+            $this->whmcs->prepare('INSERT INTO tblhosting VALUES (?, ?)')->execute([$service->id, "enc-{$n}"]);
+        }
+        Http::fake(['https://whmcs.example.test/includes/api.php' => fn () => throw new ConnectionException('timed out')]);
+
+        $result = (new WhmcsServicePasswordImport($this->whmcs, new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1')))->run();
+
+        $this->assertSame(['services' => 8, 'imported' => 0, 'skipped' => 8], $result['counts']);
+        $this->assertStringContainsString('5 failed in a row: WHMCS is not answering, the other 3 not asked', implode("\n", $result['notes']));
     }
 }
