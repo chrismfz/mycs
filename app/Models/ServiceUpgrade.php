@@ -226,7 +226,7 @@ class ServiceUpgrade extends Model implements Auditable
     {
         $service = $this->service;
         if ($this->changesOptionsOnly()) {
-            $kept = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($this->optionsDifference());
+            $kept = $this->keptPrice();
             // Never zero or below (sweep 9γ, owner 2026-10-30, as Blesta; exactly zero too, ADV-551-2): a price under the
             // catalog's (staff's, or one imported from WHMCS) less an option's catalog price can be; then it is the
             // catalog's with the options it keeps, as a change of plan prices it.
@@ -267,26 +267,32 @@ class ServiceUpgrade extends Model implements Auditable
         if (!$this->changesOptionsOnly()) {
             return false;
         }
-        $service = $this->service;
 
-        return $this->catalogPricesIt()
-            && BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($this->optionsDifference())->isLessThanOrEqualTo(0);
+        return $this->catalogPricesIt() && $this->keptPrice()->isLessThanOrEqualTo(0);
     }
 
     /**
-     * An options-only change the catalog cannot price (its plan has no price in the service's currency, ADV-551-1):
-     * refused on the customer's page, for staff.
+     * A change the catalog cannot price in the service's currency, refused on the customer's page and, once paid, not
+     * applied but left to staff (ServiceUpgradeService): an option value it sets priced only in other currencies
+     * (ADV-551-R2-1); a new product's plan without the currency (ADV-551-R3-1); an options-only change falling back to
+     * a plan without it (ADV-551-1).
      */
     public function needsStaff(): bool
     {
-        // An option value it takes that the catalog prices only in other currencies would read as free, and moving up
-        // to it as a downgrade with credit (ADV-551-R2-1): any change, not only a fallback.
         if (!$this->chosenValuesPriced()) {
             return true;
         }
+        if (!$this->changesOptionsOnly()) {
+            return !$this->catalogPricesIt();
+        }
 
-        return $this->changesOptionsOnly() && !$this->catalogPricesIt()
-            && BigDecimal::of(number_format((float) $this->service->price, 2, '.', ''))->plus($this->optionsDifference())->isLessThanOrEqualTo(0);
+        return !$this->catalogPricesIt() && $this->keptPrice()->isLessThanOrEqualTo(0);
+    }
+
+    /** An options-only change's price: the one it has plus the options' difference (newRecurringPrice). */
+    private function keptPrice(): BigDecimal
+    {
+        return BigDecimal::of(number_format((float) $this->service->price, 2, '.', ''))->plus($this->optionsDifference());
     }
 
     /**
@@ -320,7 +326,8 @@ class ServiceUpgrade extends Model implements Auditable
     {
         $plan = $this->targetPlan() ?? $this->service->plan;
 
-        return $plan !== null && $plan->prices()->where('currency_code', $this->service->currency_code)->exists();
+        // A free plan has no price row: it prices at 0.00 (Plan::price), not unpriced (ADV-551-R3-2).
+        return $plan !== null && ($plan->type === 'free' || $plan->prices()->where('currency_code', $this->service->currency_code)->exists());
     }
 
     /**
