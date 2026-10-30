@@ -1552,9 +1552,14 @@ class ExtensionHelper
             } catch (UniqueConstraintViolationException) {
                 return false;
             }
+            // A win told before its chargeback (PayPal, Stripe out of order): the card disputed all the same, so the account's
+            // automatic charging stops here, whichever order the gateway tells it (ADV-553-R2-1).
+            $clientId = Invoice::query()->whereKey($payment->invoice_id)->value('client_id');
+            $stopped = DB::transaction(fn () => self::stopAutoCharge($clientId === null ? null : (int) $clientId));
             NotificationHelper::sendSystemEmailNotification('Chargeback needs staff attention', e(
                 "{$gateway} reports the dispute " . ($resolutionReference ?? $chargebackReference) . ' on payment #' . $payment->id . " of invoice #{$payment->invoice_id}"
-                . ' won (' . self::cents($cents) . '), but no chargeback of it is recorded here: nothing changed. If money was taken back and recorded by hand, undo it by hand.'
+                . ' won (' . self::cents($cents) . '), but no chargeback of it is recorded here: nothing changed. If money was taken back and recorded by hand, undo it by hand. '
+                . self::autoChargeNote($clientId === null ? null : (int) $clientId, $stopped)
             ));
 
             return false;
@@ -1664,8 +1669,12 @@ class ExtensionHelper
      */
     private static function autoChargeNote(?int $clientId, bool $stopped): string
     {
+        // Running ones, and an ended one whose PayPal subscription was never cancelled (its marker stays: ADV-553-R2-2).
         $subscribed = $clientId === null ? collect() : Service::query()->where('client_id', $clientId)
-            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->pluck('id');
+            ->where(fn ($query) => $query->where(fn ($live) => $live->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+                ->whereNotNull('subscription_id')->where('subscription_id', '!=', ''))
+                ->orWhereHas('properties', fn ($marker) => $marker->where('key', 'has_paypal_subscription')->where('value', '1')))
+            ->orderBy('id')->pluck('id');
 
         return ($stopped ? 'Automatic charging of the account is turned off; turn it on again when it is settled. ' : '')
             . ($subscribed->isNotEmpty() ? 'Its gateway subscriptions still charge by themselves (service #' . $subscribed->implode(', #')
