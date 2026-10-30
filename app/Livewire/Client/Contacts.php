@@ -9,6 +9,7 @@ use App\Models\Contact;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use App\Support\EmailKinds;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
 /**
@@ -66,6 +67,11 @@ class Contacts extends Component
         if ($this->editing !== null) {
             $contact = $this->contactOf($this->editing);
             $this->identityLocked = $contact->identityLocked();
+            // Another address on a contact taking a kind the login may not see would be theirs to read (code review 1 of #550).
+            $email = mb_strtolower(trim((string) ($this->contact['email'] ?? '')));
+            if ($email !== mb_strtolower(trim((string) $contact->email)) && array_intersect($contact->emailPreferencesShown(), $this->kindsNotAllowed()) !== []) {
+                throw ValidationException::withMessages(['contact.email' => __('account.contact_email_kinds_not_allowed')]);
+            }
             $contact->update($this->withAllowedKinds($this->contactValues(), $contact));
         } else {
             $this->identityLocked = false;
@@ -89,11 +95,18 @@ class Contacts extends Component
     private function withAllowedKinds(array $values, ?Contact $contact): array
     {
         $was = $contact?->emailPreferencesShown() ?? [];
-        $kinds = array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => CurrentClient::allows(EmailKinds::PERMISSIONS[$kind])
+        $notAllowed = $this->kindsNotAllowed();
+        $kinds = array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !in_array($kind, $notAllowed, true)
             ? in_array($kind, $values['email_preferences'], true) : in_array($kind, $was, true));
         $values['email_preferences'] = array_values($kinds);
 
         return $values;
+    }
+
+    /** @return list<string> the kinds of mail the login may not choose for a contact (EmailKinds::PERMISSIONS) */
+    private function kindsNotAllowed(): array
+    {
+        return array_values(array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !CurrentClient::allows(EmailKinds::PERMISSIONS[$kind])));
     }
 
     public function archive(int $id): void
@@ -110,6 +123,8 @@ class Contacts extends Component
             'contacts' => $contacts,
             // Where each is a domain's contact (P1b): its name stays as its registrars hold it, it is not archived.
             'uses' => Contact::domainRolesFor($contacts),
+            // Shown, not changeable: what the login may not see (withAllowedKinds keeps them as they were).
+            'lockedKinds' => $this->kindsNotAllowed(),
         ])->layoutData([
             'sidebar' => true,
             'title' => __('account.contacts'),

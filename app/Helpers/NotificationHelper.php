@@ -71,11 +71,9 @@ class NotificationHelper
         $previous = self::$account;
         self::$account = $client;
         try {
-            if (!($noMail && $mailOnly)) {
-                self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
-            }
+            $ownerMailed = !($noMail && $mailOnly) && self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
             if ($toContacts) {
-                self::toContacts($client, $owner, $key, $data, $attachments);
+                self::toContacts($client, $owner, $key, $data, $attachments, $ownerMailed);
             }
         } finally {
             self::$account = $previous;
@@ -91,7 +89,7 @@ class NotificationHelper
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toContacts(Client $client, User $owner, string $key, array $data, array $attachments): void
+    private static function toContacts(Client $client, User $owner, string $key, array $data, array $attachments, bool $ownerMailed): void
     {
         if (in_array($key, EmailKinds::OWNER_ONLY, true) || config('settings.mail_disable')) {
             return;
@@ -107,27 +105,49 @@ class NotificationHelper
             return;
         }
         $locale = self::localeFor($client);
-        $sent = [mb_strtolower((string) $owner->email) => true];
+        // The owner's address once it had the mail: a contact sharing it gets its copy when the owner got none (ADV-550-3).
+        $sent = $ownerMailed ? [mb_strtolower((string) $owner->email) => true] : [];
         foreach ($contacts as $contact) {
             $address = mb_strtolower(trim((string) $contact->email));
             if (isset($sent[$address])) {
                 continue;
             }
             $sent[$address] = true;
-            $recipient = new User(['email' => trim((string) $contact->email), 'first_name' => $contact->first_name, 'last_name' => $contact->last_name]);
+            // Greeted by name, else by its company (a business contact, or a domain's with only an email: code review 5).
+            $named = filled($contact->first_name);
+            $recipient = new User(['email' => trim((string) $contact->email), 'first_name' => $named ? $contact->first_name : ($contact->company_name ?: null),
+                'last_name' => $named ? $contact->last_name : null]);
             self::withLocale($locale, function () use ($template, $locale, $data, $recipient, $attachments) {
+                // Whatever fails here is reported, never thrown: the owner had the mail already, and a queued caller's
+                // retry would mail them twice (code review 6 of #550); the next contact still gets theirs.
                 try {
                     $context = TemplateRenderer::context(array_diff_key($data, ['user' => true]), $recipient);
-                    // What is the owner's alone (a login link, a secret under its name): not for a contact.
-                    if (self::secretsOf($template, $context) !== []) {
+                    // What is the owner's alone (a login link, a secret under its name, at any depth: a module's
+                    // ['account' => ['password' => …]], code review 2): not for a contact.
+                    if (self::secretsOf($template, $context) !== [] || self::hasNestedSecret($data)) {
                         return;
                     }
                     self::sendEmailNotification($template->inLocale($locale), $context, $recipient, $attachments, copies: false);
-                } catch (TemplateError $e) {
+                } catch (Throwable $e) {
                     report($e);
                 }
             });
         }
+    }
+
+    /** Some value under a secret's name (Redact::isSecretKey), at any depth of the caller's data. */
+    private static function hasNestedSecret(array $data): bool
+    {
+        foreach ($data as $key => $value) {
+            if (Redact::isSecretKey($key) && $value !== null && $value !== '' && $value !== []) {
+                return true;
+            }
+            if (is_array($value) && self::hasNestedSecret($value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -288,14 +308,15 @@ class NotificationHelper
         bool $show_as_push = true,
         bool $mailOnly = false,
         bool $noMail = false,
-    ): void {
+    ): bool {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
-            return;
+            return false;
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
+
+        return self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
     }
 
     /**
@@ -324,7 +345,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): void
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): bool
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -334,10 +355,12 @@ class NotificationHelper
 
         // A template that does not parse must not break what triggered it (provisioning, cron, …):
         // the error is reported and that notification is skipped.
+        $mailed = false;
         try {
             // $noMail: the account's primary contact does not take this kind of mail (toAccount).
             if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
                 self::sendEmailNotification($notification, $data, $user, $attachments);
+                $mailed = true;
             }
         } catch (TemplateError $e) {
             report($e);
@@ -353,6 +376,8 @@ class NotificationHelper
         } catch (Throwable $e) {
             report($e);
         }
+
+        return $mailed;
     }
 
     /**

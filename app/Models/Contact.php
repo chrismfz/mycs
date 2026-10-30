@@ -236,7 +236,7 @@ class Contact extends Model implements Auditable
     /**
      * Make this contact the account's primary (its details): the old primary stays as an ordinary contact. The unique
      * primary_of_client_id is freed before it is taken, in one transaction. The account's mails stay as they were: the
-     * new primary takes the old one's email preferences (owner 2026-10-30, ADV-545-6).
+     * new primary takes the old one's email preferences (owner 2026-10-30, ADV-545-6), the old one none.
      */
     public function makePrimary(): void
     {
@@ -247,7 +247,9 @@ class Contact extends Model implements Auditable
             if ($current?->is($this)) {
                 return;
             }
-            $current?->forceFill(['primary_of_client_id' => null])->save();
+            // Its list chose the owner's mails; as an ordinary contact it would be copies to its own address, which never
+            // asked for them (ADV-550-2): none chosen, none for a contact.
+            $current?->forceFill(['primary_of_client_id' => null, 'email_preferences' => null])->save();
             $this->forceFill(['primary_of_client_id' => $this->client_id, 'archived_at' => null]
                 + ($current !== null ? ['email_preferences' => $current->email_preferences] : []))->save();
         });

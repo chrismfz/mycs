@@ -61,7 +61,7 @@ class ContactMailsTest extends TestCase
     /** @param  array<int, string>|null  $kinds */
     private function contact(string $email, ?array $kinds, array $extra = []): Contact
     {
-        $contact = $this->client->contacts()->create(['type' => 'individual', 'first_name' => 'Eleni', 'email' => $email] + $extra);
+        $contact = $this->client->contacts()->create($extra + ['type' => 'individual', 'first_name' => 'Eleni', 'email' => $email]);
         $contact->forceFill(['email_preferences' => $kinds])->save();
 
         return $contact;
@@ -195,5 +195,19 @@ class ContactMailsTest extends TestCase
 
         $this->assertSame(['domain'], Contact::query()->where('email', 'member@example.test')->sole()->email_preferences, 'invoice is not theirs to tick');
         $this->assertSame(['invoice', 'domain'], $kept->fresh()->email_preferences, 'nor to untick');
+    }
+
+    /** Code review 2 and 5 of #550: a module's secret at any depth stays the owner's; a company is greeted by its name. */
+    public function test_a_nested_secret_stays_the_owners_and_a_company_is_greeted_by_name(): void
+    {
+        $this->contact('ops@example.test', ['product'], ['first_name' => null, 'type' => 'business', 'company_name' => 'Gamma Ltd']);
+        $service = $this->service();
+
+        NotificationHelper::serverUnsuspendedNotification($this->client, $service, ['account' => ['password' => 'S3cret!']]);
+        NotificationHelper::serverSuspendedNotification($this->client, $service);
+
+        $this->assertSame([['owner@example.test', 'server_unsuspended'], ['owner@example.test', 'server_suspended'], ['ops@example.test', 'server_suspended']],
+            EmailLog::query()->orderBy('id')->get()->map(fn ($log) => [$log->to, $log->template_key])->all());
+        $this->assertStringContainsString('Gamma Ltd', (string) EmailLog::query()->where('to', 'ops@example.test')->sole()->body);
     }
 }
