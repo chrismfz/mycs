@@ -117,6 +117,7 @@ class ImportProxmoxVmsAdversarialTest extends TestCase
     {
         $old = $this->vps('terminated');
         $live = $this->vps('active');
+        $live->forceFill(['domain' => 'vps1'])->save(); // its VM by its name too (code review 1 of #548: a VMID alone is not enough)
         $this->import([$old->id => 101, $live->id => 101]);
 
         GuestSync::sync($this->cluster());

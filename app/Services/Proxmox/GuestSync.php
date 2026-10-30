@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Services\Import\WhmcsProxmoxImport;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
 use MyCS\Proxmox\Guest;
 use RuntimeException;
@@ -86,32 +87,63 @@ final class GuestSync
     }
 
     /**
-     * The guests WHMCS's module knew (their VMID kept on the service by the importer, WhmcsProxmoxImport::WHMCS_VMID):
-     * an unmapped guest with that VMID becomes that service's, once (docs/proxmox.md A3). The VMID then goes, so a
-     * mapping staff clear later is never made again; a service mapped already, or a guest gone, internal or a template,
-     * is left to staff.
+     * The guests WHMCS's module knew (their VMID kept on the live service by the importer, WhmcsProxmoxImport::WHMCS_VMID),
+     * on the cluster's first read here, once: an unmapped guest with that VMID becomes that live, unmapped service's, the
+     * cluster its server if it has none (docs/proxmox.md A3). Each VMID is used on that read only, mapped or not, and
+     * goes (ADV-548-4/5: never a machine made later, nor after staff clear a mapping). Only with one Proxmox cluster:
+     * VMIDs are per cluster, two leave them to staff (ADV-548-6). Under the server's sync lock.
      */
     private static function mapFromWhmcs(Server $server): int
     {
+        if (self::servers()->count() !== 1) {
+            return 0; // which cluster a VMID is in is staff's to say
+        }
         $mapped = 0;
         $pending = Property::query()->where('model_type', (new Service)->getMorphClass())->where('key', WhmcsProxmoxImport::WHMCS_VMID)->get();
         foreach ($pending as $property) {
-            $service = Service::query()->find($property->model_id);
-            $guest = ProxmoxGuest::whereUnmapped(ProxmoxGuest::query())->where('server_id', $server->id)->where('vmid', (int) $property->value)
-                ->whereNull('gone_at')->first();
-            if ($service === null || $guest === null || ProxmoxGuest::query()->where('service_id', $service->id)->exists()
-                || ($service->server_id !== null && (int) $service->server_id !== (int) $server->id)) {
-                continue; // another cluster's, or not here (yet): kept for its read
-            }
-            $guest->update(['service_id' => $service->id]);
-            if ($service->server_id === null) {
-                $service->forceFill(['server_id' => $server->id])->save();
-            }
-            $property->delete();
-            $mapped++;
+            DB::transaction(function () use ($property, $server, &$mapped) {
+                $service = Service::query()->lockForUpdate()->find($property->model_id);
+                /** @var ProxmoxGuest|null $guest */
+                $guest = ProxmoxGuest::whereUnmapped(ProxmoxGuest::query())->where('server_id', $server->id)->where('vmid', (int) $property->value)
+                    ->whereNull('gone_at')->lockForUpdate()->first();
+                $address = Property::query()->where('model_type', $property->model_type)->where('model_id', $property->model_id)
+                    ->where('key', WhmcsProxmoxImport::WHMCS_VM_IP)->value('value');
+                Property::query()->where('model_type', $property->model_type)->where('model_id', $property->model_id)
+                    ->whereIn('key', [WhmcsProxmoxImport::WHMCS_VMID, WhmcsProxmoxImport::WHMCS_VM_IP])->delete(); // once, whatever comes of it
+                if ($service === null || $guest === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING], true)
+                    || ProxmoxGuest::query()->where('service_id', $service->id)->exists()
+                    || ($service->server_id !== null && (int) $service->server_id !== (int) $server->id)
+                    || !self::sameMachine($guest, $service, $address)) {
+                    return; // not this one's to map: staff map it from Proxmox Guests
+                }
+                // Only if staff did not map it meanwhile (their action takes no sync lock: code review 5).
+                if (ProxmoxGuest::query()->whereKey($guest->id)->whereNull('service_id')->where('internal', false)->update(['service_id' => $service->id]) !== 1) {
+                    return;
+                }
+                if ($service->server_id === null) {
+                    $service->forceFill(['server_id' => $server->id])->save();
+                }
+                $mapped++;
+            });
         }
 
         return $mapped;
+    }
+
+    /**
+     * The guest is the service's VM by more than its VMID (code review 1 of #548: a VMID Proxmox gave another machine):
+     * WHMCS's address for it among the guest's, or the service's own, or the guest named as its domain.
+     */
+    private static function sameMachine(ProxmoxGuest $guest, Service $service, ?string $address): bool
+    {
+        $ips = array_map('strval', (array) $guest->ips);
+        foreach (array_filter([$address, $service->dedicated_ip]) as $ip) {
+            if (in_array((string) $ip, $ips, true)) {
+                return true;
+            }
+        }
+
+        return filled($service->domain) && filled($guest->name) && strcasecmp(trim((string) $guest->name), trim((string) $service->domain)) === 0;
     }
 
     /**

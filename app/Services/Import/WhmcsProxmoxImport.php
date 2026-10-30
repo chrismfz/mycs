@@ -19,6 +19,9 @@ final class WhmcsProxmoxImport
     /** The service's VMID in WHMCS's module, until the cluster's first read maps its guest (then it goes). */
     public const WHMCS_VMID = 'whmcs_vmid';
 
+    /** Its address in WHMCS's module: what the first read checks the guest by, beside its name (code review 1 of #548). */
+    public const WHMCS_VM_IP = 'whmcs_vm_ip';
+
     private const LIVE = [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING];
 
     /** @var array<string, int> */
@@ -33,7 +36,7 @@ final class WhmcsProxmoxImport
     public function run(): array
     {
         try {
-            $vms = $this->whmcs->query('SELECT id, vmid FROM mod_pvewhmcs_vms ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+            $vms = $this->whmcs->query('SELECT * FROM mod_pvewhmcs_vms ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
             $products = $this->whmcs->query("SELECT id FROM tblproducts WHERE servertype = 'pvewhmcs'")->fetchAll(PDO::FETCH_COLUMN);
         } catch (PDOException $e) {
             if (preg_match('/doesn\'t exist|no such table|42S02/i', $e->getMessage() . ' ' . $e->getCode()) === 1) {
@@ -42,16 +45,37 @@ final class WhmcsProxmoxImport
             throw $e;
         }
         $services = DB::table('services')->pluck('status', 'id')->all();
-        $kept = [];
+        // Only a service of the module's products (code review 3 of #548: a VM WHMCS never suspended is not made one MyCS
+        // suspends); the product ids are WHMCS's.
+        $ofModule = DB::table('services')->whereIn('product_id', array_map('intval', $products))->pluck('id')->flip()->all();
+        $ips = [];
+        // A live service's VMID only (ADV-548-1/2: an ended one's VMID Proxmox may have given another machine since), and
+        // only one claimed by a single live service (ADV-548-3: two claims are staff's to settle).
+        $claims = [];
         foreach ($vms as $vm) {
             $this->counts['vms']++;
             $id = (int) $vm['id']; // the module's row is its service's (tblhosting.id)
             $vmid = (int) ($vm['vmid'] ?? 0);
-            if ($vmid < 1 || !isset($services[$id])) {
+            if ($vmid > 0 && in_array($services[$id] ?? null, self::LIVE, true) && isset($ofModule[$id])) {
+                $claims[$vmid][] = $id;
+                $ips[$id] = trim((string) ($vm['ipaddress'] ?? ''));
+            }
+        }
+        $kept = [];
+        foreach ($claims as $vmid => $ids) {
+            if (count($ids) > 1) {
+                $this->notes[] = "VMID {$vmid} is claimed by " . count($ids) . ' live services in WHMCS\'s module (service #' . implode(', #', $ids)
+                    . '): none mapped from it, staff map the right one.';
+
                 continue;
             }
+            $id = $ids[0];
             DB::table('properties')->updateOrInsert(['model_type' => Service::class, 'model_id' => $id, 'key' => self::WHMCS_VMID],
                 ['name' => 'Proxmox VMID (from WHMCS)', 'value' => (string) $vmid, 'created_at' => now(), 'updated_at' => now()]);
+            if (filter_var($ips[$id], FILTER_VALIDATE_IP) !== false) {
+                DB::table('properties')->updateOrInsert(['model_type' => Service::class, 'model_id' => $id, 'key' => self::WHMCS_VM_IP],
+                    ['name' => 'Proxmox VM address (from WHMCS)', 'value' => $ips[$id], 'created_at' => now(), 'updated_at' => now()]);
+            }
             $kept[$id] = true;
             $this->counts['kept']++;
         }

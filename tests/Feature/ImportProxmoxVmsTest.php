@@ -70,6 +70,7 @@ class ImportProxmoxVmsTest extends TestCase
     public function test_the_import_keeps_the_vmid_and_the_first_read_maps_the_guest_once(): void
     {
         [$a, $b, $manual] = [$this->vps(), $this->vps(), $this->vps()];
+        $a->forceFill(['domain' => 'vps1'])->save(); // its guest's name: more than its VMID says it is its VM
         $this->whmcs->prepare('INSERT INTO tblproducts VALUES (?, ?)')->execute([$a->product_id, 'pvewhmcs']);
         foreach ([$b, $manual] as $service) {
             $this->whmcs->prepare('INSERT OR IGNORE INTO tblproducts VALUES (?, ?)')->execute([$service->product_id, 'pvewhmcs']);
@@ -107,5 +108,21 @@ class ImportProxmoxVmsTest extends TestCase
         $result = (new WhmcsProxmoxImport(new PDO('sqlite::memory:')))->run();
 
         $this->assertSame(['vms' => 0, 'kept' => 0, 'unmapped' => 0], $result['counts']);
+    }
+
+    /** A guest under the VMID that neither WHMCS's address nor the service's name confirms is left to staff (code review 1). */
+    public function test_a_vmid_alone_maps_nothing(): void
+    {
+        $service = $this->vps();
+        $service->forceFill(['domain' => 'another.example.test'])->save();
+        $this->whmcs->prepare('INSERT INTO tblproducts VALUES (?, ?)')->execute([$service->product_id, 'pvewhmcs']);
+        $this->whmcs->prepare('INSERT INTO mod_pvewhmcs_vms VALUES (?, 101)')->execute([$service->id]);
+        (new WhmcsProxmoxImport($this->whmcs))->run();
+
+        $read = GuestSync::sync($this->cluster());
+
+        $this->assertSame(0, $read['mapped']);
+        $this->assertNull(ProxmoxGuest::query()->where('vmid', 101)->value('service_id'));
+        $this->assertNull($service->fresh()->server_id);
     }
 }
