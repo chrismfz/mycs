@@ -8,12 +8,15 @@ use RuntimeException;
 /**
  * WHMCS's own API, for what its database keeps encrypted with a key that is not in it (cc_encryption_hash): the saved
  * payment methods' remote tokens (GetPayMethods). Only the reads a step needs (READS), over https only; its identifier
- * and secret from the environment (WHMCS_API_IDENTIFIER, WHMCS_API_SECRET), never an argument or a log line.
+ * and secret from the environment (WHMCS_API_IDENTIFIER, WHMCS_API_SECRET), never an argument or a log line. The services'
+ * passwords (DecryptPassword) too.
  */
 final class WhmcsApi
 {
     /** The only actions asked: reads. */
-    private const READS = ['GetPayMethods', 'WhmcsDetails']; // what the importer reads; another is added with its step
+    // DecryptPassword changes nothing in WHMCS: it returns a service's password, which its database keeps encrypted
+    // (WhmcsServicePasswordImport).
+    private const READS = ['GetPayMethods', 'WhmcsDetails', 'DecryptPassword']; // what the importer reads; another is added with its step
 
     public function __construct(
         private readonly string $url,
