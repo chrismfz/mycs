@@ -166,7 +166,7 @@ class GatewayRefundTest extends TestCase
         $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway refund failed after it was recorded')->count());
     }
 
-    public function test_a_dashboard_refund_of_more_than_is_left_records_what_is_left_and_tells_staff(): void
+    public function test_a_dashboard_refund_after_a_refund_to_credit_takes_the_credit_back_and_tells_staff(): void
     {
         $this->stripe();
         $invoice = $this->paidInvoice('Stripe', 'pi_more');
@@ -175,9 +175,11 @@ class GatewayRefundTest extends TestCase
 
         $this->stripeWebhook($this->stripeRefund('re_more', 'pi_more', 10000))->assertOk();
 
+        // Since sweep 9γ (owner 2026-10-30): the 60 refunded to credit is taken back from the credit first, so the customer
+        // gets 100 back in all, not 100 on the card and 60 as credit (GatewayRefundOfOverpaymentTest).
         $payment->refresh();
-        $this->assertSame(['40.00', '60.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
-        $this->assertSame(['100.00', '40.00'], [(string) GatewayRefund::query()->sole()->amount, (string) GatewayRefund::query()->sole()->recorded_amount]);
+        $this->assertSame(['100.00', '0.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
+        $this->assertSame(['100.00', '100.00'], [(string) GatewayRefund::query()->sole()->amount, (string) GatewayRefund::query()->sole()->recorded_amount]);
         $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway refund needs staff attention')->count());
         $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
     }

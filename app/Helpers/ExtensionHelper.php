@@ -1129,8 +1129,19 @@ class ExtensionHelper
             return 0;
         }
 
+        // What the payment overpaid, or staff refunded to credit from it, is account credit (credited_amount): a dashboard
+        // refund takes it from there first, as much of it as is still in the credit (sweep 9γ, owner 2026-10-30); booked
+        // against the invoice, the customer got that money back and kept it as credit too.
+        $fromCredit = self::refundOverpaidCredit($payment, $invoice, $cents);
+        if ($fromCredit > 0) {
+            $staff = "{$gateway} refund {$refundReference} (" . self::cents($cents) . " {$invoice->currency_code}) on payment #{$payment->id} of invoice #{$invoice->id}: "
+                . self::cents($fromCredit) . ' of it was taken from the account credit this payment left (its overpayment, or a refund to credit), not from the invoice.'
+                . ' If it was a refund of the invoice itself, correct it by hand.';
+        }
+        $rest = $cents - $fromCredit;
+
         $left = max(0, RecordPaymentService::toCents($payment->refundable_amount));
-        $record = min($cents, $left);
+        $record = min($rest, $left);
         $credit = null;
         $creditCents = 0;
         try {
@@ -1150,21 +1161,61 @@ class ExtensionHelper
         if ($record > 0) {
             self::recordRefund($payment, $record / 100, $credit, MoneyTrail::sourceFor($payment->gateway), $creditCents);
         }
-        if ($record < $cents) {
+        if ($record < $rest) {
             $staff = trim(($staff ?? '') . " {$gateway} refunded " . self::cents($cents) . " {$invoice->currency_code} ({$refundReference}) on payment #{$payment->id}"
-                . " of invoice #{$invoice->id}, but only " . self::cents($left) . ' was left on it (the rest became account credit, was refunded by hand, or paid other invoices):'
-                . ' ' . self::cents($cents - $record) . ' recorded nowhere, settle it by hand.');
+                . " of invoice #{$invoice->id}, but only " . self::cents($left + $fromCredit) . ' was left on it (the rest of its credit was spent, was refunded by hand, or paid other invoices):'
+                . ' ' . self::cents($rest - $record) . ' recorded nowhere, settle it by hand.');
         } elseif ($byHand > $matched) {
             $staff = "{$gateway} refund {$refundReference} recorded on payment #{$payment->id} of invoice #{$invoice->id}, which also has a refund recorded by hand:"
                 . ' check the two are not the same money.';
         }
-        $write($record, GatewayRefund::ORIGIN_GATEWAY);
-        if ($record > 0) {
-            self::notifyRefund($payment, $record, toCredit: false, byGateway: true);
+        $recorded = $record + $fromCredit;
+        $write($recorded, GatewayRefund::ORIGIN_GATEWAY);
+        if ($recorded > 0) {
+            self::notifyRefund($payment, $recorded, toCredit: false, byGateway: true);
         }
-        $log($record > 0 ? PaymentGatewayEvent::OUTCOME_RECORDED : PaymentGatewayEvent::OUTCOME_IGNORED, $record > 0 ? 'refund' : 'refund_nothing_left', $payment);
+        $log($recorded > 0 ? PaymentGatewayEvent::OUTCOME_RECORDED : PaymentGatewayEvent::OUTCOME_IGNORED, $recorded > 0 ? 'refund' : 'refund_nothing_left', $payment);
 
-        return $record;
+        return $recorded;
+    }
+
+    /**
+     * Take up to $cents of a gateway refund from the account credit $payment left (what it overpaid, and what staff
+     * refunded to credit from it: money back on the card is not kept as credit too): its credited part not
+     * yet spent on other invoices it paid (allocateFromTransaction), and never more than the credit holds now. The
+     * payment's credited part becomes refunded; the invoice is not touched (it was paid in full). Under the invoice and
+     * payment locks. Returns what was taken.
+     */
+    private static function refundOverpaidCredit(InvoiceTransaction $payment, Invoice $invoice, int $cents): int
+    {
+        $overpaid = RecordPaymentService::toCents($payment->credited_amount)
+            - (int) InvoiceTransaction::query()->where('source_transaction_id', $payment->id)->lockForUpdate()->get()
+                ->sum(fn (InvoiceTransaction $paid) => RecordPaymentService::toCents($paid->amount));
+        if ($overpaid <= 0) {
+            return 0;
+        }
+        $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
+        $take = min($cents, $overpaid, $credit === null ? 0 : max(0, CreditLedger::cents($credit)));
+        if ($take <= 0) {
+            return 0;
+        }
+        $source = MoneyTrail::sourceFor($payment->gateway);
+        // Its credited part is what it overpaid and what staff refunded to credit from it: each taken back under its own
+        // cause, the overpayment first.
+        $moved = fn (MoneyEventKind $kind, string $cause) => (int) MoneyEvent::query()->where('invoice_transaction_id', $payment->id)
+            ->where('kind', $kind->value)->where('cause', $cause)->get()->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount));
+        $overpayment = min($take, max(0, $moved(MoneyEventKind::CreditIn, MoneyTrail::CAUSE_OVERPAYMENT) - $moved(MoneyEventKind::CreditOut, MoneyTrail::CAUSE_OVERPAYMENT)));
+        foreach ([MoneyTrail::CAUSE_OVERPAYMENT => $overpayment, MoneyTrail::CAUSE_REFUND_TO_CREDIT => $take - $overpayment] as $cause => $part) {
+            if ($part > 0) {
+                (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $part, $cause, $source, $invoice, $payment,
+                    note: 'Refunded at the gateway');
+            }
+        }
+        $payment->update(['credited_amount' => (RecordPaymentService::toCents($payment->credited_amount) - $take) / 100,
+            'refunded_amount' => (RecordPaymentService::toCents($payment->refunded_amount) + $take) / 100]);
+        (new MoneyTrail)->refund($payment, $invoice, $take, $source, MoneyTrail::CAUSE_OVERPAYMENT);
+
+        return $take;
     }
 
     /**
