@@ -3,6 +3,8 @@
 namespace App\Livewire\Traits;
 
 use App\Models\Contact;
+use App\Support\CurrentClient;
+use App\Support\EmailKinds;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
 
@@ -100,5 +102,29 @@ trait EditsContact
         }
 
         return $values;
+    }
+
+    /**
+     * The mails it takes, as far as the login may choose them (EmailKinds::PERMISSIONS): a kind it may not see stays as
+     * it was (a new contact: not taken).
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
+     */
+    protected function withAllowedKinds(array $values, ?Contact $contact): array
+    {
+        $was = $contact?->emailPreferencesShown() ?? [];
+        $notAllowed = $this->kindsNotAllowed();
+        $kinds = array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !in_array($kind, $notAllowed, true)
+            ? in_array($kind, $values['email_preferences'], true) : in_array($kind, $was, true));
+        $values['email_preferences'] = array_values($kinds);
+
+        return $values;
+    }
+
+    /** @return list<string> the kinds of mail the login may not choose for a contact (EmailKinds::PERMISSIONS) */
+    protected function kindsNotAllowed(): array
+    {
+        return array_values(array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !CurrentClient::allows(EmailKinds::PERMISSIONS[$kind])));
     }
 }

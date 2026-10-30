@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -409,6 +410,21 @@ class Client extends Model implements Auditable
 
             return $grant;
         });
+    }
+
+    /**
+     * The account's contacts still mailed at this address (owner 2026-10-30): a member's own address on a contact keeps
+     * taking the account's mails after their access is removed, so whoever removes it is told (ADV-550 note).
+     *
+     * @return Collection<int, Contact>
+     */
+    public function contactsMailedAt(?string $email): Collection
+    {
+        $email = mb_strtolower(trim((string) $email));
+
+        return $email === '' ? collect() : $this->contacts()->active()->whereNull('primary_of_client_id')->get()
+            ->filter(fn (Contact $contact) => mb_strtolower(trim((string) $contact->email)) === $email && $contact->emailPreferencesShown() !== [])
+            ->values();
     }
 
     /** Take a login's access away; kept as history (revoked_at). The owner's grant is not revoked: transfer first. */

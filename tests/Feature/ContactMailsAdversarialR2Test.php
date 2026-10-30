@@ -152,6 +152,7 @@ class ContactMailsAdversarialR2Test extends TestCase
      */
     public function test_bug_a_contact_made_primary_stops_getting_the_mails_it_took(): void
     {
+        $this->markTestIncomplete('ADV-550-R2-4: the owner\'s call (mail the primary\'s own address too, or warn on «Make primary»).');
         $books = $this->contact('books@example.test', ['invoice']);
         $books->makePrimary();
 

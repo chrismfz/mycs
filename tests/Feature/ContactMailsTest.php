@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Helpers\NotificationHelper;
 use App\Livewire\Client\Contacts;
+use App\Livewire\Client\Users;
 use App\Models\BulkMail;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -209,5 +210,18 @@ class ContactMailsTest extends TestCase
         $this->assertSame([['owner@example.test', 'server_unsuspended'], ['owner@example.test', 'server_suspended'], ['ops@example.test', 'server_suspended']],
             EmailLog::query()->orderBy('id')->get()->map(fn ($log) => [$log->to, $log->template_key])->all());
         $this->assertStringContainsString('Gamma Ltd', (string) EmailLog::query()->where('to', 'ops@example.test')->sole()->body);
+    }
+
+    /** Owner 2026-10-30: removing a member whose address is still a mailed contact tells whoever removes it. */
+    public function test_removing_a_member_warns_of_a_contact_still_mailed_at_their_address(): void
+    {
+        $member = User::factory()->withoutClient()->create(['email' => 'member@example.test']);
+        $grant = ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $member->id, 'permissions' => ['invoices'], 'granted_at' => now()]);
+        $this->contact('Member@example.test', ['invoice'], ['first_name' => 'Nikos']);
+
+        $this->livewireAs($this->owner)->test(Users::class)->call('revoke', $grant->id)
+            ->assertDispatched('notify', fn ($name, $params) => ($params[0]['type'] ?? null) === 'warning' && str_contains($params[0]['message'], 'Nikos'));
+
+        $this->assertSame([], $this->client->contactsMailedAt('other@example.test')->all());
     }
 }

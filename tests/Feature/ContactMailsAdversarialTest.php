@@ -162,7 +162,7 @@ class ContactMailsAdversarialTest extends TestCase
      */
     public function test_bug_an_unconfirmed_third_party_address_gets_mail_with_the_customers_text(): void
     {
-        $this->markTestIncomplete('ADV-550-4: a design call for the owner (WHMCS confirms no contact address either).');
+        $this->markTestSkipped('ADV-550-4: won\'t fix, owner 2026-10-30: as WHMCS, a contact\'s address is never confirmed.');
         $this->owner->forceFill(['email_verified_at' => null])->save();
         foreach (range(1, 5) as $i) {
             $this->contact("victim{$i}@example.test", ['general', 'invoice'], ['first_name' => 'friend, claim your prize at https://spam.example']);

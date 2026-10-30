@@ -4,6 +4,7 @@ namespace App\Helpers;
 
 use App\Classes\PDF;
 use App\Classes\Price;
+use App\Enums\NotificationEnabledStatus;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
 use App\Models\BillingAgreement;
@@ -71,9 +72,13 @@ class NotificationHelper
         $previous = self::$account;
         self::$account = $client;
         try {
-            $ownerMailed = !($noMail && $mailOnly) && self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
+            if (!($noMail && $mailOnly)) {
+                self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
+            }
             if ($toContacts) {
-                self::toContacts($client, $owner, $key, $data, $attachments, $ownerMailed);
+                // The owner's address is theirs to choose for (their own preference, ADV-550-R2-2), unless only the
+                // primary's kinds kept the mail from them: then a contact sharing it gets its copy (ADV-550-3).
+                self::toContacts($client, $owner, $key, $data, $attachments, ownerAddressTaken: !$noMail);
             }
         } finally {
             self::$account = $previous;
@@ -89,7 +94,7 @@ class NotificationHelper
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toContacts(Client $client, User $owner, string $key, array $data, array $attachments, bool $ownerMailed): void
+    private static function toContacts(Client $client, User $owner, string $key, array $data, array $attachments, bool $ownerAddressTaken): void
     {
         if (in_array($key, EmailKinds::OWNER_ONLY, true) || config('settings.mail_disable')) {
             return;
@@ -100,13 +105,19 @@ class NotificationHelper
         if ($contacts->isEmpty()) {
             return;
         }
+        // A template whose mail staff set to never, or off unless chosen, mails no contact (ADV-550-R2-1): they have no
+        // preferences of their own to choose it with.
         $template = NotificationTemplate::where('key', $key)->first();
-        if (!$template || !$template->enabled) {
+        if (!$template || !$template->enabled
+            || !in_array($template->mail_enabled, [NotificationEnabledStatus::Force, NotificationEnabledStatus::ChoiceOn], true)) {
             return;
         }
         $locale = self::localeFor($client);
-        // The owner's address once it had the mail: a contact sharing it gets its copy when the owner got none (ADV-550-3).
-        $sent = $ownerMailed ? [mb_strtolower((string) $owner->email) => true] : [];
+        $sent = $ownerAddressTaken ? [mb_strtolower((string) $owner->email) => true] : [];
+        // The template's CC and BCC had the owner's mail already: not a second copy (round 2 of #550).
+        foreach ([...(array) $template->cc, ...(array) $template->bcc] as $copy) {
+            $sent[mb_strtolower(trim((string) $copy))] = true;
+        }
         foreach ($contacts as $contact) {
             $address = mb_strtolower(trim((string) $contact->email));
             if (isset($sent[$address])) {
@@ -308,15 +319,14 @@ class NotificationHelper
         bool $show_as_push = true,
         bool $mailOnly = false,
         bool $noMail = false,
-    ): bool {
+    ): void {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
-            return false;
+            return;
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-
-        return self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
     }
 
     /**
@@ -345,7 +355,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): bool
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): void
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -355,12 +365,10 @@ class NotificationHelper
 
         // A template that does not parse must not break what triggered it (provisioning, cron, …):
         // the error is reported and that notification is skipped.
-        $mailed = false;
         try {
             // $noMail: the account's primary contact does not take this kind of mail (toAccount).
             if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
                 self::sendEmailNotification($notification, $data, $user, $attachments);
-                $mailed = true;
             }
         } catch (TemplateError $e) {
             report($e);
@@ -376,8 +384,6 @@ class NotificationHelper
         } catch (Throwable $e) {
             report($e);
         }
-
-        return $mailed;
     }
 
     /**

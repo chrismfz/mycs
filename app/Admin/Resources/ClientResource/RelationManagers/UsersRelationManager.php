@@ -196,6 +196,11 @@ class UsersRelationManager extends RelationManager
                     ->action(function (ClientUser $record) use ($client) {
                         try {
                             $client->revoke($record);
+                            $contacts = $client->contactsMailedAt($record->user?->email);
+                            if ($contacts->isNotEmpty()) {
+                                Notification::make()->warning()->persistent()
+                                    ->title(e(__('account.access_removed_contacts_mailed', ['contacts' => $contacts->map->label()->implode(', ')])))->send();
+                            }
                         } catch (DisplayException $e) {
                             Notification::make()->danger()->title(e($e->getMessage()))->send();
                         }

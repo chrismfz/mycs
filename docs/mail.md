@@ -61,7 +61,11 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
   Ένα μέλος του λογαριασμού τσεκάρει ή ξετσεκάρει σε επαφή μόνο τα είδη που του επιτρέπουν τα δικαιώματά του
   (`EmailKinds::PERMISSIONS`: invoice → invoices, product → products, domain → domains, support → tickets, general →
   emails): αλλιώς ένα μέλος με μόνο «contacts» θα έβαζε τη δική του διεύθυνση και θα διάβαζε τα τιμολόγια που του κρύβει
-  η σελίδα.
+  η σελίδα. Ένα μέλος δεν αλλάζει το email επαφής που παίρνει είδη που δεν βλέπει (ADV-550-1). Η παλιά κύρια επαφή, μετά
+  το «Make primary», δεν παίρνει κανένα (ADV-550-2).
+- **Χωρίς επιβεβαίωση της διεύθυνσης** μιας επαφής, όπως το WHMCS (υπεύθυνος 2026-10-30, ADV-550-4 won't fix). Όταν
+  αφαιρείται η πρόσβαση ενός μέλους και η διεύθυνσή του είναι ακόμη επαφή που παίρνει email, όποιος την αφαιρεί
+  ειδοποιείται (client area και admin).
 - **Είδος κάθε template:** `EmailKinds::KINDS` (τιμολόγια, πληρωμές, κάρτες: invoice· υπηρεσίες και SSL: product· απάντηση
   σε ticket: support· domains: domain· νέα παραγγελία: general). Ένα νέο template του λογαριασμού πρέπει να μπει εκεί
   (το ελέγχει test).

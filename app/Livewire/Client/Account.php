@@ -114,7 +114,8 @@ class Account extends ComponentWithProperties
             }
             if ($client !== null) {
                 $this->identityLocked = (bool) $client->primaryContact?->identityLocked();
-                $client->primaryContact?->update($this->contactValues());
+                // The owner's kinds of mail, as far as the login may see them (ADV-550-R2-3).
+                $client->primaryContact?->update($this->withAllowedKinds($this->contactValues(), $client->primaryContact));
                 $client->forceFill(['language' => Locales::allowed($this->language)])->save();
                 if (array_key_exists('properties', $validatedData)) {
                     $this->updateProperties($client, $validatedData['properties']);
@@ -140,7 +141,7 @@ class Account extends ComponentWithProperties
 
     public function render()
     {
-        return view('client.account.index')->layoutData([
+        return view('client.account.index', ['lockedKinds' => $this->kindsNotAllowed()])->layoutData([
             'sidebar' => true,
             'title' => __('navigation.account'),
         ]);

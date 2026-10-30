@@ -8,7 +8,6 @@ use App\Models\Client;
 use App\Models\Contact;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
-use App\Support\EmailKinds;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
@@ -83,30 +82,6 @@ class Contacts extends Component
         // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.
         $this->notify(__('account.contact_saved') . (EuVat::enabled() && $contact->fresh()?->vat_status === EuVat::STATUS_PENDING
             ? ' ' . __('vat.saved_pending') : ''), 'success');
-    }
-
-    /**
-     * The mails it takes, as far as the login may choose them (EmailKinds::PERMISSIONS): a kind it may not see stays as
-     * it was (a new contact: not taken).
-     *
-     * @param  array<string, mixed>  $values
-     * @return array<string, mixed>
-     */
-    private function withAllowedKinds(array $values, ?Contact $contact): array
-    {
-        $was = $contact?->emailPreferencesShown() ?? [];
-        $notAllowed = $this->kindsNotAllowed();
-        $kinds = array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !in_array($kind, $notAllowed, true)
-            ? in_array($kind, $values['email_preferences'], true) : in_array($kind, $was, true));
-        $values['email_preferences'] = array_values($kinds);
-
-        return $values;
-    }
-
-    /** @return list<string> the kinds of mail the login may not choose for a contact (EmailKinds::PERMISSIONS) */
-    private function kindsNotAllowed(): array
-    {
-        return array_values(array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => !CurrentClient::allows(EmailKinds::PERMISSIONS[$kind])));
     }
 
     public function archive(int $id): void

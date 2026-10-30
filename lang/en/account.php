@@ -164,6 +164,7 @@ return [
     'remove_access' => 'Remove access',
     'remove_access_confirm' => 'Remove the access of :name to this account?',
     'access_removed' => 'The access was removed.',
+    'access_removed_contacts_mailed' => 'Its address still receives the account\'s mails as a contact: :contacts. Untick its mails or archive it in Contacts.',
     'permissions_saved' => 'The permissions were saved.',
     'only_owner_manages_users' => 'Only the owner of the account manages its users.',
     'permission' => [
