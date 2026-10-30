@@ -18,8 +18,10 @@ use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\InvoiceItemReference;
+use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Payment\SavedMethodCharge;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -169,6 +171,32 @@ class InvoiceObserver
         if ($invoice->isDirty(['client_id', 'currency_code']) && $invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).'));
         }
+        // A closed one (cancelled, paid, refunded) is an issued document of its customer: reopened first, in the same save
+        // too (ADV-554-R2-1/2/3: moved closed, then reopened, it billed the first customer's tax).
+        if ($invoice->isDirty('client_id') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
+            && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
+            throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).'));
+        }
+        // A credit or debit note staff wrote is a fixed gross amount under the first customer's tax, numbered to them: void
+        // it first, as MoveToClient asks (ADV-554-R3-1: retaxed under it, the invoice went below zero). A cancellation's own
+        // note is voided by the reopen in the same save.
+        if ($invoice->isDirty('client_id') && $invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)
+            ->where(fn ($note) => $note->whereNull('is_cancellation')->orWhere('is_cancellation', false))->exists()) {
+            throw new DisplayException(__('This invoice has a credit or debit note: void it before moving the invoice.'));
+        }
+        // A saved card charged and its webhook not here yet: that money is the first customer's (ADV-554-2), as MoveToClient
+        // refuses it.
+        if ($invoice->isDirty(['client_id', 'currency_code']) && SavedMethodCharge::onItsWay($invoice)) {
+            throw new DisplayException(__('A card payment of this invoice is on its way: wait for it before moving the invoice.'));
+        }
+        // Its preferred method the new account's own, never the first one's card's gateway; one billed apart for an item
+        // paid another way keeps that way (as MoveToClient, R3-2 of #539, ADV-554-3).
+        // Not one staff chose in the same save (ADV-554-R2-4).
+        if ($invoice->isDirty('client_id') && $invoice->client_id !== null && !$invoice->isDirty('preferred_gateway_id')) {
+            $invoice->preferred_gateway_id = $invoice->preferred_gateway_id !== null
+                && $invoice->items()->where('payment_gateway_id', $invoice->preferred_gateway_id)->exists()
+                ? $invoice->preferred_gateway_id : Invoice::preferredGatewayFor((int) $invoice->client_id);
+        }
         event(new InvoiceEvent\Updating($invoice));
     }
 
@@ -291,6 +319,17 @@ class InvoiceObserver
         if ($invoice->wasChanged(['client_id', 'currency_code'])
             || ($invoice->wasChanged('status') && !($invoice->getOriginal('status') === Invoice::STATUS_UNPAID && $invoice->status === Invoice::STATUS_PAID))) {
             EkdosiRequest::forget((int) $invoice->id, $invoice->wasChanged('status') ? 'status_' . $invoice->status : 'moved');
+        }
+        // Another customer (staff's edit, the API, MoveToClient): taxed and addressed as the new one's (sweep 9γ, owner
+        // 2026-10-30), after its Ekdosi request is gone as «moved» (code review F4 of #554). Only an open one moves (or one
+        // reopened in the same save), refused in updating() with one with payments, a card charge on its way, or lines
+        // renewing the first one's services. Its lines read again afterwards: a cancellation in the same save notes the
+        // new total (F2).
+        if ($invoice->wasChanged('client_id') && $invoice->client_id !== null) {
+            $invoice->unsetRelation('client');
+            InvoiceReaddress::retax($invoice);
+            InvoiceReaddress::readdress($invoice);
+            $invoice->unsetRelation('items');
         }
         // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
         // Never issued (owner 2026-10-20, Δ2): a draft, or a proforma still without its number; nothing to credit. An

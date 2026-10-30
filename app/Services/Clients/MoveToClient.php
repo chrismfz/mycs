@@ -15,9 +15,8 @@ use App\Models\Order;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Staff;
-use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\InvoiceLineMove;
-use App\Services\Invoice\LineTax;
+use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\AfterCommit;
 use Illuminate\Support\Collection;
@@ -247,8 +246,7 @@ final class MoveToClient
                     ? $invoice->preferred_gateway_id : Invoice::preferredGatewayFor($to->id);
                 $invoice->save();
                 $invoice->setRelation('client', $to);
-                $this->retax($lines, $invoice);
-                $this->readdress($invoice);
+                // Retaxed and readdressed by its observer, as any invoice that changes customer (InvoiceReaddress).
                 $result['moved'][] = $invoice->id;
                 $this->sendAgain($invoice);
 
@@ -266,7 +264,7 @@ final class MoveToClient
             $new->save();
             $new->setRelation('client', $to);
             InvoiceLineMove::move($lines, $new);
-            $this->retax($lines, $new);
+            InvoiceReaddress::retax($new, $lines);
             $result['split'][$invoice->id] = $new->id;
             // The first left with nothing to pay is closed, as a zero invoice is; not with an upgrade's line, whose
             // credit nobody decided (ChangeOpenLine; adversarial ADV-4).
@@ -280,30 +278,6 @@ final class MoveToClient
         }
 
         return $result;
-    }
-
-    /**
-     * @param  Collection<int, InvoiceItem>  $lines
-     */
-    private function retax(Collection $lines, Invoice $invoice): void
-    {
-        foreach ($lines as $line) {
-            $line->refresh();
-            $line->setRelation('invoice', $invoice);
-            $line->forceFill(LineTax::decide($line))->save();
-        }
-    }
-
-    /** Addressed to its new client: the snapshot taken when it was issued was the first client's (ADV-1, code review 1). */
-    private function readdress(Invoice $invoice): void
-    {
-        $snapshot = $invoice->snapshot()->first();
-        if ($snapshot === null) {
-            return;
-        }
-        $snapshot->delete();
-        $invoice->unsetRelation('snapshot');
-        app(CreateInvoiceSnapshotService::class)->handle($invoice);
     }
 
     /** An unpaid invoice that changed is sent again (its new total, its new client), once the move commits. */

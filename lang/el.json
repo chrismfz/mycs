@@ -1548,5 +1548,8 @@
     "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο.",
     "The account's (its saved method)": "Του λογαριασμού (ο αποθηκευμένος τρόπος)",
     "Another gateway than the saved method's: its renewals are invoiced apart and never charged automatically.": "Άλλος τρόπος από του αποθηκευμένου: οι ανανεώσεις του τιμολογούνται χωριστά και δεν χρεώνονται ποτέ αυτόματα.",
-    "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας."
+    "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας.",
+    "A card payment of this invoice is on its way: wait for it before moving the invoice.": "Μια πληρωμή με κάρτα αυτού του τιμολογίου είναι σε εξέλιξη: περιμένετε να ολοκληρωθεί πριν το μεταφέρετε.",
+    "A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).": "Ένα κλειστό τιμολόγιο κρατά τον πελάτη του: επαναφέρετέ το σε απλήρωτο πρώτα (ένα επιστραμμένο δεν μεταφέρεται ποτέ).",
+    "This invoice has a credit or debit note: void it before moving the invoice.": "Το τιμολόγιο έχει πιστωτικό ή χρεωστικό σημείωμα: ακυρώστε το πριν μεταφέρετε το τιμολόγιο."
 }
