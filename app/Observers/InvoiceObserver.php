@@ -171,6 +171,12 @@ class InvoiceObserver
         if ($invoice->isDirty(['client_id', 'currency_code']) && $invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).'));
         }
+        // A closed one (cancelled, paid, refunded) is an issued document of its customer: reopened first, in the same save
+        // too (ADV-554-R2-1/2/3: moved closed, then reopened, it billed the first customer's tax).
+        if ($invoice->isDirty('client_id') && $invoice->exists && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
+            && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
+            throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first.'));
+        }
         // A saved card charged and its webhook not here yet: that money is the first customer's (ADV-554-2), as MoveToClient
         // refuses it.
         if ($invoice->isDirty(['client_id', 'currency_code']) && SavedMethodCharge::onItsWay($invoice)) {
@@ -178,7 +184,8 @@ class InvoiceObserver
         }
         // Its preferred method the new account's own, never the first one's card's gateway; one billed apart for an item
         // paid another way keeps that way (as MoveToClient, R3-2 of #539, ADV-554-3).
-        if ($invoice->isDirty('client_id') && $invoice->client_id !== null && $invoice->exists) {
+        // Not one staff chose in the same save (ADV-554-R2-4).
+        if ($invoice->isDirty('client_id') && $invoice->client_id !== null && $invoice->exists && !$invoice->isDirty('preferred_gateway_id')) {
             $invoice->preferred_gateway_id = $invoice->preferred_gateway_id !== null
                 && $invoice->items()->where('payment_gateway_id', $invoice->preferred_gateway_id)->exists()
                 ? $invoice->preferred_gateway_id : Invoice::preferredGatewayFor((int) $invoice->client_id);
@@ -306,12 +313,12 @@ class InvoiceObserver
             || ($invoice->wasChanged('status') && !($invoice->getOriginal('status') === Invoice::STATUS_UNPAID && $invoice->status === Invoice::STATUS_PAID))) {
             EkdosiRequest::forget((int) $invoice->id, $invoice->wasChanged('status') ? 'status_' . $invoice->status : 'moved');
         }
-        // Another customer (staff's edit, the API, MoveToClient): an open one taxed and addressed as the new one's (sweep 9γ,
-        // owner 2026-10-30), after its Ekdosi request is gone as «moved» (code review F4 of #554). A closed one keeps its
-        // amounts: a cancelled one's credit note, a paid one's lines (F1/F3, ADV-554-1). Its lines read again afterwards:
-        // a cancellation in the same save notes the new total (F2). Refused in updating(): one with payments, a card
-        // charge on its way, or lines renewing the first one's services.
-        if ($invoice->wasChanged('client_id') && $invoice->client_id !== null && in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)) {
+        // Another customer (staff's edit, the API, MoveToClient): taxed and addressed as the new one's (sweep 9γ, owner
+        // 2026-10-30), after its Ekdosi request is gone as «moved» (code review F4 of #554). Only an open one moves (or one
+        // reopened in the same save), refused in updating() with one with payments, a card charge on its way, or lines
+        // renewing the first one's services. Its lines read again afterwards: a cancellation in the same save notes the
+        // new total (F2).
+        if ($invoice->wasChanged('client_id') && $invoice->client_id !== null) {
             $invoice->unsetRelation('client');
             InvoiceReaddress::retax($invoice);
             InvoiceReaddress::readdress($invoice);

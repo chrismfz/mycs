@@ -38,5 +38,6 @@ final class InvoiceReaddress
         $snapshot->delete();
         $invoice->unsetRelation('snapshot');
         app(CreateInvoiceSnapshotService::class)->handle($invoice);
+        $invoice->unsetRelation('snapshot'); // handle() read it as none: a draft issued in the same save takes the new one (ADV-554-R2-5)
     }
 }

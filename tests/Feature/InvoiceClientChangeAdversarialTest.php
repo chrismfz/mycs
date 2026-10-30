@@ -219,9 +219,10 @@ class InvoiceClientChangeAdversarialTest extends TestCase
         (new RecordPaymentService)->settle($invoice->id);
         $this->assertSame(Invoice::STATUS_PAID, Invoice::query()->whereKey($invoice->id)->value('status'), 'precondition');
 
-        $moved = $this->move($invoice, $abroad = $this->customer('US', 'John'));
-
-        $this->assertSame($abroad->id, (int) $moved->client_id);
+        // Round 2 of #554: a closed (paid) invoice keeps its customer, refused with a clear message, not the lines' one.
+        $this->expectException(DisplayException::class);
+        $this->expectExceptionMessage('A closed invoice keeps its customer');
+        $this->move($invoice, $this->customer('US', 'John'));
     }
 
     /**

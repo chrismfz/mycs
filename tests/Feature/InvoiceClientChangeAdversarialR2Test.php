@@ -102,10 +102,14 @@ class InvoiceClientChangeAdversarialR2Test extends TestCase
         $this->assertStringContainsString('Eleni', implode(',', $this->snapshots($invoice)), 'precondition: the first customer\'s snapshot');
 
         $abroad = $this->customer('US', 'John');
-        $moved = $this->save($invoice, ['client_id' => $abroad->id]);
+        // The fix: a closed invoice keeps its customer (reopened first), so the second customer never sees the first's name.
+        try {
+            $this->save($invoice, ['client_id' => $abroad->id]);
+            $this->fail('a closed invoice is not moved');
+        } catch (DisplayException) {
+        }
 
-        $this->assertSame($abroad->id, (int) $moved->client_id);
-        $this->assertStringNotContainsString('Eleni', implode(',', $this->snapshots($moved)), 'the second customer\'s invoice names the first one');
+        $this->assertSame($invoice->client_id, Invoice::query()->whereKey($invoice->id)->value('client_id'));
     }
 
     /**
@@ -117,12 +121,17 @@ class InvoiceClientChangeAdversarialR2Test extends TestCase
     {
         $invoice = $this->save($this->invoice($this->customer('GR', 'Eleni')), ['status' => Invoice::STATUS_CANCELLED]);
         $abroad = $this->customer('US', 'John');
-        $invoice = $this->save($invoice, ['client_id' => $abroad->id]);
+        // The fix: not moved while closed; reopened and moved in one save it is retaxed (R2-3's test).
+        try {
+            $this->save($invoice, ['client_id' => $abroad->id]);
+            $this->fail('a closed invoice is not moved');
+        } catch (DisplayException) {
+        }
 
-        $reopened = $this->save($invoice, ['status' => Invoice::STATUS_UNPAID]);
+        $reopened = $this->save(Invoice::query()->findOrFail($invoice->id), ['status' => Invoice::STATUS_UNPAID, 'client_id' => $abroad->id]);
 
         $this->assertSame(Invoice::STATUS_UNPAID, $reopened->status);
-        $this->assertSame(100.0, (float) $reopened->total, 'open for the customer abroad, with Greek VAT on it');
+        $this->assertSame(100.0, (float) $reopened->total, 'open for the customer abroad, with no Greek VAT on it');
     }
 
     /**
