@@ -110,7 +110,8 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
         $invoice = $this->overpaidAndSpent();
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'); // the 30 over: spent, staff's
-        $this->assertSame('0.00', (string) GatewayRefund::query()->where('reference', 're_30')->value('recorded_amount'));
+        // The fix: the spent 30 is refunded on the payment (not taken from the credit), so it is never claimed again.
+        $this->assertSame('30.00', (string) GatewayRefund::query()->where('reference', 're_30')->value('recorded_amount'));
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_100', 100.00, 'usd'); // the invoice itself
 
@@ -130,7 +131,7 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'); // 10 taken, 20 spent
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_100', 100.00, 'usd');
 
-        $this->assertSame(['10.00', '100.00'], GatewayRefund::query()->orderBy('id')->pluck('recorded_amount')->map(fn ($a) => (string) $a)->all(),
+        $this->assertSame(['30.00', '100.00'], GatewayRefund::query()->orderBy('id')->pluck('recorded_amount')->map(fn ($a) => (string) $a)->all(),
             'the 20 spent is re_30\'s; re_100 claims it again as spent and records only 80');
         $this->assertSame(-100.0, $this->notes($invoice));
     }
@@ -181,11 +182,11 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
 
         $body = $this->staffBody();
         $this->assertStringContainsString('10.00 of it was taken from the account credit', $body);
-        $this->assertStringContainsString('20.00 more of it is credit this payment left that the customer has spent already', $body);
+        $this->assertStringContainsString('20.00 of it is credit this payment left that the customer had spent already', $body);
         $this->assertStringNotContainsString('was left on it', $body, 'nothing went beyond the payment');
         $payment = $this->payment();
-        $this->assertSame(['10.00', '20.00', 100.0], [(string) $payment->refunded_amount, (string) $payment->credited_amount, (float) $payment->refundable_amount]);
-        $this->assertSame('10.00', (string) GatewayRefund::query()->sole()->recorded_amount);
+        $this->assertSame(['30.00', '0.00', 100.0], [(string) $payment->refunded_amount, (string) $payment->credited_amount, (float) $payment->refundable_amount]);
+        $this->assertSame('30.00', (string) GatewayRefund::query()->sole()->recorded_amount, 'the 10 taken and the 20 spent: both went back');
         $this->assertSame([0.0, 0.0], [$this->credit(), $this->notes($invoice)]);
         $this->assertMoneyCheckClean();
     }
@@ -194,12 +195,12 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
     {
         $this->overpaidAndSpent();
 
-        $this->assertFalse(ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'));
+        $this->assertTrue(ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'), 'refunded on the payment, not taken from the credit');
         $this->assertFalse(ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'));
 
         $this->assertSame(1, GatewayRefund::query()->count());
         $this->assertSame(1, EmailLog::query()->where('subject', self::STAFF_SUBJECT)->count());
-        $this->assertSame(['0.00', '30.00'], [(string) $this->payment()->refunded_amount, (string) $this->payment()->credited_amount]);
+        $this->assertSame(['30.00', '0.00'], [(string) $this->payment()->refunded_amount, (string) $this->payment()->credited_amount]);
         $this->assertSame(0.0, $this->credit(), 'never a debt');
         $this->assertMoneyCheckClean();
     }
@@ -212,7 +213,7 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
         ExtensionHelper::chargebackAtGateway('Stripe', 'pi_over', 'dp_1', 100.00, 'usd');
 
         $payment = $this->payment();
-        $this->assertSame(['100.00', '30.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
+        $this->assertSame(['130.00', '0.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
         $this->assertSame([Invoice::STATUS_UNPAID, 0.0], [$invoice->fresh()->status, $this->credit()]);
         $this->assertMoneyCheckClean();
     }
@@ -222,9 +223,9 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
         $invoice = $this->overpaidAndSpent();
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_130', 130.00, 'usd');
 
-        // 100 on the invoice, 30 spent and recorded nowhere: nothing is left for a hand refund or a refund to credit.
+        // 100 on the invoice, 30 spent and refunded on the payment: nothing is left for a hand refund or a refund to credit.
         $payment = $this->payment();
-        $this->assertSame(['100.00', '30.00', 0.0], [(string) $payment->refunded_amount, (string) $payment->credited_amount, (float) $payment->refundable_amount]);
+        $this->assertSame(['130.00', '0.00', 0.0], [(string) $payment->refunded_amount, (string) $payment->credited_amount, (float) $payment->refundable_amount]);
         $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
         $this->expectException(\InvalidArgumentException::class);
         try {
@@ -246,7 +247,7 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
 
         $this->assertSame(0.0, $this->credit(), 'the 10 left taken; never a debt');
         $payment = $this->payment();
-        $this->assertSame(['60.00', '20.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
+        $this->assertSame(['80.00', '0.00'], [(string) $payment->refunded_amount, (string) $payment->credited_amount]);
         $this->assertMoneyCheckClean();
     }
 
@@ -261,8 +262,8 @@ class GatewayRefundOfOverpaymentAdversarialR4Test extends TestCase
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_40', 40.00, 'usd');
 
         $this->assertSame(0.0, $this->credit());
-        $this->assertSame(['0.00', '40.00'], [(string) $this->payment()->refunded_amount, (string) $this->payment()->credited_amount]);
-        $this->assertStringContainsString('40.00 more of it is credit', $this->staffBody());
+        $this->assertSame(['40.00', '0.00'], [(string) $this->payment()->refunded_amount, (string) $this->payment()->credited_amount]);
+        $this->assertStringContainsString('40.00 of it is credit', $this->staffBody());
         $this->assertMoneyCheckClean();
     }
 }

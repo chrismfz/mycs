@@ -115,7 +115,7 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, transactionId: 'pi_over', currency: 'usd');
 
         $this->assertSame(Invoice::STATUS_PAID, $other->fresh()->status, 'precondition: auto-apply ran first');
-        $this->assertSame('0.00', (string) GatewayRefund::query()->where('reference', 're_30')->sole()->recorded_amount, 'spent already: staff\'s');
+        $this->assertSame('30.00', (string) GatewayRefund::query()->where('reference', 're_30')->sole()->recorded_amount, 'spent already: refunded on the payment, staff\'s to settle');
         $this->assertSame(1, $this->staffMails(), 'the refund of the overpayment was booked on the invoice while the overpayment paid B: staff must be told');
     }
 
@@ -304,7 +304,7 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
         $this->assertSame(-50.0, $this->credit());
-        $this->assertSame('0.00', (string) $this->payment()->refunded_amount, 'recorded nowhere: staff\'s');
+        $this->assertSame('30.00', (string) $this->payment()->refunded_amount, 'refunded on the payment, not taken from the credit: staff\'s');
         $this->assertMoneyCheckClean(['credit_negative']);
     }
 

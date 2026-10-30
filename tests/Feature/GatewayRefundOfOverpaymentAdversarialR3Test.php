@@ -24,7 +24,8 @@ use MyCS\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /**
- * Round-3 adversarial review of #552, aimed at 7e177e68: allocateFromTransaction now always pays min(budget, remaining)
+ * Round-3 adversarial review of #552, aimed at 7e177e68 (since reverted, owner «keep it simple»: allocateFromTransaction
+ * is main's again): it paid min(budget, remaining)
  * with mayGoNegative (a subscription sale's renewals and the merged-invoice path, as MassPay/PayInvoices already did).
  * test_bug_* fail on the PR's head and name a hole; test_holds_* are guarantees attacked that held.
  */
@@ -144,8 +145,8 @@ class GatewayRefundOfOverpaymentAdversarialR3Test extends TestCase
 
         (new PayPal([]))->recordSubscriptionSale($resource);
 
-        // Before 7e177e68 the retry found no credit left and B stayed open (to be paid by the customer or the next sale).
-        // Now the same 10 pays B too: X and B both paid from one 10, the credit is −10, a debt the customer never caused
+        // As on main (7e177e68 reverted), the retry finds no credit left and B stays open (to be paid by the customer or the
+        // next sale). On 7e177e68 the same 10 paid B too: X and B both paid from one 10, the credit is −10, a debt the customer never caused
         // (decision 1 / R2-1 was about a debt that existed *before* the sale), and no one is told (refundOverpaidCredit
         // tells staff of the debt it makes; this path writes it silently). Either keep B open when the sale's credit was
         // spent elsewhere, or tell staff.

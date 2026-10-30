@@ -109,7 +109,7 @@ class GatewayRefundOfOverpaymentTest extends TestCase
 
         $this->assertSame(0.0, $this->credit(), 'the 10 left of it; no debt');
         $this->assertSame(0.0, (float) $invoice->adjustmentNotes()->sum('amount'), 'the invoice untouched');
-        $this->assertSame('10.00', $this->payment()->refunded_amount, 'the other 20 recorded nowhere: staff\'s');
+        $this->assertSame('30.00', $this->payment()->refunded_amount, 'the other 20 refunded on the payment, not taken from the credit: staff\'s');
         Mail::assertQueued(SystemMail::class);
     }
 

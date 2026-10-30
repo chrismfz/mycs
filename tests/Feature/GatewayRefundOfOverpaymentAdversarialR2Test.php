@@ -25,7 +25,8 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * Round-2 adversarial review of #552 (a dashboard refund takes back the credit its payment left; spent, it is owed).
+ * Round-2 adversarial review of #552 (a dashboard refund takes back the credit its payment left). Written when a spent
+ * overpayment became a debt; owner 2026-10-30 «keep it simple» dropped that: the tests about the debt are skipped.
  * test_bug_* fail on the PR's head (ebe55a73) and name a hole; test_holds_* are guarantees attacked that held.
  */
 class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
@@ -246,16 +247,19 @@ class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
         $this->assertMoneyCheckClean(['credit_negative']);
     }
 
-    public function test_holds_a_second_refund_of_the_spent_overpayment_never_doubles_the_debt(): void
+    /** Rewritten to «keep it simple» (R4 review): the spent overpayment once, never a debt; a second refund is the invoice's. */
+    public function test_holds_a_second_refund_after_a_spent_overpayment_is_the_invoices(): void
     {
-        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
-        $invoice = $this->debtFromARefundedOverpayment();
+        $invoice = $this->invoice(100);
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, transactionId: 'pi_over', currency: 'usd');
+        $this->assertNotNull((new RecordPaymentService)->payWithCredit($this->invoice(30)->id));
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd'); // spent: refunded on the payment, staff's
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_again', 30.00, 'usd');
 
-        $this->assertSame(-30.0, $this->credit(), 'the credited part is gone: the second refund is the invoice\'s');
-        $this->assertSame(-30.0, $this->notes($invoice));
+        $this->assertSame(0.0, $this->credit(), 'never a debt');
+        $this->assertSame(-30.0, $this->notes($invoice), 'the credited part is gone: the second refund is the invoice\'s');
         $this->assertSame(['60.00', '0.00'], [(string) $this->payment()->refunded_amount, (string) $this->payment()->credited_amount]);
-        $this->assertMoneyCheckClean(['credit_negative']);
+        $this->assertMoneyCheckClean();
     }
 }
