@@ -65,8 +65,27 @@ final class WhmcsServicePasswordImport
         $failed = [];
         $inARow = 0;
         foreach ($rows as $index => $row) {
+            // WHMCS's answer first, on its own: only its refusal stops the step (R2-547-1: never MyCS's own error, whose
+            // message would carry the SQL and its bindings).
             try {
                 $answer = $this->api->call('DecryptPassword', ['password2' => (string) $row['password']]);
+            } catch (RuntimeException $e) {
+                if (str_starts_with($e->getMessage(), 'WHMCS API «') && preg_match(self::REFUSED, $this->reason($e)) === 1) {
+                    $this->counts['skipped'] += count($rows) - $index;
+                    $this->listFailed($failed);
+                    $this->notes[] = "Service passwords not imported: WHMCS refused the API's call ({$this->reason($e)}). Check the API credentials, "
+                        . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again.';
+
+                    return ['counts' => $this->counts, 'notes' => $this->notes];
+                }
+                $answer = $e;
+            } catch (Throwable $e) {
+                $answer = $e;
+            }
+            try {
+                if ($answer instanceof Throwable) {
+                    throw $answer;
+                }
                 $inARow = 0;
                 $password = $answer['password'] ?? null;
                 if ($password === '') {
@@ -84,20 +103,13 @@ final class WhmcsServicePasswordImport
                     ->update(['password' => Crypt::encryptString($password)]);
                 $this->counts['imported']++;
             } catch (Throwable $e) {
-                // WHMCS refusing the credentials, their role or this server: the same for every call, said once with WHMCS's
-                // own words (they carry no password), and nothing more asked.
-                if (preg_match(self::REFUSED, $e->getMessage()) === 1) {
-                    $this->counts['skipped'] += count($rows) - $index;
-                    $this->notes[] = "Service passwords not imported: WHMCS refused the API's call ({$this->reason($e)}). Check the API credentials, "
-                        . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again.';
-
-                    return ['counts' => $this->counts, 'notes' => $this->notes];
-                }
                 // Its class only: an answer's message could carry what was asked.
                 report(new RuntimeException("Service #{$row['id']}'s password not imported: " . class_basename($e)));
                 $failed[] = (int) $row['id'];
                 $this->counts['skipped']++;
-                if (++$inARow >= self::IN_A_ROW) {
+                if (!$answer instanceof Throwable) {
+                    $inARow = 0; // MyCS's own failure storing it: not WHMCS's silence
+                } elseif (++$inARow >= self::IN_A_ROW) {
                     $left = array_column(array_slice($rows, $index + 1), 'id');
                     $this->counts['skipped'] += count($left);
                     $this->notes[] = self::IN_A_ROW . ' failed in a row: WHMCS is not answering, the other ' . count($left) . ' not asked. Run the import again.';
@@ -106,12 +118,18 @@ final class WhmcsServicePasswordImport
             }
             unset($password, $answer);
         }
-        if ($failed !== []) {
-            $this->notes[] = count($failed) . ' service password(s) could not be decrypted by WHMCS (service #' . implode(', #', array_slice($failed, 0, 50))
-                . (count($failed) > 50 ? ', …' : '') . '): set them on their pages, or run the import again.';
-        }
+        $this->listFailed($failed);
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
+    }
+
+    /** @param list<int> $failed the services whose password was not imported: ids only */
+    private function listFailed(array $failed): void
+    {
+        if ($failed !== []) {
+            $this->notes[] = count($failed) . ' service password(s) not imported (service #' . implode(', #', array_slice($failed, 0, 50))
+                . (count($failed) > 50 ? ', …' : '') . '): set them on their pages, or run the import again.';
+        }
     }
 
     /** WHMCS's own message, after WhmcsApi's prefix: its words about the call, never a password (none was decrypted). */
