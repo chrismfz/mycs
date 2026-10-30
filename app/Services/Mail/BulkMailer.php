@@ -16,6 +16,7 @@ use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\EmailKinds;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -172,6 +173,10 @@ final class BulkMailer
         $owner = $client?->owner();
         if ($client === null || $owner === null) {
             return [BulkMailRecipient::STATUS_SKIPPED, 'no owner to mail'];
+        }
+        // An announcement is the kind it targets: an account whose primary contact does not take it is skipped (owner 2026-10-30).
+        if (($kind = EmailKinds::ofBulkMail($mail)) !== null && !EmailKinds::takes($client, $kind)) {
+            return [BulkMailRecipient::STATUS_SKIPPED, "the customer does not take {$kind} emails"];
         }
         $template = NotificationTemplate::query()->where('key', $mail->templateKey())->firstOrFail();
         $preference = $owner->notificationsPreferences()->where('notification_template_id', $template->id)->first();

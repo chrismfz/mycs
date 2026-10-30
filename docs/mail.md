@@ -47,6 +47,30 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 μασκαρισμένα, σε `iframe sandbox` (κανένα script, τα links σε νέα καρτέλα). Όχι τα failed/pending (δεν έφτασαν),
 όχι τα `system` του staff, όχι ό,τι ξαναέστειλε το staff σε διεύθυνση staff.
 
+## Προτιμήσεις email ανά είδος (2026-10-30)
+Τα `email_preferences` της **κύριας επαφής** (general, invoice, support, product, domain, affiliate· το
+`tblclients.email_preferences` του WHMCS) αποφασίζουν ποια email του λογαριασμού παίρνει ο owner (`App\Support\EmailKinds`).
+`null` = όλα τα είδη (ό,τι δεν όρισε ποτέ τίποτα, όπως στο WHMCS)· `[]` = κανένα. Αποφάσεις του ιδιοκτήτη:
+- **Παραλήπτης:** μόνο ο owner, όπως πριν. Οι άλλες επαφές δεν παίρνουν ακόμη email ανά είδος (το `tblcontacts` του WHMCS)·
+  αυτό είναι ξεχωριστή δουλειά.
+- **Είδος κάθε template:** `EmailKinds::KINDS` (τιμολόγια, πληρωμές, κάρτες: invoice· υπηρεσίες και SSL: product· απάντηση
+  σε ticket: support· domains: domain· νέα παραγγελία: general). Ένα νέο template του λογαριασμού πρέπει να μπει εκεί
+  (το ελέγχει test).
+- **Πάντα:** αναστολή και τερματισμός υπηρεσίας, ειδοποίηση ληξιπρόθεσμου, λήξη domain, και η απάντηση του staff σε
+  ticket (ο πελάτης τη ζήτησε ανοίγοντάς το, ADV-545-5) (`EmailKinds::ALWAYS`). Άρα το «Υποστήριξη» δεν κόβει ακόμη τίποτα. Επίσης όσα
+  πάνε στο login και όχι στον λογαριασμό (reset κωδικού, επιβεβαίωση email, νέα σύνδεση, πρόσκληση), και τα tickets των guests.
+- **Το staff στέλνει πάντα:** «Send Email» στο τιμολόγιο, νέο τιμολόγιο από το admin με «Send Email», επιστροφή χρημάτων
+  (φόρμα του τιμολογίου ή ακύρωση παραγγελίας· όχι το webhook της πύλης), «Resend welcome email», «Create» και «Unsuspend» με
+  «Send notification», «Accept Order» με «Send welcome email», ξαναστάλσιμο από το email log.
+- Τα CC/BCC του template κόβονται μαζί με το email του owner (απόφαση 2026-10-30).
+- **Μαζικό email:** η σημαντική ενημέρωση είναι το είδος του στόχου της (υπηρεσίες: product, domains: domain, όλοι: general)·
+  ο λογαριασμός που δεν το παίρνει γράφεται «skipped» με τον λόγο. Τα «Νέα» μόνο με τη δική τους απεγγραφή.
+- Κόβεται μόνο το email· η ειδοποίηση μέσα στην εφαρμογή μένει. Ένα email που κόπηκε δεν γράφεται στο email log.
+- **Φόρμες:** επαφή με `null` δείχνεται με όλα τικαρισμένα (αλλιώς η αποθήκευση τα έσβηνε όλα)· νέος λογαριασμός από το
+  admin ξεκινά με όλα, νέα επαφή (όχι κύρια) με κανένα. Η σύνοψη του πελάτη δείχνει «Κανένα» ως προειδοποίηση.
+- **«Make primary»:** η νέα κύρια επαφή παίρνει τις προτιμήσεις της παλιάς, ώστε τα email του λογαριασμού να μην αλλάζουν
+  επειδή τα στοιχεία του πέρασαν σε άλλη επαφή (ADV-545-6).
+
 ## Kept
 `email_logs` rows are kept for 90 days (`cronjob_delete_email_logs`).
 
@@ -61,7 +85,8 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 
 Αντίστοιχο του Mass Mail Tool του WHMCS: **Clients → Mass Mail Tool** (δικαιώματα `admin.bulk_mails.*`· η αποστολή θέλει `send`).
 - **Είδη:**
-  - **Σημαντική ενημέρωση** (`announcement`): μεταφορά server, αλλαγές δικτύου. Πηγαίνει πάντα και δεν εμφανίζεται στις προτιμήσεις του πελάτη.
+  - **Σημαντική ενημέρωση** (`announcement`): μεταφορά server, αλλαγές δικτύου. Δεν εμφανίζεται στις προτιμήσεις του πελάτη· από τις 2026-10-30 την
+    κόβουν οι προτιμήσεις email της κύριας επαφής, κατά τον στόχο της (βλ. «Προτιμήσεις email ανά είδος»).
   - **Νέα και προσφορές** (`announcement_news`): προτίμηση του πελάτη στις Ειδοποιήσεις του λογαριασμού, και link «Διακοπή αυτών των emails» στο email. Το link ανοίγει σελίδα με κουμπί (POST), ώστε ένα φίλτρο που ανοίγει μόνο του τα links να μην απεγγράφει κανέναν.
 - **Κείμενο:** template όπως τα email templates, που αποδίδεται από δεδομένα και ποτέ δεν γίνεται compile.
   - Διαθέσιμα: `{{ user.first_name }}`, `{{ client.name }}`, `{% for service in services %}` και `{% for domain in domains %}` με όσα ταιριάζουν.

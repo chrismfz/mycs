@@ -516,7 +516,7 @@ class EditService extends EditRecord
                                     if ($data['sendNotification']) {
                                         // The service's user (order is null for services made by staff or the API); adapters
                                         // return true or the data for the email.
-                                        NotificationHelper::serverCreatedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
+                                        NotificationHelper::serverCreatedNotification($record->client, $record, is_array($sdata) ? $sdata : [], byStaff: true);
                                     }
                                     break;
                                 case 'suspend':
@@ -537,7 +537,7 @@ class EditService extends EditRecord
                                         if ($data['sendNotification'] && $told) {
                                             // WHMCS's «Service Unsuspension Notification» on a manual unsuspend too; only of a
                                             // suspension the customer was told of (the cron's job may not have run yet).
-                                            NotificationHelper::serverUnsuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
+                                            NotificationHelper::serverUnsuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : [], byStaff: true);
                                         } elseif ($data['sendNotification']) {
                                             Notification::make()->info()->title(__('No email sent'))
                                                 ->body(__('The customer was never told of this suspension: no unsuspension email.'))->send();

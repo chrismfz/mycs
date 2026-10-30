@@ -53,17 +53,18 @@ final class AcceptOrder
                     $service->forceFill(['started_unpaid_at' => now()])->save();
                 }
                 if ($runCreate && $service->hasServerActions()) {
-                    CreateJob::dispatch($service, $sendEmail)->afterCommit();
+                    CreateJob::dispatch($service, $sendEmail, byStaff: true)->afterCommit();
 
                     continue;
                 }
                 $service->status = Service::STATUS_ACTIVE;
                 $service->save();
-                // «Send welcome email» on its own (review R5): also for a service built by hand.
+                // «Send welcome email» on its own (review R5): also for a service built by hand. Staff's: sent whatever the
+                // contact takes (ADV-545-3).
                 if ($sendEmail) {
                     $id = $service->id;
                     DB::afterCommit(fn () => ($started = Service::query()->find($id)) && $started->client
-                        ? NotificationHelper::serverCreatedNotification($started->client, $started) : null);
+                        ? NotificationHelper::serverCreatedNotification($started->client, $started, byStaff: true) : null);
                 }
             }
             $order->setRawAttributes($locked->getAttributes(), true);

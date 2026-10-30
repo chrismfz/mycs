@@ -17,8 +17,12 @@ use Filament\Schemas\Components\Fieldset;
  */
 class ContactForm
 {
-    /** @return array<int, mixed> */
-    public static function fields(): array
+    /**
+     * $newPrimary: a new account's details (its primary contact), which take every kind of mail unless staff untick some.
+     *
+     * @return array<int, mixed>
+     */
+    public static function fields(bool $newPrimary = false): array
     {
         // Who the contact is stays as its registrars hold it while a domain uses it (P1b, Contact::IDENTITY): the
         // contact on its own form, or a domain's contact edited from the domain's page.
@@ -56,7 +60,17 @@ class ContactForm
                     ->options(array_slice((array) config('app.countries'), 1, null, true)),
             ])->columns(2),
             CheckboxList::make('email_preferences')->label(__('Receives emails'))->columns(3)->columnSpanFull()
-                ->options(collect(Contact::EMAIL_PREFERENCES)->mapWithKeys(fn ($kind) => [$kind => __('account.email_preference.' . $kind)])->all()),
+                ->options(collect(Contact::EMAIL_PREFERENCES)->mapWithKeys(fn ($kind) => [$kind => __('account.email_preference.' . $kind)])->all())
+                ->default($newPrimary ? Contact::EMAIL_PREFERENCES : [])
+                // The account's details: its ticks choose the owner's mails (EmailKinds).
+                ->helperText(fn ($record) => $newPrimary || ($record instanceof Contact && $record->isPrimary()) ? __('account.email_preferences_help') : null)
+                // None chosen (null, WHMCS's default) is every kind: shown ticked, or saving the form would take them all away.
+                // Read on the contact: the list's own state is [] for null too. A domain's contact is filled so (DomainContactActions).
+                ->afterStateHydrated(function (CheckboxList $component, $record) {
+                    if ($record instanceof Contact && $record->email_preferences === null) {
+                        $component->state(Contact::EMAIL_PREFERENCES);
+                    }
+                }),
             Textarea::make('notes')->label(__('Notes'))->rows(2)->columnSpanFull(),
         ];
     }

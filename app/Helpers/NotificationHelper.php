@@ -24,6 +24,7 @@ use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
+use App\Support\EmailKinds;
 use App\Support\Locales;
 use App\Support\LogText;
 use App\Support\Redact;
@@ -51,22 +52,27 @@ class NotificationHelper
     private static ?Client $account = null;
 
     /**
-     * A notification about the account (invoice, service, ticket…): to its owner until the contacts (PR 3) choose
-     * the recipients per kind; none when the account has no owner left.
+     * A notification about the account (invoice, service, ticket…): to its owner; none when the account has no owner
+     * left. Its mail only when the primary contact takes the template's kind (EmailKinds, owner 2026-10-30), unless
+     * not $gated: staff send it by hand, or its caller chose already (a mass mail). The in-app notification goes anyway.
      *
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false): void
+    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false, bool $gated = true): void
     {
         $owner = $client->owner();
         if ($owner === null) {
             return;
         }
+        $noMail = $gated && !EmailKinds::sends($client, $key);
+        if ($noMail && $mailOnly) {
+            return;
+        }
         $previous = self::$account;
         self::$account = $client;
         try {
-            self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly);
+            self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail);
         } finally {
             self::$account = $previous;
         }
@@ -227,6 +233,7 @@ class NotificationHelper
         bool $show_in_app = true,
         bool $show_as_push = true,
         bool $mailOnly = false,
+        bool $noMail = false,
     ): void {
         $notification = NotificationTemplate::where('key', $notificationTemplateKey)->first();
         if (!$notification || !$notification->enabled) {
@@ -234,7 +241,7 @@ class NotificationHelper
         }
         // A mail about the account in the account's language (code review 1); one to the login alone in the login's.
         $locale = self::localeFor(self::$account ?? $user);
-        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly));
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push, $mailOnly, $noMail));
     }
 
     /**
@@ -263,7 +270,7 @@ class NotificationHelper
         return Locales::allowed($recipient?->language) ?? Locales::main();
     }
 
-    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false): void
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push, bool $mailOnly = false, bool $noMail = false): void
     {
         // Preferences are kept on the template itself, whatever the language it is written in.
         $notification = $template->inLocale($locale);
@@ -274,7 +281,8 @@ class NotificationHelper
         // A template that does not parse must not break what triggered it (provisioning, cron, …):
         // the error is reported and that notification is skipped.
         try {
-            if ($notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
+            // $noMail: the account's primary contact does not take this kind of mail (toAccount).
+            if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
                 self::sendEmailNotification($notification, $data, $user, $attachments);
             }
         } catch (TemplateError $e) {
@@ -333,8 +341,11 @@ class NotificationHelper
         self::sendNotification('new_login_detected', $data, $user);
     }
 
-    /** @param  array<string, mixed>  $extra  more for the template (an overdue notice's days) */
-    public static function invoiceNotification(Client $client, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
+    /**
+     * @param  array<string, mixed>  $extra  more for the template (an overdue notice's days)
+     * @param  bool  $byStaff  staff's «Send Email»: sent whatever the account's contact takes (owner 2026-10-30)
+     */
+    public static function invoiceNotification(Client $client, Invoice $invoice, $key = 'new_invoice_created', array $extra = [], bool $byStaff = false): void
     {
         // The total as the PDF and the portal show it: after the account credit used on it (ROADMAP, «Total»).
         $statement = $invoice->statement();
@@ -377,7 +388,7 @@ class NotificationHelper
             ],
         ];
 
-        self::toAccount($client, $key, $data, $attachments);
+        self::toAccount($client, $key, $data, $attachments, gated: !$byStaff);
     }
 
     /**
@@ -402,9 +413,10 @@ class NotificationHelper
         return in_array($gateway->id, $usable) ? (string) $gateway->name : '';
     }
 
-    public static function invoiceCreatedNotification(Client $client, Invoice $invoice): void
+    /** $byStaff: an invoice staff made with «Send Email» on (CreateInvoice): sent whatever the contact takes. */
+    public static function invoiceCreatedNotification(Client $client, Invoice $invoice, bool $byStaff = false): void
     {
-        self::invoiceNotification($client, $invoice, 'new_invoice_created');
+        self::invoiceNotification($client, $invoice, 'new_invoice_created', byStaff: $byStaff);
     }
 
     public static function invoicePaidNotification(Client $client, Invoice $invoice): void
@@ -429,7 +441,7 @@ class NotificationHelper
      * A payment of the customer's went back (PR 2c-2, WHMCS's «Invoice Refund Confirmation»): to them (through the
      * gateway, or by hand) or to their account credit.
      */
-    public static function invoiceRefundedNotification(Client $client, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway): void
+    public static function invoiceRefundedNotification(Client $client, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway, bool $byStaff = false): void
     {
         $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
         self::toAccount($client, 'invoice_refunded', [
@@ -439,7 +451,7 @@ class NotificationHelper
                 'to_credit' => $toCredit,
                 'by_gateway' => $byGateway,
             ],
-        ]);
+        ], gated: !$byStaff);
     }
 
     /**
@@ -486,8 +498,11 @@ class NotificationHelper
         self::toAccount($client, 'new_order_created', $data);
     }
 
-    /** $resend: staff's «Resend welcome email», the mail only (WHMCS's), no new in-app or push notification. */
-    public static function serverCreatedNotification(Client $client, Service $service, array $data = [], bool $resend = false): void
+    /**
+     * $resend: staff's «Resend welcome email», the mail only (WHMCS's), no new in-app or push notification. $resend and
+     * $byStaff (staff's «Create» with «Send notification»): sent whatever the account's contact takes (owner 2026-10-30).
+     */
+    public static function serverCreatedNotification(Client $client, Service $service, array $data = [], bool $resend = false, bool $byStaff = false): void
     {
         // Its license as it is now: one read before the module issued it is not the welcome mail's (code review of #291).
         $service->unsetRelation('license');
@@ -495,13 +510,16 @@ class NotificationHelper
         // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
         // can read the password (Service::TEMPLATE_HIDDEN).
         $data['service_password'] ??= rescue(fn () => $service->password, null);
-        self::toAccount($client, 'new_server_created', $data, mailOnly: $resend);
+        self::toAccount($client, 'new_server_created', $data, mailOnly: $resend, gated: !$resend && !$byStaff);
     }
 
-    /** A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. */
+    /**
+     * A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. The
+     * mailer chose already whether the account takes it (a skipped recipient, EmailKinds::ofBulkMail).
+     */
     public static function announcementNotification(Client $client, string $key, array $data): void
     {
-        self::toAccount($client, $key, $data);
+        self::toAccount($client, $key, $data, gated: false);
     }
 
     /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
@@ -517,10 +535,11 @@ class NotificationHelper
         self::toAccount($client, 'server_suspended', $data);
     }
 
-    public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = []): void
+    /** $byStaff: staff's «Unsuspend» with «Send notification» (ADV-545-1): sent whatever the contact takes. */
+    public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = [], bool $byStaff = false): void
     {
         $data['service'] = $service;
-        self::toAccount($client, 'server_unsuspended', $data);
+        self::toAccount($client, 'server_unsuspended', $data, gated: !$byStaff);
     }
 
     /** An SSL certificate issued or reissued (OpenproviderSsl): its name, until when, the service page to take it from. */

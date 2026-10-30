@@ -106,9 +106,9 @@ class ClientSummary
             'tax_office' => $contact?->tax_office,
             'activity' => $contact?->activity,
             'document_type' => $contact?->document_type,
-            // null: never chosen (an empty list too: the forms save one when nothing is ticked, and nothing reads the
-            // choice yet, review F1); else the ticked categories, in the form's order.
-            'email_preferences' => blank($contact?->email_preferences) ? null
+            // null: never chosen, every kind (EmailKinds); else the ticked categories in the form's order, [] for none: the
+            // owner then gets only the mails that always go.
+            'email_preferences' => $contact?->email_preferences === null ? null
                 : array_values(array_intersect(Contact::EMAIL_PREFERENCES, (array) $contact->email_preferences)),
         ];
     }

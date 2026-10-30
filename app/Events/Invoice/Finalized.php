@@ -14,5 +14,5 @@ class Finalized
     /**
      * Create a new event instance.
      */
-    public function __construct(public Invoice $invoice, public bool $sendEmail = true) {}
+    public function __construct(public Invoice $invoice, public bool $sendEmail = true, public bool $byStaff = false) {}
 }

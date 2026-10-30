@@ -60,7 +60,7 @@ class Contact extends Model implements Auditable
 
     public const DOCUMENT_TYPES = ['invoice', 'receipt', 'none'];
 
-    /** The mails a contact can receive (tblcontacts' generalemails, invoiceemails…). */
+    /** The mails a contact can receive (tblcontacts' generalemails, invoiceemails…). The primary's gate the owner's (App\Support\EmailKinds). */
     public const EMAIL_PREFERENCES = ['general', 'invoice', 'support', 'product', 'domain', 'affiliate'];
 
     /**
@@ -155,6 +155,12 @@ class Contact extends Model implements Auditable
         return $query->whereNull('archived_at');
     }
 
+    /** It takes this kind of mail (EMAIL_PREFERENCES): none chosen (null) is every kind, as WHMCS; an empty list none. */
+    public function takesEmail(string $kind): bool
+    {
+        return $this->email_preferences === null || in_array($kind, $this->email_preferences, true);
+    }
+
     public function isPrimary(): bool
     {
         return $this->primary_of_client_id !== null;
@@ -219,7 +225,8 @@ class Contact extends Model implements Auditable
 
     /**
      * Make this contact the account's primary (its details): the old primary stays as an ordinary contact. The unique
-     * primary_of_client_id is freed before it is taken, in one transaction.
+     * primary_of_client_id is freed before it is taken, in one transaction. The account's mails stay as they were: the
+     * new primary takes the old one's email preferences (owner 2026-10-30, ADV-545-6).
      */
     public function makePrimary(): void
     {
@@ -231,7 +238,8 @@ class Contact extends Model implements Auditable
                 return;
             }
             $current?->forceFill(['primary_of_client_id' => null])->save();
-            $this->forceFill(['primary_of_client_id' => $this->client_id, 'archived_at' => null])->save();
+            $this->forceFill(['primary_of_client_id' => $this->client_id, 'archived_at' => null]
+                + ($current !== null ? ['email_preferences' => $current->email_preferences] : []))->save();
         });
     }
 

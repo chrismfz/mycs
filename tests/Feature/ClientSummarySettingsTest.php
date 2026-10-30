@@ -160,14 +160,20 @@ class ClientSummarySettingsTest extends TestCase
         $this->assertStringNotContainsString('fi-badge', $row);
     }
 
-    public function test_an_empty_mail_choice_reads_as_never_chosen(): void
+    public function test_an_empty_mail_choice_reads_as_none_and_never_chosen_as_all(): void
     {
-        // The client area saves [] when nothing is ticked, and nothing reads the choice yet (review F1): no «None» alarm.
+        // Sending reads the choice now (EmailKinds, owner 2026-10-30): [] is no mail but the ones that always go, a warning.
         $this->client->primaryContact->forceFill(['email_preferences' => []])->save();
 
+        $this->assertSame([], ClientSummary::for($this->client->fresh(), $this->staff(['*']))['details']['email_preferences']);
+        $row = $this->settingRow($this->page()->getContent(), 'email_preferences');
+        $this->assertStringContainsString(__('account.email_preferences_none'), $row);
+        $this->assertStringContainsString('fi-badge', $row);
+
+        $this->client->primaryContact->forceFill(['email_preferences' => null])->save();
         $this->assertNull(ClientSummary::for($this->client->fresh(), $this->staff(['*']))['details']['email_preferences']);
         $row = $this->settingRow($this->page()->getContent(), 'email_preferences');
-        $this->assertStringContainsString('—', $row);
+        $this->assertStringContainsString(__('All'), $row);
         $this->assertStringNotContainsString('fi-badge', $row);
     }
 

@@ -31,7 +31,8 @@ class CreateJob implements ShouldBeUnique, ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(public Service $service, public $sendNotification = true) {}
+    /** $byStaff: staff's «Accept Order» with «Send welcome email»: sent whatever the contact takes (ADV-545-3). */
+    public function __construct(public Service $service, public $sendNotification = true, public bool $byStaff = false) {}
 
     /**
      * Execute the job.
@@ -63,7 +64,7 @@ class CreateJob implements ShouldBeUnique, ShouldQueue
         }
 
         if ($this->sendNotification) {
-            NotificationHelper::serverCreatedNotification($service->client, $service, is_array($data) ? $data : []);
+            NotificationHelper::serverCreatedNotification($service->client, $service, is_array($data) ? $data : [], byStaff: $this->byStaff);
         }
     }
 
