@@ -6,6 +6,7 @@ use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\ConfigOption;
+use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Invoice;
@@ -19,6 +20,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsApi;
+use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
@@ -194,6 +196,7 @@ class ImportFromWhmcs extends Command
             $this->importOfflineSsl();
             $this->importDomains();
             $this->importEkdosiContacts();
+            $this->importCustomFields();
             $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
@@ -617,9 +620,14 @@ class ImportFromWhmcs extends Command
                     continue;
                 }
 
+                // Its signup: WHMCS's created_at, empty on accounts older than it (430 on myip): datecreated then.
+                $created = $record['created_at'] ?? null;
+                if ($created === null || str_starts_with((string) $created, '0000')) {
+                    $created = filled($record['datecreated'] ?? null) && !str_starts_with((string) $record['datecreated'], '0000') ? $record['datecreated'] . ' 00:00:00' : now();
+                }
                 $data[] = [
                     'updated_at' => $record['updated_at'] == '0000-00-00 00:00:00' ? now() : $record['updated_at'],
-                    'created_at' => $record['created_at'] == '0000-00-00 00:00:00' ? now() : $record['created_at'],
+                    'created_at' => $created,
                 ];
                 // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
                 $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at'],
@@ -643,6 +651,8 @@ class ImportFromWhmcs extends Command
                     // A country the app knows (EuVat::iso: a code, a name, EL → GR), else none: never the first two letters of
                     // a name («Germany» → GE, Georgia). The ones left without are listed (reportCountries).
                     'country' => $this->country($record),
+                    // The mails it takes (WHMCS's email_preferences: {"general":1,…}); none set: every kind, as WHMCS.
+                    'email_preferences' => self::emailPreferences($record['email_preferences'] ?? null),
                     'created_at' => end($data)['created_at'], 'updated_at' => now(),
                 ];
 
@@ -673,6 +683,18 @@ class ImportFromWhmcs extends Command
             }
         });
         $this->reportCountries();
+    }
+
+    /** WHMCS's email_preferences as the contact's list of kinds it takes; none set (or unreadable): null, every kind. */
+    private static function emailPreferences(mixed $json): ?string
+    {
+        $preferences = is_string($json) ? json_decode($json, true) : null;
+        if (!is_array($preferences)) {
+            return null;
+        }
+        $kinds = array_values(array_filter(Contact::EMAIL_PREFERENCES, fn (string $kind) => (bool) (int) ($preferences[$kind] ?? 1)));
+
+        return json_encode($kinds);
     }
 
     /** @var array<int, string> customers imported without a country the app knows => what WHMCS had */
@@ -1520,6 +1542,18 @@ class ImportFromWhmcs extends Command
 
     /** @var array<string, int|null> WHMCS module => the gateway here its preferences and items got (existingGateway) */
     private array $itemGateways = [];
+
+    /** WHMCS's custom fields into MyCS's own fields (WhmcsCustomFieldImport): the account's fiscal details, IPs, Centova's. */
+    private function importCustomFields(): void
+    {
+        $result = (new WhmcsCustomFieldImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Custom fields: {$c['accounts']} account(s) given their fiscal details, {$c['notes']} note(s), {$c['ips']} IP(s), "
+            . "{$c['centova']} Centova field(s), {$c['service_notes']} service(s) with the rest in their notes; {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
 
     /** E4 of the Ekdosi bridge (WhmcsEkdosiContactImport): who each service's and domain's fiscal document is issued to. */
     private function importEkdosiContacts(): void
