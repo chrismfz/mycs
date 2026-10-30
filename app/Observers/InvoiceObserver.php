@@ -173,9 +173,16 @@ class InvoiceObserver
         }
         // A closed one (cancelled, paid, refunded) is an issued document of its customer: reopened first, in the same save
         // too (ADV-554-R2-1/2/3: moved closed, then reopened, it billed the first customer's tax).
-        if ($invoice->isDirty('client_id') && $invoice->exists && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
+        if ($invoice->isDirty('client_id') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
             && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
-            throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first.'));
+            throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).'));
+        }
+        // A credit or debit note staff wrote is a fixed gross amount under the first customer's tax, numbered to them: void
+        // it first, as MoveToClient asks (ADV-554-R3-1: retaxed under it, the invoice went below zero). A cancellation's own
+        // note is voided by the reopen in the same save.
+        if ($invoice->isDirty('client_id') && $invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)
+            ->where(fn ($note) => $note->whereNull('is_cancellation')->orWhere('is_cancellation', false))->exists()) {
+            throw new DisplayException(__('This invoice has a credit or debit note: void it before moving the invoice.'));
         }
         // A saved card charged and its webhook not here yet: that money is the first customer's (ADV-554-2), as MoveToClient
         // refuses it.
@@ -185,7 +192,7 @@ class InvoiceObserver
         // Its preferred method the new account's own, never the first one's card's gateway; one billed apart for an item
         // paid another way keeps that way (as MoveToClient, R3-2 of #539, ADV-554-3).
         // Not one staff chose in the same save (ADV-554-R2-4).
-        if ($invoice->isDirty('client_id') && $invoice->client_id !== null && $invoice->exists && !$invoice->isDirty('preferred_gateway_id')) {
+        if ($invoice->isDirty('client_id') && $invoice->client_id !== null && !$invoice->isDirty('preferred_gateway_id')) {
             $invoice->preferred_gateway_id = $invoice->preferred_gateway_id !== null
                 && $invoice->items()->where('payment_gateway_id', $invoice->preferred_gateway_id)->exists()
                 ? $invoice->preferred_gateway_id : Invoice::preferredGatewayFor((int) $invoice->client_id);
