@@ -103,7 +103,7 @@ class MoneyHistory
     /** What an event did to the customer's credit, in words for the customer (lang/*\/account.php). */
     public static function customerLabel(MoneyEvent $event): string
     {
-        // Credit a payment left, taken back because the gateway refunded it to the card (#552; WHMCS's own, imported).
+        // Credit a payment left, taken back because it was refunded to the customer (#552: card, PayPal; WHMCS's own, imported).
         if ($event->kind === MoneyEventKind::CreditOut && in_array($event->cause, [MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::CAUSE_REFUND_TO_CREDIT,
             MoneyTrail::CAUSE_INVOICE_REDUCED, MoneyTrail::CAUSE_CHARGEBACK_WON], true)) {
             return __('account.credit_history_causes.refunded_to_card');

@@ -1192,9 +1192,12 @@ class ExtensionHelper
      */
     private static function refundOverpaidCredit(InvoiceTransaction $payment, Invoice $invoice, int $cents): array
     {
-        $overpaid = RecordPaymentService::toCents($payment->credited_amount)
-            - (int) InvoiceTransaction::query()->where('source_transaction_id', $payment->id)->lockForUpdate()->get()
-                ->sum(fn (InvoiceTransaction $paid) => RecordPaymentService::toCents($paid->amount));
+        if ($invoice->client_id === null) {
+            return ['taken' => 0, 'debt' => 0]; // no account to take it from: on the invoice, as before (ADV-552-R2-2)
+        }
+        $allocated = (int) InvoiceTransaction::query()->where('source_transaction_id', $payment->id)->lockForUpdate()->get()
+            ->sum(fn (InvoiceTransaction $paid) => RecordPaymentService::toCents($paid->amount));
+        $overpaid = RecordPaymentService::toCents($payment->credited_amount) - $allocated;
         $take = min($cents, max(0, $overpaid));
         if ($take <= 0) {
             return ['taken' => 0, 'debt' => 0];
@@ -1202,7 +1205,7 @@ class ExtensionHelper
         $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
         $debt = $take - min($take, $credit === null ? 0 : max(0, CreditLedger::cents($credit)));
         $source = MoneyTrail::sourceFor($payment->gateway);
-        foreach (self::creditedParts($payment, $take) as $cause => $part) {
+        foreach (self::creditedParts($payment, $take, $allocated) as $cause => $part) {
             (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $part, $cause, $source, $invoice, $payment,
                 note: 'Refunded at the gateway', mayGoNegative: true);
             (new MoneyTrail)->refund($payment, $invoice, $part, $source, $cause);
@@ -1215,12 +1218,13 @@ class ExtensionHelper
 
     /**
      * $take of a payment's credited part, by the cause each part of it came to the credit under (net of what was taken
-     * back under the same cause), the overpayment first; what no event explains (a payment from before the journal) as
-     * an overpayment (code review 1 of #552, ADV-552-4).
+     * back under the same cause, and of what its allocations spent of its overpayment: ADV-552-R2-4), the overpayment
+     * first; what no event explains (a payment from before the journal) as an overpayment (code review 1 of #552,
+     * ADV-552-4).
      *
      * @return array<string, int> cause => cents, summing to $take
      */
-    private static function creditedParts(InvoiceTransaction $payment, int $take): array
+    private static function creditedParts(InvoiceTransaction $payment, int $take, int $allocated = 0): array
     {
         $events = MoneyEvent::query()->where('invoice_transaction_id', $payment->id)
             ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value])->whereNotNull('cause')->get();
@@ -1228,6 +1232,9 @@ class ExtensionHelper
         foreach ($events as $event) {
             $sign = $event->kind === MoneyEventKind::CreditIn ? 1 : -1;
             $live[$event->cause] = ($live[$event->cause] ?? 0) + $sign * RecordPaymentService::toCents($event->amount);
+        }
+        if (isset($live[MoneyTrail::CAUSE_OVERPAYMENT])) {
+            $live[MoneyTrail::CAUSE_OVERPAYMENT] -= $allocated; // a subscription sale's overpayment paid its other renewals
         }
         uksort($live, fn (string $a, string $b) => ($b === MoneyTrail::CAUSE_OVERPAYMENT) <=> ($a === MoneyTrail::CAUSE_OVERPAYMENT));
         $parts = [];
