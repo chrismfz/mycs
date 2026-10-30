@@ -37,8 +37,8 @@ final class DomainContactActions
                 ->visible(fn (Domain $record) => self::can('admin.clients.update') && $record->{"{$role}Contact"} !== null
                     && (int) $record->{"{$role}Contact"}->client_id === (int) $record->client_id)
                 ->modalDescription(__('The contact of the account, wherever it is used. Its address, phone and email are sent to the registrars of the domains that use it; its name and company stay as the registrars hold them.'))
-                // None chosen (null) is every kind of mail: ticked, as on the account (ContactForm).
-                ->fillForm(fn (Domain $record) => ['email_preferences' => $record->{"{$role}Contact"}->email_preferences ?? Contact::EMAIL_PREFERENCES]
+                // None chosen (null): as it is read, as on the account (ContactForm).
+                ->fillForm(fn (Domain $record) => ['email_preferences' => $record->{"{$role}Contact"}->emailPreferencesShown()]
                     + $record->{"{$role}Contact"}->attributesToArray())
                 ->schema(ContactForm::fields())->modalWidth('3xl')
                 ->action(function (Domain $record, array $data) use ($role) {

@@ -42,6 +42,8 @@
         @if ($primary)
         {{-- The account's details: its ticks choose the owner's mails (App\Support\EmailKinds) --}}
         <p class="mb-1 text-sm text-base/70">{{ __('account.email_preferences_help') }}</p>
+        @else
+        <p class="mb-1 text-sm text-base/70">{{ __('account.contact_email_preferences_help') }}</p>
         @endif
         <div class="grid md:grid-cols-3 gap-2">
             @foreach (\App\Models\Contact::EMAIL_PREFERENCES as $kind)

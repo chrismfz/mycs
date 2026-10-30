@@ -220,6 +220,7 @@ return [
     ],
     'email_preferences_none' => 'None: only the ones that always go',
     'email_preferences_help' => 'The account\'s mails go to its owner of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
+    'contact_email_preferences_help' => 'This contact gets its own copy of the account\'s mails of the kinds ticked here. Never a password or a ticket\'s reply: those go to the owner only.',
     'email_preference' => [
         'general' => 'General',
         'invoice' => 'Invoices',

@@ -155,10 +155,20 @@ class Contact extends Model implements Auditable
         return $query->whereNull('archived_at');
     }
 
-    /** It takes this kind of mail (EMAIL_PREFERENCES): none chosen (null) is every kind, as WHMCS; an empty list none. */
+    /**
+     * It takes this kind of mail (EMAIL_PREFERENCES); an empty list none. None chosen (null): the primary every kind, as
+     * WHMCS's tblclients; another contact none (a domain's registrant or an invoice's recipient never chose the
+     * account's mails, owner 2026-10-30).
+     */
     public function takesEmail(string $kind): bool
     {
-        return $this->email_preferences === null || in_array($kind, $this->email_preferences, true);
+        return $this->email_preferences === null ? $this->isPrimary() : in_array($kind, $this->email_preferences, true);
+    }
+
+    /** What its form shows ticked: null is every kind for the primary, none for another contact (takesEmail). */
+    public function emailPreferencesShown(): array
+    {
+        return $this->email_preferences ?? ($this->isPrimary() ? self::EMAIL_PREFERENCES : []);
     }
 
     public function isPrimary(): bool

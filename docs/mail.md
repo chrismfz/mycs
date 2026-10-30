@@ -51,8 +51,17 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 Τα `email_preferences` της **κύριας επαφής** (general, invoice, support, product, domain, affiliate· το
 `tblclients.email_preferences` του WHMCS) αποφασίζουν ποια email του λογαριασμού παίρνει ο owner (`App\Support\EmailKinds`).
 `null` = όλα τα είδη (ό,τι δεν όρισε ποτέ τίποτα, όπως στο WHMCS)· `[]` = κανένα. Αποφάσεις του ιδιοκτήτη:
-- **Παραλήπτης:** μόνο ο owner, όπως πριν. Οι άλλες επαφές δεν παίρνουν ακόμη email ανά είδος (το `tblcontacts` του WHMCS)·
-  αυτό είναι ξεχωριστή δουλειά.
+- **Παραλήπτης:** ο owner, και οι άλλες επαφές του λογαριασμού (`NotificationHelper::toContacts`, όπως τα flags του
+  `tblcontacts`): κάθε μία δικό της αντίγραφο για όσα είδη έχει επιλέξει, ανεξάρτητα από το αν το παίρνει ο owner, στη
+  γλώσσα του λογαριασμού, γραμμένο στο email log του, χωρίς in-app (δεν έχουν login). Μια άλλη επαφή με `null` δεν
+  παίρνει **κανένα** (registrant ενός domain ή αποδέκτης τιμολόγησης του Ekdosi δεν διάλεξε ποτέ τα email του λογαριασμού)
+  και οι φόρμες τη δείχνουν χωρίς τσεκ. Ποτέ σε επαφή: ό,τι είναι μόνο του owner (`EmailKinds::OWNER_ONLY`: το welcome
+  με τον κωδικό, απάντηση σε ticket, login links), ό,τι κουβαλά μυστικό, τα μαζικά email, τα «Πάντα» πέρα από τα είδη της.
+  Μία φορά ανά διεύθυνση (όχι στη διεύθυνση του owner), αρχειοθετημένες εκτός, και τα CC/BCC του template μόνο στου owner.
+  Ένα μέλος του λογαριασμού τσεκάρει ή ξετσεκάρει σε επαφή μόνο τα είδη που του επιτρέπουν τα δικαιώματά του
+  (`EmailKinds::PERMISSIONS`: invoice → invoices, product → products, domain → domains, support → tickets, general →
+  emails): αλλιώς ένα μέλος με μόνο «contacts» θα έβαζε τη δική του διεύθυνση και θα διάβαζε τα τιμολόγια που του κρύβει
+  η σελίδα.
 - **Είδος κάθε template:** `EmailKinds::KINDS` (τιμολόγια, πληρωμές, κάρτες: invoice· υπηρεσίες και SSL: product· απάντηση
   σε ticket: support· domains: domain· νέα παραγγελία: general). Ένα νέο template του λογαριασμού πρέπει να μπει εκεί
   (το ελέγχει test).

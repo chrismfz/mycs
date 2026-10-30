@@ -13,6 +13,9 @@ use App\Models\Client;
  * Never skipped: a mail to a login and not to the account (password reset, email verification, new login, invitation),
  * one staff send by hand (NotificationHelper's $byStaff), and the ones that say a customer is losing a service or a
  * domain (ALWAYS, owner 2026-10-30).
+ *
+ * The account's other contacts get their own copy of the kinds each one takes (NotificationHelper::toContacts, owner
+ * 2026-10-30, as WHMCS's tblcontacts flags): never ALWAYS for them, never OWNER_ONLY, never a mass mail.
  */
 final class EmailKinds
 {
@@ -52,6 +55,19 @@ final class EmailKinds
      * staff's reply on a ticket (the customer asked for it by opening the ticket, ADV-545-5).
      */
     public const ALWAYS = ['server_suspended', 'server_terminated', 'invoice_overdue', 'domain_expired_notice', 'new_ticket_message'];
+
+    /**
+     * The owner's alone, never a contact's copy (toContacts): the welcome mail's password, and a ticket's message (its
+     * thread is the ticket opener's, docs/tickets.md §3 Γ).
+     */
+    public const OWNER_ONLY = ['new_server_created', 'new_ticket_message', 'password_reset', 'email_verification', 'client_invite'];
+
+    /**
+     * The account permission (ClientUser::PERMISSIONS) a member needs to tick or untick a kind on a contact: else a member
+     * with «contacts» alone would add their own address and read the invoices the site hides from them.
+     */
+    public const PERMISSIONS = ['general' => 'emails', 'invoice' => 'invoices', 'support' => 'tickets', 'product' => 'products',
+        'domain' => 'domains', 'affiliate' => 'affiliates'];
 
     public static function of(string $templateKey): string
     {

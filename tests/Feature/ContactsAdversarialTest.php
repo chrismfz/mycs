@@ -320,7 +320,10 @@ class ContactsAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($client->fresh(), $invoice->fresh());
 
-        $this->assertSame(0, EmailLog::query()->whereIn('to', ['victim@example.test', 'victim2@example.test'])->count());
+        // The primary contact's address never: the owner's mail goes to the owner's login. Another contact gets the kinds
+        // it takes since owner 2026-10-30 (ContactMailsTest), and a member ticks only the kinds they may see.
+        $this->assertSame(0, EmailLog::query()->where('to', 'victim@example.test')->count());
+        $this->assertTrue(EmailLog::query()->where('to', 'victim2@example.test')->exists());
     }
 
     /** Staff are told the mail went to the account's email (now the contact's), while it goes to the owner. */
