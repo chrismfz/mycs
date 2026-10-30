@@ -320,6 +320,31 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me about new service activations',
             'in_app_url' => '{{ urls.service }}',
         ],
+        'service_hold_ending' => [
+            'subject' => 'Your service {{ service.product.name }} will be suspended on {{ suspend_on }}',
+            'body' => <<<'HTML'
+                # Your service will be suspended
+
+                Dear {{ user.first_name }},
+
+                Your service **{{ service.product.name }}** stays active until **{{ hold_until }}**. If its unpaid invoice is not
+                paid by then, it will be suspended.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoices }}">
+                		View my invoices
+                	</a>
+                </div>
+
+                If you have already paid, please ignore this message.
+                HTML,
+            'in_app_title' => 'Your service will be suspended on {{ suspend_on }}',
+            'in_app_body' => 'Your service {{ service.product.name }} stays active until {{ hold_until }}; pay its invoice to keep it.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Notify me before a held service is suspended',
+            'in_app_url' => '{{ urls.invoices }}',
+        ],
         'server_suspended' => [
             'subject' => 'Service suspended: {{ service.product.name }}',
             'body' => <<<'HTML'
@@ -1384,6 +1409,29 @@ class EmailTemplateSeeder extends Seeder
                 'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} είναι ενεργή.',
             ],
         ],
+        'service_hold_ending' => [
+            'el' => [
+                'subject' => 'Η υπηρεσία σας {{ service.product.name }} θα ανασταλεί στις {{ suspend_on }}',
+                'body' => <<<'HTML'
+                    # Η υπηρεσία σας θα ανασταλεί
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η υπηρεσία σας **{{ service.product.name }}** μένει ενεργή ως τις **{{ hold_until }}**. Αν το απλήρωτο
+                    προτιμολόγιό της δεν εξοφληθεί ως τότε, θα τεθεί σε αναστολή.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoices }}">
+                    		Τα προτιμολόγιά μου
+                    	</a>
+                    </div>
+
+                    Αν έχετε ήδη πληρώσει, αγνοήστε αυτό το μήνυμα.
+                    HTML,
+                'in_app_title' => 'Η υπηρεσία σας θα ανασταλεί στις {{ suspend_on }}',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} μένει ενεργή ως τις {{ hold_until }}· εξοφλήστε το προτιμολόγιό της για να τη διατηρήσετε.',
+            ],
+        ],
         'server_suspended' => [
             'el' => [
                 'subject' => 'Αναστολή υπηρεσίας: {{ service.product.name }}',
@@ -2096,7 +2144,18 @@ class EmailTemplateSeeder extends Seeder
      */
     public function run(): void
     {
-        foreach (self::mapping as $key => $data) {
+        self::seedKeys(array_keys(self::mapping));
+    }
+
+    /**
+     * These templates, where missing (insertOrIgnore: staff's edits kept). A migration adds a new one to an instance
+     * seeded before it (deploys do not seed).
+     *
+     * @param  list<string>  $keys
+     */
+    public static function seedKeys(array $keys): void
+    {
+        foreach (array_intersect_key(self::mapping, array_flip($keys)) as $key => $data) {
             DB::table('notification_templates')->insertOrIgnore(array_merge($data, [
                 'key' => $key,
                 'enabled' => true,

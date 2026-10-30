@@ -34,6 +34,7 @@ final class EmailKinds
         'new_order_created' => 'general',
         'new_server_created' => 'product',
         'server_suspended' => 'product',
+        'service_hold_ending' => 'product',
         'server_unsuspended' => 'product',
         'server_terminated' => 'product',
         'service_cancelled' => 'product',
@@ -54,7 +55,7 @@ final class EmailKinds
      * Sent whatever the contact takes (owner 2026-10-30): a suspension or termination, an overdue or expiry notice, and
      * staff's reply on a ticket (the customer asked for it by opening the ticket, ADV-545-5).
      */
-    public const ALWAYS = ['server_suspended', 'server_terminated', 'invoice_overdue', 'domain_expired_notice', 'new_ticket_message'];
+    public const ALWAYS = ['server_suspended', 'service_hold_ending', 'server_terminated', 'invoice_overdue', 'domain_expired_notice', 'new_ticket_message'];
 
     /**
      * The account's address alone (Client::mailAddress), never a contact's copy (toContacts): the welcome mail's password,

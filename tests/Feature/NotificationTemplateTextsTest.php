@@ -58,6 +58,7 @@ class NotificationTemplateTextsTest extends TestCase
             'invoice_refunded' => ['invoice' => $invoice, 'refund' => ['amount' => '$5.00', 'to_credit' => false, 'by_gateway' => true]],
             'new_order_created' => ['order' => $order, 'items' => collect([$service]), 'total' => '$10.00'],
             'new_server_created', 'server_suspended', 'server_unsuspended', 'server_terminated', 'service_cancelled' => ['service' => $service],
+            'service_hold_ending' => ['service' => $service, 'hold_until' => '14 November 2026', 'suspend_on' => '15 November 2026'],
             'ssl_certificate_issued' => ['service' => $service, 'common_name' => 'shop.example.test', 'expires' => '2027-05-01'],
             'new_ticket_message' => ['ticketMessage' => $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Hello **there**'])],
             'guest_ticket_message' => ['ticket' => $ticket, 'ticketMessage' => $ticket->messages()->create(['message' => 'Reply']), 'ticket_url' => 'https://mycs.test/t/' . str_repeat('a', 43)],

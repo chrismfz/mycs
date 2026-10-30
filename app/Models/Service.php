@@ -113,6 +113,7 @@ class Service extends Model implements Auditable
         'currency_code',
         'payment_gateway_id',
         'suspend_hold_until',
+        'suspend_hold_notice_for',
         // WHMCS's tblhosting fields (2026_11_02 migration)
         'server_id',
         'domain',
@@ -141,6 +142,7 @@ class Service extends Model implements Auditable
         'expires_at' => 'date',
         'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',
+        'suspend_hold_notice_for' => 'date',
         'started_unpaid_at' => 'datetime',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
