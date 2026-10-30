@@ -14,7 +14,7 @@
 # Steps (safe, idempotent; nothing changes before step 5):
 #   1. pre-flight: no uncommitted TRACKED changes
 #   2. fetch, resolve the target, refuse a downgrade / a checkout that would fail
-#   3. maintenance mode ON, queue worker drained
+#   3. a cron run in progress waited for, maintenance mode ON, queue worker drained
 #   4. DB snapshot (rollback point) → storage/app/db-snapshots/ (keeps $SNAPSHOT_KEEP)
 #   5. checkout the target
 #   6. composer install (--no-dev unless COMPOSER_DEV=1, e.g. on the devbox)
@@ -171,8 +171,19 @@ _untracked="$(git ls-files --others --exclude-standard | head -20)"
 [[ -n "$_untracked" ]] && { warn "Untracked files (left as they are):"; echo "$_untracked" | sed 's/^/    /'; }
 
 # --- 3. maintenance + worker -------------------------------------------------
+# A cron run in progress finishes first (sweep 9γ): it would go on half in the old code over a migrating database. The
+# scheduler starts none in maintenance; one that began just before it is waited for again after. A release without the
+# command (the first deploy of it) skips the wait.
+cron_wait() {
+  if $ART list --raw 2>/dev/null | grep -q '^app:cron-wait'; then
+    $ART app:cron-wait --timeout="${CRON_WAIT_SECONDS:-900}"
+  fi
+}
+log "Waiting for a cron run in progress, if any"
+cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer)."; exit 1; }
 log "Maintenance mode ON"
 $ART down --retry=15 || true
+cron_wait || { $ART up || true; fail "A cron run started just before maintenance and is still running — nothing changed, the app is up again. Re-run the deploy once it is over."; exit 1; }
 trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
 stop_queue_worker
 

@@ -86,6 +86,9 @@ su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh
 ```
 Πριν αλλάξει οτιδήποτε, κρατά **snapshot της βάσης** στο `storage/app/db-snapshots/` (τα τελευταία 10), και μετά:
 maintenance mode, queue drain, checkout, composer, migrate, build, caches, private files, smoke check.
+**Ένα τρέξιμο του cron σε εξέλιξη τελειώνει πρώτα** (sweep 9γ, `app:cron-wait`): το deploy το περιμένει πριν το
+maintenance και ξανά αμέσως μετά (ο scheduler δεν ξεκινά νέο σε maintenance), ως 15 λεπτά (`CRON_WAIT_SECONDS`). Αν δεν
+τελειώσει, το deploy σταματά χωρίς να έχει αλλάξει τίποτα: το ξανατρέχεις όταν τελειώσει.
 
 ## Αν κάτι πάει στραβά
 Δεν υπάρχει αυτόματο rollback (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + backup). Το όνομα του snapshot
