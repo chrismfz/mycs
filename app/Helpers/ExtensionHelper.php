@@ -1404,9 +1404,13 @@ class ExtensionHelper
                 $row = ['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $chargebackReference,
                     'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $invoice->currency_code,
                     'origin' => GatewayRefund::ORIGIN_CHARGEBACK];
+                // A card that disputed a charge is not charged again by itself (owner 2026-10-30): any chargeback of a payment
+                // here, whatever it records (ADV-553-1/2).
+                $stopped = self::stopAutoCharge($invoice->client_id);
                 if ($currency !== null && strtoupper($currency) !== strtoupper((string) $invoice->currency_code)) {
                     GatewayRefund::create(['recorded_amount' => 0, 'currency_code' => strtoupper($currency)] + $row);
-                    $staff = "{$gateway} chargeback {$chargebackReference} is in {$currency}, invoice #{$invoice->id} in {$invoice->currency_code}: not recorded, record it by hand.";
+                    $staff = "{$gateway} chargeback {$chargebackReference} is in {$currency}, invoice #{$invoice->id} in {$invoice->currency_code}: not recorded, record it by hand. "
+                        . self::autoChargeNote($invoice->client_id, $stopped);
                     $log(PaymentGatewayEvent::OUTCOME_REJECTED, 'currency_mismatch');
 
                     return 0;
@@ -1456,18 +1460,18 @@ class ExtensionHelper
                 }
                 GatewayRefund::create(['recorded_amount' => $record / 100, 'money_event_id' => $event?->id, 'credit_taken' => $fromCredit / 100,
                     'credit_spent' => $spent / 100, 'credit_events' => $creditEvents ?: null] + $row);
-                // A card that disputed a charge is not charged again by itself (owner 2026-10-30): the account's automatic
-                // charging stops; staff, or the customer (Payment methods, or saving a card), turn it on again.
-                $stopped = $invoice->client_id !== null && $record + $fromCredit + $spent > 0
-                    && Client::query()->whereKey($invoice->client_id)->where('auto_charge', true)->update(['auto_charge' => false]) > 0;
+                $allocated = (int) InvoiceTransaction::query()->where('source_transaction_id', $payment->id)->get()
+                    ->sum(fn (InvoiceTransaction $paid) => RecordPaymentService::toCents($paid->amount));
                 $staff = "{$gateway} took back " . self::cents($cents) . " {$invoice->currency_code} for a dispute ({$chargebackReference}) on payment #{$payment->id}"
                     . " of invoice #{$invoice->id}: recorded " . self::cents($record) . ", the invoice is {$invoice->status}" . ($record > 0 ? ' (owed again).' : ', unchanged.')
                     . ' Its services are as they were; the cron treats the invoice as any unpaid one (put the service on hold to wait for the dispute). '
                     . ($fromCredit > 0 ? self::cents($fromCredit) . ' of it was taken back from the account credit this payment left (its overpayment, or a refund to credit). ' : '')
                     . ($spent > 0 ? self::cents($spent) . ' of it is credit this payment left that the customer had spent already: recorded as taken back on the payment,'
                         . ' not from the credit; settle it by hand (a debt, or nothing). ' : '')
-                    . ($record < $rest ? self::cents($rest - $record) . ' of it was no longer on the payment (refunds): settle it by hand. ' : '')
-                    . ($stopped ? 'Automatic charging of the account is turned off; turn it on again when it is settled. ' : '')
+                    . ($record < $rest ? self::cents($rest - $record) . ' of it was no longer on the payment ('
+                        . ($allocated > 0 ? 'refunded already, or the credit it left paid other invoices: ' . self::cents($allocated) . ' did' : 'refunded already')
+                        . '): settle it by hand. ' : '')
+                    . self::autoChargeNote($invoice->client_id, $stopped)
                     . ($staff ?? '');
                 $log($record + $fromCredit + $spent > 0 ? PaymentGatewayEvent::OUTCOME_RECORDED : PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback');
 
@@ -1636,6 +1640,36 @@ class ExtensionHelper
         }
 
         return $reversed > 0;
+    }
+
+    /**
+     * The account's automatic charging off after a chargeback (owner 2026-10-30), through the model so its audit shows
+     * it (code review of #553). Staff, or the customer (Payment methods, or saving a card), turn it on again. Whether
+     * it was on.
+     */
+    private static function stopAutoCharge(?int $clientId): bool
+    {
+        $client = $clientId === null ? null : Client::query()->whereKey($clientId)->lockForUpdate()->first();
+        if ($client === null || !$client->auto_charge) {
+            return false;
+        }
+        $client->update(['auto_charge' => false]);
+
+        return true;
+    }
+
+    /**
+     * What staff are told of the account's charging after a chargeback: turned off, and the gateway subscriptions it
+     * does not reach (they charge on their own: ADV-553-4; cancelling one is staff's call).
+     */
+    private static function autoChargeNote(?int $clientId, bool $stopped): string
+    {
+        $subscribed = $clientId === null ? collect() : Service::query()->where('client_id', $clientId)
+            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->pluck('id');
+
+        return ($stopped ? 'Automatic charging of the account is turned off; turn it on again when it is settled. ' : '')
+            . ($subscribed->isNotEmpty() ? 'Its gateway subscriptions still charge by themselves (service #' . $subscribed->implode(', #')
+                . '): cancel them if the card should not be charged again. ' : '');
     }
 
     /**
