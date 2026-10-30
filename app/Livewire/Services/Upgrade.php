@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Services;
 
+use App\Classes\Price;
 use App\Exceptions\DisplayException;
 use App\Livewire\Component;
 use App\Models\ConfigOption;
@@ -14,6 +15,7 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\DowngradeCredit;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Brick\Math\BigDecimal;
@@ -22,6 +24,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
+use MyCS\Pricing\LinePricer;
 
 class Upgrade extends Component
 {
@@ -57,6 +60,32 @@ class Upgrade extends Component
     #[Computed]
     public function totalToday()
     {
+        // With tax: what the invoice it makes charges (Δ1).
+        return $this->priced()->grossPrice();
+    }
+
+    /**
+     * What it renews at after the change, with tax, and what it renews at now: shown before the customer confirms, as
+     * the new price can be more than it had (an options-only change priced from the catalog: #551's code review).
+     *
+     * @return array{now: Price, after: Price}
+     */
+    #[Computed]
+    public function renewal(): array
+    {
+        $upgrade = $this->priced();
+        $service = $this->service;
+        $quantity = max(1, (int) $service->quantity);
+        $price = fn (string $net, Product $product) => new Price(['price' => (float) LinePricer::invoiceLine($net, $quantity,
+            OrderPricing::taxRate($service->client, $product))['total'], 'currency' => $service->currency]);
+
+        return ['now' => $price(number_format((float) $service->price, 2, '.', ''), $service->product),
+            'after' => $price($upgrade->newRecurringPrice(), $this->upgradeProduct)];
+    }
+
+    /** The upgrade as chosen on the page, not saved: what it charges and renews at. */
+    private function priced(): ServiceUpgrade
+    {
         $upgrade = new ServiceUpgrade(['service_id' => $this->service->id, 'product_id' => $this->upgradeProduct->id]);
         $upgrade->setRelation('service', $this->service);
         $upgrade->setRelation('product', $this->upgradeProduct);
@@ -79,8 +108,7 @@ class Upgrade extends Component
 
         $upgrade->setRelation('configs', $configs);
 
-        // With tax: what the invoice it makes charges (Δ1).
-        return $upgrade->grossPrice();
+        return $upgrade;
     }
 
     // When upgrade changes, update the upgradeProduct
@@ -222,6 +250,14 @@ class Upgrade extends Component
                     ]);
                 }
             }
+            // A change the catalog cannot price in the service's currency: staff's (ADV-551-1).
+            if ($upgrade->needsStaff()) {
+                DB::rollBack();
+                $this->notify(__('This change needs our staff: please contact us.'), 'error');
+
+                return;
+            }
+
             $price = $upgrade->calculatePrice();
 
             if ($price->price <= 0) {

@@ -13,6 +13,7 @@ use App\Models\ServiceConfig;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -110,5 +111,28 @@ class DowngradeNeverNegativeTest extends TestCase
 
         $this->assertSame('20.00', $upgrade->newRecurringPrice(), '5 − 30 is never the price: the catalog\'s');
         $this->assertGreaterThan(0, $upgrade->calculatePrice()->price, 'charged the days left up to it, never credited');
+    }
+
+    /** Code review of #551: the page says what it renews at before the customer confirms; once paid, it is the catalog's, unlocked. */
+    public function test_the_page_shows_the_new_renewal_and_the_paid_change_stores_the_catalogs_unlocked(): void
+    {
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'product_id' => $this->product->id,
+            'plan_id' => $this->product->plans()->first()->id, 'price' => 5.00, 'price_locked' => true, 'quantity' => 1, 'currency_code' => 'USD',
+            'status' => Service::STATUS_ACTIVE, 'expires_at' => '2027-01-01']);
+        $service->configs()->create(['config_option_id' => $this->backup->id, 'config_value_id' => $this->backup->children[1]->id]);
+
+        $page = $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service->fresh()])
+            ->set("configOptions.{$this->backup->id}", $this->backup->children[0]->id);
+        $this->assertSame(['5.00', '20.00'], [number_format($page->instance()->renewal()['now']->price, 2, '.', ''),
+            number_format($page->instance()->renewal()['after']->price, 2, '.', '')]);
+        $page->assertSee(__('services.renews_at'))->call('doUpgrade');
+
+        $upgrade = ServiceUpgrade::query()->sole();
+        $this->assertNotNull($upgrade->invoice_id, 'up to the catalog\'s: billed, never credited');
+        $this->assertSame('0.00', number_format((float) Credit::query()->sum('amount'), 2, '.', ''));
+        (new ServiceUpgradeService)->handle($upgrade->fresh()); // as its paid invoice does
+
+        $service->refresh();
+        $this->assertSame(['20.00', false], [number_format((float) $service->price, 2, '.', ''), (bool) $service->price_locked]);
     }
 }

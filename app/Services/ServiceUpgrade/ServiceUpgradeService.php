@@ -55,6 +55,7 @@ class ServiceUpgradeService
             $options = $serviceUpgrade->resultingOptions();
             $optionsOnly = $serviceUpgrade->changesOptionsOnly();
             $newPrice = $serviceUpgrade->newRecurringPrice();
+            $fromCatalog = $serviceUpgrade->repricesFromCatalog();
             $shortfall = $this->shortfall($serviceUpgrade);
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
@@ -109,6 +110,9 @@ class ServiceUpgradeService
             // Options only: the price it had and the options' difference (a staff price stays). Another product or
             // plan: its catalog price for the next renewal.
             $service->price = $optionsOnly ? $newPrice : $service->calculatePrice();
+            if ($fromCatalog) {
+                $service->price_locked = false; // the catalog's now, not staff's (code review 3 of #551)
+            }
             $service->save();
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product

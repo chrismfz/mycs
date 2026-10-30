@@ -226,22 +226,17 @@ class ServiceUpgrade extends Model implements Auditable
     {
         $service = $this->service;
         if ($this->changesOptionsOnly()) {
-            $change = BigDecimal::of($this->optionsPrice($this->resultingOptions()))
-                ->minus($this->optionsPrice($service->configs->pluck('config_value_id', 'config_option_id')->all()));
-            $net = BigDecimal::of(OrderPricing::toNet((string) $change, $service->client, $service->product));
-            // The options' difference at the group discount its price holds (G1/F1 of #272): an option added is not
-            // full price for a group's member; a price staff locked follows no group.
-            if (!$service->price_locked && (float) $service->group_percent > 0) {
-                $net = $net->multipliedBy(BigDecimal::of('100')->minus(number_format((float) $service->group_percent, 2, '.', '')))
-                    ->dividedBy(100, 2, RoundingMode::HalfUp);
-            }
-
-            $kept = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($net);
-            // Never below zero (sweep 9γ, owner 2026-10-30, as Blesta): a price under the catalog's (staff's, or one
-            // imported from WHMCS) less an option's catalog price can be; then it is the catalog's with the options it
-            // keeps, as a change of plan prices it.
-            if ($kept->isGreaterThanOrEqualTo(0)) {
+            $kept = BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($this->optionsDifference());
+            // Never zero or below (sweep 9γ, owner 2026-10-30, as Blesta; exactly zero too, ADV-551-2): a price under the
+            // catalog's (staff's, or one imported from WHMCS) less an option's catalog price can be; then it is the
+            // catalog's with the options it keeps, as a change of plan prices it.
+            if ($kept->isGreaterThan(0)) {
                 return (string) $kept->toScale(2);
+            }
+            // A plan without a price in the service's currency would read as free (ADV-551-1, as F1 of SVC-14): the
+            // price it has, and the change is refused (needsStaff).
+            if (!$this->catalogPricesIt()) {
+                return number_format((float) $service->price, 2, '.', '');
             }
         }
 
@@ -258,8 +253,60 @@ class ServiceUpgrade extends Model implements Auditable
             'config_value_id' => $value,
         ]))->values());
 
-        return (string) BigDecimal::max(BigDecimal::of(number_format((float) $after->calculatePrice(cycle: $service->priceCycle()), 2, '.', '')),
-            BigDecimal::zero())->toScale(2);
+        // A decimal string already (LinePricer never prices below zero): no float on the way (code review of #551).
+        return (string) BigDecimal::max(BigDecimal::of((string) $after->calculatePrice(cycle: $service->priceCycle())), BigDecimal::zero())
+            ->toScale(2, RoundingMode::HalfUp);
+    }
+
+    /**
+     * An options-only change whose kept price would be below zero: priced from the catalog instead (newRecurringPrice).
+     * Its staff price is gone, so its lock goes too (ServiceUpgradeService; code review 3 of #551).
+     */
+    public function repricesFromCatalog(): bool
+    {
+        if (!$this->changesOptionsOnly()) {
+            return false;
+        }
+        $service = $this->service;
+
+        return $this->catalogPricesIt()
+            && BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($this->optionsDifference())->isLessThanOrEqualTo(0);
+    }
+
+    /**
+     * An options-only change the catalog cannot price (its plan has no price in the service's currency, ADV-551-1):
+     * refused on the customer's page, for staff.
+     */
+    public function needsStaff(): bool
+    {
+        return $this->changesOptionsOnly() && !$this->catalogPricesIt()
+            && BigDecimal::of(number_format((float) $this->service->price, 2, '.', ''))->plus($this->optionsDifference())->isLessThanOrEqualTo(0);
+    }
+
+    /** The plan it ends on has a price in the service's currency. */
+    private function catalogPricesIt(): bool
+    {
+        $plan = $this->targetPlan() ?? $this->service->plan;
+
+        return $plan !== null && $plan->prices()->where('currency_code', $this->service->currency_code)->exists();
+    }
+
+    /**
+     * What the changed options cost more (or less), net, at the group discount its price holds (G1/F1 of #272): an
+     * option added is not full price for a group's member; a price staff locked follows no group.
+     */
+    protected function optionsDifference(): BigDecimal
+    {
+        $service = $this->service;
+        $change = BigDecimal::of($this->optionsPrice($this->resultingOptions()))
+            ->minus($this->optionsPrice($service->configs->pluck('config_value_id', 'config_option_id')->all()));
+        $net = BigDecimal::of(OrderPricing::toNet((string) $change, $service->client, $service->product));
+        if (!$service->price_locked && (float) $service->group_percent > 0) {
+            $net = $net->multipliedBy(BigDecimal::of('100')->minus(number_format((float) $service->group_percent, 2, '.', '')))
+                ->dividedBy(100, 2, RoundingMode::HalfUp);
+        }
+
+        return $net;
     }
 
     /**

@@ -1547,5 +1547,6 @@
     "Queued for :email.": "Στην ουρά αποστολής προς :email.",
     "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο.",
     "The account's (its saved method)": "Του λογαριασμού (ο αποθηκευμένος τρόπος)",
-    "Another gateway than the saved method's: its renewals are invoiced apart and never charged automatically.": "Άλλος τρόπος από του αποθηκευμένου: οι ανανεώσεις του τιμολογούνται χωριστά και δεν χρεώνονται ποτέ αυτόματα."
+    "Another gateway than the saved method's: its renewals are invoiced apart and never charged automatically.": "Άλλος τρόπος από του αποθηκευμένου: οι ανανεώσεις του τιμολογούνται χωριστά και δεν χρεώνονται ποτέ αυτόματα.",
+    "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας."
 }

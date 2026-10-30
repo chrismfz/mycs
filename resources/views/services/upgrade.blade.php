@@ -152,6 +152,14 @@
                 <span class="mr-2">{{ __('services.total_today') }}:</span>
                 <span class="text-base/50">{{ $this->totalToday() }}</span>
             </div>
+            {{-- What it renews at after the change: it can be more than now (an options-only change from the catalog, #551) --}}
+            @php($renewal = $this->renewal())
+            @if((string) $renewal['after'] !== (string) $renewal['now'])
+            <div class="flex items-center text-base" data-renewal>
+                <span class="mr-2">{{ __('services.renews_at') }}:</span>
+                <span class="text-base/50">{{ __('services.renews_at_value', ['after' => $renewal['after'], 'now' => $renewal['now']]) }}</span>
+            </div>
+            @endif
 
             <div class="flex flex-row justify-end gap-2 mt-2">
                 <x-button.primary class="h-fit" :wire:click="($upgradeProduct->upgradableConfigOptions()->count() > 0 && $step == 1)? 'nextStep' : 'doUpgrade'">
