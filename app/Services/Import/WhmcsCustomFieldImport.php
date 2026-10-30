@@ -45,9 +45,12 @@ final class WhmcsCustomFieldImport
     /** Ticked, as Ekdosi's WHMCS path read a tickbox (PendingWhmcsInvoice, ADV-544-2). */
     private const TICKED = ['on', '1', 'yes', 'true', 'ναι', 'checked'];
 
-    /** A secret, whatever it is called (ADV-544-4): its name or its label. */
-    private const SECRET = '/passw(or)?d|passphrase|(^|[\\s_.-])pass($|[\\s_.:-])|pwd|(^|[\\s_.-])pw($|[\\s_.:-])|secret|token|credential'
-        . '|(api|access|private|secret|ssh)[\\s_.-]?key|auth[\\s_.-]?code|\\bepp\\b|κωδικ|συνθηματικ/iu';
+    /**
+     * A secret, whatever it is called (ADV-544-4, R2-544-1, R3-544-2): wide on purpose. A field it takes by mistake
+     * («Κωδικός πελάτη», «SSH Public Key») is listed by name for staff to take from WHMCS, never one leaked into notes.
+     * A field of WHMCS's «Password» type is one whatever its name (R3-544-1).
+     */
+    private const SECRET = '/pass|pw|secret|token|credential|key|hash|auth|epp|κλειδ|κωδ|πρόσβασ|συνθηματ|μυστικ/iu';
 
     private const IP_FIELDS = ['IP', 'IP ADDRESS', 'IPADDRESS', 'IPADDR', 'DEDICATED IP'];
 
@@ -138,12 +141,15 @@ final class WhmcsCustomFieldImport
                     $set[$target] = $value;
                     // A foreign EU VAT number (its own prefix, not EL: 16 on myip) is the VIES one too, which MyCS's
                     // VIES check and reverse charge read (code review 3 of #544); the ΑΦΜ stays as the plugin sent it.
-                    // Only with the ΑΦΜ it comes with (R2: never beside another one tblclients had).
-                    $vies = $target === 'tax_id' && blank($contact->tax_id) && ctype_alpha(substr($value, 0, 2)) ? EuVat::parse($value) : null;
-                    if ($vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50) {
-                        $set['vat_number'] = $vies->full();
-                    }
                 }
+            }
+            // A foreign EU VAT number (its own prefix, not EL: 16 on myip) is the VIES one too, which MyCS's VIES check and
+            // reverse charge read (code review 3 of #544): from the ΑΦΜ written, only when it is the one kept (R2, R3-544-3).
+            unset($set['vat_number']);
+            $afm = $set['tax_id'] ?? null;
+            $vies = $afm !== null && blank($contact->tax_id) && ctype_alpha(substr($afm, 0, 2)) ? EuVat::parse($afm) : null;
+            if ($vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50) {
+                $set['vat_number'] = $vies->full();
             }
             // A value the account already has (tblclients' own) stays.
             $set = array_filter($set, fn ($value, string $column) => blank($contact->{$column}), ARRAY_FILTER_USE_BOTH);
@@ -192,8 +198,8 @@ final class WhmcsCustomFieldImport
                 if ($value === '' || isset($kept[$id][$raw])) {
                     continue; // nothing, or a licensing product's own field (its import's)
                 }
-                if (preg_match(self::SECRET, $name . ' ' . $label) === 1) {
-                    $this->skip("Service #{$id}: «{$label}» is a password: not imported");
+                if (strtolower((string) ($field['fieldtype'] ?? '')) === 'password' || preg_match(self::SECRET, $name . ' ' . $label) === 1) {
+                    $this->skip("Service #{$id}: «{$label}» may be a secret: not imported (take it from WHMCS if it is not)");
 
                     continue;
                 }

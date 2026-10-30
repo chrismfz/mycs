@@ -104,7 +104,7 @@ class ImportCustomFieldsTest extends TestCase
         $this->assertStringContainsString('Operating System: Debian 12', (string) $vps->fresh()->notes);
         $this->assertSame('192.0.2.10', $other->fresh()->dedicated_ip);
         $this->assertStringContainsString('Dedicated IP: 192.0.2.11', (string) $other->fresh()->notes, 'a second address: for staff');
-        $this->assertStringContainsString('is a password: not imported', implode("\n", $result['notes']));
+        $this->assertStringContainsString('may be a secret: not imported', implode("\n", $result['notes']));
     }
 
     public function test_a_whmcs_without_custom_fields_imports_nothing(): void
