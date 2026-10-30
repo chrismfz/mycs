@@ -17,6 +17,7 @@ return [
         'domains_ordered' => 'Καταχωρίσεις/μεταφορές domains',
         'domain_owner_changes' => 'Αλλαγές κατόχου .gr που στάλθηκαν',
         'domain_epp_codes_cleared' => 'Διαγραφή EPP codes μεταφορών',
+        'holds_ending' => 'Υπηρεσίες σε αναμονή που ενημερώθηκαν για την αναστολή',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'logs_pruned' => 'Καθαρισμός logs (retention)',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',

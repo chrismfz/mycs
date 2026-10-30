@@ -174,6 +174,7 @@ class CronJob extends Command
             CronStat::create(['key' => 'invoice_charged', 'value' => $this->successFullCharges, 'date' => now()->toDateString()]);
         }
         $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('holds_ending', fn () => $this->holdsEnding(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_suspended', fn () => $this->suspendServices(hourly: true), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
         try {
@@ -566,6 +567,9 @@ class CronJob extends Command
             Setting::updateOrCreate(['key' => self::DUNNING_READY, 'settingable_type' => CronStat::class],
                 ['value' => now()->toDateTimeString(), 'type' => 'string']);
 
+            // A held service whose hold ends today or tomorrow unpaid: its customer told the date, once per date (G1).
+            $this->runCronJob('holds_ending', fn () => $this->holdsEnding(), transaction: false);
+
             // On the days and from the hour staff set (DunningWindow); otherwise the hourly run does them then.
             if (DunningWindow::isOpen()) {
                 $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false);
@@ -738,11 +742,18 @@ class CronJob extends Command
             }
         }
         foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
+            $heldUntil = null;
             try {
-                $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly) {
+                $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly, &$heldUntil) {
                     $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
                     if ($service === null || self::chargeOnItsWay($service) || ($hourly && self::periodUnbilled($service))) {
                         return 0;
+                    }
+                    // Held until a date that passed unpaid, its customer told of it: staff are told it ended (sweep 9γ G1; not
+                    // a hold of months ago, nor one never told: code review 1, ADV-HOLD-4).
+                    // Told after the suspension commits (ADV-HOLD-R2-2: one rolled back is not «suspended»).
+                    if (self::heldBack($service, $requiresInvoice) && self::toldOfHold($service)) {
+                        $heldUntil = $service->suspend_hold_until->toDateString();
                     }
                     // Register before Service Updated listeners, but execute only after the status commits.
                     SuspendJob::dispatch($service)->afterCommit();
@@ -753,6 +764,9 @@ class CronJob extends Command
                 $number += $done;
                 if ($done === 1) {
                     $this->suspended[] = (int) $id;
+                    if ($heldUntil !== null) {
+                        $this->notices["held_suspended #{$id}"] = new DisplayException("Service #{$id} was suspended: its hold until {$heldUntil} ended with its invoice unpaid.");
+                    }
                 }
             } catch (Throwable $e) {
                 report($e);
@@ -761,6 +775,79 @@ class CronJob extends Command
         }
 
         return $number;
+    }
+
+    /**
+     * «Don't suspend until…» (sweep 9γ G1, owner 2026-10-30): a service that would be suspended the day after its hold,
+     * which ends today or tomorrow, has its customer told the day it is suspended (the dunning window's first day after
+     * it); once per hold date (staff moving it: again). Not while a card charge is on its way (its customer may have
+     * paid: told on a later run if it fails). The hourly run looks too, where suspensions keep to days or hours. Suspensions
+     * keep their time (owner: keep it simple): a hold set or moved to today after the day's run, or the cron down on both
+     * days, goes untold (ADV-HOLD-2/3).
+     */
+    private function holdsEnding(int $number = 0): int
+    {
+        if (!config('settings.cronjob_suspend_enabled', true)) {
+            return 0;
+        }
+        $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
+        $due = collect([today(), today()->addDay()])->flatMap(fn (Carbon $holdDay) => $this->suspendable(overdueInvoice: $requiresInvoice, holdDay: $holdDay)
+            ->with('client')->orderBy('id')->get())
+            ->reject(fn (Service $service) => self::toldOfHold($service) || self::chargeOnItsWay($service));
+        foreach ($due as $service) {
+            try {
+                self::tellOfHold($service, DunningWindow::firstDayFrom(Carbon::parse($service->suspend_hold_until)->addDay()));
+                $number++;
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["holds_ending #{$service->id}"] = $e;
+            }
+        }
+
+        return $number;
+    }
+
+    /** Its customer was told of its hold's date (holdsEnding, or suspendServices waiting for it). */
+    private static function toldOfHold(Service $service): bool
+    {
+        return $service->suspend_hold_until !== null && $service->suspend_hold_notice_for !== null
+            && $service->suspend_hold_notice_for->isSameDay($service->suspend_hold_until);
+    }
+
+    /**
+     * Its hold kept it from this suspension (ended after the day it would have been suspended without it), not one that
+     * ended months ago, nor one before its Suspend Days were up anyway (code review 1 / ADV-HOLD-4).
+     */
+    private static function heldBack(Service $service, bool $requiresInvoice): bool
+    {
+        if ($service->suspend_hold_until === null || $service->expires_at === null) {
+            return false;
+        }
+        $days = self::days('cronjob_order_suspend', 8);
+        $natural = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
+        // «Suspend only with an overdue invoice»: also its first open invoice's day, as suspendable() counts it
+        // (ADV-HOLD-R2-1).
+        if ($requiresInvoice) {
+            $invoiceDay = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+                ->map(fn (Invoice $invoice) => Carbon::parse($invoice->due_at ?? $invoice->created_at)->max(Carbon::parse($invoice->created_at))
+                    ->startOfDay()->addDays($days + 1))
+                ->min();
+            if ($invoiceDay !== null && $invoiceDay->greaterThan($natural)) {
+                $natural = $invoiceDay;
+            }
+        }
+
+        return !Carbon::parse($service->suspend_hold_until)->startOfDay()->lessThan($natural);
+    }
+
+    /** The customer told, then marked as told: a mail that fails is tried again (code review 4); no observers (5). */
+    private static function tellOfHold(Service $service, Carbon $suspendOn): void
+    {
+        $hold = $service->suspend_hold_until;
+        $locale = NotificationHelper::localeFor($service->client);
+        NotificationHelper::serviceHoldEndingNotification($service->client, $service, $hold->copy()->locale($locale)->isoFormat('LL'),
+            $suspendOn->copy()->locale($locale)->isoFormat('LL'));
+        Service::query()->whereKey($service->id)->update(['suspend_hold_notice_for' => $hold->toDateString()]);
     }
 
     /** Terminate services Termination Days past due: the daily run's step, and the hourly one's (DunningWindow). */
@@ -900,10 +987,12 @@ class CronJob extends Command
      *
      * @return Builder<Service>
      */
-    private function suspendable(bool $overdueInvoice = false): Builder
+    private function suspendable(bool $overdueInvoice = false, ?Carbon $holdDay = null): Builder
     {
-        $cutoff = today()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
-        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
+        // Held until $holdDay: suspendable the day after it, so Suspend Days counted to that day (code review 3).
+        $asOf = $holdDay !== null ? $holdDay->copy()->addDay() : today();
+        $cutoff = $asOf->copy()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
+        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE), $holdDay)
             ->whereDate('expires_at', '<', $cutoff)
 
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
@@ -975,10 +1064,13 @@ class CronJob extends Command
      * @param  Builder<Service>  $query
      * @return Builder<Service>
      */
-    private function unheldWithNoPaymentOnItsWay(Builder $query): Builder
+    private function unheldWithNoPaymentOnItsWay(Builder $query, ?Carbon $holdDay = null): Builder
     {
         // A service without a plan is never billed (staff are told, BIL-6): never suspended or terminated as unpaid.
-        return $query->whereNotNull('plan_id')->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
+        // $holdDay: those held until that day instead (the notice before it ends, holdsEnding()).
+        return $query->whereNotNull('plan_id')->where(fn ($hold) => $holdDay !== null
+            ? $hold->whereDate('suspend_hold_until', $holdDay->toDateString())
+            : $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
                 ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
             ->whereNotExists(fn ($line) => RenewalBilling::paidLineToApply($line));

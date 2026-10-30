@@ -17,6 +17,7 @@ return [
         'domains_ordered' => 'Domains registered or transferred',
         'domain_owner_changes' => '.gr changes of holder sent',
         'domain_epp_codes_cleared' => 'Transfer EPP codes cleared',
+        'holds_ending' => 'Held services told their suspension date',
         'domain_reminders' => 'Domain expiry notices sent',
         'logs_pruned' => 'Logs pruned (retention)',
         'license_logs_pruned' => 'License access logs pruned',

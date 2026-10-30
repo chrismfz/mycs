@@ -625,6 +625,12 @@ class NotificationHelper
         self::toAccount($client, $key, $data);
     }
 
+    /** A held service's customer, before its hold ends unpaid (sweep 9γ G1): its last day, and the day it is suspended. */
+    public static function serviceHoldEndingNotification(Client $client, Service $service, string $holdUntil, string $suspendOn): void
+    {
+        self::toAccount($client, 'service_hold_ending', ['service' => $service, 'hold_until' => $holdUntil, 'suspend_on' => $suspendOn]);
+    }
+
     public static function serverSuspendedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
