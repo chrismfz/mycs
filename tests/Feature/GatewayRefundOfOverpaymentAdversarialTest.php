@@ -96,9 +96,9 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        // What happened: 30 booked as a refund of invoice A (note -30), B stays paid by the 30 that went back to the card.
-        // The customer has the 30 back AND B paid with it, exactly what #552 set out to stop, and nobody is told.
-        $this->assertSame(-30.0, $this->notes($invoice), 'documents the current booking');
+        // Owner 2026-10-30 (the fix): the overpayment refunded is taken from the credit though B spent it, so the customer
+        // owes 30 (credit −30); invoice A is untouched; staff are told.
+        $this->assertSame([0.0, -30.0], [$this->notes($invoice), $this->credit()], 'a debt of 30, not a refund of invoice A');
         $this->assertSame(1, $this->staffMails(), 'the overpayment it refunds was spent on another invoice: staff must be told (or the credit go negative)');
     }
 
@@ -131,9 +131,9 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        // The debt stays reduced by money that went back to the card, and invoice A carries a -30 refund note it never had.
-        $this->assertSame(-20.0, $this->credit());
-        $this->assertSame(-30.0, $this->notes($invoice));
+        // Owner 2026-10-30 (the fix): the debt comes back (−50); invoice A is untouched.
+        $this->assertSame(-50.0, $this->credit());
+        $this->assertSame(0.0, $this->notes($invoice));
         $this->assertSame(1, $this->staffMails(), 'the overpayment refunded had paid a debt: the debt should come back (credit -50) or staff be told');
     }
 
@@ -144,6 +144,7 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, transactionId: 'pi_over', currency: 'usd');
 
+        $this->markTestSkipped('ADV-552-3: owner 2026-10-30, a chargeback of an overpaid payment is its own PR.');
         ExtensionHelper::chargebackAtGateway('Stripe', 'pi_over', 'dp_1', 130.00, 'usd');
 
         $this->assertSame('100.00', (string) $this->payment()->refunded_amount);
@@ -292,7 +293,8 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway refund failed after it was recorded')->count());
     }
 
-    public function test_holds_a_debt_is_never_deepened_by_the_refund(): void
+    /** Owner 2026-10-30: the overpayment the debt took is owed again once refunded to the card (−50 − 30). */
+    public function test_holds_a_refunded_overpayment_the_debt_spent_is_owed_again(): void
     {
         $this->overpaid();
         (new CreditLedger)->remove($this->user->client()->id, 'USD', 8000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_LOCAL,
@@ -301,7 +303,7 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        $this->assertSame(-50.0, $this->credit());
+        $this->assertSame(-80.0, $this->credit());
         $this->assertSame('30.00', (string) $this->payment()->refunded_amount);
         $this->assertMoneyCheckClean(['credit_negative']);
     }

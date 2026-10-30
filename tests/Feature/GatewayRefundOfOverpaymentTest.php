@@ -13,6 +13,7 @@ use App\Models\MoneyEvent;
 use App\Models\User;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyHistory;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -98,15 +99,16 @@ class GatewayRefundOfOverpaymentTest extends TestCase
         $this->assertMoneyCheckClean();
     }
 
-    public function test_only_the_credit_left_is_taken_the_rest_from_the_invoice(): void
+    /** Spent meanwhile: still taken from the credit, which goes below zero (owner 2026-10-30, ADV-552-1/2); the invoice untouched. */
+    public function test_an_overpayment_spent_meanwhile_is_owed_not_taken_from_the_invoice(): void
     {
         $invoice = $this->overpaid();
         (new CreditLedger)->remove($this->user->client()->id, 'USD', 2000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_LOCAL, note: 'test'); // 20 spent
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30b', 30.00, 'usd');
 
-        $this->assertSame(0.0, $this->credit(), 'the 10 left of it');
-        $this->assertSame(-20.0, (float) $invoice->adjustmentNotes()->sum('amount'), 'the other 20 from the invoice');
+        $this->assertSame(-20.0, $this->credit(), 'the 10 left of it, and 20 owed');
+        $this->assertSame(0.0, (float) $invoice->adjustmentNotes()->sum('amount'), 'the invoice untouched');
         $this->assertSame('30.00', $this->payment()->refunded_amount);
     }
 
@@ -121,5 +123,17 @@ class GatewayRefundOfOverpaymentTest extends TestCase
 
         $this->assertSame(50.0, $this->credit(), 'credit from elsewhere is never taken');
         $this->assertSame(-30.0, (float) $invoice->adjustmentNotes()->sum('amount'));
+    }
+
+    /** Code review 2 of #552: the customer's credit history says it went back to the card, not «overpayment −30». */
+    public function test_the_customers_credit_history_says_refunded_to_the_card(): void
+    {
+        $this->overpaid();
+
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
+
+        $out = MoneyEvent::query()->where('kind', MoneyEventKind::CreditOut->value)->sole();
+        $this->assertSame(__('account.credit_history_causes.refunded_to_card'), MoneyHistory::customerLabel($out));
+        $this->assertMoneyCheckClean();
     }
 }
