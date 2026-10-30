@@ -1,4 +1,4 @@
-@props(['prefix' => 'contact', 'emails' => true, 'identity' => true, 'locked' => false])
+@props(['prefix' => 'contact', 'emails' => true, 'identity' => true, 'locked' => false, 'primary' => false])
 {{-- A contact's fields (docs/accounts.md, PR 3a): the account's details or another contact of it. --}}
 <div class="grid md:grid-cols-2 gap-3">
     @if ($locked)
@@ -39,6 +39,10 @@
     @if ($emails)
     <div class="md:col-span-2">
         <p class="mb-1 text-sm text-primary-100">{{ __('account.contact.receives_emails') }}</p>
+        @if ($primary)
+        {{-- The account's details: its ticks choose the owner's mails (App\Support\EmailKinds) --}}
+        <p class="mb-1 text-sm text-base/70">{{ __('account.email_preferences_help') }}</p>
+        @endif
         <div class="grid md:grid-cols-3 gap-2">
             @foreach (\App\Models\Contact::EMAIL_PREFERENCES as $kind)
             <x-form.checkbox name="{{ $prefix }}.email_preferences" id="{{ $prefix }}-email-{{ $kind }}" value="{{ $kind }}"

@@ -61,8 +61,8 @@
             $kind = fn (string $kind) => __('account.email_preference.' . $kind);
         @endphp
         <div class="{{ $row }} items-center" data-setting="email_preferences"><span class="{{ $label }}">{{ __('Receives emails') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right">
-            @if ($emails === null)—
-            @elseif ($missing === [])<span class="{{ $label }}">{{ __('All') }}</span>
+            @if ($missing === [])<span class="{{ $label }}">{{ __('All') }}</span>
+            @elseif ($emails === [])<x-filament::badge color="warning">{{ __('account.email_preferences_none') }}</x-filament::badge>
             @else{{ implode(' · ', array_map($kind, $emails)) }} <x-filament::badge color="warning">{{ __('Not: :list', ['list' => implode(', ', array_map($kind, $missing))]) }}</x-filament::badge>@endif
         </span></div>
     </x-filament::section>

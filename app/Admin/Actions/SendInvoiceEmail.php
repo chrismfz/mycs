@@ -43,7 +43,7 @@ class SendInvoiceEmail extends Action
             ])
             ->action(function (Invoice $record, array $data) {
                 $days = self::daysOverdue($record);
-                NotificationHelper::invoiceNotification($record->client, $record, $data['template'], ['overdue' => ['days' => $days, 'last' => false, 'suspend_on' => null]]);
+                NotificationHelper::invoiceNotification($record->client, $record, $data['template'], ['overdue' => ['days' => $days, 'last' => false, 'suspend_on' => null]], byStaff: true);
                 // Counted as the reminder of the day (review A9): the cron does not send it again.
                 if ($data['template'] === 'invoice_payment_reminder') {
                     PaymentReminders::recordSent($record, 'due', 0);

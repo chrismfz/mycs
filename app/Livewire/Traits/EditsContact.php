@@ -34,7 +34,8 @@ trait EditsContact
         foreach (self::CONTACT_FIELDS as $field) {
             $this->contact[$field] = $contact->{$field} ?? match ($field) {
                 'type' => 'individual',
-                'email_preferences' => [],
+                // None chosen (null) is every kind (EmailKinds): shown ticked; a new contact starts with none.
+                'email_preferences' => $contact !== null ? Contact::EMAIL_PREFERENCES : [],
                 default => '',
             };
         }

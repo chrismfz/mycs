@@ -37,7 +37,9 @@ class CreateClient extends CreateRecord
                 'ignore_invoicing' => (bool) ($data['ignore_invoicing'] ?? false), 'immediate_invoicing' => (bool) ($data['immediate_invoicing'] ?? false),
                 'language' => Locales::allowed($data['language'] ?? null)])->save();
             // The account's details (PR 3a): what staff typed over what the owner gave.
-            $contact = array_filter((array) ($data['contact'] ?? []), fn ($value) => $value !== null && $value !== '' && $value !== []);
+            // Its mails as ticked, also none (an empty list): an untouched list is every kind.
+            $contact = array_filter((array) ($data['contact'] ?? []), fn ($value, $key) => $key === 'email_preferences' ? is_array($value)
+                : $value !== null && $value !== '' && $value !== [], ARRAY_FILTER_USE_BOTH);
             $client->primaryContact?->update($contact);
 
             return $client;

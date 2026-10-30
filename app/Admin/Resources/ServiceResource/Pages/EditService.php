@@ -516,7 +516,7 @@ class EditService extends EditRecord
                                     if ($data['sendNotification']) {
                                         // The service's user (order is null for services made by staff or the API); adapters
                                         // return true or the data for the email.
-                                        NotificationHelper::serverCreatedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
+                                        NotificationHelper::serverCreatedNotification($record->client, $record, is_array($sdata) ? $sdata : [], byStaff: true);
                                     }
                                     break;
                                 case 'suspend':

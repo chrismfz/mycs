@@ -218,6 +218,8 @@ return [
         'receipt' => 'Receipt',
         'none' => 'None',
     ],
+    'email_preferences_none' => 'None: only the ones that always go',
+    'email_preferences_help' => 'The account\'s mails go to its owner of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
     'email_preference' => [
         'general' => 'General',
         'invoice' => 'Invoices',

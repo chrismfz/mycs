@@ -114,7 +114,7 @@ class ClientResource extends Resource
                 // The account's details: its primary contact (docs/accounts.md, PR 3a; WHMCS keeps them in tblclients).
                 Section::make(__('Details'))
                     ->statePath('contact')
-                    ->schema(ContactForm::fields())
+                    ->schema(ContactForm::fields(newPrimary: true))
                     ->columns(2)
                     ->visibleOn('create'),
                 Section::make(__('Details'))

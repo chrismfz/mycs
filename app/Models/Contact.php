@@ -60,7 +60,7 @@ class Contact extends Model implements Auditable
 
     public const DOCUMENT_TYPES = ['invoice', 'receipt', 'none'];
 
-    /** The mails a contact can receive (tblcontacts' generalemails, invoiceemails…). */
+    /** The mails a contact can receive (tblcontacts' generalemails, invoiceemails…). The primary's gate the owner's (App\Support\EmailKinds). */
     public const EMAIL_PREFERENCES = ['general', 'invoice', 'support', 'product', 'domain', 'affiliate'];
 
     /**
@@ -153,6 +153,12 @@ class Contact extends Model implements Auditable
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereNull('archived_at');
+    }
+
+    /** It takes this kind of mail (EMAIL_PREFERENCES): none chosen (null) is every kind, as WHMCS; an empty list none. */
+    public function takesEmail(string $kind): bool
+    {
+        return $this->email_preferences === null || in_array($kind, $this->email_preferences, true);
     }
 
     public function isPrimary(): bool
