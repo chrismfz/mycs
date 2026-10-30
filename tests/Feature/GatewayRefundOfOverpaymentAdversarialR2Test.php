@@ -106,6 +106,7 @@ class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
 
     public function test_bug_debt_from_a_dashboard_refund_eats_a_subscription_sale_and_leaves_its_renewal_unpaid(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         $this->debtFromARefundedOverpayment();
         // One subscription sale of 100 for two services' renewals, B and C (PayPal::paymentSaleCompleted): it lands on
         // B (50 over, to credit) and the rest is allocated to C (allocateFromTransaction, not «chosen for payment»).
@@ -218,6 +219,7 @@ class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
 
     public function test_holds_a_debt_is_never_charged_by_auto_apply_nor_eats_a_payment_of_the_exact_amount(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         $this->debtFromARefundedOverpayment();
         config(['settings.credits_auto_use' => true]);
         $open = $this->invoice(40);
@@ -233,6 +235,7 @@ class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
 
     public function test_holds_the_staff_message_names_the_debt_and_the_credit_taken(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         $invoice = $this->debtFromARefundedOverpayment();
 
         $body = html_entity_decode((string) EmailLog::query()->where('subject', self::STAFF_SUBJECT)->value('body'), ENT_QUOTES);
@@ -245,6 +248,7 @@ class GatewayRefundOfOverpaymentAdversarialR2Test extends TestCase
 
     public function test_holds_a_second_refund_of_the_spent_overpayment_never_doubles_the_debt(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         $invoice = $this->debtFromARefundedOverpayment();
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_again', 30.00, 'usd');

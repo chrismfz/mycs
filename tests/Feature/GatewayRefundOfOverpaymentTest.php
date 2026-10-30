@@ -99,17 +99,18 @@ class GatewayRefundOfOverpaymentTest extends TestCase
         $this->assertMoneyCheckClean();
     }
 
-    /** Spent meanwhile: still taken from the credit, which goes below zero (owner 2026-10-30, ADV-552-1/2); the invoice untouched. */
-    public function test_an_overpayment_spent_meanwhile_is_owed_not_taken_from_the_invoice(): void
+    /** Spent meanwhile: what the credit still holds is taken; the rest is never a debt nor the invoice's, staff's (owner: keep it simple). */
+    public function test_an_overpayment_spent_meanwhile_is_left_to_staff_never_a_debt(): void
     {
         $invoice = $this->overpaid();
         (new CreditLedger)->remove($this->user->client()->id, 'USD', 2000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_LOCAL, note: 'test'); // 20 spent
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30b', 30.00, 'usd');
 
-        $this->assertSame(-20.0, $this->credit(), 'the 10 left of it, and 20 owed');
+        $this->assertSame(0.0, $this->credit(), 'the 10 left of it; no debt');
         $this->assertSame(0.0, (float) $invoice->adjustmentNotes()->sum('amount'), 'the invoice untouched');
-        $this->assertSame('30.00', $this->payment()->refunded_amount);
+        $this->assertSame('10.00', $this->payment()->refunded_amount, 'the other 20 recorded nowhere: staff\'s');
+        Mail::assertQueued(SystemMail::class);
     }
 
     public function test_a_payment_without_an_overpayment_is_refunded_from_its_invoice_as_before(): void

@@ -190,6 +190,7 @@ class GatewayRefundOfOverpaymentAdversarialR3Test extends TestCase
 
     public function test_holds_after_the_double_spend_a_dashboard_refund_of_the_sale_never_doubles_the_debt(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         [$invoiceA, , $resource] = $this->interruptedSale();
         config(['settings.credits_auto_use' => true]);
         $this->manual(10.00);
@@ -207,6 +208,7 @@ class GatewayRefundOfOverpaymentAdversarialR3Test extends TestCase
 
     public function test_holds_a_payment_on_a_merged_invoice_pays_the_invoice_it_went_to_and_a_debt_stays_a_debt(): void
     {
+        $this->markTestSkipped('Owner 2026-10-30, keep it simple: a dashboard refund never makes a debt, and the allocation change (R2-1) was reverted.');
         $target = $this->manual(10.00);
         $merged = $this->manual(15.00);
         (new MergeInvoices)->handle($target->id, [$merged->id]);

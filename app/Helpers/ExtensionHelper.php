@@ -1132,14 +1132,17 @@ class ExtensionHelper
         // What the payment overpaid, or staff refunded to credit from it, is account credit (credited_amount): a dashboard
         // refund takes it from there first, as much of it as is still in the credit (sweep 9γ, owner 2026-10-30); booked
         // against the invoice, the customer got that money back and kept it as credit too.
-        ['taken' => $fromCredit, 'debt' => $debt] = self::refundOverpaidCredit($payment, $invoice, $cents);
-        if ($fromCredit > 0) {
-            $staff = "{$gateway} refund {$refundReference} (" . self::cents($cents) . " {$invoice->currency_code}) on payment #{$payment->id} of invoice #{$invoice->id}: "
-                . self::cents($fromCredit) . ' of it was taken from the account credit this payment left (its overpayment, or a refund to credit), not from the invoice'
-                . ($debt > 0 ? '; ' . self::cents($debt) . ' of that was spent from the credit already, so the customer owes it now (the credit is below zero)' : '')
-                . '. If it was a refund of the invoice itself, correct it by hand.';
+        // Spent from the credit meanwhile (auto-apply, a debt it paid): never a debt made here, nor booked on the invoice;
+        // recorded nowhere and staff decide (owner 2026-10-30: keep it simple).
+        ['taken' => $fromCredit, 'spent' => $spent] = self::refundOverpaidCredit($payment, $invoice, $cents);
+        if ($fromCredit > 0 || $spent > 0) {
+            $staff = "{$gateway} refund {$refundReference} (" . self::cents($cents) . " {$invoice->currency_code}) on payment #{$payment->id} of invoice #{$invoice->id}:"
+                . ($fromCredit > 0 ? ' ' . self::cents($fromCredit) . ' of it was taken from the account credit this payment left (its overpayment, or a refund to credit), not from the invoice.' : '')
+                . ($spent > 0 ? ' ' . self::cents($spent) . ' more of it is credit this payment left that the customer has spent already (on another invoice, or a debt):'
+                    . ' recorded nowhere, settle it by hand (a debt, or nothing).' : '')
+                . ' If it was a refund of the invoice itself, correct it by hand.';
         }
-        $rest = $cents - $fromCredit;
+        $rest = $cents - $fromCredit - $spent;
 
         $left = max(0, RecordPaymentService::toCents($payment->refundable_amount));
         $record = min($rest, $left);
@@ -1183,37 +1186,41 @@ class ExtensionHelper
     /**
      * Take up to $cents of a gateway refund from the account credit $payment left (what it overpaid, what staff
      * refunded to credit from it, an invoice reduced after it, a dispute won: money back on the card is not kept as
-     * credit too): its credited part not yet spent on other invoices it paid (allocateFromTransaction). Spent from the
-     * credit meanwhile (auto-apply paid another invoice, or it paid off a debt), the credit goes below zero by that much:
-     * the customer owes it, as any account debt (owner 2026-10-30, ADV-552-1/2). The payment's credited part becomes
-     * refunded; the invoice is not touched (it was paid in full). Under the invoice and payment locks.
+     * credit too): its credited part not yet spent on other invoices it paid (allocateFromTransaction), as much as the
+     * credit still holds. What the credit no longer holds (auto-apply paid another invoice, or it paid off a debt) is
+     * not taken: never a debt made here (owner 2026-10-30, keep it simple), and returned as spent for staff. The
+     * payment's credited part taken becomes refunded; the invoice is not touched (it was paid in full). Under the
+     * invoice and payment locks.
      *
-     * @return array{taken: int, debt: int} what was taken, and how much of it the credit did not hold
+     * @return array{taken: int, spent: int} what was taken from the credit, and what of its credited part was spent already
      */
     private static function refundOverpaidCredit(InvoiceTransaction $payment, Invoice $invoice, int $cents): array
     {
         if ($invoice->client_id === null) {
-            return ['taken' => 0, 'debt' => 0]; // no account to take it from: on the invoice, as before (ADV-552-R2-2)
+            return ['taken' => 0, 'spent' => 0]; // no account to take it from: on the invoice, as before (ADV-552-R2-2)
         }
         $allocated = (int) InvoiceTransaction::query()->where('source_transaction_id', $payment->id)->lockForUpdate()->get()
             ->sum(fn (InvoiceTransaction $paid) => RecordPaymentService::toCents($paid->amount));
         $overpaid = RecordPaymentService::toCents($payment->credited_amount) - $allocated;
-        $take = min($cents, max(0, $overpaid));
-        if ($take <= 0) {
-            return ['taken' => 0, 'debt' => 0];
+        $claim = min($cents, max(0, $overpaid));
+        if ($claim <= 0) {
+            return ['taken' => 0, 'spent' => 0];
         }
         $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
-        $debt = $take - min($take, $credit === null ? 0 : max(0, CreditLedger::cents($credit)));
+        $take = min($claim, $credit === null ? 0 : max(0, CreditLedger::cents($credit)));
+        if ($take <= 0) {
+            return ['taken' => 0, 'spent' => $claim];
+        }
         $source = MoneyTrail::sourceFor($payment->gateway);
         foreach (self::creditedParts($payment, $take, $allocated) as $cause => $part) {
             (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $part, $cause, $source, $invoice, $payment,
-                note: 'Refunded at the gateway', mayGoNegative: true);
+                note: 'Refunded at the gateway');
             (new MoneyTrail)->refund($payment, $invoice, $part, $source, $cause);
         }
         $payment->update(['credited_amount' => (RecordPaymentService::toCents($payment->credited_amount) - $take) / 100,
             'refunded_amount' => (RecordPaymentService::toCents($payment->refunded_amount) + $take) / 100]);
 
-        return ['taken' => $take, 'debt' => $debt];
+        return ['taken' => $take, 'spent' => $claim - $take];
     }
 
     /**

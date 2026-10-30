@@ -328,17 +328,15 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            // A payment's own invoices take it on its own budget: those chosen for it (staff: PayInvoices, F1 CR-3; the
-            // customer: MassPay, F2), and a subscription sale's renewals (PayPal, owner 2026-10-30, ADV-552-R2-1). An older
-            // debt on the account (negative credit, decision 1; a dashboard refund of an overpayment spent, #552) stays a
-            // debt and does not eat the payment: its renewal is never left unpaid while the sale paid it.
-            $cents = min($budget, $remaining);
+            // Invoices chosen for this payment (staff: PayInvoices, F1 CR-3; the customer: MassPay, F2) take it on its own
+            // budget: an older debt on the account (negative credit, decision 1) stays a debt and does not eat the payment.
+            $cents = $chosenForPayment ? min($budget, $remaining) : min($budget, $available, $remaining);
             if ($credit === null || $cents <= 0) {
                 return null;
             }
 
             // Dated as the payment it comes from (F1 CR-2): a transfer entered later shows on the day it arrived.
-            return $this->spendCredit($invoice, $cents, $source->id, $chosenForPayment ? $source->created_at : null, mayGoNegative: true);
+            return $this->spendCredit($invoice, $cents, $source->id, $chosenForPayment ? $source->created_at : null, mayGoNegative: $chosenForPayment);
         });
     }
 

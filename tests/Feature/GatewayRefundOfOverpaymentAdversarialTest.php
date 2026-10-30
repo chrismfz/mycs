@@ -96,9 +96,9 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        // Owner 2026-10-30 (the fix): the overpayment refunded is taken from the credit though B spent it, so the customer
-        // owes 30 (credit −30); invoice A is untouched; staff are told.
-        $this->assertSame([0.0, -30.0], [$this->notes($invoice), $this->credit()], 'a debt of 30, not a refund of invoice A');
+        // Owner 2026-10-30 (keep it simple): spent already, it is never a debt made here nor a refund of invoice A; recorded
+        // nowhere, and staff are told to settle it.
+        $this->assertSame([0.0, 0.0], [$this->notes($invoice), $this->credit()], 'no debt, invoice A untouched');
         $this->assertSame(1, $this->staffMails(), 'the overpayment it refunds was spent on another invoice: staff must be told (or the credit go negative)');
     }
 
@@ -115,7 +115,7 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, transactionId: 'pi_over', currency: 'usd');
 
         $this->assertSame(Invoice::STATUS_PAID, $other->fresh()->status, 'precondition: auto-apply ran first');
-        $this->assertSame('30.00', (string) GatewayRefund::query()->where('reference', 're_30')->sole()->recorded_amount);
+        $this->assertSame('0.00', (string) GatewayRefund::query()->where('reference', 're_30')->sole()->recorded_amount, 'spent already: staff\'s');
         $this->assertSame(1, $this->staffMails(), 'the refund of the overpayment was booked on the invoice while the overpayment paid B: staff must be told');
     }
 
@@ -131,8 +131,8 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        // Owner 2026-10-30 (the fix): the debt comes back (−50); invoice A is untouched.
-        $this->assertSame(-50.0, $this->credit());
+        // Owner 2026-10-30 (keep it simple): the debt stays −20, invoice A untouched; staff settle it.
+        $this->assertSame(-20.0, $this->credit());
         $this->assertSame(0.0, $this->notes($invoice));
         $this->assertSame(1, $this->staffMails(), 'the overpayment refunded had paid a debt: the debt should come back (credit -50) or staff be told');
     }
@@ -293,8 +293,8 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway refund failed after it was recorded')->count());
     }
 
-    /** Owner 2026-10-30: the overpayment the debt took is owed again once refunded to the card (−50 − 30). */
-    public function test_holds_a_refunded_overpayment_the_debt_spent_is_owed_again(): void
+    /** Owner 2026-10-30 (keep it simple): a debt is never deepened by the refund; the spent part is staff's. */
+    public function test_holds_a_debt_is_never_deepened_by_the_refund(): void
     {
         $this->overpaid();
         (new CreditLedger)->remove($this->user->client()->id, 'USD', 8000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_LOCAL,
@@ -303,8 +303,8 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
 
         ExtensionHelper::refundedAtGateway('Stripe', 'pi_over', 're_30', 30.00, 'usd');
 
-        $this->assertSame(-80.0, $this->credit());
-        $this->assertSame('30.00', (string) $this->payment()->refunded_amount);
+        $this->assertSame(-50.0, $this->credit());
+        $this->assertSame('0.00', (string) $this->payment()->refunded_amount, 'recorded nowhere: staff\'s');
         $this->assertMoneyCheckClean(['credit_negative']);
     }
 
