@@ -1393,6 +1393,12 @@ class ExtensionHelper
                 $early = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
                     ->where('origin', GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)->where('amount', $cents / 100)->orderBy('id')->lockForUpdate()->first();
                 if ($early !== null) {
+                    // Money was taken after all, then given back with the win: the card disputed, the charging stops (R3-1).
+                    $stoppedEarly = self::stopAutoCharge($invoice->client_id);
+                    if ($stoppedEarly) {
+                        $staff = "{$gateway} took back and gave back the dispute {$chargebackReference} on invoice #{$invoice->id} (won before): nothing moves. "
+                            . self::autoChargeNote($invoice->client_id, true);
+                    }
                     $early->update(['origin' => GatewayRefund::ORIGIN_DISPUTE_RESOLVED]);
                     GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $chargebackReference,
                         'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $invoice->currency_code,
@@ -1539,27 +1545,37 @@ class ExtensionHelper
             if ($payment === null) {
                 return false;
             }
-            // Kept: a late chargeback (Stripe) is then a replay, a replayed win (PayPal) changes nothing.
+            // Kept: a late chargeback (Stripe) is then a replay, a replayed win (PayPal) changes nothing. Kept and the account's
+            // charging stopped in one transaction: a stop that fails is retried with the webhook, never a replay (ADV-553-R3-2).
+            $clientId = Invoice::query()->whereKey($payment->invoice_id)->value('client_id');
+            $clientId = $clientId === null ? null : (int) $clientId;
             try {
-                GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway,
-                    'reference' => $resolutionReference ?? (string) $chargebackReference, 'payment_reference' => $payment->transaction_id,
-                    'amount' => $cents / 100, 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0,
-                    // PayPal, no chargeback at all yet: won early, so one arriving later records nothing; chargebacks standing
-                    // but none surely this dispute's: kept as resolved, staff decide. Stripe: the dispute's own id.
-                    'origin' => $resolutionReference === null ? GatewayRefund::ORIGIN_CHARGEBACK_WON
-                        : (GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
-                            ->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)->exists() ? GatewayRefund::ORIGIN_DISPUTE_RESOLVED : GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)]);
+                $stopped = DB::transaction(function () use ($payment, $gateway, $resolutionReference, $chargebackReference, $cents, $currency, $clientId) {
+                    GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway,
+                        'reference' => $resolutionReference ?? (string) $chargebackReference, 'payment_reference' => $payment->transaction_id,
+                        'amount' => $cents / 100, 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0,
+                        // PayPal, no chargeback at all yet: won early, so one arriving later records nothing; chargebacks standing
+                        // but none surely this dispute's: kept as resolved, staff decide. Stripe: the dispute's own id.
+                        'origin' => $resolutionReference === null ? GatewayRefund::ORIGIN_CHARGEBACK_WON
+                            : (GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                                ->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)->exists() ? GatewayRefund::ORIGIN_DISPUTE_RESOLVED : GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)]);
+
+                    // Money given back that was taken (Stripe funds_reinstated: no resolution reference; PayPal IPN
+                    // Canceled_Reversal «cr:…»; Mollie «…:reversed»): the card disputed and money moved, so the charging stops whichever order the gateway tells it
+                    // (ADV-553-R2-1). A PayPal dispute closed in our favour may never have moved money (the buyer withdrew it, the
+                    // funds were only held): no stop here; its reversal, if it ever comes, stops it ($early in chargebackAtGateway,
+                    // ADV-553-R3-1).
+                    $moneyMoved = $resolutionReference === null || str_starts_with($resolutionReference, 'cr:') || str_ends_with($resolutionReference, ':reversed');
+
+                    return $moneyMoved && self::stopAutoCharge($clientId);
+                });
             } catch (UniqueConstraintViolationException) {
                 return false;
             }
-            // A win told before its chargeback (PayPal, Stripe out of order): the card disputed all the same, so the account's
-            // automatic charging stops here, whichever order the gateway tells it (ADV-553-R2-1).
-            $clientId = Invoice::query()->whereKey($payment->invoice_id)->value('client_id');
-            $stopped = DB::transaction(fn () => self::stopAutoCharge($clientId === null ? null : (int) $clientId));
             NotificationHelper::sendSystemEmailNotification('Chargeback needs staff attention', e(
                 "{$gateway} reports the dispute " . ($resolutionReference ?? $chargebackReference) . ' on payment #' . $payment->id . " of invoice #{$payment->invoice_id}"
                 . ' won (' . self::cents($cents) . '), but no chargeback of it is recorded here: nothing changed. If money was taken back and recorded by hand, undo it by hand. '
-                . self::autoChargeNote($clientId === null ? null : (int) $clientId, $stopped)
+                . self::autoChargeNote($clientId, $stopped)
             ));
 
             return false;

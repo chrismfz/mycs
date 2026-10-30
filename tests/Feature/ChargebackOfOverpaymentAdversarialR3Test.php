@@ -140,7 +140,9 @@ class ChargebackOfOverpaymentAdversarialR3Test extends TestCase
             if ($fail) {
                 $fail = false;
 
-                throw new RuntimeException('Deadlock found when trying to get lock');
+                // Not a «deadlock» message: inside the test's own transaction Laravel would not roll a nested deadlock back
+                // (it leaves that to the outer retry), which a webhook's top-level transaction does.
+                throw new RuntimeException('Lost the write to clients');
             }
         });
 
