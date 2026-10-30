@@ -18,6 +18,7 @@ use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\InvoiceItemReference;
+use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\AfterCommit;
@@ -283,6 +284,13 @@ class InvoiceObserver
      */
     public function updated(Invoice $invoice): void
     {
+        // Another customer (staff's edit, the API, MoveToClient): taxed and addressed as the new one's (sweep 9γ, owner
+        // 2026-10-30). Moving one with payments or renewing the first one's services was refused in updating().
+        if ($invoice->wasChanged('client_id') && $invoice->client_id !== null) {
+            $invoice->unsetRelation('client');
+            InvoiceReaddress::retax($invoice);
+            InvoiceReaddress::readdress($invoice);
+        }
         // «Send to Ekdosi» (E5) asked for this invoice as it stood: cancelled, refunded, made a draft, moved to another
         // account or currency, the request is gone, and one reopened is not sent again unasked (ADV-2/ADV-4, R2-4 of #478).
         // After the row is written, under its lock: a request landing meanwhile sees the new status (R2-5).
