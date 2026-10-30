@@ -52,8 +52,8 @@ final class EmailKinds
     ];
 
     /**
-     * Sent whatever the contact takes (owner 2026-10-30): a suspension or termination, an overdue or expiry notice, and
-     * staff's reply on a ticket (the customer asked for it by opening the ticket, ADV-545-5).
+     * Sent whatever the contact takes (owner 2026-10-30): a suspension or termination, the warning before a held service's
+     * suspension (sweep 9γ G1), an overdue or expiry notice, and staff's reply on a ticket (the customer asked for it by opening the ticket, ADV-545-5).
      */
     public const ALWAYS = ['server_suspended', 'service_hold_ending', 'server_terminated', 'invoice_overdue', 'domain_expired_notice', 'new_ticket_message'];
 

@@ -818,7 +818,7 @@ class CronJob extends Command
      * Its hold kept it from this suspension (ended after the day it would have been suspended without it), not one that
      * ended months ago, nor one before its Suspend Days were up anyway (code review 1 / ADV-HOLD-4).
      */
-    private static function heldBack(Service $service, bool $requiresInvoice = false): bool
+    private static function heldBack(Service $service, bool $requiresInvoice): bool
     {
         if ($service->suspend_hold_until === null || $service->expires_at === null) {
             return false;
