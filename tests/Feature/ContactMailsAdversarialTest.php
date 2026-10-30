@@ -151,7 +151,9 @@ class ContactMailsAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($this->client, $this->invoice());
 
-        $this->assertCount(1, EmailLog::query()->whereRaw('LOWER("to") = ?', ['owner@example.test'])->get(), 'the address that takes invoices gets the invoice once');
+        // Compared here, not in SQL: "to" is a column on SQLite but a string on MariaDB (CI's test-mariadb).
+        $this->assertCount(1, EmailLog::query()->pluck('to')->filter(fn ($to) => mb_strtolower((string) $to) === 'owner@example.test'),
+            'the address that takes invoices gets the invoice once');
     }
 
     // ---- ADV-550-4: any third-party address, never confirmed, with a greeting the customer wrote ---------------------
