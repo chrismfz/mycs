@@ -192,7 +192,7 @@ class EditService extends EditRecord
             ->visible(fn (Service $record) => in_array($record->status, WelcomeMail::STATUSES, true))
             // The reason it would not go, before staff count on it (a stored password lifts «no password» once saved).
             ->helperText(fn (Service $record) => self::welcomeBlocker($record)
-                ?? __('To the account\'s owner (:email).', ['email' => WelcomeMail::recipient($record) ?? '—']));
+                ?? __('To the account\'s email (:email).', ['email' => WelcomeMail::recipient($record) ?? '—']));
     }
 
     /** A refusal that a new password does not lift (not «no password»: the action stores one). */
@@ -417,7 +417,7 @@ class EditService extends EditRecord
                     ->requiresConfirmation()
                     ->modalHeading(__('Resend welcome email'))
                     ->modalDescription(fn (Service $record) => WelcomeMail::refusal($record)
-                        ?? __('The welcome email goes again to the account\'s owner (:email), with the login details and the password stored on the service now.', ['email' => WelcomeMail::recipient($record)]))
+                        ?? __('The welcome email goes again to the account\'s email (:email), with the login details and the password stored on the service now.', ['email' => WelcomeMail::recipient($record)]))
                     ->modalSubmitActionLabel(__('Send'))
                     ->modalSubmitAction(fn (Action $action, Service $record) => $action->disabled(WelcomeMail::refusal($record) !== null))
                     ->action(fn (Service $record) => $this->resendWelcome($record)),

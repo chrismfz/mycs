@@ -54,7 +54,8 @@ class NotificationHelper
     private static ?Client $account = null;
 
     /**
-     * A notification about the account (invoice, service, ticket…): to its owner; none when the account has no owner
+     * A notification about the account (invoice, service, ticket…): to its address (Client::mailAddress), with its owner's
+     * preferences and in-app; none when the account has no owner
      * left. Its mail only when the primary contact takes the template's kind (EmailKinds, owner 2026-10-30), unless
      * not $gated: staff send it by hand, or its caller chose already (a mass mail). The in-app notification goes anyway.
      * The account's other contacts get their copy of the kinds they take (toContacts), unless not $toContacts.
@@ -62,7 +63,7 @@ class NotificationHelper
      * @param  array<string, mixed>  $data
      * @param  array<int, array<string, mixed>>  $attachments
      */
-    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false, bool $gated = true, bool $toContacts = true): void
+    private static function toAccount(Client $client, string $key, array $data, array $attachments = [], bool $mailOnly = false, bool $gated = true, bool $toContacts = true, bool $toLogin = false): void
     {
         $owner = $client->owner();
         if ($owner === null) {
@@ -73,8 +74,9 @@ class NotificationHelper
         self::$account = $client;
         try {
             // To the account's address (its primary contact's, as WHMCS's tblclients.email: owner 2026-10-30), with the
-            // owner's preferences and in-app.
-            $address = $client->mailAddress();
+            // owner's preferences and in-app. $toLogin: the owner's login (a ticket's thread, whose answers the inbound
+            // router takes from a login; news, with the owner's own unsubscribe link: owner 2026-10-30, ADV-550-R3-3/5).
+            $address = $toLogin ? (string) $owner->email : $client->mailAddress();
             if (!($noMail && $mailOnly)) {
                 self::sendNotification($key, $data, $owner, $attachments, mailOnly: $mailOnly, noMail: $noMail, mailTo: $address);
             }
@@ -606,12 +608,14 @@ class NotificationHelper
     }
 
     /**
-     * A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. The
+     * A mass mail's message to an account (BulkMailer): to its address as every account mail (news to the owner's login),
+     * logged on the account. The
      * mailer chose already whether the account takes it (a skipped recipient, EmailKinds::ofBulkMail).
      */
     public static function announcementNotification(Client $client, string $key, array $data): void
     {
-        self::toAccount($client, $key, $data, gated: false, toContacts: false);
+        // News carries the owner's own «stop these emails»: to their login only (owner 2026-10-30, ADV-550-R3-5).
+        self::toAccount($client, $key, $data, gated: false, toContacts: false, toLogin: filled($data['unsubscribe_url'] ?? null));
     }
 
     /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
@@ -657,7 +661,7 @@ class NotificationHelper
     public static function ticketMessageNotification(Client $client, TicketMessage $ticketMessage, array $data = []): void
     {
         $data['ticketMessage'] = $ticketMessage;
-        self::toAccount($client, 'new_ticket_message', $data);
+        self::toAccount($client, 'new_ticket_message', $data, toLogin: true);
     }
 
     /**

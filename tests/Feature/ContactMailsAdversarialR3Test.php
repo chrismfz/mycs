@@ -179,7 +179,7 @@ class ContactMailsAdversarialR3Test extends TestCase
      * with our thread key, DMARC-vouched; InboundRouter::owner accepts only a login with «tickets», so the answer is
      * quarantined as «not_owner». Before 7c547bad the mail went to the owner's login, whose answer joined the ticket.
      */
-    public function test_bug_the_accounts_address_cannot_answer_the_ticket_mail_it_was_sent(): void
+    public function test_holds_a_tickets_reply_goes_to_the_login_whose_answer_joins_it(): void
     {
         $mailbox = new FakeTicketMailbox;
         $this->app->instance(Mailbox::class, $mailbox);
@@ -188,16 +188,17 @@ class ContactMailsAdversarialR3Test extends TestCase
         $this->clean();
         $reply = $this->staffReply($ticket);
 
-        $this->assertSame([self::ACCOUNT], $this->mailedTo('new_ticket_message'), 'the reply went to the account\'s address');
+        // Owner 2026-10-30: a ticket's thread stays on the owner's login (the inbound router takes answers from logins).
+        $this->assertSame(['owner@example.test'], $this->mailedTo('new_ticket_message'), 'the reply went to the login');
         $key = TicketMailId::query()->where('ticket_message_id', $reply->id)->where('kind', TicketMailId::REPLY)->sole();
 
-        $mailbox->unseen[] = Eml::make(['From' => self::ACCOUNT, 'Message-ID' => '<ans1@example.test>', 'In-Reply-To' => "<{$key->message_id}>",
+        $mailbox->unseen[] = Eml::make(['From' => 'owner@example.test', 'Message-ID' => '<ans1@example.test>', 'In-Reply-To' => "<{$key->message_id}>",
             'Authentication-Results: mymail.myip.test; dkim=pass header.d=example.test; dmarc=pass header.from=example.test', 'Subject' => 'Re: Help'], 'Thanks!');
         $this->artisan('app:fetch-emails')->assertSuccessful();
 
         $this->assertSame(0, TicketQuarantine::query()->count(), 'quarantined: ' . TicketQuarantine::query()->value('reason'));
         $this->assertSame('Thanks!', $ticket->messages()->latest('id')->first()->message);
-        $this->assertSame(self::ACCOUNT, $key->recipient, 'the thread key records where the mail went');
+        $this->assertSame('owner@example.test', $key->recipient, 'the thread key records where the mail went');
     }
 
     // ---- ADV-550-R3-4: a ticket's copies deduplicate against the login, not the address the reply went to --------------
