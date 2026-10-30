@@ -144,10 +144,9 @@ class GatewayRefundOfOverpaymentAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, transactionId: 'pi_over', currency: 'usd');
 
-        $this->markTestSkipped('ADV-552-3: owner 2026-10-30, a chargeback of an overpaid payment is its own PR.');
         ExtensionHelper::chargebackAtGateway('Stripe', 'pi_over', 'dp_1', 130.00, 'usd');
 
-        $this->assertSame('100.00', (string) $this->payment()->refunded_amount);
+        $this->assertSame('130.00', (string) $this->payment()->refunded_amount, 'all 130 back: 100 the invoice\'s, 30 the credit\'s');
         $this->assertSame(0.0, $this->credit(), 'the bank took all 130 back: the 30 overpaid credit should go too, as #552 does for a refund');
     }
 

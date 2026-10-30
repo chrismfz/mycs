@@ -58,6 +58,9 @@ class GatewayRefund extends Model
         'amount',
         'currency_code',
         'recorded_amount',
+        'credit_taken',
+        'credit_spent',
+        'credit_events',
         'origin',
         'money_event_id',
     ];
@@ -65,6 +68,9 @@ class GatewayRefund extends Model
     protected $casts = [
         'amount' => 'decimal:2',
         'recorded_amount' => 'decimal:2',
+        'credit_taken' => 'decimal:2',
+        'credit_spent' => 'decimal:2',
+        'credit_events' => 'array',
     ];
 
     public function transaction(): BelongsTo
