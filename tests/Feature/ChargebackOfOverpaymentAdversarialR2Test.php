@@ -117,16 +117,17 @@ class ChargebackOfOverpaymentAdversarialR2Test extends TestCase
         ExtensionHelper::chargebackAtGateway('Stripe', 'pi_over', 'dp_1', 130.00, 'usd');
 
         $first = fn (string $pattern) => collect($queries)->search(fn (string $sql) => preg_match($pattern, $sql) === 1);
-        $client = $first('/^select \* from "clients" where "clients"\."id" = \?/');
-        $invoiceRow = $first('/^select \* from "invoices" where "invoices"\."id" = \?/');
-        $transactions = $first('/^select "id" from "invoice_transactions"/');
+        // Either quoting: SQLite's "…", MariaDB's `…` (CI's test-mariadb).
+        $client = $first('/^select \* from ["`]clients["`] where ["`]clients["`]\.["`]id["`] = \?/');
+        $invoiceRow = $first('/^select \* from ["`]invoices["`] where ["`]invoices["`]\.["`]id["`] = \?/');
+        $transactions = $first('/^select ["`]id["`] from ["`]invoice_transactions["`]/');
         $this->assertIsInt($client);
         $this->assertIsInt($invoiceRow);
         $this->assertLessThan($invoiceRow, $client, 'the account before the invoice (lockInvoice), as AutoCharge, payments, credit');
         $this->assertLessThan($transactions, $client);
         // The stop's update is the only write to the clients row, and it comes after the account lock: no upgrade from a
         // plain read to a lock that another path could interleave with.
-        $updates = collect($queries)->filter(fn (string $sql) => str_starts_with($sql, 'update "clients"'))->keys();
+        $updates = collect($queries)->filter(fn (string $sql) => preg_match('/^update ["`]clients["`]/', $sql) === 1)->keys();
         $this->assertCount(1, $updates);
         $this->assertGreaterThan($client, $updates->first());
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
