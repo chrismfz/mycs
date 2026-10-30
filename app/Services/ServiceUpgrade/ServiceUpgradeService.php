@@ -37,24 +37,35 @@ class ServiceUpgradeService
             if ($locked === null || $locked->status !== ServiceUpgrade::STATUS_PENDING) {
                 return false;
             }
+            $why = null;
             if ($service === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+                $why = 'the service no longer runs';
+            } else {
+                $locked->setRelation('service', $service);
+                // The catalog lost the price it was charged at meanwhile (ADV-551-R2-2): never applied at a price it can't
+                // read, for staff.
+                if ($locked->needsStaff()) {
+                    $why = 'the catalog has no price for it in the service\'s currency now';
+                }
+            }
+            if ($why !== null) {
                 $locked->update(['status' => ServiceUpgrade::STATUS_CANCELLED]);
                 $original->setRawAttributes($locked->getAttributes(), true);
-                $context = ['service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id];
-                PaymentsLog::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', $context);
+                $context = ['service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id, 'why' => $why];
+                PaymentsLog::warning('Paid upgrade not applied (refund or credit it).', $context);
                 DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Paid upgrade not applied: needs staff attention', e(
-                    "Upgrade #{$locked->id} of service #{$serviceId} (invoice #{$locked->invoice_id}) was paid, but the service no longer runs: "
+                    "Upgrade #{$locked->id} of service #{$serviceId} (invoice #{$locked->invoice_id}) was paid, but {$why}: "
                     . 'it was not applied. Refund the payment or move it to credit.'
                 )));
 
                 return false;
             }
             $serviceUpgrade = $locked;
-            $serviceUpgrade->setRelation('service', $service);
             // What it keeps and what it costs, worked out before the service changes (as ServiceUpgrade::calculatePrice).
             $options = $serviceUpgrade->resultingOptions();
             $optionsOnly = $serviceUpgrade->changesOptionsOnly();
             $newPrice = $serviceUpgrade->newRecurringPrice();
+            $fromCatalog = $serviceUpgrade->repricesFromCatalog();
             $shortfall = $this->shortfall($serviceUpgrade);
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
@@ -109,6 +120,9 @@ class ServiceUpgradeService
             // Options only: the price it had and the options' difference (a staff price stays). Another product or
             // plan: its catalog price for the next renewal.
             $service->price = $optionsOnly ? $newPrice : $service->calculatePrice();
+            if ($fromCatalog) {
+                $service->price_locked = false; // the catalog's now, not staff's (code review 3 of #551)
+            }
             $service->save();
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product

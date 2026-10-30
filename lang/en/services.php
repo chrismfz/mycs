@@ -38,6 +38,8 @@ return [
     'change_cycle_note' => 'The new billing cycle starts at your next renewal: nothing is charged now, and your next invoice bills the new cycle at its price.',
     'upgrade_summary' => 'Upgrade Summary',
     'total_today' => 'Total Today',
+    'renews_at' => 'Renews at',
+    'renews_at_value' => 'then :after per renewal (now :now)',
     'upgrade_service' => 'Upgrade Service',
     'upgrade_choose_product' => 'Choose a product to upgrade to',
     'upgrade_choose_config' => 'Choose the configuration for the upgrade',

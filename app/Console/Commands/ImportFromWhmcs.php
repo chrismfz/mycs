@@ -311,6 +311,19 @@ class ImportFromWhmcs extends Command
         $this->call('db:seed', ['--force' => true]);
     }
 
+    /** A service's recurring amount, never below zero (ADV-551-3: a negative one renewed free); staff are told. */
+    private function recurringAmount(array $record): string
+    {
+        $amount = number_format((float) $record['amount'], 2, '.', '');
+        if ((float) $amount < 0) {
+            $this->warn("WHMCS service #{$record['id']}: its recurring amount {$amount} is below zero; imported as 0.00, set its price.");
+
+            return '0.00';
+        }
+
+        return $amount;
+    }
+
     protected function validateDate($date): ?string
     {
         if (empty($date) || $date === '0000-00-00' || $date === '0000-00-00 00:00:00') {
@@ -1319,7 +1332,8 @@ class ImportFromWhmcs extends Command
                         'Pending' => 'pending',
                         default => 'pending',
                     },
-                    'price' => $record['amount'],
+                    // Never below zero (ADV-551-3): it would renew free; staff are told.
+                    'price' => $this->recurringAmount($record),
                     'quantity' => $record['qty'],
                     'client_id' => $record['userid'],
                     'plan_id' => $planId,
