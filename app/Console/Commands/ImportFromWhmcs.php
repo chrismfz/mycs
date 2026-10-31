@@ -21,6 +21,7 @@ use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
+use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
@@ -218,6 +219,7 @@ class ImportFromWhmcs extends Command
             // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
             $this->importPayMethods();
             $this->importServicePasswords();
+            $this->importCredentials();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -1664,6 +1666,27 @@ class ImportFromWhmcs extends Command
         $result = (new WhmcsServicePasswordImport($this->pdo, $api))->run();
         $c = $result['counts'];
         $this->info("Service passwords: {$c['imported']} of {$c['services']} live service(s) imported, {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /**
+     * The logins of what staff connect (WhmcsCredentialImport): a cPanel server's API token, the registrars' accounts and
+     * the gateways' keys. Last, with the other steps over the network; everything stays off until staff switch it on.
+     */
+    private function importCredentials(): void
+    {
+        try {
+            $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false));
+        } catch (\RuntimeException $e) {
+            $this->warn("Credentials not imported: {$e->getMessage()}");
+
+            return;
+        }
+        $result = (new WhmcsCredentialImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
+        $c = $result['counts'];
+        $this->info("Credentials: {$c['imported']} of {$c['found']} login(s) of servers, registrars and gateways imported, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
