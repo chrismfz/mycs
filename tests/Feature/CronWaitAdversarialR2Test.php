@@ -62,7 +62,8 @@ class CronWaitAdversarialR2Test extends TestCase
     /** A real cron of this host's live site (same pattern as CronWait::cronAlive) would make a release-stale test moot. */
     private function aRealCronRunsOnThisHost(): bool
     {
-        exec('pgrep -f ' . escapeshellarg('[a]rtisan app:cron-job'), $out, $code);
+        // The same pattern as CronWait::cronAlive (round 2 of #556): a parallel test's `php artisan -v app:cron-job` too.
+        exec('pgrep -f ' . escapeshellarg('[a]rtisan( .*)? app:cron-j'), $out, $code);
 
         return $code !== 1;
     }
@@ -258,7 +259,8 @@ class CronWaitAdversarialR2Test extends TestCase
             shift
             echo "ART \$*" >> "\$LOG"
             case "\$1" in
-              list) printf 'app:cron-job\\napp:cron-wait\\n' ;;
+              list) printf 'app:cron-job\\napp:cron-wait\\napp:is-down\\n' ;;
+              app:is-down) [[ -f cache-down || -f storage/framework/down ]] && exit 0 || exit 1 ;;
               app:cron-wait) n=\$(head -1 waits); sed -i 1d waits; exit "\${n:-0}" ;;
               down) {$down} ;;
               up) rm -f {$marker} ;;

@@ -20,10 +20,22 @@ use App\Console\Commands\SyncProxmoxGuests;
 use App\Console\Commands\SyncServiceUsage;
 use App\Console\Commands\SyncSslOrders;
 use App\Console\Commands\VatRecheck;
+use App\Helpers\NotificationHelper;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command(ScheduleHeartbeatCommand::class)->description('Updates the last scheduler run time')->everyMinute()->onOneServer();
 Schedule::command(CronJob::class)->description('Runs daily to send out invoices, suspend servers, etc.')->dailyAt(config('settings.cronjob_time', '09:00'))->withoutOverlapping(120)->onOneServer();
+// The daily run's minute fell in a deploy (maintenance): the scheduler skips it without a word, so staff are told to run
+// it once the deploy is over (round 2 of #556, ADV-CW-R2-1).
+Schedule::call(function () {
+    if (app()->isDownForMaintenance()) {
+        NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
+            The daily run's time came while the app was in maintenance (a deploy): today's invoices, charges and reminders are not done.<br>
+            Run it once the deploy is over: <code>php artisan app:cron-job</code>.
+            HTML);
+    }
+})->name('cron-skipped-in-maintenance')->description('Tells staff when the daily run fell in maintenance')
+    ->dailyAt(config('settings.cronjob_time', '09:00'))->evenInMaintenanceMode()->onOneServer();
 // Suspensions and terminations on their days and from their hour (Settings → Automation): the daily run may be at night.
 Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

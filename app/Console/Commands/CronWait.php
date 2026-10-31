@@ -62,8 +62,9 @@ class CronWait extends Command
     {
         $out = [];
         $code = 1;
-        // «[a]rtisan»: the pattern does not match the shell that runs pgrep with it.
-        @exec('pgrep -f ' . escapeshellarg('[a]rtisan app:cron-job'), $out, $code);
+        // «[a]rtisan»: the pattern does not match the shell that runs pgrep with it. Options before the command, or
+        // its abbreviation, too (R2-3: `artisan -v app:cron-job`).
+        @exec('pgrep -f ' . escapeshellarg('[a]rtisan( .*)? app:cron-j'), $out, $code);
 
         return $code !== 1; // 0: found; 1: none; anything else (no pgrep): assume one
     }

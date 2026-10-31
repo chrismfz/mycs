@@ -181,10 +181,18 @@ cron_wait() {
 }
 log "Waiting for a cron run in progress, if any"
 cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer; a crashed run's lock: php artisan app:cron-wait --release-stale)."; exit 1; }
-# Up again on a failed second wait only if this deploy put it down (a failed deploy left it down: ADV-CW-4).
-_was_down=0; [[ -f storage/framework/down ]] && _was_down=1
+# Up again on a failed second wait only if this deploy put it down (a failed deploy left it down: ADV-CW-4). The file
+# driver's file; any other driver, asked of the app (R2-4).
+_was_down=0
+if [[ "$(_env APP_MAINTENANCE_DRIVER)" =~ ^(file)?$ ]]; then
+  [[ -f storage/framework/down ]] && _was_down=1
+elif $ART list --raw 2>/dev/null | grep -q '^app:is-down'; then
+  $ART app:is-down && _was_down=1
+fi
 log "Maintenance mode ON"
-$ART down --retry=15 || true
+# Not down, nothing proves a cron run can't start under the migrations: stop, nothing changed (R2-2). Already down is
+# no failure (`down` says so and exits 0).
+$ART down --retry=15 || { fail "Could not enter maintenance mode — nothing changed (is storage/ writable, the disk full?)."; exit 1; }
 cron_wait || {
   [[ $_was_down == 0 ]] && { $ART up || true; }
   fail "A cron run started just before maintenance and is still running — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
