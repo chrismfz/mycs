@@ -119,7 +119,7 @@ class CronJob extends Command
                 $lock->block(self::$lockWait);
 
                 try {
-                    return $this->runSteps();
+                    return $this->inMaintenance() ?? $this->runSteps();
                 } finally {
                     $lock->release();
                 }
@@ -137,10 +137,31 @@ class CronJob extends Command
             return self::FAILURE;
         }
         try {
-            return $this->option('dunning-only') ? $this->runDunning() : $this->runSteps();
+            return $this->inMaintenance() ?? ($this->option('dunning-only') ? $this->runDunning() : $this->runSteps());
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Its lock taken while a deploy has the app down (the scheduler started it just before, or it waited on the hourly
+     * run past the deploy's own wait: ADV-CW-1/2): it does nothing over a migrating database. The daily run tells staff
+     * to run it again; the hourly one's next hour does it. Null when the app is up.
+     */
+    private function inMaintenance(): ?int
+    {
+        if (!app()->isDownForMaintenance()) {
+            return null;
+        }
+        $this->error('The app is in maintenance (a deploy): not started.');
+        if (!$this->option('dunning-only')) {
+            NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
+                The daily run started while the app was in maintenance (a deploy) and did nothing: today's invoices, charges and reminders are not done.<br>
+                Run it again once the deploy is over: <code>php artisan app:cron-job</code>.
+                HTML);
+        }
+
+        return self::FAILURE;
     }
 
     /**

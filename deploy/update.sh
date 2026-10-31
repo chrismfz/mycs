@@ -14,7 +14,7 @@
 # Steps (safe, idempotent; nothing changes before step 5):
 #   1. pre-flight: no uncommitted TRACKED changes
 #   2. fetch, resolve the target, refuse a downgrade / a checkout that would fail
-#   3. maintenance mode ON, queue worker drained
+#   3. a cron run in progress waited for, maintenance mode ON, queue worker drained
 #   4. DB snapshot (rollback point) → storage/app/db-snapshots/ (keeps $SNAPSHOT_KEEP)
 #   5. checkout the target
 #   6. composer install (--no-dev unless COMPOSER_DEV=1, e.g. on the devbox)
@@ -171,8 +171,33 @@ _untracked="$(git ls-files --others --exclude-standard | head -20)"
 [[ -n "$_untracked" ]] && { warn "Untracked files (left as they are):"; echo "$_untracked" | sed 's/^/    /'; }
 
 # --- 3. maintenance + worker -------------------------------------------------
+# A cron run in progress finishes first (sweep 9γ): it would go on half in the old code over a migrating database. The
+# scheduler starts none in maintenance; one that began just before it is waited for again after. A release without the
+# command (the first deploy of it) skips the wait.
+cron_wait() {
+  if $ART list --raw 2>/dev/null | grep -q '^app:cron-wait'; then
+    $ART app:cron-wait --timeout="${CRON_WAIT_SECONDS:-900}"
+  fi
+}
+log "Waiting for a cron run in progress, if any"
+cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer; a crashed run's lock: php artisan app:cron-wait --release-stale)."; exit 1; }
+# Up again on a failed second wait only if this deploy put it down (a failed deploy left it down: ADV-CW-4): asked of
+# the app, whatever its driver (R2-4, R3-1); the file driver's file on a release without the command (its first deploy).
+_was_down=0
+if $ART list --raw 2>/dev/null | grep -q '^app:is-down'; then
+  $ART app:is-down && _was_down=1
+else
+  [[ -f storage/framework/down ]] && _was_down=1
+fi
 log "Maintenance mode ON"
-$ART down --retry=15 || true
+# Not down, nothing proves a cron run can't start under the migrations: stop, nothing changed (R2-2). Already down is
+# no failure (`down` says so and exits 0).
+$ART down --retry=15 || { fail "Could not enter maintenance mode — nothing changed (is storage/ writable, the disk full?)."; exit 1; }
+cron_wait || {
+  [[ $_was_down == 0 ]] && { $ART up || true; }
+  fail "A cron run started just before maintenance and is still running — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
+  exit 1
+}
 trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
 stop_queue_worker
 

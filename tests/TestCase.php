@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
@@ -32,6 +33,11 @@ abstract class TestCase extends BaseTestCase
 
         // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
         CronJob::$lockWait = 0;
+
+        // Maintenance mode in this process only: the file driver's storage/framework/down is every parallel process's, and
+        // a cron run does nothing while it is there (#556).
+        config(['app.maintenance.driver' => 'cache', 'app.maintenance.store' => 'array']);
+        $this->app->forgetInstance(MaintenanceModeManager::class);
 
         // Livewire marks «a component rendered» in a static that only its own test helper resets: a later plain HTTP test
         // in the same process got Livewire's no-cache headers instead of its own (AltchaCaptchaTest, 2026-10-24).
