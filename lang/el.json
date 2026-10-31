@@ -1563,5 +1563,7 @@
     "Catalog": "Κατάλογος",
     "Price locked": "Κλειδωμένη τιμή",
     ":count item|:count items": ":count εγγραφή|:count εγγραφές",
-    "Item": "Στοιχείο"
+    "Item": "Στοιχείο",
+    "as of :time": "στις :time",
+    "Refresh": "Ανανέωση"
 }

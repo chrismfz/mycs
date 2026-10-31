@@ -3,9 +3,13 @@
     $pages = max(1, (int) ceil(count($rows) / \App\Admin\Pages\PriceMismatches::PER_PAGE));
     $current = min(max(1, (int) $this->page), $pages);
     $shown = array_slice($rows, ($current - 1) * \App\Admin\Pages\PriceMismatches::PER_PAGE, \App\Admin\Pages\PriceMismatches::PER_PAGE);
+    $staff = auth()->user();
+    // Where staff may go (ADV-PM-1: a domain has a view page, no edit one; ADV-PM-7: never a link to a page they cannot open).
     $url = fn (array $row) => $row['type'] === 'service'
-        ? \App\Admin\Resources\ServiceResource::getUrl('edit', ['record' => $row['id']])
-        : \App\Admin\Resources\DomainResource::getUrl('edit', ['record' => $row['id']]);
+        ? ($staff?->hasPermission('admin.services.update') ? \App\Admin\Resources\ServiceResource::getUrl('edit', ['record' => $row['id']]) : null)
+        : \App\Admin\Resources\DomainResource::getUrl('view', ['record' => $row['id']]);
+    $clientUrl = fn (array $row) => $row['client_id'] && $staff?->hasPermission('admin.clients.update')
+        ? \App\Admin\Resources\ClientResource::getUrl('edit', ['record' => $row['client_id']]) : null;
 @endphp
 <x-filament-panels::page>
     <p class="text-sm text-gray-600 dark:text-gray-400">
@@ -28,7 +32,8 @@
                 <option value="above">{{ __('Above the catalog') }}</option>
             </select>
         </label>
-        <span class="text-sm text-gray-600 dark:text-gray-400">{{ trans_choice(':count item|:count items', count($rows)) }}</span>
+        <span class="text-sm text-gray-600 dark:text-gray-400">{{ trans_choice(':count item|:count items', count($rows)) }} · {{ __('as of :time', ['time' => $this->sweptAt()]) }}</span>
+        <x-filament::button size="sm" color="gray" wire:click="refresh">{{ __('Refresh') }}</x-filament::button>
     </div>
 
     @if ($rows === [])
@@ -50,13 +55,23 @@
                         @foreach ($shown as $row)
                             <tr class="border-b border-gray-100 dark:border-gray-800" wire:key="{{ $row['type'] }}-{{ $row['id'] }}">
                                 <td class="py-2 pr-4">
-                                    <a class="text-primary-600 hover:underline" href="{{ $url($row) }}">{{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}</a>
+                                    @if ($url($row))
+                                    @if ($url($row))
+                                        <a class="text-primary-600 hover:underline" href="{{ $url($row) }}">{{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}</a>
+                                    @else
+                                        {{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}
+                                    @endif
+                                    @else
+                                        {{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}
+                                    @endif
                                     <span class="text-gray-600 dark:text-gray-400">{{ $row['name'] }}</span>
                                     @if ($row['locked'])<x-filament::badge color="gray" size="sm" class="inline-flex ms-1">{{ __('Price locked') }}</x-filament::badge>@endif
                                 </td>
                                 <td class="py-2 pr-4">
-                                    @if ($row['client_id'])
-                                        <a class="hover:underline" href="{{ \App\Admin\Resources\ClientResource::getUrl('edit', ['record' => $row['client_id']]) }}">{{ $row['client'] }}</a>
+                                    @if ($clientUrl($row))
+                                        <a class="hover:underline" href="{{ $clientUrl($row) }}">{{ $row['client'] }}</a>
+                                    @else
+                                        {{ $row['client'] }}
                                     @endif
                                 </td>
                                 <td class="py-2 pr-4 text-right tabular-nums">{{ $row['price'] }} {{ $row['currency'] }}</td>

@@ -5,7 +5,10 @@ namespace App\Services\Reports;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\Service;
+use App\Services\Billing\RenewalPrice;
 use Brick\Math\BigDecimal;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * What renews at a price other than the catalog's (sweep 9γ, owner 2026-10-30): for staff to see before the renewals
@@ -16,6 +19,19 @@ use Brick\Math\BigDecimal;
  */
 final class PriceMismatch
 {
+    /** How long a sweep is kept: every filter and page reads it (ADV-PM-5); «Refresh» sweeps again. */
+    public const KEEP_SECONDS = 600;
+
+    /** @return array{at: string, rows: list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}>} */
+    public static function kept(bool $fresh = false): array
+    {
+        if ($fresh) {
+            Cache::forget('reports:price-mismatch');
+        }
+
+        return Cache::remember('reports:price-mismatch', self::KEEP_SECONDS, fn () => ['at' => now()->toDateTimeString(), 'rows' => self::rows()]);
+    }
+
     /** @return list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}> */
     public static function rows(): array
     {
@@ -27,18 +43,25 @@ final class PriceMismatch
     {
         $rows = [];
         Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('plan_id')
-            ->with(['plan.prices', 'product', 'client', 'coupon', 'configs.configValue'])->orderBy('id')
-            ->chunk(200, function ($services) use (&$rows) {
+            ->with(['plan.prices', 'nextPlan.prices', 'product', 'client.group', 'client.primaryContact', 'coupon.products', 'coupon.requiredProducts',
+                'configs.configValue.plans.prices'])
+            ->orderBy('id')->chunk(200, function ($services) use (&$rows) {
                 foreach ($services as $service) {
-                    // A free or one-time plan renews nothing.
-                    if ($service->plan === null || $service->plan->type !== 'recurring') {
+                    // A free or one-time plan renews nothing; a plan with no price in its currency reads as free: no
+                    // catalog to compare with (ADV-PM-4).
+                    if ($service->plan === null || $service->plan->type !== 'recurring'
+                        || !$service->plan->prices->contains('currency_code', $service->currency_code)) {
                         continue;
                     }
-                    $price = BigDecimal::of(number_format((float) $service->price, 2, '.', ''));
-                    $catalog = BigDecimal::of((string) $service->calculatePrice());
+                    // As its next renewal bills it (RenewalPrice: a coupon past its cycles, a cycle change), not the
+                    // price kept on it (ADV-PM-3): the same as the forecast and Upcoming renewals.
+                    $start = CarbonImmutable::parse($service->expires_at ?? now())->startOfDay();
+                    $billed = RenewalPrice::for($service, $start, true);
+                    $price = BigDecimal::of(number_format((float) $billed->price, 2, '.', ''));
+                    $catalog = BigDecimal::of((string) $billed->calculatePrice(cycle: $service->coupon !== null ? $service->cycleNumber($start) : null));
                     if (!$price->isEqualTo($catalog)) {
                         $rows[] = self::row('service', (int) $service->id, $service->client_id, $service->client?->name,
-                            trim($service->product->name . ' · ' . $service->plan->label(), ' ·'), (string) $service->currency_code,
+                            trim($service->product->name . ' · ' . $billed->plan->label(), ' ·'), (string) $service->currency_code,
                             $price, $catalog, (bool) $service->price_locked);
                     }
                 }
@@ -53,7 +76,7 @@ final class PriceMismatch
         $rows = [];
         Domain::query()->whereNotNull('recurring_amount')
             ->whereIn('status', [DomainStatus::Active->value, DomainStatus::Expired->value, DomainStatus::Grace->value])
-            ->with(['domainTld.prices', 'client'])->orderBy('id')
+            ->with(['domainTld.prices', 'domainTld.registrarConnection', 'registrarConnection', 'client'])->orderBy('id')
             ->chunk(200, function ($domains) use (&$rows) {
                 foreach ($domains as $domain) {
                     // A name only staff price (.gr two characters) has no catalog price to compare with.

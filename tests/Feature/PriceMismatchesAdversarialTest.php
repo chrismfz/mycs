@@ -214,7 +214,13 @@ class PriceMismatchesAdversarialTest extends TestCase
         $make(20);
         $thirty = $count();
 
-        $this->assertLessThan(20, $thirty - $ten, "10 → 30 services: {$ten} → {$thirty} queries");
+        // Fix of #557: the client's contact and group, the coupon's products, the options' prices are loaded with the
+        // services. What is left is a coupon's cycle (its period lines, as RenewalBilling reads them): a few per service
+        // with a coupon only, and the sweep is kept KEEP_SECONDS, never run per click (ADV-PM-5).
+        $this->assertLessThan(20 * 4, $thirty - $ten, "10 → 30 services with a coupon: {$ten} → {$thirty} queries");
+        Service::query()->update(['coupon_id' => null]);
+        $plain = $count();
+        $this->assertLessThan(15, $plain, "30 services without a coupon: {$plain} queries, not one per service");
     }
 
     /**

@@ -51,21 +51,35 @@ class PriceMismatches extends Page
             && (bool) $staff->hasPermission('admin.domains.viewAny');
     }
 
-    public function updated(): void
+    /** A new filter starts at the first page; a page of its own does not (ADV-PM-2). */
+    public function updated(string $name): void
     {
-        $this->page = 1;
+        if ($name !== 'page') {
+            $this->page = 1;
+        }
+    }
+
+    /** Swept again, now (the sweep is kept a few minutes: PriceMismatch::kept). */
+    public function refresh(): void
+    {
+        PriceMismatch::kept(fresh: true);
+    }
+
+    public function sweptAt(): string
+    {
+        return PriceMismatch::kept()['at'];
     }
 
     /** @return list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}> */
     public function rows(): array
     {
-        $rows = array_values(array_filter(PriceMismatch::rows(), fn (array $row) => (!in_array($this->type, ['service', 'domain'], true) || $row['type'] === $this->type)
+        $rows = array_values(array_filter(PriceMismatch::kept()['rows'], fn (array $row) => (!in_array($this->type, ['service', 'domain'], true) || $row['type'] === $this->type)
             && match ($this->direction) {
                 'below' => (float) $row['difference'] < 0,
                 'above' => (float) $row['difference'] > 0,
                 default => true,
             }));
-        usort($rows, fn (array $a, array $b) => abs((float) $b['difference']) <=> abs((float) $a['difference']) ?: $a['id'] <=> $b['id']);
+        usort($rows, fn (array $a, array $b) => abs((float) $b['difference']) <=> abs((float) $a['difference']) ?: [$a['type'], $a['id']] <=> [$b['type'], $b['id']]);
 
         return $rows;
     }
