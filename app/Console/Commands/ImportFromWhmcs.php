@@ -31,7 +31,10 @@ use App\Services\Import\WhmcsNoteImport;
 use App\Services\Import\WhmcsPayMethodImport;
 use App\Services\Import\WhmcsProxmoxImport;
 use App\Services\Import\WhmcsSecondFactor;
+use App\Services\Import\WhmcsServiceLabelImport;
 use App\Services\Import\WhmcsServicePasswordImport;
+use App\Services\Import\WhmcsSpamFilterImport;
+use App\Services\Import\WhmcsTaxImport;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
@@ -205,6 +208,9 @@ class ImportFromWhmcs extends Command
             // After the licensing: a licensing product's fields are its import's (ADV-544-6).
             $this->importCustomFields();
             $this->importNotes();
+            $this->importTax();
+            $this->importServiceLabels();
+            $this->importSpamFilters();
             $this->importProxmoxVms();
             $this->importCancellations();
             $this->importInvoices();
@@ -1586,6 +1592,35 @@ class ImportFromWhmcs extends Command
         $c = $result['counts'];
         $this->info("Notes: {$c['notes']} staff note(s), {$c['account_notes']} account note(s), {$c['invoice_notes']} invoice note(s) on their accounts, "
             . "{$c['addon_notes']} addon note(s) on their services; {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** Tax Rates and the tax settings (WhmcsTaxImport): what the last invoice in WHMCS charged, the seed updating the stale. */
+    private function importTax(): void
+    {
+        $result = (new WhmcsTaxImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Tax: {$c['rates']} rate(s) (`mycs:vat-rates:seed --update-imported` brings the out-of-date ones to the checked list), {$c['settings']} setting(s); {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** The names customers gave their services (WhmcsServiceLabelImport). */
+    private function importServiceLabels(): void
+    {
+        $c = (new WhmcsServiceLabelImport($this->pdo))->run()['counts'];
+        $this->info("Service labels: {$c['labels']} imported, {$c['skipped']} skipped.");
+    }
+
+    /** WHMCS's ticket spam filters as blocked senders (WhmcsSpamFilterImport). */
+    private function importSpamFilters(): void
+    {
+        $result = (new WhmcsSpamFilterImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Blocked senders: {$c['senders']} imported, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }

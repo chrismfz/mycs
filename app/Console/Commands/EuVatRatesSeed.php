@@ -11,12 +11,14 @@ use MyCS\EuVatRates\StandardRates;
 
 /**
  * The EU member states' standard VAT rates into Tax Rates (docs/eu-vat.md), only the countries with none: what staff
- * wrote stays. Run again, it adds nothing. From `mycs:install` on request, or by hand.
+ * wrote stays. Run again, it adds nothing. With --update-imported it brings the rates the WHMCS import brought, and nobody
+ * changed since, to the checked list. From `mycs:install` on request, or by hand.
  */
 class EuVatRatesSeed extends Command
 {
     protected $signature = 'mycs:vat-rates:seed {--dry-run : Only show what would be added}
-        {--force : Add them also where Tax Rates already has rates (asked when interactive)}';
+        {--force : Add them also where Tax Rates already has rates (asked when interactive)}
+        {--update-imported : Instead of adding countries, bring the rates the WHMCS import brought, and nobody changed since, to the checked list}';
 
     protected $description = 'Adds the EU member states\' standard VAT rates to Tax Rates, only for countries without one';
 
@@ -24,6 +26,9 @@ class EuVatRatesSeed extends Command
     {
         Config::set('audit.console', true); // a new tax rate is audited, as staff's are
         $dryRun = (bool) $this->option('dry-run');
+        if ($this->option('update-imported')) {
+            return $this->updateImported($rates, $dryRun);
+        }
         // An instance that already bills (myip: GR and «All»): a country that paid «All», or the single rate's, now
         // pays its own, and the single rate no longer stands for the company's country. Only when asked (PR #524).
         if (!$dryRun && !$this->option('force') && TaxRate::query()->exists()) {
@@ -48,6 +53,21 @@ class EuVatRatesSeed extends Command
             // More than one rate now: the only rate no longer stands for the company's country (Settings::homeCountry, #524).
             $this->line('Set «Company country» (Settings → Tax) if it is not set: with more than one rate, a customer without a country pays «All» or the company country\'s rate.');
         }
+
+        return self::SUCCESS;
+    }
+
+    private function updateImported(EuVatRates $rates, bool $dryRun): int
+    {
+        $result = $rates->updateImported($dryRun);
+        foreach ($result['updated'] as $iso => $change) {
+            $this->line("{$iso}: {$change['from']}% → {$change['to']}%");
+        }
+        foreach ($result['kept'] as $iso => $change) {
+            $this->line("{$iso}: kept at {$change['ours']}% (changed here since the import; the checked list says {$change['list']}%)");
+        }
+        $this->info(sprintf('%s %d imported rate(s), checked against TEDB on %s; %d changed here and kept.',
+            $dryRun ? 'Would update' : 'Updated', count($result['updated']), StandardRates::checkedOn(), count($result['kept'])));
 
         return self::SUCCESS;
     }

@@ -9,5 +9,5 @@ class TaxRate extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
-    protected $fillable = ['name', 'rate', 'country'];
+    protected $fillable = ['name', 'rate', 'country', 'whmcs_rate'];
 }
