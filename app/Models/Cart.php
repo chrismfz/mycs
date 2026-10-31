@@ -68,10 +68,11 @@ class Cart extends Model
         $count = 0;
         self::query()->where('updated_at', '<', $cutoff)
             ->whereDoesntHave('items', fn ($items) => $items->where('updated_at', '>=', $cutoff))
-            ->select('id')->chunkById(500, function ($carts) use (&$count) {
-                $ids = $carts->pluck('id');
-                CartItem::query()->whereIn('cart_id', $ids)->delete();
-                $count += self::query()->whereKey($ids)->delete();
+            ->select('id')->chunkById(500, function ($carts) use (&$count, $cutoff) {
+                // The condition again in the delete: an item added since the chunk was read keeps its cart (ADV-CART-1).
+                // Its items go with it (cart_items.cart_id cascades).
+                $count += self::query()->whereKey($carts->pluck('id'))->where('updated_at', '<', $cutoff)
+                    ->whereDoesntHave('items', fn ($items) => $items->where('updated_at', '>=', $cutoff))->delete();
             });
 
         return $count;
