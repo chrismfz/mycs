@@ -79,6 +79,38 @@ final class EuVatRates
     }
 
     /**
+     * The rates the import brought from WHMCS (`whmcs_rate`), brought to the checked list where they differ and nobody
+     * changed them since: a rate that still equals the one imported is WHMCS's, possibly out of date; one staff changed is
+     * theirs and stays. A country is never added here (`seed()` does that). An updated rate stops being marked: it is ours.
+     *
+     * @return array{updated: array<string, array{from: string, to: string}>, kept: array<string, array{ours: string, list: string}>}
+     */
+    public function updateImported(bool $dryRun = false): array
+    {
+        $updated = [];
+        $kept = [];
+        $list = StandardRates::rates();
+        foreach (TaxRate::query()->whereNotNull('whmcs_rate')->orderBy('country')->get() as $rate) {
+            $iso = strtoupper((string) $rate->country);
+            if (!isset($list[$iso]) || (float) $list[$iso] === (float) $rate->rate) {
+                continue;
+            }
+            // Changed here since the import, or a 0% WHMCS rule for an EU country: an exemption somebody meant, never raised (ADV-562-2).
+            if ((float) $rate->rate !== (float) $rate->whmcs_rate || (float) $rate->whmcs_rate === 0.0) {
+                $kept[$iso] = ['ours' => (string) $rate->rate, 'list' => (string) $list[$iso]];
+
+                continue;
+            }
+            $updated[$iso] = ['from' => (string) $rate->rate, 'to' => (string) $list[$iso]];
+            if (!$dryRun) {
+                $rate->forceFill(['rate' => $list[$iso], 'whmcs_rate' => null])->save();
+            }
+        }
+
+        return ['updated' => $updated, 'kept' => $kept];
+    }
+
+    /**
      * Today's standard rates from TEDB against Tax Rates. Only the member states the instance has a rate for are
      * compared: one without (myip has only GR) is not news.
      *

@@ -37,7 +37,10 @@
     πρέπει να οριστεί ρητά, αλλιώς τη δίνει το `eu_vat_home_country`. Αν δεν έχει οριστεί καμία και η χώρα βγαίνει από τον
     μοναδικό συντελεστή, το seed τη γράφει ως Company country πριν προσθέσει, ώστε ένας λογαριασμός χωρίς χώρα να πληρώνει
     ό,τι πλήρωνε και ποτέ 0% (ADV-525-1). Αλλιώς υπενθυμίζει να οριστεί.
-  - **Cut-over** (οι συντελεστές και η Company country δεν έρχονται από τον importer):
+  - **Rates από το WHMCS (2026-10-31):** ο importer φέρνει το `tbltax` (`importer.md` → «Tax, ετικέτες υπηρεσιών, spam
+    filters»), με την τιμή που χρέωνε το WHMCS. Όσοι είναι παλιοί (nixpal: EE, FI, RO, SK) φτάνουν στον κατάλογο με
+    `mycs:vat-rates:seed --update-imported`, που αλλάζει μόνο ό,τι δεν πείραξε το staff.
+  - **Cut-over** (πριν από αυτό, οι συντελεστές και η Company country δεν έρχονταν από τον importer· για το myip ισχύει ακόμα):
     - **myip:** όχι seed. Με το χέρι ΦΠΑ GR 24% και «All other» 24% (όπως το `tbltax`), Company country GR.
     - **nixpal:** `mycs:vat-rates:seed` σε κενό Tax Rates (27 χώρες, χωρίς «All», όπως το `tbltax`).
       `eu_vat_home_country` EE, που δίνει και την Company country, αν δεν οριστεί ρητά. Πριν το cut-over, σύγκρινε τις τιμές

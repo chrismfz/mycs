@@ -537,6 +537,33 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   Ένα token δεν τυπώνεται ποτέ.
 - **Τοπικά αντίγραφα:** nixpal 52 Stripe (36 πελάτες) και 15 PayPal· myip 51 Stripe, 49 PayPal και 4 Stripe SEPA.
 
+## Tax, ετικέτες υπηρεσιών, spam filters (2026-10-31)
+Από το sweep «τι ξεχνάμε» (nixpal, 2026-10-31). Αποφάσεις του ιδιοκτήτη: marketing **δεν** στέλνουμε, άρα η συναίνεση marketing
+(76 opt-out, 77 χωρίς opt-in) δεν εισάγεται· η πληρωμή 15,80 € χωρίς τιμολόγιο και οι προμήθειες των gateways (2.832,80 €)
+**αγνοούνται** (μένουν ως γνωστές διαφορές του `mycs:parity`).
+- **Φόροι** (`WhmcsTaxImport`): το `tbltax` (nixpal 27 χώρες) γίνεται `tax_rates` όπως χρέωνε το WHMCS, ώστε το πρώτο τιμολόγιο
+  μετά το cut-over να χρεώσει ό,τι το τελευταίο του WHMCS. Επίπεδο 1, μία χώρα, μία τιμή (η πρώτη)· κανόνας πολιτείας, δεύτερο
+  επίπεδο και ό,τι δεν είναι χώρα λέγονται και δεν έρχονται· κανόνας «οποιαδήποτε χώρα» γίνεται `all`. Κάθε συντελεστής
+  κρατά και την τιμή του WHMCS (`tax_rates.whmcs_rate`).
+  - **Ενημέρωση:** κάποιοι είναι παλιοί (nixpal, 2026-10-29: EE 20→24, FI 24→25,5, RO 19→21, SK 20→23). Το
+    `php artisan mycs:vat-rates:seed --update-imported` (με `--dry-run` πρώτα) φέρνει στον ελεγμένο κατάλογο **μόνο** όσους
+    ακόμα έχουν την τιμή που ήρθε (`rate = whmcs_rate`), και τους ξεμαρκάρει· όσους άλλαξε το staff τους αφήνει και τους λέει·
+    δεν προσθέτει ποτέ χώρα (αυτό το κάνει το απλό `seed`).
+  - **Ρυθμίσεις:** `tax_enabled` (TaxEnabled), `tax_type`, `eu_vat_enabled` (EU exemption **και** validation),
+    `eu_vat_home_country` (TaxEUHomeCountry, αν είναι κράτος μέλος· δίνει και την Company country, που δεν γράφεται ξεχωριστά)
+    και `eu_vat_requester` (TaxCode, αν είναι αριθμός ΦΠΑ ΕΕ).
+  - Ένας συντελεστής **0%** του WHMCS για χώρα ΕΕ θεωρείται εξαίρεση: το `--update-imported` δεν τον ανεβάζει ποτέ (τον λέει).
+    Ένας συντελεστής που άλλαξε το staff χάνει το σημάδι, ώστε ούτε αν ξαναμπεί η εισηγμένη τιμή να τον αγγίξει το seed.
+  - **Πριν το cut-over του myip:** το `eu_vat_enabled` βγαίνει από το `TaxEUTaxExempt` και το `TaxEUTaxValidation` του WHMCS·
+    το myip το θέλει κλειστό (`eu-vat.md`): να ελεγχθούν οι τιμές του πριν το import.
+  - Φίλτρο sender χωρίς `@` ή χωρίς domain δεν γίνεται block (λέγεται)· δεν σταματά ποτέ το import.
+  - Το `invoice_snapshots.tax_country` (`tblinvoicedata`, 6.149) **δεν** έρχεται: ένα snapshot μόνο με χώρα θα διάβαζε το
+    `Invoice::tax()` ως «εκδόθηκε χωρίς ΦΠΑ». Θέλει snapshot με όνομα και ποσοστό ΦΠΑ ανά τιμολόγιο: ανοιχτό, χαμηλή
+    προτεραιότητα (το ΦΠΑ-παραστατικό είναι του Ekdosi).
+- **Ετικέτες υπηρεσιών** (`WhmcsServiceLabelImport`): `mod_clientproductdescriptions` (type tblhosting) → `services.label`
+  (nixpal 310, 124 σε ενεργές). Μόνο για υπηρεσία που ήρθε· κενό = καμία· HTML αποκωδικοποιημένο· ως 255 χαρακτήρες.
+- **Spam filters** (`WhmcsSpamFilterImport`): οι 58 `sender` γίνονται blocked senders (`@domain` για ολόκληρο domain)·
+  `subject` και `phrase` δεν έχουν αντίστοιχο και λέγονται.
 ## Credentials: servers, registrars, gateways (`WhmcsCredentialImport`, 2026-10-31)
 Οι συνδέσεις που στήνει το staff (cPanel, registrar, Stripe/PayPal) έρχονται με το import, ώστε στο cut-over να μένει μόνο
 η ενεργοποίηση. Δοκιμή στη nixpal (2026-10-31): το import έφερνε TLDs, τιμές και αντιστοίχιση registrar, αλλά κανένα login.
