@@ -18,6 +18,9 @@ final class Ledger
     /** @var array<int, string> invoice id => status */
     private array $invoices = [];
 
+    /** @var array<int, array{fqdn: string, status: string, expires: ?string}> */
+    private array $domains = [];
+
     private int $lastMail = 0;
 
     private int $lastAction = 0;
@@ -63,6 +66,19 @@ final class Ledger
             }
             if (substr((string) $before['expires'], 0, 10) !== substr((string) $s->expires_at, 0, 10)) {
                 $add('service renewed', "service #{$s->id}", substr((string) $before['expires'], 0, 10) . ' → ' . substr((string) $s->expires_at, 0, 10));
+            }
+        }
+        // A domain: its status and its expiry (a renewal moves it).
+        foreach (DB::table('domains')->get(['id', 'fqdn', 'status', 'expires_at']) as $d) {
+            $before = $this->domains[$d->id] ?? null;
+            if ($before === null) {
+                continue;
+            }
+            if ($before['status'] !== $d->status) {
+                $add('domain status', "domain {$d->fqdn}", "{$before['status']} → {$d->status}");
+            }
+            if (substr((string) $before['expires'], 0, 10) !== substr((string) $d->expires_at, 0, 10)) {
+                $add('domain renewed', "domain {$d->fqdn}", substr((string) $before['expires'], 0, 10) . ' → ' . substr((string) $d->expires_at, 0, 10));
             }
         }
         foreach (Invoice::query()->where('id', '>', $this->lastInvoice)->orderBy('id')->get() as $i) {
@@ -112,5 +128,6 @@ final class Ledger
     {
         $this->services = DB::table('services')->get(['id', 'status', 'expires_at'])->mapWithKeys(fn ($s) => [$s->id => ['status' => $s->status, 'expires' => $s->expires_at]])->all();
         $this->invoices = DB::table('invoices')->pluck('status', 'id')->all();
+        $this->domains = DB::table('domains')->get(['id', 'fqdn', 'status', 'expires_at'])->mapWithKeys(fn ($d) => [$d->id => ['fqdn' => $d->fqdn, 'status' => $d->status, 'expires' => $d->expires_at]])->all();
     }
 }
