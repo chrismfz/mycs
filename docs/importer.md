@@ -538,6 +538,11 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   - **Ρυθμίσεις:** `tax_enabled` (TaxEnabled), `tax_type`, `eu_vat_enabled` (EU exemption **και** validation),
     `eu_vat_home_country` (TaxEUHomeCountry, αν είναι κράτος μέλος· δίνει και την Company country, που δεν γράφεται ξεχωριστά)
     και `eu_vat_requester` (TaxCode, αν είναι αριθμός ΦΠΑ ΕΕ).
+  - Ένας συντελεστής **0%** του WHMCS για χώρα ΕΕ θεωρείται εξαίρεση: το `--update-imported` δεν τον ανεβάζει ποτέ (τον λέει).
+    Ένας συντελεστής που άλλαξε το staff χάνει το σημάδι, ώστε ούτε αν ξαναμπεί η εισηγμένη τιμή να τον αγγίξει το seed.
+  - **Πριν το cut-over του myip:** το `eu_vat_enabled` βγαίνει από το `TaxEUTaxExempt` και το `TaxEUTaxValidation` του WHMCS·
+    το myip το θέλει κλειστό (`eu-vat.md`): να ελεγχθούν οι τιμές του πριν το import.
+  - Φίλτρο sender χωρίς `@` ή χωρίς domain δεν γίνεται block (λέγεται)· δεν σταματά ποτέ το import.
   - Το `invoice_snapshots.tax_country` (`tblinvoicedata`, 6.149) **δεν** έρχεται: ένα snapshot μόνο με χώρα θα διάβαζε το
     `Invoice::tax()` ως «εκδόθηκε χωρίς ΦΠΑ». Θέλει snapshot με όνομα και ποσοστό ΦΠΑ ανά τιμολόγιο: ανοιχτό, χαμηλή
     προτεραιότητα (το ΦΠΑ-παραστατικό είναι του Ekdosi).

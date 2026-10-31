@@ -83,7 +83,7 @@ final class WhmcsTaxImport
             // The reverse charge and the 0% outside the EU: WHMCS's exemption for EU businesses, validated against VIES.
             'eu_vat_enabled' => array_key_exists('TaxEUTaxExempt', $config) ? ['boolean', $on('TaxEUTaxExempt') && $on('TaxEUTaxValidation') ? '1' : '0'] : null,
             'eu_vat_home_country' => in_array($home, StandardRates::EU, true) ? ['string', $home] : null,
-            'eu_vat_requester' => preg_match('/^[A-Z]{2}[0-9A-Z]{8,12}$/', $own) === 1 && in_array(substr($own, 0, 2), StandardRates::EU, true) ? ['string', $own] : null,
+            'eu_vat_requester' => preg_match('/^[A-Z]{2}[0-9A-Z]{8,12}$/', $own) === 1 && in_array(substr($own, 0, 2), [...StandardRates::EU, 'EL'], true) ? ['string', $own] : null,
         ];
         foreach ($settings as $key => $setting) {
             if ($setting === null) {

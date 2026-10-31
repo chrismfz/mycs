@@ -95,8 +95,9 @@ final class EuVatRates
             if (!isset($list[$iso]) || (float) $list[$iso] === (float) $rate->rate) {
                 continue;
             }
-            if ((float) $rate->rate !== (float) $rate->whmcs_rate) {
-                $kept[$iso] = ['ours' => (string) $rate->rate, 'list' => (string) $list[$iso]]; // changed here since the import
+            // Changed here since the import, or a 0% WHMCS rule for an EU country: an exemption somebody meant, never raised (ADV-562-2).
+            if ((float) $rate->rate !== (float) $rate->whmcs_rate || (float) $rate->whmcs_rate === 0.0) {
+                $kept[$iso] = ['ours' => (string) $rate->rate, 'list' => (string) $list[$iso]];
 
                 continue;
             }

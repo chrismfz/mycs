@@ -192,4 +192,40 @@ class ImportTaxLabelsFiltersTest extends TestCase
 
         $this->assertSame(1, TicketBlockedSender::query()->count());
     }
+
+    /** A staff edit takes the mark off: set back to the imported value later, no seed overwrites it. */
+    public function test_a_rate_staff_changed_is_no_longer_marked(): void
+    {
+        $this->tax(1, 'EE', 20);
+        (new WhmcsTaxImport($this->whmcs))->run();
+        $rate = TaxRate::query()->where('country', 'EE')->firstOrFail();
+
+        $rate->update(['rate' => 22]);
+        $rate->update(['rate' => 20]);
+        $this->artisan('mycs:vat-rates:seed', ['--update-imported' => true])->assertSuccessful();
+
+        $this->assertNull($rate->fresh()->whmcs_rate);
+        $this->assertEquals('20.00', $rate->fresh()->rate);
+    }
+
+    public function test_a_bare_word_or_an_address_without_a_domain_is_no_blocked_sender(): void
+    {
+        foreach ([[1, 'sender', 'gmail.com'], [2, 'sender', 'x@'], [3, 'sender', '@'], [4, 'sender', 'ok@example.test']] as $row) {
+            $this->whmcs->prepare('INSERT INTO tblticketspamfilters VALUES (?, ?, ?)')->execute($row);
+        }
+
+        $result = (new WhmcsSpamFilterImport($this->whmcs))->run();
+
+        $this->assertSame(['ok@example.test'], TicketBlockedSender::query()->pluck('value')->all());
+        $this->assertStringContainsString('3 sender filter(s)', implode("\n", $result['notes']));
+    }
+
+    public function test_a_greek_vat_number_written_el_is_kept_as_written(): void
+    {
+        $this->config(['TaxCode' => 'EL123456789']);
+
+        (new WhmcsTaxImport($this->whmcs))->run();
+
+        $this->assertSame('EL123456789', $this->setting('eu_vat_requester'));
+    }
 }
