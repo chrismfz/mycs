@@ -95,7 +95,7 @@ final class RevenueForecast
 
         // As the billing renews them (reviews of #275): active, not to be cancelled; each renewal on the plan and at the
         // price the billing will use (a cycle change at the next renewal, a coupon that ends: RenewalPrice).
-        $services = Service::query()->with(['plan', 'nextPlan', 'coupon', 'product'])->where('status', Service::STATUS_ACTIVE)
+        $services = Service::query()->with(['plan', 'nextPlan', 'coupon.requiredProducts', 'client', 'product'])->where('status', Service::STATUS_ACTIVE)
             ->whereDoesntHave('cancellation')->where('currency_code', $currency)->whereNotNull('expires_at')->get();
         foreach ($services as $service) {
             $invoiced = $skip[Service::class][$service->id] ?? ['periods' => [], 'loose' => 0];

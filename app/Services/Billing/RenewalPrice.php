@@ -8,7 +8,8 @@ use Carbon\CarbonImmutable;
 
 /**
  * The service as the billing prices the period starting on $start (RenewalBilling's rules, never saved here): on its
- * next plan from a cycle change «from the next renewal» (SVC-14b), at the full price once a coupon «for N cycles» is past.
+ * next plan from a cycle change «from the next renewal» (SVC-14b), at the full price once a coupon «for N cycles» is past
+ * or the product its coupon requires is gone.
  * Shared by the portal's Upcoming renewals and the revenue forecast (#275), so they never disagree with the billing.
  */
 final class RenewalPrice
@@ -23,8 +24,18 @@ final class RenewalPrice
             $service->plan_id = $next->id;
             $service->price = (float) $service->calculatePrice();
         }
-        if ($service->coupon && $service->coupon->cycles() > 1 && $service->coupon_expired_at === null
+        // As RenewalBilling: past its cycles the coupon ends; only one «for N > 1 cycles» was in the renewal price (a
+        // first-cycle one never was: the price kept), and ended it is not ended again by its requirement (ADV-PM-R3-1).
+        if ($service->coupon && $service->coupon->cycles() > 0 && $service->coupon_expired_at === null
             && $service->cycleNumber($start) > $service->coupon->cycles()) {
+            $service = clone $service;
+            if ($service->coupon->cycles() > 1) {
+                $service->price = (float) $service->calculatePrice(applyCoupon: false);
+            }
+            $service->coupon_expired_at = CarbonImmutable::now();
+        }
+        // Its required product gone: the discount ends with it, as RenewalBilling bills it (C4 of #274; ADV-PM-R2-1).
+        if ($service->coupon && $service->coupon_expired_at === null && !$service->coupon->requirementHeldBy($service->client)) {
             $service = clone $service;
             $service->price = (float) $service->calculatePrice(applyCoupon: false);
             $service->coupon_expired_at = CarbonImmutable::now();
