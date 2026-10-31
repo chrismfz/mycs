@@ -149,10 +149,9 @@ class ImportTemplatesHistoryTest extends TestCase
 
         $result = (new WhmcsEmailHistoryImport($this->whmcs, '2025-10-31 00:00:00'))->run();
 
-        $this->assertSame(['mails' => 2, 'older' => 1, 'pending' => 1], array_intersect_key($result['counts'], array_flip(['mails', 'older', 'pending'])));
-        $this->assertSame(['sent', 'failed'], DB::table('email_logs')->orderBy('id')->pluck('status')->all());
+        $this->assertSame(['mails' => 1, 'older' => 1, 'pending' => 1, 'failed' => 1], array_intersect_key($result['counts'], array_flip(['mails', 'older', 'pending', 'failed'])));
+        $this->assertSame(['sent'], DB::table('email_logs')->orderBy('id')->pluck('status')->all(), 'a failed mail reached no one: not history');
         $this->assertSame($client->id, (int) DB::table('email_logs')->orderBy('id')->value('client_id'));
-        $this->assertNull(DB::table('email_logs')->orderByDesc('id')->value('client_id'));
         $this->assertSame('365', Setting::query()->where('key', 'cronjob_delete_email_logs')->whereNull('settingable_type')->value('value'));
     }
 
@@ -168,6 +167,19 @@ class ImportTemplatesHistoryTest extends TestCase
         }
         $this->assertStringContainsString('Username: bob', $body);
         $this->assertSame(1, $result['counts']['scrubbed']);
+    }
+
+    /** A customer's pasted .env in a ticket mail: MAIL_PASSWORD=… (an underscore is no word boundary). */
+    public function test_a_password_in_an_env_line_is_masked(): void
+    {
+        $this->mail(1, '2026-10-01 10:00:00', "<p>MAIL_USERNAME=bob\nMAIL_PASSWORD=Zx9-Secret-Value\nDB_PASSWORD='quoted-secret-1'</p>");
+
+        (new WhmcsEmailHistoryImport($this->whmcs, '2025-10-31 00:00:00'))->run();
+
+        $body = (string) DB::table('email_logs')->value('body');
+        $this->assertStringNotContainsString('Zx9-Secret-Value', $body);
+        $this->assertStringNotContainsString('quoted-secret-1', $body);
+        $this->assertStringContainsString('MAIL_USERNAME=bob', $body);
     }
 
     // ---- announcements ----------------------------------------------------------------------------------------------------

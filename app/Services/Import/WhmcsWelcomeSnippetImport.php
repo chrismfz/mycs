@@ -73,11 +73,21 @@ final class WhmcsWelcomeSnippetImport
     private function snippet(string $message, bool $licensing, string $label): string
     {
         $text = (string) preg_replace('~</p>|<br\s*/?>|</div>|</li>~i', "\n", $message);
-        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Tags go twice: a tag written as an entity («&lt;img …&gt;») is a tag once the entities are decoded (ADV-564-6). What
+        // is left of «<» and «>» is text: escaped, so Markdown shows it and never renders it.
+        $text = strip_tags(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $kept = [];
         foreach (preg_split('/\R/u', $text) ?: [] as $line) {
             $line = trim((string) preg_replace('/\s{2,}/u', ' ', str_replace("\u{00A0}", ' ', $line)));
             if ($line === '' || preg_match('/^(thank you|dear)\b/i', $line) === 1 || preg_match('/^your order for\b/i', $line) === 1) {
+                continue;
+            }
+            // Any Smarty (a dotted variable, a modifier, {if}…{/if}, {foreach}) is not this app's template: only a plain
+            // {$name} is understood (ADV-564-7).
+            if (preg_match('/\{\$[^}]*[^a-z0-9_}][^}]*\}|\{\/?(?:if|else|elseif|foreach|section|assign|include|literal|php|capture)\b|\{\/|\{[#%*]/i', $line) === 1) {
+                $this->notes[] = "{$label}: a line with Smarty code is not carried: add what it says to the product's snippet by hand.";
+
                 continue;
             }
             preg_match_all('/\{\$([a-z0-9_]+)\}/i', $line, $vars);
@@ -96,8 +106,8 @@ final class WhmcsWelcomeSnippetImport
                 continue;
             }
             // A link as Markdown takes it; a stray brace would be read as a template.
-            $line = str_replace(['{', '}'], ['&#123;', '&#125;'], $line);
-            $kept[] = (string) preg_replace('~(?<![<(\[])\bhttps?://[^\s<>\)]+~i', '<$0>', $line);
+            $line = str_replace(['<', '>', '{', '}'], ['&lt;', '&gt;', '&#123;', '&#125;'], $line);
+            $kept[] = (string) preg_replace('~(?<![<(\[])\bhttps?://[^\s<>\)&]+~i', '<$0>', $line);
         }
 
         return implode("\n\n", $kept);

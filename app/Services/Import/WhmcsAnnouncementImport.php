@@ -36,8 +36,19 @@ final class WhmcsAnnouncementImport
 
                 continue;
             }
+            // Once: the same title on the same day is the one a first run brought. The extension's text column holds 64 KB.
+            if (DB::table('ext_announcements')->where('title', $title)->where('published_at', (string) $row['date'])->exists() || strlen((string) $row['announcement']) > 60000) {
+                $counts['skipped']++;
+
+                continue;
+            }
             $slug = Str::slug($title) ?: 'announcement-' . $row['id'];
-            $slug = DB::table('ext_announcements')->where('slug', $slug)->exists() ? "{$slug}-{$row['id']}" : $slug;
+            $slug = DB::table('ext_announcements')->where('slug', $slug)->exists() ? "{$slug}-whmcs-{$row['id']}" : $slug;
+            if (DB::table('ext_announcements')->where('slug', $slug)->exists()) {
+                $counts['skipped']++;
+
+                continue;
+            }
             DB::table('ext_announcements')->insert([
                 'title' => $title, 'content' => (string) $row['announcement'], 'description' => Str::limit(trim(strip_tags((string) $row['announcement'])), 200),
                 'published_at' => (string) $row['date'], 'is_active' => true, 'slug' => $slug, 'created_at' => (string) $row['date'], 'updated_at' => (string) $row['date'],
