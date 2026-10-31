@@ -12,6 +12,7 @@ use App\Admin\Pages\IncomeByClient;
 use App\Admin\Pages\IncomeByProduct;
 use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
+use App\Admin\Pages\PriceMismatches;
 use App\Admin\Pages\ProxmoxNodes;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
@@ -127,6 +128,7 @@ class TopMenu
             [IncomeByClient::class],
             [IncomeByProduct::class],
             [IncomeReport::class],
+            [PriceMismatches::class],
         ],
         'Utilities' => [
             // All the logs behind one line (owner 2026-10-28): it opens the first, and each log lists them all on its left.

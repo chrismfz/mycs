@@ -1551,5 +1551,17 @@
     "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας.",
     "A card payment of this invoice is on its way: wait for it before moving the invoice.": "Μια πληρωμή με κάρτα αυτού του τιμολογίου είναι σε εξέλιξη: περιμένετε να ολοκληρωθεί πριν το μεταφέρετε.",
     "A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).": "Ένα κλειστό τιμολόγιο κρατά τον πελάτη του: επαναφέρετέ το σε απλήρωτο πρώτα (ένα επιστραμμένο δεν μεταφέρεται ποτέ).",
-    "This invoice has a credit or debit note: void it before moving the invoice.": "Το τιμολόγιο έχει πιστωτικό ή χρεωστικό σημείωμα: ακυρώστε το πριν μεταφέρετε το τιμολόγιο."
+    "This invoice has a credit or debit note: void it before moving the invoice.": "Το τιμολόγιο έχει πιστωτικό ή χρεωστικό σημείωμα: ακυρώστε το πριν μεταφέρετε το τιμολόγιο.",
+    "Price mismatches": "Αναντιστοιχίες τιμών",
+    "Services and domains that renew at a price other than the catalog's: the service's own price against what its plan, options, coupon and group discount make now; a domain's own renewal price against its extension's. Net amounts. Change them on the service or the domain.": "Υπηρεσίες και domains που ανανεώνονται σε τιμή διαφορετική από του καταλόγου: η τιμή της υπηρεσίας απέναντι σε ό,τι βγάζουν τώρα το πλάνο, τα options, το κουπόνι και η έκπτωση ομάδας της· η δική του τιμή ανανέωσης ενός domain απέναντι σε αυτήν της κατάληξής του. Καθαρά ποσά. Αλλάζουν στην υπηρεσία ή στο domain.",
+    "Renews": "Ανανεώνεται",
+    "Above or below the catalog": "Πάνω ή κάτω από τον κατάλογο",
+    "Below the catalog": "Κάτω από τον κατάλογο",
+    "Above the catalog": "Πάνω από τον κατάλογο",
+    "Everything renews at its catalog price.": "Όλα ανανεώνονται στην τιμή του καταλόγου τους.",
+    "Renews at": "Ανανεώνεται",
+    "Catalog": "Κατάλογος",
+    "Price locked": "Κλειδωμένη τιμή",
+    ":count item|:count items": ":count εγγραφή|:count εγγραφές",
+    "Item": "Στοιχείο"
 }
