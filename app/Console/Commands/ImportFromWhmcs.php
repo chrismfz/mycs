@@ -19,12 +19,14 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
 use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
+use App\Services\Import\WhmcsEmailHistoryImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
@@ -37,6 +39,7 @@ use App\Services\Import\WhmcsServicePasswordImport;
 use App\Services\Import\WhmcsSpamFilterImport;
 use App\Services\Import\WhmcsTaxImport;
 use App\Services\Import\WhmcsTicketImport;
+use App\Services\Import\WhmcsWelcomeSnippetImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Tax\EuVat;
@@ -210,6 +213,9 @@ class ImportFromWhmcs extends Command
             // After the licensing: a licensing product's fields are its import's (ADV-544-6).
             $this->importCustomFields();
             $this->importNotes();
+            $this->importWelcomeSnippets();
+            $this->importEmailHistory();
+            $this->importAnnouncements();
             $this->importTax();
             $this->importServiceLabels();
             $this->importSpamFilters();
@@ -1624,6 +1630,34 @@ class ImportFromWhmcs extends Command
         $result = (new WhmcsSpamFilterImport($this->pdo))->run();
         $c = $result['counts'];
         $this->info("Blocked senders: {$c['senders']} imported, {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** A product's own welcome email in WHMCS as its snippet in the «service activated» email (WhmcsWelcomeSnippetImport). */
+    private function importWelcomeSnippets(): void
+    {
+        $result = (new WhmcsWelcomeSnippetImport($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Welcome emails: {$c['snippets']} of {$c['products']} product(s) with their own template given a snippet; {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** What WHMCS mailed its customers in the last year, as the mail log (WhmcsEmailHistoryImport). */
+    private function importEmailHistory(): void
+    {
+        $c = (new WhmcsEmailHistoryImport($this->pdo))->run()['counts'];
+        $this->info("Email history: {$c['mails']} mail(s) of the last year ({$c['scrubbed']} with a password or a key masked); {$c['older']} older not brought, {$c['pending']} pending skipped.");
+    }
+
+    /** The published announcements (WhmcsAnnouncementImport). */
+    private function importAnnouncements(): void
+    {
+        $result = (new WhmcsAnnouncementImport($this->pdo))->run();
+        $this->info("Announcements: {$result['counts']['announcements']} imported, {$result['counts']['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
