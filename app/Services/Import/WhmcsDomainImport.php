@@ -106,7 +106,9 @@ final class WhmcsDomainImport
             return ['counts' => $this->counts, 'notes' => $this->notes];
         }
         $this->connections();
-        $catalog = (new CatalogImport($this->whmcs, makeDefaultCurrency: false))->tldsForFullImport($this->connections);
+        // ispapi, CNIC's older name, is the same account: a TLD registered there is registered at the CNIC connection.
+        $byModule = $this->connections + array_filter(array_map(fn (string $to) => $this->connections[$to] ?? null, self::ALIASES));
+        $catalog = (new CatalogImport($this->whmcs, makeDefaultCurrency: false))->tldsForFullImport($byModule);
         $this->counts['tlds'] = $catalog['counts']['tlds'];
         array_push($this->notes, ...$catalog['notes']);
         $this->domains();
@@ -219,12 +221,23 @@ final class WhmcsDomainImport
 
     // ---- connections ------------------------------------------------------------------------------------------------
 
+    /** WHMCS registrar modules that are another's account here: ispapi is CNIC's older name (owner, 2026-10-31). */
+    private const ALIASES = ['ispapi' => 'cnic'];
+
+    /** A WHMCS registrar module as the connection it belongs to. */
+    private function module(mixed $value): string
+    {
+        $module = strtolower(trim((string) $value));
+
+        return self::ALIASES[$module] ?? $module;
+    }
+
     private function connections(): void
     {
         $registry = app(DomainRegistrarRegistry::class);
-        $used = array_map(fn ($value) => strtolower(trim((string) $value)), $this->column('SELECT DISTINCT registrar FROM tbldomains'));
+        $used = array_map(fn ($value) => $this->module($value), $this->column('SELECT DISTINCT registrar FROM tbldomains'));
         if ($this->has('tbldomainpricing')) {
-            $used = [...$used, ...array_map(fn ($value) => strtolower(trim((string) $value)), $this->column('SELECT DISTINCT autoreg FROM tbldomainpricing'))];
+            $used = [...$used, ...array_map(fn ($value) => $this->module($value), $this->column('SELECT DISTINCT autoreg FROM tbldomainpricing'))];
         }
         foreach (array_unique(array_filter($used)) as $module) {
             if (!in_array($module, $registry->keys(), true)) {
@@ -245,7 +258,7 @@ final class WhmcsDomainImport
         }
         if ($this->connections !== []) {
             $this->notes[] = 'Registrar connections ' . implode(', ', array_keys($this->connections))
-                . ': off and without credentials until staff enter them (Domains → Registrars).';
+                . ': inactive, and without credentials unless --with-logins brought them; staff switch them on (Domains → Registrars).';
         }
     }
 
@@ -332,7 +345,7 @@ final class WhmcsDomainImport
                 'whmcs_handles' => $kept,
             ]);
             $years = max(1, min(10, (int) ($row['registrationperiod'] ?? 1)));
-            $registrar = strtolower(trim((string) $row['registrar']));
+            $registrar = $this->module($row['registrar']);
             $migration = $migrations[$id] ?? null;
             if ($migration !== null) {
                 $meta['whmcs_migration'] = $migration;

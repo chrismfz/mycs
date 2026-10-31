@@ -34,7 +34,8 @@ use Throwable;
  * plans (by cycle) and prices; a cycle, currency or TLD period WHMCS no longer offers stops being sold here (a plan in
  * use keeps its row, without prices). What was here before is never taken over: an existing currency, a TLD of the
  * same name, keep theirs; a server of the same module and host is adopted, its settings untouched. Links staff added
- * (upgrades, config options) stay. Server passwords and API tokens are not read: staff enter them.
+ * (upgrades, config options) stay. Server passwords are never read, and the catalog alone brings no token: a cPanel server's
+ * API token comes with the full import's credentials step (WhmcsCredentialImport).
  * All in one transaction; a dry run rolls it back, reports the same counts and leaves the cache alone.
  */
 final class CatalogImport
@@ -266,7 +267,7 @@ final class CatalogImport
                 continue;
             }
             // One staff already set up (same module and host) is adopted, not copied without its password (review F10).
-            $server ??= $this->sameServer($extension, $hostname);
+            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)) !== null;
             $server ??= new Server;
             $server->forceFill([
                 'whmcs_id' => (int) $row['id'],
@@ -278,9 +279,16 @@ final class CatalogImport
             ])->save();
             // Its address (a URL, as the extension takes it: review 3) and login, only where none is set yet: a URL or
             // login staff corrected stays, and a stored API key is never sent to a host they did not type (R6). Never
-            // its password or API token (staff enter them, encrypted).
+            // its password (the API token comes with the credentials step).
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
             $settings = ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
+            // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
+            // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
+            // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
+            if ($module === 'cpanel' && !$adopted) {
+                $ip = trim((string) ($row['ipaddress'] ?? ''));
+                $settings['ip'] = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false ? $ip : '';
+            }
             foreach ($settings as $key => $value) {
                 $where = ['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => $key];
                 if ($value !== '' && !Setting::query()->where($where)->exists()) {
@@ -539,7 +547,7 @@ final class CatalogImport
     /** @param  array<string, DomainRegistrarConnection>  $connections  WHMCS's registrar module => the connection here */
     private function tlds(array $connections): void
     {
-        foreach ($connections as $connection) {
+        foreach (collect($connections)->unique(fn (DomainRegistrarConnection $connection) => $connection->id) as $connection) { // ispapi and cnic: one
             if (!$connection->is_active) {
                 $this->notes[] = "Registrar connection #{$connection->id} «{$connection->label}» is not active: its TLDs register nothing until it is.";
             }

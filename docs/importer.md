@@ -192,6 +192,20 @@
 - **Θέλουν διερεύνηση (επόμενο PR):** υπηρεσίες cancelled +2, tickets +12, ποσό πληρωμένων τιμολογίων −190,00,
   ακυρωμένων −107,00.
 
+## Δοκιμαστικό import της nixpal (2026-10-31)
+Φρέσκο dump (31/10 03:52, `mariadb-dump --single-transaction` από τον orion, 189 πίνακες), import στο main `e3a28408`.
+- **`mycs:parity`:** συμφωνούν πελάτες 233, υπηρεσίες (358 active, 606 terminated, 406 cancelled), τιμολόγια (5.719 paid
+  77.681,73, 21 unpaid 449,96, 191 cancelled 7.298,54), επιστροφές 109,08, πίστωση που εφαρμόστηκε 17.682,63, υπόλοιπα 415,02
+  (9 πελάτες), tickets 640, domains 14 (258,97). Διαφορές: 1 πληρωμή Stripe χωρίς τιμολόγιο (−15,80, `tblaccounts` #1224) και
+  οι προμήθειες των gateways (−2.832,80, δεν εισάγονται).
+- **Απέναντι στο live API** (`GetClients`, `GetInvoices`, `GetClientsProducts`, `GetClientsDomains`, `GetTickets`): τα ίδια
+  πλήθη (233, Paid 5.870 / Unpaid 21 / Cancelled 198, 1.370 υπηρεσίες, 14 domains, 640 tickets).
+- **`mycs:credits-check`:** καθαρό. **`mycs:money-check`:** 13 ευρήματα, δεδομένα του WHMCS (8 πληρωμένα πάνω από το ποσό,
+  2 ακυρωμένα που κρατούν χρήματα, 3 ανοιχτά για υπηρεσίες που έληξαν).
+- **Admins:** 4 (Full Administrator → `admin` ×3, Sales Operator), bcrypt όπως ήταν.
+- **Δεν έτρεξαν:** αποθηκευμένες μέθοδοι (0 από 67) και κωδικοί υπηρεσιών (0 από 357), γιατί θέλουν API credentials· τα συνημμένα
+  των tickets.
+
 ## Status τιμολογίων (2026-10-13)
 Το MyCS λέει ό,τι και το WHMCS, στη βάση και στις οθόνες: το «Unpaid» είναι `unpaid` (μέχρι 2026-10-13 ήταν `pending`,
 λέξη του upstream· το migration `rename_invoice_status_pending_to_unpaid` μετέτρεψε τα παλιά). Οι οθόνες γράφουν
@@ -522,6 +536,46 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   χρειάζεται η χρέωση (π.χ. ένα σκέτο `cus_` παλιού WHMCS). Μετρώνται και αναφέρονται.
   Ένα token δεν τυπώνεται ποτέ.
 - **Τοπικά αντίγραφα:** nixpal 52 Stripe (36 πελάτες) και 15 PayPal· myip 51 Stripe, 49 PayPal και 4 Stripe SEPA.
+
+## Credentials: servers, registrars, gateways (`WhmcsCredentialImport`, 2026-10-31)
+Οι συνδέσεις που στήνει το staff (cPanel, registrar, Stripe/PayPal) έρχονται με το import, ώστε στο cut-over να μένει μόνο
+η ενεργοποίηση. Δοκιμή στη nixpal (2026-10-31): το import έφερνε TLDs, τιμές και αντιστοίχιση registrar, αλλά κανένα login.
+- **Πώς διαβάζονται (δοκιμή live στη nixpal, 2026-10-31):** δύο σχήματα στο ίδιο WHMCS.
+  - **Registrars** (`tblregistrars`): το παλιό σχήμα, που διαβάζει το `DecryptPassword` του API, όπως οι κωδικοί υπηρεσιών
+    (`--whmcs-api-url`, `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET`). Δούλεψε: cnic και openprovider.
+  - **Gateways** (`tblpaymentgateways`): σχήμα `<iv hex>.<ciphertext hex>` (όπως το 2FA). Το `DecryptPassword` απαντά γι'
+    αυτό με σκουπίδια (`Malformed UTF-8`), οπότε δεν ρωτιέται. Δοκιμάζεται το **`cc_encryption_hash`** του `configuration.php`
+    (`WHMCS_CC_ENCRYPTION_HASH`, ίδιο με του 2FA)· **στη nixpal (2026-10-31) δεν τα άνοιξε**, ενώ άνοιξε το 2FA (1 login), ούτε
+    9 εναλλακτικές παραγωγές κλειδιού (sha256/md5/sha512/sha1, ακατέργαστο, ως έχει). Ο αλγόριθμος είναι σε ionCube και
+    δεν διαβάζεται. **Άρα Stripe και PayPal μένουν με το χέρι στο cut-over** (secret/publishable key, client id/secret,
+    webhook), όπως προβλέπει το runbook («Host και gateways»). Το import το λέει, και δεν γράφει τίποτα. Αν στο myip το WHMCS
+    είναι σε άλλο σχήμα, ο κώδικας το δοκιμάζει χωρίς αλλαγή.
+  - Αποθηκεύονται όπως τα κρατά η MyCS (`Setting` με `encrypted`), ποτέ σε log ή σημείωση.
+- **Opt-in:** `--with-logins`. Χωρίς αυτό δεν έρχεται κανένα login: μια βάση με ζωντανό WHM token σε enabled server δεν πρέπει
+  να τρέξει cron ή queue κατά λάθος (το scheduler θα έφτανε στο παραγωγικό WHM με δικαιώματα εγγραφής). Με το flag, το output
+  προειδοποιεί να μη τρέξει scheduler ή queue εκεί ώσπου να πρέπει να δράσουν.
+- **cPanel server:** το WHMCS μπορεί να κρατά ένα WHM API token στο `accesshash` (απλό κείμενο, όχι κρυπτογραφημένο).
+  Αν έχει σχήμα token (20–64 χαρακτήρες `[A-Za-z0-9]`) γίνεται `apikey`, **και χωρίς το API**. Server που μπαίνει με κωδικό
+  (κενό `accesshash`) δεν έχει token να φέρει: το import το λέει, και το staff φτιάχνει ένα στο WHM (Manage API Tokens).
+  Έρχεται και η **IP** (`ipaddress` → `ip`, μόνο **δημόσια** έγκυρη, και όχι σε server που είχε στήσει το staff και υιοθετήθηκε): η σύνδεση προς το panel πάει σε αυτήν όποιο DNS κι αν
+  απαντά (`PanelConnection`). Το `self_signed` δεν υπάρχει στο WHMCS και δεν μαντεύεται. Centova και mailcow: δεν έρχονται
+  (λέγεται ποιοι servers), μέχρι να ελεγχθεί στο myip τι κρατούν.
+- **Registrars:** `cnic` και `openprovider`, `Username` και `Password` (η `Password` κρυπτογραφημένη). **`ispapi` είναι το
+  CNIC** (ιδιοκτήτης, 2026-10-31): domains και TLDs του `ispapi` πάνε στη σύνδεση `cnic` (το `meta.whmcs.registrar` κρατά
+  το όνομα του WHMCS), και τα credentials βγαίνουν από τις ρυθμίσεις `cnic`, αλλιώς `ispapi`· αν υπάρχουν και οι δύο, παίρνει
+  τον λογαριασμό που ονομάζουν τα περισσότερα domains (`tbldomains.registrar`) και το λέει. Η σύνδεση μένει **ανενεργή** και
+  παίρνει **mode ανάλογα με τον λογαριασμό**: Production για live, Sandbox για TEST (`TestMode`). Όχι `off`: το `off` μετράει
+  ως sandbox, και το «Test Connection» θα έστελνε τον ζωντανό κωδικό στο sandbox του Openprovider (σκέτο HTTP). Αν δεν
+  διαβάστηκε αν είναι live ή test, το login δεν αποθηκεύεται. Login που έχει ήδη βάλει το staff μένει.
+- **Gateways:** Stripe (`secretKey`, `publishableKey`: ίδιο mode, αλλιώς δεν μπαίνουν) και PayPal `paypal_ppcpv`
+  (`clientId`/`clientSecret`, ή των sandbox αν `useSandbox`, και `test_mode`). Μένουν **disabled** και γράφονται ως Settings,
+  **ποτέ μέσω του save της extension**: το `updated()` του Stripe φτιάχνει webhook endpoint στο Stripe. Δεν έρχονται τα
+  webhook secrets/ids του παλιού endpoint (η MyCS φτιάχνει δικά της στο cut-over, βλ. «Host και gateways»), ούτε το κλασικό
+  `paypal` (API username/signature): δεν έχει αντίστοιχο.
+- **Ασφάλεια:** τίποτα δεν ενεργοποιείται (οι συνδέσεις registrar ανενεργές, τα gateways disabled)· ένα αντίγραφο με live κλειδιά
+  δεν πρέπει να τρέξει cron ή queue. Τα κλειδιά γράφονται στο `Gateway` model, όπου τα διαβάζει η εφαρμογή. Μετά το
+  τελευταίο import αφαιρείται το `DecryptPassword` από τον ρόλο του API (βλ. «Κωδικοί υπηρεσιών»).
+- **Δεν έρχεται ακόμα:** `paypal_legacy_receivers` (email και merchant id του PayPal, από `paypal.email` και `paypal_ppcpv.payerId`).
 
 ## Κωδικοί υπηρεσιών (`WhmcsServicePasswordImport`, 2026-10-30)
 - **Πού είναι:** το `tblhosting.password` είναι κρυπτογραφημένο με το `cc_encryption_hash` του WHMCS, που δεν είναι στη
