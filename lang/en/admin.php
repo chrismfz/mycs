@@ -20,6 +20,7 @@ return [
         'holds_ending' => 'Held services told their suspension date',
         'domain_reminders' => 'Domain expiry notices sent',
         'logs_pruned' => 'Logs pruned (retention)',
+        'carts_pruned' => 'Abandoned carts deleted',
         'license_logs_pruned' => 'License access logs pruned',
         'zlic_limits_pruned' => 'zlic.php counters pruned',
         'group_prices_reconciled' => 'Group prices brought up to date',

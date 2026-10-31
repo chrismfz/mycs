@@ -20,6 +20,7 @@ return [
         'holds_ending' => 'Υπηρεσίες σε αναμονή που ενημερώθηκαν για την αναστολή',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'logs_pruned' => 'Καθαρισμός logs (retention)',
+        'carts_pruned' => 'Εγκαταλειμμένα καλάθια που διαγράφηκαν',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'zlic_limits_pruned' => 'Καθαρισμός μετρητών του zlic.php',
         'group_prices_reconciled' => 'Ενημέρωση τιμών ομάδων',
