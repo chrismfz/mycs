@@ -63,6 +63,7 @@ final class WhmcsCredentialImport
         $this->registrars();
         $this->gateways();
         if ($this->needsApi) {
+            $this->notes = array_values(array_filter($this->notes, fn (string $note) => !str_contains($note, 'was not read: enter it by hand') && !str_contains($note, 'were not decrypted')));
             $this->notes[] = "Credentials of registrars and gateways not imported: WHMCS's API is needed to decrypt them "
                 . '(--whmcs-api-url, WHMCS_API_IDENTIFIER, WHMCS_API_SECRET in the environment).';
         }

@@ -547,7 +547,7 @@ final class CatalogImport
     /** @param  array<string, DomainRegistrarConnection>  $connections  WHMCS's registrar module => the connection here */
     private function tlds(array $connections): void
     {
-        foreach ($connections as $connection) {
+        foreach (collect($connections)->unique(fn (DomainRegistrarConnection $connection) => $connection->id) as $connection) { // ispapi and cnic: one
             if (!$connection->is_active) {
                 $this->notes[] = "Registrar connection #{$connection->id} «{$connection->label}» is not active: its TLDs register nothing until it is.";
             }

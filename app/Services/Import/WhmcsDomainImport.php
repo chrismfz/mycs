@@ -258,7 +258,7 @@ final class WhmcsDomainImport
         }
         if ($this->connections !== []) {
             $this->notes[] = 'Registrar connections ' . implode(', ', array_keys($this->connections))
-                . ': off and without credentials until staff enter them (Domains → Registrars).';
+                . ': inactive, and without credentials unless --with-logins brought them; staff switch them on (Domains → Registrars).';
         }
     }
 
