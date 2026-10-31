@@ -664,4 +664,35 @@ class ImportCredentialsTest extends TestCase
         $this->assertSame('smtp.example.test', $this->globalSetting('mail_host'));
         $this->assertContains($this->globalSetting('mail_encryption'), [null, '']);
     }
+
+    public function test_a_port_that_is_no_port_and_a_shared_mailbox_are_said(): void
+    {
+        $bad = $this->department(1, port: 99999);
+        $this->department(2, login: 'shared@example.test');
+        $this->department(3, login: 'shared@example.test');
+
+        $result = $this->import($this->api());
+
+        $this->assertNull($bad->fresh()->imap_host);
+        $this->assertStringContainsString('is no port', implode("\n", $result['notes']));
+        $this->assertStringContainsString('reads the same mailbox', implode("\n", $result['notes']));
+    }
+
+    public function test_the_smtp_settings_are_all_written_or_none(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '587', 'auth_type' => 'plain', 'username' => 'u', 'password' => 'p', 'secure' => 'tls']);
+        // The last of them cannot be written: the earlier ones must not stay.
+        Setting::saving(function (Setting $setting) {
+            if ($setting->key === 'mail_encryption') {
+                throw new \RuntimeException('disk full');
+            }
+        });
+
+        try {
+            $this->import($this->api());
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertNull($this->globalSetting('mail_host'));
+    }
 }

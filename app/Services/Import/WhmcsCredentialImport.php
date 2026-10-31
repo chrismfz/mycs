@@ -9,6 +9,7 @@ use App\Models\Server;
 use App\Models\Setting;
 use App\Models\TicketDepartment;
 use Closure;
+use Illuminate\Support\Facades\DB;
 use PDO;
 use PDOException;
 use RuntimeException;
@@ -296,6 +297,7 @@ final class WhmcsCredentialImport
 
     private function departments(): void
     {
+        $mailboxes = [];
         foreach ($this->rows('SELECT id, name, host, port, login, password FROM tblticketdepartments ORDER BY id') as $row) {
             $host = trim((string) $row['host']);
             $login = trim((string) $row['login']);
@@ -325,6 +327,17 @@ final class WhmcsCredentialImport
                 continue;
             }
             [$port, $encryption] = self::POP3_TO_IMAP[(int) $row['port']] ?? [(int) $row['port'] ?: 993, (int) $row['port'] === 143 ? 'starttls' : 'ssl'];
+            if ($port < 1 || $port > 65535) {
+                $this->skip("{$label}: its mailbox port {$row['port']} is no port: enter the mailbox by hand.");
+
+                continue;
+            }
+            // Two departments on one mailbox would both read it once polling is on: said, not decided.
+            $mailbox = strtolower($host . '|' . $login);
+            if (isset($mailboxes[$mailbox])) {
+                $this->notes[] = "{$label} reads the same mailbox as {$mailboxes[$mailbox]}: turn polling on for one of them only.";
+            }
+            $mailboxes[$mailbox] = $label;
             // Polling stays off: it is opened per department after a test with a real mail (ROADMAP, tickets §6c).
             $department->forceFill(['imap_host' => $host, 'imap_port' => $port, 'imap_encryption' => $encryption, 'imap_username' => $login, 'imap_password' => $password])->saveQuietly();
             $this->counts['imported']++;
@@ -347,6 +360,10 @@ final class WhmcsCredentialImport
             $config[$row['setting']] = (string) $row['value'];
         }
         if (trim($config['MailConfig'] ?? '') === '') {
+            if (strtolower(trim($config['MailType'] ?? '')) === 'smtp') {
+                $this->notes[] = 'Central mail: WHMCS sends by SMTP but keeps no MailConfig (an older install): set the mail server by hand.';
+            }
+
             return;
         }
         $this->counts['found']++;
@@ -393,11 +410,14 @@ final class WhmcsCredentialImport
         if (trim($config['SystemEmailsFromName'] ?? '') !== '') {
             $values['mail_from_name'] = [trim($config['SystemEmailsFromName']), false];
         }
-        foreach ($values as $key => [$value, $encrypted]) {
-            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null, 'settingable_id' => null], ['value' => $value, 'type' => 'string', 'encrypted' => $encrypted]);
-        }
+        // All or none: a host with no password would read, on a re-run, as a mail server already set.
+        DB::transaction(function () use ($values) {
+            foreach ($values as $key => [$value, $encrypted]) {
+                Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null, 'settingable_id' => null], ['value' => $value, 'type' => 'string', 'encrypted' => $encrypted]);
+            }
+        });
         $this->counts['imported']++;
-        $this->notes[] = 'Central mail: WHMCS\'s SMTP server and sender came. The header, footer and CSS of its emails (Smarty) do not: this app has its own. '
+        $this->notes[] = 'Central mail: WHMCS\'s SMTP server and sender came (the Mail Encryption setting does not make Laravel require TLS: it uses 465 as SSL and otherwise STARTTLS when offered; test it before the cut-over). The header, footer and CSS of its emails (Smarty) do not: this app has its own. '
             . 'Nothing sends from a copy unless its queue runs: do not run one on this database.';
         unset($password, $smtp);
     }
