@@ -27,6 +27,7 @@ use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -45,9 +46,18 @@ class NetAmountsAdversarialTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A day a month after which is a whole month: on the 31st, «a month on» is the 30th and a period a day short
+        // (the tests failed every 31st, 2026-10-31).
+        Carbon::setTestNow('2026-07-15 10:00:00');
         $this->tax();
         TaxRate::create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /** The settings, again right before an action: the settings provider can reload them from the database. */
