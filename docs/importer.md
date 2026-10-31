@@ -537,6 +537,22 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   Ένα token δεν τυπώνεται ποτέ.
 - **Τοπικά αντίγραφα:** nixpal 52 Stripe (36 πελάτες) και 15 PayPal· myip 51 Stripe, 49 PayPal και 4 Stripe SEPA.
 
+## Welcome emails, ιστορικό emails, announcements (2026-10-31)
+- **Welcome email προϊόντος** (`WhmcsWelcomeSnippetImport`): ένα προϊόν με δικό του template στο WHMCS (`welcomeemail`, `custom` = 1)
+  παίρνει snippet στο «service activated» (`{{ product_info }}`). Δεν υπάρχει γενικός μετατροπέας Smarty (απόφαση ιδιοκτήτη): το
+  email της MyCS λέει ήδη πελάτη, προϊόν, τρόπο πληρωμής, ποσό, κύκλο και επόμενη λήξη, άρα κρατιούνται μόνο οι **άλλες**
+  γραμμές (οδηγία, link) και το «License Key: {$service_domain}» προϊόντος άδειας ως `{{ service.license.license_key }}`.
+  Γραμμή με άλλη μεταβλητή Smarty δεν έρχεται και λέγεται· snippet που υπάρχει εδώ μένει. Nixpal: τα 6 προϊόντα ZoneCloud (template
+  84) παίρνουν «License key» και «Refer to https://zonecloud.io/ …». Το «ZoneCloud Controller» (87) δεν συνδέεται με προϊόν.
+  Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email.
+- **Ιστορικό emails** (`WhmcsEmailHistoryImport`): το τελευταίο έτος του `tblemails` (nixpal 4.033 από 13.136) στο `email_logs`
+  (το `cronjob_delete_email_logs` γίνεται 365, αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα bodies **καθαρίζονται**:
+  `Password: …`, κλειδιά στα query των links (reset κωδικού) και κάθε γνωστό secret (`Redact::text`)· 2 body της nixpal είχαν.
+  Τα pending δεν έρχονται· τα failed έρχονται ως failed.
+- **Announcements** (`WhmcsAnnouncementImport`): τα 4 δημοσιευμένα της nixpal («Zonecloud updates» κ.ά., 2020–2024) στο extension
+  Announcements, με τις ημερομηνίες τους. Αν το extension δεν είναι εγκατεστημένο, λέγεται και δεν γράφει τίποτα. Τα URLs τους
+  θέλουν 301 στο cut-over (όχι Knowledgebase: αυτό έχει ήδη έρθει).
+
 ## Tax, ετικέτες υπηρεσιών, spam filters (2026-10-31)
 Από το sweep «τι ξεχνάμε» (nixpal, 2026-10-31). Αποφάσεις του ιδιοκτήτη: marketing **δεν** στέλνουμε, άρα η συναίνεση marketing
 (76 opt-out, 77 χωρίς opt-in) δεν εισάγεται· η πληρωμή 15,80 € χωρίς τιμολόγιο και οι προμήθειες των gateways (2.832,80 €)
