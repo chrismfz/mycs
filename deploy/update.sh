@@ -180,10 +180,16 @@ cron_wait() {
   fi
 }
 log "Waiting for a cron run in progress, if any"
-cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer)."; exit 1; }
+cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer; a crashed run's lock: php artisan app:cron-wait --release-stale)."; exit 1; }
+# Up again on a failed second wait only if this deploy put it down (a failed deploy left it down: ADV-CW-4).
+_was_down=0; [[ -f storage/framework/down ]] && _was_down=1
 log "Maintenance mode ON"
 $ART down --retry=15 || true
-cron_wait || { $ART up || true; fail "A cron run started just before maintenance and is still running — nothing changed, the app is up again. Re-run the deploy once it is over."; exit 1; }
+cron_wait || {
+  [[ $_was_down == 0 ]] && { $ART up || true; }
+  fail "A cron run started just before maintenance and is still running — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
+  exit 1
+}
 trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
 stop_queue_worker
 

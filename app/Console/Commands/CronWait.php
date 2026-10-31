@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\Cache;
  */
 class CronWait extends Command
 {
-    protected $signature = 'app:cron-wait {--timeout=900 : Seconds to wait for a run in progress}';
+    protected $signature = 'app:cron-wait {--timeout=900 : Seconds to wait for a run in progress}
+        {--release-stale : Clear the lock of a run that crashed (only when no cron process is running)}';
 
     protected $description = 'Waits for a cron run in progress to finish (deploy/update.sh)';
 
@@ -22,6 +23,19 @@ class CronWait extends Command
     {
         $timeout = max(0, (int) $this->option('timeout'));
         $lock = Cache::lock('app:cron-job', 60);
+        // A run killed mid-way (OOM, reboot) leaves its lock up to two hours: cleared only with no cron process alive
+        // (ADV-CW-3).
+        if ($this->option('release-stale')) {
+            if (self::cronAlive()) {
+                $this->error('A cron process is running: its lock is not stale. Wait for it.');
+
+                return self::FAILURE;
+            }
+            $lock->forceRelease();
+            $this->info('The cron lock is cleared.');
+
+            return self::SUCCESS;
+        }
         if ($lock->get()) {
             $lock->release();
 
@@ -36,8 +50,21 @@ class CronWait extends Command
             return self::SUCCESS;
         } catch (LockTimeoutException) {
             $this->error("A cron run is still in progress after {$timeout}s (or the lock of one that crashed, for up to two hours).");
+            $this->line((self::cronAlive() ? 'A cron process is running: wait for it.' : 'No cron process is running: the lock is a crashed run\'s.')
+                . ' A crashed run\'s lock is cleared with: php artisan app:cron-wait --release-stale (refused while a cron process runs).');
 
             return self::FAILURE;
         }
+    }
+
+    /** A process of the cron's command alive on this host (pgrep; unknown counts as alive, never clearing a live run's). */
+    private static function cronAlive(): bool
+    {
+        $out = [];
+        $code = 1;
+        // «[a]rtisan»: the pattern does not match the shell that runs pgrep with it.
+        @exec('pgrep -f ' . escapeshellarg('[a]rtisan app:cron-job'), $out, $code);
+
+        return $code !== 1; // 0: found; 1: none; anything else (no pgrep): assume one
     }
 }

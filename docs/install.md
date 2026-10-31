@@ -88,7 +88,10 @@ su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh
 maintenance mode, queue drain, checkout, composer, migrate, build, caches, private files, smoke check.
 **Ένα τρέξιμο του cron σε εξέλιξη τελειώνει πρώτα** (sweep 9γ, `app:cron-wait`): το deploy το περιμένει πριν το
 maintenance και ξανά αμέσως μετά (ο scheduler δεν ξεκινά νέο σε maintenance), ως 15 λεπτά (`CRON_WAIT_SECONDS`). Αν δεν
-τελειώσει, το deploy σταματά χωρίς να έχει αλλάξει τίποτα: το ξανατρέχεις όταν τελειώσει.
+τελειώσει, το deploy σταματά χωρίς να έχει αλλάξει τίποτα: το ξανατρέχεις όταν τελειώσει. Lock τρεξίματος που
+κόπηκε (OOM, reboot· μένει ως 2 ώρες): `php artisan app:cron-wait --release-stale`, μόνο όταν δεν τρέχει κανένα
+`app:cron-job`. Ένα τρέξιμο του cron που παίρνει το lock ενώ το site είναι σε maintenance δεν κάνει τίποτα (το
+ημερήσιο ειδοποιεί το staff να ξανατρέξει).
 
 ## Αν κάτι πάει στραβά
 Δεν υπάρχει αυτόματο rollback (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + backup). Το όνομα του snapshot

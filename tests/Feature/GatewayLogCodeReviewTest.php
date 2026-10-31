@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\Money\GatewayReference;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
+use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -122,6 +123,9 @@ class GatewayLogCodeReviewTest extends TestCase
         Event::listen(TransactionCreated::class, function () {
             DB::afterCommit(fn () => throw new \RuntimeException('renewal failed after commit'));
         });
+        // Maintenance read from a file, as in production: the cache below is not a cache manager (TestCase reads it there).
+        config(['app.maintenance.driver' => 'file']);
+        $this->app->forgetInstance(MaintenanceModeManager::class);
         Cache::swap(new Repository(new class extends ArrayStore
         {
             public function add($key, $value, $seconds)
