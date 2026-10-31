@@ -544,23 +544,29 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   σχήμα του WHMCS (όχι το `<iv>.<ciphertext>` του 2FA), άρα το `cc_encryption_hash` από μόνο του δεν αρκεί. Διαβάζονται με
   το `DecryptPassword` του API, όπως οι κωδικοί υπηρεσιών (`--whmcs-api-url`, `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET`).
   Nixpal: ~15 κλήσεις. Αποθηκεύονται όπως τα κρατά η MyCS (`Setting` με `encrypted`), ποτέ σε log ή σημείωση.
+- **Opt-in:** `--with-logins`. Χωρίς αυτό δεν έρχεται κανένα login: μια βάση με ζωντανό WHM token σε enabled server δεν πρέπει
+  να τρέξει cron ή queue κατά λάθος (το scheduler θα έφτανε στο παραγωγικό WHM με δικαιώματα εγγραφής). Με το flag, το output
+  προειδοποιεί να μη τρέξει scheduler ή queue εκεί ώσπου να πρέπει να δράσουν.
 - **cPanel server:** το WHMCS μπορεί να κρατά ένα WHM API token στο `accesshash` (απλό κείμενο, όχι κρυπτογραφημένο).
   Αν έχει σχήμα token (20–64 χαρακτήρες `[A-Za-z0-9]`) γίνεται `apikey`, **και χωρίς το API**. Server που μπαίνει με κωδικό
   (κενό `accesshash`) δεν έχει token να φέρει: το import το λέει, και το staff φτιάχνει ένα στο WHM (Manage API Tokens).
-  Έρχεται και η **IP** (`ipaddress` → `ip`, μόνο αν είναι έγκυρη): η σύνδεση προς το panel πάει σε αυτήν όποιο DNS κι αν
+  Έρχεται και η **IP** (`ipaddress` → `ip`, μόνο **δημόσια** έγκυρη, και όχι σε server που είχε στήσει το staff και υιοθετήθηκε): η σύνδεση προς το panel πάει σε αυτήν όποιο DNS κι αν
   απαντά (`PanelConnection`). Το `self_signed` δεν υπάρχει στο WHMCS και δεν μαντεύεται. Centova και mailcow: δεν έρχονται
   (λέγεται ποιοι servers), μέχρι να ελεγχθεί στο myip τι κρατούν.
 - **Registrars:** `cnic` και `openprovider`, `Username` και `Password` (η `Password` κρυπτογραφημένη). **`ispapi` είναι το
   CNIC** (ιδιοκτήτης, 2026-10-31): domains και TLDs του `ispapi` πάνε στη σύνδεση `cnic` (το `meta.whmcs.registrar` κρατά
   το όνομα του WHMCS), και τα credentials βγαίνουν από τις ρυθμίσεις `cnic`, αλλιώς `ispapi`· αν υπάρχουν και οι δύο, παίρνει
-  τις `cnic` και το λέει. Η σύνδεση μένει **off και ανενεργή**· η σημείωση λέει αν το login είναι του TEST λογαριασμού
-  (`TestMode`), ώστε το staff να διαλέξει mode. Login που έχει ήδη βάλει το staff μένει.
+  τον λογαριασμό που ονομάζουν τα περισσότερα domains (`tbldomains.registrar`) και το λέει. Η σύνδεση μένει **ανενεργή** και
+  παίρνει **mode ανάλογα με τον λογαριασμό**: Production για live, Sandbox για TEST (`TestMode`). Όχι `off`: το `off` μετράει
+  ως sandbox, και το «Test Connection» θα έστελνε τον ζωντανό κωδικό στο sandbox του Openprovider (σκέτο HTTP). Αν δεν
+  διαβάστηκε αν είναι live ή test, το login δεν αποθηκεύεται. Login που έχει ήδη βάλει το staff μένει.
 - **Gateways:** Stripe (`secretKey`, `publishableKey`: ίδιο mode, αλλιώς δεν μπαίνουν) και PayPal `paypal_ppcpv`
   (`clientId`/`clientSecret`, ή των sandbox αν `useSandbox`, και `test_mode`). Μένουν **disabled** και γράφονται ως Settings,
   **ποτέ μέσω του save της extension**: το `updated()` του Stripe φτιάχνει webhook endpoint στο Stripe. Δεν έρχονται τα
   webhook secrets/ids του παλιού endpoint (η MyCS φτιάχνει δικά της στο cut-over, βλ. «Host και gateways»), ούτε το κλασικό
   `paypal` (API username/signature): δεν έχει αντίστοιχο.
-- **Ασφάλεια:** τίποτα δεν ενεργοποιείται· ένα αντίγραφο δοκιμής με live κλειδιά δεν πρέπει να τρέξει cron ή queue. Μετά το
+- **Ασφάλεια:** τίποτα δεν ενεργοποιείται (οι συνδέσεις registrar ανενεργές, τα gateways disabled)· ένα αντίγραφο με live κλειδιά
+  δεν πρέπει να τρέξει cron ή queue. Τα κλειδιά γράφονται στο `Gateway` model, όπου τα διαβάζει η εφαρμογή. Μετά το
   τελευταίο import αφαιρείται το `DecryptPassword` από τον ρόλο του API (βλ. «Κωδικοί υπηρεσιών»).
 - **Δεν έρχεται ακόμα:** `paypal_legacy_receivers` (email και merchant id του PayPal, από `paypal.email` και `paypal_ppcpv.payerId`).
 

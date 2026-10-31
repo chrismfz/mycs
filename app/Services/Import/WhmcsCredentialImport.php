@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\DomainRegistrarConnection;
 use App\Models\Extension;
+use App\Models\Gateway;
 use App\Models\Server;
 use Closure;
 use PDO;
@@ -18,9 +19,10 @@ use Throwable;
  * passwords and the saved payment methods (WhmcsServicePasswordImport, WhmcsPayMethodImport).
  *
  * - A set is written only where none is stored yet: what staff typed here stays.
- * - Nothing is switched on. A registrar connection stays off and a gateway disabled, and nothing is asked of Stripe,
- *   PayPal or a registrar: the values are written as Settings, never through an extension's own save (Stripe's creates a
- *   webhook endpoint there). The webhooks of Stripe and PayPal are this instance's own, made at the cut-over.
+ * - Nothing is switched on. A registrar connection stays inactive (its mode follows its account, Production or Sandbox: a
+ *   mode «off» would send a live password to a registrar's test system) and a gateway disabled, and nothing is asked of
+ *   Stripe, PayPal or a registrar: the values are written as Settings, never through an extension's own save (Stripe's
+ *   creates a webhook endpoint there). The webhooks of Stripe and PayPal are this instance's own, made at the cut-over.
  * - A value is never printed, logged nor kept anywhere else: the notes carry modules, setting names and server ids.
  * - cPanel: MyCS logs in to WHM with an API token, which a WHMCS server can keep in its access hash. A server that logs
  *   in with a password has no token to bring: said, and staff make one (WHM → Manage API Tokens).
@@ -114,6 +116,7 @@ final class WhmcsCredentialImport
         foreach (array_diff(array_keys($sets), $known) as $module) {
             $this->notes[] = "Registrar «{$module}» in WHMCS has no connection here: its settings are not carried.";
         }
+        $used = $this->domainsByRegistrar();
         foreach (self::REGISTRARS as $registrar => $modules) {
             $connection = DomainRegistrarConnection::query()->where('registrar', $registrar)->orderBy('id')->first();
             $complete = array_values(array_filter($modules, fn (string $m) => ($sets[$m]['Username'] ?? '') !== '' && ($sets[$m]['Password'] ?? '') !== ''));
@@ -132,24 +135,43 @@ final class WhmcsCredentialImport
 
                 continue;
             }
+            // The account in use: the module most of the domains name (their `registrar`), the first listed when level.
+            usort($complete, fn (string $a, string $b) => ($used[$b] ?? 0) <=> ($used[$a] ?? 0) ?: array_search($a, $modules, true) <=> array_search($b, $modules, true));
             $module = $complete[0];
-            $username = $this->plain($sets[$module]['Username'], "registrar {$module} username");
-            $password = $this->plain($sets[$module]['Password'], "registrar {$module} password");
-            if ($username === null || $password === null) {
-                $this->skip("Registrar «{$registrar}»: its login was not decrypted: enter it by hand.");
+            // Live or test decides the mode it is stored in: «off» would reach the registrar's sandbox (Openprovider's over plain
+            // HTTP) with a live password when staff press Test Connection (ADV-561-2). Unknown, it is not stored.
+            $flag = $sets[$module]['TestMode'] ?? $sets[$module]['test_mode'] ?? '';
+            $test = trim($flag) === '' ? '' : $this->plain($flag, "registrar {$module} test mode"); // no flag set: the live account
+            $username = $test === null ? null : $this->plain($sets[$module]['Username'], "registrar {$module} username");
+            $password = $username === null ? null : $this->plain($sets[$module]['Password'], "registrar {$module} password");
+            if ($test === null || $username === null || $password === null || trim($username) === '' || $password === '') {
+                $this->skip("Registrar «{$registrar}»: its login, or whether it is the live or the test account, was not read: enter it by hand.");
 
                 continue;
             }
+            $sandbox = $this->on($test);
             $connection->storeCredentials(['username' => trim($username), 'password' => $password], ['password']);
+            // Inactive: nothing calls it (every call needs is_active); only staff's Test Connection reaches the system its mode names.
+            $connection->forceFill(['mode' => $sandbox ? 'sandbox' : 'production'])->save();
             $this->counts['imported']++;
             if (count($complete) > 1) {
-                $this->notes[] = "Registrar «{$registrar}»: WHMCS has settings for both «" . implode('» and «', $complete) . "»; «{$module}»'s were taken. Check it is the account in use.";
+                $this->notes[] = "Registrar «{$registrar}»: WHMCS has settings for both «" . implode('» and «', $complete) . "»; the one most domains use, «{$module}», was taken. Check it is the account in use.";
             }
-            $test = $this->plain($sets[$module]['TestMode'] ?? $sets[$module]['test_mode'] ?? '', "registrar {$module} test mode");
-            $this->notes[] = "Registrar «{$registrar}»: the login is " . ($test !== null && $this->on($test) ? 'WHMCS\'s TEST account: keep the connection in Sandbox' : 'WHMCS\'s live account')
-                . '; the connection stays off until staff set its mode and switch it on (Domains → Registrars).';
+            $this->notes[] = "Registrar «{$registrar}»: the login is " . ($sandbox ? 'WHMCS\'s TEST account: mode Sandbox' : 'WHMCS\'s live account: mode Production')
+                . '; the connection stays inactive until staff switch it on (Domains → Registrars).';
             unset($username, $password, $test);
         }
+    }
+
+    /** @return array<string, int> domains per WHMCS registrar module, as tbldomains names them */
+    private function domainsByRegistrar(): array
+    {
+        $count = [];
+        foreach ($this->rows('SELECT registrar, COUNT(*) AS n FROM tbldomains GROUP BY registrar') as $row) {
+            $count[strtolower(trim((string) $row['registrar']))] = (int) $row['n'];
+        }
+
+        return $count;
     }
 
     // ---- gateways ---------------------------------------------------------------------------------------------------
@@ -240,11 +262,12 @@ final class WhmcsCredentialImport
 
     // ---- helpers ----------------------------------------------------------------------------------------------------
 
-    private function extension(string $module): ?Extension
+    /** The gateway as the app reads it: its Settings belong to the Gateway model, not to the base Extension (ADV-561-1). */
+    private function extension(string $module): ?Gateway
     {
         $id = ($this->gateway)($module);
 
-        return $id === null ? null : Extension::query()->find($id);
+        return $id === null ? null : Gateway::query()->find($id);
     }
 
     private function has(Extension|Server $model, string $key): bool
@@ -265,7 +288,8 @@ final class WhmcsCredentialImport
 
     /**
      * What WHMCS keeps encrypted, decoded as WHMCS hands its modules (it keeps what staff typed HTML-escaped), or null:
-     * nothing there, no API, WHMCS refused or stopped answering, or not text. Never printed: $what names the setting.
+     * nothing there, no API, WHMCS refused or stopped answering, or not text. An empty string is a value that decrypted
+     * to nothing. Never printed: $what names the setting.
      */
     private function plain(string $stored, string $what): ?string
     {
@@ -300,8 +324,11 @@ final class WhmcsCredentialImport
         }
         $this->inARow = 0;
         $value = $answer['password'] ?? null;
-        if (!is_string($value) || $value === '') {
+        if (!is_string($value)) {
             return null;
+        }
+        if ($value === '') {
+            return ''; // decrypted, and empty: not a failure (a test mode left off)
         }
         $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         if (!mb_check_encoding($value, 'UTF-8') || str_contains($value, "\0")) {

@@ -217,6 +217,30 @@ class WhmcsCatalogImportTest extends TestCase
         $this->assertSame(0, Setting::query()->where(['settingable_id' => $server->id, 'key' => 'ip'])->count());
     }
 
+    /** ADV-561-3: a private or reserved address is not a place the panel can be reached from here: not pinned. */
+    public function test_a_private_ipaddress_is_not_stored(): void
+    {
+        foreach (['10.0.0.5', '192.168.1.9', '127.0.0.1'] as $ip) {
+            $this->whmcs->exec("UPDATE tblservers SET ipaddress = '{$ip}' WHERE id = 2");
+            $this->import();
+            $server = Server::query()->where('whmcs_id', 2)->sole();
+            $this->assertSame(0, Setting::query()->where(['settingable_id' => $server->id, 'key' => 'ip'])->count(), $ip);
+        }
+    }
+
+    /** ADV-561-3: a server staff set up (adopted by module and host) keeps its connection: no IP pinned onto it. */
+    public function test_an_adopted_server_gets_no_ip(): void
+    {
+        $staff = new Server;
+        $staff->forceFill(['name' => 'mine', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true])->save();
+        Setting::query()->create(['settingable_type' => $staff->getMorphClass(), 'settingable_id' => $staff->id, 'key' => 'host', 'value' => 'https://cp1.example.test:2087', 'type' => 'string', 'encrypted' => false]);
+
+        $this->import();
+
+        $this->assertSame(2, (int) $staff->fresh()->whmcs_id, 'adopted');
+        $this->assertSame(0, Setting::query()->where(['settingable_id' => $staff->id, 'key' => 'ip'])->count());
+    }
+
     /** Code review 6: an imported server staff deleted stays deleted, and the re-run does not fail on its WHMCS id. */
     public function test_a_server_deleted_here_does_not_break_a_rerun(): void
     {

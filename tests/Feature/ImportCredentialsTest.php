@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ImportFromWhmcs;
 use App\Models\DomainRegistrarConnection;
 use App\Models\Extension;
+use App\Models\Gateway;
 use App\Models\Server;
 use App\Models\Setting;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsCredentialImport;
+use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -15,6 +18,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use PDO;
+use ReflectionMethod;
+use ReflectionProperty;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
@@ -45,6 +52,7 @@ class ImportCredentialsTest extends TestCase
             'CREATE TABLE tblservers (id INTEGER PRIMARY KEY, name TEXT, type TEXT, accesshash TEXT)',
             'CREATE TABLE tblregistrars (registrar TEXT, setting TEXT, value TEXT)',
             'CREATE TABLE tblpaymentgateways (gateway TEXT, setting TEXT, value TEXT)',
+            'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY, registrar TEXT)',
         ] as $sql) {
             $this->whmcs->exec($sql);
         }
@@ -79,9 +87,12 @@ class ImportCredentialsTest extends TestCase
         return DomainRegistrarConnection::query()->create(['registrar' => $registrar, 'label' => "{$registrar} (from WHMCS)", 'is_active' => false, 'mode' => 'off']);
     }
 
-    private function gateway(string $extension): Extension
+    /** As the app holds a gateway: the Gateway model, whose Settings are the ones its admin and ExtensionHelper read (ADV-561-1). */
+    private function gateway(string $extension): Gateway
     {
-        return Extension::query()->create(['name' => $extension, 'type' => 'gateway', 'extension' => $extension]);
+        $id = Extension::query()->create(['name' => $extension, 'type' => 'gateway', 'extension' => $extension])->id;
+
+        return Gateway::query()->findOrFail($id);
     }
 
     /** WHMCS's DecryptPassword as the test fakes it: «enc:x» => x (HTML-escaped as WHMCS keeps it when asked). */
@@ -183,19 +194,56 @@ class ImportCredentialsTest extends TestCase
         $this->assertNotSame('P&amp;ss<1>', $this->raw($connection, 'password'));
         $this->assertFalse((bool) Setting::query()->where(['key' => 'username', 'settingable_id' => $connection->id])->value('encrypted'));
         $this->assertTrue((bool) Setting::query()->where(['key' => 'password', 'settingable_id' => $connection->id])->value('encrypted'));
-        $this->assertSame(['mode' => 'off', 'is_active' => false], $connection->fresh()->only('mode', 'is_active'), 'nothing switched on');
+        $this->assertSame(['mode' => 'production', 'is_active' => false], $connection->fresh()->only('mode', 'is_active'), 'its account\'s mode, and not active');
+        $this->assertFalse($connection->fresh()->isUsable(), 'nothing calls it');
         $this->assertSame(1, $result['counts']['imported']);
         $this->assertStringContainsString('live account', implode("\n", $result['notes']));
     }
 
-    public function test_a_test_mode_login_is_said_to_belong_in_sandbox(): void
+    public function test_a_test_account_is_stored_in_sandbox_mode_and_said(): void
     {
-        $this->connection('openprovider');
+        $connection = $this->connection('openprovider');
         $this->registrar('openprovider', ['Username' => 'u', 'Password' => 'p', 'test_mode' => 'on']);
 
         $result = $this->import($this->api());
 
+        $this->assertSame('sandbox', $connection->fresh()->mode);
         $this->assertStringContainsString('TEST account', implode("\n", $result['notes']));
+    }
+
+    /** ADV-561-2: when it cannot be told whether the login is the live or the test account, it is not stored. */
+    public function test_a_login_whose_mode_could_not_be_read_is_not_stored(): void
+    {
+        $connection = $this->connection('openprovider');
+        $this->registrar('openprovider', ['Username' => 'u', 'Password' => 'p', 'TestMode' => 'x']);
+        Http::fake([self::URL . '/includes/api.php' => function (Request $request) {
+            return str_ends_with((string) $request['password2'], ':x')
+                ? Http::response(['result' => 'error', 'message' => 'Decryption failed'], 500)
+                : Http::response(['result' => 'success', 'password' => 'v']);
+        }]);
+        Exceptions::fake();
+
+        $result = $this->import(new WhmcsApi(self::URL, 'id-test', 'secret-test'));
+
+        $this->assertSame([], $connection->fresh()->credentials());
+        $this->assertSame('off', $connection->fresh()->mode);
+        $this->assertSame(1, $result['counts']['skipped']);
+    }
+
+    /** ADV-561-5: both WHMCS modules have a login: the one most domains name is the account in use. */
+    public function test_the_module_most_domains_use_is_the_account_taken(): void
+    {
+        $connection = $this->connection('cnic');
+        $this->registrar('cnic', ['Username' => 'cnic-user', 'Password' => 'cnic-pass']);
+        $this->registrar('ispapi', ['Username' => 'isp-user', 'Password' => 'isp-pass']);
+        foreach ([1 => 'ispapi', 2 => 'ispapi', 3 => 'cnic'] as $id => $module) {
+            $this->whmcs->prepare('INSERT INTO tbldomains VALUES (?, ?)')->execute([$id, $module]);
+        }
+
+        $result = $this->import($this->api());
+
+        $this->assertSame('isp-user', $connection->fresh()->credentials()['username']);
+        $this->assertStringContainsString('most domains use', implode("\n", $result['notes']));
     }
 
     public function test_cnic_takes_the_settings_of_cnic_or_of_ispapi_its_older_name(): void
@@ -381,5 +429,31 @@ class ImportCredentialsTest extends TestCase
 
         $this->assertSame(0, $result['counts']['imported']);
         $this->assertSame([], DB::table('settings')->where('key', 'password')->pluck('id')->all());
+    }
+
+    /** ADV-561-4: the step is opt-in; without --with-logins a database never gets a live token. */
+    public function test_the_command_brings_the_logins_only_when_asked(): void
+    {
+        $server = $this->server(1, self::TOKEN);
+        $run = function (array $input) {
+            $command = app(ImportFromWhmcs::class);
+            (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+            $arguments = new ArrayInput($input, $command->getDefinition());
+            $command->setInput($arguments);
+            $output = new BufferedOutput;
+            $command->setOutput(new OutputStyle($arguments, $output));
+            (new ReflectionMethod($command, 'importCredentials'))->invoke($command);
+
+            return $output->fetch();
+        };
+
+        $said = $run(['dbname' => 'whmcs_copy']);
+        $this->assertNull($this->raw($server, 'apikey'));
+        $this->assertStringContainsString('--with-logins', $said);
+
+        $said = $run(['dbname' => 'whmcs_copy', '--with-logins' => true]);
+        $this->assertSame(self::TOKEN, Crypt::decryptString($this->raw($server, 'apikey')));
+        $this->assertStringContainsString('now holds live logins', $said);
+        $this->assertStringNotContainsString(self::TOKEN, $said);
     }
 }

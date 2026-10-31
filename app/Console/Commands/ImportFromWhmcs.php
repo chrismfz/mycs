@@ -74,7 +74,8 @@ class ImportFromWhmcs extends Command
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
         {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
-        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}';
+        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}
+        {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
     private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
@@ -1677,6 +1678,13 @@ class ImportFromWhmcs extends Command
      */
     private function importCredentials(): void
     {
+        // Opt-in: a database holding live logins (a WHM token on an enabled server) must never be one a cron or queue runs on
+        // by accident (ADV-561-4).
+        if (!rescue(fn () => (bool) $this->option('with-logins'), false, false)) {
+            $this->line('Logins of servers, registrars and gateways not imported (--with-logins brings them).');
+
+            return;
+        }
         try {
             $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false));
         } catch (\RuntimeException $e) {
@@ -1689,6 +1697,10 @@ class ImportFromWhmcs extends Command
         $this->info("Credentials: {$c['imported']} of {$c['found']} login(s) of servers, registrars and gateways imported, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
+        }
+        if ($c['imported'] > 0) {
+            $this->warn('This database now holds live logins (an enabled server with its WHM token, registrar and gateway accounts): '
+                . 'never run its scheduler or queue until they are meant to act.');
         }
     }
 

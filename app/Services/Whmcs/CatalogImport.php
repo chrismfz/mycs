@@ -267,7 +267,7 @@ final class CatalogImport
                 continue;
             }
             // One staff already set up (same module and host) is adopted, not copied without its password (review F10).
-            $server ??= $this->sameServer($extension, $hostname);
+            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)) !== null;
             $server ??= new Server;
             $server->forceFill([
                 'whmcs_id' => (int) $row['id'],
@@ -283,10 +283,11 @@ final class CatalogImport
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
             $settings = ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
             // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
-            // module with that setting; never a name or a private-looking typo, only a valid address.
-            if ($module === 'cpanel') {
+            // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
+            // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
+            if ($module === 'cpanel' && !$adopted) {
                 $ip = trim((string) ($row['ipaddress'] ?? ''));
-                $settings['ip'] = filter_var($ip, FILTER_VALIDATE_IP) !== false ? $ip : '';
+                $settings['ip'] = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false ? $ip : '';
             }
             foreach ($settings as $key => $value) {
                 $where = ['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => $key];
