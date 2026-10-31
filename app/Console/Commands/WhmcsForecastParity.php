@@ -13,7 +13,7 @@ use function Laravel\Prompts\password;
 /**
  * What each live service and domain will do, in WHMCS and here (ROADMAP 9β, 1; docs/importer.md «Πρόβλεψη»): the cycle, the
  * renewal amount, the due date, the day it is invoiced, whether a saved method charges it, the day it is suspended and
- * terminated, a hold. Read only on both. Exits 1 when anything differs: a cut-over goes ahead with each difference
+ * terminated, a hold. Read only on both. Exits 1 when anything differs (2: the report could not be made): a cut-over goes ahead with each difference
  * explained and written down, or fixed.
  */
 class WhmcsForecastParity extends Command
@@ -39,7 +39,7 @@ class WhmcsForecastParity extends Command
         if ($username === '' || ($host === '' && $socket === '')) {
             $this->error('The WHMCS database\'s user and host (or socket) are needed: --source-user and --source-host or --source-socket.');
 
-            return self::FAILURE;
+            return 2;
         }
         $password = (string) (getenv('WHMCS_SOURCE_PASSWORD') ?: password("Enter the password for user '$username':", required: true));
         $dbname = (string) $this->argument('dbname');
@@ -53,7 +53,7 @@ class WhmcsForecastParity extends Command
         } catch (PDOException $e) {
             $this->error('Not a WHMCS database that can be read: SQLSTATE ' . $e->getCode() . '.');
 
-            return self::FAILURE;
+            return 2; // a report that could not be made, apart from a report that found differences (1)
         }
         $rows = [];
         foreach ($result['summary'] as $key => $count) {

@@ -164,4 +164,45 @@ class ForecastParityTest extends TestCase
         Carbon::setTestNow();
         parent::tearDown();
     }
+
+    public function test_a_hold_of_always_in_both_and_an_expired_one_are_the_same(): void
+    {
+        $this->service(['overideautosuspend' => 1, 'overidesuspenduntil' => '0000-00-00'], ['suspend_hold_until' => '9999-12-31']);
+        $this->service(['overideautosuspend' => 1, 'overidesuspenduntil' => '2020-01-01'], ['suspend_hold_until' => '2020-01-01']);
+
+        $holds = array_filter($this->differences()['suspension hold'] ?? []);
+
+        $this->assertSame([], array_values($holds));
+    }
+
+    public function test_a_date_that_is_no_date_is_said_and_does_not_stop_the_report(): void
+    {
+        $this->service(['nextduedate' => '2026-13-45']);
+
+        $differences = $this->differences();
+
+        $this->assertStringContainsString('invalid', $differences['suspended on'][0]['whmcs']);
+    }
+
+    public function test_a_tax_type_that_differs_makes_the_amounts_not_comparable_and_is_said(): void
+    {
+        $this->whmcs->exec("INSERT INTO tblconfiguration VALUES ('TaxType', 'Inclusive')");
+        config(['settings.tax_type' => 'exclusive']);
+        $this->service();
+
+        $this->assertSame(['inclusive', 'exclusive'], [$this->differences()['tax type'][0]['whmcs'], $this->differences()['tax type'][0]['mycs']]);
+    }
+
+    public function test_a_report_that_could_not_be_made_exits_2_not_1(): void
+    {
+        ForecastCommand::$connect = fn () => throw new \PDOException('no');
+        putenv('WHMCS_SOURCE_PASSWORD=not-asked');
+
+        try {
+            $this->artisan('mycs:forecast-parity', ['dbname' => 'x', '--source-user' => 'u', '--source-host' => 'h'])->assertExitCode(2);
+        } finally {
+            putenv('WHMCS_SOURCE_PASSWORD');
+            ForecastCommand::$connect = null;
+        }
+    }
 }
