@@ -58,6 +58,8 @@ final class WhmcsCredentialImport
 
     private bool $needsKey = false;
 
+    private int $sealedClosed = 0;
+
     /** WHMCS 8's scheme for a value: `<iv hex>.<ciphertext hex>` (the gateways' settings), which needs its cc_encryption_hash. */
     private const NEW_SCHEME = '/^[0-9a-f]{32}\.[0-9a-f]{2,}$/i';
 
@@ -72,16 +74,19 @@ final class WhmcsCredentialImport
         $this->servers();
         $this->registrars();
         $this->gateways();
+        // Each item's «not read» note stays (ADV3-561-1/2: a closing note says why a class of them failed, never which); these
+        // say what the whole class needs.
         if ($this->needsKey) {
-            $this->notes[] = 'Gateway settings not imported: WHMCS keeps them in its newer scheme, which needs its cc_encryption_hash '
-                . '(WHMCS_CC_ENCRYPTION_HASH in the environment, from WHMCS\'s configuration.php; the same key brings the 2FA).';
+            $this->notes[] = 'Gateway settings in WHMCS\'s newer scheme need its cc_encryption_hash (WHMCS_CC_ENCRYPTION_HASH in the environment, '
+                . 'from WHMCS\'s configuration.php; the same key brings the 2FA).';
         }
-        if ($this->needsApi || $this->needsKey) { // the closing notes say why: not each item's «not read»
-            $this->notes = array_values(array_filter($this->notes, fn (string $note) => !str_contains($note, 'was not read: enter it by hand') && !str_contains($note, 'were not decrypted')));
+        if ($this->sealedClosed > 0) {
+            $this->notes[] = "{$this->sealedClosed} gateway setting(s) are in WHMCS's newer scheme, which the cc_encryption_hash given did not open "
+                . '(the 2FA key opens another part of that scheme; the gateways\' is not readable from outside WHMCS): enter the keys by hand, as the cut-over does.';
         }
         if ($this->needsApi) {
-            $this->notes[] = "Credentials of registrars and gateways not imported: WHMCS's API is needed to decrypt them "
-                . '(--whmcs-api-url, WHMCS_API_IDENTIFIER, WHMCS_API_SECRET in the environment).';
+            $this->notes[] = "Some logins were not imported: WHMCS's API is needed to decrypt them (registrars, and gateways in its older scheme: "
+                . '--whmcs-api-url, WHMCS_API_IDENTIFIER, WHMCS_API_SECRET in the environment).';
         }
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
@@ -344,6 +349,7 @@ final class WhmcsCredentialImport
             $value = $this->scheme->plain(trim($stored));
             if ($value === null || !mb_check_encoding($value, 'UTF-8') || str_contains($value, "\0")) {
                 report(new RuntimeException("Credential «{$what}» not decrypted: the key does not open it"));
+                $this->sealedClosed++;
 
                 return null;
             }

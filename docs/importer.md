@@ -543,9 +543,13 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 - **Πώς διαβάζονται (δοκιμή live στη nixpal, 2026-10-31):** δύο σχήματα στο ίδιο WHMCS.
   - **Registrars** (`tblregistrars`): το παλιό σχήμα, που διαβάζει το `DecryptPassword` του API, όπως οι κωδικοί υπηρεσιών
     (`--whmcs-api-url`, `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET`). Δούλεψε: cnic και openprovider.
-  - **Gateways** (`tblpaymentgateways`): το νεότερο, `<iv hex>.<ciphertext hex>` (όπως το 2FA). Το `DecryptPassword` απαντά
-    γι' αυτό με σκουπίδια (`Malformed UTF-8`), άρα διαβάζεται με το **`cc_encryption_hash`** του `configuration.php`
-    (`WHMCS_CC_ENCRYPTION_HASH`, ίδιο με του 2FA). Χωρίς αυτό, η σημείωση το λέει και τίποτα δεν γράφεται.
+  - **Gateways** (`tblpaymentgateways`): σχήμα `<iv hex>.<ciphertext hex>` (όπως το 2FA). Το `DecryptPassword` απαντά γι'
+    αυτό με σκουπίδια (`Malformed UTF-8`), οπότε δεν ρωτιέται. Δοκιμάζεται το **`cc_encryption_hash`** του `configuration.php`
+    (`WHMCS_CC_ENCRYPTION_HASH`, ίδιο με του 2FA)· **στη nixpal (2026-10-31) δεν τα άνοιξε**, ενώ άνοιξε το 2FA (1 login), ούτε
+    9 εναλλακτικές παραγωγές κλειδιού (sha256/md5/sha512/sha1, ακατέργαστο, ως έχει). Ο αλγόριθμος είναι σε ionCube και
+    δεν διαβάζεται. **Άρα Stripe και PayPal μένουν με το χέρι στο cut-over** (secret/publishable key, client id/secret,
+    webhook), όπως προβλέπει το runbook («Host και gateways»). Το import το λέει, και δεν γράφει τίποτα. Αν στο myip το WHMCS
+    είναι σε άλλο σχήμα, ο κώδικας το δοκιμάζει χωρίς αλλαγή.
   - Αποθηκεύονται όπως τα κρατά η MyCS (`Setting` με `encrypted`), ποτέ σε log ή σημείωση.
 - **Opt-in:** `--with-logins`. Χωρίς αυτό δεν έρχεται κανένα login: μια βάση με ζωντανό WHM token σε enabled server δεν πρέπει
   να τρέξει cron ή queue κατά λάθος (το scheduler θα έφτανε στο παραγωγικό WHM με δικαιώματα εγγραφής). Με το flag, το output

@@ -536,6 +536,7 @@ class ImportCredentialsTest extends TestCase
 
         $this->assertNull($this->raw($stripe, 'stripe_secret_key'));
         $this->assertStringNotContainsString('Secret99', json_encode($result['notes']));
+        $this->assertStringContainsString('did not open', implode("\n", $result['notes']));
         Exceptions::assertReported(fn (\RuntimeException $e) => !str_contains($e->getMessage(), 'Secret99'));
     }
 }
