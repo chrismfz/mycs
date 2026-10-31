@@ -21,6 +21,7 @@ use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
+use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
@@ -76,7 +77,8 @@ class ImportFromWhmcs extends Command
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
         {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
-        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}';
+        {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}
+        {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
     private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
@@ -224,6 +226,7 @@ class ImportFromWhmcs extends Command
             // Last: over the network; a method that fails is skipped, never the money above (R5 of #538).
             $this->importPayMethods();
             $this->importServicePasswords();
+            $this->importCredentials();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -1701,6 +1704,38 @@ class ImportFromWhmcs extends Command
         $this->info("Service passwords: {$c['imported']} of {$c['services']} live service(s) imported, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
+        }
+    }
+
+    /**
+     * The logins of what staff connect (WhmcsCredentialImport): a cPanel server's API token, the registrars' accounts and
+     * the gateways' keys. Last, with the other steps over the network; everything stays off until staff switch it on.
+     */
+    private function importCredentials(): void
+    {
+        // Opt-in: a database holding live logins (a WHM token on an enabled server) must never be one a cron or queue runs on
+        // by accident (ADV-561-4).
+        if (!rescue(fn () => (bool) $this->option('with-logins'), false, false)) {
+            $this->line('Logins of servers, registrars and gateways not imported (--with-logins brings them).');
+
+            return;
+        }
+        try {
+            $api = WhmcsApi::fromEnvironment(rescue(fn () => $this->option('whmcs-api-url'), null, false));
+        } catch (\RuntimeException $e) {
+            $this->warn("Credentials not imported: {$e->getMessage()}");
+
+            return;
+        }
+        $result = (new WhmcsCredentialImport($this->pdo, $api, fn (string $module) => $this->gatewayId($module)))->run();
+        $c = $result['counts'];
+        $this->info("Credentials: {$c['imported']} of {$c['found']} login(s) of servers, registrars and gateways imported, {$c['skipped']} skipped.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+        if ($c['imported'] > 0) {
+            $this->warn('This database now holds live logins (an enabled server with its WHM token, registrar and gateway accounts): '
+                . 'never run its scheduler or queue until they are meant to act.');
         }
     }
 

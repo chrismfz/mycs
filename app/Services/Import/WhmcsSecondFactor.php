@@ -38,6 +38,19 @@ final class WhmcsSecondFactor
         return is_string($plain) ? $plain : null;
     }
 
+    /** A value in WHMCS 8's own scheme (`<iv hex>.<ciphertext hex>`: also its gateways' settings), or null: no key, or not readable. */
+    public function plain(string $stored): ?string
+    {
+        if ($this->decrypt === null) {
+            return null;
+        }
+        try {
+            return ($this->decrypt)($stored);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     public function available(): bool
     {
         return $this->decrypt !== null;

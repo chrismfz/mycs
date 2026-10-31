@@ -109,7 +109,7 @@ class WhmcsCatalogImportTest extends TestCase
 
         $server = Server::query()->where('whmcs_id', 2)->sole();
         $this->assertSame(['CPanel', 200], [$server->extension, $server->max_accounts]);
-        $this->assertSame(['host' => 'https://cp1.example.test:2087', 'username' => 'root'], $server->settings()->pluck('value', 'key')->sort()->all());
+        $this->assertSame(['host' => 'https://cp1.example.test:2087', 'ip' => '192.0.2.10', 'username' => 'root'], $server->settings()->pluck('value', 'key')->sortKeys()->all());
         $this->assertStringNotContainsString('Encrypted-', DB::table('settings')->pluck('value')->implode(' '), 'no password, no token');
         $this->assertNull(Server::query()->where('whmcs_id', 3)->first(), 'no module for it: skipped and said');
         $this->assertContains($server->id, ServerGroup::query()->where('whmcs_id', 5)->sole()->servers()->pluck('extensions.id')->all());
@@ -189,6 +189,56 @@ class WhmcsCatalogImportTest extends TestCase
 
         $this->assertSame('https://cp1.example.test:2083', Setting::query()->where(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => 'host'])->value('value'));
         $this->assertSame('0.00', DomainTld::query()->where('tld', 'com')->sole()->load('prices')->priceFor('grace', 1, 'EUR'));
+    }
+
+    /** The cPanel server's IP (WHMCS's ipaddress) comes, as its panel connects to it whatever DNS says; staff's stays. */
+    public function test_a_cpanel_servers_ip_comes_and_the_one_staff_set_stays(): void
+    {
+        $this->import();
+        $server = Server::query()->where('whmcs_id', 2)->sole();
+        $where = ['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => 'ip'];
+        $this->assertSame('192.0.2.10', Setting::query()->where($where)->value('value'));
+        $this->assertSame(0, Setting::query()->where('key', 'self_signed')->count(), 'WHMCS has no such flag: not guessed');
+
+        Setting::query()->where($where)->update(['value' => '198.51.100.7']);
+        $this->import();
+
+        $this->assertSame('198.51.100.7', Setting::query()->where($where)->value('value'));
+    }
+
+    /** A hostname or garbage in WHMCS's ipaddress is not an IP: nothing stored (the panel would connect nowhere). */
+    public function test_an_ipaddress_that_is_not_an_ip_is_not_stored(): void
+    {
+        $this->whmcs->exec("UPDATE tblservers SET ipaddress = 'cp1.example.test' WHERE id = 2");
+
+        $this->import();
+
+        $server = Server::query()->where('whmcs_id', 2)->sole();
+        $this->assertSame(0, Setting::query()->where(['settingable_id' => $server->id, 'key' => 'ip'])->count());
+    }
+
+    /** ADV-561-3: a private or reserved address is not a place the panel can be reached from here: not pinned. */
+    public function test_a_private_ipaddress_is_not_stored(): void
+    {
+        foreach (['10.0.0.5', '192.168.1.9', '127.0.0.1'] as $ip) {
+            $this->whmcs->exec("UPDATE tblservers SET ipaddress = '{$ip}' WHERE id = 2");
+            $this->import();
+            $server = Server::query()->where('whmcs_id', 2)->sole();
+            $this->assertSame(0, Setting::query()->where(['settingable_id' => $server->id, 'key' => 'ip'])->count(), $ip);
+        }
+    }
+
+    /** ADV-561-3: a server staff set up (adopted by module and host) keeps its connection: no IP pinned onto it. */
+    public function test_an_adopted_server_gets_no_ip(): void
+    {
+        $staff = new Server;
+        $staff->forceFill(['name' => 'mine', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true])->save();
+        Setting::query()->create(['settingable_type' => $staff->getMorphClass(), 'settingable_id' => $staff->id, 'key' => 'host', 'value' => 'https://cp1.example.test:2087', 'type' => 'string', 'encrypted' => false]);
+
+        $this->import();
+
+        $this->assertSame(2, (int) $staff->fresh()->whmcs_id, 'adopted');
+        $this->assertSame(0, Setting::query()->where(['settingable_id' => $staff->id, 'key' => 'ip'])->count());
     }
 
     /** Code review 6: an imported server staff deleted stays deleted, and the re-run does not fail on its WHMCS id. */
