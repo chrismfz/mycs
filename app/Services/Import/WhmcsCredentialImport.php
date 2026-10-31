@@ -6,7 +6,10 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\Server;
+use App\Models\Setting;
+use App\Models\TicketDepartment;
 use Closure;
+use Illuminate\Support\Facades\DB;
 use PDO;
 use PDOException;
 use RuntimeException;
@@ -74,6 +77,8 @@ final class WhmcsCredentialImport
         $this->servers();
         $this->registrars();
         $this->gateways();
+        $this->departments();
+        $this->mail();
         // Each item's «not read» note stays (ADV3-561-1/2: a closing note says why a class of them failed, never which); these
         // say what the whole class needs.
         if ($this->needsKey) {
@@ -283,6 +288,138 @@ final class WhmcsCredentialImport
         $this->notes[] = 'Gateway «paypal_ppcpv»: ' . ($test ? 'WHMCS runs in SANDBOX' : 'the live app\'s client id and secret came')
             . '; it stays disabled. Its webhook id is the new endpoint\'s: made and entered at the cut-over (importer.md).';
         unset($id, $secret);
+    }
+
+    // ---- support departments' mailboxes -----------------------------------------------------------------------------
+
+    /** WHMCS reads a department's mailbox by POP3: the same mailbox is read here by IMAP (docs/tickets.md, owner 2026-10-27). */
+    private const POP3_TO_IMAP = [995 => [993, 'ssl'], 110 => [143, 'starttls']];
+
+    private function departments(): void
+    {
+        $mailboxes = [];
+        foreach ($this->rows('SELECT id, name, host, port, login, password FROM tblticketdepartments ORDER BY id') as $row) {
+            $host = trim((string) $row['host']);
+            $login = trim((string) $row['login']);
+            if ($host === '' && $login === '') {
+                continue; // a department with no mailbox (it gets its tickets from the form or by hand)
+            }
+            $department = TicketDepartment::query()->where('whmcs_id', (int) $row['id'])->first();
+            if ($department === null) {
+                continue;
+            }
+            $this->counts['found']++;
+            $label = "Department #{$row['id']} «{$row['name']}»";
+            if ($department->hasMailbox()) {
+                $this->skip("{$label}: a mailbox is already set here, kept.");
+
+                continue;
+            }
+            if ($host === '' || $login === '' || trim((string) $row['password']) === '') {
+                $this->skip("{$label}: WHMCS has no complete mailbox (host, login and password) for it.");
+
+                continue;
+            }
+            $password = $this->plain((string) $row['password'], "department {$row['id']} mailbox password");
+            if ($password === null || $password === '') {
+                $this->skip("{$label}: its mailbox password was not read: enter it by hand.");
+
+                continue;
+            }
+            [$port, $encryption] = self::POP3_TO_IMAP[(int) $row['port']] ?? [(int) $row['port'] ?: 993, (int) $row['port'] === 143 ? 'starttls' : 'ssl'];
+            if ($port < 1 || $port > 65535) {
+                $this->skip("{$label}: its mailbox port {$row['port']} is no port: enter the mailbox by hand.");
+
+                continue;
+            }
+            // Two departments on one mailbox would both read it once polling is on: said, not decided.
+            $mailbox = strtolower($host . '|' . $login);
+            if (isset($mailboxes[$mailbox])) {
+                $this->notes[] = "{$label} reads the same mailbox as {$mailboxes[$mailbox]}: turn polling on for one of them only.";
+            }
+            $mailboxes[$mailbox] = $label;
+            // Polling stays off: it is opened per department after a test with a real mail (ROADMAP, tickets §6c).
+            $department->forceFill(['imap_host' => $host, 'imap_port' => $port, 'imap_encryption' => $encryption, 'imap_username' => $login, 'imap_password' => $password])->saveQuietly();
+            $this->counts['imported']++;
+            $this->notes[] = "{$label}: WHMCS reads it by POP3 on port {$row['port']}; here it is read by IMAP on {$port} ({$encryption}). Check the host offers IMAP, "
+                . 'then turn its polling on after a test (Departments).';
+            unset($password);
+        }
+    }
+
+    // ---- the central mail ---------------------------------------------------------------------------------------------
+
+    /** MailConfig's encryption => this app's `mail_encryption` (null: none). */
+    private const MAIL_ENCRYPTION = ['tls' => 'tls', 'ssl' => 'ssl', '' => null, 'none' => null];
+
+    /** The SMTP server WHMCS sends its mails through (invoices, orders, reminders…): a login, and where the mails come from. */
+    private function mail(): void
+    {
+        $config = [];
+        foreach ($this->rows("SELECT setting, value FROM tblconfiguration WHERE setting IN ('MailType', 'MailConfig', 'SystemEmailsFromEmail', 'SystemEmailsFromName')") as $row) {
+            $config[$row['setting']] = (string) $row['value'];
+        }
+        if (trim($config['MailConfig'] ?? '') === '') {
+            if (strtolower(trim($config['MailType'] ?? '')) === 'smtp') {
+                $this->notes[] = 'Central mail: WHMCS sends by SMTP but keeps no MailConfig (an older install): set the mail server by hand.';
+            }
+
+            return;
+        }
+        $this->counts['found']++;
+        if (strtolower(trim($config['MailType'] ?? '')) !== 'smtp') {
+            $this->skip("Central mail: WHMCS sends with «{$config['MailType']}», not SMTP: set the mail server by hand.");
+
+            return;
+        }
+        if (filled(Setting::query()->where('key', 'mail_host')->whereNull('settingable_type')->value('value'))) {
+            $this->skip('Central mail: a mail server is already set here, kept.');
+
+            return;
+        }
+        $json = $this->plain($config['MailConfig'], 'central mail configuration');
+        $decoded = $json === null || $json === '' ? null : json_decode($json, true);
+        $smtp = is_array($decoded) && is_array($decoded['configuration'] ?? null) ? $decoded['configuration'] : null;
+        unset($json, $decoded);
+        if ($smtp === null) {
+            $this->skip('Central mail: its configuration was not read: set the mail server by hand.');
+
+            return;
+        }
+        $host = trim((string) ($smtp['host'] ?? ''));
+        $port = (int) ($smtp['port'] ?? 0);
+        $authType = strtolower(trim((string) ($smtp['auth_type'] ?? 'plain')));
+        $secure = strtolower(trim((string) ($smtp['secure'] ?? '')));
+        $username = trim((string) ($smtp['username'] ?? ''));
+        $password = (string) ($smtp['password'] ?? '');
+        // Only what this app speaks: a login and password over SMTP, with TLS, SSL or none. OAuth2 and the rest are for staff.
+        if ($host === '' || $port < 1 || $port > 65535 || !array_key_exists($secure, self::MAIL_ENCRYPTION) || !in_array($authType, ['plain', 'login', ''], true)
+            || ($username === '') !== ($password === '')) {
+            $this->skip('Central mail: its SMTP settings are not a host, a port and a plain login this app takes (OAuth2, or incomplete): set the mail server by hand.');
+
+            return;
+        }
+        $values = [
+            'mail_host' => [$host, false], 'mail_port' => [(string) $port, false], 'mail_username' => [$username, false],
+            'mail_password' => [$password, true], 'mail_encryption' => [self::MAIL_ENCRYPTION[$secure] ?? '', false],
+        ];
+        $from = trim($config['SystemEmailsFromEmail'] ?? '');
+        if (filter_var($from, FILTER_VALIDATE_EMAIL) !== false) {
+            $values['mail_from_address'] = [$from, false];
+        }
+        if (trim($config['SystemEmailsFromName'] ?? '') !== '') {
+            $values['mail_from_name'] = [trim($config['SystemEmailsFromName']), false];
+        }
+        // All or none: a host with no password would read, on a re-run, as a mail server already set.
+        DB::transaction(function () use ($values) {
+            foreach ($values as $key => [$value, $encrypted]) {
+                Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null, 'settingable_id' => null], ['value' => $value, 'type' => 'string', 'encrypted' => $encrypted]);
+            }
+        });
+        $this->counts['imported']++;
+        $this->notes[] = 'Central mail: WHMCS\'s SMTP server and sender came (the Mail Encryption setting does not make Laravel require TLS: it uses 465 as SSL and otherwise STARTTLS when offered; test it before the cut-over). The header, footer and CSS of its emails (Smarty) do not: this app has its own. '
+            . 'Nothing sends from a copy unless its queue runs: do not run one on this database.';
+        unset($password, $smtp);
     }
 
     // ---- helpers ----------------------------------------------------------------------------------------------------

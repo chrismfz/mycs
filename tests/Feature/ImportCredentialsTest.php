@@ -8,6 +8,7 @@ use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\Server;
 use App\Models\Setting;
+use App\Models\TicketDepartment;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsSecondFactor;
@@ -54,6 +55,8 @@ class ImportCredentialsTest extends TestCase
             'CREATE TABLE tblregistrars (registrar TEXT, setting TEXT, value TEXT)',
             'CREATE TABLE tblpaymentgateways (gateway TEXT, setting TEXT, value TEXT)',
             'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY, registrar TEXT)',
+            'CREATE TABLE tblticketdepartments (id INTEGER PRIMARY KEY, name TEXT, host TEXT, port INT, login TEXT, password TEXT)',
+            'CREATE TABLE tblconfiguration (setting TEXT, value TEXT)',
         ] as $sql) {
             $this->whmcs->exec($sql);
         }
@@ -538,5 +541,158 @@ class ImportCredentialsTest extends TestCase
         $this->assertStringNotContainsString('Secret99', json_encode($result['notes']));
         $this->assertStringContainsString('did not open', implode("\n", $result['notes']));
         Exceptions::assertReported(fn (\RuntimeException $e) => !str_contains($e->getMessage(), 'Secret99'));
+    }
+
+    // ---- support departments' mailboxes --------------------------------------------------------------------------------
+
+    private function department(int $whmcsId, string $host = 'mail.example.test', int $port = 995, string $login = 'support@example.test', string $password = 'enc:Mbox-Pass1'): TicketDepartment
+    {
+        $this->whmcs->prepare('INSERT INTO tblticketdepartments VALUES (?, ?, ?, ?, ?, ?)')->execute([$whmcsId, "Dept{$whmcsId}", $host, $port, $login, $password]);
+
+        $department = new TicketDepartment;
+        $department->forceFill(['name' => "Dept{$whmcsId}", 'sort' => 1, 'whmcs_id' => $whmcsId])->save();
+
+        return $department;
+    }
+
+    public function test_a_departments_pop3_mailbox_comes_as_imap_with_polling_still_off(): void
+    {
+        $department = $this->department(1);
+
+        $result = $this->import($this->api());
+
+        $department->refresh();
+        $this->assertSame(['mail.example.test', 993, 'ssl', 'support@example.test'], [$department->imap_host, $department->imap_port, $department->imap_encryption, $department->imap_username]);
+        $this->assertSame('Mbox-Pass1', $department->imap_password);
+        $this->assertNotSame('Mbox-Pass1', DB::table('ticket_departments')->where('id', $department->id)->value('imap_password'), 'encrypted at rest');
+        $this->assertFalse((bool) $department->polling, 'opened per department after a test');
+        $this->assertSame(1, $result['counts']['imported']);
+        $this->assertStringContainsString('POP3 on port 995', implode("\n", $result['notes']));
+        $this->assertStringNotContainsString('Mbox-Pass1', json_encode($result['notes']));
+    }
+
+    public function test_pop3_without_ssl_becomes_imap_starttls_and_other_ports_are_kept(): void
+    {
+        $plain = $this->department(1, port: 110);
+        $other = $this->department(2, port: 2993);
+
+        $this->import($this->api());
+
+        $this->assertSame([143, 'starttls'], [$plain->fresh()->imap_port, $plain->fresh()->imap_encryption]);
+        $this->assertSame([2993, 'ssl'], [$other->fresh()->imap_port, $other->fresh()->imap_encryption]);
+    }
+
+    public function test_a_mailbox_staff_set_here_stays_and_an_incomplete_one_is_not_made(): void
+    {
+        $mine = $this->department(1);
+        $mine->forceFill(['imap_host' => 'imap.mine.test', 'imap_username' => 'me', 'imap_password' => 'mine-pass'])->save();
+        $incomplete = $this->department(2, password: '');
+
+        $result = $this->import($this->api());
+
+        $this->assertSame('imap.mine.test', $mine->fresh()->imap_host);
+        $this->assertNull($incomplete->fresh()->imap_host);
+        $this->assertSame(0, $result['counts']['imported']);
+    }
+
+    public function test_a_department_with_no_mailbox_in_whmcs_is_left_alone(): void
+    {
+        $department = $this->department(1, host: '', login: '', password: '');
+
+        $result = $this->import($this->api());
+
+        $this->assertNull($department->fresh()->imap_host);
+        $this->assertSame(0, $result['counts']['found']);
+    }
+
+    // ---- the central mail ----------------------------------------------------------------------------------------------
+
+    private function mailConfig(array $smtp, string $type = 'smtp', array $extra = []): void
+    {
+        $json = json_encode(['module' => 'SmtpMail', 'configuration' => $smtp]);
+        foreach (['MailType' => $type, 'MailConfig' => 'enc:' . $json] + $extra as $setting => $value) {
+            $this->whmcs->prepare('INSERT INTO tblconfiguration VALUES (?, ?)')->execute([$setting, $value]);
+        }
+    }
+
+    private function globalSetting(string $key): ?string
+    {
+        return Setting::query()->where('key', $key)->whereNull('settingable_type')->value('value');
+    }
+
+    public function test_the_central_smtp_server_comes_with_its_password_encrypted(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '587', 'auth_type' => 'plain', 'username' => 'mailer@example.test', 'password' => 'Smtp-Pass-77', 'secure' => 'tls'],
+            extra: ['SystemEmailsFromEmail' => 'billing@example.test', 'SystemEmailsFromName' => 'Example Billing']);
+
+        $result = $this->import($this->api());
+
+        $this->assertSame(['smtp.example.test', '587', 'mailer@example.test', 'tls', 'billing@example.test', 'Example Billing'],
+            array_map(fn (string $key) => $this->globalSetting($key), ['mail_host', 'mail_port', 'mail_username', 'mail_encryption', 'mail_from_address', 'mail_from_name']));
+        $this->assertSame('Smtp-Pass-77', Crypt::decryptString($this->globalSetting('mail_password')));
+        $this->assertTrue((bool) Setting::query()->where('key', 'mail_password')->value('encrypted'));
+        $this->assertStringNotContainsString('Smtp-Pass-77', json_encode($result['notes']));
+        $this->assertSame(1, $result['counts']['imported']);
+    }
+
+    public function test_oauth_or_php_mail_or_an_incomplete_login_is_not_carried(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '587', 'auth_type' => 'oauth2', 'username' => 'u', 'password' => 'p', 'secure' => 'tls']);
+        $result = $this->import($this->api());
+        $this->assertNull($this->globalSetting('mail_host'));
+        $this->assertStringContainsString('set the mail server by hand', implode("\n", $result['notes']));
+    }
+
+    public function test_a_wrong_mail_type_and_an_existing_mail_server_are_left_as_they_are(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '25', 'auth_type' => 'plain', 'username' => 'u', 'password' => 'p', 'secure' => ''], type: 'mail');
+        $this->import($this->api());
+        $this->assertNull($this->globalSetting('mail_host'));
+
+        $this->whmcs->exec("UPDATE tblconfiguration SET value = 'smtp' WHERE setting = 'MailType'");
+        Setting::query()->create(['key' => 'mail_host', 'value' => 'smtp.mine.test', 'type' => 'string', 'encrypted' => false]);
+        $this->import($this->api());
+        $this->assertSame('smtp.mine.test', $this->globalSetting('mail_host'));
+    }
+
+    public function test_smtp_without_encryption_is_none(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '25', 'auth_type' => 'plain', 'username' => '', 'password' => '', 'secure' => '']);
+
+        $this->import($this->api());
+
+        $this->assertSame('smtp.example.test', $this->globalSetting('mail_host'));
+        $this->assertContains($this->globalSetting('mail_encryption'), [null, '']);
+    }
+
+    public function test_a_port_that_is_no_port_and_a_shared_mailbox_are_said(): void
+    {
+        $bad = $this->department(1, port: 99999);
+        $this->department(2, login: 'shared@example.test');
+        $this->department(3, login: 'shared@example.test');
+
+        $result = $this->import($this->api());
+
+        $this->assertNull($bad->fresh()->imap_host);
+        $this->assertStringContainsString('is no port', implode("\n", $result['notes']));
+        $this->assertStringContainsString('reads the same mailbox', implode("\n", $result['notes']));
+    }
+
+    public function test_the_smtp_settings_are_all_written_or_none(): void
+    {
+        $this->mailConfig(['host' => 'smtp.example.test', 'port' => '587', 'auth_type' => 'plain', 'username' => 'u', 'password' => 'p', 'secure' => 'tls']);
+        // The last of them cannot be written: the earlier ones must not stay.
+        Setting::saving(function (Setting $setting) {
+            if ($setting->key === 'mail_encryption') {
+                throw new \RuntimeException('disk full');
+            }
+        });
+
+        try {
+            $this->import($this->api());
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertNull($this->globalSetting('mail_host'));
     }
 }
