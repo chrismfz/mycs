@@ -8,6 +8,7 @@ use App\Models\Service;
 use App\Services\Billing\RenewalPrice;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -25,14 +26,27 @@ final class PriceMismatch
     /** @return array{at: string, rows: list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}>} */
     public static function kept(bool $fresh = false): array
     {
-        // Per language: its rows carry translated words (a cycle, «years»; ADV-PM-R2-2). One sweep at a time (R2-4).
+        // Per language: its rows carry translated words (a cycle, «years»; ADV-PM-R2-2). Kept: read without waiting
+        // (ADV-PM-R3-2). Swept one at a time (R2-4), re-read under the lock; a sweep running elsewhere longer than a few
+        // seconds: swept here too, never an error page (R3-3).
         $key = 'reports:price-mismatch:' . app()->getLocale();
-        if ($fresh) {
-            Cache::forget($key);
+        if (!$fresh && is_array($kept = Cache::get($key))) {
+            return $kept;
         }
+        $sweep = function () use ($key, $fresh) {
+            if (!$fresh && is_array($kept = Cache::get($key))) {
+                return $kept;
+            }
+            $kept = ['at' => now()->format('d/m/Y H:i'), 'rows' => self::rows()];
+            Cache::put($key, $kept, self::KEEP_SECONDS);
 
-        return Cache::lock('reports:price-mismatch:sweep', 300)->block(120, fn () => Cache::remember($key, self::KEEP_SECONDS,
-            fn () => ['at' => now()->format('d/m/Y H:i'), 'rows' => self::rows()]));
+            return $kept;
+        };
+        try {
+            return Cache::lock('reports:price-mismatch:sweep', 300)->block(5, $sweep);
+        } catch (LockTimeoutException) {
+            return $sweep();
+        }
     }
 
     /** @return list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}> */
