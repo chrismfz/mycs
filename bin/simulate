@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# The simulation (docs/importer.md «Simulation»), safely: a COPY of an imported database, and a process with no network.
+#   bin/simulate <imported database> [mycs:simulate options, e.g. --from=2026-11-01 --days=7 --out=ledger.csv]
+# Needs root (unshare -n). The database users and sockets are those of this .env; the copy is <database>_sim, rebuilt each run.
+set -euo pipefail
+SOURCE="${1:?the imported database to copy}"; shift
+COPY="${SOURCE}_sim"
+cd "$(dirname "$0")/.."
+SOCKET="${DB_SOCKET:-$(grep -E '^DB_SOCKET=' .env | cut -d= -f2-)}"
+echo "Copying ${SOURCE} to ${COPY}…"
+mariadb --socket="$SOCKET" -e "DROP DATABASE IF EXISTS \`${COPY}\`; CREATE DATABASE \`${COPY}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+mariadb-dump --socket="$SOCKET" --single-transaction --quick "$SOURCE" | mariadb --socket="$SOCKET" "$COPY"
+echo "Running with the network closed…"
+exec unshare --net env DB_DATABASE="$COPY" QUEUE_CONNECTION=sync MAIL_MAILER=array CACHE_STORE=array \
+    php artisan mycs:simulate --confirm-database="$COPY" "$@"
