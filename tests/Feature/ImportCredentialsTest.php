@@ -456,4 +456,16 @@ class ImportCredentialsTest extends TestCase
         $this->assertStringContainsString('now holds live logins', $said);
         $this->assertStringNotContainsString(self::TOKEN, $said);
     }
+
+    /** ADV2-561-1: a switch that says something unrecognised is not guessed live or test. */
+    public function test_a_registrar_flag_that_says_something_else_is_not_guessed(): void
+    {
+        $connection = $this->connection('openprovider');
+        $this->registrar('openprovider', ['Username' => 'u', 'Password' => 'p', 'TestMode' => 'maybe']);
+
+        $result = $this->import($this->api());
+
+        $this->assertSame([], $connection->fresh()->credentials());
+        $this->assertSame(1, $result['counts']['skipped']);
+    }
 }

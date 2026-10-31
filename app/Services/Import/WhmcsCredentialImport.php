@@ -141,8 +141,7 @@ final class WhmcsCredentialImport
             $module = $complete[0];
             // Live or test decides the mode it is stored in: «off» would reach the registrar's sandbox (Openprovider's over plain
             // HTTP) with a live password when staff press Test Connection (ADV-561-2). Unknown, it is not stored.
-            $flag = $sets[$module]['TestMode'] ?? $sets[$module]['test_mode'] ?? '';
-            $test = trim($flag) === '' ? '' : $this->plain($flag, "registrar {$module} test mode"); // no flag set: the live account
+            $test = $this->sandboxFlag($sets[$module]['TestMode'] ?? $sets[$module]['test_mode'] ?? '', "registrar {$module} test mode");
             $username = $test === null ? null : $this->plain($sets[$module]['Username'], "registrar {$module} username");
             $password = $username === null ? null : $this->plain($sets[$module]['Password'], "registrar {$module} password");
             if ($test === null || $username === null || $password === null || trim($username) === '' || $password === '') {
@@ -150,7 +149,7 @@ final class WhmcsCredentialImport
 
                 continue;
             }
-            $sandbox = $this->on($test);
+            $sandbox = $test;
             $connection->storeCredentials(['username' => trim($username), 'password' => $password], ['password']);
             // Inactive: nothing calls it (every call needs is_active); only staff's Test Connection reaches the system its mode names.
             $connection->forceFill(['mode' => $sandbox ? 'sandbox' : 'production'])->save();
@@ -243,8 +242,12 @@ final class WhmcsCredentialImport
 
             return;
         }
-        $sandbox = $this->plain($set['useSandbox'] ?? '', 'paypal useSandbox');
-        $test = $sandbox !== null && $this->on($sandbox);
+        $test = $this->sandboxFlag($set['useSandbox'] ?? '', 'paypal useSandbox');
+        if ($test === null) {
+            $this->skip('Gateway «paypal_ppcpv»: whether WHMCS runs the sandbox or the live app was not read: enter its client id and secret by hand.');
+
+            return;
+        }
         $id = $this->plain($set[$test ? 'sandboxClientId' : 'clientId'] ?? '', 'paypal client id');
         $secret = $this->plain($set[$test ? 'sandboxClientSecret' : 'clientSecret'] ?? '', 'paypal client secret');
         if ($id === null || $secret === null || trim($id) === '' || trim($secret) === '') {
@@ -276,9 +279,27 @@ final class WhmcsCredentialImport
         return $model->settings()->where('key', $key)->whereNotNull('value')->where('value', '!=', '')->exists();
     }
 
-    private function on(string $value): bool
+    /**
+     * Whether a WHMCS test/sandbox switch is on: true (test), false (live) or null (not told). No switch stored, or one that
+     * decrypts to off, is live; one that could not be read, or says something else, is not guessed: a sandbox flag read as
+     * live stores a test app's keys as live ones, and the reverse puts a live login on a test system (ADV2-561-1).
+     */
+    private function sandboxFlag(string $stored, string $what): ?bool
     {
-        return in_array(strtolower(trim($value)), ['on', '1', 'yes', 'true'], true);
+        if (trim($stored) === '') {
+            return false;
+        }
+        $value = $this->plain($stored, $what);
+        if ($value === null) {
+            return null;
+        }
+        $value = strtolower(trim($value));
+
+        return match (true) {
+            in_array($value, ['on', '1', 'yes', 'true'], true) => true,
+            in_array($value, ['', 'off', '0', 'no', 'false'], true) => false,
+            default => null,
+        };
     }
 
     private function skip(string $note): void
