@@ -34,11 +34,23 @@ class Simulate extends Command
         {--confirm-database= : this instance\'s database name, typed: the simulation changes it (a copy, never a live one)}
         {--from= : the first day (Y-m-d); default: today}
         {--days=7 : how many days}
+        {--keep-gateways : leave the card gateways enabled or disabled as they are (default: enabled, as the cut-over makes them: an import brings them disabled)}
         {--decline-clients= : client ids, comma-separated, whose saved card is declined}
         {--out= : write the ledger (day, event, ref, detail) to this CSV file}';
 
     /** @var (\Closure(): bool)|null whether the outside is reachable (tests: a fixed answer) */
     public static ?\Closure $networkProbe = null;
+
+    /** @var (\Closure(string): bool)|null whether a database name is a copy made for this (tests: yes); default: it ends in «_sim», as bin/simulate names it */
+    public static ?\Closure $isCopy = null;
+
+    /** The extensions the simulation puts in place of every server and card gateway: names no test or extension has. */
+    private const SERVER = 'MycsSimServer';
+
+    private const GATEWAY = 'MycsSimPay';
+
+    /** Servers with no API: their actions are a staff task, which is what the cron makes of them, and what the forecast must show. */
+    private const REAL_SERVERS = ['OfflineVm', 'OfflineDedicated', 'OfflineSsl', 'NixpalLicensing'];
 
     protected $description = 'Run the cron day by day on a copy of an import, with servers, gateways, registrars and mail replaced; list what it would do';
 
@@ -47,6 +59,17 @@ class Simulate extends Command
         $database = (string) DB::connection()->getDatabaseName();
         if ((string) $this->option('confirm-database') !== $database) {
             $this->error("Type the database name to confirm: --confirm-database={$database}. The simulation changes it: give it a COPY, never one a site serves (bin/simulate makes the copy).");
+
+            return self::FAILURE;
+        }
+        if (!(self::$isCopy ?? fn (string $name) => str_ends_with($name, '_sim'))($database)) {
+            $this->error("«{$database}» is not a copy made for the simulation (its name ends in «_sim»): bin/simulate makes one. The simulation changes the database it runs on.");
+
+            return self::FAILURE;
+        }
+        // Nothing queued for a worker: a mail or a server action queued in a database a worker reads would be done for real.
+        if (config('queue.default') !== 'sync') {
+            $this->error('The queue is «' . config('queue.default') . '», not «sync»: a queued mail or server job would be run by a worker. Use bin/simulate (it sets QUEUE_CONNECTION=sync).');
 
             return self::FAILURE;
         }
@@ -60,7 +83,8 @@ class Simulate extends Command
         foreach (array_filter(array_map('intval', explode(',', (string) $this->option('decline-clients')))) as $client) {
             SimPay::$declined[$client] = true;
         }
-        $this->swap();
+        $this->swap((bool) $this->option('keep-gateways'));
+        Cache::flush(); // once: the cache's own marks (a notice told once) must hold from one day to the next
         $ledger = new Ledger;
         $time = (string) config('settings.cronjob_time', '09:00');
         $this->info("Simulating {$days} day(s) from {$from->toDateString()} on «{$database}»: the cron at {$time}, then the hourly dunning run three hours after.");
@@ -69,11 +93,13 @@ class Simulate extends Command
             $day = $from->addDays($i);
             Ledger::forget();
             $failures = 0;
-            foreach ([[$time, []], [CarbonImmutable::parse($day->toDateString() . ' ' . $time)->addHours(3)->format('H:i'), ['--dunning-only' => true]]] as [$at, $options]) {
-                $now = CarbonImmutable::parse($day->toDateString() . ' ' . $at);
+            $daily = CarbonImmutable::parse($day->toDateString() . ' ' . $time);
+            // The hourly dunning run three hours on, never past midnight into another day (a late cron time).
+            $hourly = $daily->addHours(3)->isSameDay($daily) ? $daily->addHours(3) : $daily->setTime(23, 30);
+            foreach ([[$daily, []], [$hourly, ['--dunning-only' => true]]] as [$now, $options]) {
+                $at = $now->format('H:i');
                 Carbon::setTestNow($now);
                 CarbonImmutable::setTestNow($now);
-                Cache::flush();
                 try {
                     $failures += Artisan::call('app:cron-job', $options) === 0 ? 0 : 1;
                 } catch (Throwable $e) {
@@ -107,12 +133,18 @@ class Simulate extends Command
     }
 
     /** The stand-ins in place of the world: extensions, registrars, mail. */
-    private function swap(): void
+    private function swap(bool $keepGateways): void
     {
-        class_exists('MyCS\\Extensions\\Servers\\SimServer\\SimServer', false) || class_alias(SimServer::class, 'MyCS\\Extensions\\Servers\\SimServer\\SimServer');
-        class_exists('MyCS\\Extensions\\Gateways\\SimPay\\SimPay', false) || class_alias(SimPay::class, 'MyCS\\Extensions\\Gateways\\SimPay\\SimPay');
-        DB::table('extensions')->where('type', 'server')->update(['extension' => 'SimServer', 'enabled' => true]);
-        DB::table('extensions')->where('type', 'gateway')->update(['extension' => 'SimPay', 'enabled' => true]);
+        class_exists('MyCS\\Extensions\\Servers\\' . self::SERVER . '\\' . self::SERVER, false) || class_alias(SimServer::class, 'MyCS\\Extensions\\Servers\\' . self::SERVER . '\\' . self::SERVER);
+        class_exists('MyCS\\Extensions\\Gateways\\' . self::GATEWAY . '\\' . self::GATEWAY, false) || class_alias(SimPay::class, 'MyCS\\Extensions\\Gateways\\' . self::GATEWAY . '\\' . self::GATEWAY);
+        DB::table('extensions')->where('type', 'server')->whereNotIn('extension', self::REAL_SERVERS)->update(['extension' => self::SERVER, 'enabled' => true]);
+        // Only a gateway that charges a saved method is a card gateway (Stripe, PayPal); a bank transfer and the like stay as they are.
+        foreach (DB::table('extensions')->where('type', 'gateway')->get(['id', 'extension']) as $gateway) {
+            $class = 'MyCS\\Extensions\\Gateways\\' . $gateway->extension . '\\' . $gateway->extension;
+            if (class_exists($class) && method_exists($class, 'charge')) {
+                DB::table('extensions')->where('id', $gateway->id)->update(['extension' => self::GATEWAY] + ($keepGateways ? [] : ['enabled' => true]));
+            }
+        }
         DB::table('domain_registrar_connections')->where('registrar', '!=', 'manual')->update(['is_active' => true, 'mode' => 'production']);
         $registry = new SimRegistry;
         app()->instance(DomainRegistrarRegistry::class, $registry);

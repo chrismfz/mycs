@@ -24,6 +24,8 @@ final class Ledger
 
     private int $lastInvoice = 0;
 
+    private int $lastTransaction = 0;
+
     /** @var list<array{0: string, 1: string, 2: string, 3: string}> */
     private array $lines = [];
 
@@ -33,6 +35,7 @@ final class Ledger
         $this->lastMail = (int) DB::table('email_logs')->max('id');
         $this->lastAction = (int) DB::table('module_actions')->max('id');
         $this->lastInvoice = (int) DB::table('invoices')->max('id');
+        $this->lastTransaction = (int) DB::table('invoice_transactions')->max('id');
     }
 
     /** Reset what the stand-ins remember, run before a day. */
@@ -70,6 +73,10 @@ final class Ledger
                 $add('invoice status', "invoice #{$i->id}", "{$this->invoices[$i->id]} → {$i->status}");
             }
         }
+        // Every payment, whatever paid it (a card, credit): an invoice made and paid in one step is in no status change.
+        foreach (DB::table('invoice_transactions')->where('id', '>', $this->lastTransaction)->orderBy('id')->get(['invoice_id', 'amount', 'status', 'is_credit_transaction', 'gateway_id']) as $t) {
+            $add('payment', "invoice #{$t->invoice_id}", 'paid ' . number_format((float) $t->amount, 2, '.', '') . " ({$t->status})" . ($t->is_credit_transaction ? ' from credit' : ''));
+        }
         foreach (DB::table('email_logs')->where('id', '>', $this->lastMail)->orderBy('id')->get(['template_key', 'client_id', 'status']) as $m) {
             $add('mail', 'client #' . ($m->client_id ?? '-'), ($m->template_key ?? 'no template') . " ({$m->status})");
         }
@@ -89,6 +96,7 @@ final class Ledger
         $this->lastMail = (int) DB::table('email_logs')->max('id');
         $this->lastAction = (int) DB::table('module_actions')->max('id');
         $this->lastInvoice = (int) DB::table('invoices')->max('id');
+        $this->lastTransaction = (int) DB::table('invoice_transactions')->max('id');
         $this->lines = [...$this->lines, ...$out];
 
         return $out;

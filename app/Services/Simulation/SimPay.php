@@ -17,8 +17,11 @@ class SimPay
     /** @var array<int, true> client ids whose card is declined */
     public static array $declined = [];
 
-    /** @var list<array{invoice: int, client: int, amount: float, ok: bool}> */
+    /** @var list<array{invoice: int, client: int, amount: float, ok: bool}> the day's */
     public static array $charges = [];
+
+    /** Every charge of the run, so a payment id is never used twice (a repeated id is a replay and records nothing). */
+    private static int $sequence = 0;
 
     public function supportsBillingAgreements()
     {
@@ -37,7 +40,7 @@ class SimPay
         if (!$ok) {
             throw new DisplayException('Card declined: insufficient_funds');
         }
-        (new RecordPaymentService)->handle($invoice, Gateway::query()->find($agreement->gateway_id), $amount, null, 'sim_ch_' . count(self::$charges), currency: $invoice->currency_code ?? null);
+        (new RecordPaymentService)->handle($invoice, Gateway::query()->find($agreement->gateway_id), $amount, null, 'sim_ch_' . (++self::$sequence), currency: $invoice->currency_code ?? null);
 
         return true;
     }

@@ -30,6 +30,7 @@ class SimulateTest extends TestCase
         parent::setUp();
         $this->csv = sys_get_temp_dir() . '/ledger-' . uniqid() . '.csv';
         Simulate::$networkProbe = fn () => false; // closed, as bin/simulate makes it
+        Simulate::$isCopy = fn () => true; // a copy, as bin/simulate names it
         SimServer::$calls = [];
         SimServer::$state = [];
         SimPay::$charges = [];
@@ -39,6 +40,7 @@ class SimulateTest extends TestCase
     protected function tearDown(): void
     {
         Simulate::$networkProbe = null;
+        Simulate::$isCopy = null;
         Carbon::setTestNow();
         @unlink($this->csv);
         parent::tearDown();
@@ -63,13 +65,25 @@ class SimulateTest extends TestCase
         $this->artisan('mycs:simulate', ['--days' => 1])->expectsOutputToContain('Type the database name to confirm')->assertFailed();
     }
 
+    public function test_it_does_not_run_on_a_database_that_is_not_a_copy_nor_with_a_real_queue(): void
+    {
+        Simulate::$isCopy = null; // the default: the name must end in «_sim»
+
+        $this->artisan('mycs:simulate', ['--confirm-database' => $this->database(), '--days' => 1])->expectsOutputToContain('is not a copy made for the simulation')->assertFailed();
+
+        Simulate::$isCopy = fn () => true;
+        config(['queue.default' => 'database']);
+        $this->artisan('mycs:simulate', ['--confirm-database' => $this->database(), '--days' => 1])->expectsOutputToContain('not «sync»')->assertFailed();
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
     public function test_it_does_not_run_where_the_network_is_open(): void
     {
         Simulate::$networkProbe = fn () => true;
 
         $this->artisan('mycs:simulate', ['--confirm-database' => $this->database(), '--days' => 1])->expectsOutputToContain('The network is open')->assertFailed();
 
-        $this->assertSame(0, DB::table('extensions')->where('extension', 'SimServer')->count(), 'nothing was changed');
+        $this->assertSame(0, DB::table('extensions')->where('extension', 'MycsSimServer')->count(), 'nothing was changed');
     }
 
     public function test_the_cron_runs_day_by_day_and_the_ledger_tells_what_it_did(): void
@@ -94,7 +108,7 @@ class SimulateTest extends TestCase
         $this->assertContains("2026-11-01 server asked suspend #{$overdue->id}", $events, 'the overdue service is suspended, by the stand-in');
         $this->assertContains("2026-11-01 service status service #{$overdue->id}", $events);
         $this->assertTrue(collect($this->ledger())->contains(fn (array $row) => $row['event'] === 'invoice created' && str_contains($row['detail'], "client #{$carded->id}")), 'the due service is invoiced');
-        $this->assertSame(['SimServer', 'SimPay'], [DB::table('extensions')->where('id', $server->id)->value('extension'), DB::table('extensions')->where('id', $gateway->id)->value('extension')],
+        $this->assertSame(['MycsSimServer', 'MycsSimPay'], [DB::table('extensions')->where('id', $server->id)->value('extension'), DB::table('extensions')->where('id', $gateway->id)->value('extension')],
             'the real extensions are swapped for the stand-ins in this database');
         $this->assertTrue((bool) DB::table('extensions')->where('id', $gateway->id)->value('enabled'));
         $this->assertSame(1, collect($this->ledger())->where('event', 'card charged')->count(), 'the saved card is charged once, by the stand-in');
@@ -116,6 +130,7 @@ class SimulateTest extends TestCase
         $this->artisan('mycs:simulate', ['--confirm-database' => $this->database(), '--from' => '2026-11-01', '--days' => 2, '--decline-clients' => (string) $client->id, '--out' => $this->csv])->assertSuccessful();
 
         $events = array_column($this->ledger(), 'event');
+        fwrite(STDERR, 'LEDGER ' . json_encode($this->ledger()) . "\n");
         $this->assertContains('card declined', $events);
         $this->assertNotContains('card charged', $events);
     }

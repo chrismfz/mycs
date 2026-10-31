@@ -4,17 +4,27 @@ namespace Tests\Feature;
 
 use App\Console\Commands\Simulate;
 use App\Enums\DomainStatus;
+use App\Models\BillingAgreement;
+use App\Models\Credit;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
+use App\Models\Gateway;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Server;
+use App\Models\Service;
+use App\Models\Setting;
 use App\Models\User;
+use App\Providers\SettingsProvider;
+use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Simulation\Ledger;
 use App\Services\Simulation\SimPay;
 use App\Services\Simulation\SimRegistrar;
+use App\Services\Simulation\SimRegistry;
 use App\Services\Simulation\SimServer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -37,6 +47,7 @@ class SimulateAdversarialTest extends TestCase
         Http::preventStrayRequests();
         $this->csv = sys_get_temp_dir() . '/adv-ledger-' . uniqid() . '.csv';
         Simulate::$networkProbe = fn () => false;
+        Simulate::$isCopy = fn () => true; // a copy, as bin/simulate names it (the test of the refusal resets it)
         SimServer::$calls = [];
         SimServer::$state = [];
         SimPay::$charges = [];
@@ -47,6 +58,7 @@ class SimulateAdversarialTest extends TestCase
     protected function tearDown(): void
     {
         Simulate::$networkProbe = null;
+        Simulate::$isCopy = null;
         Carbon::setTestNow();
         @unlink($this->csv);
         parent::tearDown();
@@ -111,8 +123,8 @@ class SimulateAdversarialTest extends TestCase
      */
     public function test_the_stand_in_registrar_has_the_capabilities_of_the_registrar_it_replaces(): void
     {
-        $real = app(\App\Services\Domains\DomainRegistrarRegistry::class);
-        $sim = new \App\Services\Simulation\SimRegistry;
+        $real = app(DomainRegistrarRegistry::class);
+        $sim = new SimRegistry;
         $differ = [];
         foreach ($real->keys() as $key) {
             if ($real->for($key)->capabilities() != $sim->for($key)->capabilities()) {
@@ -142,6 +154,7 @@ class SimulateAdversarialTest extends TestCase
     /** ADV-566-3b: same guard; the database name carries no mark of being a copy (bin/simulate always names it <db>_sim). */
     public function test_it_refuses_a_database_that_is_not_a_simulation_copy(): void
     {
+        Simulate::$isCopy = null; // the default rule
         $name = $this->db();
         $this->assertStringEndsNotWith('_sim', $name, 'precondition: a live-looking name');
 
@@ -157,21 +170,21 @@ class SimulateAdversarialTest extends TestCase
     {
         Queue::fake();
         foreach (['credits_enabled' => '1', 'credits_auto_use' => '1'] as $key => $value) {
-            \App\Models\Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => 'boolean']);
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => 'boolean']);
         }
-        \App\Providers\SettingsProvider::flushCache();
-        $server = \App\Models\Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        SettingsProvider::flushCache();
+        $server = Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
         $client = User::factory()->create()->client();
-        \App\Models\Credit::query()->create(['client_id' => $client->id, 'currency_code' => 'USD', 'amount' => 100]);
-        \App\Models\Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        Credit::query()->create(['client_id' => $client->id, 'currency_code' => 'USD', 'amount' => 100]);
+        Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10.0, 'quantity' => 1, 'expires_at' => '2026-11-03 00:00:00']);
 
         $this->artisan('mycs:simulate', ['--confirm-database' => $this->db(), '--from' => '2026-11-01', '--days' => 1, '--out' => $this->csv])->assertSuccessful();
 
-        $invoice = \App\Models\Invoice::query()->firstOrFail();
-        $this->assertSame(\App\Models\Invoice::STATUS_PAID, $invoice->status, 'precondition: credit paid it');
+        $invoice = Invoice::query()->firstOrFail();
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->status, 'precondition: credit paid it');
         $rows = collect($this->ledger());
         $this->assertTrue($rows->contains(fn (array $r) => $r['ref'] === "invoice #{$invoice->id}" && (str_contains($r['detail'], 'paid') || str_contains($r['event'], 'paid') || str_contains($r['event'], 'credit'))),
             'the ledger says the invoice was paid / credit used; it says: ' . json_encode($rows->where('ref', "invoice #{$invoice->id}")->values()->all()));
@@ -184,10 +197,10 @@ class SimulateAdversarialTest extends TestCase
      */
     public function test_a_server_without_an_api_stays_a_staff_task_in_the_simulation(): void
     {
-        $server = \App\Models\Server::query()->create(['name' => 'Rack', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
+        $server = Server::query()->create(['name' => 'Rack', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
-        $service = \App\Models\Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
             'product_id' => $product->product->id, 'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10.0, 'quantity' => 1,
             'expires_at' => '2026-10-17 00:00:00']);
 
@@ -206,23 +219,23 @@ class SimulateAdversarialTest extends TestCase
      */
     public function test_a_customer_charged_on_two_days_has_both_invoices_paid(): void
     {
-        $server = \App\Models\Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
-        $gateway = \App\Models\Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => false]);
+        $server = Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $gateway = Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => false]);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
         $client = User::factory()->create()->client();
-        \App\Models\BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa', 'external_reference' => 'pm_x', 'type' => 'card']);
+        BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa', 'external_reference' => 'pm_x', 'type' => 'card']);
         $client->refresh();
         $client->forceFill(['auto_charge' => true])->save();
         foreach (['2026-11-02 00:00:00', '2026-11-04 00:00:00'] as $due) {
-            \App\Models\Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
                 'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10.0, 'quantity' => 1, 'expires_at' => $due]);
         }
 
         $this->artisan('mycs:simulate', ['--confirm-database' => $this->db(), '--from' => '2026-11-01', '--days' => 6, '--out' => $this->csv])->assertSuccessful();
 
         $this->assertSame(2, collect($this->ledger())->where('event', 'card charged')->count(), 'precondition: two charges');
-        $this->assertSame(0, \App\Models\Invoice::query()->where('status', \App\Models\Invoice::STATUS_UNPAID)->count(), 'both charged invoices are paid');
+        $this->assertSame(0, Invoice::query()->where('status', Invoice::STATUS_UNPAID)->count(), 'both charged invoices are paid');
     }
 
     /**
@@ -233,18 +246,18 @@ class SimulateAdversarialTest extends TestCase
      */
     public function test_a_saved_method_of_a_disabled_gateway_is_not_charged_by_the_simulation(): void
     {
-        $server = \App\Models\Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
-        $gateway = \App\Models\Gateway::query()->create(['name' => 'Stripe (disabled by staff)', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => false]);
+        $server = Server::query()->create(['name' => 'S', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $gateway = Gateway::query()->create(['name' => 'Stripe (disabled by staff)', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => false]);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
         $client = User::factory()->create()->client();
-        \App\Models\BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa', 'external_reference' => 'pm_y', 'type' => 'card']);
+        BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa', 'external_reference' => 'pm_y', 'type' => 'card']);
         $client->refresh();
         $client->forceFill(['auto_charge' => true])->save();
-        \App\Models\Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10.0, 'quantity' => 1, 'expires_at' => '2026-11-02 00:00:00']);
 
-        $this->artisan('mycs:simulate', ['--confirm-database' => $this->db(), '--from' => '2026-11-01', '--days' => 3, '--out' => $this->csv])->assertSuccessful();
+        $this->artisan('mycs:simulate', ['--confirm-database' => $this->db(), '--from' => '2026-11-01', '--days' => 3, '--keep-gateways' => true, '--out' => $this->csv])->assertSuccessful();
 
         $this->assertSame(0, collect($this->ledger())->where('event', 'card charged')->count(), 'the real cron does not charge a method of a disabled gateway');
     }

@@ -3,6 +3,7 @@
 namespace App\Services\Simulation;
 
 use App\Contracts\DomainRegistrar;
+use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Support\Domains\AvailabilityResult;
@@ -23,14 +24,23 @@ class SimRegistrar implements DomainRegistrar
     /** @var list<string> */
     public static array $calls = [];
 
+    /** @param  DomainRegistrar|null  $real  the registrar it stands for: its key and what it can do (a .gr renews by two years, a CNIC expiry is when it goes) */
+    public function __construct(private readonly ?DomainRegistrar $real = null) {}
+
     public function key(): string
     {
-        return 'sim';
+        return $this->real?->key() ?? 'sim';
     }
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        return DomainRegistrarCapabilities::none();
+        return $this->real?->capabilities() ?? DomainRegistrarCapabilities::none();
+    }
+
+    /** What the registrar says of a domain: as this app has it (the simulation does not change a registrar's mind). */
+    private static function as(Domain $domain, ?string $expiresAt): DomainSyncResult
+    {
+        return new DomainSyncResult(expiresAt: $expiresAt, status: $domain->status, rawStatus: $domain->status->value);
     }
 
     public function ping(DomainRegistrarCredentials $credentials): bool
@@ -47,7 +57,7 @@ class SimRegistrar implements DomainRegistrar
     {
         self::$calls[] = "sync {$domain->fqdn}";
 
-        return new DomainSyncResult(expiresAt: $domain->expires_at?->toDateString());
+        return self::as($domain, $domain->expires_at?->toDateString());
     }
 
     public function getTldPricing(string $tld, DomainRegistrarCredentials $credentials): TldPricing
@@ -69,14 +79,14 @@ class SimRegistrar implements DomainRegistrar
     {
         self::$calls[] = "renew {$domain->fqdn} {$years}y";
 
-        return new DomainSyncResult(expiresAt: $domain->expires_at?->copy()->addYears($years)->toDateString());
+        return new DomainSyncResult(expiresAt: $domain->expires_at?->copy()->addYears($years)->toDateString(), status: DomainStatus::Active, rawStatus: 'active');
     }
 
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         self::$calls[] = "register {$domain->fqdn} {$years}y";
 
-        return new DomainSyncResult(expiresAt: now()->addYears($years)->toDateString());
+        return new DomainSyncResult(expiresAt: now()->addYears($years)->toDateString(), status: DomainStatus::Active, rawStatus: 'active');
     }
 
     public function transferIn(Domain $domain, string $authCode, DomainRegistrarCredentials $credentials): DomainSyncResult
