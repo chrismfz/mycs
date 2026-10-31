@@ -263,7 +263,7 @@ class PriceMismatchesAdversarialR2Test extends TestCase
 
         $page->call('$refresh')->assertSee("Service #{$service->id}");
         $page->call('refresh')->assertDontSee("Service #{$service->id}");
-        $this->assertTrue(Cache::has('reports:price-mismatch'));
+        $this->assertTrue(Cache::has('reports:price-mismatch:' . app()->getLocale()), 'kept per language (R2-2)');
     }
 
     /**

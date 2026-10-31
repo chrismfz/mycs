@@ -56,11 +56,7 @@
                             <tr class="border-b border-gray-100 dark:border-gray-800" wire:key="{{ $row['type'] }}-{{ $row['id'] }}">
                                 <td class="py-2 pr-4">
                                     @if ($url($row))
-                                    @if ($url($row))
                                         <a class="text-primary-600 hover:underline" href="{{ $url($row) }}">{{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}</a>
-                                    @else
-                                        {{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}
-                                    @endif
                                     @else
                                         {{ $row['type'] === 'service' ? __('Service') : __('Domain') }} #{{ $row['id'] }}
                                     @endif

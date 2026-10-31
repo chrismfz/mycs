@@ -1559,11 +1559,12 @@
     "Below the catalog": "Κάτω από τον κατάλογο",
     "Above the catalog": "Πάνω από τον κατάλογο",
     "Everything renews at its catalog price.": "Όλα ανανεώνονται στην τιμή του καταλόγου τους.",
-    "Renews at": "Ανανεώνεται",
+    "Renews at": "Τιμή ανανέωσης",
     "Catalog": "Κατάλογος",
     "Price locked": "Κλειδωμένη τιμή",
     ":count item|:count items": ":count εγγραφή|:count εγγραφές",
     "Item": "Στοιχείο",
     "as of :time": "στις :time",
-    "Refresh": "Ανανέωση"
+    "Refresh": "Ανανέωση",
+    "Swept a moment ago: try again in a minute.": "Υπολογίστηκε μόλις: δοκιμάστε ξανά σε ένα λεπτό."
 }

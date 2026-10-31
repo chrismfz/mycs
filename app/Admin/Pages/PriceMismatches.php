@@ -3,8 +3,10 @@
 namespace App\Admin\Pages;
 
 use App\Services\Reports\PriceMismatch;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Prices that differ from the catalog (sweep 9γ, owner 2026-10-30: PriceMismatch): services and domains that renew at a
@@ -62,6 +64,12 @@ class PriceMismatches extends Page
     /** Swept again, now (the sweep is kept a few minutes: PriceMismatch::kept). */
     public function refresh(): void
     {
+        // A few a minute per staff member: each is a whole sweep (ADV-PM-R2-4).
+        if (!RateLimiter::attempt('price-mismatch-refresh:' . Auth::id(), 3, fn () => true, 60)) {
+            Notification::make()->warning()->title(__('Swept a moment ago: try again in a minute.'))->send();
+
+            return;
+        }
         PriceMismatch::kept(fresh: true);
     }
 

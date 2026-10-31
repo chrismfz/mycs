@@ -25,11 +25,14 @@ final class PriceMismatch
     /** @return array{at: string, rows: list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}>} */
     public static function kept(bool $fresh = false): array
     {
+        // Per language: its rows carry translated words (a cycle, «years»; ADV-PM-R2-2). One sweep at a time (R2-4).
+        $key = 'reports:price-mismatch:' . app()->getLocale();
         if ($fresh) {
-            Cache::forget('reports:price-mismatch');
+            Cache::forget($key);
         }
 
-        return Cache::remember('reports:price-mismatch', self::KEEP_SECONDS, fn () => ['at' => now()->toDateTimeString(), 'rows' => self::rows()]);
+        return Cache::lock('reports:price-mismatch:sweep', 300)->block(120, fn () => Cache::remember($key, self::KEEP_SECONDS,
+            fn () => ['at' => now()->format('d/m/Y H:i'), 'rows' => self::rows()]));
     }
 
     /** @return list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}> */
@@ -50,7 +53,7 @@ final class PriceMismatch
                     // A free or one-time plan renews nothing; a plan with no price in its currency reads as free: no
                     // catalog to compare with (ADV-PM-4).
                     if ($service->plan === null || $service->plan->type !== 'recurring'
-                        || !$service->plan->prices->contains('currency_code', $service->currency_code)) {
+                        || !$service->plan->prices->contains('currency_code', $service->currency_code) || !self::optionsPriced($service)) {
                         continue;
                     }
                     // As its next renewal bills it (RenewalPrice: a coupon past its cycles, a cycle change), not the
@@ -58,7 +61,9 @@ final class PriceMismatch
                     $start = CarbonImmutable::parse($service->expires_at ?? now())->startOfDay();
                     $billed = RenewalPrice::for($service, $start, true);
                     $price = BigDecimal::of(number_format((float) $billed->price, 2, '.', ''));
-                    $catalog = BigDecimal::of((string) $billed->calculatePrice(cycle: $service->coupon !== null ? $service->cycleNumber($start) : null));
+                    // A coupon's cycle only where it counts (still running, for a number of cycles: ADV-PM-R2-5).
+                    $counted = $billed->coupon !== null && $billed->coupon_expired_at === null && $billed->coupon->cycles() > 0;
+                    $catalog = BigDecimal::of((string) $billed->calculatePrice(cycle: $counted ? $service->cycleNumber($start) : null));
                     if (!$price->isEqualTo($catalog)) {
                         $rows[] = self::row('service', (int) $service->id, $service->client_id, $service->client?->name,
                             trim($service->product->name . ' · ' . $billed->plan->label(), ' ·'), (string) $service->currency_code,
@@ -68,6 +73,26 @@ final class PriceMismatch
             });
 
         return $rows;
+    }
+
+    /**
+     * Each option value it has is priced for its plan's cycle in its currency (or not priced for that cycle at all: free in
+     * every currency); one priced only in other currencies reads as 0 (ADV-PM-R2-6): no catalog to compare with.
+     */
+    private static function optionsPriced(Service $service): bool
+    {
+        foreach ($service->configs as $config) {
+            $forCycle = $config->configValue?->plans->filter(fn ($plan) => $plan->type === 'free'
+                || ((int) $plan->billing_period === (int) $service->plan->billing_period && $plan->billing_unit === $service->plan->billing_unit));
+            if ($forCycle === null || $forCycle->isEmpty() || $forCycle->contains(fn ($plan) => $plan->type === 'free')) {
+                continue;
+            }
+            if (!$forCycle->contains(fn ($plan) => $plan->prices->contains('currency_code', $service->currency_code))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @return list<array{type: string, id: int, client_id: int|null, client: string, name: string, currency: string, price: string, catalog: string, difference: string, locked: bool}> */
