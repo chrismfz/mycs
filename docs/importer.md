@@ -540,10 +540,13 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 ## Credentials: servers, registrars, gateways (`WhmcsCredentialImport`, 2026-10-31)
 Οι συνδέσεις που στήνει το staff (cPanel, registrar, Stripe/PayPal) έρχονται με το import, ώστε στο cut-over να μένει μόνο
 η ενεργοποίηση. Δοκιμή στη nixpal (2026-10-31): το import έφερνε TLDs, τιμές και αντιστοίχιση registrar, αλλά κανένα login.
-- **Πώς διαβάζονται:** οι τιμές του `tblregistrars` και του `tblpaymentgateways` είναι **όλες** κρυπτογραφημένες με το παλιό
-  σχήμα του WHMCS (όχι το `<iv>.<ciphertext>` του 2FA), άρα το `cc_encryption_hash` από μόνο του δεν αρκεί. Διαβάζονται με
-  το `DecryptPassword` του API, όπως οι κωδικοί υπηρεσιών (`--whmcs-api-url`, `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET`).
-  Nixpal: ~15 κλήσεις. Αποθηκεύονται όπως τα κρατά η MyCS (`Setting` με `encrypted`), ποτέ σε log ή σημείωση.
+- **Πώς διαβάζονται (δοκιμή live στη nixpal, 2026-10-31):** δύο σχήματα στο ίδιο WHMCS.
+  - **Registrars** (`tblregistrars`): το παλιό σχήμα, που διαβάζει το `DecryptPassword` του API, όπως οι κωδικοί υπηρεσιών
+    (`--whmcs-api-url`, `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET`). Δούλεψε: cnic και openprovider.
+  - **Gateways** (`tblpaymentgateways`): το νεότερο, `<iv hex>.<ciphertext hex>` (όπως το 2FA). Το `DecryptPassword` απαντά
+    γι' αυτό με σκουπίδια (`Malformed UTF-8`), άρα διαβάζεται με το **`cc_encryption_hash`** του `configuration.php`
+    (`WHMCS_CC_ENCRYPTION_HASH`, ίδιο με του 2FA). Χωρίς αυτό, η σημείωση το λέει και τίποτα δεν γράφεται.
+  - Αποθηκεύονται όπως τα κρατά η MyCS (`Setting` με `encrypted`), ποτέ σε log ή σημείωση.
 - **Opt-in:** `--with-logins`. Χωρίς αυτό δεν έρχεται κανένα login: μια βάση με ζωντανό WHM token σε enabled server δεν πρέπει
   να τρέξει cron ή queue κατά λάθος (το scheduler θα έφτανε στο παραγωγικό WHM με δικαιώματα εγγραφής). Με το flag, το output
   προειδοποιεί να μη τρέξει scheduler ή queue εκεί ώσπου να πρέπει να δράσουν.

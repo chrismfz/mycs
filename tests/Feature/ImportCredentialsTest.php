@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Models\Setting;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsCredentialImport;
+use App\Services\Import\WhmcsSecondFactor;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -467,5 +468,74 @@ class ImportCredentialsTest extends TestCase
 
         $this->assertSame([], $connection->fresh()->credentials());
         $this->assertSame(1, $result['counts']['skipped']);
+    }
+
+    // ---- WHMCS's newer scheme: the gateways' settings ---------------------------------------------------------------------
+
+    private const KEY = 'test-cc-encryption-hash';
+
+    /** A value as WHMCS 8 stores a gateway setting: `<iv hex>.<ciphertext hex>` under its cc_encryption_hash. */
+    private function sealed(string $plain, string $hash = self::KEY): string
+    {
+        $iv = random_bytes(16);
+
+        return bin2hex($iv) . '.' . bin2hex((string) openssl_encrypt($plain, 'aes-256-cbc', substr(hash('sha256', $hash), 0, 32), OPENSSL_RAW_DATA, $iv));
+    }
+
+    private function sealedGateway(string $gateway, array $set): void
+    {
+        foreach ($set as $setting => $plain) {
+            $this->whmcs->prepare('INSERT INTO tblpaymentgateways VALUES (?, ?, ?)')->execute([$gateway, $setting, $this->sealed($plain)]);
+        }
+    }
+
+    private function importWithKey(?string $hash, ?WhmcsApi $api = null): array
+    {
+        $gateways = ['stripe' => 'Stripe', 'paypal_ppcpv' => 'PayPal'];
+        $scheme = new WhmcsSecondFactor($hash === null ? null : fn (string $stored) => WhmcsSecondFactor::decryptWith($hash, $stored));
+
+        return (new WhmcsCredentialImport($this->whmcs, $api, fn (string $module) => isset($gateways[$module])
+            ? (int) (DB::table('extensions')->where('type', 'gateway')->where('extension', $gateways[$module])->value('id') ?? $this->gateway($gateways[$module])->id)
+            : null, $scheme))->run();
+    }
+
+    public function test_gateway_settings_in_the_newer_scheme_are_read_with_the_key_and_never_ask_the_api(): void
+    {
+        $stripe = $this->gateway('Stripe');
+        $paypal = $this->gateway('PayPal');
+        $this->sealedGateway('stripe', ['secretKey' => 'sk_live_NewScheme1', 'publishableKey' => 'pk_live_NewScheme2']);
+        $this->sealedGateway('paypal_ppcpv', ['useSandbox' => '', 'clientId' => 'LIVEID', 'clientSecret' => 'LIVESECRET']);
+
+        $result = $this->importWithKey(self::KEY, null);
+
+        $this->assertSame('sk_live_NewScheme1', Crypt::decryptString($this->raw($stripe, 'stripe_secret_key')));
+        $this->assertSame('LIVESECRET', Crypt::decryptString($this->raw($paypal, 'client_secret')));
+        $this->assertSame(2, $result['counts']['imported']);
+        Http::assertNothingSent();
+    }
+
+    public function test_without_the_key_the_newer_scheme_is_not_read_and_the_note_names_it(): void
+    {
+        $stripe = $this->gateway('Stripe');
+        $this->sealedGateway('stripe', ['secretKey' => 'sk_live_a', 'publishableKey' => 'pk_live_a']);
+
+        $result = $this->importWithKey(null, $this->api());
+
+        $this->assertNull($this->raw($stripe, 'stripe_secret_key'));
+        $this->assertStringContainsString('WHMCS_CC_ENCRYPTION_HASH', implode("\n", $result['notes']));
+        Http::assertNothingSent(); // DecryptPassword is not asked about a value it answers with garbage
+    }
+
+    public function test_a_wrong_key_stores_nothing_and_leaks_nothing(): void
+    {
+        Exceptions::fake();
+        $stripe = $this->gateway('Stripe');
+        $this->sealedGateway('stripe', ['secretKey' => 'sk_live_Secret99', 'publishableKey' => 'pk_live_Public99']);
+
+        $result = $this->importWithKey('another-hash');
+
+        $this->assertNull($this->raw($stripe, 'stripe_secret_key'));
+        $this->assertStringNotContainsString('Secret99', json_encode($result['notes']));
+        Exceptions::assertReported(fn (\RuntimeException $e) => !str_contains($e->getMessage(), 'Secret99'));
     }
 }

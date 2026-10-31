@@ -54,7 +54,17 @@ final class WhmcsCredentialImport
     private int $inARow = 0;
 
     /** @param  Closure(string): ?int  $gateway  a WHMCS gateway module => the id of its MyCS gateway (installed, disabled, when none is) */
-    public function __construct(private readonly PDO $whmcs, private readonly ?WhmcsApi $api, private readonly Closure $gateway) {}
+    private readonly WhmcsSecondFactor $scheme;
+
+    private bool $needsKey = false;
+
+    /** WHMCS 8's scheme for a value: `<iv hex>.<ciphertext hex>` (the gateways' settings), which needs its cc_encryption_hash. */
+    private const NEW_SCHEME = '/^[0-9a-f]{32}\.[0-9a-f]{2,}$/i';
+
+    public function __construct(private readonly PDO $whmcs, private readonly ?WhmcsApi $api, private readonly Closure $gateway, ?WhmcsSecondFactor $scheme = null)
+    {
+        $this->scheme = $scheme ?? WhmcsSecondFactor::fromEnv();
+    }
 
     /** @return array{counts: array<string, int>, notes: list<string>} */
     public function run(): array
@@ -62,8 +72,14 @@ final class WhmcsCredentialImport
         $this->servers();
         $this->registrars();
         $this->gateways();
-        if ($this->needsApi) {
+        if ($this->needsKey) {
+            $this->notes[] = 'Gateway settings not imported: WHMCS keeps them in its newer scheme, which needs its cc_encryption_hash '
+                . '(WHMCS_CC_ENCRYPTION_HASH in the environment, from WHMCS\'s configuration.php; the same key brings the 2FA).';
+        }
+        if ($this->needsApi || $this->needsKey) { // the closing notes say why: not each item's «not read»
             $this->notes = array_values(array_filter($this->notes, fn (string $note) => !str_contains($note, 'was not read: enter it by hand') && !str_contains($note, 'were not decrypted')));
+        }
+        if ($this->needsApi) {
             $this->notes[] = "Credentials of registrars and gateways not imported: WHMCS's API is needed to decrypt them "
                 . '(--whmcs-api-url, WHMCS_API_IDENTIFIER, WHMCS_API_SECRET in the environment).';
         }
@@ -317,6 +333,22 @@ final class WhmcsCredentialImport
     {
         if (trim($stored) === '') {
             return null;
+        }
+        if (preg_match(self::NEW_SCHEME, trim($stored)) === 1) {
+            // The gateways' settings: WHMCS's newer scheme, which its DecryptPassword answers with garbage for. Its key, not its API.
+            if (!$this->scheme->available()) {
+                $this->needsKey = true;
+
+                return null;
+            }
+            $value = $this->scheme->plain(trim($stored));
+            if ($value === null || !mb_check_encoding($value, 'UTF-8') || str_contains($value, "\0")) {
+                report(new RuntimeException("Credential «{$what}» not decrypted: the key does not open it"));
+
+                return null;
+            }
+
+            return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
         if ($this->api === null) {
             $this->needsApi = true;
