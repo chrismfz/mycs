@@ -13,6 +13,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Logging\WriteFailures;
 use App\Models\BulkMail;
+use App\Models\Cart;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\CronStat;
@@ -633,6 +634,8 @@ class CronJob extends Command
             // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
             $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());
             $this->runCronJob('zlic_limits_pruned', fn () => ZlicLimiter::prune());
+            // Carts left behind for a month (sweep 9γ): with their items (an EPP code too).
+            $this->runCronJob('carts_pruned', fn () => Cart::prune(), transaction: false);
             // A mass mail whose next batch was lost (a worker restarted): sent on from where it stopped (BulkMailer).
             $this->runCronJob('bulk_mails_resumed', fn () => BulkMail::query()->where('status', BulkMail::STATUS_SENDING)
                 ->where(fn ($still) => $still->where('batch_at', '<', now()->subMinutes(10))
