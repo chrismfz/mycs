@@ -456,7 +456,8 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $snapshot = fn () => [
             Invoice::count(),
             InvoiceItem::count(),
-            Service::orderBy('id')->get(['id', 'status', 'expires_at', 'price', 'dunning_suspended_at'])->toArray(),
+            // The rows as stored, not models: a relation the first run happened to load (plan) is no change (2026-10-31).
+            Service::query()->orderBy('id')->toBase()->get(['id', 'status', 'expires_at', 'price', 'dunning_suspended_at'])->map(fn ($row) => (array) $row)->all(),
         ];
         $first = $snapshot();
         $this->assertSame('2026-11-16', $this->expires($holey));
