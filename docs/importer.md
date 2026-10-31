@@ -599,6 +599,18 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   **ποτέ μέσω του save της extension**: το `updated()` του Stripe φτιάχνει webhook endpoint στο Stripe. Δεν έρχονται τα
   webhook secrets/ids του παλιού endpoint (η MyCS φτιάχνει δικά της στο cut-over, βλ. «Host και gateways»), ούτε το κλασικό
   `paypal` (API username/signature): δεν έχει αντίστοιχο.
+- **Mailbox των departments** (`tblticketdepartments`, nixpal 2): το WHMCS τα διαβάζει με POP3 (`mail.nixpal.com:995`)· εδώ
+  διαβάζονται με IMAP στο ίδιο mailbox (995 → 993/ssl, 110 → 143/starttls, άλλη θύρα όπως είναι), με το ίδιο login και τον
+  κωδικό από το `DecryptPassword` (κρυπτογραφημένο, cast `encrypted`). Το **polling μένει off**: ανοίγει ανά department μετά από
+  δοκιμή με πραγματικό email (`tickets.md` §6γ). Mailbox που έχει ήδη βάλει το staff μένει· ατελές (χωρίς host, login ή
+  κωδικό) δεν γίνεται. Το `mail_auth_config` (OAuth κ.λπ.) δεν έρχεται. Το import λέει να ελεγχθεί ότι ο host δίνει IMAP.
+  Το seeded «Sales» (χωρίς tickets) μένει δίπλα στο «Pre-Sales» του WHMCS: να σβηστεί ή να μετονομαστεί στο cut-over.
+- **SMTP των κεντρικών emails** (τιμολόγια, παραγγελίες, υπενθυμίσεις: `MailType` smtp + `MailConfig`, κρυπτογραφημένο JSON
+  `SmtpMail`): host, port, username, password (κρυπτογραφημένο), encryption (`tls`, `ssl`, κανένα) στα `mail_*`, και το
+  `SystemEmailsFromEmail/Name` στα `mail_from_address/name`. Δεν έρχονται όταν ο τύπος δεν είναι SMTP, όταν το login είναι OAuth2
+  ή ατελές, ή όταν υπάρχει ήδη mail server εδώ (λέγεται). Το header, footer και CSS των emails του WHMCS (Smarty) δεν έρχονται:
+  η MyCS έχει δικά της. Όπως όλα τα logins, πίσω από το `--with-logins`: μια βάση με το SMTP της εταιρείας δεν πρέπει να τρέξει
+  queue.
 - **Ασφάλεια:** τίποτα δεν ενεργοποιείται (οι συνδέσεις registrar ανενεργές, τα gateways disabled)· ένα αντίγραφο με live κλειδιά
   δεν πρέπει να τρέξει cron ή queue. Τα κλειδιά γράφονται στο `Gateway` model, όπου τα διαβάζει η εφαρμογή. Μετά το
   τελευταίο import αφαιρείται το `DecryptPassword` από τον ρόλο του API (βλ. «Κωδικοί υπηρεσιών»).
