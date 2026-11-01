@@ -16,7 +16,8 @@ use Illuminate\Support\Collection;
  * saved method charges its renewals, as before); a gateway's, its renewals are invoiced apart with it preferred, charged
  * by the account's saved method of that gateway if it has one (owner 2026-11-01), never by one of another gateway (their
  * lines record it: AutoCharge::agreementFor). Set by the customer on its page, by
- * staff in the admin, from WHMCS at import; an invoice's own choice stays the invoice's.
+ * staff in the admin, from WHMCS at import; an invoice's own choice stays the invoice's. Its own «Do not charge
+ * automatically» keeps any method from its invoices (#568).
  */
 final class ItemPaymentMethod
 {
@@ -71,8 +72,68 @@ final class ItemPaymentMethod
      */
     public static function chargedBy(Service|Domain $item): ?BillingAgreement
     {
+        if ($item->no_auto_charge) {
+            return null; // its own «Do not charge automatically» (#568)
+        }
         $own = $item->payment_gateway_id === null || $item->paymentGateway === null ? null : (int) $item->payment_gateway_id; // deleted: the account's
 
         return $item->client?->autoChargeAgreementFor($own);
+    }
+
+    /**
+     * What its page tells the customer and staff (owner 2026-11-01: no misunderstanding): charged automatically with which
+     * method, or why not, as chargedBy() decides it.
+     */
+    public static function autoChargeStatus(Service|Domain $item): string
+    {
+        $status = fn (string $key, array $with = []) => __("services.auto_charge_status.{$key}", $with);
+        if ($item instanceof Service && (string) $item->subscription_id !== '') {
+            return $status('subscription');
+        }
+        if ($item->no_auto_charge) {
+            return $status('off');
+        }
+        $client = $item->client;
+        $default = $client?->auto_charge ? $client->autoChargeMethod() : null;
+        if ($client === null || !$client->auto_charge) {
+            return $status('account_off');
+        }
+        if ($default === null) {
+            return $status('no_default');
+        }
+        $own = self::live($item);
+        if ($own !== null && $own !== (int) $default->gateway_id) {
+            $gateway = Gateway::query()->find($own);
+            if ($gateway !== null && !self::savesMethods($gateway)) {
+                return $status('manual', ['gateway' => $gateway->name]);
+            }
+            $agreement = $client->autoChargeMethodFor($own);
+            if ($agreement === null) {
+                return $status('no_method', ['gateway' => (string) $gateway?->name]);
+            }
+        } else {
+            $agreement = $default;
+        }
+        if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
+            return $status('gateway_off', ['gateway' => (string) $agreement->gateway?->name]);
+        }
+
+        return $status('charged', ['method' => $agreement->name]);
+    }
+
+    /** A gateway that saves a payment method to charge later (Stripe, PayPal); a bank transfer or a vPOS redirect does not. */
+    private static function savesMethods(Gateway $gateway): bool
+    {
+        return (bool) rescue(fn () => ExtensionHelper::hasFunction($gateway, 'supportsBillingAgreements')
+            && ExtensionHelper::getExtension('gateway', $gateway->extension, $gateway->settings)->supportsBillingAgreements(), false, false);
+    }
+
+    /** Its own «Do not charge automatically» (#568), audited: from now on, its open invoice included. */
+    public static function setAutoCharge(Service|Domain $item, bool $on): void
+    {
+        if ($item->no_auto_charge === !$on) {
+            return;
+        }
+        $item->update(['no_auto_charge' => !$on]);
     }
 }

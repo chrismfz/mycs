@@ -29,6 +29,7 @@ use App\Models\Service;
 use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
 use App\Services\Ops\Scrub;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\DeleteService;
 use App\Support\AdminBadge;
 use App\Support\LicenseKeyMask;
@@ -328,7 +329,15 @@ class ServiceResource extends Resource
                         Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
                             ->relationship('paymentGateway', 'name')
                             ->placeholder(__('The account\'s (its saved method)'))
-                            ->hintIcon(...$hint(__('Another gateway than the saved method\'s: its renewals are invoiced apart and never charged automatically.'))),
+                            ->hintIcon(...$hint(__('Another gateway than the saved method\'s: its renewals are invoiced apart, charged only by the account\'s saved method of that gateway.'))),
+                        // Its own «Do not charge automatically» (#568): its open invoice too, the account's others as before.
+                        Toggle::make('no_auto_charge')->label(__('Do not charge automatically'))
+                            ->hintIcon(...$hint(__('Its renewal invoices, the open one included, are paid by the customer; the account\'s other ones are still charged.')))
+                            ->default(false),
+                        // What the cron does with it, and why not (owner 2026-11-01: no misunderstanding).
+                        TextEntry::make('auto_charge_status')->label(__('Automatic charge'))
+                            ->state(fn (Service $record) => ItemPaymentMethod::autoChargeStatus($record))
+                            ->visible(fn (?Service $record) => $record !== null),
                         // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
                         // (nixpal: 5 PayPal ones).
                         TextInput::make('subscription_id')

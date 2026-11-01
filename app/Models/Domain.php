@@ -40,6 +40,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property int $years
  * @property string $currency_code
  * @property int|null $payment_gateway_id
+ * @property bool $no_auto_charge its own «Do not charge automatically» (#568)
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
@@ -70,7 +71,7 @@ class Domain extends Model implements Auditable
 
     protected $fillable = [
         'client_id', 'order_id', 'epp_code', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
-        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'payment_gateway_id', 'recurring_amount',
+        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'payment_gateway_id', 'no_auto_charge', 'recurring_amount',
         'auto_renew', 'transfer_lock', 'id_protection', 'dns_management', 'email_forwarding', 'dnssec_enabled',
         'contact_id', 'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
         'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle',
@@ -145,6 +146,7 @@ class Domain extends Model implements Auditable
             'years' => 'integer',
             'recurring_amount' => 'decimal:2',
             'auto_renew' => 'boolean',
+            'no_auto_charge' => 'boolean',
             'transfer_lock' => 'boolean',
             'id_protection' => 'boolean',
             'dns_management' => 'boolean',

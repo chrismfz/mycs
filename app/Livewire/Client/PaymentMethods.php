@@ -184,9 +184,9 @@ class PaymentMethods extends Component
             if ($default !== null && (int) $default->gateway_id === (int) $gateway->id) {
                 continue;
             }
-            $paid = Service::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)
+            $paid = Service::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
                 ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists()
-                || Domain::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)
+                || Domain::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
                     ->whereNotIn('status', DomainStatus::terminalValues())->exists();
             $agreement = $paid ? $client->autoChargeAgreementFor((int) $gateway->id) : null;
             if ($agreement !== null) {

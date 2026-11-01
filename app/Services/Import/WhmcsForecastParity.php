@@ -255,7 +255,7 @@ final class WhmcsForecastParity
     {
         $own = $item->payment_gateway_id === null || $item->paymentGateway === null ? null : (int) $item->payment_gateway_id;
 
-        return $item->client?->autoChargeMethodFor($own) !== null && empty($item->subscription_id);
+        return !$item->no_auto_charge && $item->client?->autoChargeMethodFor($own) !== null && empty($item->subscription_id);
     }
 
     /** WHMCS's «days before»: a domain's own, or the cycle's own, else the general. */

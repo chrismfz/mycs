@@ -2,21 +2,28 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Livewire\Client\PaymentMethods;
+use App\Livewire\Domains\Show as DomainShow;
+use App\Livewire\Services\Show as ServiceShow;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
@@ -255,6 +262,95 @@ class ChargeByGatewayMethodTest extends TestCase
         $this->assertSame($this->vault->id, ItemPaymentMethod::chargedBy($domain)?->id);
         $this->assertSame($this->vault->id, ItemPaymentMethod::chargedBy($this->service($this->vaultGateway))?->id);
         $this->assertSame($this->card->id, ItemPaymentMethod::chargedBy($this->service(null))?->id);
+    }
+
+    /** Its own «Do not charge automatically» (#568): its invoice, open one included, is left to the customer; the others are charged. */
+    public function test_an_items_own_switch_keeps_its_invoice_from_the_cron(): void
+    {
+        config(['audit.console' => true]);
+        $kept = $this->service(null);
+        $byKept = $this->invoice($kept);
+        $byCard = $this->invoice($this->service(null));
+        ItemPaymentMethod::setAutoCharge($kept, false);
+
+        $this->assertNull(AutoCharge::agreementFor($byKept->fresh()), 'its open invoice too');
+        $this->assertNull(ItemPaymentMethod::chargedBy($kept->fresh()));
+        $this->assertSame([$byCard->id => [$this->card->id]], $this->cron(), 'the account\'s others as before');
+
+        ItemPaymentMethod::setAutoCharge($kept->fresh(), true);
+        $this->assertSame($this->card->id, AutoCharge::agreementFor($byKept->fresh())?->id, 'on again: charged');
+        $this->assertTrue($kept->audits()->where('event', 'updated')->exists(), 'audited');
+    }
+
+    /** A domain's own switch, and a line of it on an invoice with a service: the invoice is kept from it. */
+    public function test_a_domains_own_switch_keeps_its_invoice_from_the_cron(): void
+    {
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'no_auto_charge' => true]);
+        $invoice = $this->invoice($this->service(null));
+        $invoice->items()->create(['description' => 'Domain renewal', 'price' => '12.00', 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+
+        $this->assertNull(AutoCharge::agreementFor($invoice->fresh()));
+        $this->assertNull(ItemPaymentMethod::chargedBy($domain));
+    }
+
+    /** What its page says (owner 2026-11-01: no misunderstanding): charged with which method, or why not. */
+    public function test_its_page_says_whether_it_is_charged_and_why_not(): void
+    {
+        $status = fn (string $key, array $with = []) => __("services.auto_charge_status.{$key}", $with);
+        $bank = Gateway::query()->create(['name' => 'Bank Transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
+        $mollie = Gateway::query()->create(['name' => 'Third', 'extension' => 'GwVaultPay', 'type' => 'gateway', 'enabled' => true]);
+
+        $this->assertSame($status('charged', ['method' => 'Visa 4242']), ItemPaymentMethod::autoChargeStatus($this->service(null)));
+        $this->assertSame($status('charged', ['method' => 'PayPal a@example.test']), ItemPaymentMethod::autoChargeStatus($this->service($this->vaultGateway)));
+        $this->assertSame($status('manual', ['gateway' => 'Bank Transfer']), ItemPaymentMethod::autoChargeStatus($this->service($bank)));
+        $this->assertSame($status('no_method', ['gateway' => 'Third']), ItemPaymentMethod::autoChargeStatus($this->service($mollie)));
+        $kept = $this->service(null);
+        $kept->forceFill(['no_auto_charge' => true])->save();
+        $this->assertSame($status('off'), ItemPaymentMethod::autoChargeStatus($kept));
+        $this->vaultGateway->forceFill(['enabled' => false])->save();
+        $this->assertSame($status('gateway_off', ['gateway' => 'PayPal']), ItemPaymentMethod::autoChargeStatus($this->service($this->vaultGateway)));
+        $this->client->refresh()->forceFill(['default_billing_agreement_id' => null])->save();
+        $this->assertSame($status('no_default'), ItemPaymentMethod::autoChargeStatus($this->service(null)->fresh()));
+        $this->client->forceFill(['auto_charge' => false])->save();
+        $this->assertSame($status('account_off'), ItemPaymentMethod::autoChargeStatus($this->service(null)->fresh()));
+    }
+
+    public function test_the_customer_turns_it_off_and_on_on_the_service_and_domain_pages(): void
+    {
+        $service = $this->service(null);
+        $page = $this->livewireAs($this->user)->test(ServiceShow::class, ['service' => $service])
+            ->assertSee(__('services.auto_charge_status.charged', ['method' => 'Visa 4242']));
+        $page->call('toggleAutoCharge');
+        $this->assertTrue($service->fresh()->no_auto_charge);
+        $page->call('toggleAutoCharge');
+        $this->assertFalse($service->fresh()->no_auto_charge);
+
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'currency_code' => 'USD']);
+        $this->livewireAs($this->user)->test(DomainShow::class, ['domain' => $domain])->call('toggleAutoCharge');
+        $this->assertTrue($domain->fresh()->no_auto_charge);
+    }
+
+    public function test_a_login_that_does_not_pay_the_accounts_invoices_may_not_turn_it(): void
+    {
+        $service = $this->service(null);
+        $login = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $login->id, 'permissions' => ['manageproducts'], 'granted_at' => now()]);
+
+        $this->livewireAs($login)->test(ServiceShow::class, ['service' => $service])->call('toggleAutoCharge')->assertForbidden();
+        $this->assertFalse($service->fresh()->no_auto_charge);
+    }
+
+    public function test_staff_set_it_on_the_service_form(): void
+    {
+        $service = $this->service(null);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->assertSee(__('services.auto_charge_status.charged', ['method' => 'Visa 4242']))
+            ->fillForm(['no_auto_charge' => true])->call('save')->assertHasNoFormErrors();
+
+        $this->assertTrue($service->fresh()->no_auto_charge);
     }
 
     public function test_the_payment_methods_page_says_what_the_second_method_pays(): void

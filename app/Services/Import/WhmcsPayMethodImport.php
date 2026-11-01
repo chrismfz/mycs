@@ -28,7 +28,8 @@ use Throwable;
  *   invoice of its gateway), the newer one on a tie; its other items keep their own payment method, never charged by it
  *   (a second method of their gateway charges them, #568). None of them on a saved method's gateway, or one a method
  *   would still charge here: no default and «Auto-charge» off, as WHMCS never charged it (reviews of #538: a customer
- *   paying by bank transfer with an old card saved; ADV-568-1: basic PayPal beside the PayPal wallet, the default kept).
+ *   paying by bank transfer with an old card saved). Basic PayPal beside the PayPal wallet: those items «Do not charge
+ *   automatically» (ADV-568-1).
  * - A method of a second Stripe customer (the charge goes with the client's one stripe_id), the same reference twice,
  *   PayPal's card vault (acdc, checkout: not a wallet): skipped, listed. Two accounts on one Stripe customer: listed.
  * - Deleted methods, other gateways, customers not here: skipped, counted. One that fails is skipped, never the whole
@@ -37,7 +38,7 @@ use Throwable;
 final class WhmcsPayMethodImport
 {
     /** @var array<string, int> */
-    private array $counts = ['methods' => 0, 'imported' => 0, 'defaults' => 0, 'not_charged' => 0, 'skipped' => 0];
+    private array $counts = ['methods' => 0, 'imported' => 0, 'defaults' => 0, 'not_charged' => 0, 'items_kept' => 0, 'skipped' => 0];
 
     /** @var list<string> */
     private array $notes = [];
@@ -134,7 +135,7 @@ final class WhmcsPayMethodImport
      * those of its own gateway (#568). None of its items on a saved method's gateway, or one of another way that would
      * still be charged here (its module has no gateway here, or the default's under another module): no default,
      * «Auto-charge» off (as WHMCS charged it, never more; R2-1, R3-1). One another method's gateway would charge under
-     * another module: «Auto-charge» off, the default kept (ADV-568-1).
+     * another module: that item «Do not charge automatically», the account's others as before (ADV-568-1).
      *
      * @param  list<array{id: int, module: string, whmcs_id: int}>  $imported
      */
@@ -176,8 +177,8 @@ final class WhmcsPayMethodImport
             $this->counts['defaults']++;
         }
         // It charges every item of its gateway here, WHMCS only its own module's: one of another module on that gateway
-        // (basic PayPal beside the PayPal wallet, paid by hand there) would be charged too. «Auto-charge» off, listed, as
-        // R3-1 for the default's (ADV-568-1); the default stays, for staff to turn it on.
+        // (basic PayPal beside the PayPal wallet, paid by hand there) would be charged too (ADV-568-1). Those services and
+        // domains get their own «Do not charge automatically» (#568), listed; the account's others are charged as before.
         $foreign = [];
         foreach (array_keys($first) as $module) {
             $own = $module === $default ? null : ($this->gateway)($module);
@@ -187,12 +188,37 @@ final class WhmcsPayMethodImport
                 }
             }
         }
-        if ($foreign !== []) {
+        if ($foreign === []) {
+            return;
+        }
+        $kept = $rows = 0;
+        foreach (['tblhosting' => 'services', 'tbldomains' => 'domains'] as $source => $table) {
+            $ids = [];
+            foreach ($this->all("SELECT id, paymentmethod FROM {$source} WHERE userid = " . (int) $clientId) as $row) {
+                if (isset($foreign[strtolower(trim((string) ($row['paymentmethod'] ?? '')))])) {
+                    $ids[] = (int) $row['id'];
+                }
+            }
+            $rows += count($ids);
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                $kept += DB::table($table)->whereIn('id', $chunk)->where('client_id', $clientId)->count();
+                DB::table($table)->whereIn('id', $chunk)->where('client_id', $clientId)->update(['no_auto_charge' => true]);
+            }
+        }
+        $this->counts['items_kept'] += $kept;
+        $modules = '«' . implode('», «', array_keys($foreign)) . '»';
+        // One not here by its WHMCS id (an addon, a row the import did not bring as it was) could still be charged: the
+        // account off, as R3-1, rather than charge what WHMCS never did.
+        if ($kept < $rows || $rows === 0) {
             DB::table('clients')->where('id', $clientId)->update(['auto_charge' => false]);
             $this->counts['not_charged']++;
-            $this->notes[] = "Customer #{$clientId}: " . array_sum($foreign) . ' live item(s) paid by «' . implode('», «', array_keys($foreign))
-                . '» in WHMCS, never charged there, would be charged here by a saved method of the same gateway: «Auto-charge» off; ask them, or turn it on.';
+            $this->notes[] = "Customer #{$clientId}: live item(s) paid by {$modules} in WHMCS, never charged there, would be charged here by a saved "
+                . 'method of the same gateway and are not all found here: «Auto-charge» off; ask them, or turn it on.';
+
+            return;
         }
+        $this->notes[] = "Customer #{$clientId}: {$kept} service(s) and domain(s) paid by {$modules} in WHMCS, never charged there, would be charged "
+            . 'here by a saved method of the same gateway: set «Do not charge automatically» each; ask them, or turn it on.';
     }
 
     /**

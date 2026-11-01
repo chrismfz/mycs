@@ -12,6 +12,7 @@ use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Support\AdminBadge;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
@@ -250,6 +251,8 @@ class DomainResource extends Resource
             TextEntry::make('years')->label(__('Period (years)')),
             TextEntry::make('recurring_amount')->label(__('Recurring amount'))->placeholder(__('The TLD\'s renew price')),
             TextEntry::make('auto_renew')->label(__('Auto renew'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
+            // What the cron does with it, and why not (owner 2026-11-01, #568).
+            TextEntry::make('auto_charge_status')->label(__('Automatic charge'))->state(fn (Domain $record) => ItemPaymentMethod::autoChargeStatus($record)),
             TextEntry::make('transfer_lock')->label(__('Transfer lock'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
             TextEntry::make('id_protection')->label(__('WHOIS privacy'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
             TextEntry::make('registrar_domain_id')->label(__('ID at the registrar'))->placeholder('—'),

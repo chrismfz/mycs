@@ -201,6 +201,23 @@ class Show extends Component
     }
 
     /**
+     * Its own «Do not charge automatically» (#568): who sets its payment method. Staff in «Login as client» turn it on (money
+     * taken) only with the admin permission the same change needs there (SA-5).
+     */
+    public function toggleAutoCharge(): void
+    {
+        abort_unless($this->canSetPaymentMethod(), 403);
+        $on = (bool) $this->service->no_auto_charge;
+        if ($on && Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
+        ItemPaymentMethod::setAutoCharge($this->service, $on);
+        $this->notify($on ? __('services.auto_charge_turned_on') : __('services.auto_charge_turned_off'), 'success');
+    }
+
+    /**
      * Who sees the related contact: a login with `contacts` on the service's account (review 1-2: not the session's
      * current account); who sets it, one that also manages the service.
      */

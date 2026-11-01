@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\Service;
 use App\Models\User;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsPayMethodImport;
@@ -135,6 +136,31 @@ class ImportPayMethodsTest extends TestCase
         $this->assertStringNotContainsString("Customer #{$c}:", implode("\n", $result['notes']));
     }
 
+    /**
+     * Basic PayPal («paypal», paid by hand in WHMCS) beside the PayPal wallet: the wallet charges every PayPal item here, so
+     * those items get «Do not charge automatically» each; the account keeps «Auto-charge» for its Stripe ones (ADV-568-1, #568).
+     */
+    public function test_an_item_of_another_module_on_the_wallets_gateway_is_kept_from_it(): void
+    {
+        $this->fakeApi();
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (901, {$c}, 'Active', 'paypal')");
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES ({$c}, 'Active', 'stripe')");
+        $basic = Service::factory()->create(['id' => 901, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['PayPal']]);
+        $byCard = Service::factory()->create(['client_id' => $c]);
+        $items = fn (string $module) => match ($module) {
+            'stripe' => $this->gateways['Stripe'], 'paypal', 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
+        };
+
+        $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $this->assertTrue($basic->fresh()->no_auto_charge);
+        $this->assertFalse($byCard->fresh()->no_auto_charge);
+        $this->assertTrue((bool) $this->client->fresh()->auto_charge, 'the account\'s Stripe items are charged as before');
+        $this->assertSame(1, $result['counts']['items_kept']);
+        $this->assertStringContainsString("Customer #{$c}: 1 service(s) and domain(s) paid by «paypal» in WHMCS", implode("\n", $result['notes']));
+    }
+
     /** One of another way with no payment method here would be charged by the card: «Auto-charge» off, listed (R3-1). */
     public function test_a_way_with_no_payment_method_here_keeps_auto_charge_off(): void
     {
@@ -170,7 +196,7 @@ class ImportPayMethodsTest extends TestCase
 
         $this->assertSame(0, BillingAgreement::query()->where('client_id', $this->other->id)->count(), 'a bare payment method, Mollie: never guessed');
         $this->assertNull($this->other->fresh()->default_billing_agreement_id);
-        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'not_charged' => 0, 'skipped' => 3], $result['counts']);
+        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'not_charged' => 0, 'items_kept' => 0, 'skipped' => 3], $result['counts']);
         $notes = implode("\n", $result['notes']);
         $this->assertStringContainsString('customer #999999 not here', $notes);
         $this->assertStringContainsString('«mollie»', $notes);

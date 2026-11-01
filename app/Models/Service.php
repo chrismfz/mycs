@@ -44,6 +44,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $upgradable
  * @property int $client_id
  * @property int|null $payment_gateway_id
+ * @property bool $no_auto_charge its own «Do not charge automatically» (#568)
  */
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
@@ -112,6 +113,7 @@ class Service extends Model implements Auditable
         'contact_id',
         'currency_code',
         'payment_gateway_id',
+        'no_auto_charge',
         'suspend_hold_until',
         'suspend_hold_notice_for',
         // WHMCS's tblhosting fields (2026_11_02 migration)
@@ -139,6 +141,7 @@ class Service extends Model implements Auditable
     protected $casts = [
         'group_percent' => 'decimal:2',
         'price_locked' => 'boolean',
+        'no_auto_charge' => 'boolean',
         'expires_at' => 'date',
         'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',

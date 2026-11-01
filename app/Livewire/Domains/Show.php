@@ -603,6 +603,23 @@ class Show extends Component
         $this->notify(__('services.payment_method_saved'), 'success');
     }
 
+    /**
+     * Its own «Do not charge automatically» (#568): who sets its payment method. Staff in «Login as client» turn it on (money
+     * taken) only with the admin permission the same change needs there (SA-5).
+     */
+    public function toggleAutoCharge(): void
+    {
+        abort_unless($this->setsPaymentMethod(), 403);
+        $on = (bool) $this->domain->no_auto_charge;
+        if ($on && Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
+        ItemPaymentMethod::setAutoCharge($this->domain, $on);
+        $this->notify($on ? __('services.auto_charge_turned_on') : __('services.auto_charge_turned_off'), 'success');
+    }
+
     private function setsPaymentMethod(): bool
     {
         return Gate::allows('update', $this->domain) && $this->staffMay('admin.domains.update') && $this->seesInvoices();
@@ -782,6 +799,7 @@ class Show extends Component
             'manageable' => $manageable,
             'paymentMethodOptions' => ($setsPaymentMethod = $this->setsPaymentMethod() && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true))
                 ? ItemPaymentMethod::options($this->domain) : null,
+            'billed' => $seesInvoices && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true),
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),
             'showEpp' => $manageable && $this->staffMay('admin.domains.epp'),

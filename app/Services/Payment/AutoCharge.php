@@ -77,6 +77,9 @@ final class AutoCharge
         if ($invoice->no_auto_charge) {
             return null; // staff keep it from being charged automatically (PR H2b), or WHMCS made it of another way (#541)
         }
+        if (self::itemKeptFromIt($invoice)) {
+            return null; // a service or domain of it set «Do not charge automatically», now (#568)
+        }
         $client = $invoice->client;
         $way = $client === null ? false : self::wayOf($invoice, $client->autoChargeMethod());
         $agreement = $client === null || $way === false ? null : $client->autoChargeMethodFor($way);
@@ -95,6 +98,18 @@ final class AutoCharge
         $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('billing_agreement_id', $agreement->id)->latest('id')->value('status');
 
         return $last === ChargeAttempt::STATUS_ACTION_REQUIRED ? null : $agreement;
+    }
+
+    /**
+     * A line of a service or domain set «Do not charge automatically» (#568, by the customer, staff or the import): read
+     * as it is now, not as billed, so turning it off stops the charge of its open invoice too.
+     */
+    private static function itemKeptFromIt(Invoice $invoice): bool
+    {
+        return $invoice->items()->where(fn ($lines) => $lines
+            ->where(fn ($line) => $line->where('reference_type', Service::class)->whereIn('reference_id', Service::query()->select('id')->where('no_auto_charge', true)))
+            ->orWhere(fn ($line) => $line->where('reference_type', Domain::class)->whereIn('reference_id', Domain::query()->select('id')->where('no_auto_charge', true))))
+            ->exists();
     }
 
     /**
