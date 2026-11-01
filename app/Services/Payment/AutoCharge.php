@@ -111,6 +111,12 @@ final class AutoCharge
         return $invoice->items()->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists();
     }
 
+    /** Lines of two ways (a merge, an item's way changed on a shared open invoice): no method charges it. */
+    public static function waysMixed(Invoice $invoice): bool
+    {
+        return self::wayOf($invoice, $invoice->client?->autoChargeMethod()) === false;
+    }
+
     /**
      * The gateway whose saved method charges the invoice, by the way its lines were billed (InvoiceItem::payment_gateway_id,
      * #541; as billed, not as the item says now: an open invoice keeps the way it was made with), as WHMCS charges an

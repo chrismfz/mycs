@@ -95,6 +95,9 @@ class Domain extends Model implements Auditable
     {
         // «Do not charge automatically» turned on (#568): it leaves an open invoice it shares with items still charged.
         static::updated(function (self $domain) {
+            if ($domain->wasChanged('payment_gateway_id')) {
+                ItemPaymentMethod::followOnOpenInvoices($domain); // its open invoices follow (owner 2026-11-01, #568)
+            }
             if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
                 ItemPaymentMethod::keepApart($domain);
             }

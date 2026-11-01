@@ -116,17 +116,18 @@ class ServicePaymentMethodTest extends TestCase
     }
 
     /**
-     * Decided on the invoice as it was made (code review of #541): a change of an item counts from its next renewal, an
-     * open invoice keeps its way. A gateway deleted since: the item is the account's again, billed with the rest.
+     * Its open invoice follows a change of its payment method (owner 2026-11-01, #568; until then «from its next renewal»,
+     * code review of #541). A gateway deleted since: the item is the account's again, billed with the rest.
      */
-    public function test_an_invoice_keeps_the_way_it_was_made_with(): void
+    public function test_an_open_invoice_follows_a_change_of_its_way(): void
     {
         $byPayPal = $this->service($this->paypal);
         [$a, $c] = $this->bill($this->service(), $byPayPal);
         ItemPaymentMethod::set(Service::query()->find(Invoice::query()->find($a)->items()->value('reference_id')), $this->bank->id);
-        $this->assertSame($this->card->id, AutoCharge::agreementFor(Invoice::query()->find($a))?->id, 'the open invoice keeps its way');
+        $this->assertNull(AutoCharge::agreementFor(Invoice::query()->find($a)), 'now by bank transfer: the card no longer charges it');
+        $this->assertSame($this->bank->id, (int) Invoice::query()->find($a)->preferred_gateway_id, 'its invoice offers it first');
         ItemPaymentMethod::set($byPayPal, null);
-        $this->assertNull(AutoCharge::agreementFor(Invoice::query()->find($c)), 'PayPal\'s stays PayPal\'s');
+        $this->assertSame($this->card->id, AutoCharge::agreementFor(Invoice::query()->find($c))?->id, 'the account\'s now: the card charges it');
 
         $this->paypal->delete();
         $domain = Domain::factory()->create(['client_id' => $this->client->id, 'payment_gateway_id' => $this->paypal->id]);

@@ -404,7 +404,7 @@ return [
     'auto_charge_turned_off' => 'Automatic charge turned off.',
     'payment_method' => 'Payment method',
     'payment_method_account' => 'The account\'s (its saved method)',
-    'payment_method_saved' => 'The payment method was saved: its next renewals are invoiced with it.',
+    'payment_method_saved' => 'The payment method was saved: its open invoice and its next renewals are paid with it.',
     'payment_method_not_available' => 'This payment method is not available.',
 
     'no_services' => 'No services found',

@@ -241,10 +241,10 @@ class ChargeByGatewayMethodAdversarialRound2Test extends TestCase
         $this->assertSame($this->vaultGateway->id, (int) $open->items()->value('payment_gateway_id'), 'precondition: its line records PayPal');
         $service->update(['payment_gateway_id' => null]); // the customer: «the account's»
 
-        // Fixed the other way (author, #568): an open invoice keeps the way it was billed with (#541, R2-541), so the page now
-        // names the method the cron takes it from; the card from its next renewal. This test asserted the page's old answer.
-        $this->assertSame($this->said('charged', ['method' => $this->vault->name]), ItemPaymentMethod::autoChargeStatus($service->fresh()), 'what its page says');
+        // Owner 2026-11-01 (#568): the open invoice follows the change, so the reviewer's expectation holds as written.
+        $this->assertSame($this->said('charged', ['method' => 'Visa 4242']), ItemPaymentMethod::autoChargeStatus($service->fresh()), 'what its page says');
         $this->assertSame([$open->id], $this->cron());
-        $this->assertSame([$open->id], array_column(Adv568r2Vault::$charges, 'invoice'), 'the page and the cron agree: the wallet, as billed');
+        $this->assertSame([], Adv568r2Vault::$charges,
+            'the page said the card charges it: its open renewal must not be taken from the PayPal wallet');
     }
 }

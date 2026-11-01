@@ -20,8 +20,8 @@ use Illuminate\Support\Collection;
  * saved method charges its renewals, as before); a gateway's, its renewals are invoiced apart with it preferred, charged
  * by the account's saved method of that gateway if it has one (owner 2026-11-01), never by one of another gateway (their
  * lines record it: AutoCharge::agreementFor). Set by the customer on its page, by
- * staff in the admin, from WHMCS at import; an invoice's own choice stays the invoice's. Its own «Do not charge
- * automatically» keeps any method from its invoices (#568).
+ * staff in the admin, from WHMCS at import; its open invoices follow a change (followOnOpenInvoices, owner 2026-11-01).
+ * Its own «Do not charge automatically» keeps any method from its invoices (#568).
  */
 final class ItemPaymentMethod
 {
@@ -104,8 +104,8 @@ final class ItemPaymentMethod
         if ($item instanceof Domain && (!$item->auto_renew || in_array($item->status->value, DomainStatus::terminalValues(), true))) {
             return $status('not_renewing');
         }
-        // Its open invoice is charged as it was billed (#541: a change counts from the next renewal), so the page says what
-        // the cron will do with it (ADV-568-R2-6), and why not.
+        // Its open invoice is charged first: the page says what the cron will do with it, and why not (ADV-568-R2-6). It
+        // follows a change of its payment method (followOnOpenInvoices), unless a charge of it is on its way.
         $open = self::openInvoice($item);
         if ($open !== null) {
             $agreement = AutoCharge::agreementFor($open);
@@ -189,6 +189,46 @@ final class ItemPaymentMethod
             return;
         }
         $item->update(['no_auto_charge' => !$on]);
+    }
+
+    /**
+     * Its payment method changed (owner 2026-11-01, #568: the open invoice too, no longer «from the next renewal» of #541):
+     * the lines of its open invoices take the new way, and the invoice its preferred method when it bills only this item.
+     * One it shares with items of another way now is split, its lines to an invoice of their own (SplitInvoice); refused,
+     * it stays whole and, of two ways, is charged by no method (its page says pay it from the invoice). Never while a charge
+     * of the invoice is on its way or of unknown outcome (SavedMethodCharge::onItsWay): it keeps the way that charge was
+     * made with, so another method is never sent a second charge of it.
+     */
+    public static function followOnOpenInvoices(Service|Domain $item): void
+    {
+        $own = self::live($item);
+        $open = InvoiceItem::query()->where('reference_type', $item::class)->where('reference_id', $item->id)
+            ->whereIn('invoice_id', Invoice::query()->select('id')->where('status', Invoice::STATUS_UNPAID))->distinct()->pluck('invoice_id');
+        foreach ($open as $invoiceId) {
+            $invoice = Invoice::query()->find($invoiceId);
+            if ($invoice === null || SavedMethodCharge::onItsWay($invoice)) {
+                continue;
+            }
+            $mine = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', $item::class)->where('reference_id', $item->id);
+            (clone $mine)->update(['payment_gateway_id' => $own]); // the way only: no amount, tax or period moves
+            $shared = InvoiceItem::query()->where('invoice_id', $invoice->id)->whereIn('reference_type', [Service::class, Domain::class])
+                ->whereNot(fn ($lines) => $lines->where('reference_type', $item::class)->where('reference_id', $item->id))->exists();
+            $preferred = $own ?? Invoice::savedMethodGatewayFor((int) $invoice->client_id);
+            if (!$shared) {
+                $invoice->forceFill(['preferred_gateway_id' => $preferred])->save();
+
+                continue;
+            }
+            if (!AutoCharge::waysMixed($invoice->fresh())) {
+                continue;
+            }
+            try {
+                $apart = (new SplitInvoice)->handle($invoice->id, $mine->pluck('id')->map(fn ($id) => (int) $id)->all());
+                $apart->forceFill(['preferred_gateway_id' => $preferred])->save();
+            } catch (DisplayException) {
+                // Stays whole: of two ways, no method charges it.
+            }
+        }
     }
 
     /**

@@ -178,6 +178,10 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
+        // Its payment method changed: its open invoices follow (owner 2026-11-01, #568).
+        if ($service->wasChanged('payment_gateway_id')) {
+            ItemPaymentMethod::followOnOpenInvoices($service);
+        }
         // «Do not charge automatically» turned on (#568): it leaves an open invoice it shares with services still charged.
         if ($service->wasChanged('no_auto_charge') && $service->no_auto_charge) {
             ItemPaymentMethod::keepApart($service);

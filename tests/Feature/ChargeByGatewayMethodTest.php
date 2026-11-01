@@ -465,6 +465,48 @@ class ChargeByGatewayMethodTest extends TestCase
         $this->assertTrue($domain->fresh()->no_auto_charge);
     }
 
+    /** Owner 2026-11-01: a change of its payment method moves its open invoice too; one shared with the account's is split. */
+    public function test_a_change_of_its_way_moves_its_open_invoice_apart(): void
+    {
+        $moving = $this->service(null);
+        $staying = $this->service(null);
+        $shared = $this->invoice($moving, $staying);
+
+        ItemPaymentMethod::set($moving, $this->vaultGateway->id);
+
+        $apart = Invoice::query()->where('split_from_id', $shared->id)->sole();
+        $this->assertSame([$moving->id], $apart->items()->pluck('reference_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertSame($this->vaultGateway->id, (int) $apart->preferred_gateway_id);
+        $this->assertSame($this->vault->id, AutoCharge::agreementFor($apart)?->id, 'the PayPal vault, as the customer chose');
+        $this->assertSame($this->card->id, AutoCharge::agreementFor($shared->fresh())?->id, 'the other stays the card\'s');
+    }
+
+    /** Never while a charge of it is on its way: another method is never sent a second charge of the same invoice. */
+    public function test_an_open_invoice_with_a_charge_on_its_way_keeps_its_way(): void
+    {
+        $service = $this->service(null);
+        $open = $this->invoice($service);
+        ChargeAttempt::query()->forceCreate(['invoice_id' => $open->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $this->card->id, 'source' => ChargeAttempt::SOURCE_CRON,
+            'status' => ChargeAttempt::STATUS_UNKNOWN, 'amount' => '10.00', 'currency_code' => 'USD', 'key' => 'k-1', 'started_at' => now(), 'sent_at' => now()]);
+
+        ItemPaymentMethod::set($service, $this->vaultGateway->id);
+
+        $this->assertNull($open->items()->value('payment_gateway_id'), 'still the account\'s, as the charge was sent');
+        $this->assertSame($this->vaultGateway->id, (int) $service->fresh()->payment_gateway_id, 'the next renewal is PayPal\'s');
+    }
+
+    public function test_a_domains_open_invoice_follows_its_way(): void
+    {
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-01']);
+        $invoice->items()->create(['description' => 'Domain renewal', 'price' => '12.00', 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+
+        ItemPaymentMethod::set($domain, $this->vaultGateway->id);
+
+        $this->assertSame($this->vaultGateway->id, (int) $invoice->items()->value('payment_gateway_id'));
+        $this->assertSame($this->vault->id, AutoCharge::agreementFor($invoice->fresh())?->id);
+    }
+
     public function test_the_payment_methods_page_says_what_the_second_method_pays(): void
     {
         $this->service($this->vaultGateway);
