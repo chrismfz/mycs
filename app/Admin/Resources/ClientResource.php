@@ -165,10 +165,10 @@ class ClientResource extends Resource
                             ->label(__('No overdue reminders'))
                             ->helperText(__('No reminder after the due date (the one before it is still sent). Also set on its group.'))
                             ->default(false),
-                        // Decision 6 (PR C2): one saved method per account pays its renewals (WHMCS «Disable automatic card charging»).
+                        // Decision 6 (PR C2): the account's saved method pays its renewals, another gateway's method those of its items (#568; WHMCS «Disable automatic card charging»).
                         Toggle::make('auto_charge')
                             ->label(__('Charge renewals automatically'))
-                            ->helperText(__('Renewal invoices are charged to the saved payment method below.'))
+                            ->helperText(__('Renewal invoices are charged to the saved payment method below; those of a service or domain set to pay with another gateway, to its saved method of that gateway. Off: none is charged.'))
                             ->default(true),
                         Select::make('default_billing_agreement_id')
                             ->label(__('Payment method for renewals'))

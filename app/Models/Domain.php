@@ -6,6 +6,7 @@ use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\Registrars\GrEppRegistrar;
+use App\Services\Payment\ItemPaymentMethod;
 use Carbon\CarbonInterface;
 use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -40,6 +41,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property int $years
  * @property string $currency_code
  * @property int|null $payment_gateway_id
+ * @property bool $no_auto_charge its own «Do not charge automatically» (#568)
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
@@ -70,7 +72,7 @@ class Domain extends Model implements Auditable
 
     protected $fillable = [
         'client_id', 'order_id', 'epp_code', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
-        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'payment_gateway_id', 'recurring_amount',
+        'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'payment_gateway_id', 'no_auto_charge', 'recurring_amount',
         'auto_renew', 'transfer_lock', 'id_protection', 'dns_management', 'email_forwarding', 'dnssec_enabled',
         'contact_id', 'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
         'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle',
@@ -91,6 +93,15 @@ class Domain extends Model implements Auditable
 
     protected static function booted(): void
     {
+        // «Do not charge automatically» turned on (#568): it leaves an open invoice it shares with items still charged.
+        static::updated(function (self $domain) {
+            if ($domain->wasChanged('payment_gateway_id')) {
+                ItemPaymentMethod::followOnOpenInvoices($domain); // its open invoices follow (owner 2026-11-01, #568)
+            }
+            if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
+                ItemPaymentMethod::keepApart($domain);
+            }
+        });
         // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
         // database compares names case- and accent-blind, so «άλφα.gr» and «αλφα.gr» must not both be stored as such.
         static::saving(function (self $domain) {
@@ -145,6 +156,7 @@ class Domain extends Model implements Auditable
             'years' => 'integer',
             'recurring_amount' => 'decimal:2',
             'auto_renew' => 'boolean',
+            'no_auto_charge' => 'boolean',
             'transfer_lock' => 'boolean',
             'id_protection' => 'boolean',
             'dns_management' => 'boolean',

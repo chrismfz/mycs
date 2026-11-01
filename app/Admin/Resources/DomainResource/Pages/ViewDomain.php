@@ -639,7 +639,7 @@ class ViewDomain extends ViewRecord
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
                 ->visible(fn () => self::can('admin.domains.update'))
                 ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years),
-                    'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id])
+                    'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id, 'no_auto_charge' => $record->no_auto_charge])
                 ->schema([
                     Toggle::make('auto_renew')->label(__('Auto renew'))
                         ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
@@ -665,7 +665,10 @@ class ViewDomain extends ViewRecord
                     Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
                         ->options(fn () => Gateway::query()->orderBy('name')->pluck('name', 'id'))
                         ->placeholder(__('The account\'s (its saved method)'))
-                        ->helperText(__('Another gateway than the saved method\'s: its renewals are invoiced apart and never charged automatically.')),
+                        ->helperText(__('Another gateway than the saved method\'s: its renewals are invoiced apart, charged only by the account\'s saved method of that gateway.')),
+                    // Its own «Do not charge automatically» (#568).
+                    Toggle::make('no_auto_charge')->label(__('Do not charge automatically'))
+                        ->helperText(__('Its renewal invoices, the open one included, are paid by the customer; the account\'s other ones are still charged.')),
                     Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
                 ])
                 ->action(function (Domain $record, array $data) {
@@ -683,6 +686,7 @@ class ViewDomain extends ViewRecord
                     $price = $data['recurring_amount'] ?? null;
                     $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null,
                         'payment_gateway_id' => filled($data['payment_gateway_id'] ?? null) ? (int) $data['payment_gateway_id'] : null,
+                        'no_auto_charge' => (bool) ($data['no_auto_charge'] ?? false),
                         'recurring_amount' => $price === null || $price === '' ? null : (string) BigDecimal::of((string) $price)->toScale(2, RoundingMode::HalfUp)])->save(); // audited
                     Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
                         DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),

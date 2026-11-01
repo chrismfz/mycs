@@ -61,7 +61,7 @@
                     @endif
                 </div>
                 @if ($paymentMethodOptions !== null)
-                {{-- Its own payment method (owner 2026-10-29, as WHMCS's): none, the account's; another gateway's is never charged by the saved method. --}}
+                {{-- Its own payment method (owner 2026-10-29, as WHMCS's): none, the account's; another gateway's is charged only by a saved method of that gateway (#568). --}}
                 <div class="flex items-center gap-2">
                     <span>{{ __('services.payment_method') }}:</span>
                     <select class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm"
@@ -74,6 +74,19 @@
                         <option value="{{ $domain->payment_gateway_id }}" selected>{{ $domain->paymentGateway->name }}</option>
                         @endif
                     </select>
+                </div>
+                @endif
+                @if ($billed)
+                {{-- Charged automatically or not, and why (owner 2026-11-01); its own switch (#568). --}}
+                <div class="flex items-center gap-2">
+                    <span>{{ __('services.auto_pay') }}:</span>
+                    <span class="text-base/50">{{ \App\Services\Payment\ItemPaymentMethod::autoChargeStatus($domain) }}</span>
+                    @if ($paymentMethodOptions !== null && ($domain->no_auto_charge || $domain->client->billingAgreements()->exists()))
+                    <button type="button" class="text-sm underline" wire:click="toggleAutoCharge" wire:loading.attr="disabled"
+                        wire:confirm="{{ $domain->no_auto_charge ? __('services.auto_charge_on_confirm') : __('services.auto_charge_off_confirm') }}">
+                        {{ $domain->no_auto_charge ? __('services.auto_charge_turn_on') : __('services.auto_charge_turn_off') }}
+                    </button>
+                    @endif
                 </div>
                 @endif
             </div>

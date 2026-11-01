@@ -1699,8 +1699,10 @@ class ImportFromWhmcs extends Command
 
     /**
      * Each service's and domain's own payment method (tblhosting/tbldomains.paymentmethod, owner 2026-10-29): its renewals
-     * are invoiced apart with it, and a saved method of another gateway never charges them, as in WHMCS. A module with no
-     * gateway here: none (the account's); the saved methods' step then keeps «Auto-charge» off for such a customer.
+     * are invoiced apart with it, charged by the account's saved method of that gateway and never by one of another, as in
+     * WHMCS (#568). A module with no gateway here: none (the account's); the saved methods' step then keeps «Auto-charge»
+     * off for such a customer; an item another module's method would charge here gets «Do not charge automatically»
+     * (ADV-568-1).
      */
     private function importItemPaymentMethods(): void
     {
@@ -1788,7 +1790,8 @@ class ImportFromWhmcs extends Command
             fn (string $module) => $this->existingGateway($module)))->run();
         $c = $result['counts'];
         $this->info("Saved payment methods: {$c['imported']} of {$c['methods']} imported ({$c['defaults']} customers' default; {$c['not_charged']} with «Auto-charge» off, "
-            . "their items paid another way with no payment method here, those with some paid by a saved method listed), {$c['skipped']} skipped.");
+            . "their items paid another way with no payment method here, those with some paid by a saved method listed; {$c['items_kept']} service(s) "
+            . "and domain(s) set «Do not charge automatically», listed), {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }

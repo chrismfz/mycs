@@ -189,6 +189,13 @@ class Show extends Component
     public function updatedPaymentGatewayId($value)
     {
         abort_unless($this->canSetPaymentMethod(), 403);
+        // It chooses which saved method charges it (#568): the money permission's in «Login as client» (SA-5, ADV-568-R2-2).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->paymentGatewayId = $this->service->payment_gateway_id;
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
         try {
             ItemPaymentMethod::set($this->service, $value === '' || $value === null ? null : (int) $value);
         } catch (DisplayException $e) {
@@ -198,6 +205,23 @@ class Show extends Component
             return;
         }
         $this->notify(__('services.payment_method_saved'), 'success');
+    }
+
+    /**
+     * Its own «Do not charge automatically» (#568): who sets its payment method. Staff in «Login as client» turn it on (money
+     * taken) only with the admin permission the same change needs there (SA-5).
+     */
+    public function toggleAutoCharge(): void
+    {
+        abort_unless($this->canSetPaymentMethod(), 403);
+        $on = (bool) $this->service->no_auto_charge;
+        if ($on && Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
+        ItemPaymentMethod::setAutoCharge($this->service, $on);
+        $this->notify($on ? __('services.auto_charge_turned_on') : __('services.auto_charge_turned_off'), 'success');
     }
 
     /**

@@ -125,6 +125,11 @@
                         <div class="text-xs text-base/50 mt-1">
                             {{ __('account.default_payment_method') }}
                         </div>
+                        @elseif(isset($ownWayMethods[$agreement->id]))
+                        {{-- Another gateway's: it charges the items paid with that gateway (owner 2026-11-01). --}}
+                        <div class="text-xs text-base/50 mt-1">
+                            {{ __('account.pays_own_way', ['gateway' => $ownWayMethods[$agreement->id]]) }}
+                        </div>
                         @endif
                     </div>
                 </div>

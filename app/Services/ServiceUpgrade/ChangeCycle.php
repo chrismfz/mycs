@@ -244,8 +244,8 @@ final class ChangeCycle
             return null;
         }
         // As a renewal (CronJob::billRenewal): the credit pays what it covers, then a saved payment method the rest (S2).
-        // The account's saved method (decision 6), read again after the credit (a method removed meanwhile is not charged).
-        // AutoCharge's rule: not one paid another way (the service's own payment method, code review of #541).
+        // The account's saved method (decision 6), or its method of the service's own gateway (#568), read again after the
+        // credit (a method removed meanwhile is not charged): AutoCharge's rule.
         (new CreditAutoApply)->toInvoice($invoice, notify: AutoCharge::agreementFor($invoice) === null);
         $invoice->refresh();
         $agreement = AutoCharge::agreementFor($invoice->setRelation('client', $invoice->client?->fresh()));

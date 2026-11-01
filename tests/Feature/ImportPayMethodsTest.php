@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\Service;
 use App\Models\User;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsPayMethodImport;
@@ -95,7 +96,8 @@ class ImportPayMethodsTest extends TestCase
 
     /**
      * One service by card and three by bank transfer (owner 2026-10-29): each keeps its own payment method, so the card
-     * is the default and charges the one, as WHMCS did; a second saved method's items are listed, paid by hand.
+     * is the default and charges the one, as WHMCS did; a second saved method's items are charged by it (owner 2026-11-01),
+     * not listed as paid by hand.
      */
     public function test_a_card_for_some_items_is_the_default_when_the_others_keep_their_own_way(): void
     {
@@ -112,8 +114,13 @@ class ImportPayMethodsTest extends TestCase
         // Its open WHMCS invoices: one of the card's, one by bank transfer (never charged by the card there).
         $byCard = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
         $byBank = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        $byWallet = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        foreach ([$byCard, $byWallet] as $open) {
+            $open->items()->create(['description' => 'Renewal', 'price' => '5.00', 'quantity' => 1]);
+        }
         $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, status TEXT, paymentmethod TEXT)');
-        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$byCard->id}, {$c}, 'Unpaid', 'stripe'), ({$byBank->id}, {$c}, 'Unpaid', 'banktransfer')");
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$byCard->id}, {$c}, 'Unpaid', 'stripe'), ({$byBank->id}, {$c}, 'Unpaid', 'banktransfer'),
+            ({$byWallet->id}, {$c}, 'Unpaid', 'paypal_ppcpv')");
 
         $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
 
@@ -122,7 +129,66 @@ class ImportPayMethodsTest extends TestCase
         $this->assertSame('pm_Amex2', BillingAgreement::query()->find($client->default_billing_agreement_id)?->external_reference, 'the card\'s, its first by WHMCS\'s order');
         $this->assertTrue((bool) $client->auto_charge, 'the bank transfer ones keep their own way: never charged by it');
         $this->assertSame(0, $result['counts']['not_charged']);
-        $this->assertStringContainsString("Customer #{$c}: 1 live item(s) charged by a second saved method in WHMCS («paypal_ppcpv»)", implode("\n", $result['notes']));
+        // The default's gateway's open invoice follows the account (a default changed later charges it, never another card of
+        // that gateway: review of #568); the wallet's keeps its way.
+        $this->assertNull($byCard->items()->value('payment_gateway_id'));
+        $this->assertSame($this->gateways['PayPal'], (int) $byWallet->items()->value('payment_gateway_id'));
+        $this->assertStringNotContainsString("Customer #{$c}:", implode("\n", $result['notes']));
+    }
+
+    /**
+     * Basic PayPal («paypal», paid by hand in WHMCS) beside the PayPal wallet: the wallet charges every PayPal item here, so
+     * those items get «Do not charge automatically» each; the account keeps «Auto-charge» for its Stripe ones (ADV-568-1, #568).
+     */
+    public function test_an_item_of_another_module_on_the_wallets_gateway_is_kept_from_it(): void
+    {
+        $this->fakeApi();
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (901, {$c}, 'Active', 'paypal')");
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES ({$c}, 'Active', 'stripe')");
+        $basic = Service::factory()->create(['id' => 901, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['PayPal']]);
+        $byCard = Service::factory()->create(['client_id' => $c]);
+        $items = fn (string $module) => match ($module) {
+            'stripe' => $this->gateways['Stripe'], 'paypal', 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
+        };
+
+        $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $this->assertTrue($basic->fresh()->no_auto_charge);
+        $this->assertFalse($byCard->fresh()->no_auto_charge);
+        $this->assertTrue((bool) $this->client->fresh()->auto_charge, 'the account\'s Stripe items are charged as before');
+        $this->assertSame(1, $result['counts']['items_kept']);
+        $this->assertStringContainsString("Customer #{$c}: 1 service(s) and domain(s) paid by «paypal» in WHMCS", implode("\n", $result['notes']));
+    }
+
+    /**
+     * Two saved modules on one gateway (a Stripe card and Stripe SEPA) beside a PayPal default: each charges its own items in
+     * WHMCS, so none of them is kept as «another module's» (review 2 of #568).
+     */
+    public function test_items_of_a_saved_methods_own_module_are_not_kept(): void
+    {
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES (18, {$c}, 'RemoteBankAccount', 'stripe_sepa', 4, NULL)");
+        $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (903, {$c}, 'Active', 'stripe'), (904, {$c}, 'Active', 'stripe_sepa'),
+            (905, {$c}, 'Active', 'paypal_ppcpv'), (906, {$c}, 'Active', 'paypal_ppcpv'), (907, {$c}, 'Active', 'paypal_ppcpv')");
+        $card = Service::factory()->create(['id' => 903, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['Stripe']]);
+        $sepa = Service::factory()->create(['id' => 904, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['Stripe']]);
+        Http::fake(['https://whmcs.example.test/includes/api.php' => Http::response(['result' => 'success', 'clientid' => $c, 'paymethods' => [
+            ['id' => 12, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Amex2']), 'expiry_date' => '01/28', 'card_last_four' => '0005', 'card_type' => 'American Express'],
+            ['id' => 13, 'remote_token' => json_encode(['vaultId' => '7XK31234AB567890C', 'customerId' => 'abcDEF123']), 'expiry_date' => '03/54', 'card_last_four' => 'maria@example.test', 'card_type' => 'PayPal'],
+            ['id' => 18, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Sepa9']), 'expiry_date' => '', 'card_last_four' => '1234', 'card_type' => 'SEPA'],
+        ]])]);
+        $items = fn (string $module) => match ($module) {
+            'stripe', 'stripe_sepa' => $this->gateways['Stripe'], 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
+        };
+
+        $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $this->assertSame($this->gateways['PayPal'], (int) BillingAgreement::query()->find($this->client->fresh()->default_billing_agreement_id)?->gateway_id,
+            'precondition: PayPal pays most, the default');
+        $this->assertSame(2, BillingAgreement::query()->where('client_id', $c)->where('gateway_id', $this->gateways['Stripe'])->count(), 'precondition: card and SEPA saved');
+        $this->assertFalse($card->fresh()->no_auto_charge, 'the card\'s own module');
+        $this->assertFalse($sepa->fresh()->no_auto_charge, 'SEPA\'s own module');
     }
 
     /** One of another way with no payment method here would be charged by the card: «Auto-charge» off, listed (R3-1). */
@@ -160,7 +226,7 @@ class ImportPayMethodsTest extends TestCase
 
         $this->assertSame(0, BillingAgreement::query()->where('client_id', $this->other->id)->count(), 'a bare payment method, Mollie: never guessed');
         $this->assertNull($this->other->fresh()->default_billing_agreement_id);
-        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'not_charged' => 0, 'skipped' => 3], $result['counts']);
+        $this->assertSame(['methods' => 7 - 1, 'imported' => 3, 'defaults' => 1, 'not_charged' => 0, 'items_kept' => 0, 'skipped' => 3], $result['counts']);
         $notes = implode("\n", $result['notes']);
         $this->assertStringContainsString('customer #999999 not here', $notes);
         $this->assertStringContainsString('«mollie»', $notes);

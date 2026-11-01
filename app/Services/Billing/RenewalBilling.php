@@ -247,6 +247,8 @@ final class RenewalBilling
         $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
         $own = $this->ownGateway($service);
         $key = $key === null || $own === null ? $key : "{$key}|g{$own}"; // its own payment method: an invoice apart (as WHMCS)
+        // «Do not charge automatically» (#568): an invoice apart too, so the others of its group are still charged.
+        $key = $key === null || !$service->no_auto_charge ? $key : "{$key}|k";
         // Lock order: the service (above), then its group's invoice, as for every line of the group; the services of a
         // group are billed one after another, never two at once (one cron run at a time; a group is this instance's own,
         // the cron's or one «Invoice selected items» run's).
@@ -358,6 +360,7 @@ final class RenewalBilling
         };
         $own = $this->ownGateway($domain);
         $key = $key === null || $own === null ? $key : "{$key}|g{$own}";
+        $key = $key === null || !$domain->no_auto_charge ? $key : "{$key}|k"; // «Do not charge automatically»: apart (#568)
         $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
             || (int) $invoice->client_id !== (int) $domain->client_id || $invoice->currency_code !== $domain->currency_code
@@ -550,11 +553,12 @@ final class RenewalBilling
 
                         return;
                     }
-                    // A gateway subscription pays its own invoice; any other is charged to the account's saved method (decision 6).
+                    // A gateway subscription pays its own invoice; any other is charged to the account's saved method of its lines'
+                    // gateway (decision 6, #568).
                     $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
                         ->orderBy('id')->first();
                     $subscription = (string) $service?->subscription_id !== '';
-                    // Not one paid another way either (ADV-541-7): the card never charges the rest, so the customer is told.
+                    // Not one no method of its way charges (ADV-541-7, #568): the customer is told.
                     $agreement = $subscription ? null : AutoCharge::agreementFor($invoice);
                     if (!$this->creditOnFinish) {
                         return;

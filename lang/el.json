@@ -270,7 +270,7 @@
     "You switched account in another window: reload this page.": "Αλλάξατε λογαριασμό σε άλλο παράθυρο: φορτώστε ξανά αυτή τη σελίδα.",
     "This payment method was removed.": "Αυτός ο τρόπος πληρωμής έχει αφαιρεθεί.",
     "This payment method cannot be used now.": "Αυτός ο τρόπος πληρωμής δεν μπορεί να χρησιμοποιηθεί αυτή τη στιγμή.",
-    "Renewal invoices are charged to the saved payment method below.": "Τα τιμολόγια ανανέωσης χρεώνονται στον αποθηκευμένο τρόπο πληρωμής παρακάτω.",
+    "Renewal invoices are charged to the saved payment method below; those of a service or domain set to pay with another gateway, to its saved method of that gateway. Off: none is charged.": "Τα τιμολόγια ανανέωσης χρεώνονται στον αποθηκευμένο τρόπο πληρωμής παρακάτω· όσα υπηρεσίας ή domain με τρόπο πληρωμής άλλου gateway, στον τρόπο του λογαριασμού σε εκείνο το gateway. Off: δεν χρεώνεται κανένα.",
     "Payment method for renewals": "Τρόπος πληρωμής ανανεώσεων",
     "None": "Κανένας",
     "One invoice per service renewal, instead of one per due date.": "Ένα τιμολόγιο ανά ανανέωση υπηρεσίας, αντί για ένα ανά ημερομηνία λήξης.",
@@ -1547,7 +1547,6 @@
     "Queued for :email.": "Στην ουρά αποστολής προς :email.",
     "Another welcome email for this service is being sent: try again in a moment.": "Ένα άλλο welcome email αυτής της υπηρεσίας στέλνεται αυτή τη στιγμή: δοκιμάστε σε λίγο.",
     "The account's (its saved method)": "Του λογαριασμού (ο αποθηκευμένος τρόπος)",
-    "Another gateway than the saved method's: its renewals are invoiced apart and never charged automatically.": "Άλλος τρόπος από του αποθηκευμένου: οι ανανεώσεις του τιμολογούνται χωριστά και δεν χρεώνονται ποτέ αυτόματα.",
     "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας.",
     "A card payment of this invoice is on its way: wait for it before moving the invoice.": "Μια πληρωμή με κάρτα αυτού του τιμολογίου είναι σε εξέλιξη: περιμένετε να ολοκληρωθεί πριν το μεταφέρετε.",
     "A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).": "Ένα κλειστό τιμολόγιο κρατά τον πελάτη του: επαναφέρετέ το σε απλήρωτο πρώτα (ένα επιστραμμένο δεν μεταφέρεται ποτέ).",
@@ -1566,5 +1565,9 @@
     "Item": "Στοιχείο",
     "as of :time": "στις :time",
     "Refresh": "Ανανέωση",
-    "Swept a moment ago: try again in a minute.": "Υπολογίστηκε μόλις: δοκιμάστε ξανά σε ένα λεπτό."
+    "Swept a moment ago: try again in a minute.": "Υπολογίστηκε μόλις: δοκιμάστε ξανά σε ένα λεπτό.",
+    "Another gateway than the saved method's: its renewals are invoiced apart, charged only by the account's saved method of that gateway.": "Άλλο gateway από αυτό της αποθηκευμένης μεθόδου: οι ανανεώσεις του τιμολογούνται χωριστά και τις χρεώνει μόνο ο αποθηκευμένος τρόπος του λογαριασμού σε εκείνο το gateway.",
+    "Do not charge automatically": "Να μη χρεώνεται αυτόματα",
+    "Its renewal invoices, the open one included, are paid by the customer; the account's other ones are still charged.": "Τα τιμολόγια ανανέωσής του, και το ανοιχτό, τα πληρώνει ο πελάτης· τα υπόλοιπα του λογαριασμού χρεώνονται όπως πριν.",
+    "Automatic charge": "Αυτόματη χρέωση"
 }
