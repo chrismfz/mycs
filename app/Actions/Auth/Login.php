@@ -6,6 +6,7 @@ use App\Events\Auth\Login as LoginEvent;
 use App\Models\LoginAttempt;
 use App\Models\User;
 use App\Models\UserSession;
+use App\Providers\Filament\AdminPanelProvider;
 use App\Support\AuthCookies;
 use App\Support\Locales;
 use Carbon\Carbon;
@@ -43,5 +44,23 @@ class Login
 
         event(new LoginEvent($user));
         LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::SUCCESS);
+    }
+
+    /**
+     * Where a customer's login goes on: back where it started (an invitation's link, PR 2b), unless that was the admin
+     * panel's (owner 2026-11-02: after staff logged out there, the shared session still held /sysadmin as intended, and a
+     * customer's login landed on the staff login) or another site's; then $default. Taken out of the session either way.
+     */
+    public static function intended(string $default): string
+    {
+        $url = (string) Session::pull('url.intended', '');
+        $path = '/' . ltrim((string) parse_url($url, PHP_URL_PATH), '/');
+        $admin = '/' . trim(AdminPanelProvider::PATH, '/');
+        $host = parse_url($url, PHP_URL_HOST);
+        if ($url === '' || ($host !== null && $host !== request()->getHost()) || $path === $admin || str_starts_with($path, $admin . '/')) {
+            return $default;
+        }
+
+        return $url;
     }
 }

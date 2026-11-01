@@ -111,7 +111,7 @@ class SocialLoginController extends Controller
         (new Login)->execute($user, true);
 
         // Back where the login started from (an invitation's link, PR 2b).
-        return redirect(session()->pull('url.intended', route('home')));
+        return redirect(Login::intended(route('home')));
     }
 
     /** Back to a page with why (the pages show the session's notification, not a flashed «error»). */
