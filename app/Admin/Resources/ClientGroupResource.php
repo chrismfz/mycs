@@ -46,7 +46,8 @@ class ClientGroupResource extends Resource
         return $schema
             ->components([
                 TextInput::make('name')->label(__('Name'))->required()->maxLength(255),
-                ColorPicker::make('colour')->label(__('Colour')),
+                // A hex colour only: the only form shown on its badges (ClientGroup::safeColour; review of #574).
+                ColorPicker::make('colour')->label(__('Colour'))->regex(ClientGroup::COLOUR),
                 TextInput::make('discount_percent')->label(__('Discount (%)'))
                     ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)->required()
                     ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on domains, nor on a price kept by hand.')),

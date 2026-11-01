@@ -51,6 +51,11 @@ class ClientGroupColoursTest extends TestCase
 
         DB::table('client_groups')->where('id', $dark->id)->update(['colour' => 'red;background:url(x)']);
         $this->assertStringNotContainsString('url(x)', (string) $dark->fresh()->badge(), 'not a hex colour: never in the style');
+        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => "#fff\n"]);
+        $this->assertNull($dark->fresh()->safeColour(), 'a newline after it: refused (\\z)');
+        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => '#7c3aed80']);
+        $this->assertSame('#7c3aed80', $dark->fresh()->safeColour(), 'with alpha: kept');
+        $this->assertStringContainsString('color: #ffffff', (string) $dark->fresh()->badge(), 'its alpha aside for the text');
         $this->assertSame(['10% off services', 'Separate invoices'], $this->group->perks());
     }
 
@@ -62,13 +67,26 @@ class ClientGroupColoursTest extends TestCase
             ->filterTable('client_group_id', (string) $this->group->id)
             ->assertCanSeeTableRecords([$this->member])->assertCanNotSeeTableRecords([$this->other])
             ->filterTable('client_group_id', 'none')
-            ->assertCanSeeTableRecords([$this->other])->assertCanNotSeeTableRecords([$this->member]);
+            ->assertCanSeeTableRecords([$this->other])->assertCanNotSeeTableRecords([$this->member])
+            ->assertSee(__('No group'));
+    }
+
+    /** Review of #574: a group's name staff or an import wrote never reaches the list as HTML. */
+    public function test_a_groups_name_is_escaped_on_the_list(): void
+    {
+        $this->group->forceFill(['name' => '<img src=x onerror=alert(1)>'])->save();
+
+        Livewire::test(ListClients::class)->assertDontSee('<img src=x', false)->assertSee('&lt;img src=x', false);
     }
 
     public function test_the_edit_form_says_what_the_chosen_group_gives(): void
     {
+        $quiet = ClientGroup::query()->create(['name' => 'Quiet', 'colour' => '#cccccc', 'discount_percent' => 0, 'no_overdue_reminders' => true]);
+
         Livewire::test(EditClient::class, ['record' => $this->member->getRouteKey()])
-            ->assertSee('10% off services · Separate invoices');
+            ->assertSee('10% off services · Separate invoices')
+            ->set('data.client_group_id', (string) $quiet->id) // live: the text follows the choice
+            ->assertSee('No overdue reminders. Its discount applies')->assertDontSee('10% off services');
     }
 
     public function test_the_groups_page_shows_each_on_its_colour_with_what_it_gives(): void

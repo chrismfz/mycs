@@ -56,21 +56,32 @@ class ClientGroup extends Model implements Auditable
         return (float) $this->discount_percent > 0 ? number_format((float) $this->discount_percent, 2, '.', '') : null;
     }
 
+    /** A hex colour (#rgb, #rgba, #rrggbb, #rrggbbaa), the only form that goes into a style (review of #574: \z, no newline). */
+    public const COLOUR = '/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\z/i';
+
     /** Its colour for a style attribute: a hex colour only, else none (staff and imports write it). */
     public function safeColour(): ?string
     {
-        return preg_match('/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i', (string) $this->colour) === 1 ? (string) $this->colour : null;
+        return preg_match(self::COLOUR, (string) $this->colour) === 1 ? (string) $this->colour : null;
     }
 
     /** @return list<string> what it gives its members, as staff read it (owner 2026-11-01, as WHMCS's Client Groups page) */
     public function perks(): array
     {
         return array_values(array_filter([
-            $this->percent() !== null ? __(':percent% off services', ['percent' => (float) $this->discount_percent]) : null,
+            $this->percent() !== null ? __(':percent% off services', ['percent' => self::number((float) $this->discount_percent)]) : null,
             $this->separate_invoices ? __('Separate invoices') : null,
             $this->dunning_exempt ? __('No automatic suspension or termination') : null,
             $this->no_overdue_reminders ? __('No overdue reminders') : null,
         ]));
+    }
+
+    /** A percentage as the language writes it (12,5 in Greek). */
+    public static function number(float $value): string
+    {
+        $text = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+
+        return app()->getLocale() === 'el' ? str_replace('.', ',', $text) : $text;
     }
 
     /**
@@ -85,7 +96,7 @@ class ClientGroup extends Model implements Auditable
             return new HtmlString('<span class="fi-badge inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ring-gray-300 dark:ring-white/20">' . $text . '</span>');
         }
         $hex = ltrim($colour, '#');
-        $hex = strlen($hex) === 3 ? $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2] : $hex;
+        $hex = strlen($hex) <= 4 ? $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2] : substr($hex, 0, 6); // the alpha aside
         [$r, $g, $b] = array_map('hexdec', str_split($hex, 2));
         $ink = (0.299 * $r + 0.587 * $g + 0.114 * $b) > 150 ? '#111827' : '#ffffff';
 

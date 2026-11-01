@@ -136,7 +136,7 @@ class ClientSummary
                 // Into a style attribute: a hex colour only.
                 'colour' => $group->safeColour(),
                 // On its colour, with what it gives (owner 2026-11-01).
-                'badge' => $group->badge($group->name . ($group->percent() !== null ? ' −' . (float) $group->percent() . '%' : '')),
+                'badge' => $group->badge(),
                 'perks' => $group->perks()],
             'method' => $method?->name,
         ];

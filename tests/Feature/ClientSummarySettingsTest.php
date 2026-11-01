@@ -102,7 +102,7 @@ class ClientSummarySettingsTest extends TestCase
         $this->assertSame(['10% off services'], $settings['group']['perks']);
         $this->assertSame('Visa **** 4242', $settings['method']);
 
-        $html = $this->page()->assertSee('Ελληνικά')->assertSee('Resellers −10%')->assertSee('Visa **** 4242')
+        $html = $this->page()->assertSee('Ελληνικά')->assertSee('Resellers')->assertSee(__(':percent% off services', ['percent' => '10']))->assertSee('Visa **** 4242')
             ->assertSee('background-color: #7c3aed', false)->getContent();
         foreach (array_keys(ClientSummary::SETTING_DEFAULTS) as $field) {
             $this->assertStringContainsString('fi-badge', $this->settingRow($html, $field), $field);

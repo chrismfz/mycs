@@ -153,7 +153,7 @@ class ClientResource extends Resource
                             ->disabled(fn () => !(auth()->user()?->hasPermission('admin.client_groups.update') ?? false))
                             ->dehydrated(fn () => auth()->user()?->hasPermission('admin.client_groups.update') ?? false)
                             ->helperText(function (Get $get) {
-                                $perks = ClientGroup::query()->find($get('client_group_id'))?->perks() ?? [];
+                                $perks = filled($get('client_group_id')) ? (ClientGroup::query()->find($get('client_group_id'))?->perks() ?? []) : [];
 
                                 return ($perks === [] ? '' : implode(' · ', $perks) . '. ')
                                     . __('Its discount applies to the services\' prices from their next renewal, except a price kept by hand.');
