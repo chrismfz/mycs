@@ -52,7 +52,7 @@ return new class extends Migration
     private function greekTax(string $body): string
     {
         $changed = preg_replace('#^([ \t]*)- Προτιμολόγιο: \*\*\#\{\{ invoice_number \}\}\*\*\n(?![ \t]*\{% if tax %\})#mu',
-            "\$0\$1{% if tax %}\n\$1- Υποσύνολο: **{{ subtotal }}**\n\$1- ΦΠΑ: **{{ tax }}**\n\$1{% endif %}\n", $body);
+            "\$0\$1{% if tax %}\n\$1- Μερικό σύνολο: **{{ subtotal }}**\n\$1- ΦΠΑ: **{{ tax }}**\n\$1{% endif %}\n", $body);
 
         return $changed ?? $body; // not valid UTF-8: kept as it is, never emptied (as the migration of #539)
     }

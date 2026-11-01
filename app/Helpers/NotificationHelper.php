@@ -454,9 +454,8 @@ class NotificationHelper
             'tax' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->taxTotal) : '',
             // Only a gateway subscription is charged on its own later (review R1/A2); a saved method was charged once.
             'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
-            // The saved method the cron charges it with («Visa 4242», a PayPal account), as its pages name it (#568); empty for
-            // a gateway subscription or none.
-            'auto_charge_method' => (string) AutoCharge::agreementFor($invoice)?->name,
+            // The saved method the cron charges it with («Visa 4242», a PayPal account), as its pages name it (#568).
+            'auto_charge_method' => self::autoChargeMethodName($invoice),
             // What is left to pay, for a partly paid invoice (review R5/A10).
             'remaining' => $invoice->formattedRemaining,
             // Against the total after credit (credit used is not «partly paid»: code review of #388).
@@ -493,6 +492,18 @@ class NotificationHelper
      * Its preferred payment method's name, only when unpaid and that gateway can take it (as its page offers it), else ''.
      * A gateway that cannot be read never stops the email: only its button's label goes (R2-2 of #539).
      */
+    /**
+     * The saved method the cron will charge it with, by name; none for an invoice a gateway subscription pays (the cron
+     * leaves it to the subscription: review F1 of #573) or with nothing left to pay (credit paid it before the mail went).
+     */
+    private static function autoChargeMethodName(Invoice $invoice): string
+    {
+        $subscribed = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
+            ->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->exists();
+
+        return $subscribed || $invoice->remaining <= 0 ? '' : (string) AutoCharge::agreementFor($invoice)?->name;
+    }
+
     public static function preferredMethod(Invoice $invoice): string
     {
         // Paid on its own (a subscription, a saved method on its due date): no button names a way to pay it (R3-1 of #539).

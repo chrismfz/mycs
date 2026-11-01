@@ -1165,7 +1165,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
@@ -1224,7 +1224,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
@@ -1318,7 +1318,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
@@ -1747,7 +1747,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
@@ -1821,7 +1821,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
@@ -1870,7 +1870,7 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
-                    - Υποσύνολο: **{{ subtotal }}**
+                    - Μερικό σύνολο: **{{ subtotal }}**
                     - ΦΠΑ: **{{ tax }}**
                     {% endif %}
                     {% if credit %}
