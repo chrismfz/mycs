@@ -351,11 +351,10 @@ class Client extends Model implements Auditable
      */
     private static function firstUsable(Collection $methods): ?BillingAgreement
     {
-        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
         $today = now()->toDateString();
 
         return $methods->first(fn (BillingAgreement $method) => ((string) $method->expiry === '' || substr((string) $method->expiry, 0, 10) >= $today)
-            && ($max === 0 || $method->failed_count < $max)) ?? $methods->first();
+            && !$method->stopped()) ?? $methods->first();
     }
 
     /** autoChargeMethodFor(), only of a gateway staff have not disabled (autoChargeAgreement()). */

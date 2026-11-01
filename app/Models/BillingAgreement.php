@@ -41,6 +41,17 @@ class BillingAgreement extends Model implements Auditable
         ];
     }
 
+    /**
+     * Declined on autocharge_max_failures days in a row: the cron no longer charges it until a charge succeeds or the
+     * customer pays with it (PR H). One rule for the cron, its page's «Automatic charge» line and the payment ways' labels.
+     */
+    public function stopped(): bool
+    {
+        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
+
+        return $max > 0 && $this->failed_count >= $max;
+    }
+
     /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {

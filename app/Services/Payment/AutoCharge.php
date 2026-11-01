@@ -91,8 +91,7 @@ final class AutoCharge
         if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id) && SavedMethodCharge::unknownAttempt($invoice->id, $agreement->id) === null) {
             return null;
         }
-        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
-        if ($max > 0 && $agreement->failed_count >= $max) {
+        if ($agreement->stopped()) {
             return null;
         }
         $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('billing_agreement_id', $agreement->id)->latest('id')->value('status');

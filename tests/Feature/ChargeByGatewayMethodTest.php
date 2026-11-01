@@ -529,6 +529,34 @@ class ChargeByGatewayMethodTest extends TestCase
             ->assertSee($auto(__('services.payment_method_account_short'), 'Visa 4242'))->assertSee($manual('PayPal'));
     }
 
+    /** As the cron (review of #572): a stopped method, a gateway not enabled, «Auto-charge» off; the domain page too. */
+    public function test_the_labels_follow_the_cron_for_stopped_methods_and_switches(): void
+    {
+        $auto = fn (string $gateway, string $method) => __('services.payment_method_option_auto', ['gateway' => $gateway, 'method' => $method]);
+        $manual = fn (string $gateway) => __('services.payment_method_option_manual', ['gateway' => $gateway]);
+        $account = __('services.payment_method_account_short');
+        $service = $this->service($this->vaultGateway);
+
+        config(['settings.autocharge_max_failures' => 3]);
+        $this->vault->forceFill(['failed_count' => 3])->save();
+        $this->card->forceFill(['failed_count' => 3])->save();
+        $this->assertNull(AutoCharge::agreementFor($this->invoice($service)), 'precondition: the cron charges neither');
+        $this->assertSame($manual('PayPal'), ItemPaymentMethod::optionLabel($service, $this->vaultGateway), 'every PayPal method stopped');
+        $this->assertSame($manual($account), ItemPaymentMethod::optionLabel($service, null), 'the default stopped');
+        $this->card->forceFill(['failed_count' => 0])->save();
+        $this->assertSame($auto($account, 'Visa 4242'), ItemPaymentMethod::optionLabel($service->fresh(), null));
+
+        $this->vaultGateway->forceFill(['enabled' => false])->save();
+        $this->assertSame(__('services.payment_method_option_unavailable', ['gateway' => 'PayPal']), ItemPaymentMethod::optionLabel($service->fresh(), $this->vaultGateway->fresh()));
+
+        $this->client->forceFill(['auto_charge' => false])->save();
+        $this->assertSame($manual($account), ItemPaymentMethod::optionLabel($service->fresh(), null), 'the account\'s «Auto-charge» off');
+
+        $this->client->forceFill(['auto_charge' => true])->save();
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'currency_code' => 'USD']);
+        $this->livewireAs($this->user)->test(DomainShow::class, ['domain' => $domain])->assertSee($auto($account, 'Visa 4242'));
+    }
+
     public function test_the_payment_methods_page_says_what_the_second_method_pays(): void
     {
         $this->service($this->vaultGateway);
