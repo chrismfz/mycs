@@ -66,12 +66,13 @@
                     <span>{{ __('services.payment_method') }}:</span>
                     <select class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm"
                         wire:change="setPaymentMethod($event.target.value || 0)" wire:loading.attr="disabled" aria-label="{{ __('services.payment_method') }}">
-                        <option value="">{{ __('services.payment_method_account') }}</option>
+                        {{-- Each way says whether a saved method charges it or it is paid from the invoice (owner 2026-11-01). --}}
+                        <option value="">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($domain, null) }}</option>
                         @foreach ($paymentMethodOptions as $gateway)
-                        <option value="{{ $gateway->id }}" @selected((int) $gateway->id === (int) $domain->payment_gateway_id)>{{ $gateway->name }}</option>
+                        <option value="{{ $gateway->id }}" @selected((int) $gateway->id === (int) $domain->payment_gateway_id)>{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($domain, $gateway) }}</option>
                         @endforeach
                         @if ($domain->paymentGateway && !$paymentMethodOptions->contains('id', $domain->payment_gateway_id))
-                        <option value="{{ $domain->payment_gateway_id }}" selected>{{ $domain->paymentGateway->name }}</option>
+                        <option value="{{ $domain->payment_gateway_id }}" selected>{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($domain, $domain->paymentGateway) }}</option>
                         @endif
                     </select>
                 </div>

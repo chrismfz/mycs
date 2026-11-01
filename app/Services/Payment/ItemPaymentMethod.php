@@ -89,6 +89,26 @@ final class ItemPaymentMethod
     }
 
     /**
+     * A payment method as its select offers it (owner 2026-11-01: PayPal charged automatically, or paid from the invoice):
+     * the gateway's name, then the saved method that would charge its renewals with it, or «paid from the invoice». Null:
+     * the account's way. Only a label of the way (not of the item: a suspended service is still labelled by its way): the
+     * «Automatic charge» line under it (autoChargeStatus) says what happens now.
+     */
+    public static function optionLabel(Service|Domain $item, ?Gateway $gateway): string
+    {
+        $name = $gateway === null ? __('services.payment_method_account_short') : (string) $gateway->name;
+        if ($gateway !== null && !$gateway->enabled) {
+            return __('services.payment_method_option_unavailable', ['gateway' => $name]); // kept as its current one, not offered
+        }
+        $agreement = $item->no_auto_charge ? null : $item->client?->autoChargeAgreementFor($gateway === null ? null : (int) $gateway->id);
+        $agreement = $agreement?->stopped() ? null : $agreement; // as the cron (review of #572)
+
+        return $agreement !== null
+            ? __('services.payment_method_option_auto', ['gateway' => $name, 'method' => $agreement->name])
+            : __('services.payment_method_option_manual', ['gateway' => $name]);
+    }
+
+    /**
      * What its page tells the customer and staff (owner 2026-11-01: no misunderstanding): charged automatically with which
      * method, or why not, by the cron's rules (AutoCharge::due and agreementFor; review 2 of #568: a suspended service, a
      * domain not renewing, a method stopped at its failures, an open invoice held by another item on it).
@@ -147,8 +167,7 @@ final class ItemPaymentMethod
         if (!ExtensionHelper::gatewayEnabled($agreement->gateway_id)) {
             return $status('gateway_off', ['gateway' => (string) Gateway::query()->withTrashed()->whereKey($agreement->gateway_id)->value('name')]);
         }
-        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
-        if ($max > 0 && $agreement->failed_count >= $max) {
+        if ($agreement->stopped()) {
             return $status('stopped', ['method' => $agreement->name]);
         }
         if ($open !== null) {

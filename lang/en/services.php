@@ -403,7 +403,10 @@ return [
     'auto_charge_turned_on' => 'Automatic charge turned on.',
     'auto_charge_turned_off' => 'Automatic charge turned off.',
     'payment_method' => 'Payment method',
-    'payment_method_account' => 'The account\'s (its saved method)',
+    'payment_method_account_short' => 'Account default',
+    'payment_method_option_auto' => ':gateway (charged automatically: :method)',
+    'payment_method_option_unavailable' => ':gateway (not available)',
+    'payment_method_option_manual' => ':gateway (paid from the invoice)',
     'payment_method_saved' => 'The payment method was saved: its open invoice and its next renewals are paid with it.',
     'payment_method_not_available' => 'This payment method is not available.',
 

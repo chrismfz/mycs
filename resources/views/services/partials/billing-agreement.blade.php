@@ -4,12 +4,13 @@
 <div class="flex items-center text-base gap-2">
     <label for="paymentGatewayId" class="mr-2">{{ __('services.payment_method') }}:</label>
     <select id="paymentGatewayId" wire:model.live="paymentGatewayId" class="rounded bg-background-secondary border border-neutral px-2 py-1 text-sm">
-        <option value="">{{ __('services.payment_method_account') }}</option>
+        {{-- Each way says whether a saved method charges it or it is paid from the invoice (owner 2026-11-01). --}}
+        <option value="">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($service, null) }}</option>
         @foreach($paymentMethodOptions as $gateway)
-        <option value="{{ $gateway->id }}">{{ $gateway->name }}</option>
+        <option value="{{ $gateway->id }}">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($service, $gateway) }}</option>
         @endforeach
         @if($service->paymentGateway && !$paymentMethodOptions->contains('id', $service->payment_gateway_id))
-        <option value="{{ $service->payment_gateway_id }}">{{ $service->paymentGateway->name }}</option>
+        <option value="{{ $service->payment_gateway_id }}">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($service, $service->paymentGateway) }}</option>
         @endif
     </select>
 </div>
