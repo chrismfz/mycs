@@ -86,3 +86,4 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
   - Όγκος: οι νεκροί agents (Expired/Suspended, ~47k checks/εβδομάδα στο WHMCS) γράφουν στο access log **μία φορά τη
     μέρα** ανά άδεια, IP και μήνυμα. Η απάντηση δεν αλλάζει (και αν πέσει το cache: γράφεται η γραμμή), και κάθε check
     μετράει (`license_check_days`, `last_access`). Cache απαντήσεων δεν μπήκε: ~5 checks/λεπτό δεν το χρειάζονται, και το md5hash αλλάζει με το token.
+- **Zonecloud Agent Bulk License** (σχέδιο 2026-11-01, περιμένει έγκριση): μία άδεια με πολλές IPs, χρέωση ανά IP-ημέρα με κλίμακες, μετάβαση των πολλών αδειών με τα παλιά κλειδιά ως ψευδώνυμα: `zonecloud-bulk-license.md`.
