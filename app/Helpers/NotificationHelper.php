@@ -26,6 +26,7 @@ use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
+use App\Services\Payment\AutoCharge;
 use App\Support\EmailKinds;
 use App\Support\Locales;
 use App\Support\LogText;
@@ -453,6 +454,9 @@ class NotificationHelper
             'tax' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->taxTotal) : '',
             // Only a gateway subscription is charged on its own later (review R1/A2); a saved method was charged once.
             'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
+            // The saved method the cron charges it with («Visa 4242», a PayPal account), as its pages name it (#568); empty for
+            // a gateway subscription or none.
+            'auto_charge_method' => (string) AutoCharge::agreementFor($invoice)?->name,
             // What is left to pay, for a partly paid invoice (review R5/A10).
             'remaining' => $invoice->formattedRemaining,
             // Against the total after credit (credit used is not «partly paid»: code review of #388).
