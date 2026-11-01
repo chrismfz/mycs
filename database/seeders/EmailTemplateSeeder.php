@@ -71,7 +71,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
 
                 {% if has_subscription %}
-                It will be paid automatically with your saved payment method: there is nothing you need to do.
+                It will be paid automatically with {% if auto_charge_method %}{{ auto_charge_method }}{% else %}your saved payment method{% endif %}: there is nothing you need to do.
                 {% else %}
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.pay }}">
@@ -706,7 +706,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with your saved payment method. There is nothing you need to do.
+                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.
 
                 If your card has changed or expired, please update it, or pay the invoice with another method, before that date.
 
@@ -1164,6 +1164,10 @@ class EmailTemplateSeeder extends Seeder
                     Εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
@@ -1183,7 +1187,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
 
                     {% if has_subscription %}
-                    Θα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας: δεν χρειάζεται να κάνετε κάτι.
+                    Θα εξοφληθεί αυτόματα με {% if auto_charge_method %}{{ auto_charge_method }}{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.
                     {% else %}
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.pay }}">
@@ -1219,6 +1223,10 @@ class EmailTemplateSeeder extends Seeder
                     Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
@@ -1309,6 +1317,10 @@ class EmailTemplateSeeder extends Seeder
                     Η αυτόματη χρέωση για το προτιμολόγιο **#{{ invoice_number }}** δεν ήταν επιτυχής και **δεν** χρεωθήκατε.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
@@ -1734,6 +1746,10 @@ class EmailTemplateSeeder extends Seeder
                     Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
@@ -1770,7 +1786,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με τον αποθηκευμένο τρόπο πληρωμής σας. Δεν χρειάζεται να κάνετε κάτι.
+                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.
 
                     Αν η κάρτα σας έχει αλλάξει ή λήξει, ενημερώστε την ή εξοφλήστε το προτιμολόγιο με άλλο τρόπο πριν από αυτή την ημερομηνία.
 
@@ -1804,6 +1820,10 @@ class EmailTemplateSeeder extends Seeder
                     Το προτιμολόγιο **#{{ invoice_number }}** έληξε στις **{{ invoice.due_at|date("d/m/Y") }}** και είναι ληξιπρόθεσμο εδώ και {{ overdue.days }} ημέρα/ες. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα· η πληρωμή ίσως δεν έχει καταχωριστεί ακόμα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
@@ -1849,6 +1869,10 @@ class EmailTemplateSeeder extends Seeder
                     Το προτιμολόγιο **#{{ invoice_number }}** ενημερώθηκε. Ακολουθεί όπως είναι τώρα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
+                    {% if tax %}
+                    - Μερικό σύνολο: **{{ subtotal }}**
+                    - ΦΠΑ: **{{ tax }}**
+                    {% endif %}
                     {% if credit %}
                     - Πίστωση: **{{ credit }}**
                     {% endif %}
