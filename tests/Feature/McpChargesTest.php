@@ -18,6 +18,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Ops\Charges;
+use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -143,7 +144,7 @@ class McpChargesTest extends TestCase
         $charge = $call['json']['automatic_charge'];
 
         $this->assertFalse($charge['no_auto_charge']);
-        $this->assertTrue($charge['due_for_charge_today'], 'an open renewal due today');
+        $this->assertSame('already tried today, at 03:00:00', $charge['cron'], 'the 03:00 run charged it: not again today');
         $this->assertSame(['id' => $this->card->id, 'name' => 'Visa 4242', 'gateway' => 'Stripe'], $charge['charged_by']);
         $this->assertSame([ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_FAILED], array_column($charge['attempts'], 'status'), 'newest first');
         $this->assertSame('Visa 4242', $charge['attempts'][0]['method']);
@@ -163,10 +164,62 @@ class McpChargesTest extends TestCase
         $charge = $this->mcp($this->key(), 'invoice', ['invoice' => '#' . $invoice->id])['json']['automatic_charge'];
 
         $this->assertTrue($charge['no_auto_charge']);
-        $this->assertFalse($charge['due_for_charge_today']);
+        $this->assertSame('never charged automatically: it is set not to be charged automatically', $charge['cron']);
         $this->assertNull($charge['charged_by']);
         $this->assertSame([], $charge['attempts']);
         $this->artisan('mycs:invoice', ['id' => '#' . $invoice->id])->expectsOutputToContain('charged_by: —')->assertSuccessful();
+    }
+
+    /** Review of #571: the default is never named as charging an invoice the cron does not charge at all. */
+    public function test_an_invoice_the_cron_never_charges_names_no_method_and_says_why(): void
+    {
+        $consulting = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-01']);
+        $consulting->items()->create(['description' => 'Consulting', 'price' => '50.00', 'quantity' => 1]);
+        $cancelled = $this->invoice($this->service(), ['status' => Invoice::STATUS_CANCELLED]);
+        $key = $this->key();
+
+        $charge = $this->mcp($key, 'invoice', ['invoice' => '#' . $consulting->id])['json']['automatic_charge'];
+        $this->assertNull($charge['charged_by']);
+        $this->assertStringStartsWith('never charged automatically: not a renewal the cron charges', $charge['cron']);
+        $charge = $this->mcp($key, 'invoice', ['invoice' => '#' . $cancelled->id])['json']['automatic_charge'];
+        $this->assertNull($charge['charged_by']);
+        $this->assertSame('never charged automatically: it is cancelled', $charge['cron']);
+    }
+
+    /** What the cron does today with an invoice it charges, as chargeOne() skips it. */
+    public function test_the_invoice_says_what_the_cron_does_with_it_today(): void
+    {
+        $invoice = $this->invoice($this->service());
+        $key = $this->key();
+        $cron = fn () => $this->mcp($key, 'invoice', ['invoice' => '#' . $invoice->id])['json']['automatic_charge'];
+
+        $this->assertSame('charged on the cron\'s next run, on its due date or a retry day', $cron()['cron']);
+        $this->attempt($invoice, $this->card, ChargeAttempt::STATUS_SUCCEEDED, '2026-10-31 20:00:00', ['source' => ChargeAttempt::SOURCE_CLIENT]);
+        $this->assertSame('held: a charge of it is on its way, of unknown outcome, or taken and not recorded yet', $cron()['cron'], 'taken yesterday, no payment recorded');
+        $this->assertSame(['id' => $this->card->id, 'name' => 'Visa 4242', 'gateway' => 'Stripe'], $cron()['charged_by']);
+
+        $later = $this->invoice($this->service(), ['due_at' => '2026-11-20']);
+        $this->assertSame('not today: outside its window (due 2026-11-20)', $this->mcp($key, 'invoice', ['invoice' => '#' . $later->id])['json']['automatic_charge']['cron']);
+
+        $this->stripe->forceFill(['enabled' => false])->save();
+        $charge = $cron();
+        $this->assertNull($charge['charged_by'], 'its gateway disabled');
+        $this->assertStringStartsWith('not charged: no method may charge it', $charge['cron']);
+    }
+
+    /** Review of #571: an unknown outcome's key is reused, and the invoice held, for KEY_REUSE_HOURS only. */
+    public function test_an_unknown_outcome_past_its_key_window_says_a_next_charge_takes_new_money(): void
+    {
+        $invoice = $this->invoice($this->service());
+        $old = $this->attempt($invoice, $this->card, ChargeAttempt::STATUS_UNKNOWN, '2026-10-30 03:00:00', ['error' => 'Timeout']);
+        $recent = $this->attempt($invoice, $this->card, ChargeAttempt::STATUS_UNKNOWN, '2026-11-01 03:00:00', ['error' => 'Timeout']);
+        $this->assertTrue(SavedMethodCharge::unknownAttempt($invoice->id, $this->card->id)?->is($recent), 'the cron resends only the recent one with its key');
+
+        $rows = collect($this->mcp($this->key(), 'charges')['json']['attempts'])->keyBy('id');
+
+        $this->assertStringStartsWith('UNKNOWN OUTCOME, KEY EXPIRED', $rows[$old->id]['alert']);
+        $this->assertStringNotContainsString('same key', $rows[$old->id]['alert']);
+        $this->assertStringContainsString('until 2026-11-02 02:00 is sent again with the same key', $rows[$recent->id]['alert']);
     }
 
     public function test_recent_charges_say_what_needs_staff(): void
@@ -277,6 +330,15 @@ class McpChargesTest extends TestCase
         $after = collect($this->mcp($key, 'client', ['client' => (string) $this->client->id])['json']['saved_methods']['other_methods'])->keyBy('id');
         $this->assertSame('the renewals of the services and domains paid with PayPal', $after[$this->vault->id]['pays'], 'the first PayPal method added, as the cron charges');
         $this->assertStringStartsWith('nothing automatically', $after[$other->id]['pays']);
+
+        $this->paypal->forceFill(['enabled' => false])->save();
+        $this->assertSame('nothing automatically: its gateway is disabled',
+            collect($this->mcp($key, 'client', ['client' => (string) $this->client->id])['json']['saved_methods']['other_methods'])->keyBy('id')[$this->vault->id]['pays']);
+        $this->stripe->forceFill(['enabled' => false])->save();
+        $this->assertSame('nothing automatically: its gateway is disabled', $this->mcp($key, 'client', ['client' => (string) $this->client->id])['json']['saved_methods']['default_method']['pays'], 'review of #571');
+        $this->stripe->forceFill(['enabled' => true])->save();
+        $this->storeSettings(['autocharge_max_failures' => 2]);
+        $this->assertSame('nothing automatically: stopped after 2 declines in a row', $this->mcp($key, 'client', ['client' => (string) $this->client->id])['json']['saved_methods']['default_method']['pays']);
 
         $this->client->forceFill(['auto_charge' => false])->save();
         $off = $this->mcp($key, 'client', ['client' => (string) $this->client->id])['json']['saved_methods'];

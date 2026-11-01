@@ -101,13 +101,14 @@ final class AutoCharge
     }
 
     /**
-     * Whether today's run picks the invoice up at all (due()): open, due in its window, a renewal of active items, of an
-     * account with «Auto-charge» on and a saved method. agreementFor() then says which method, or none. Read by the ops
-     * tools (Ops\Charges), never by the run.
+     * Whether the run picks the invoice up (due()): open, a renewal of active items, of an account with «Auto-charge» on and
+     * a saved method; and, $today, due in its window today. agreementFor() then says which method, or none, and
+     * chargeOne() may still skip it (tried today, not a retry day, a charge on its way). Read by the ops tools
+     * (Ops\Charges), never by the run.
      */
-    public static function dueToday(Invoice $invoice): bool
+    public static function picks(Invoice $invoice, bool $today = true): bool
     {
-        return (new self)->due(CarbonImmutable::today())->whereKey($invoice->id)->exists();
+        return (new self)->due(CarbonImmutable::today(), $today)->whereKey($invoice->id)->exists();
     }
 
     /**
@@ -156,17 +157,17 @@ final class AutoCharge
         return $way === null || $way === 'account' ? null : (int) $way;
     }
 
-    /** @return Builder<Invoice> open renewal invoices due in the window, of customers with «Auto-charge» on */
-    private function due(CarbonImmutable $today): Builder
+    /** @return Builder<Invoice> open renewal invoices due in the window (any day, not $dated), of customers with «Auto-charge» on */
+    private function due(CarbonImmutable $today, bool $dated = true): Builder
     {
         $notCharged = Service::query()->select('id')->where(fn ($query) => $query->where('status', '!=', Service::STATUS_ACTIVE)
             ->orWhere(fn ($subscribed) => $subscribed->whereNotNull('subscription_id')->where('subscription_id', '!=', '')));
 
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')->where('no_auto_charge', false)
-            ->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
-            // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
-            // A suspension window (Settings → Automation) postpones a suspension 6 days at most: those days are in it too.
-            ->whereDate('due_at', '>=', $today->subDays(self::window() + (DunningWindow::always() ? 0 : 7))->toDateString())
+            ->when($dated, fn (Builder $dates) => $dates->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
+                // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial
+                // ADV-5). A suspension window (Settings → Automation) postpones a suspension 6 days at most: those days too.
+                ->whereDate('due_at', '>=', $today->subDays(self::window() + (DunningWindow::always() ? 0 : 7))->toDateString()))
             // A saved method, the default or the one of its lines' gateway (agreementFor decides which).
             ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereHas('billingAgreements'))
             // A renewal: of a service, or of a domain (D5b); none of an ended domain. A service's charge alone (an imported

@@ -2,6 +2,7 @@
 
 namespace App\Services\Ops;
 
+use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Client;
@@ -15,6 +16,7 @@ use App\Services\Payment\SavedMethodCharge;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 
 /**
  * The automatic charges of saved methods as the ops tools show them (docs/ops.md, docs/payments.md «Αυτόματη χρέωση»):
@@ -31,21 +33,58 @@ final class Charges
     public const UNKNOWN_OUTCOME = 'unknown_outcome';
 
     /**
-     * Whether today's cron picks it up (AutoCharge::dueToday), the method it charges it to when it does (agreementFor,
-     * read whatever the invoice's status), and every attempt on it, newest first.
+     * The method the cron charges it to (AutoCharge::agreementFor), only when it is an invoice the cron charges at all
+     * (AutoCharge::picks: open, a renewal of active items, «Auto-charge» on): never the default named on an order, a paid
+     * invoice or one staff made (review of #571). «cron» says what it does with it today, or why never. Every attempt on
+     * it, newest first.
      *
      * @return array<string, mixed>
      */
     public static function invoice(Invoice $invoice): array
     {
-        $agreement = AutoCharge::agreementFor($invoice);
+        $invoice->loadMissing('client');
+        $kind = AutoCharge::picks($invoice, false);
+        $agreement = $kind ? AutoCharge::agreementFor($invoice) : null;
 
         return [
             'no_auto_charge' => (bool) $invoice->no_auto_charge,
-            'due_for_charge_today' => AutoCharge::dueToday($invoice),
             'charged_by' => $agreement === null ? null : self::method($agreement),
+            'cron' => $kind ? self::today($invoice, $agreement) : self::never($invoice),
             'attempts' => self::rows(ChargeAttempt::query()->where('invoice_id', $invoice->id)->latest('id')->limit(50)->get()),
         ];
+    }
+
+    /** Why the cron never charges the invoice (not AutoCharge::picks), the first reason that holds. */
+    private static function never(Invoice $invoice): string
+    {
+        $client = $invoice->client;
+
+        return 'never charged automatically: ' . match (true) {
+            $invoice->status !== Invoice::STATUS_UNPAID => "it is {$invoice->status}",
+            (bool) $invoice->no_auto_charge => 'it is set not to be charged automatically',
+            $client === null || !$client->auto_charge => '«Auto-charge» is off for the account',
+            !$client->billingAgreements()->exists() => 'the account has no saved method',
+            $invoice->finish_pending_at !== null => 'a payment of it is being finished',
+            default => 'not a renewal the cron charges (an order, an invoice staff made, a registration or transfer, or a line of an item not active or not renewing)',
+        };
+    }
+
+    /** What the cron does with an invoice it charges (AutoCharge::picks), today: as chargeOne() skips it, in its order. */
+    private static function today(Invoice $invoice, ?BillingAgreement $agreement): string
+    {
+        $tried = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON)
+            ->where('sent_at', '>=', today())->latest('id')->value('sent_at');
+
+        return match (true) {
+            $agreement === null => 'not charged: ' . (AutoCharge::waysMixed($invoice) ? 'its lines are of two payment methods'
+                : ($invoice->items()->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists() ? 'a service or domain on it is set not to be charged automatically'
+                    : 'no method may charge it (none of its lines\' gateway, the gateway disabled, the method stopped after its declines, or the bank asked the customer to confirm: see the attempts)')),
+            !AutoCharge::picks($invoice) => 'not today: outside its window (due ' . $invoice->due_at?->toDateString() . ')',
+            (float) $invoice->remaining <= 0 => 'not charged: nothing left to pay',
+            $tried !== null => 'already tried today, at ' . Carbon::parse($tried)->toTimeString(),
+            SavedMethodCharge::onItsWay($invoice) => 'held: a charge of it is on its way, of unknown outcome, or taken and not recorded yet',
+            default => 'charged on the cron\'s next run, on its due date or a retry day',
+        };
     }
 
     /** @return array<string, mixed> its «Automatic charge» line, as its page says it, and what it is set to */
@@ -76,21 +115,30 @@ final class Charges
         $own = ItemPaymentMethod::ownWayMethods($client);
         $stored = $client->defaultBillingAgreement;
 
-        $none = 'nothing automatically: ' . match (true) {
+        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
+        // What a method pays, by Client::autoChargeAgreement(For) and AutoCharge::agreementFor (review of #571: a disabled
+        // gateway, a method stopped at its declines).
+        $blocked = fn (BillingAgreement $method) => match (true) {
             !$client->auto_charge => '«Auto-charge» is off for the account',
             $default === null => 'the account has no default method, and without one no method is charged',
-            default => 'not the default, and no service or domain of its gateway is charged to it',
+            !ExtensionHelper::gatewayEnabled($method->gateway_id) => 'its gateway is disabled',
+            $max > 0 && $method->failed_count >= $max => "stopped after {$method->failed_count} declines in a row",
+            default => null,
+        };
+        $pays = fn (BillingAgreement $method) => match (true) {
+            $blocked($method) !== null => 'nothing automatically: ' . $blocked($method),
+            (int) $method->id === (int) $default?->id => "the renewals of the account's services and domains, except those paid with another gateway",
+            isset($own[$method->id]) => "the renewals of the services and domains paid with {$own[$method->id]}",
+            default => 'nothing automatically: not the default, and no service or domain of its gateway is charged to it',
         };
         $stored = $stored !== null && (int) $stored->client_id === (int) $client->id ? $stored : null;
 
         return [
             'auto_charge' => (bool) $client->auto_charge,
-            'default_method' => $stored === null ? null : self::method($stored, true)
-                + ['pays' => $default === null ? $none : "the renewals of the account's services and domains, except those paid with another gateway"],
+            'default_method' => $stored === null ? null : self::method($stored, true) + ['pays' => $pays($stored)],
             'other_methods' => $client->billingAgreements()->latest('id')->get()
                 ->reject(fn (BillingAgreement $method) => (int) $method->id === (int) $stored?->id)
-                ->map(fn (BillingAgreement $method) => self::method($method, true)
-                    + ['pays' => isset($own[$method->id]) ? "the renewals of the services and domains paid with {$own[$method->id]}" : $none])
+                ->map(fn (BillingAgreement $method) => self::method($method, true) + ['pays' => $pays($method)])
                 ->values()->all(),
         ];
     }
@@ -111,18 +159,19 @@ final class Charges
         $query = fn () => ChargeAttempt::query()->where('sent_at', '>=', now()->subDays($days))
             ->when($client !== null, fn (Builder $query) => $query->where('client_id', $client?->id))
             ->when($invoice !== null, fn (Builder $query) => $query->where('invoice_id', $invoice?->id));
+        // Each succeeded attempt once (its method loaded): whether its payment was recorded is a query of its own.
+        $taken = $query()->with('billingAgreement')->where('status', ChargeAttempt::STATUS_SUCCEEDED)->latest('id')->get();
+        $notRecorded = $taken->filter(fn (ChargeAttempt $attempt) => self::attentionOf($attempt) === self::TAKEN_NOT_RECORDED)->values();
         $attempts = match ($status) {
             null, '' => $query()->latest('id')->limit($limit)->get(),
-            self::TAKEN_NOT_RECORDED => $query()->where('status', ChargeAttempt::STATUS_SUCCEEDED)->latest('id')->get()
-                ->filter(fn (ChargeAttempt $attempt) => self::attentionOf($attempt) === self::TAKEN_NOT_RECORDED)->take($limit)->values(),
+            self::TAKEN_NOT_RECORDED => $notRecorded->take($limit),
             default => $query()->where('status', $status)->latest('id')->limit($limit)->get(),
         };
-        $taken = $query()->where('status', ChargeAttempt::STATUS_SUCCEEDED)->get();
 
         return [
             'window' => "the last {$days} days",
             'counts' => $query()->toBase()->selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status')->map(fn ($n) => (int) $n)->all(),
-            'taken_not_recorded' => $taken->filter(fn (ChargeAttempt $attempt) => self::attentionOf($attempt) === self::TAKEN_NOT_RECORDED)->pluck('invoice_id')->unique()->values()->all(),
+            'taken_not_recorded' => $notRecorded->pluck('invoice_id')->unique()->values()->all(),
             'unknown_outcome' => $query()->where(fn (Builder $query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn (Builder $stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
                 ->pluck('invoice_id')->unique()->values()->all(),
@@ -159,10 +208,13 @@ final class Charges
                 'alert' => match ($attention) {
                     self::TAKEN_NOT_RECORDED => 'TAKEN, NOT RECORDED: the gateway took it but no payment of it was recorded since (check its webhooks)'
                         . ($attempt->sent_at->lessThan(now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS)) ? '; the invoice is no longer held and may be charged again' : '; the invoice is held, not charged again'),
-                    self::UNKNOWN_OUTCOME => 'UNKNOWN OUTCOME: maybe taken; the next charge of this amount to this method is sent again with the same key',
+                    // As SavedMethodCharge::unknownAttempt and onItsWay: its key is reused, and the invoice held, only so long (review of #571).
+                    self::UNKNOWN_OUTCOME => $attempt->started_at->greaterThan(now()->subHours(SavedMethodCharge::KEY_REUSE_HOURS))
+                        ? 'UNKNOWN OUTCOME: maybe taken; a next charge of it to this method until ' . $attempt->started_at->copy()->addHours(SavedMethodCharge::KEY_REUSE_HOURS)->format('Y-m-d H:i') . ' is sent again with the same key (no new money)'
+                        : 'UNKNOWN OUTCOME, KEY EXPIRED: maybe taken; the invoice is not held, and a next charge takes new money: check the gateway',
                     'awaiting_payment' => 'taken; its payment is not recorded yet (the gateway\'s webhook is expected within the hour)',
                     'awaiting_answer' => 'sent; no answer from the gateway yet',
-                    ChargeAttempt::STATUS_ACTION_REQUIRED => 'the bank asked the customer to confirm: not charged to this method again until they pay',
+                    ChargeAttempt::STATUS_ACTION_REQUIRED => 'the bank asked the customer to confirm: this invoice is not charged to this method again (they pay it themselves, or save another method)',
                     default => null,
                 },
                 'error' => $attempt->error === null ? null : Redact::values((string) Scrub::text($attempt->error), array_filter([$method?->external_reference])),
