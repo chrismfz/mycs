@@ -2,14 +2,12 @@
 
 namespace App\Livewire\Client;
 
-use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Client;
 use App\Models\Currency;
-use App\Models\Domain;
 use App\Models\Gateway;
-use App\Models\Service;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use Livewire\Attributes\Computed;
@@ -170,33 +168,6 @@ class PaymentMethods extends Component
         $this->setupModalVisible = false;
     }
 
-    /**
-     * The methods that charge the services and domains paid with another gateway than the default's (owner 2026-11-01):
-     * agreement id => that gateway's name, as AutoCharge charges them (Client::autoChargeAgreementFor).
-     *
-     * @return array<int, string>
-     */
-    private function ownWayMethods(Client $client): array
-    {
-        $default = $client->autoChargeMethod();
-        $methods = [];
-        foreach ($client->billingAgreements()->with('gateway')->get()->pluck('gateway')->filter()->unique('id') as $gateway) {
-            if ($default !== null && (int) $default->gateway_id === (int) $gateway->id) {
-                continue;
-            }
-            $paid = Service::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
-                ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists()
-                || Domain::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
-                    ->whereNotIn('status', DomainStatus::terminalValues())->exists();
-            $agreement = $paid ? $client->autoChargeAgreementFor((int) $gateway->id) : null;
-            if ($agreement !== null) {
-                $methods[(int) $agreement->id] = (string) $gateway->name;
-            }
-        }
-
-        return $methods;
-    }
-
     public function render()
     {
         $client = CurrentClient::model()->fresh();
@@ -205,7 +176,7 @@ class PaymentMethods extends Component
             'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
             'billingAgreements' => CurrentClient::model()->billingAgreements()->latest()->get(),
             'defaultAgreementId' => $client?->default_billing_agreement_id,
-            'ownWayMethods' => $client === null ? [] : $this->ownWayMethods($client),
+            'ownWayMethods' => $client === null ? [] : ItemPaymentMethod::ownWayMethods($client),
         ])->layoutData([
             'sidebar' => true,
             'title' => __('account.payment_methods'),
