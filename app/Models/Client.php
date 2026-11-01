@@ -325,6 +325,33 @@ class Client extends Model implements Auditable
         return $agreement !== null && (int) $agreement->client_id === (int) $this->id ? $agreement : null;
     }
 
+    /**
+     * The method that charges the renewals paid with a gateway (an item's own payment method, its invoice's lines), with
+     * «Auto-charge» on, enabled or not as autoChargeMethod(): none given, or the default's gateway, the default; another
+     * gateway, the account's first live method of it, as WHMCS charges an invoice with its own gateway's saved method
+     * (owner 2026-11-01, replay of 1 Nov). Never one of another gateway: no method of it, none.
+     */
+    public function autoChargeMethodFor(?int $gatewayId): ?BillingAgreement
+    {
+        if (!$this->auto_charge) {
+            return null;
+        }
+        $default = $this->autoChargeMethod();
+        if ($gatewayId === null || ($default !== null && (int) $default->gateway_id === $gatewayId)) {
+            return $default;
+        }
+
+        return $this->billingAgreements()->where('gateway_id', $gatewayId)->orderBy('id')->first();
+    }
+
+    /** autoChargeMethodFor(), only of a gateway staff have not disabled (autoChargeAgreement()). */
+    public function autoChargeAgreementFor(?int $gatewayId): ?BillingAgreement
+    {
+        $agreement = $this->autoChargeMethodFor($gatewayId);
+
+        return $agreement !== null && ExtensionHelper::gatewayEnabled($agreement->gateway_id) ? $agreement : null;
+    }
+
     /** @return HasManyThrough<InvoiceTransaction, Invoice, $this> */
     public function transactions(): HasManyThrough
     {

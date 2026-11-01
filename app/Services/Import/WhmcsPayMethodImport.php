@@ -167,12 +167,8 @@ final class WhmcsPayMethodImport
 
             return;
         }
-        // A second saved method's items (PayPal's beside Stripe's): one method charges an account, those are paid by hand.
-        $others = array_sum(array_intersect_key($usage, array_flip(array_slice($saved, 1))));
-        if ($others > 0) {
-            $this->notes[] = "Customer #{$clientId}: {$others} live item(s) charged by a second saved method in WHMCS («" . implode('», «', array_slice($saved, 1))
-                . "»): paid by hand here, its default charges the «{$default}» ones.";
-        }
+        // A second saved method's items (PayPal's beside Stripe's) keep their own way: that method charges them, as in WHMCS
+        // (AutoCharge::wayOf, owner 2026-11-01), so they are no longer listed.
         if (DB::table('clients')->where('id', $clientId)->whereNull('default_billing_agreement_id')->update(['default_billing_agreement_id' => $first[$default]['id']]) > 0) {
             $this->counts['defaults']++;
         }

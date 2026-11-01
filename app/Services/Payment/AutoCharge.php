@@ -30,8 +30,9 @@ use Throwable;
  * autocharge_max_failures days in a row (staff are told; the method is kept).
  *
  * Only renewal invoices of the customer's services, all active and not paid by a gateway subscription: an order or an
- * invoice staff made is paid by the customer (as before). Nor one with a line of a service or domain paid another way
- * (paidAnotherWay), nor a WHMCS one of another way (no_auto_charge, set at import).
+ * invoice staff made is paid by the customer (as before). One of a service or domain paid with another gateway is charged
+ * to the account's method of that gateway, as WHMCS does (wayOf, owner 2026-11-01); one of two ways is not, nor a WHMCS
+ * one of a way with no saved method (no_auto_charge, set at import).
  */
 final class AutoCharge
 {
@@ -64,7 +65,8 @@ final class AutoCharge
     }
 
     /**
-     * The method the cron charges this invoice to, or null: the account's (Auto-charge on), its gateway still there and
+     * The method the cron charges this invoice to, or null: the account's (Auto-charge on) for its lines' gateway (wayOf,
+     * Client::autoChargeMethodFor: the default, or its method of another gateway its lines were billed with), its gateway still there and
      * enabled (ExtensionHelper::customerGateways()), not stopped at autocharge_max_failures, and not one the bank asked the
      * customer to confirm a charge of this invoice with (a new default method is charged; adversarial ADV-7), nor an
      * invoice staff keep from it (PR H2b). Also what the reminder before the due date tells the customer
@@ -75,8 +77,10 @@ final class AutoCharge
         if ($invoice->no_auto_charge) {
             return null; // staff keep it from being charged automatically (PR H2b), or WHMCS made it of another way (#541)
         }
-        $agreement = $invoice->client?->autoChargeMethod();
-        if ($agreement === null || $agreement->gateway === null || self::paidAnotherWay($invoice, (int) $agreement->gateway_id)) {
+        $client = $invoice->client;
+        $way = $client === null ? false : self::wayOf($invoice, $client->autoChargeMethod());
+        $agreement = $client === null || $way === false ? null : $client->autoChargeMethodFor($way);
+        if ($agreement === null || $agreement->gateway === null) {
             return null;
         }
         // Its gateway disabled by staff: the customer pays the invoice another way. A charge of unknown outcome is still
@@ -94,14 +98,30 @@ final class AutoCharge
     }
 
     /**
-     * A line billed for a service or domain paid another way (its way as billed, InvoiceItem::payment_gateway_id; #541):
-     * WHMCS charges a saved method only for its own gateway's invoices. As billed, not as the item says now: an open
-     * invoice keeps the way it was made with. A gateway since deleted: the account's again.
+     * The gateway whose saved method charges the invoice, by the way its lines were billed (InvoiceItem::payment_gateway_id,
+     * #541; as billed, not as the item says now: an open invoice keeps the way it was made with), as WHMCS charges an
+     * invoice with its own gateway's method: null, the account's (a service's or domain's line of the account's way, of its
+     * default's gateway, or of a gateway since deleted); another gateway's id; false when its lines are of two ways (a
+     * merge), which no method charges. A line of neither a service nor a domain says nothing unless it records a gateway.
      */
-    private static function paidAnotherWay(Invoice $invoice, int $gatewayId): bool
+    private static function wayOf(Invoice $invoice, ?BillingAgreement $default): int|false|null
     {
-        return $invoice->items()->whereNotNull('payment_gateway_id')->where('payment_gateway_id', '!=', $gatewayId)
-            ->whereIn('payment_gateway_id', Gateway::query()->select('id'))->exists();
+        $account = $default === null ? null : (int) $default->gateway_id;
+        $live = Gateway::query()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $ways = [];
+        foreach ($invoice->items()->get(['reference_type', 'reference_id', 'payment_gateway_id']) as $line) {
+            $gateway = $line->payment_gateway_id !== null && in_array((int) $line->payment_gateway_id, $live, true) ? (int) $line->payment_gateway_id : null;
+            if ($gateway === null && ($line->reference_id === null || !in_array($line->reference_type, [Service::class, Domain::class], true))) {
+                continue;
+            }
+            $ways[$gateway === null || $gateway === $account ? 'account' : $gateway] = true;
+        }
+        if (count($ways) > 1) {
+            return false;
+        }
+        $way = array_key_first($ways);
+
+        return $way === null || $way === 'account' ? null : (int) $way;
     }
 
     /** @return Builder<Invoice> open renewal invoices due in the window, of customers with «Auto-charge» on */
@@ -115,7 +135,8 @@ final class AutoCharge
             // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
             // A suspension window (Settings → Automation) postpones a suspension 6 days at most: those days are in it too.
             ->whereDate('due_at', '>=', $today->subDays(self::window() + (DunningWindow::always() ? 0 : 7))->toDateString())
-            ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereNotNull('default_billing_agreement_id'))
+            // A saved method, the default or the one of its lines' gateway (agreementFor decides which).
+            ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereHas('billingAgreements'))
             // A renewal: of a service, or of a domain (D5b); none of an ended domain. A service's charge alone (an imported
             // upgrade or addon, #507) is not.
             ->whereHas('items', fn ($items) => $items->where('reference_type', Domain::class)->orWhere(fn ($line) => $line

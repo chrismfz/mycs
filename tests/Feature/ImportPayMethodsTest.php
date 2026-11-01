@@ -95,7 +95,8 @@ class ImportPayMethodsTest extends TestCase
 
     /**
      * One service by card and three by bank transfer (owner 2026-10-29): each keeps its own payment method, so the card
-     * is the default and charges the one, as WHMCS did; a second saved method's items are listed, paid by hand.
+     * is the default and charges the one, as WHMCS did; a second saved method's items are charged by it (owner 2026-11-01),
+     * not listed as paid by hand.
      */
     public function test_a_card_for_some_items_is_the_default_when_the_others_keep_their_own_way(): void
     {
@@ -122,7 +123,7 @@ class ImportPayMethodsTest extends TestCase
         $this->assertSame('pm_Amex2', BillingAgreement::query()->find($client->default_billing_agreement_id)?->external_reference, 'the card\'s, its first by WHMCS\'s order');
         $this->assertTrue((bool) $client->auto_charge, 'the bank transfer ones keep their own way: never charged by it');
         $this->assertSame(0, $result['counts']['not_charged']);
-        $this->assertStringContainsString("Customer #{$c}: 1 live item(s) charged by a second saved method in WHMCS («paypal_ppcpv»)", implode("\n", $result['notes']));
+        $this->assertStringNotContainsString("Customer #{$c}:", implode("\n", $result['notes']));
     }
 
     /** One of another way with no payment method here would be charged by the card: «Auto-charge» off, listed (R3-1). */

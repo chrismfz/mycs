@@ -13,8 +13,9 @@ use Illuminate\Support\Collection;
 
 /**
  * A service's or domain's own payment method (owner 2026-10-29, as WHMCS's paymentmethod): none is its account's (the
- * saved method charges its renewals, as before); a gateway's, its renewals are invoiced apart with it preferred, and a
- * saved method of another gateway never charges them (their lines record it: AutoCharge::agreementFor). Set by the customer on its page, by
+ * saved method charges its renewals, as before); a gateway's, its renewals are invoiced apart with it preferred, charged
+ * by the account's saved method of that gateway if it has one (owner 2026-11-01), never by one of another gateway (their
+ * lines record it: AutoCharge::agreementFor). Set by the customer on its page, by
  * staff in the admin, from WHMCS at import; an invoice's own choice stays the invoice's.
  */
 final class ItemPaymentMethod
@@ -64,15 +65,14 @@ final class ItemPaymentMethod
         return $own === $account ? null : $own;
     }
 
-    /** The saved method that charges its renewals: the account's, unless its own payment method is another gateway's. */
+    /**
+     * The saved method that charges its renewals: the account's, or the account's method of its own payment method's
+     * gateway when that is another (Client::autoChargeMethodFor, owner 2026-11-01); none of that gateway, none.
+     */
     public static function chargedBy(Service|Domain $item): ?BillingAgreement
     {
-        $agreement = $item->client?->autoChargeAgreement();
         $own = $item->payment_gateway_id === null || $item->paymentGateway === null ? null : (int) $item->payment_gateway_id; // deleted: the account's
-        if ($agreement === null || ($own !== null && $own !== (int) $agreement->gateway_id)) {
-            return null;
-        }
 
-        return $agreement;
+        return $item->client?->autoChargeAgreementFor($own);
     }
 }
