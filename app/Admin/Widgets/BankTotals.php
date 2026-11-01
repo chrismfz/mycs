@@ -11,7 +11,8 @@ use Illuminate\View\View;
 /**
  * «Bank totals» (owner 2026-10-24: one line for what WHMCS showed in three widgets): each bank account's balance from
  * its latest authentic alert, what Stripe and PayPal hold (gateways:balances, hourly), and their sum in EUR. A page
- * never calls a bank or a gateway. Its own permission: the balances are not every staff member's business.
+ * never calls a bank or a gateway; an enabled gateway not read yet, or that never answered, is «Not available». Its own
+ * permission: the balances are not every staff member's business.
  */
 class BankTotals extends Widget
 {
@@ -36,7 +37,7 @@ class BankTotals extends Widget
                 ])) ?: null, 'error' => null];
             $total = bcadd($total, $balance['balance'], 2);
         }
-        foreach (GatewayBalances::stored() as $gateway) {
+        foreach (GatewayBalances::shown() as $gateway) {
             foreach ($gateway['rows'] ?: [['currency' => 'EUR', 'available' => null, 'pending' => '0.00']] as $row) {
                 $pending = bccomp((string) $row['pending'], '0', 2) !== 0 ? __('pending :amount', ['amount' => self::money((string) $row['pending'], $row['currency'])]) : null;
                 $read = $gateway['read_at'] ? __('Read :when', ['when' => Carbon::parse($gateway['read_at'])->diffForHumans()]) : __('Not read yet');
@@ -48,7 +49,7 @@ class BankTotals extends Widget
             }
         }
 
-        return view($this->view, ['rows' => array_map(fn ($r) => $r + ['money' => $r['amount'] === null ? '—' : self::money((string) $r['amount'], $r['currency'])], $rows),
+        return view($this->view, ['rows' => array_map(fn ($r) => $r + ['money' => $r['amount'] === null ? __('Not available') : self::money((string) $r['amount'], $r['currency'])], $rows),
             'total' => self::money($total, 'EUR')]);
     }
 
@@ -60,6 +61,6 @@ class BankTotals extends Widget
     public static function canView(): bool
     {
         return (bool) auth()->user()?->hasPermission('admin.widgets.bank_totals')
-            && (BankMovement::query()->exists() || GatewayBalances::stored() !== []);
+            && (BankMovement::query()->exists() || GatewayBalances::shown() !== []);
     }
 }

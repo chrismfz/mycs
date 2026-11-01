@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\GatewayResource\Pages\EditGateway;
 use App\Admin\Widgets\BankTotals;
 use App\Admin\Widgets\PaymentsTracking;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
+use App\Jobs\RefreshGatewayBalances;
 use App\Models\BankMovement;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -20,6 +22,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use MyCS\BankAlerts\Tests\Fixtures;
 use MyCS\Extensions\Gateways\BankTransfer\BankTransfer;
 use Tests\TestCase;
@@ -242,6 +245,16 @@ class BankAlertsTest extends TestCase
         return $staff;
     }
 
+    private function stripe(array $settings = []): Gateway
+    {
+        $gateway = Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
+        foreach ($settings + ['stripe_secret_key' => 'sk_test_example', 'stripe_publishable_key' => 'pk_test_example'] as $key => $value) {
+            $gateway->settings()->create(['key' => $key, 'value' => $value, 'encrypted' => in_array($key, ['stripe_secret_key', 'stripe_webhook_secret'], true)]);
+        }
+
+        return $gateway;
+    }
+
     private function movement(array $attributes = []): BankMovement
     {
         return BankMovement::query()->create(array_merge(['bank' => 'piraeus', 'direction' => 'credit', 'amount' => '150.00', 'balance' => '2903.01',
@@ -343,6 +356,71 @@ class BankAlertsTest extends TestCase
         $stored = GatewayBalances::stored()['Stripe'];
         $this->assertSame('10.00', $stored['rows'][0]['available']);
         $this->assertNotNull($stored['error']);
+    }
+
+    /** Owner 2026-11-02: Stripe and PayPal set up minutes ago were not on the line at all until the next hourly read. */
+    public function test_an_enabled_gateway_not_read_yet_is_not_available_and_one_turned_off_is_gone(): void
+    {
+        Http::fake();
+        $this->stripe();
+        Gateway::query()->create(['name' => 'PayPal', 'extension' => 'PayPal', 'type' => 'gateway', 'enabled' => false]);
+        Cache::forever(GatewayBalances::KEY, ['PayPal' => ['label' => 'PayPal', 'rows' => [['currency' => 'EUR', 'available' => '500.00', 'pending' => '0.00']], 'read_at' => now()->toIso8601String(), 'error' => null]]);
+        $staff = $this->staff(['admin.widgets.bank_totals']);
+
+        $this->assertTrue(BankTotals::canView(), 'no bank alert yet: the gateway alone shows the line');
+        $html = $this->livewireAs($staff)->test(BankTotals::class)->html();
+
+        $this->assertStringContainsString('Stripe', $html);
+        $this->assertStringContainsString('Not available', $html);
+        $this->assertStringContainsString('Not read yet', $html);
+        $this->assertStringNotContainsString('PayPal', $html, 'turned off: not shown, though kept until the next read');
+        $this->assertStringContainsString('0,00 €', $html, 'nothing read is nothing added');
+        Http::assertNothingSent(); // a page never calls a gateway
+    }
+
+    public function test_a_gateway_that_never_answered_is_not_available_with_the_error_and_never_its_key(): void
+    {
+        $this->stripe(['stripe_secret_key' => 'sk_live_51Hidden0Key']);
+        Http::fake(['api.stripe.com/*' => Http::response(['error' => ['message' => 'Invalid API Key provided: sk_live_51Hidden0Key']], 401)]);
+
+        $this->artisan('gateways:balances')->assertExitCode(1);
+        $html = $this->livewireAs($this->staff(['admin.widgets.bank_totals']))->test(BankTotals::class)->html();
+
+        $this->assertStringContainsString('Not available', $html);
+        $this->assertStringContainsString('Invalid API Key provided', $html);
+        $this->assertStringNotContainsString('sk_live_51Hidden0Key', $html);
+        $this->assertStringNotContainsString('sk_live_51Hidden0Key', (string) json_encode(GatewayBalances::stored()));
+    }
+
+    public function test_saving_a_gateway_reads_the_balances_with_its_new_key_without_waiting_for_the_hour(): void
+    {
+        $gateway = $this->stripe(['stripe_secret_key' => 'sk_test_old', 'stripe_webhook_secret' => 'whsec_set']);
+        Http::fake(['api.stripe.com/v1/balance' => Http::response(['available' => [['amount' => 100, 'currency' => 'eur'], ['amount' => 250, 'currency' => 'usd']], 'pending' => [['amount' => 50, 'currency' => 'eur']]])]);
+        $staff = $this->staff(['*']);
+
+        $this->livewireAs($staff)->test(EditGateway::class, ['record' => $gateway->getRouteKey()])
+            ->set('data.settings.stripe_secret_key', 'sk_test_new')->call('save')->assertHasNoErrors();
+
+        $this->assertSame([['currency' => 'EUR', 'available' => '1.00', 'pending' => '0.50'], ['currency' => 'USD', 'available' => '2.50', 'pending' => '0.00']],
+            GatewayBalances::stored()['Stripe']['rows']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/balance') && $request->header('Authorization') === ['Bearer sk_test_new']);
+        $html = $this->livewireAs($staff)->test(BankTotals::class)->html();
+        $this->assertStringContainsString('1,00 €', $html);
+        $this->assertStringContainsString('2,50 USD', $html, 'each currency on its own, only EUR in the total');
+    }
+
+    public function test_saving_a_gateway_without_a_balance_reads_nothing(): void
+    {
+        Queue::fake();
+        $bank = Gateway::query()->create(['extension' => 'BankTransfer', 'name' => 'Bank transfer', 'type' => 'gateway', 'enabled' => true]);
+        $bank->settings()->create(['key' => 'accounts', 'value' => 'Example Bank']);
+
+        $this->livewireAs($this->staff(['*']))->test(EditGateway::class, ['record' => $bank->getRouteKey()])->call('save')->assertHasNoErrors();
+        Queue::assertNotPushed(RefreshGatewayBalances::class);
+
+        $stripe = $this->stripe(['stripe_webhook_secret' => 'whsec_set']);
+        $this->livewireAs($this->staff(['*']))->test(EditGateway::class, ['record' => $stripe->getRouteKey()])->set('data.enabled', false)->call('save')->assertHasNoErrors();
+        Queue::assertPushed(RefreshGatewayBalances::class, 1); // turned off: read again, so it leaves the stored balances
     }
 
     public function test_the_renewals_go_in_line_below_income_and_payments_tracking(): void

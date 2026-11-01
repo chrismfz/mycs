@@ -6,6 +6,8 @@ use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\GatewayResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
+use App\Models\Gateway;
+use App\Services\Money\GatewayBalances;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -50,6 +52,9 @@ class EditGateway extends EditRecord
         }
         if ($toggled && $data['enabled']) {
             ExtensionHelper::call($record, 'enabled', [$record], mayFail: true);
+        }
+        if ($record instanceof Gateway) {
+            GatewayBalances::readSoon($record); // Bank totals: new keys, or turned on or off, seen now
         }
 
         // Maybe the extension changed the record, so we need to refresh it

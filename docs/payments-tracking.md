@@ -52,8 +52,13 @@ tracking» και «Bank Totals»). Απόφαση του υπευθύνου, 20
   - Θέση: δεξιά του Income. Τα renewals μπαίνουν στην ίδια γραμμή από κάτω.
 - **Bank totals** (`admin.widgets.bank_totals`, μόνο για admins): μια λεπτή γραμμή κάτω από το Registrar credit.
   - Δείχνει τα υπόλοιπα της Eurobank και της Πειραιώς, το διαθέσιμο του Stripe και του PayPal, και το σύνολο σε EUR.
+  - Ανά νόμισμα: το διαθέσιμο είναι το ποσό, το pending φαίνεται στο hover. Στο σύνολο μπαίνει μόνο το EUR.
   - Το `gateways:balances` τρέχει κάθε ώρα. Αν ένα gateway δεν διαβάζεται, μένει το τελευταίο ποσό, με το σφάλμα.
-  - Το PayPal θέλει το δικαίωμα «balance» στην εφαρμογή του.
+    Τα κλειδιά δεν φαίνονται ποτέ (ούτε στο σφάλμα).
+  - Το save ενός gateway (νέο, νέα κλειδιά, on ή off) τα διαβάζει ξανά στο queue, χωρίς να περιμένει την ώρα (owner
+    2026-11-02). Ένα ενεργό gateway που δεν έχει διαβαστεί ακόμα, ή δεν απάντησε ποτέ, φαίνεται «Μη διαθέσιμο».
+    Ένα κλειστό gateway δεν φαίνεται.
+  - Το PayPal θέλει το δικαίωμα «balance» στην εφαρμογή του, και το restricted key του Stripe το «Balance: Read».
 
 ## Αυτόματο matching (PaymentMatcher)
 Είναι ρύθμιση του gateway Bank transfer, «Match credits to invoices automatically», **κλειστή** από προεπιλογή. Όταν
