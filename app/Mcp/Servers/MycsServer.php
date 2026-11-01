@@ -4,6 +4,7 @@ namespace App\Mcp\Servers;
 
 use App\Mcp\Tools\AppLogTool;
 use App\Mcp\Tools\AuditSearchTool;
+use App\Mcp\Tools\ChargesTool;
 use App\Mcp\Tools\ClientTool;
 use App\Mcp\Tools\CronHistoryTool;
 use App\Mcp\Tools\DomainTool;
@@ -42,7 +43,10 @@ use Laravel\Mcp\Server\Attributes\Version;
 
     - Start with `health` when something seems wrong: it says which part (scheduler, cron, queue, mail, module actions,
       licenses) is not well.
-    - `service`, `client`, `invoice` give one record's whole story (by id, license key, domain, email, invoice number).
+    - `service`, `client`, `invoice` give one record's whole story (by id, license key, domain, email, invoice number),
+      with whether it is charged automatically and by which saved method (or why not).
+    - `charges` lists the automatic charges of saved methods across accounts, and the ones that need staff (money taken
+      and not recorded, an unknown outcome, an invoice charged twice): "why was this customer charged / not charged".
     - `module_actions` lists server actions (create/suspend/…) still open or given up, with their errors.
     - `email_logs` answers "did the customer get the mail?"; `failed_jobs` and `logs` show what broke.
     - `zlic_probe` says what the license server would answer a customer's software from an address, without writing.
@@ -74,6 +78,7 @@ class MycsServer extends Server
         ServiceTool::class,
         ClientTool::class,
         InvoiceTool::class,
+        ChargesTool::class,
         ModuleActionsTool::class,
         EmailLogsTool::class,
         FailedJobsTool::class,

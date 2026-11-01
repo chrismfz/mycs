@@ -14,7 +14,7 @@ use OwenIt\Auditing\Models\Audit;
 /**
  * Everything about one service, account or invoice on one page (docs/ops.md), for troubleshooting: read-only, no
  * secret (no password, no PSK, a license key by its prefix and last 4, error texts through Scrub; of the audit only
- * which fields changed). The same answer for `mycs:service`,
+ * which fields changed; a saved method by its name and gateway, Charges). The same answer for `mycs:service`,
  * `mycs:client`, `mycs:invoice` and the MCP.
  */
 final class Dossier
@@ -41,6 +41,7 @@ final class Dossier
                 'suspend_hold_until' => $service->suspend_hold_until, 'dunning_suspended' => $service->dunning_suspended_at,
             ]),
             'suspend_reason' => $service->suspend_reason,
+            'payment' => Charges::item($service),
             'order' => $service->order ? ['id' => $service->order->id, 'status' => $service->order->status] : null,
             'cancellation' => $service->cancellation ? ['type' => $service->cancellation->type, 'reason' => $service->cancellation->reason,
                 'requested' => $service->cancellation->created_at?->toDateTimeString()] : null,
@@ -74,6 +75,7 @@ final class Dossier
                 'expires' => $service->expires_at?->toDateString()])->all(),
             'invoices' => $client->invoices()->latest('id')->limit(self::RECENT)->get()->map(fn (Invoice $invoice) => self::invoiceLine($invoice))->all(),
             'open_invoices' => $client->invoices()->whereIn('status', Invoice::OPEN_STATUSES)->count(),
+            'saved_methods' => Charges::client($client),
             'emails' => self::emails($client->emailLogs()),
             'audit' => self::audit($client),
         ];
@@ -93,6 +95,7 @@ final class Dossier
             'transactions' => $invoice->transactions->map(fn (InvoiceTransaction $transaction) => ['id' => $transaction->id,
                 'gateway' => $transaction->gateway?->name, 'amount' => (string) $transaction->amount, 'status' => $transaction->status->value,
                 'reference' => $transaction->transaction_id, 'at' => $transaction->created_at?->toDateTimeString()])->all(),
+            'automatic_charge' => Charges::invoice($invoice),
             'emails' => self::emails($invoice->emailLogs()),
             'audit' => self::audit($invoice),
         ];

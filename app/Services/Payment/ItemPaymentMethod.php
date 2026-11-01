@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\Client;
 use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -156,6 +157,34 @@ final class ItemPaymentMethod
         }
 
         return $status('charged', ['method' => $agreement->name]);
+    }
+
+    /**
+     * The methods that charge the services and domains paid with another gateway than the default's (owner 2026-11-01):
+     * agreement id => that gateway's name, as AutoCharge charges them (Client::autoChargeAgreementFor). What the customer's
+     * Payment Methods page and the ops tools (Ops\Charges) say each method pays.
+     *
+     * @return array<int, string>
+     */
+    public static function ownWayMethods(Client $client): array
+    {
+        $default = $client->autoChargeMethod();
+        $methods = [];
+        foreach ($client->billingAgreements()->with('gateway')->get()->pluck('gateway')->filter()->unique('id') as $gateway) {
+            if ($default !== null && (int) $default->gateway_id === (int) $gateway->id) {
+                continue;
+            }
+            $paid = Service::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
+                ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists()
+                || Domain::query()->where('client_id', $client->id)->where('payment_gateway_id', $gateway->id)->where('no_auto_charge', false)
+                    ->whereNotIn('status', DomainStatus::terminalValues())->exists();
+            $agreement = $paid ? $client->autoChargeAgreementFor((int) $gateway->id) : null;
+            if ($agreement !== null) {
+                $methods[(int) $agreement->id] = (string) $gateway->name;
+            }
+        }
+
+        return $methods;
     }
 
     /** Its open invoice the cron would charge next: the earliest due, unpaid, with a line of it. */

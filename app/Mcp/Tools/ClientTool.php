@@ -17,7 +17,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('client')]
-#[Description('Everything about one account: name, email, login, credit, its services (status, product, domain, expiry), last invoices, open invoices, mails, audit (fields only), and (to staff who may see the Login History) the addresses its logins signed in from, for "a firewall blocked the customer". By id or email (a primary contact\'s, a login\'s, then any contact\'s; several accounts are named). Same as `mycs:client`.')]
+#[Description('Everything about one account: name, email, login, credit, «Auto-charge» and its saved methods (name, gateway, expiry, failures in a row, what each pays; never their token), its services (status, product, domain, expiry), last invoices, open invoices, mails, audit (fields only), and (to staff who may see the Login History) the addresses its logins signed in from, for "a firewall blocked the customer". By id or email (a primary contact\'s, a login\'s, then any contact\'s; several accounts are named). Same as `mycs:client`.')]
 #[IsReadOnly]
 #[IsIdempotent]
 class ClientTool extends McpTool

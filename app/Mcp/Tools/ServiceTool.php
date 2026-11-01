@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('service')]
-#[Description('Everything about one service: status, product, plan, price, server, dates (created, activated, expires, holds), order, cancellation request, license (masked key, bindings, last good check, last failure), its last invoices, module actions with their errors, mails, audit (fields only). By id, license key or domain. Same as `mycs:service`.')]
+#[Description('Everything about one service: status, product, plan, price, server, dates (created, activated, expires, holds), order, cancellation request, its payment method and whether it is charged automatically (with which saved method, or why not), license (masked key, bindings, last good check, last failure), its last invoices, module actions with their errors, mails, audit (fields only). By id, license key or domain. Same as `mycs:service`.')]
 #[IsReadOnly]
 #[IsIdempotent]
 class ServiceTool extends McpTool

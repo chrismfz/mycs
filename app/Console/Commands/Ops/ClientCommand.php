@@ -14,7 +14,7 @@ class ClientCommand extends Command
 
     protected $signature = 'mycs:client {id : Account id, or a contact\'s email} {--json : JSON output}';
 
-    protected $description = 'Read-only dossier of an account: services, invoices, credit, mails, audit';
+    protected $description = 'Read-only dossier of an account: services, invoices, credit, saved methods, mails, audit';
 
     public function handle(): int
     {

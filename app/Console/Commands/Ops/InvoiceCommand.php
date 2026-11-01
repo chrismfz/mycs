@@ -14,7 +14,7 @@ class InvoiceCommand extends Command
 
     protected $signature = 'mycs:invoice {id : Invoice number, or its id (#12 for the id)} {--json : JSON output}';
 
-    protected $description = 'Read-only dossier of an invoice: lines, transactions, mails, audit';
+    protected $description = 'Read-only dossier of an invoice: lines, transactions, automatic charges, mails, audit';
 
     public function handle(): int
     {
