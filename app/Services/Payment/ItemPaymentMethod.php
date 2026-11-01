@@ -6,14 +6,17 @@ use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Services\Invoice\InvoiceLineMove;
 use App\Services\Invoice\SplitInvoice;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * A service's or domain's own payment method (owner 2026-10-29, as WHMCS's paymentmethod): none is its account's (the
@@ -193,11 +196,12 @@ final class ItemPaymentMethod
 
     /**
      * Its payment method changed (owner 2026-11-01, #568: the open invoice too, no longer «from the next renewal» of #541):
-     * the lines of its open invoices take the new way, and the invoice its preferred method when it bills only this item.
-     * One it shares with items of another way now is split, its lines to an invoice of their own (SplitInvoice); refused,
-     * it stays whole and, of two ways, is charged by no method (its page says pay it from the invoice). Never while a charge
-     * of the invoice is on its way or of unknown outcome (SavedMethodCharge::onItsWay): it keeps the way that charge was
-     * made with, so another method is never sent a second charge of it.
+     * the lines of its open invoices take the new way, and the invoice its preferred method when it bills only this item
+     * (with its lines of no item, a fee: ADV-568-R3-2). One it shares with items of another way now is split, its lines
+     * to an invoice of their own (SplitInvoice); refused, it stays whole and, of two ways, is charged by no method (its
+     * page says pay it from the invoice). Under the customer → invoice locks, as a split (ADV-568-R3 suspicion 1), each
+     * line through the model, audited (R3-3). Never while a charge of the invoice may still land (chargePending): it keeps
+     * the way that charge was made with, so another method is never sent a second charge of it.
      */
     public static function followOnOpenInvoices(Service|Domain $item): void
     {
@@ -205,30 +209,47 @@ final class ItemPaymentMethod
         $open = InvoiceItem::query()->where('reference_type', $item::class)->where('reference_id', $item->id)
             ->whereIn('invoice_id', Invoice::query()->select('id')->where('status', Invoice::STATUS_UNPAID))->distinct()->pluck('invoice_id');
         foreach ($open as $invoiceId) {
-            $invoice = Invoice::query()->find($invoiceId);
-            if ($invoice === null || SavedMethodCharge::onItsWay($invoice)) {
-                continue;
-            }
-            $mine = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', $item::class)->where('reference_id', $item->id);
-            (clone $mine)->update(['payment_gateway_id' => $own]); // the way only: no amount, tax or period moves
-            $shared = InvoiceItem::query()->where('invoice_id', $invoice->id)->whereIn('reference_type', [Service::class, Domain::class])
-                ->whereNot(fn ($lines) => $lines->where('reference_type', $item::class)->where('reference_id', $item->id))->exists();
-            $preferred = $own ?? Invoice::savedMethodGatewayFor((int) $invoice->client_id);
-            if (!$shared) {
-                $invoice->forceFill(['preferred_gateway_id' => $preferred])->save();
+            $apart = DB::transaction(function () use ($invoiceId, $item, $own) {
+                $invoice = InvoiceLineMove::lock([(int) $invoiceId])->sole();
+                if ($invoice->status !== Invoice::STATUS_UNPAID || self::chargePending($invoice)) {
+                    return null;
+                }
+                $mine = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', $item::class)->where('reference_id', $item->id);
+                $shared = InvoiceItem::query()->where('invoice_id', $invoice->id)->whereIn('reference_type', [Service::class, Domain::class])
+                    ->whereNot(fn ($lines) => $lines->where('reference_type', $item::class)->where('reference_id', $item->id))->exists();
+                // The way only (not a money field): no amount, tax or period moves.
+                ($shared ? (clone $mine) : InvoiceItem::query()->where('invoice_id', $invoice->id))->get()
+                    ->each(fn (InvoiceItem $line) => $line->update(['payment_gateway_id' => $own]));
+                $preferred = $own ?? Invoice::savedMethodGatewayFor((int) $invoice->client_id);
+                if (!$shared) {
+                    $invoice->forceFill(['preferred_gateway_id' => $preferred])->save();
 
-                continue;
-            }
-            if (!AutoCharge::waysMixed($invoice->fresh())) {
+                    return null;
+                }
+
+                return AutoCharge::waysMixed($invoice->fresh()) ? [$invoice->id, $mine->pluck('id')->map(fn ($id) => (int) $id)->all(), $preferred] : null;
+            });
+            if ($apart === null) {
                 continue;
             }
             try {
-                $apart = (new SplitInvoice)->handle($invoice->id, $mine->pluck('id')->map(fn ($id) => (int) $id)->all());
-                $apart->forceFill(['preferred_gateway_id' => $preferred])->save();
+                (new SplitInvoice)->handle($apart[0], $apart[1])->forceFill(['preferred_gateway_id' => $apart[2]])->save();
             } catch (DisplayException) {
                 // Stays whole: of two ways, no method charges it.
             }
         }
+    }
+
+    /**
+     * A charge of it that may still land: on its way (SavedMethodCharge::onItsWay), or one the cron would send again with
+     * its key (started and never answered, of unknown outcome) or the bank asked the customer to confirm, within the key
+     * window (ADV-568-R3-1: a stale «started» is past onItsWay's hold yet still resent).
+     */
+    private static function chargePending(Invoice $invoice): bool
+    {
+        return SavedMethodCharge::onItsWay($invoice) || ChargeAttempt::query()->where('invoice_id', $invoice->id)
+            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_ACTION_REQUIRED])
+            ->where('started_at', '>', now()->subHours(SavedMethodCharge::KEY_REUSE_HOURS))->exists();
     }
 
     /**
