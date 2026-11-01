@@ -3,6 +3,7 @@
 
 @source '../../../../app/Admin';
 @source '../../../../resources/views';
+@source '../../../../app/Models'; /* ClientGroup::badge (review of #574) */
 
 @plugin '@tailwindcss/typography';
 

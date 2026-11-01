@@ -21,6 +21,7 @@ use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
+use App\Models\ClientGroup;
 use App\Models\Credit;
 use App\Services\Admin\ClientSummary;
 use App\Support\Locales;
@@ -33,8 +34,10 @@ use Filament\Pages\Enums\SubNavigationPosition;
 use Filament\Resources\Pages\Page;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
@@ -142,10 +145,19 @@ class ClientResource extends Resource
                         Select::make('client_group_id')
                             ->label(__('Client group'))
                             ->relationship('group', 'name')
+                            // Each on its colour, and what the chosen one gives (owner 2026-11-01).
+                            ->getOptionLabelFromRecordUsing(fn (ClientGroup $group) => (string) $group->badge())
+                            ->allowHtml()
+                            ->live()
                             ->placeholder(__('No group'))
                             ->disabled(fn () => !(auth()->user()?->hasPermission('admin.client_groups.update') ?? false))
                             ->dehydrated(fn () => auth()->user()?->hasPermission('admin.client_groups.update') ?? false)
-                            ->helperText(__('Its discount applies to the services\' prices from their next renewal, except a price kept by hand.')),
+                            ->helperText(function (Get $get) {
+                                $perks = filled($get('client_group_id')) ? (ClientGroup::query()->find($get('client_group_id'))?->perks() ?? []) : [];
+
+                                return ($perks === [] ? '' : implode(' · ', $perks) . '. ')
+                                    . __('Its discount applies to the services\' prices from their next renewal, except a price kept by hand.');
+                            }),
                         // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
                         Toggle::make('tax_exempt')
                             ->label(__('Tax exempt'))
@@ -202,10 +214,13 @@ class ClientResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits'])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits', 'group'])
                 ->withCount(['services', 'services as active_services_count' => fn (Builder $query) => $query->where('status', 'active')]))
             ->columns([
-                TextColumn::make('id')->label('ID')->sortable()->searchable(),
+                // On its group's colour, as WHMCS marks a group's clients (owner 2026-11-01).
+                TextColumn::make('id')->label('ID')->sortable()->searchable()
+                    ->formatStateUsing(fn (Client $record, $state) => $record->group?->safeColour() !== null ? $record->group->badge((string) $state) : (string) $state)
+                    ->html(),
                 TextColumn::make('name')
                     ->label(__('Name'))
                     ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query
@@ -223,6 +238,9 @@ class ClientResource extends Resource
                         return __('Credit') . ': ' . $credits->map(fn (Credit $credit) => ClientSummary::money((int) round((float) $credit->amount * 100), $credit->currency_code))->implode(', ');
                     }),
                 TextColumn::make('primaryContact.company_name')->label(__('Company'))->placeholder('—'),
+                TextColumn::make('group.name')->label(__('Client group'))->placeholder('—')->toggleable()
+                    ->formatStateUsing(fn (Client $record) => $record->group?->badge() ?? '—')->html()
+                    ->tooltip(fn (Client $record) => $record->group === null ? null : (implode(' · ', $record->group->perks()) ?: null)),
                 TextColumn::make('email')
                     ->label(__('Email'))
                     ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query->where('email', 'like', "%$search%"))),
@@ -242,6 +260,14 @@ class ClientResource extends Resource
                         true: fn (Builder $query) => $query->whereHas('credits', fn (Builder $query) => $query->where('amount', '>', 0)),
                         false: fn (Builder $query) => $query->whereDoesntHave('credits', fn (Builder $query) => $query->where('amount', '>', 0)),
                     ),
+                // WHMCS's «Client Group» search (owner 2026-11-01).
+                SelectFilter::make('client_group_id')->label(__('Client group'))
+                    ->options(fn () => ClientGroup::query()->orderBy('name')->pluck('name', 'id')->all() + ['none' => __('No group')])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        null, '' => $query,
+                        'none' => $query->whereNull('client_group_id'),
+                        default => $query->where('client_group_id', (int) $data['value']),
+                    }),
                 TernaryFilter::make('active_services')
                     ->label(__('Active services'))
                     ->queries(

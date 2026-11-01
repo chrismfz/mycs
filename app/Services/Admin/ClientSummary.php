@@ -134,7 +134,10 @@ class ClientSummary
             'language_default' => (string) ($names[$main] ?? $main),
             'group' => $group === null ? null : ['name' => $group->name, 'percent' => $group->percent(),
                 // Into a style attribute: a hex colour only.
-                'colour' => preg_match('/^#[0-9a-f]{3,8}$/i', (string) $group->colour) === 1 ? $group->colour : null],
+                'colour' => $group->safeColour(),
+                // On its colour, with what it gives (owner 2026-11-01).
+                'badge' => $group->badge(),
+                'perks' => $group->perks()],
             'method' => $method?->name,
         ];
         foreach (self::SETTING_DEFAULTS as $field => $default) {
