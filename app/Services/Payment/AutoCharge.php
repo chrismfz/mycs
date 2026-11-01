@@ -101,6 +101,16 @@ final class AutoCharge
     }
 
     /**
+     * Whether today's run picks the invoice up at all (due()): open, due in its window, a renewal of active items, of an
+     * account with «Auto-charge» on and a saved method. agreementFor() then says which method, or none. Read by the ops
+     * tools (Ops\Charges), never by the run.
+     */
+    public static function dueToday(Invoice $invoice): bool
+    {
+        return (new self)->due(CarbonImmutable::today())->whereKey($invoice->id)->exists();
+    }
+
+    /**
      * A line of a service or domain set «Do not charge automatically» (#568, by the customer, staff or the import): read
      * as it is now, not as billed, so turning it off stops the charge of its open invoice too. Such an item is billed on an
      * invoice apart, and turned off it leaves a shared open one (ItemPaymentMethod::keepApart); one it could not leave is

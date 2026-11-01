@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('invoice')]
-#[Description('Everything about one invoice: status, totals, what is left, due date, lines (what each bills and its period), transactions (gateway, amount, status), mails, audit (fields only). By number, id, or #id (the id for sure). Same as `mycs:invoice`.')]
+#[Description('Everything about one invoice: status, totals, what is left, due date, lines (what each bills and its period), transactions (gateway, amount, status), which saved method the cron charges it to (or none, and its own «no automatic charge») and its charge attempts (when, method, amount, status, error, alert), mails, audit (fields only). By number, id, or #id (the id for sure). Same as `mycs:invoice`.')]
 #[IsReadOnly]
 #[IsIdempotent]
 class InvoiceTool extends McpTool

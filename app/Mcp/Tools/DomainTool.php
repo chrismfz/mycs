@@ -4,6 +4,7 @@ namespace App\Mcp\Tools;
 
 use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
+use App\Services\Ops\Charges;
 use App\Services\Ops\NotFound;
 use App\Services\Ops\Scrub;
 use App\Support\Redact;
@@ -15,7 +16,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('domain')]
-#[Description('One domain with everything staff see: status, account, registrar connection and its id there, dates (registered, transferred, expires, grace, redemption), years, renewal amount and auto-renew, lock, ID protection, DNS management, email forwarding, DNSSEC, nameservers, contact handles, IDN script, notes, last sync and its error, its invoice lines, and its latest registrar calls (action, status, error, invoice). Never the EPP code or the registrar\'s requests and answers. By id or name. Read only.')]
+#[Description('One domain with everything staff see: status, account, registrar connection and its id there, dates (registered, transferred, expires, grace, redemption), years, renewal amount and auto-renew, its payment method and whether it is charged automatically (and why not), lock, ID protection, DNS management, email forwarding, DNSSEC, nameservers, contact handles, IDN script, notes, last sync and its error, its invoice lines, and its latest registrar calls (action, status, error, invoice). Never the EPP code or the registrar\'s requests and answers. By id or name. Read only.')]
 #[IsReadOnly]
 #[IsIdempotent]
 class DomainTool extends McpTool
@@ -47,6 +48,7 @@ class DomainTool extends McpTool
             'registered' => $date($domain->registered_at), 'expires' => $date($domain->expires_at),
             'grace_ends' => $date($domain->grace_ends_on), 'redemption_ends' => $date($domain->redemption_ends_on),
             'years' => $domain->years, 'recurring_amount' => $domain->recurring_amount . ' ' . $domain->currency_code, 'auto_renew' => (bool) $domain->auto_renew,
+            'payment' => Charges::item($domain),
             'transferred' => $date($domain->transferred_at), 'transfer_lock' => (bool) $domain->transfer_lock, 'id_protection' => (bool) $domain->id_protection,
             'dns_management' => (bool) $domain->dns_management, 'email_forwarding' => (bool) $domain->email_forwarding, 'dnssec' => (bool) $domain->dnssec_enabled,
             'nameservers' => $domain->nameservers->sortBy('sort')->pluck('host')->values()->all(),

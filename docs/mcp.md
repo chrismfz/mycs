@@ -31,6 +31,7 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `service` (id, license key, domain) | View Services | `mycs:service` |
 | `client` (id, email) | View Clients | `mycs:client` |
 | `invoice` (number, id, #id) | View Invoices | `mycs:invoice` |
+| `charges` (status or taken_not_recorded, account, invoice, days) | View Invoices | `mycs:charges` (docs/ops.md «Automatic charges») |
 | `module_actions` (open, given up) | View Services | Pending Module Actions |
 | `email_logs` (status, to, template, account) | View Email Logs | Email Logs |
 | `failed_jobs` | View Failed Jobs | failed jobs |
@@ -56,6 +57,9 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
   ticket's messages carry their text as `customer_text` or `staff_text`. This is a mark, not the defence: the defence is
   that no tool changes anything (only `propose_*`, which staff approve), and that an agent's writes elsewhere (ssh, the
   firewall) need a human's approval.
+- **Automatic charges:** `invoice` says which saved method the cron charges it to (or none) and lists its charge
+  attempts; `service` and `domain` give their «Automatic charge» line as their page says it; `client` its «Auto-charge»,
+  saved methods and what each pays. A method by its name and gateway, never its external reference.
 - **Addresses:** `client` lists the addresses its logins signed in from (Login History, known addresses) only to staff
   who may see the Login History (`admin.audit.viewAny`).
 - **Ticket text** comes as staff read it in the admin (up to 10,000 characters a message); what a customer pasted into a
