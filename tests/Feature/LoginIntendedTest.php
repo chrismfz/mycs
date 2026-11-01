@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\Auth\Login as LoginAction;
 use App\Livewire\Auth\Login;
+use App\Livewire\Auth\Register;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Features\SupportTesting\Testable;
@@ -43,6 +44,38 @@ class LoginIntendedTest extends TestCase
     public function test_a_page_of_the_portal_is_where_it_goes_back(): void
     {
         $this->loginWith(url('/invoices'))->assertRedirect(url('/invoices'));
+    }
+
+    /** Review of #575: the router decodes before it routes; the front controller and any case reach the panel too. */
+    public function test_an_admin_address_written_another_way_goes_to_the_dashboard(): void
+    {
+        foreach (['/sys%61dmin', '/sys%61dmin/clients', '/sysadmin%2Fclients', '/index.php/sysadmin', '/SysAdmin/clients', '//sysadmin', '/x/../sysadmin'] as $path) {
+            session()->put('url.intended', url('/') . $path);
+            $this->assertSame('/home', LoginAction::intended('/home'), $path);
+        }
+    }
+
+    public function test_only_http_addresses_of_this_site(): void
+    {
+        foreach (['javascript:alert(1)', '/\\evil.example', 'https:\\\\evil.example', '//evil.example/x', 'https://evil.example/x'] as $url) {
+            session()->put('url.intended', $url);
+            $this->assertSame('/home', LoginAction::intended('/home'), $url);
+        }
+        // An invitation's link carries APP_URL's host, also when the request came on another of this site's names.
+        config(['app.url' => 'https://portal.example.test']);
+        session()->put('url.intended', 'https://portal.example.test/invite/continue');
+        $this->assertSame('https://portal.example.test/invite/continue', LoginAction::intended('/home'));
+    }
+
+    public function test_registering_never_goes_on_to_the_admin(): void
+    {
+        session()->put('url.intended', url('/sysadmin'));
+
+        Livewire::test(Register::class)->set('contact.country', 'GR')
+            ->set('first_name', 'New')->set('last_name', 'Person')->set('email', 'new@example.test')
+            ->set('password', 'secret-pass-1')->set('password_confirmation', 'secret-pass-1')
+            ->call('submit')->assertHasNoErrors()
+            ->assertRedirect(route('dashboard'));
     }
 
     public function test_the_rule_itself(): void
