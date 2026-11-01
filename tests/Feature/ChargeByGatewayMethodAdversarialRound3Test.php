@@ -20,6 +20,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\Adv568r3Card\Adv568r3Card;
 use MyCS\Extensions\Gateways\Adv568r3Vault\Adv568r3Vault;
 use OwenIt\Auditing\Models\Audit;
@@ -123,7 +124,7 @@ class ChargeByGatewayMethodAdversarialRound3Test extends TestCase
         $sent = now()->subMinutes(ChargeAttempt::HOLD_MINUTES + 20);
         ChargeAttempt::query()->forceCreate(['invoice_id' => $open->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $this->card->id,
             'source' => ChargeAttempt::SOURCE_CLIENT, 'status' => ChargeAttempt::STATUS_STARTED, 'amount' => '10.00', 'currency_code' => 'USD',
-            'key' => 'k-r3-1', 'started_at' => $sent, 'sent_at' => $sent]);
+            'key' => (string) Str::uuid(), 'started_at' => $sent, 'sent_at' => $sent]);
         $this->assertNotNull(SavedMethodCharge::unknownAttempt($open->id, $this->card->id), 'precondition: the card\'s charge is one of unknown outcome');
         $this->assertSame($this->card->id, AutoCharge::agreementFor($open)?->id, 'precondition: the card charges it (its charge resent with its key)');
 

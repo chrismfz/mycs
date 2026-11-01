@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use MyCS\Extensions\Gateways\GwCardPay\GwCardPay;
 use MyCS\Extensions\Gateways\GwVaultPay\GwVaultPay;
@@ -487,7 +488,7 @@ class ChargeByGatewayMethodTest extends TestCase
         $service = $this->service(null);
         $open = $this->invoice($service);
         ChargeAttempt::query()->forceCreate(['invoice_id' => $open->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $this->card->id, 'source' => ChargeAttempt::SOURCE_CRON,
-            'status' => ChargeAttempt::STATUS_UNKNOWN, 'amount' => '10.00', 'currency_code' => 'USD', 'key' => 'k-1', 'started_at' => now(), 'sent_at' => now()]);
+            'status' => ChargeAttempt::STATUS_UNKNOWN, 'amount' => '10.00', 'currency_code' => 'USD', 'key' => (string) Str::uuid(), 'started_at' => now(), 'sent_at' => now()]);
 
         ItemPaymentMethod::set($service, $this->vaultGateway->id);
 
