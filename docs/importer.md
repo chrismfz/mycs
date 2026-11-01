@@ -526,6 +526,10 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   - η κάρτα στο vault του PayPal (`paypal_acdc`, `paypalcheckout`): δεν είναι PayPal wallet.
   Δύο λογαριασμοί σε έναν Stripe customer αναφέρονται, με τα δύο ids.
 - **Λήξη:** «06/27», «1227» (MMYY) ή ημερομηνία· του PayPal καμία (το WHMCS γράφει μία 30 χρόνια μετά).
+- **«Να μη χρεώνεται αυτόματα» ανά item (#568, ADV-568-1):** ένα item άλλου module στο gateway μιας δεύτερης αποθηκευμένης
+  μεθόδου (π.χ. `paypal` απλό δίπλα στο vault `paypal_ppcpv`) το παίρνει, και ο πελάτης γράφεται στη λίστα. Ένα νέο τρέξιμο
+  του import το ξαναβάζει, ακόμα κι αν το staff το άνοιξε στο μεταξύ: πριν το cut-over αυτό είναι το σωστό, μετά το cut-over
+  το import δεν ξανατρέχει.
 - **Μορφή των tokens:** του PayPal (`paypal_ppcpv`) είναι JSON με `vaultId`, `customerId` και `transactionIdentifier`. Το
   διάβασε το API της nixpal στις 2026-10-29, και αναφορά γίνεται το `vaultId`. Του Stripe είναι
   `{"customer":"cus_…","method":"pm_…"}`. Το επιβεβαίωσε ο ιδιοκτήτης στις 2026-10-29 με `localAPI` στον orion: τυπώθηκε

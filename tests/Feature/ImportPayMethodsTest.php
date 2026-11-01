@@ -161,6 +161,36 @@ class ImportPayMethodsTest extends TestCase
         $this->assertStringContainsString("Customer #{$c}: 1 service(s) and domain(s) paid by «paypal» in WHMCS", implode("\n", $result['notes']));
     }
 
+    /**
+     * Two saved modules on one gateway (a Stripe card and Stripe SEPA) beside a PayPal default: each charges its own items in
+     * WHMCS, so none of them is kept as «another module's» (review 2 of #568).
+     */
+    public function test_items_of_a_saved_methods_own_module_are_not_kept(): void
+    {
+        $c = $this->client->id;
+        $this->whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES (18, {$c}, 'RemoteBankAccount', 'stripe_sepa', 4, NULL)");
+        $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (903, {$c}, 'Active', 'stripe'), (904, {$c}, 'Active', 'stripe_sepa'),
+            (905, {$c}, 'Active', 'paypal_ppcpv'), (906, {$c}, 'Active', 'paypal_ppcpv'), (907, {$c}, 'Active', 'paypal_ppcpv')");
+        $card = Service::factory()->create(['id' => 903, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['Stripe']]);
+        $sepa = Service::factory()->create(['id' => 904, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['Stripe']]);
+        Http::fake(['https://whmcs.example.test/includes/api.php' => Http::response(['result' => 'success', 'clientid' => $c, 'paymethods' => [
+            ['id' => 12, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Amex2']), 'expiry_date' => '01/28', 'card_last_four' => '0005', 'card_type' => 'American Express'],
+            ['id' => 13, 'remote_token' => json_encode(['vaultId' => '7XK31234AB567890C', 'customerId' => 'abcDEF123']), 'expiry_date' => '03/54', 'card_last_four' => 'maria@example.test', 'card_type' => 'PayPal'],
+            ['id' => 18, 'remote_token' => json_encode(['customer' => 'cus_Alpha1', 'method' => 'pm_Sepa9']), 'expiry_date' => '', 'card_last_four' => '1234', 'card_type' => 'SEPA'],
+        ]])]);
+        $items = fn (string $module) => match ($module) {
+            'stripe', 'stripe_sepa' => $this->gateways['Stripe'], 'paypal_ppcpv' => $this->gateways['PayPal'], default => null,
+        };
+
+        $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $this->assertSame($this->gateways['PayPal'], (int) BillingAgreement::query()->find($this->client->fresh()->default_billing_agreement_id)?->gateway_id,
+            'precondition: PayPal pays most, the default');
+        $this->assertSame(2, BillingAgreement::query()->where('client_id', $c)->where('gateway_id', $this->gateways['Stripe'])->count(), 'precondition: card and SEPA saved');
+        $this->assertFalse($card->fresh()->no_auto_charge, 'the card\'s own module');
+        $this->assertFalse($sepa->fresh()->no_auto_charge, 'SEPA\'s own module');
+    }
+
     /** One of another way with no payment method here would be charged by the card: «Auto-charge» off, listed (R3-1). */
     public function test_a_way_with_no_payment_method_here_keeps_auto_charge_off(): void
     {

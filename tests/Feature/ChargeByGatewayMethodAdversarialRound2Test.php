@@ -145,8 +145,9 @@ class ChargeByGatewayMethodAdversarialRound2Test extends TestCase
         $billing->finishRenewalInvoices();
         $invoiceOfCharged = (int) $charged->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->value('invoices.id');
         $this->assertNotSame(0, $invoiceOfCharged, 'precondition: its renewal is billed');
-        $this->assertSame($invoiceOfCharged, (int) $kept->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->value('invoices.id'),
-            'precondition: the cron billed both renewals of the day on one invoice');
+        // Fix of #568 (author): the kept one is billed on an invoice apart; this precondition asserted the shared invoice the fix removes.
+        $this->assertNotSame($invoiceOfCharged, (int) $kept->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->value('invoices.id'),
+            'the kept one\'s renewal goes on an invoice apart');
         $this->assertSame($this->said('charged', ['method' => 'Visa 4242']), ItemPaymentMethod::autoChargeStatus($charged->fresh()),
             'precondition: its page says the card charges it');
 
@@ -240,9 +241,10 @@ class ChargeByGatewayMethodAdversarialRound2Test extends TestCase
         $this->assertSame($this->vaultGateway->id, (int) $open->items()->value('payment_gateway_id'), 'precondition: its line records PayPal');
         $service->update(['payment_gateway_id' => null]); // the customer: «the account's»
 
-        $this->assertSame($this->said('charged', ['method' => 'Visa 4242']), ItemPaymentMethod::autoChargeStatus($service->fresh()), 'what its page says');
+        // Fixed the other way (author, #568): an open invoice keeps the way it was billed with (#541, R2-541), so the page now
+        // names the method the cron takes it from; the card from its next renewal. This test asserted the page's old answer.
+        $this->assertSame($this->said('charged', ['method' => $this->vault->name]), ItemPaymentMethod::autoChargeStatus($service->fresh()), 'what its page says');
         $this->assertSame([$open->id], $this->cron());
-        $this->assertSame([], Adv568r2Vault::$charges,
-            'the page said the card charges it: its open renewal must not be taken from the PayPal wallet');
+        $this->assertSame([$open->id], array_column(Adv568r2Vault::$charges, 'invoice'), 'the page and the cron agree: the wallet, as billed');
     }
 }

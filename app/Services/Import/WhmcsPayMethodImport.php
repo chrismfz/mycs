@@ -183,7 +183,8 @@ final class WhmcsPayMethodImport
         foreach (array_keys($first) as $module) {
             $own = $module === $default ? null : ($this->gateway)($module);
             foreach ($usage as $item => $count) {
-                if ($own !== null && $item !== $module && $item !== $default && ($this->itemGateway ?? $this->gateway)($item) === $own) {
+                // Not one of a saved method's own module (Stripe and Stripe SEPA both saved): that method charges it, as WHMCS.
+                if ($own !== null && !isset($first[$item]) && $item !== $default && ($this->itemGateway ?? $this->gateway)($item) === $own) {
                     $foreign[$item] = $count;
                 }
             }

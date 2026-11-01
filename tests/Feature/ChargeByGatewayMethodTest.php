@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
+use App\Helpers\ExtensionHelper;
 use App\Livewire\Client\PaymentMethods;
 use App\Livewire\Domains\Show as DomainShow;
 use App\Livewire\Services\Show as ServiceShow;
@@ -20,13 +22,18 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
+use App\Support\CurrentClient;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Livewire\Livewire;
 use MyCS\Extensions\Gateways\GwCardPay\GwCardPay;
 use MyCS\Extensions\Gateways\GwVaultPay\GwVaultPay;
 use Tests\TestCase;
@@ -351,6 +358,111 @@ class ChargeByGatewayMethodTest extends TestCase
             ->fillForm(['no_auto_charge' => true])->call('save')->assertHasNoFormErrors();
 
         $this->assertTrue($service->fresh()->no_auto_charge);
+    }
+
+    /** @return list<int> the open invoice each service's renewal went on, billed by the cron's RenewalBilling */
+    private function bill(Service ...$services): array
+    {
+        $billing = new RenewalBilling;
+        foreach ($services as $service) {
+            $this->assertSame(1, DB::transaction(fn () => $billing->billRenewal($service->id, now()->addDays(7))), "service #{$service->id} billed");
+        }
+        $billing->finishRenewalInvoices();
+
+        return array_map(fn (Service $service) => (int) $service->invoices()->where('status', Invoice::STATUS_UNPAID)->value('invoices.id'), $services);
+    }
+
+    /** Review 2 of #568: one turned off goes on an invoice apart, so the others of its day are still charged. */
+    public function test_a_switched_off_service_is_billed_apart_and_the_others_are_charged(): void
+    {
+        $kept = $this->service(null);
+        $kept->forceFill(['no_auto_charge' => true, 'expires_at' => '2026-11-05'])->save();
+        $other = $this->service(null);
+        $other->forceFill(['expires_at' => '2026-11-05'])->save();
+
+        [$a, $b] = $this->bill($kept, $other);
+
+        $this->assertNotSame($a, $b);
+        $this->assertNull(AutoCharge::agreementFor(Invoice::query()->find($a)));
+        $this->assertSame($this->card->id, AutoCharge::agreementFor(Invoice::query()->find($b))?->id);
+    }
+
+    /** Turned off on an open invoice it shares: its lines leave it (a split), the others' is still charged. */
+    public function test_turned_off_it_leaves_a_shared_open_invoice(): void
+    {
+        $kept = $this->service(null);
+        $other = $this->service(null);
+        $shared = $this->invoice($kept, $other);
+
+        ItemPaymentMethod::setAutoCharge($kept, false);
+
+        $this->assertSame([$other->id], $shared->items()->pluck('reference_id')->map(fn ($id) => (int) $id)->all(), 'only the other stays');
+        $apart = Invoice::query()->where('split_from_id', $shared->id)->sole();
+        $this->assertSame([$kept->id], $apart->items()->pluck('reference_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertSame([$shared->id => [$this->card->id]], $this->cron(), 'the other\'s charged, the kept one not');
+    }
+
+    /** One that cannot be split (money on it) stays whole and held: the other's page says so. */
+    public function test_a_shared_open_invoice_that_cannot_be_split_is_held_and_the_other_is_told(): void
+    {
+        $kept = $this->service(null);
+        $other = $this->service(null);
+        $shared = $this->invoice($kept, $other);
+        ExtensionHelper::addPayment($shared->id, null, '1.00', null, 'part-1', currency: 'USD');
+
+        ItemPaymentMethod::setAutoCharge($kept, false);
+
+        $this->assertSame(2, $shared->items()->count(), 'not split: a payment is on it');
+        $this->assertNull(AutoCharge::agreementFor($shared->fresh()), 'held: never charged against the customer\'s choice');
+        $this->assertSame(__('services.auto_charge_status.held', ['invoice' => $shared->id]), ItemPaymentMethod::autoChargeStatus($other->fresh()));
+    }
+
+    /** The line follows the cron's rules (review 2 of #568). */
+    public function test_its_page_says_no_where_the_cron_would_not_charge(): void
+    {
+        $status = fn (string $key, array $with = []) => __("services.auto_charge_status.{$key}", $with);
+        $suspended = $this->service(null);
+        $suspended->forceFill(['status' => Service::STATUS_SUSPENDED])->save();
+        $this->assertSame($status('not_active'), ItemPaymentMethod::autoChargeStatus($suspended));
+
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'auto_renew' => false]);
+        $this->assertSame($status('not_renewing'), ItemPaymentMethod::autoChargeStatus($domain));
+
+        config(['settings.autocharge_max_failures' => 3]);
+        $this->card->forceFill(['failed_count' => 3])->save();
+        $byCard = $this->invoice($this->service(null));
+        $this->assertNull(AutoCharge::agreementFor($byCard));
+        $this->assertSame($status('stopped', ['method' => 'Visa 4242']), ItemPaymentMethod::autoChargeStatus($this->service(null)));
+    }
+
+    /** Staff in «Login as client» turn it on (money taken) only with the money permission; off, they may (SA-5). */
+    public function test_staff_logged_in_as_the_client_turn_it_on_only_with_the_money_permission(): void
+    {
+        $service = $this->service(null);
+        $service->forceFill(['no_auto_charge' => true])->save();
+        session(['impersonating' => $this->user->id, CurrentClient::SESSION_KEY => $this->client->id, CurrentClient::IMPERSONATING_KEY => $this->client->id]);
+        Auth::guard('staff')->setUser(Staff::factory()->withPermissions(['admin.users.impersonate', 'admin.services.view', 'admin.services.update'])->create());
+        Auth::guard('web')->setUser($this->user);
+        app(CurrentClient::class)->forget();
+
+        Livewire::test(ServiceShow::class, ['service' => $service])->call('toggleAutoCharge');
+        $this->assertTrue($service->fresh()->no_auto_charge, 'not turned on without the money permission');
+
+        $service->forceFill(['no_auto_charge' => false])->save();
+        Livewire::test(ServiceShow::class, ['service' => $service->fresh()])->call('toggleAutoCharge');
+        $this->assertTrue($service->fresh()->no_auto_charge, 'turned off: no money taken');
+    }
+
+    public function test_staff_set_it_on_the_domains_edit(): void
+    {
+        $domain = Domain::factory()->create(['client_id' => $this->client->id, 'currency_code' => 'USD']);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($admin)->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
+            ->callAction('edit', ['no_auto_charge' => true, 'auto_renew' => true]);
+
+        $this->assertTrue($domain->fresh()->no_auto_charge);
     }
 
     public function test_the_payment_methods_page_says_what_the_second_method_pays(): void

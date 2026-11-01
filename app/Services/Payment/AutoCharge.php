@@ -102,14 +102,13 @@ final class AutoCharge
 
     /**
      * A line of a service or domain set «Do not charge automatically» (#568, by the customer, staff or the import): read
-     * as it is now, not as billed, so turning it off stops the charge of its open invoice too.
+     * as it is now, not as billed, so turning it off stops the charge of its open invoice too. Such an item is billed on an
+     * invoice apart, and turned off it leaves a shared open one (ItemPaymentMethod::keepApart); one it could not leave is
+     * held whole, safer than taking money against the customer's choice.
      */
     private static function itemKeptFromIt(Invoice $invoice): bool
     {
-        return $invoice->items()->where(fn ($lines) => $lines
-            ->where(fn ($line) => $line->where('reference_type', Service::class)->whereIn('reference_id', Service::query()->select('id')->where('no_auto_charge', true)))
-            ->orWhere(fn ($line) => $line->where('reference_type', Domain::class)->whereIn('reference_id', Domain::query()->select('id')->where('no_auto_charge', true))))
-            ->exists();
+        return $invoice->items()->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists();
     }
 
     /**

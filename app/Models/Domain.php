@@ -6,6 +6,7 @@ use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\Registrars\GrEppRegistrar;
+use App\Services\Payment\ItemPaymentMethod;
 use Carbon\CarbonInterface;
 use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -92,6 +93,12 @@ class Domain extends Model implements Auditable
 
     protected static function booted(): void
     {
+        // «Do not charge automatically» turned on (#568): it leaves an open invoice it shares with items still charged.
+        static::updated(function (self $domain) {
+            if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
+                ItemPaymentMethod::keepApart($domain);
+            }
+        });
         // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
         // database compares names case- and accent-blind, so «άλφα.gr» and «αλφα.gr» must not both be stored as such.
         static::saving(function (self $domain) {

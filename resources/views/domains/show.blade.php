@@ -81,7 +81,7 @@
                 <div class="flex items-center gap-2">
                     <span>{{ __('services.auto_pay') }}:</span>
                     <span class="text-base/50">{{ \App\Services\Payment\ItemPaymentMethod::autoChargeStatus($domain) }}</span>
-                    @if ($paymentMethodOptions !== null)
+                    @if ($paymentMethodOptions !== null && ($domain->no_auto_charge || $domain->client->billingAgreements()->exists()))
                     <button type="button" class="text-sm underline" wire:click="toggleAutoCharge" wire:loading.attr="disabled"
                         wire:confirm="{{ $domain->no_auto_charge ? __('services.auto_charge_on_confirm') : __('services.auto_charge_off_confirm') }}">
                         {{ $domain->no_auto_charge ? __('services.auto_charge_turn_on') : __('services.auto_charge_turn_off') }}

@@ -8,6 +8,7 @@ use App\Models\Contact;
 use App\Models\IpAddress;
 use App\Models\Order;
 use App\Models\Service;
+use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\ServerSelector;
 use App\Support\DunningWindow;
@@ -177,6 +178,10 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
+        // «Do not charge automatically» turned on (#568): it leaves an open invoice it shares with services still charged.
+        if ($service->wasChanged('no_auto_charge') && $service->no_auto_charge) {
+            ItemPaymentMethod::keepApart($service);
+        }
         if ($service->wasChanged(['status', 'order_id'])) {
             self::refreshOrders($service, $service->wasChanged('order_id') ? $service->getOriginal('order_id') : null);
         }

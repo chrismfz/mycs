@@ -15,7 +15,7 @@ return new class extends Migration
     {
         foreach (['services', 'domains'] as $table) {
             Schema::table($table, function (Blueprint $table) {
-                $table->boolean('no_auto_charge')->default(false)->after('payment_gateway_id');
+                $table->boolean('no_auto_charge')->default(false)->after('payment_gateway_id')->index(); // AutoCharge reads the few set
             });
         }
     }
@@ -24,6 +24,7 @@ return new class extends Migration
     {
         foreach (['services', 'domains'] as $table) {
             Schema::table($table, function (Blueprint $table) {
+                $table->dropIndex(['no_auto_charge']);
                 $table->dropColumn('no_auto_charge');
             });
         }
