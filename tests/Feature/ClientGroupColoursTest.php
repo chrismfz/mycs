@@ -49,13 +49,12 @@ class ClientGroupColoursTest extends TestCase
         $this->assertStringContainsString('color: #ffffff', (string) $dark->badge());
         $this->assertStringContainsString('&lt;b&gt;Dark&lt;/b&gt;', (string) $dark->badge(), 'the name escaped');
 
-        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => 'red;background:url(x)']);
-        $this->assertStringNotContainsString('url(x)', (string) $dark->fresh()->badge(), 'not a hex colour: never in the style');
+        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => 'red;x:1']);
+        $this->assertStringNotContainsString('red;x:1', (string) $dark->fresh()->badge(), 'not a hex colour: never in the style');
         DB::table('client_groups')->where('id', $dark->id)->update(['colour' => "#fff\n"]);
         $this->assertNull($dark->fresh()->safeColour(), 'a newline after it: refused (\\z)');
-        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => '#7c3aed80']);
-        $this->assertSame('#7c3aed80', $dark->fresh()->safeColour(), 'with alpha: kept');
-        $this->assertStringContainsString('color: #ffffff', (string) $dark->fresh()->badge(), 'its alpha aside for the text');
+        DB::table('client_groups')->where('id', $dark->id)->update(['colour' => '#fff']);
+        $this->assertStringContainsString('background-color: #fff; color: #111827', (string) $dark->fresh()->badge(), 'the short form');
         $this->assertSame(['10% off services', 'Separate invoices'], $this->group->perks());
     }
 
