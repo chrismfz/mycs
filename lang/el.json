@@ -1569,5 +1569,6 @@
     "Another gateway than the saved method's: its renewals are invoiced apart, charged only by the account's saved method of that gateway.": "Άλλο gateway από αυτό της αποθηκευμένης μεθόδου: οι ανανεώσεις του τιμολογούνται χωριστά και τις χρεώνει μόνο ο αποθηκευμένος τρόπος του λογαριασμού σε εκείνο το gateway.",
     "Do not charge automatically": "Να μη χρεώνεται αυτόματα",
     "Its renewal invoices, the open one included, are paid by the customer; the account's other ones are still charged.": "Τα τιμολόγια ανανέωσής του, και το ανοιχτό, τα πληρώνει ο πελάτης· τα υπόλοιπα του λογαριασμού χρεώνονται όπως πριν.",
-    "Automatic charge": "Αυτόματη χρέωση"
+    "Automatic charge": "Αυτόματη χρέωση",
+    ":percent% off services": "−:percent% στις υπηρεσίες"
 }

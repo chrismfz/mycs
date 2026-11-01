@@ -65,9 +65,14 @@ class ClientGroupResource extends Resource
         return $table
             ->columns([
                 ColorColumn::make('colour')->label(''),
-                TextColumn::make('name')->label(__('Name'))->searchable()->sortable(),
+                // On its colour, as its clients are marked (owner 2026-11-01).
+                TextColumn::make('name')->label(__('Name'))->searchable()->sortable()
+                    ->formatStateUsing(fn (ClientGroup $record) => $record->badge())->html(),
                 TextColumn::make('discount_percent')->label(__('Discount (%)'))->sortable(),
+                // What it gives, each as WHMCS's Client Groups page lists it.
                 IconColumn::make('dunning_exempt')->label(__('No suspension'))->boolean()->toggleable(),
+                IconColumn::make('separate_invoices')->label(__('Separate invoices'))->boolean()->toggleable(),
+                IconColumn::make('no_overdue_reminders')->label(__('No overdue reminders'))->boolean()->toggleable(),
                 TextColumn::make('clients_count')->label(__('Clients'))->counts('clients')->sortable(),
             ])
             ->recordActions([EditAction::make()])

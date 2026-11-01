@@ -98,7 +98,8 @@ class ClientSummarySettingsTest extends TestCase
             $this->assertSame(!$default, $settings[$field], $field);
         }
         $this->assertSame('Ελληνικά', $settings['language']);
-        $this->assertSame(['name' => 'Resellers', 'percent' => '10.00', 'colour' => '#7c3aed'], $settings['group']);
+        $this->assertSame(['name' => 'Resellers', 'percent' => '10.00', 'colour' => '#7c3aed'], array_intersect_key($settings['group'], array_flip(['name', 'percent', 'colour'])));
+        $this->assertSame(['10% off services'], $settings['group']['perks']);
         $this->assertSame('Visa **** 4242', $settings['method']);
 
         $html = $this->page()->assertSee('Ελληνικά')->assertSee('Resellers −10%')->assertSee('Visa **** 4242')
@@ -126,7 +127,7 @@ class ClientSummarySettingsTest extends TestCase
 
         $settings = ClientSummary::for($this->client->fresh(), $this->staff(['*']))['settings'];
 
-        $this->assertSame(['name' => 'Odd', 'percent' => null, 'colour' => null], $settings['group']);
+        $this->assertSame(['name' => 'Odd', 'percent' => null, 'colour' => null], array_intersect_key($settings['group'], array_flip(['name', 'percent', 'colour'])));
         $this->page()->assertSee('Odd')->assertDontSee('red;x:1', false);
     }
 

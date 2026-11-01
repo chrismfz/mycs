@@ -89,7 +89,8 @@
             </span></div>
             <div class="{{ $row }} items-center"><span class="{{ $label }}">{{ __('Client group') }}</span><span class="text-right">
                 @if ($set['group'])
-                    <x-filament::badge color="gray">@if ($set['group']['colour'])<span class="me-1 inline-block h-2 w-2 rounded-full" style="background-color: {{ $set['group']['colour'] }}"></span>@endif{{ $set['group']['name'] . ($set['group']['percent'] ? ' −' . (float) $set['group']['percent'] . '%' : '') }}</x-filament::badge>
+                    {{ $set['group']['badge'] }}
+                    @if ($set['group']['perks'])<span class="block text-xs {{ $label }}">{{ implode(' · ', $set['group']['perks']) }}</span>@endif
                 @else—@endif
             </span></div>
             <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Payment method for renewals') }}</span><span class="text-right break-all">{{ $set['method'] ?? '—' }}</span></div>

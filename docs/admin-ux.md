@@ -146,6 +146,12 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
 Οι στήλες και οι όροι του WHMCS:
 - **Clients:** ID, Name (με την πίστωση από κάτω), Company, Email, Services «ενεργές (όλες)», Date Created· φίλτρο
   «Active services» ναι/όχι· το κλικ στη γραμμή ανοίγει το Summary.
+- **Ομάδα πελάτη, όπως τη σημαδεύει το WHMCS** (απόφαση ιδιοκτήτη 2026-11-01): στη λίστα το ID στο χρώμα της ομάδας και
+  στήλη «Client group» (badge στο χρώμα της, και tooltip με όσα δίνει)· φίλτρο «Client group» (μία ομάδα ή «No group»).
+  Στο Edit οι επιλογές στο χρώμα τους, και από κάτω τι δίνει η επιλεγμένη. Στο Summary το badge με την έκπτωση και
+  τι δίνει. Στη σελίδα Client groups κάθε ομάδα στο χρώμα της, με έκπτωση, χωριστά τιμολόγια, χωρίς αναστολή, χωρίς
+  υπενθυμίσεις (`ClientGroup::badge`, `perks`). Το χρώμα μπαίνει σε style μόνο ως hex (`safeColour`)· το όνομα escaped,
+  και το κείμενο σκούρο ή ανοιχτό ανάλογα με το χρώμα.
 - **Products/Services:** Product/Service (με το domain από κάτω), Amount (με φόρο, όπως στο Summary), Billing Cycle
   (`ClientSummary::cycle`), Signup Date, Next Due Date, Status· αναζήτηση σε προϊόν και domain, φίλτρο Status.
 - **Invoices:** Invoice #, Invoice Date, Due Date, Total, Remaining, Status, τα νεότερα πρώτα. Τα σύνολα φορτώνουν
