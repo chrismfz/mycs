@@ -20,9 +20,10 @@ class RefreshGatewayBalances implements ShouldBeUniqueUntilProcessing, ShouldQue
 
     public $tries = 1;
 
-    public $timeout = 60;
+    /** Waits up to 100 s for a read under way, then up to three calls of 30 s (review of #576). */
+    public $timeout = 240;
 
-    public $uniqueFor = 120;
+    public $uniqueFor = 300;
 
     public function handle(): void
     {

@@ -40,7 +40,8 @@ final class GatewayBalances
         $shown = [];
         foreach (self::enabled()->get() as $gateway) {
             $key = (string) $gateway->extension;
-            $shown[$key] = ['label' => (string) ($gateway->name ?: $key)] + ($stored[$key] ?? ['rows' => [], 'read_at' => null, 'error' => null]);
+            $read = is_array($stored[$key] ?? null) ? $stored[$key] : [];
+            $shown[$key] = ['label' => (string) ($gateway->name ?: $key)] + $read + ['rows' => [], 'read_at' => null, 'error' => null];
         }
 
         return $shown;
@@ -54,8 +55,23 @@ final class GatewayBalances
         }
     }
 
-    /** @return array<string, array{label: string, rows: list<array{currency: string, available: string, pending: string}>, read_at: ?string, error: ?string}> */
+    /**
+     * One read at a time (review of #576): the hourly one, begun with the old key, would write over the one a save
+     * began with the new key. The secrets to mask are read again, as a queue worker's may be older than a key saved now.
+     *
+     * @return array<string, array{label: string, rows: list<array{currency: string, available: string, pending: string}>, read_at: ?string, error: ?string}>
+     */
     public static function read(): array
+    {
+        return Cache::lock(self::KEY . ':read', 120)->block(100, function (): array {
+            Redact::forget();
+
+            return self::readNow();
+        });
+    }
+
+    /** @return array<string, array{label: string, rows: list<array{currency: string, available: string, pending: string}>, read_at: ?string, error: ?string}> */
+    private static function readNow(): array
     {
         $stored = self::stored();
         $balances = [];

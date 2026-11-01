@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\BankAlerts\AlertMailbox;
 use App\Services\BankAlerts\AlertReader;
 use App\Services\Money\GatewayBalances;
+use App\Support\Redact;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -390,6 +391,27 @@ class BankAlertsTest extends TestCase
         $this->assertStringContainsString('Invalid API Key provided', $html);
         $this->assertStringNotContainsString('sk_live_51Hidden0Key', $html);
         $this->assertStringNotContainsString('sk_live_51Hidden0Key', (string) json_encode(GatewayBalances::stored()));
+    }
+
+    /** Review of #576: a queue worker's list of secrets to mask may be older than the key saved a second ago. */
+    public function test_a_key_saved_after_the_secrets_were_read_is_masked_too(): void
+    {
+        Redact::text('warm'); // this process knows the secrets as they were
+        Setting::withoutEvents(fn () => $this->stripe(['stripe_secret_key' => 'sk_live_51Saved0Now']));
+        Http::fake(['api.stripe.com/*' => Http::response(['error' => ['message' => 'Invalid API Key provided: sk_live_51Saved0Now']], 401)]);
+
+        (new RefreshGatewayBalances)->handle();
+
+        $this->assertNotNull(GatewayBalances::stored()['Stripe']['error']);
+        $this->assertStringNotContainsString('sk_live_51Saved0Now', (string) json_encode(GatewayBalances::stored()));
+    }
+
+    public function test_an_odd_stored_entry_does_not_break_the_line(): void
+    {
+        $this->stripe();
+        Cache::forever(GatewayBalances::KEY, ['Stripe' => 'garbage']);
+
+        $this->livewireAs($this->staff(['admin.widgets.bank_totals']))->test(BankTotals::class)->assertSee('Not available');
     }
 
     public function test_saving_a_gateway_reads_the_balances_with_its_new_key_without_waiting_for_the_hour(): void
