@@ -88,6 +88,21 @@ final class ItemPaymentMethod
     }
 
     /**
+     * A payment method as its select offers it (owner 2026-11-01: PayPal charged automatically, or paid from the invoice):
+     * the gateway's name, then the saved method that would charge its renewals with it, or «paid from the invoice». Null:
+     * the account's way. Only a label: the «Automatic charge» line under it (autoChargeStatus) says what happens now.
+     */
+    public static function optionLabel(Service|Domain $item, ?Gateway $gateway): string
+    {
+        $agreement = $item->no_auto_charge ? null : $item->client?->autoChargeAgreementFor($gateway === null ? null : (int) $gateway->id);
+        $name = $gateway === null ? __('services.payment_method_account_short') : (string) $gateway->name;
+
+        return $agreement !== null
+            ? __('services.payment_method_option_auto', ['gateway' => $name, 'method' => $agreement->name])
+            : __('services.payment_method_option_manual', ['gateway' => $name]);
+    }
+
+    /**
      * What its page tells the customer and staff (owner 2026-11-01: no misunderstanding): charged automatically with which
      * method, or why not, by the cron's rules (AutoCharge::due and agreementFor; review 2 of #568: a suspended service, a
      * domain not renewing, a method stopped at its failures, an open invoice held by another item on it).

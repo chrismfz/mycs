@@ -508,6 +508,27 @@ class ChargeByGatewayMethodTest extends TestCase
         $this->assertSame($this->vault->id, AutoCharge::agreementFor($invoice->fresh())?->id);
     }
 
+    /** Each way in its select says whether a saved method charges it or it is paid from the invoice (owner 2026-11-01). */
+    public function test_each_payment_way_says_whether_it_is_charged_automatically(): void
+    {
+        $bank = Gateway::query()->create(['name' => 'Bank Transfer', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true]);
+        $service = $this->service(null);
+        $auto = fn (string $gateway, string $method) => __('services.payment_method_option_auto', ['gateway' => $gateway, 'method' => $method]);
+        $manual = fn (string $gateway) => __('services.payment_method_option_manual', ['gateway' => $gateway]);
+
+        $this->assertSame($auto(__('services.payment_method_account_short'), 'Visa 4242'), ItemPaymentMethod::optionLabel($service, null));
+        $this->assertSame($auto('PayPal', 'PayPal a@example.test'), ItemPaymentMethod::optionLabel($service, $this->vaultGateway), 'the PayPal vault: automatic');
+        $this->assertSame($manual('Bank Transfer'), ItemPaymentMethod::optionLabel($service, $bank));
+
+        $this->vault->delete();
+        $this->assertSame($manual('PayPal'), ItemPaymentMethod::optionLabel($service, $this->vaultGateway), 'no saved PayPal: paid from the invoice');
+        $service->forceFill(['no_auto_charge' => true])->save();
+        $this->assertSame($manual(__('services.payment_method_account_short')), ItemPaymentMethod::optionLabel($service->fresh(), null), 'its own switch off');
+
+        $this->livewireAs($this->user)->test(ServiceShow::class, ['service' => $this->service(null)])
+            ->assertSee($auto(__('services.payment_method_account_short'), 'Visa 4242'))->assertSee($manual('PayPal'));
+    }
+
     public function test_the_payment_methods_page_says_what_the_second_method_pays(): void
     {
         $this->service($this->vaultGateway);

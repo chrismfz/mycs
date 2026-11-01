@@ -403,7 +403,9 @@ return [
     'auto_charge_turned_on' => 'Η αυτόματη χρέωση ενεργοποιήθηκε.',
     'auto_charge_turned_off' => 'Η αυτόματη χρέωση απενεργοποιήθηκε.',
     'payment_method' => 'Τρόπος πληρωμής',
-    'payment_method_account' => 'Του λογαριασμού (ο αποθηκευμένος τρόπος)',
+    'payment_method_account_short' => 'Του λογαριασμού',
+    'payment_method_option_auto' => ':gateway (αυτόματη χρέωση: :method)',
+    'payment_method_option_manual' => ':gateway (πληρωμή από το τιμολόγιο)',
     'payment_method_saved' => 'Ο τρόπος πληρωμής αποθηκεύτηκε: το ανοιχτό τιμολόγιο και οι επόμενες ανανεώσεις πληρώνονται με αυτόν.',
     'payment_method_not_available' => 'Αυτός ο τρόπος πληρωμής δεν είναι διαθέσιμος.',
 
