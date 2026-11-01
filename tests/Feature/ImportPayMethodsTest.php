@@ -113,8 +113,13 @@ class ImportPayMethodsTest extends TestCase
         // Its open WHMCS invoices: one of the card's, one by bank transfer (never charged by the card there).
         $byCard = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
         $byBank = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        $byWallet = Invoice::factory()->create(['client_id' => $c, 'status' => 'unpaid']);
+        foreach ([$byCard, $byWallet] as $open) {
+            $open->items()->create(['description' => 'Renewal', 'price' => '5.00', 'quantity' => 1]);
+        }
         $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, status TEXT, paymentmethod TEXT)');
-        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$byCard->id}, {$c}, 'Unpaid', 'stripe'), ({$byBank->id}, {$c}, 'Unpaid', 'banktransfer')");
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$byCard->id}, {$c}, 'Unpaid', 'stripe'), ({$byBank->id}, {$c}, 'Unpaid', 'banktransfer'),
+            ({$byWallet->id}, {$c}, 'Unpaid', 'paypal_ppcpv')");
 
         $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
 
@@ -123,6 +128,10 @@ class ImportPayMethodsTest extends TestCase
         $this->assertSame('pm_Amex2', BillingAgreement::query()->find($client->default_billing_agreement_id)?->external_reference, 'the card\'s, its first by WHMCS\'s order');
         $this->assertTrue((bool) $client->auto_charge, 'the bank transfer ones keep their own way: never charged by it');
         $this->assertSame(0, $result['counts']['not_charged']);
+        // The default's gateway's open invoice follows the account (a default changed later charges it, never another card of
+        // that gateway: review of #568); the wallet's keeps its way.
+        $this->assertNull($byCard->items()->value('payment_gateway_id'));
+        $this->assertSame($this->gateways['PayPal'], (int) $byWallet->items()->value('payment_gateway_id'));
         $this->assertStringNotContainsString("Customer #{$c}:", implode("\n", $result['notes']));
     }
 

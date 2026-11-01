@@ -1699,8 +1699,9 @@ class ImportFromWhmcs extends Command
 
     /**
      * Each service's and domain's own payment method (tblhosting/tbldomains.paymentmethod, owner 2026-10-29): its renewals
-     * are invoiced apart with it, and a saved method of another gateway never charges them, as in WHMCS. A module with no
-     * gateway here: none (the account's); the saved methods' step then keeps «Auto-charge» off for such a customer.
+     * are invoiced apart with it, charged by the account's saved method of that gateway and never by one of another, as in
+     * WHMCS (#568). A module with no gateway here: none (the account's); the saved methods' step then keeps «Auto-charge»
+     * off for such a customer, and for one whose item another module's method would charge here (ADV-568-1).
      */
     private function importItemPaymentMethods(): void
     {

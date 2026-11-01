@@ -14,6 +14,7 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -187,16 +188,18 @@ class ChargeByGatewayMethodTest extends TestCase
         $this->assertSame([], $this->cron());
     }
 
-    /** The default removed: the account's lines wait for a new one, the PayPal ones still go to the vault the customer chose for them. */
-    public function test_without_a_default_its_own_gateways_method_still_charges_its_items(): void
+    /** The default removed: nothing is charged, the PayPal items' vault included, until the customer chooses one (DATA-9, ADV-568-2). */
+    public function test_without_a_default_nothing_is_charged(): void
     {
         $this->card->delete();
         $this->assertNull($this->client->fresh()->default_billing_agreement_id);
         $byAccount = $this->invoice($this->service(null));
         $byVault = $this->invoice($this->service($this->vaultGateway));
 
-        $this->assertSame([$byVault->id => [$this->vault->id]], $this->cron());
-        $this->assertNull(AutoCharge::agreementFor($byAccount->fresh()), 'never the vault for the account\'s');
+        $this->assertSame([], $this->cron());
+        $this->assertNull(AutoCharge::agreementFor($byAccount->fresh()));
+        $this->assertNull(AutoCharge::agreementFor($byVault->fresh()));
+        $this->assertNull(ItemPaymentMethod::chargedBy($this->service($this->vaultGateway)));
     }
 
     public function test_declines_count_on_the_method_that_was_declined(): void
@@ -224,6 +227,26 @@ class ChargeByGatewayMethodTest extends TestCase
         $this->assertSame($this->vault->id, AutoCharge::agreementFor($byVault)?->id, 'the first, as WHMCS\'s order');
         $this->vault->delete();
         $this->assertSame($second->id, AutoCharge::agreementFor($byVault->fresh())?->id);
+    }
+
+    /** One stopped at autocharge_max_failures gives way to the next of its gateway (ADV-568-3). */
+    public function test_a_stopped_method_gives_way_to_the_next_of_its_gateway(): void
+    {
+        config(['settings.autocharge_max_failures' => 3]);
+        $this->vault->forceFill(['failed_count' => 3])->save();
+        $next = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $this->vaultGateway->id,
+            'name' => 'PayPal b@example.test', 'external_reference' => 'B-2', 'type' => 'paypal']);
+
+        $this->assertSame($next->id, AutoCharge::agreementFor($this->invoice($this->service($this->vaultGateway)))?->id);
+    }
+
+    /** The reminder before the due date says it will be charged (it reads AutoCharge::agreementFor). */
+    public function test_the_reminder_tells_the_customer_it_is_charged(): void
+    {
+        $byVault = $this->invoice($this->service($this->vaultGateway));
+        $this->assertTrue(PaymentReminders::chargedOnItsOwn($byVault));
+        $this->vault->delete();
+        $this->assertFalse(PaymentReminders::chargedOnItsOwn($byVault->fresh()));
     }
 
     public function test_a_domain_of_its_gateway_and_the_service_page_name_the_method(): void

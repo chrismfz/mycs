@@ -107,9 +107,11 @@ final class AutoCharge
     private static function wayOf(Invoice $invoice, ?BillingAgreement $default): int|false|null
     {
         $account = $default === null ? null : (int) $default->gateway_id;
-        $live = Gateway::query()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $lines = $invoice->items()->get(['reference_type', 'reference_id', 'payment_gateway_id']);
+        $recorded = $lines->pluck('payment_gateway_id')->filter()->unique()->values();
+        $live = $recorded->isEmpty() ? [] : Gateway::query()->whereKey($recorded->all())->pluck('id')->map(fn ($id) => (int) $id)->all();
         $ways = [];
-        foreach ($invoice->items()->get(['reference_type', 'reference_id', 'payment_gateway_id']) as $line) {
+        foreach ($lines as $line) {
             $gateway = $line->payment_gateway_id !== null && in_array((int) $line->payment_gateway_id, $live, true) ? (int) $line->payment_gateway_id : null;
             if ($gateway === null && ($line->reference_id === null || !in_array($line->reference_type, [Service::class, Domain::class], true))) {
                 continue;

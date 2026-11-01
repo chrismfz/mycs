@@ -550,11 +550,12 @@ final class RenewalBilling
 
                         return;
                     }
-                    // A gateway subscription pays its own invoice; any other is charged to the account's saved method (decision 6).
+                    // A gateway subscription pays its own invoice; any other is charged to the account's saved method of its lines'
+                    // gateway (decision 6, #568).
                     $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
                         ->orderBy('id')->first();
                     $subscription = (string) $service?->subscription_id !== '';
-                    // Not one paid another way either (ADV-541-7): the card never charges the rest, so the customer is told.
+                    // Not one no method of its way charges (ADV-541-7, #568): the customer is told.
                     $agreement = $subscription ? null : AutoCharge::agreementFor($invoice);
                     if (!$this->creditOnFinish) {
                         return;

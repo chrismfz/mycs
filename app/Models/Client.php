@@ -328,20 +328,34 @@ class Client extends Model implements Auditable
     /**
      * The method that charges the renewals paid with a gateway (an item's own payment method, its invoice's lines), with
      * «Auto-charge» on, enabled or not as autoChargeMethod(): none given, or the default's gateway, the default; another
-     * gateway, the account's first live method of it, as WHMCS charges an invoice with its own gateway's saved method
-     * (owner 2026-11-01, replay of 1 Nov). Never one of another gateway: no method of it, none.
+     * gateway, the account's method of it, as WHMCS charges an invoice with its own gateway's saved method (owner
+     * 2026-11-01, replay of 1 Nov). Never one of another gateway: no method of it, none. No default (removed, or staff's
+     * «None»): none at all, never another card the customer did not choose (DATA-9, ADV-568-2).
      */
     public function autoChargeMethodFor(?int $gatewayId): ?BillingAgreement
     {
-        if (!$this->auto_charge) {
-            return null;
-        }
-        $default = $this->autoChargeMethod();
-        if ($gatewayId === null || ($default !== null && (int) $default->gateway_id === $gatewayId)) {
+        $default = $this->auto_charge ? $this->autoChargeMethod() : null;
+        if ($default === null || $gatewayId === null || (int) $default->gateway_id === $gatewayId) {
             return $default;
         }
 
-        return $this->billingAgreements()->where('gateway_id', $gatewayId)->orderBy('id')->first();
+        return self::firstUsable($this->billingAgreements()->where('gateway_id', $gatewayId)->orderBy('id')->get());
+    }
+
+    /**
+     * Of a gateway's methods (WHMCS's order: the first added), the first not expired and not stopped at
+     * autocharge_max_failures (ADV-568-3: a card replaced by a new one stays listed); none such, the first, whose decline
+     * the customer hears of.
+     *
+     * @param  Collection<int, BillingAgreement>  $methods
+     */
+    private static function firstUsable(Collection $methods): ?BillingAgreement
+    {
+        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
+        $today = now()->toDateString();
+
+        return $methods->first(fn (BillingAgreement $method) => ((string) $method->expiry === '' || substr((string) $method->expiry, 0, 10) >= $today)
+            && ($max === 0 || $method->failed_count < $max)) ?? $methods->first();
     }
 
     /** autoChargeMethodFor(), only of a gateway staff have not disabled (autoChargeAgreement()). */
