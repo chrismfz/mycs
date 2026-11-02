@@ -15,6 +15,7 @@ use App\Models\Order;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\AfterCommit;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -122,7 +123,7 @@ final class CancelOrder
                 $running = in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true);
                 $service->update(['status' => Service::STATUS_CANCELLED]);
                 if ($running && $terminate && $service->hasServerActions()) {
-                    TerminateJob::dispatch($service, false)->afterCommit();
+                    AfterCommit::job(new TerminateJob($service, false));
                 }
                 if ($service->product?->stock !== null) {
                     $service->product->increment('stock', $service->quantity);

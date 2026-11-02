@@ -45,9 +45,13 @@ class ChargeAttempt extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    /** Taken, and its payment recorded another way than from the gateway (a transfer, Mark Paid): settled by staff (ResolveCharge). */
+    public const STATUS_SETTLED = 'settled';
+
     /**
-     * No answer about the money (a timeout, a 5xx): maybe taken. Holds the invoice, and the next charge of the same amount
-     * to the same method is sent again with its key (SavedMethodCharge::KEY_REUSE_HOURS).
+     * No answer about the money (a timeout, a 5xx): maybe taken. Holds the invoice until settled (SavedMethodCharge::unresolved),
+     * and the next charge of the same amount to the same method is sent again with its key while its gateway keeps it
+     * (SavedMethodCharge::keyReuseHours).
      */
     public const STATUS_UNKNOWN = 'unknown';
 
@@ -55,8 +59,8 @@ class ChargeAttempt extends Model
     public const STATUS_ACTION_REQUIRED = 'action_required';
 
     /**
-     * A started or succeeded attempt holds the invoice this long: no answer yet, or the money taken while its payment is
-     * still to be recorded (Stripe's webhook). Older, a started one had no answer (a crash) and holds it no longer.
+     * A started attempt this old has had no answer: a crash, an unknown outcome (sent again with its key while its gateway
+     * keeps it; held until settled either way: predeploy S1).
      */
     public const HOLD_MINUTES = 15;
 

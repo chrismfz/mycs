@@ -5,6 +5,7 @@ namespace App\Admin\Resources\InvoiceResource\Pages;
 use App\Admin\Actions\ApplyCreditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
+use App\Admin\Actions\ResolveCharge;
 use App\Admin\Actions\SendInvoiceEmail;
 use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Actions\SetAutoCharge;
@@ -124,6 +125,7 @@ class ViewInvoice extends ViewRecord
             SplitInvoiceAction::make(),
             SetAutoCharge::disable(),
             SetAutoCharge::enable(),
+            ResolveCharge::make(), // a charge of unknown outcome, settled by staff (predeploy S1)
             SendToEkdosi::make(),
             SendToEkdosi::withdraw(),
             Action::make('cancel')

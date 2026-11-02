@@ -207,8 +207,8 @@ class McpChargesTest extends TestCase
         $this->assertStringStartsWith('not charged: no method may charge it', $charge['cron']);
     }
 
-    /** Review of #571: an unknown outcome's key is reused, and the invoice held, for KEY_REUSE_HOURS only. */
-    public function test_an_unknown_outcome_past_its_key_window_says_a_next_charge_takes_new_money(): void
+    /** Review of #571: an unknown outcome's key is reused, and the invoice held until settled (predeploy S1). */
+    public function test_an_unknown_outcome_past_its_key_window_is_not_resent_and_still_holds(): void
     {
         $invoice = $this->invoice($this->service());
         $old = $this->attempt($invoice, $this->card, ChargeAttempt::STATUS_UNKNOWN, '2026-10-30 03:00:00', ['error' => 'Timeout']);
@@ -219,6 +219,7 @@ class McpChargesTest extends TestCase
 
         $this->assertStringStartsWith('UNKNOWN OUTCOME, KEY EXPIRED', $rows[$old->id]['alert']);
         $this->assertStringNotContainsString('same key', $rows[$old->id]['alert']);
+        $this->assertStringContainsString('the invoice is held', $rows[$old->id]['alert'], 'predeploy S1: never released by the key\'s expiry');
         $this->assertStringContainsString('until 2026-11-02 02:00 is sent again with the same key', $rows[$recent->id]['alert']);
     }
 
@@ -264,14 +265,17 @@ class McpChargesTest extends TestCase
         $this->assertNoToken($this->mcp($key, 'charges', ['days' => 90])['text']);
     }
 
-    public function test_a_charge_taken_and_not_recorded_past_the_hold_says_the_invoice_is_no_longer_held(): void
+    /** Predeploy S1: a taken charge holds its invoice until its payment is recorded, however long; the tool says so. */
+    public function test_a_charge_taken_and_not_recorded_long_ago_still_holds_the_invoice(): void
     {
-        $attempt = $this->attempt($this->invoice($this->service()), $this->card, ChargeAttempt::STATUS_SUCCEEDED, '2026-10-25 03:00:00');
+        $invoice = $this->invoice($this->service());
+        $attempt = $this->attempt($invoice, $this->card, ChargeAttempt::STATUS_SUCCEEDED, '2026-10-25 03:00:00');
 
         $row = $this->mcp($this->key(), 'charges', ['days' => 30])['json']['attempts'][0];
 
         $this->assertSame($attempt->id, $row['id']);
-        $this->assertStringContainsString('no longer held and may be charged again', $row['alert']);
+        $this->assertStringContainsString('the invoice is held, never charged or paid again', $row['alert']);
+        $this->assertTrue(SavedMethodCharge::onItsWay($invoice));
     }
 
     public function test_the_charges_tool_is_offered_only_to_who_may_see_invoices(): void

@@ -30,6 +30,7 @@ class UnsuspendJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         $this->serialized(fn () => $this->unsuspend()); // one suspension or unsuspension of it at a time (predeploy R2)
     }
 

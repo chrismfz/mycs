@@ -28,6 +28,7 @@ class TerminateJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         // Every caller ends the service before dispatching: one revived since (staff, a payment) keeps its account,
         // whether this runs late, as a retry or from Pending Module Actions (audit SVC-11).
         if (!$this->service->fresh()?->isEnded()) {

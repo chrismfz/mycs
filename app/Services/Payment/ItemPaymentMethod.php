@@ -289,14 +289,14 @@ final class ItemPaymentMethod
     }
 
     /**
-     * A charge of it that may still land: on its way (SavedMethodCharge::onItsWay), or one the cron would send again with
-     * its key (started and never answered, of unknown outcome) or the bank asked the customer to confirm, within the key
-     * window (ADV-568-R3-1: a stale «started» is past onItsWay's hold yet still resent).
+     * A charge of it that may still land: not settled (SavedMethodCharge::onItsWay: on its way, unknown, taken and not
+     * recorded, however long: predeploy S1), or one the bank asked the customer to confirm within its key window
+     * (ADV-568-R3-1).
      */
     private static function chargePending(Invoice $invoice): bool
     {
         return SavedMethodCharge::onItsWay($invoice) || ChargeAttempt::query()->where('invoice_id', $invoice->id)
-            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_ACTION_REQUIRED])
+            ->where('status', ChargeAttempt::STATUS_ACTION_REQUIRED)
             ->where('started_at', '>', now()->subHours(SavedMethodCharge::KEY_REUSE_HOURS))->exists();
     }
 

@@ -38,6 +38,7 @@ class CreateJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         $service = $this->service->fresh();
         if ($service?->status !== Service::STATUS_PENDING) {
             return;
