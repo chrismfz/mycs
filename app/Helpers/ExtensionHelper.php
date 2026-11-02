@@ -190,6 +190,9 @@ class ExtensionHelper
                 'encrypted' => $option['encrypted'] ?? false,
             ]);
         }
+        // Read above, the relation still held the settings as they were: the hooks called next (enabled, updated) get
+        // these. On create it was empty, so Stripe was asked for its webhook with no key (2026-11-02).
+        $record->unsetRelation('settings');
     }
 
     /**
