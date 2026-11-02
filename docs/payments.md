@@ -329,8 +329,10 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   όπως πριν· να διορθωθεί αν ενεργοποιηθεί τέτοιο νόμισμα.
 - **Webhooks:**
   - Stripe: `refund.created`, `refund.updated`, `refund.failed` (status `succeeded` ή `pending` = καταγραφή). Το
-    endpoint που φτιάχνει το extension τα ζητά· ένα υπάρχον χρειάζεται τα τρία events στο dashboard του Stripe (ή
-    άδειασμα του webhook secret και αποθήκευση, ώστε να ξαναφτιαχτεί).
+    endpoint που φτιάχνει το extension τα ζητά· ένα υπάρχον χρειάζεται τα τρία events στο dashboard του Stripe. Το
+    webhook φτιάχνεται ξανά **μόνο του** όταν αποθηκευτεί άλλο secret key (π.χ. από sandbox σε live: διαφορετικός
+    λογαριασμός ή mode), γιατί το extension κρατά για ποιο κλειδί φτιάχτηκε (`stripe_webhook_for`, αποτύπωμα, όχι το
+    κλειδί). Ένα gateway χωρίς αποτύπωμα (πριν από αυτό) το ξαναφτιάχνει στην επόμενη αποθήκευση (SW-1 του sweep, 2026-11-02).
   - PayPal: `PAYMENT.CAPTURE.REFUNDED` (η πληρωμή από το link `up`) και `PAYMENT.SALE.REFUNDED` (συνδρομές). Να
     προστεθούν στο webhook της εφαρμογής στο PayPal.
   - Mollie: μόνο το id της δικής μας επιστροφής· το webhook του δεν φέρνει επιστροφές ακόμα.

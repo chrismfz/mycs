@@ -667,6 +667,10 @@ class ExtensionHelper
      */
     public static function cancelBillingAgreement(BillingAgreement $billingAgreement)
     {
+        if ($billingAgreement->gateway === null) {
+            return true; // its gateway deleted: nothing left to cancel there, it is only removed here (review SW-3 of the payment sweep)
+        }
+
         return self::getExtension('gateway', $billingAgreement->gateway->extension, $billingAgreement->gateway->settings)->cancelBillingAgreement($billingAgreement);
     }
 

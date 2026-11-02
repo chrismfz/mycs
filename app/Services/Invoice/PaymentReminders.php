@@ -2,13 +2,11 @@
 
 namespace App\Services\Invoice;
 
-use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
@@ -216,15 +214,10 @@ class PaymentReminders
             return true;
         }
 
-        // A domain renewal is charged too (D5b, review 9): alive, renewing. Not a new domain's order (D8b, code review M1).
-        if ($invoice->items()->where('reference_type', Domain::class)->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER])->exists()) {
-            return false;
-        }
-        $domains = Domain::query()->whereIn('id', $invoice->items()->where('reference_type', Domain::class)->select('reference_id'))->get();
-
-        return ($services->isNotEmpty() || $domains->isNotEmpty()) && AutoCharge::agreementFor($invoice) !== null
-            && $services->every(fn (Service $service) => $service->status === Service::STATUS_ACTIVE)
-            && $domains->every(fn (Domain $domain) => $domain->auto_renew && !in_array($domain->status->value, DomainStatus::terminalValues(), true));
+        // The cron's own rules, not a copy of them (review SW-2 of the payment sweep): a renewal of active services and
+        // renewing domains (D5b; not a new domain's order, D8b), not an upgrade's charge alone, not past its retry window,
+        // with a method to charge (AutoCharge::willCharge).
+        return AutoCharge::willCharge($invoice);
     }
 
     /**

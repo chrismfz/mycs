@@ -138,9 +138,17 @@ class Stripe extends Gateway
         $this->updated($gateway);
     }
 
+    /**
+     * Its webhook, on the account and mode of the secret key saved now: made once per key (review SW-1 of the payment
+     * sweep, 2026-11-02: keys changed from sandbox to live kept the sandbox's secret, and no live payment was recorded).
+     * The key it was made for is kept as a fingerprint (never the key); a stored secret for another key, or none, makes
+     * it again.
+     */
     public function updated(Extension $gateway)
     {
-        if (!empty($gateway->settings()->where('key', 'stripe_webhook_secret')->first()->value)) {
+        $for = substr(hash('sha256', (string) $this->config('stripe_secret_key')), 0, 16);
+        $stored = fn (string $key) => (string) $gateway->settings()->where('key', $key)->value('value');
+        if ($stored('stripe_webhook_secret') !== '' && hash_equals($stored('stripe_webhook_for'), $for)) {
             return;
         }
 
@@ -178,6 +186,7 @@ class Stripe extends Gateway
         ]);
 
         $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
+        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $for]);
 
         Notification::make()
             ->success()
