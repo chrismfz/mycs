@@ -61,8 +61,6 @@ class Announcements extends Extension
 
     public function boot()
     {
-        // Register routes
-        require __DIR__ . '/routes/web.php';
         View::addNamespace('announcements', __DIR__ . '/resources/views');
 
         // Register livewire

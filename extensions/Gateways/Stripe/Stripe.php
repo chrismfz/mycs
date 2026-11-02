@@ -31,7 +31,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\View;
 use Str;
 
@@ -48,8 +47,6 @@ class Stripe extends Gateway
 
     public function boot()
     {
-        require __DIR__ . '/routes.php';
-        // Register webhook route
         View::addNamespace('gateways.stripe', __DIR__ . '/resources/views');
 
         // The renewal's tax changed (Δ1): the subscription bills the new amount, as the renewal invoices.
@@ -145,11 +142,6 @@ class Stripe extends Gateway
     {
         if (!empty($gateway->settings()->where('key', 'stripe_webhook_secret')->first()->value)) {
             return;
-        }
-
-        // If the extension isn't enabled, try to boot it
-        if (!Route::has('extensions.gateways.stripe.webhook')) {
-            require __DIR__ . '/routes.php';
         }
 
         // Check if webhook already exists

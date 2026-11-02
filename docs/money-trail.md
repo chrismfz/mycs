@@ -202,7 +202,8 @@ recurring ποσό, τιμή upgrade) περνά από το `ChangeOpenLine`: �
 ένα gateway λέει «χρέωσα» αλλά τα χρήματα δεν γράφτηκαν.
 
 **Όπως χτίστηκε (MT-2a):** πίνακας `payment_gateway_events`, `App\Services\Money\GatewayLog`. Τα routes των gateways
-δηλώνονται στο `boot()` τους χωρίς middleware group, οπότε αντί για middleware ακούμε τα `RouteMatched` (ανοίγει η
+δηλώνονται χωρίς middleware group (`routes/extensions.php`, όχι πια στο `boot()` τους: το route cache κρατούσε μόνο όσων
+υπήρχαν στο deploy), οπότε αντί για middleware ακούμε τα `RouteMatched` (ανοίγει η
 γραμμή για κάθε route `extensions.gateways.{gateway}.{endpoint}`) και `RequestHandled` (κλείνει με το HTTP status).
 Το `RecordPaymentService::handle()` λέει τι έγινε, μόνο αφού γίνει commit: `recorded` (με ποσό, νόμισμα, id παρόχου,
 τιμολόγιο, συναλλαγή· `reason` = `processing`/`failed` όταν δεν πέτυχε ακόμη), `ignored`/`replay`,

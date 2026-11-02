@@ -22,11 +22,6 @@ use Symfony\Component\HttpFoundation\Response;
 )]
 class PayPal_IPN extends Gateway
 {
-    public function boot()
-    {
-        require __DIR__ . '/routes.php';
-    }
-
     /**
      * Get all the configuration for the extension
      *

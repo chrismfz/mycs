@@ -103,7 +103,8 @@ class GatewayHooksSettingsTest extends TestCase
         $router = app('router');
         $router->setCompiledRoutes($router->getRoutes()->compile());
         $this->assertInstanceOf(CompiledRouteCollection::class, Route::getRoutes());
-        $this->assertFalse(Route::has('extensions.gateways.stripe.webhook'));
+        // In the cache whatever the database held when it was built (#579): before it, missing here.
+        $this->assertTrue(Route::has('extensions.gateways.stripe.webhook'));
 
         ExtensionHelper::call($gateway, 'enabled', [$gateway]); // not mayFail: an error fails the test
 
