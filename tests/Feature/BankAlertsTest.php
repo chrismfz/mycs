@@ -414,6 +414,30 @@ class BankAlertsTest extends TestCase
         $this->livewireAs($this->staff(['admin.widgets.bank_totals']))->test(BankTotals::class)->assertSee('Not available');
     }
 
+    /** Owner 2026-11-02: PayPal's AUD, GBP, USD and BGN at 0,00 made a line each; one entry a gateway, in EUR. */
+    public function test_a_gateway_is_one_entry_its_empty_currencies_left_out(): void
+    {
+        $this->stripe();
+        Gateway::query()->create(['name' => 'Paypal', 'extension' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
+        $row = fn (string $currency, string $available, string $pending = '0.00') => ['currency' => $currency, 'available' => $available, 'pending' => $pending];
+        Cache::forever(GatewayBalances::KEY, [
+            'PayPal' => ['label' => 'Paypal', 'rows' => [$row('AUD', '0.00'), $row('EUR', '135.90'), $row('GBP', '0.00'), $row('USD', '0.00'), $row('BGN', '0.00')], 'read_at' => now()->toIso8601String(), 'error' => null],
+            'Stripe' => ['label' => 'Stripe', 'rows' => [$row('USD', '12.00', '3.00'), $row('EUR', '866.64', '20.00')], 'read_at' => now()->toIso8601String(), 'error' => null],
+        ]);
+
+        $html = $this->livewireAs($this->staff(['admin.widgets.bank_totals']))->test(BankTotals::class)->html();
+
+        $this->assertSame(1, substr_count($html, '>Paypal<'));
+        $this->assertSame(1, substr_count($html, '>Stripe<'));
+        $this->assertStringContainsString('135,90 €', $html);
+        $this->assertStringContainsString('866,64 € + 12,00 USD', $html, 'EUR first; a currency that holds something stays in sight');
+        $this->assertStringContainsString('pending 3,00 USD', $html);
+        foreach (['AUD', 'GBP', 'BGN', '0,00 USD'] as $empty) {
+            $this->assertStringNotContainsString($empty, $html);
+        }
+        $this->assertStringContainsString('1.002,54 €', $html, 'the total is the EUR: 135.90 + 866.64');
+    }
+
     public function test_saving_a_gateway_reads_the_balances_with_its_new_key_without_waiting_for_the_hour(): void
     {
         $gateway = $this->stripe(['stripe_secret_key' => 'sk_test_old', 'stripe_webhook_secret' => 'whsec_set']);

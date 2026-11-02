@@ -37,16 +37,27 @@ class BankTotals extends Widget
                 ])) ?: null, 'error' => null];
             $total = bcadd($total, $balance['balance'], 2);
         }
+        // One entry a gateway (owner 2026-11-02: a line a currency, most of them 0,00, was too long): its EUR, and another
+        // currency only when it holds something; what is pending on hover.
         foreach (GatewayBalances::shown() as $gateway) {
-            foreach ($gateway['rows'] ?: [['currency' => 'EUR', 'available' => null, 'pending' => '0.00']] as $row) {
-                $pending = bccomp((string) $row['pending'], '0', 2) !== 0 ? __('pending :amount', ['amount' => self::money((string) $row['pending'], $row['currency'])]) : null;
-                $read = $gateway['read_at'] ? __('Read :when', ['when' => Carbon::parse($gateway['read_at'])->diffForHumans()]) : __('Not read yet');
-                $rows[] = ['label' => $gateway['label'], 'amount' => $row['available'], 'currency' => $row['currency'],
-                    'note' => implode(' · ', array_filter([$pending, $read])), 'error' => $gateway['error']];
-                if ($row['available'] !== null && $row['currency'] === 'EUR') {
+            $read = $gateway['read_at'] ? __('Read :when', ['when' => Carbon::parse($gateway['read_at'])->diffForHumans()]) : __('Not read yet');
+            $money = ['EUR' => null];
+            $pending = [];
+            foreach ($gateway['rows'] as $row) {
+                $eur = $row['currency'] === 'EUR';
+                if ($eur) {
                     $total = bcadd($total, (string) $row['available'], 2);
                 }
+                if ($eur || bccomp((string) $row['available'], '0', 2) !== 0) {
+                    $money[$row['currency']] = self::money((string) $row['available'], $row['currency']);
+                }
+                if (bccomp((string) $row['pending'], '0', 2) !== 0) {
+                    $pending[] = __('pending :amount', ['amount' => self::money((string) $row['pending'], $row['currency'])]);
+                }
             }
+            $rows[] = ['label' => $gateway['label'], 'amount' => null, 'currency' => 'EUR',
+                'money' => $gateway['rows'] === [] ? __('Not available') : (implode(' + ', array_filter($money)) ?: self::money('0', 'EUR')),
+                'note' => implode(' · ', [...$pending, $read]), 'error' => $gateway['error']];
         }
 
         return view($this->view, ['rows' => array_map(fn ($r) => $r + ['money' => $r['amount'] === null ? __('Not available') : self::money((string) $r['amount'], $r['currency'])], $rows),
