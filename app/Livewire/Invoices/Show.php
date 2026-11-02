@@ -19,6 +19,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -183,6 +184,12 @@ class Show extends Component
     {
         if (!in_array($methodId, array_column($this->gateways, 'id'))) {
             return $this->notify(__('Invalid payment method.'), 'error');
+        }
+        // A charge of a saved method not settled (on its way, unknown, taken and not recorded): another checkout could take
+        // the same debt again (predeploy S2). Read under the invoice's payment lock, as SavedMethodCharge does.
+        $held = DB::transaction(fn () => SavedMethodCharge::onItsWay((new RecordPaymentService)->lockInvoice($this->invoice->id)));
+        if ($held) {
+            return $this->notify(__('A payment for this invoice is already on its way.'), 'error');
         }
 
         $this->pay = ExtensionHelper::pay(Gateway::where('id', $methodId)->first(), $this->invoice);
