@@ -522,14 +522,14 @@ class EditService extends EditRecord
                                 case 'suspend':
                                     // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
                                     $record->placeOnHold();
-                                    $sdata = self::onServer(fn () => ExtensionHelper::suspendServer($record));
+                                    $sdata = self::onServer(fn () => ExtensionHelper::suspendServer($record), $record);
                                     if ($data['sendNotification'] && $record->status === Service::STATUS_SUSPENDED) {
                                         // WHMCS's «Service Suspension Notification» on a manual suspend too (sweep modules §7).
                                         NotificationHelper::serverSuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
                                     }
                                     break;
                                 case 'unsuspend':
-                                    $sdata = self::onServer(fn () => ExtensionHelper::unsuspendServer($record));
+                                    $sdata = self::onServer(fn () => ExtensionHelper::unsuspendServer($record), $record);
                                     // Only suspended -> active: a pending or cancelled service is not revived.
                                     if ($record->status === Service::STATUS_SUSPENDED) {
                                         $told = $record->toldOfSuspension(); // before: unsuspended, its suspension's date goes
@@ -645,12 +645,19 @@ class EditService extends EditRecord
     }
 
     /** A service without a module (or a module without the action) is suspended or unsuspended here only, as the jobs do. */
-    private static function onServer(\Closure $action): mixed
+    private static function onServer(\Closure $action, ?Service $lifecycle = null): mixed
     {
+        // A suspension or unsuspension: never alongside one of the cron's or a payment's still running (predeploy R2).
+        $lock = $lifecycle === null ? null : ExtensionHelper::lifecycleLock($lifecycle);
+        if ($lock !== null && !$lock->get()) {
+            throw new DisplayException(__('A suspension or unsuspension of this service is running on its server: try again in a minute.'));
+        }
         try {
             return $action();
         } catch (NothingToDoOnServer) {
             return [];
+        } finally {
+            $lock?->release();
         }
     }
 }

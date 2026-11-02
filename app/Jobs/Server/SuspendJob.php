@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Cache;
 
 class SuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesLifecycle, SerializesModels;
 
     public $timeout = 120;
 
@@ -30,6 +30,11 @@ class SuspendJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->serialized(fn () => $this->suspend()); // one suspension or unsuspension of it at a time (predeploy R2)
+    }
+
+    private function suspend(): void
+    {
         // A queued action must not undo a newer payment or staff hold. Never done on the server (its first attempt, no
         // failure of an earlier one open: an earlier attempt may have suspended with its answer lost, review of #418):
         // the customer never heard of a suspension, so the payment's unsuspension tells them nothing either.
@@ -38,6 +43,11 @@ class SuspendJob implements ShouldQueue
                 Cache::put(self::neverSuspendedKey($this->service->id), true, now()->addDay());
             }
 
+            return;
+        }
+        // Suspended already, since its last unsuspension (a payment's job settled it while this one waited: R2).
+        if (Cache::get(ExtensionHelper::onServerKey($this->service->id)) === 'suspended'
+            && !ModuleAction::query()->open()->where('service_id', $this->service->id)->where('action', 'unsuspend')->exists()) {
             return;
         }
         $data = [];
