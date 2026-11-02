@@ -187,7 +187,8 @@ final class Proposals
     }
 
     /**
-     * The proposals a member of staff may follow: their own, and those they may decide (the same as could ask them).
+     * The proposals a member of staff may see: their own, and those of a type they may decide. Which of those they may
+     * decide (and follow, and count) is followable(): a domain's action asks the domains' permission too (R1).
      *
      * @template T of Builder
      *
@@ -199,6 +200,13 @@ final class Proposals
         $types = array_keys(array_filter(self::PERMISSIONS, fn (string $permission) => $staff?->hasPermission($permission) ?? false));
 
         return $query->where(fn (Builder $query) => $query->where('proposed_by', $staff === null ? 0 : $staff->id)->orWhereIn('type', $types));
+    }
+
+    /** Theirs, or one they may decide: what the badge counts and the `proposal` tool tells (code review of #584, F1). */
+    public static function followable(McpProposal $proposal, ?Staff $staff): bool
+    {
+        return $staff !== null && ((int) $proposal->proposed_by === (int) $staff->id
+            || self::allows($staff, (string) $proposal->type, (array) $proposal->payload));
     }
 
     /**
@@ -219,7 +227,8 @@ final class Proposals
                 || Gate::forUser($staff)->allows('update', $action),
             self::TICKET_REPLY => ($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null
                 || Gate::forUser($staff)->allows('update', $ticket),
-            default => true,
+            // A resend: the admin's Resend is on the mail log, which they must be able to read (code review of #584, F4).
+            default => Gate::forUser($staff)->allows('viewAny', EmailLog::class),
         };
     }
 

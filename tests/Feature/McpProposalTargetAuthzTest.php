@@ -56,6 +56,7 @@ class McpProposalTargetAuthzTest extends TestCase
         $this->assertFalse((new ModuleActionPolicy)->update($staff, $action));
         try {
             Proposals::propose(Proposals::RETRY_MODULE_ACTION, ['module_action_id' => $action->id], $staff);
+            $this->fail('proposed without the domains\' permission');
         } catch (InvalidArgumentException) {
         }
         $this->assertSame(0, McpProposal::query()->count(), 'The MCP path must honor the domain action policy');

@@ -29,7 +29,10 @@ class McpProposalResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $pending = self::getEloquentQuery()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())->count();
+        // Only those they may decide (or asked): a domain's action is not counted for service-only staff (#584 review, F1).
+        $staff = self::staff();
+        $pending = self::getEloquentQuery()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())->get()
+            ->filter(fn ($proposal) => $proposal instanceof McpProposal && Proposals::followable($proposal, $staff))->count();
 
         return $pending > 0 ? (string) $pending : null;
     }

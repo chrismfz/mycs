@@ -117,16 +117,18 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
 
 | Tool | Proposes | Needs (who proposes and who approves) |
 |---|---|---|
-| `propose_retry_module_action` | the admin's Retry of a module action the queue gave up on | Update Services (a domain's: Renew Domains) |
-| `propose_resolve_module_action` | Mark resolved (an account fixed by hand) | Update Services (a domain's: Renew Domains) |
-| `propose_resend_mail` (to, with copies) | a Resend, as the log keeps the mail | Resend Email |
+| `propose_retry_module_action` | the admin's Retry of a module action the queue gave up on | Update Services, and for a domain's also Renew Domains |
+| `propose_resolve_module_action` | Mark resolved (an account fixed by hand) | Update Services, and for a domain's also Renew Domains |
+| `propose_resend_mail` (to, with copies) | a Resend, as the log keeps the mail | Resend Email, and View Email Logs |
 
 - **Once:** an approval is an atomic claim, so two clicks or two members of staff never run it twice. The same request
   proposed again while one waits is the same proposal.
 - **Its target's own policy too (predeploy R1, 2026-11-02):** asking, approving, rejecting and «Use the draft» need the
   type's permission **and** what the admin page doing the same would ask of its target (`Proposals::allows`): a
   domain's module action (registration, renewal, transfer) needs Renew Domains, as Pending Module Actions does
-  (`ModuleActionPolicy`). The approve button follows the same rule.
+  (`ModuleActionPolicy`); a resend needs the email logs' View, as the admin's Resend does. The approve button, the
+  menu's count and the `proposal` tool follow the same rule (the list still shows a domain's proposal to service-only
+  staff, without its buttons).
 - **Checked again on approval:** the approver's permission and the target's policy, read from what is stored right
   before it runs (a role changed since counts), and the state (the module action still open and given up; the mail
   still there). What fails is kept as **failed**, with why.

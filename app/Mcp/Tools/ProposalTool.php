@@ -35,10 +35,18 @@ class ProposalTool extends McpTool
         $staff = $request->user();
         // Theirs, and those they may decide: a request asked again is the same proposal (review R1).
         $visible = Proposals::visibleTo(McpProposal::query(), $staff instanceof Staff ? $staff : null);
+        $staff = $staff instanceof Staff ? $staff : null;
         if ($request->get('proposal_id')) {
-            return ProposeTool::describe((clone $visible)->find((int) $request->get('proposal_id')) ?? throw new NotFound('No such proposal you may follow.'));
+            $proposal = (clone $visible)->find((int) $request->get('proposal_id'));
+            if ($proposal === null || !Proposals::followable($proposal, $staff)) {
+                throw new NotFound('No such proposal you may follow.');
+            }
+
+            return ProposeTool::describe($proposal);
         }
 
-        return ['proposals' => $visible->latest('id')->limit(20)->get()->map(fn (McpProposal $proposal) => ProposeTool::describe($proposal))->all()];
+        // Only those they may decide (or asked): never a domain's action for service-only staff (#584 review, F1).
+        return ['proposals' => $visible->latest('id')->limit(100)->get()->filter(fn (McpProposal $proposal) => Proposals::followable($proposal, $staff))
+            ->take(20)->map(fn (McpProposal $proposal) => ProposeTool::describe($proposal))->values()->all()];
     }
 }
