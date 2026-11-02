@@ -520,16 +520,21 @@ class EditService extends EditRecord
                                     }
                                     break;
                                 case 'suspend':
-                                    // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
-                                    $record->placeOnHold();
-                                    $sdata = self::onServer(fn () => ExtensionHelper::suspendServer($record));
+                                    // Under the service's lifecycle lock, asked before anything is saved: refused, no hold is
+                                    // left behind (adversarial ADV-585-1).
+                                    $sdata = self::underLifecycleLock($record, function () use ($record) {
+                                        // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
+                                        $record->placeOnHold();
+
+                                        return self::onServer(fn () => ExtensionHelper::suspendServer($record));
+                                    });
                                     if ($data['sendNotification'] && $record->status === Service::STATUS_SUSPENDED) {
                                         // WHMCS's «Service Suspension Notification» on a manual suspend too (sweep modules §7).
                                         NotificationHelper::serverSuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
                                     }
                                     break;
                                 case 'unsuspend':
-                                    $sdata = self::onServer(fn () => ExtensionHelper::unsuspendServer($record));
+                                    $sdata = self::underLifecycleLock($record, fn () => self::onServer(fn () => ExtensionHelper::unsuspendServer($record)));
                                     // Only suspended -> active: a pending or cancelled service is not revived.
                                     if ($record->status === Service::STATUS_SUSPENDED) {
                                         $told = $record->toldOfSuspension(); // before: unsuspended, its suspension's date goes
@@ -651,6 +656,20 @@ class EditService extends EditRecord
             return $action();
         } catch (NothingToDoOnServer) {
             return [];
+        }
+    }
+
+    /** A suspension or unsuspension: never alongside one of the cron's or a payment's still running (predeploy R2). */
+    private static function underLifecycleLock(Service $service, \Closure $action): mixed
+    {
+        $lock = ExtensionHelper::lifecycleLock($service);
+        if (!$lock->get()) {
+            throw new DisplayException(__('A suspension or unsuspension of this service is running on its server: try again in a minute.'));
+        }
+        try {
+            return $action();
+        } finally {
+            $lock->release();
         }
     }
 }

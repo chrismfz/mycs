@@ -1572,5 +1572,6 @@
     "Its renewal invoices, the open one included, are paid by the customer; the account's other ones are still charged.": "Τα τιμολόγια ανανέωσής του, και το ανοιχτό, τα πληρώνει ο πελάτης· τα υπόλοιπα του λογαριασμού χρεώνονται όπως πριν.",
     "Automatic charge": "Αυτόματη χρέωση",
     ":percent% off services": "−:percent% στις υπηρεσίες",
-    "A payment for this invoice is on its way or not settled: it cannot be deleted until it is.": "Μια πληρωμή αυτού του τιμολογίου είναι σε εξέλιξη ή δεν έχει διευθετηθεί: δεν διαγράφεται μέχρι να διευθετηθεί."
+    "A payment for this invoice is on its way or not settled: it cannot be deleted until it is.": "Μια πληρωμή αυτού του τιμολογίου είναι σε εξέλιξη ή δεν έχει διευθετηθεί: δεν διαγράφεται μέχρι να διευθετηθεί.",
+    "A suspension or unsuspension of this service is running on its server: try again in a minute.": "Μια αναστολή ή άρση αναστολής αυτής της υπηρεσίας εκτελείται στον server της: δοκιμάστε ξανά σε ένα λεπτό."
 }

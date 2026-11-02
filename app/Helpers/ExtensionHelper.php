@@ -39,6 +39,7 @@ use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
 use Exception;
 use Filament\Forms\Components\Placeholder;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -2094,6 +2095,26 @@ class ExtensionHelper
     }
 
     /**
+     * One suspension or unsuspension of a service on its server at a time, whoever asks (the cron's job, a payment's,
+     * staff): predeploy R2. Without it a slow suspension answered after a payment's unsuspension leaves a paid, active
+     * service suspended on its server. Held across the call (the jobs' timeout is 120 s).
+     */
+    public static function lifecycleLock(Service $service): Lock
+    {
+        return Cache::lock("service-lifecycle:{$service->id}", 180);
+    }
+
+    /**
+     * What MyCS last did to the account on its server ('suspended' | 'active'), for staff and support to read. Never proof
+     * of the account's state (a call killed after the server acted, a change by hand): no job skips its call on it
+     * (adversarial ADV-585-2, -3).
+     */
+    public static function onServerKey(int $serviceId): string
+    {
+        return "service-on-server:{$serviceId}";
+    }
+
+    /**
      * Suspend server
      */
     public static function suspendServer(Service $service)
@@ -2101,7 +2122,10 @@ class ExtensionHelper
         // Suspended on the server now (staff's, or the cron's job): its next unsuspension is a real one.
         Cache::forget(SuspendJob::neverSuspendedKey($service->id));
 
-        return self::serverAction($service, 'suspendServer', 'suspend_server');
+        $result = self::serverAction($service, 'suspendServer', 'suspend_server');
+        Cache::put(self::onServerKey($service->id), 'suspended', now()->addDays(30));
+
+        return $result;
     }
 
     /**
@@ -2109,7 +2133,10 @@ class ExtensionHelper
      */
     public static function unsuspendServer(Service $service)
     {
-        return self::serverAction($service, 'unsuspendServer', 'unsuspend_server');
+        $result = self::serverAction($service, 'unsuspendServer', 'unsuspend_server');
+        Cache::put(self::onServerKey($service->id), 'active', now()->addDays(30));
+
+        return $result;
     }
 
     /**
@@ -2117,7 +2144,10 @@ class ExtensionHelper
      */
     public static function terminateServer(Service $service)
     {
-        return self::serverAction($service, 'terminateServer', 'terminate_server');
+        $result = self::serverAction($service, 'terminateServer', 'terminate_server');
+        Cache::forget(self::onServerKey($service->id));
+
+        return $result;
     }
 
     /**

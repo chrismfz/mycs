@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\ReconcileFailed;
 use App\Helpers\NotificationHelper;
 use App\Models\ModuleAction;
 use RuntimeException;
@@ -53,6 +54,9 @@ trait RetriesModuleAction
 
     public function failed(?Throwable $exception): void
     {
+        if ($exception instanceof ReconcileFailed) {
+            return; // given up as the action it was (SerializesLifecycle::reconcile), never as this job's
+        }
         if (!ModuleAction::giveUp($this->service, $this->moduleAction(), $exception)) {
             return;
         }

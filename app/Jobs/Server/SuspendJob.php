@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Cache;
 
 class SuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesLifecycle, SerializesModels;
 
     public $timeout = 120;
 
@@ -31,6 +31,11 @@ class SuspendJob implements ShouldQueue
     public function handle(): void
     {
         $this->taken();
+        $this->serialized(fn () => $this->suspend()); // one suspension or unsuspension of it at a time (predeploy R2)
+    }
+
+    private function suspend(): void
+    {
         // A queued action must not undo a newer payment or staff hold. Never done on the server (its first attempt, no
         // failure of an earlier one open: an earlier attempt may have suspended with its answer lost, review of #418):
         // the customer never heard of a suspension, so the payment's unsuspension tells them nothing either.

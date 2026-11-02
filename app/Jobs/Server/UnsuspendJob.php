@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Cache;
 
 class UnsuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesLifecycle, SerializesModels;
 
     public $timeout = 120;
 
@@ -30,6 +30,11 @@ class UnsuspendJob implements ShouldQueue
     public function handle(): void
     {
         $this->taken();
+        $this->serialized(fn () => $this->unsuspend()); // one suspension or unsuspension of it at a time (predeploy R2)
+    }
+
+    private function unsuspend(): void
+    {
         // A queued action must not undo a newer payment or staff hold.
         if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
             return;
