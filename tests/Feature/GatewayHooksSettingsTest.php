@@ -4,13 +4,16 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\GatewayResource\Pages\CreateGateway;
 use App\Admin\Resources\GatewayResource\Pages\EditGateway;
+use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Role;
 use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Routing\CompiledRouteCollection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -85,6 +88,26 @@ class GatewayHooksSettingsTest extends TestCase
             ->call('save')->assertHasNoErrors();
 
         $this->assertWebhookCreatedWith('rk_test_stored');
+        $this->assertSame('whsec_new', $gateway->settings()->where('key', 'stripe_webhook_secret')->first()?->value);
+    }
+
+    /**
+     * Review of this fix: as on the site after `artisan optimize`, the routes cached and Stripe created after it. Called
+     * directly: inside a Livewire test call the router holds a plain collection again.
+     */
+    public function test_a_stripe_gateway_created_after_the_routes_were_cached_gets_its_webhook(): void
+    {
+        $gateway = Gateway::query()->create(['extension' => 'Stripe', 'name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
+        ExtensionHelper::saveSettings($gateway, ['stripe_secret_key' => 'rk_test_typed', 'stripe_publishable_key' => 'pk_test_typed'], skipNull: true);
+
+        $router = app('router');
+        $router->setCompiledRoutes($router->getRoutes()->compile());
+        $this->assertInstanceOf(CompiledRouteCollection::class, Route::getRoutes());
+        $this->assertFalse(Route::has('extensions.gateways.stripe.webhook'));
+
+        ExtensionHelper::call($gateway, 'enabled', [$gateway]); // not mayFail: an error fails the test
+
+        $this->assertWebhookCreatedWith('rk_test_typed');
         $this->assertSame('whsec_new', $gateway->settings()->where('key', 'stripe_webhook_secret')->first()?->value);
     }
 }
