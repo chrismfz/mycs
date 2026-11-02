@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Staff;
+use App\Support\AfterCommit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -53,7 +54,7 @@ final class AcceptOrder
                     $service->forceFill(['started_unpaid_at' => now()])->save();
                 }
                 if ($runCreate && $service->hasServerActions()) {
-                    CreateJob::dispatch($service, $sendEmail, byStaff: true)->afterCommit();
+                    AfterCommit::job(new CreateJob($service, $sendEmail, byStaff: true)); // a failed push leaves no lock behind (predeploy S4)
 
                     continue;
                 }

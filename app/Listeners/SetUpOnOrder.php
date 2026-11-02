@@ -6,6 +6,7 @@ use App\Events\Service\Ordered;
 use App\Jobs\Server\CreateJob;
 use App\Models\Product;
 use App\Models\Service;
+use App\Support\AfterCommit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,7 +29,7 @@ class SetUpOnOrder
             return;
         }
         if ($service->hasServerActions()) {
-            CreateJob::dispatch($service)->afterCommit();
+            AfterCommit::job(new CreateJob($service)); // its lock released if the push fails (predeploy S4)
 
             return;
         }

@@ -12,6 +12,7 @@ use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
 use App\Services\Service\OptionTasks;
+use App\Support\AfterCommit;
 use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -142,8 +143,9 @@ class ServiceUpgradeService
                     }
                 }));
 
+            // With this transaction: on the database queue, never lost between its commit and the queue (predeploy S4).
             if ($service->hasServerActions()) {
-                UpgradeJob::dispatch($service);
+                AfterCommit::job(new UpgradeJob($service));
             }
 
             if ($shortfall !== null) {

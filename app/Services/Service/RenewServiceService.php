@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Observers\ServiceObserver;
 use App\Services\Money\PaymentsLog;
+use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +45,12 @@ class RenewServiceService
 
             // A replay never overrides staff corrections, even if paidThrough could move forward.
             if ($item?->applied_at !== null) {
+                // Its account still owed (predeploy S4): the CreateJob of the commit that applied it was lost on the way
+                // to the queue, and this replay is how its invoice's marker gets it asked for again.
+                if (OwedCreates::owes($locked)) {
+                    AfterCommit::job(new CreateJob($locked));
+                }
+
                 return;
             }
 
@@ -152,14 +159,14 @@ class RenewServiceService
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
         // only mails then), behind the cron's suspension still queued, so a suspension the worker never did is told
-        // nothing either (combined review of #411 and #418). Dispatched after commit: nothing runs on a rollback.
+        // nothing either (combined review of #411 and #418). With this transaction: nothing runs on a rollback, and the
+        // worker sees the renewed service (AfterCommit::job, predeploy S4).
         if (!$manualHold && $service->status === Service::STATUS_SUSPENDED) {
-            UnsuspendJob::dispatch($service)->afterCommit();
+            AfterCommit::job(new UnsuspendJob($service));
         }
         if (!$manualHold && $service->hasServerActions()) {
-            // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
             if ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
-                CreateJob::dispatch($service)->afterCommit();
+                AfterCommit::job(new CreateJob($service));
             }
         }
 
