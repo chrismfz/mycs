@@ -25,6 +25,17 @@
   (`RenewServiceService`), τα χρήματα δεν εξαρτώνται από τον server. Επιτυχία: `active` και welcome mail. Ο
   `CreateJob` είναι unique ανά υπηρεσία και τρέχει μόνο σε `pending` (μια υπηρεσία που ξεκίνησε το staff ή ακυρώθηκε
   στο μεταξύ μένει ως έχει). Χωρίς server: `active` με την πληρωμή, όπως πριν.
+- **Job που χάθηκε μετά το commit (predeploy S4, 2026-11-02, μετά τα reviews του #582):** τα server jobs που
+  αποφασίζει ένα transaction (create, suspend του cron, unsuspend, upgrade) περνούν από `AfterCommit::job`. Στο
+  database queue (αυτό τρέχουμε) γράφονται **μέσα στο transaction**: commit μαζί του ή rollback μαζί του, ποτέ ανάμεσα.
+  Γι' αυτό ο `CreateJob` δεν είναι πια unique στο queue· δύο create δεν βλάπτουν (lock `service-create:{id}` και
+  «ακόμα pending» μέσα σε αυτό). Σε άλλο queue (redis) μπαίνουν μετά το commit· ένα push που αποτυγχάνει γράφει ανοιχτή
+  γραμμή «Not queued: …» στα Pending Module Actions (Retry, mail στο staff), το τιμολόγιο κρατά το `apply_pending_since`,
+  και το replay της πληρωμής ξαναστέλνει **μόνο ό,τι γράφτηκε έτσι** (`ModuleAction::askAgainNotQueued`). Ποτέ create
+  από μαντεψιά πάνω στην κατάσταση της υπηρεσίας: ένα create που σκοτώθηκε στη μέση δεν αφήνει γραμμή και μπορεί να
+  έφτιαξε τον λογαριασμό (διπλό VM). Το `app:owed-creates` (κάθε 15') μόνο **ειδοποιεί** το staff για πληρωμένη
+  υπηρεσία που μένει `pending` χωρίς κανένα create καταγεγραμμένο (περίοδος applied εδώ 15' έως 7 μέρες πριν, τιμολόγιο
+  που κράτησε τα χρήματά του· όχι imports, όχι χειροκίνητες χωρίς πληρωμή), μία φορά την εβδομάδα ανά υπηρεσία.
 - **Ένα create τη φορά ανά υπηρεσία**, όποιος κι αν το ζητά (job, retry, staff): lock `service-create:{id}`, και ο
   έλεγχος «ακόμα pending» ξαναδιαβάζεται μέσα στο lock. Αν η υπηρεσία ακυρώθηκε όσο στηνόταν, ο λογαριασμός φεύγει
   (TerminateJob) και δεν πάει welcome mail.

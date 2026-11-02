@@ -2,11 +2,14 @@
 
 namespace App\Support;
 
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
+ * What a transaction decided, done once it is committed: its events (below) and its server jobs (job()).
+ *
  * Events that tell the world something happened (mails, Discord, extensions) fire once it is committed (audit sweep
  * Σ4, EVT-1): rolled back, they never fire; outside a transaction, at once. Not afterResponse(): the cron and the
  * queue workers have no response, so they held them to the end of the process or never sent them.
@@ -16,6 +19,58 @@ use Throwable;
  */
 class AfterCommit
 {
+    /**
+     * A server job its transaction decided on (an account to make, suspend, unsuspend or upgrade) goes with that
+     * transaction, never lost between its commit and the queue (predeploy S4). On a database queue of this connection
+     * (what MyCS runs) it is written in the transaction: committed with it or rolled back with it. A job unique on the
+     * queue, or another queue, is pushed once committed, within the callback (not by ->afterCommit(), which takes a unique
+     * lock before the commit and keeps it for hours when the push fails). A push that fails there is written as an open
+     * module action «not queued», given up for staff's Retry (the job's notQueued: staff are told), and kept for whoever
+     * committed to read (takeNotQueued: a paid invoice keeps its marker, and its replay asks for it again,
+     * ModuleAction::askAgainNotQueued). It is not thrown on: the commit's other after-commit callbacks (another
+     * service's job, Service\Updated) still run (round 2 of #582). A job with no row to write it to is thrown on.
+     */
+    public static function job(object $job): void
+    {
+        if (DB::transactionLevel() > 0 && !$job instanceof ShouldBeUnique && self::queuedInThisDatabase($job)) {
+            dispatch($job)->beforeCommit();
+
+            return;
+        }
+        DB::afterCommit(function () use ($job) {
+            try {
+                dispatch($job)->beforeCommit();
+            } catch (Throwable $e) {
+                if (!method_exists($job, 'notQueued')) {
+                    throw $e;
+                }
+                report($e);
+                $job->notQueued($e);
+                self::$notQueued[] = $e;
+            }
+        });
+    }
+
+    /** @var list<Throwable> the pushes that failed after a commit, since last taken */
+    private static array $notQueued = [];
+
+    /** @return list<Throwable> the pushes that failed after a commit since the last call (and forgets them) */
+    public static function takeNotQueued(): array
+    {
+        [$taken, self::$notQueued] = [self::$notQueued, []];
+
+        return $taken;
+    }
+
+    private static function queuedInThisDatabase(object $job): bool
+    {
+        $name = $job->connection ?? config('queue.default');
+        $queue = config("queue.connections.{$name}");
+
+        return is_array($queue) && ($queue['driver'] ?? null) === 'database'
+            && (($queue['connection'] ?? null) ?: DB::getDefaultConnection()) === DB::connection()->getName();
+    }
+
     /**
      * @param  Model|null  $about  the model the event is about: deleted before the commit (created and dropped in one
      *                             transaction), the event does not fire

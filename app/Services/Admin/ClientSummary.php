@@ -184,7 +184,7 @@ class ClientSummary
 
     /**
      * What the invoice was issued for, as WHMCS lists it: its lines and staff's notes, not the notes of its cancellation
-     * or refunds (they bring `total` to 0 for a cancelled or refunded invoice, review F1). As CronJob::keepsItsMoney.
+     * or refunds (they bring `total` to 0 for a cancelled or refunded invoice, review F1). As Invoice::keepsItsMoney.
      */
     private static function issuedCents(Invoice $invoice): int
     {

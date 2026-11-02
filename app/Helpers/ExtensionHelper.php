@@ -2077,7 +2077,17 @@ class ExtensionHelper
                 throw new CreateSkipped("Service #{$service->id} is no longer pending.");
             }
 
-            return self::serverAction($service, 'createServer', 'create_server');
+            try {
+                return self::serverAction($service, 'createServer', 'create_server');
+            } catch (NothingToDoOnServer $e) {
+                // Nothing to make (a module without a create): started under the lock, so a second job waiting for it
+                // reads it started and sends no second welcome mail (round 2 of #582, ADV2-582-4).
+                if ($whilePending) {
+                    self::startCreated($service);
+                }
+
+                throw $e;
+            }
         } finally {
             $lock->release();
         }

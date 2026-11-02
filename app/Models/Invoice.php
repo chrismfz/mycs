@@ -290,6 +290,23 @@ class Invoice extends Model implements Auditable
         });
     }
 
+    /**
+     * Paid, and it still has the money it was paid with: none of it refunded or moved to credit since, below what is due
+     * (its lines and its active charge notes). The cron applies a paid invoice again only then (BIL-9), and a service's
+     * account is made again only then (OwedCreates).
+     */
+    public function keepsItsMoney(): bool
+    {
+        $due = $this->items->sum(fn (InvoiceItem $item) => $item->totalCents())
+            + $this->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->where('is_refund', false)
+                ->sum(fn ($note) => RecordPaymentService::toCents($note->amount));
+        $kept = $this->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
+                - RecordPaymentService::toCents($payment->credited_amount));
+
+        return $kept >= $due;
+    }
+
     /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */
     public function hasPayments(bool $lock = false): bool
     {

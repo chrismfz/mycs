@@ -6,12 +6,14 @@ use App\Helpers\NotificationHelper;
 use App\Jobs\Server\UpgradeJob;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
 use App\Services\Service\OptionTasks;
+use App\Support\AfterCommit;
 use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +37,11 @@ class ServiceUpgradeService
             $service = $serviceId === null ? null : Service::query()->whereKey($serviceId)->lockForUpdate()->first();
             $locked = ServiceUpgrade::query()->whereKey($serviceUpgrade->getKey())->lockForUpdate()->first();
             if ($locked === null || $locked->status !== ServiceUpgrade::STATUS_PENDING) {
+                // Done before: its server job, if the queue never took it, is asked for again (ADV-582-5).
+                if ($locked?->status === ServiceUpgrade::STATUS_COMPLETED && $service !== null) {
+                    ModuleAction::askAgainNotQueued($service);
+                }
+
                 return false;
             }
             $why = null;
@@ -142,8 +149,9 @@ class ServiceUpgradeService
                     }
                 }));
 
+            // With this transaction: on the database queue, never lost between its commit and the queue (predeploy S4).
             if ($service->hasServerActions()) {
-                UpgradeJob::dispatch($service);
+                AfterCommit::job(new UpgradeJob($service));
             }
 
             if ($shortfall !== null) {
