@@ -66,7 +66,7 @@
             <div class="bg-background-secondary border border-neutral rounded-lg p-4 flex flex-wrap items-center justify-between gap-2" wire:key="invite-{{ $invite->id }}">
                 <div>
                     <div class="font-semibold">{{ $invite->email }}</div>
-                    <div class="text-xs text-base/50">{{ __('account.expires') }}: {{ $invite->expires_at->format('d/m/Y H:i') }}</div>
+                    <div class="text-xs text-base/50">{{ __('account.invite_expires') }}: {{ $invite->expires_at->format('d/m/Y H:i') }}</div>
                 </div>
                 <x-button.danger class="h-fit !w-fit" wire:click="cancelInvite({{ $invite->id }})">{{ __('account.cancel_invite') }}</x-button.danger>
             </div>

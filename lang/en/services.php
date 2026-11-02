@@ -136,7 +136,7 @@ return [
         'statuses' => ['REQ' => 'Requested: waiting for validation', 'ACT' => 'Issued', 'PAI' => 'Paid', 'FAI' => 'Failed', 'REJ' => 'Rejected', 'EXP' => 'Expired', 'CAN' => 'Cancelled'],
         'expires' => 'Certificate expires',
         'order_ends' => 'Paid until',
-        'reissue' => 'Next reissue',
+        'next_reissue' => 'Next reissue',
         'validate_title' => 'Validation',
         'validate_email' => 'An email was sent to :email: open it and approve the certificate.',
         'validate_dns' => 'Add this record to the domain\'s DNS:',
