@@ -27,5 +27,7 @@ class CardExpiryShownTest extends TestCase
             'type' => 'visa', 'external_reference' => 'pm_expiry', 'expiry' => '2028-11-30']);
 
         $this->livewireAs($user)->test(PaymentMethods::class)->assertSee('Visa **** 8885')->assertSee('Expires 11/2028');
+        // The invoice's pay page uses the same text (review of #587).
+        $this->assertStringContainsString('Expires 11/2028', __('account.expires', ['date' => '11/2028']));
     }
 }
