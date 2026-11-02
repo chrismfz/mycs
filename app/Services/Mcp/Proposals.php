@@ -15,6 +15,7 @@ use App\Services\Service\RetryModuleAction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Throwable;
@@ -64,7 +65,7 @@ final class Proposals
     /** @param array<string, mixed> $payload */
     public static function propose(string $type, array $payload, Staff $staff): McpProposal
     {
-        if (!$staff->hasPermission(self::permission($type))) {
+        if (!self::allows($staff, $type, $payload)) {
             throw new InvalidArgumentException('Your role may not ask for this.');
         }
         [$payload, $summary] = self::check($type, $payload);
@@ -93,7 +94,8 @@ final class Proposals
     /** Approve and run: once, by who may, if it still holds. */
     public static function approve(McpProposal $proposal, Staff $staff): McpProposal
     {
-        if (!$staff->hasPermission(self::permission($proposal->type))) {
+        // Read now, from what is stored, right before it runs: a role changed since it was asked counts (R1).
+        if (!self::allows($staff, $proposal->type, $proposal->payload)) {
             throw new InvalidArgumentException('Your role may not approve this.');
         }
         if ($proposal->type === self::TICKET_REPLY) {
@@ -120,7 +122,7 @@ final class Proposals
      */
     public static function useDraft(McpProposal $proposal, Staff $staff): ?string
     {
-        if ($proposal->type !== self::TICKET_REPLY || !$staff->hasPermission(self::permission($proposal->type))) {
+        if ($proposal->type !== self::TICKET_REPLY || !self::allows($staff, $proposal->type, $proposal->payload)) {
             throw new InvalidArgumentException('Your role may not use this draft.');
         }
         $decided = self::decide($proposal, McpProposal::STATUS_APPROVED, $staff);
@@ -146,6 +148,9 @@ final class Proposals
 
     public static function reject(McpProposal $proposal, Staff $staff): void
     {
+        if (!self::allows($staff, $proposal->type, $proposal->payload)) {
+            throw new InvalidArgumentException('Your role may not decide this.');
+        }
         self::decide($proposal, McpProposal::STATUS_REJECTED, $staff);
     }
 
@@ -182,7 +187,8 @@ final class Proposals
     }
 
     /**
-     * The proposals a member of staff may follow: their own, and those they may decide (the same as could ask them).
+     * The proposals a member of staff may see: their own, and those of a type they may decide. Which of those they may
+     * decide (and follow, and count) is followable(): a domain's action asks the domains' permission too (R1).
      *
      * @template T of Builder
      *
@@ -194,6 +200,36 @@ final class Proposals
         $types = array_keys(array_filter(self::PERMISSIONS, fn (string $permission) => $staff?->hasPermission($permission) ?? false));
 
         return $query->where(fn (Builder $query) => $query->where('proposed_by', $staff === null ? 0 : $staff->id)->orWhereIn('type', $types));
+    }
+
+    /** Theirs, or one they may decide: what the badge counts and the `proposal` tool tells (code review of #584, F1). */
+    public static function followable(McpProposal $proposal, ?Staff $staff): bool
+    {
+        return $staff !== null && ((int) $proposal->proposed_by === (int) $staff->id
+            || self::allows($staff, (string) $proposal->type, (array) $proposal->payload));
+    }
+
+    /**
+     * Who may ask for it or decide it: the type's permission, and what its target's own policy asks, as the admin page
+     * that does the same would (predeploy R1): a domain's module action is the domains' (admin.domains.renew:
+     * ModuleActionPolicy), never only the services'. A target gone is left to check() to refuse.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public static function allows(Staff $staff, string $type, array $payload): bool
+    {
+        if (!isset(self::PERMISSIONS[$type]) || !$staff->hasPermission(self::PERMISSIONS[$type])) {
+            return false;
+        }
+
+        return match ($type) {
+            self::RETRY_MODULE_ACTION, self::RESOLVE_MODULE_ACTION => ($action = ModuleAction::query()->find((int) ($payload['module_action_id'] ?? 0))) === null
+                || Gate::forUser($staff)->allows('update', $action),
+            self::TICKET_REPLY => ($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null
+                || Gate::forUser($staff)->allows('update', $ticket),
+            // A resend: the admin's Resend is on the mail log, which they must be able to read (code review of #584, F4).
+            default => Gate::forUser($staff)->allows('viewAny', EmailLog::class),
+        };
     }
 
     public static function permission(string $type): string

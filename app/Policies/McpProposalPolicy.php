@@ -17,7 +17,8 @@ class McpProposalPolicy
 
     public function decide(User|Staff $user, McpProposal $proposal): bool
     {
-        return $user instanceof Staff && isset(Proposals::PERMISSIONS[$proposal->type]) && $user->hasPermission(Proposals::PERMISSIONS[$proposal->type]);
+        // The type's permission and its target's own policy (a domain's action: the domains'), as Proposals checks (R1).
+        return $user instanceof Staff && Proposals::allows($user, (string) $proposal->type, (array) $proposal->payload);
     }
 
     public function create(User|Staff $user): bool

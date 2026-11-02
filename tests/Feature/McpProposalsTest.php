@@ -152,7 +152,7 @@ class McpProposalsTest extends TestCase
             ->assertOk()->assertSee('other@example.test');
         Mail::assertNothingQueued();
 
-        $approver = $this->staff(['admin.mcp.use', 'admin.email_logs.resend']);
+        $approver = $this->staff(['admin.mcp.use', 'admin.email_logs.resend', 'admin.email_logs.viewAny']); // as the admin's Resend (F4 of #584)
         $done = Proposals::approve(McpProposal::query()->sole(), $approver);
 
         $this->assertSame(McpProposal::STATUS_DONE, $done->status);
