@@ -103,7 +103,7 @@ class Login extends Component
 
         // A full page load, never a Livewire navigation: the login page's scripts (the staff's analytics) would keep
         // running on the next page, a private link's too (review of #334).
-        return $this->redirect(session()->pull('url.intended', default: route('dashboard')));
+        return $this->redirect(\App\Actions\Auth\Login::intended(route('dashboard')));
     }
 
     public function render()

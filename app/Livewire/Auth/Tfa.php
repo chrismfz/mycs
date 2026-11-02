@@ -108,7 +108,7 @@ class Tfa extends Component
         Session::forget('2fa');
 
         // Back where the login started from (an invitation's link, PR 2b), as Login does.
-        return $this->redirect(session()->pull('url.intended', route('dashboard'))); // a full load, as Login (#334)
+        return $this->redirect(Login::intended(route('dashboard'))); // a full load, as Login (#334)
     }
 
     public function render()

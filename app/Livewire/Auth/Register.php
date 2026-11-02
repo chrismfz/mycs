@@ -136,7 +136,8 @@ class Register extends ComponentWithProperties
 
         $login->execute($user);
 
-        return $this->redirectIntended(route('dashboard'), true);
+        // As the logins (review of #575): never on to the admin panel's intended URL.
+        return $this->redirect(Login::intended(route('dashboard')), true);
     }
 
     public function render()
