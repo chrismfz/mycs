@@ -6,8 +6,12 @@ use App\Admin\Resources\DomainResource;
 use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Jobs\Server\CreateJob;
+use App\Jobs\Server\UnsuspendJob;
+use App\Jobs\Server\UpgradeJob;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\RenewAsTransfer;
+use App\Support\AfterCommit;
 use App\Support\LogText;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +35,9 @@ use Throwable;
 class ModuleAction extends Model
 {
     public const STATUS_OPEN = 'open';
+
+    /** The start of last_error of a server job its payment decided and the queue never took (AfterCommit::job, S4). */
+    public const NOT_QUEUED = 'Not queued: ';
 
     public const STATUS_COMPLETED = 'completed';
 
@@ -295,6 +302,25 @@ class ModuleAction extends Model
             ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => 'done by the module', 'updated_at' => $now]);
 
         return $row;
+    }
+
+    /**
+     * The create, unsuspension or upgrade of this service a payment decided and the queue never took (a queue other than
+     * the database one: predeploy S4, ADV-582-5): asked for again by that payment's replay. Never a guess from the
+     * service's state (a create killed mid-way leaves no such row: code review of #582): only the row its failed push
+     * wrote. The job closes it when it is done; a create of a service no longer pending does nothing.
+     */
+    public static function askAgainNotQueued(Service $service): void
+    {
+        $lost = self::query()->open()->where('service_id', $service->id)->whereIn('action', ['create', 'unsuspend', 'upgrade'])->whereNull('subject')
+            ->whereNull('given_up_at')->where('last_error', 'like', self::NOT_QUEUED . '%')->pluck('action')->unique();
+        foreach ($lost as $action) {
+            AfterCommit::job(match ($action) {
+                'create' => new CreateJob($service),
+                'unsuspend' => new UnsuspendJob($service),
+                default => new UpgradeJob($service),
+            });
+        }
     }
 
     public static function recordFailure(Service $service, string $action, ?string $module, Throwable $error): self

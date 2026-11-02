@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\AdjustmentNoteStatus;
 use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
@@ -42,7 +41,6 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\ProcessPaidInvoiceService;
-use App\Services\Invoice\RecordPaymentService;
 use App\Services\Licensing\Licenses;
 use App\Services\Licensing\ZlicLimiter;
 use App\Services\Mcp\Proposals;
@@ -52,6 +50,7 @@ use App\Services\Payment\CardExpiryNotices;
 use App\Services\Payment\SavedMethodCharge;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\AfterCommit;
 use App\Support\DunningWindow;
 use App\Support\Retention;
 use Illuminate\Console\Command;
@@ -279,7 +278,7 @@ class CronJob extends Command
                         if ($invoice === null || $invoice->apply_pending_since === null) {
                             continue;
                         }
-                        if (!$this->keepsItsMoney($invoice)) {
+                        if (!$invoice->keepsItsMoney()) {
                             // Refunded (it stays paid) or its money moved to credit: staff decide, nothing is renewed.
                             Invoice::query()->whereKey($id)->update(['apply_pending_since' => null]);
                             $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} was paid but not applied, and its money was refunded or moved to credit since: not applied.");
@@ -779,8 +778,9 @@ class CronJob extends Command
                     if (self::heldBack($service, $requiresInvoice) && self::toldOfHold($service)) {
                         $heldUntil = $service->suspend_hold_until->toDateString();
                     }
-                    // Register before Service Updated listeners, but execute only after the status commits.
-                    SuspendJob::dispatch($service)->afterCommit();
+                    // Register before Service Updated listeners, but execute only after the status commits: with it, ahead of
+                    // an unsuspension a payment writes once this commits (code review of #582, R5).
+                    AfterCommit::job(new SuspendJob($service));
                     $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now(), 'suspend_reason' => 'Overdue on Payment'])->save();
 
                     return 1;
@@ -1104,18 +1104,6 @@ class CronJob extends Command
      * The money that paid it is still on it: succeeded payments, less refunds and what moved to credit, cover what was
      * due (its lines and the notes other than refunds). A refund leaves the invoice paid (its note lowers the total).
      */
-    private function keepsItsMoney(Invoice $invoice): bool
-    {
-        $due = $invoice->items->sum(fn (InvoiceItem $item) => $item->totalCents())
-            + $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->where('is_refund', false)
-                ->sum(fn ($note) => RecordPaymentService::toCents($note->amount));
-        $kept = $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
-            ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
-                - RecordPaymentService::toCents($payment->credited_amount));
-
-        return $kept >= $due;
-    }
-
     /** A day count setting; never negative (a negative count would act before the due date). */
     private static function days(string $setting, int $default): int
     {

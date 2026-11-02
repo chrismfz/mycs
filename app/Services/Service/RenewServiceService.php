@@ -9,6 +9,7 @@ use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Observers\ServiceObserver;
 use App\Services\Money\PaymentsLog;
@@ -45,11 +46,9 @@ class RenewServiceService
 
             // A replay never overrides staff corrections, even if paidThrough could move forward.
             if ($item?->applied_at !== null) {
-                // Its account still owed (predeploy S4): the CreateJob of the commit that applied it was lost on the way
-                // to the queue, and this replay is how its invoice's marker gets it asked for again.
-                if (OwedCreates::owes($locked)) {
-                    AfterCommit::job(new CreateJob($locked));
-                }
+                // A server job the commit that applied it decided and the queue never took (predeploy S4): its marker
+                // brought this replay, and the row its failed push wrote asks for it again.
+                ModuleAction::askAgainNotQueued($locked);
 
                 return;
             }

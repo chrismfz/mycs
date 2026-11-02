@@ -8,7 +8,6 @@ use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -16,17 +15,17 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * Creates the account on the service's server (Σ1): the service turns active, and the welcome mail goes, only once the
- * account exists. Retried on failure (RetriesModuleAction); one at a time per service (a second payment, a staff click),
- * and only while the service is still pending: one started by staff or a retry meanwhile, or ended, is left alone.
+ * account exists. Retried on failure (RetriesModuleAction); one at a time per service (a second payment, a staff click:
+ * the create's own lock in ExtensionHelper::createServer), and only while the service is still pending, read again under
+ * that lock: one started by staff or a retry meanwhile, or ended, is left alone. Not unique on the queue: a second job is
+ * harmless, and without a unique lock it is written in the payment's own transaction on the database queue, never lost
+ * between its commit and the queue (AfterCommit::job, predeploy S4).
  */
-class CreateJob implements ShouldBeUnique, ShouldQueue
+class CreateJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    /** Held across the retries (the last is an hour after the third). */
-    public $uniqueFor = 7200;
 
     /**
      * Create a new job instance.
@@ -66,11 +65,6 @@ class CreateJob implements ShouldBeUnique, ShouldQueue
         if ($this->sendNotification) {
             NotificationHelper::serverCreatedNotification($service->client, $service, is_array($data) ? $data : [], byStaff: $this->byStaff);
         }
-    }
-
-    public function uniqueId(): string
-    {
-        return (string) $this->service->id;
     }
 
     protected function moduleAction(): string

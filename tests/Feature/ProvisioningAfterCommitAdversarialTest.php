@@ -232,6 +232,6 @@ class ProvisioningAfterCommitAdversarialTest extends TestCase
         Queue::fake();
         (new ProcessPaidInvoiceService)->handle($invoice->fresh());
 
-        Queue::assertPushed(UnsuspendJob::class, 'the replay never asks again for the unsuspension it lost');
+        Queue::assertPushed(UnsuspendJob::class); // else the replay never asks again for the unsuspension it lost
     }
 }

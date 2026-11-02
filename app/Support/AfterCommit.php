@@ -20,12 +20,13 @@ use Throwable;
 class AfterCommit
 {
     /**
-     * A server job its transaction decided on (an account to make, unsuspend or upgrade once paid) goes with that
+     * A server job its transaction decided on (an account to make, suspend, unsuspend or upgrade) goes with that
      * transaction, never lost between its commit and the queue (predeploy S4). On a database queue of this connection
-     * (what MyCS runs) it is written in the transaction: committed with it or rolled back with it. A job unique per
-     * service, or another queue, is pushed once committed: a push that fails there releases the job's lock (dispatched
-     * within the callback, not by ->afterCommit(), whose lock would be held for hours) and throws to whoever committed.
-     * A paid invoice keeps its marker then, and OwedCreates makes an account owed again.
+     * (what MyCS runs) it is written in the transaction: committed with it or rolled back with it. A job unique on the
+     * queue, or another queue, is pushed once committed, within the callback (not by ->afterCommit(), which takes a unique
+     * lock before the commit and keeps it for hours when the push fails). A push that fails there is written as an open
+     * module action «not queued» (the job's notQueued: staff see it and are told), its paid invoice keeps its marker, and
+     * the payment's replay asks for it again (ModuleAction::askAgainNotQueued); the error goes on to whoever committed.
      */
     public static function job(object $job): void
     {
@@ -34,7 +35,17 @@ class AfterCommit
 
             return;
         }
-        DB::afterCommit(fn () => dispatch($job)->beforeCommit());
+        DB::afterCommit(function () use ($job) {
+            try {
+                dispatch($job)->beforeCommit();
+            } catch (Throwable $e) {
+                if (!$job instanceof ShouldBeUnique && method_exists($job, 'notQueued')) {
+                    $job->notQueued($e);
+                }
+
+                throw $e;
+            }
+        });
     }
 
     private static function queuedInThisDatabase(object $job): bool

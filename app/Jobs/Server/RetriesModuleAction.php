@@ -4,6 +4,7 @@ namespace App\Jobs\Server;
 
 use App\Helpers\NotificationHelper;
 use App\Models\ModuleAction;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -21,6 +22,20 @@ trait RetriesModuleAction
     }
 
     abstract protected function moduleAction(): string;
+
+    /**
+     * Its push to the queue failed after the commit that decided it (AfterCommit::job, on a queue other than the database
+     * one): an open row in Pending Module Actions, for staff to Retry and for its payment's replay to ask for again.
+     */
+    public function notQueued(Throwable $error): void
+    {
+        ModuleAction::recordFailure($this->service, $this->moduleAction(), $this->service->provisioningServer()?->extension,
+            new RuntimeException(ModuleAction::NOT_QUEUED . $error->getMessage()));
+        NotificationHelper::sendSystemEmailNotification("Module action not queued: {$this->moduleAction()} of service #{$this->service->id}", e(
+            "The {$this->moduleAction()} of service #{$this->service->id} could not be queued: {$error->getMessage()}. "
+            . 'It is listed in Pending Module Actions: retry it there; the replay of its paid invoice asks for it again.'
+        ));
+    }
 
     public function failed(?Throwable $exception): void
     {

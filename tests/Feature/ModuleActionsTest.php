@@ -136,7 +136,6 @@ class ModuleActionsTest extends TestCase
 
         $this->assertSame([], FlakyServer::$calls);
         $this->assertSame(0, $this->welcomeMails());
-        $this->assertSame((string) $this->service->id, (new CreateJob($this->service))->uniqueId(), 'one create at a time per service');
     }
 
     public function test_a_later_opposite_action_supersedes_a_failed_one(): void

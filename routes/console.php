@@ -60,8 +60,8 @@ Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway 
 Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping()->onOneServer();
 // The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
 Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
-// A paid service still pending, its create lost on the way to the queue (predeploy S4): asked for again (OwedCreates).
-Schedule::command(OwedCreatesCommand::class)->description('Asks again for the accounts of paid services whose create never reached the queue')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+// A paid service still pending with no create recorded (predeploy S4): staff are told (OwedCreates).
+Schedule::command(OwedCreatesCommand::class)->description('Tells staff of paid services still waiting for their account')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 // EU VAT (PR G, docs/eu-vat.md): pending numbers until VIES answers, the others monthly. Nothing when EU VAT is off.
 Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping()->onOneServer();
 // The EU standard VAT rates against TEDB (docs/eu-vat.md): staff told of a difference, nothing changed. Off by default.

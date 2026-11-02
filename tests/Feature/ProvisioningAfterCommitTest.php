@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Models\Client;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\Plan;
@@ -19,7 +20,6 @@ use App\Services\Service\RenewServiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\SyncQueue;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -119,34 +119,59 @@ class ProvisioningAfterCommitTest extends TestCase
         Queue::assertPushed(CreateJob::class);
     }
 
-    public function test_a_failed_push_leaves_no_unique_lock_behind(): void
+    public function test_a_failed_push_is_listed_for_staff_and_they_are_told(): void
     {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $invoice = $this->order();
         $service = $this->serviceOf($invoice);
         $this->brokenQueue();
         (new RecordPaymentService)->handle($invoice, null, 10, transactionId: 'wire-lock');
 
-        // ->afterCommit() took the lock before the commit and kept it for uniqueFor (2 hours) when the push failed: every
-        // ask in between was dropped without a word.
-        $lock = Cache::lock('laravel_unique_job:' . CreateJob::class . ':' . $service->id, 10);
-        $this->assertTrue($lock->get(), 'the lock of a CreateJob never queued is released');
-        $lock->release();
+        $row = ModuleAction::query()->open()->where('service_id', $service->id)->where('action', 'create')->sole();
+        $this->assertStringStartsWith(ModuleAction::NOT_QUEUED, (string) $row->last_error, 'in Pending Module Actions, with Retry');
+        $this->assertTrue(EmailLog::query()->where('subject', "Module action not queued: create of service #{$service->id}")->exists(), 'staff told');
     }
 
-    public function test_the_sweep_asks_again_once_left_to_its_own_job_long_enough(): void
+    public function test_a_create_is_written_with_its_payment_on_the_database_queue(): void
     {
         $invoice = $this->order();
         $service = $this->serviceOf($invoice);
-        $this->brokenQueue();
+        $line = $invoice->items()->sole();
+        config(['queue.default' => 'database']);
+
+        try {
+            DB::transaction(function () use ($service, $line) {
+                (new RenewServiceService)->handle($service->fresh(), $line->fresh());
+                throw new RuntimeException('rolled back');
+            });
+        } catch (RuntimeException) {
+        }
+        $this->assertSame(0, DB::table('jobs')->count(), 'rolled back with it');
+
+        DB::transaction(function () use ($service, $line) {
+            (new RenewServiceService)->handle($service->fresh(), $line->fresh());
+            $this->assertSame(1, DB::table('jobs')->count(), 'written in the transaction, not after its commit');
+        });
+        $this->assertStringContainsString(str_replace('\\', '\\\\', CreateJob::class), (string) DB::table('jobs')->value('payload'));
+    }
+
+    public function test_the_sweep_tells_staff_of_a_paid_service_still_waiting_and_creates_nothing(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $invoice = $this->order();
+        $service = $this->serviceOf($invoice);
+        Queue::fake(); // its job lost somewhere past the queue: nothing recorded
         (new RecordPaymentService)->handle($invoice, null, 10, transactionId: 'wire-sweep');
         Queue::fake();
 
         $this->artisan('app:owed-creates')->assertExitCode(0);
-        Queue::assertNotPushed(CreateJob::class); // a few minutes: its own job may be on its way
+        $this->assertSame(0, EmailLog::query()->where('subject', 'Paid services waiting for their account')->count(), 'a few minutes: its own job may be on its way');
 
         Carbon::setTestNow(now()->addMinutes(16));
         $this->artisan('app:owed-creates')->assertExitCode(0);
-        Queue::assertPushed(CreateJob::class, fn (CreateJob $job) => $job->service->is($service));
+        $this->artisan('app:owed-creates')->assertExitCode(0);
+        Queue::assertNotPushed(CreateJob::class);
+        $this->assertSame(1, EmailLog::query()->where('subject', 'Paid services waiting for their account')->where('body', 'like', "%#{$service->id}%")->count(), 'told once');
     }
 
     public function test_the_sweep_leaves_alone_what_staff_hold_or_wait_for(): void

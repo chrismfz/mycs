@@ -5,16 +5,16 @@ namespace App\Console\Commands;
 use App\Services\Service\OwedCreates;
 use Illuminate\Console\Command;
 
-/** Paid services still pending whose create never reached the queue (predeploy S4): asked for again (OwedCreates). */
+/** Paid services still pending with no create recorded (predeploy S4): staff are told (OwedCreates). */
 class OwedCreatesCommand extends Command
 {
     protected $signature = 'app:owed-creates';
 
-    protected $description = 'Asks again for the accounts of paid services whose create never reached the queue';
+    protected $description = 'Tells staff of paid services still waiting for their account';
 
     public function handle(): int
     {
-        $this->info(OwedCreates::sweep() . ' asked for again.');
+        $this->info(OwedCreates::sweep() . ' told to staff.');
 
         return self::SUCCESS;
     }
