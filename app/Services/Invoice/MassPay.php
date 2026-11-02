@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Models\User;
+use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -64,6 +65,11 @@ final class MassPay
             || PaymentGroup::query()->whereIn('status', [PaymentGroup::STATUS_OPEN, PaymentGroup::STATUS_REPLACED])
                 ->whereHas('invoices', fn ($query) => $query->whereKey($invoice->id))
                 ->whereHas('transaction', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))->exists()) {
+            return __('A payment for invoice :invoice is still being processed.', ['invoice' => $label]);
+        }
+        // A charge of a saved method of it, or of a group it is in, not settled (predeploy S2): a group checkout would take
+        // the same debt again.
+        if (SavedMethodCharge::onItsWay($invoice)) {
             return __('A payment for invoice :invoice is still being processed.', ['invoice' => $label]);
         }
 

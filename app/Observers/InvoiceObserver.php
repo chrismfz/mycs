@@ -421,6 +421,11 @@ class InvoiceObserver
         if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
         }
+        // A charge of a saved method not settled (taken and its webhook not here yet, or of unknown outcome): deleted, the
+        // payment would have no invoice to land on and the charge's record would go with it (predeploy S3).
+        if (SavedMethodCharge::onItsWay($invoice)) {
+            throw new DisplayException(__('A payment for this invoice is on its way or not settled: it cannot be deleted until it is.'));
+        }
         // Ekdosi issued a fiscal document from it: the invoice is that document's record (E2; the key refuses it anyway).
         if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->lockForUpdate()->exists()) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it is kept. Cancel or refund it instead.'));
