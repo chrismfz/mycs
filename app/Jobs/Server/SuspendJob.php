@@ -46,11 +46,6 @@ class SuspendJob implements ShouldQueue
 
             return;
         }
-        // Suspended already, since its last unsuspension (a payment's job settled it while this one waited: R2).
-        if (Cache::get(ExtensionHelper::onServerKey($this->service->id)) === 'suspended'
-            && !ModuleAction::query()->open()->where('service_id', $this->service->id)->where('action', 'unsuspend')->exists()) {
-            return;
-        }
         $data = [];
 
         try {

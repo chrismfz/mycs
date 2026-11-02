@@ -5,7 +5,6 @@ namespace App\Jobs\Server;
 use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
-use App\Models\ModuleAction;
 use App\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -38,11 +37,6 @@ class UnsuspendJob implements ShouldQueue
     {
         // A queued action must not undo a newer payment or staff hold.
         if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
-            return;
-        }
-        // Unsuspended already, since its last suspension (the suspension's own job settled it, paid meanwhile: R2).
-        if (Cache::get(ExtensionHelper::onServerKey($this->service->id)) === 'active'
-            && !ModuleAction::query()->open()->where('service_id', $this->service->id)->where('action', 'suspend')->exists()) {
             return;
         }
         // Paid before the worker reached its suspension (SuspendJob skipped it): no «unsuspended» mail for a suspension the

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\UnsuspendJob;
@@ -11,7 +12,6 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -101,22 +101,22 @@ class LifecycleSerializedTest extends TestCase
         $this->assertFalse($this->remoteSuspended, 'A paid active service must not end up suspended on WHM');
     }
 
-    /** The payment's own unsuspension, run after the suspension's job settled it: not sent twice, no second mail. */
-    public function test_an_unsuspension_already_done_is_not_sent_again(): void
+    /**
+     * Only a job set aside is done by the holder: a status changed meanwhile with no job (staff saving it by hand) is not
+     * acted on behind anyone's back, and what MyCS did last is never taken as proof (adversarial ADV-585-1, -2).
+     */
+    public function test_nothing_is_reconciled_without_a_job_set_aside(): void
     {
-        [$service, $invoice] = $this->suspendedService();
-        $this->fakeWhm(fn () => (new RecordPaymentService)->handle($invoice, null, 10, transactionId: 'race-wire-2'));
+        [$service] = $this->suspendedService();
+        $this->fakeWhm(fn () => Service::query()->whereKey($service->id)->update(['status' => 'active']));
+
         (new SuspendJob($service, false))->handle();
-        $this->assertSame(['suspend', 'unsuspend'], $this->completed);
 
-        (new UnsuspendJob($service->fresh()))->handle(); // the payment's job, its turn come
-
-        $this->assertSame(['suspend', 'unsuspend'], $this->completed, 'unsuspended once');
-        $this->assertSame('active', Cache::get(ExtensionHelper::onServerKey($service->id)));
+        $this->assertSame(['suspend'], $this->completed, 'nothing done behind anyone\'s back');
     }
 
-    /** While a suspension of it runs, an unsuspension in this process is left to it (never sent alongside). */
-    public function test_nothing_is_sent_while_another_call_of_the_service_holds_its_lock(): void
+    /** A job run in a request (staff's Retry) while the lock is held is refused out loud, never «nothing to do». */
+    public function test_a_job_run_in_a_request_while_the_lock_is_held_is_refused(): void
     {
         [$service] = $this->suspendedService();
         $this->fakeWhm();
@@ -124,9 +124,13 @@ class LifecycleSerializedTest extends TestCase
         $lock = ExtensionHelper::lifecycleLock($service);
         $this->assertTrue($lock->get());
 
-        (new UnsuspendJob($service->fresh()))->handle();
-        $this->assertSame([], $this->completed, 'nothing sent while the lock is held');
-
-        $lock->release();
+        try {
+            (new UnsuspendJob($service->fresh()))->handle();
+            $this->fail('refused out loud');
+        } catch (DisplayException) {
+        } finally {
+            $lock->release();
+        }
+        $this->assertSame([], $this->completed);
     }
 }

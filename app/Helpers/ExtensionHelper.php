@@ -2104,7 +2104,11 @@ class ExtensionHelper
         return Cache::lock("service-lifecycle:{$service->id}", 180);
     }
 
-    /** What MyCS last did to the account on its server: suspended or unsuspended it (onServer: 'suspended' | 'active'). */
+    /**
+     * What MyCS last did to the account on its server ('suspended' | 'active'), for staff and support to read. Never proof
+     * of the account's state (a call killed after the server acted, a change by hand): no job skips its call on it
+     * (adversarial ADV-585-2, -3).
+     */
     public static function onServerKey(int $serviceId): string
     {
         return "service-on-server:{$serviceId}";
