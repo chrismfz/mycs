@@ -19,6 +19,7 @@ use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\GatewayReference;
+use App\Services\Payment\SavedMethodCharge;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
@@ -44,6 +45,16 @@ use Throwable;
 class PayPal extends Gateway
 {
     private const SETUP_KEY = 'paypal-vault-setup:';
+
+    /**
+     * How long a vault charge's PayPal-Request-Id is resent for an unknown outcome (SavedMethodCharge::keyReuseHours):
+     * kept short, PayPal not promising Stripe's 24 hours for every API. Past it the invoice stays held for staff, never
+     * charged with a new id (predeploy S1).
+     */
+    public function idempotencyKeyHours(): int
+    {
+        return 3;
+    }
 
     public function supportsBillingAgreements(): bool
     {
@@ -512,6 +523,12 @@ class PayPal extends Gateway
         // Verify currency matches the invoice
         if ($order->purchase_units[0]->amount->currency_code !== $invoice->currency_code) {
             abort(400, 'PayPal order currency does not match invoice currency');
+        }
+
+        // Captured here, on our server: never on an invoice a saved method's charge of unsettled outcome holds (it may be
+        // paid already: adversarial ADV-UNRES-2). Nothing is taken: the order is left uncaptured.
+        if (SavedMethodCharge::onItsWay($invoice)) {
+            abort(409, 'A payment for this invoice is already on its way.');
         }
 
         try {

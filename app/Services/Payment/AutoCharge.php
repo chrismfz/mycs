@@ -272,19 +272,22 @@ final class AutoCharge
     }
 
     /**
-     * Charges the gateway took whose payment was not recorded within an hour (Stripe's webhook late, failing, or its
-     * secret wrong): the invoice stays held (SavedMethodCharge::TAKEN_HOLD_DAYS) and staff are told once each.
+     * Charges not settled an hour after they were sent (predeploy S1): taken by the gateway with no payment recorded since
+     * (Stripe's webhook late, failing, or its secret wrong), of unknown outcome, or sent with no answer (a crash). The
+     * invoice stays held for every way of paying until staff settle it (record the payment, or «Resolve charge»: not
+     * taken); staff are told of each, again every TAKEN_HOLD_DAYS days while it stays unsettled.
      */
     private function tellOfTakenNotRecorded(): void
     {
-        $taken = ChargeAttempt::query()->where('status', ChargeAttempt::STATUS_SUCCEEDED)
-            ->whereBetween('sent_at', [now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS), now()->subHour()])->get()
-            ->reject(fn (ChargeAttempt $attempt) => SavedMethodCharge::recordedSince($attempt))
-            ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS + 1)));
-        if ($taken->isNotEmpty()) {
-            NotificationHelper::sendSystemEmailNotification('Automatic charges taken but not recorded', e(sprintf(
-                "The gateway took these charges but no payment was recorded since (check its webhooks): the invoices are held, not charged again.\n%s",
-                $taken->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, attempt {$attempt->key}")->implode("\n"))));
+        // One query, whatever the history of charges (adversarial ADV-UNRES-6): its payment recorded is checked in SQL.
+        $unsettled = SavedMethodCharge::notRecorded(ChargeAttempt::query()
+            ->whereIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_STARTED])
+            ->where('sent_at', '<=', now()->subHour()))->orderBy('id')->get()
+            ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS)));
+        if ($unsettled->isNotEmpty()) {
+            NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
+                "These charges are not settled: taken with no payment recorded since (check the gateway's webhooks), or of unknown outcome (check at the gateway). Each invoice is held, never charged or paid again, until staff record its payment, or settle it with «Resolve charge» on it (not taken, or its payment recorded another way).\n%s",
+                $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n"))));
         }
     }
 
