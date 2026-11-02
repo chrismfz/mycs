@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -27,24 +28,59 @@ use Throwable;
  */
 final class SavedMethodCharge
 {
-    /** A charge taken whose payment is not recorded yet (Stripe's webhook late or failing) holds this long (adversarial ADV-2). */
+    /**
+     * A charge taken whose payment is not recorded yet (Stripe's webhook late or failing): staff are told after this long
+     * (AutoCharge). It holds the invoice until its payment is recorded or staff resolve it, however long (predeploy S1).
+     */
     public const TAKEN_HOLD_DAYS = 3;
 
-    /** The gateways keep an idempotency key this long (Stripe 24 hours): an unknown outcome is retried with its key until then. */
+    /**
+     * The longest a gateway keeps an idempotency key (Stripe 24 hours): an unknown outcome is sent again with its key until
+     * then; a gateway may keep its own shorter (keyReuseHours). Past it a resend would be a new charge, so it is not sent:
+     * the invoice stays held until the outcome is known (predeploy S1).
+     */
     public const KEY_REUSE_HOURS = 23;
+
+    /** The hours a gateway keeps a charge's key: its own (`idempotencyKeyHours`), never above KEY_REUSE_HOURS. */
+    public static function keyReuseHours(?BillingAgreement $agreement): int
+    {
+        $gateway = $agreement?->gateway;
+        $own = $gateway !== null && rescue(fn () => ExtensionHelper::hasFunction($gateway, 'idempotencyKeyHours'), false, false)
+            ? (int) rescue(fn () => ExtensionHelper::getExtension('gateway', $gateway->extension, $gateway->settings)->idempotencyKeyHours(), 0, false)
+            : self::KEY_REUSE_HOURS;
+
+        return max(0, min(self::KEY_REUSE_HOURS, $own));
+    }
 
     /**
      * An earlier charge to this method of this invoice whose outcome is unknown (a timeout, a 5xx, or one started and never
-     * finished), still within the gateway's key window: sent again with its key, not a new charge.
+     * finished), still within its gateway's key window: sent again with its key, not a new charge.
      */
     public static function unknownAttempt(int $invoiceId, int $agreementId): ?ChargeAttempt
     {
-        return ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+        $attempt = ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
             ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
                     ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
-            ->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))
             ->latest('id')->first();
+
+        return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
+    }
+
+    /**
+     * Its charges whose outcome is not settled (predeploy S1): sent and not answered (started, any age: a crash is an
+     * unknown outcome), of unknown outcome, or taken and its payment not recorded; none of them released by time, only by
+     * the payment recorded (recordedSince) or by staff («not taken», ChargeAttempt::resolveNotTaken).
+     *
+     * @param  list<int>  $invoiceIds
+     * @return Collection<int, ChargeAttempt>
+     */
+    public static function unresolved(array $invoiceIds, ?int $except = null): Collection
+    {
+        return ChargeAttempt::query()->whereIn('invoice_id', $invoiceIds)->when($except !== null, fn ($query) => $query->whereKeyNot($except))
+            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_SUCCEEDED])
+            ->with('billingAgreement')->orderBy('id')->get()
+            ->reject(fn (ChargeAttempt $attempt) => self::recordedSince($attempt))->values();
     }
 
     /**
@@ -125,30 +161,18 @@ final class SavedMethodCharge
     }
 
     /**
-     * Paying this invoice now could pay it twice: a charge on its way (sent and not answered for HOLD_MINUTES; with an
-     * unknown outcome for KEY_REUSE_HOURS; taken and its payment not recorded yet for TAKEN_HOLD_DAYS) or a payment the
-     * gateway is still processing (SEPA, a PayPal review), on it or on an invoice of a Mass Pay group it is in: the
-     * group's charge pays it too (adversarial ADV-1).
+     * Paying this invoice now could pay it twice: a charge whose outcome is not settled (unresolved: on its way, of unknown
+     * outcome, or taken and its payment not recorded; held for every method and every way of paying, however long, until
+     * its payment is recorded or staff resolve it: predeploy S1, S2) or a payment the gateway is still processing (SEPA, a
+     * PayPal review), on it or on an invoice of a Mass Pay group it is in: the group's charge pays it too (adversarial
+     * ADV-1). The expiry of a gateway's idempotency key never proves a charge failed.
      */
     public static function onItsWay(Invoice $invoice, ?PaymentGroup $group = null, ?int $except = null): bool
     {
         $ids = self::related($invoice, $group);
-        $attempts = ChargeAttempt::query()->whereIn('invoice_id', $ids)->when($except !== null, fn ($query) => $query->whereKeyNot($except));
-        $held = (clone $attempts)->where(fn ($query) => $query
-            ->where(fn ($started) => $started->where('status', ChargeAttempt::STATUS_STARTED)->where('sent_at', '>', now()->subMinutes(ChargeAttempt::HOLD_MINUTES)))
-            ->orWhere(fn ($unknown) => $unknown->where('status', ChargeAttempt::STATUS_UNKNOWN)->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))))
-            ->exists();
-        if ($held) {
-            return true;
-        }
-        // Taken by the gateway: held until a payment is recorded on its invoice after it.
-        foreach ((clone $attempts)->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('sent_at', '>', now()->subDays(self::TAKEN_HOLD_DAYS))->get() as $taken) {
-            if (!self::recordedSince($taken)) {
-                return true;
-            }
-        }
 
-        return InvoiceTransaction::query()->whereIn('invoice_id', $ids)->where('status', InvoiceTransactionStatus::Processing)->exists();
+        return self::unresolved($ids, $except)->isNotEmpty()
+            || InvoiceTransaction::query()->whereIn('invoice_id', $ids)->where('status', InvoiceTransactionStatus::Processing)->exists();
     }
 
     /**

@@ -45,6 +45,16 @@ class PayPal extends Gateway
 {
     private const SETUP_KEY = 'paypal-vault-setup:';
 
+    /**
+     * How long a vault charge's PayPal-Request-Id is resent for an unknown outcome (SavedMethodCharge::keyReuseHours):
+     * kept short, PayPal not promising Stripe's 24 hours for every API. Past it the invoice stays held for staff, never
+     * charged with a new id (predeploy S1).
+     */
+    public function idempotencyKeyHours(): int
+    {
+        return 3;
+    }
+
     public function supportsBillingAgreements(): bool
     {
         return $this->config('paypal_support_billing_agreements') ?? false;

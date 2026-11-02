@@ -206,12 +206,12 @@ final class Charges
                 'amount' => $attempt->amount . ' ' . $attempt->currency_code,
                 'status' => $attempt->status,
                 'alert' => match ($attention) {
-                    self::TAKEN_NOT_RECORDED => 'TAKEN, NOT RECORDED: the gateway took it but no payment of it was recorded since (check its webhooks)'
-                        . ($attempt->sent_at->lessThan(now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS)) ? '; the invoice is no longer held and may be charged again' : '; the invoice is held, not charged again'),
-                    // As SavedMethodCharge::unknownAttempt and onItsWay: its key is reused, and the invoice held, only so long (review of #571).
-                    self::UNKNOWN_OUTCOME => $attempt->started_at->greaterThan(now()->subHours(SavedMethodCharge::KEY_REUSE_HOURS))
-                        ? 'UNKNOWN OUTCOME: maybe taken; a next charge of it to this method until ' . $attempt->started_at->copy()->addHours(SavedMethodCharge::KEY_REUSE_HOURS)->format('Y-m-d H:i') . ' is sent again with the same key (no new money)'
-                        : 'UNKNOWN OUTCOME, KEY EXPIRED: maybe taken; the invoice is not held, and a next charge takes new money: check the gateway',
+                    // Held until settled, however long (predeploy S1): staff record its payment, or «Resolve charge» if not taken.
+                    self::TAKEN_NOT_RECORDED => 'TAKEN, NOT RECORDED: the gateway took it but no payment of it was recorded since (check its webhooks); the invoice is held, never charged or paid again, until its payment is recorded',
+                    // As SavedMethodCharge::unknownAttempt: its key is reused only while its gateway keeps it; the invoice is held either way.
+                    self::UNKNOWN_OUTCOME => ($until = $attempt->started_at->copy()->addHours(SavedMethodCharge::keyReuseHours($method)))->isFuture()
+                        ? 'UNKNOWN OUTCOME: maybe taken; the invoice is held; a next charge of it to this method until ' . $until->format('Y-m-d H:i') . ' is sent again with the same key (no new money)'
+                        : 'UNKNOWN OUTCOME, KEY EXPIRED: maybe taken; the invoice is held, never charged or paid again, until staff check the gateway and record its payment or mark it not taken («Resolve charge»)',
                     'awaiting_payment' => 'taken; its payment is not recorded yet (the gateway\'s webhook is expected within the hour)',
                     'awaiting_answer' => 'sent; no answer from the gateway yet',
                     ChargeAttempt::STATUS_ACTION_REQUIRED => 'the bank asked the customer to confirm: this invoice is not charged to this method again (they pay it themselves, or save another method)',
