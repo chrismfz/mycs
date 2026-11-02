@@ -313,7 +313,7 @@ class ModuleAction extends Model
     public static function askAgainNotQueued(Service $service): void
     {
         $lost = self::query()->open()->where('service_id', $service->id)->whereIn('action', ['create', 'unsuspend', 'upgrade'])->whereNull('subject')
-            ->whereNull('given_up_at')->where('last_error', 'like', self::NOT_QUEUED . '%')->pluck('action')->unique();
+            ->where('last_error', 'like', self::NOT_QUEUED . '%')->pluck('action')->unique();
         foreach ($lost as $action) {
             AfterCommit::job(match ($action) {
                 'create' => new CreateJob($service),

@@ -890,7 +890,7 @@ class CronJob extends Command
                     if ($service === null || self::chargeOnItsWay($service)) {
                         return 0;
                     }
-                    TerminateJob::dispatch($service)->afterCommit();
+                    AfterCommit::job(new TerminateJob($service));
                     $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
                     // Only its own lines: an invoice imported from WHMCS bills every service due that day.
                     // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
@@ -1175,7 +1175,7 @@ class CronJob extends Command
             return 0;
         }
 
-        TerminateJob::dispatch($service)->afterCommit();
+        AfterCommit::job(new TerminateJob($service));
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
         // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3a).

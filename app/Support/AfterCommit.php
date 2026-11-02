@@ -25,8 +25,10 @@ class AfterCommit
      * (what MyCS runs) it is written in the transaction: committed with it or rolled back with it. A job unique on the
      * queue, or another queue, is pushed once committed, within the callback (not by ->afterCommit(), which takes a unique
      * lock before the commit and keeps it for hours when the push fails). A push that fails there is written as an open
-     * module action «not queued» (the job's notQueued: staff see it and are told), its paid invoice keeps its marker, and
-     * the payment's replay asks for it again (ModuleAction::askAgainNotQueued); the error goes on to whoever committed.
+     * module action «not queued», given up for staff's Retry (the job's notQueued: staff are told), and kept for whoever
+     * committed to read (takeNotQueued: a paid invoice keeps its marker, and its replay asks for it again,
+     * ModuleAction::askAgainNotQueued). It is not thrown on: the commit's other after-commit callbacks (another
+     * service's job, Service\Updated) still run (round 2 of #582). A job with no row to write it to is thrown on.
      */
     public static function job(object $job): void
     {
@@ -39,13 +41,25 @@ class AfterCommit
             try {
                 dispatch($job)->beforeCommit();
             } catch (Throwable $e) {
-                if (!$job instanceof ShouldBeUnique && method_exists($job, 'notQueued')) {
-                    $job->notQueued($e);
+                if (!method_exists($job, 'notQueued')) {
+                    throw $e;
                 }
-
-                throw $e;
+                report($e);
+                $job->notQueued($e);
+                self::$notQueued[] = $e;
             }
         });
+    }
+
+    /** @var list<Throwable> the pushes that failed after a commit, since last taken */
+    private static array $notQueued = [];
+
+    /** @return list<Throwable> the pushes that failed after a commit since the last call (and forgets them) */
+    public static function takeNotQueued(): array
+    {
+        [$taken, self::$notQueued] = [self::$notQueued, []];
+
+        return $taken;
     }
 
     private static function queuedInThisDatabase(object $job): bool

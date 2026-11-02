@@ -27,6 +27,7 @@ class UpgradeJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         // An ended service has no account to change (sweep §2): a retry after a terminate must not reopen one.
         if ($this->service->fresh()?->isEnded() ?? true) {
             return;

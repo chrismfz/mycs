@@ -13,6 +13,7 @@ use App\Models\ServiceUpgrade;
 use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
+use App\Support\AfterCommit;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -28,6 +29,7 @@ class ProcessPaidInvoiceService
         $marker = Invoice::query()->whereKey($invoice->getKey())->value('apply_pending_since');
         $failures = [];
         $invoice->items->each(function ($item) use (&$failures) {
+            AfterCommit::takeNotQueued();
             try {
                 // A domain's renewal (D5b-2): renewed at its registrar by a job, after this commit; its line applied there
                 // (applied_at), never here, and never this invoice's marker (D5b-1 review 1). Fees have nothing to do.
@@ -71,6 +73,11 @@ class ProcessPaidInvoiceService
             } catch (Throwable $e) {
                 report($e);
                 $failures[] = $e;
+            }
+            // Its server job not queued after its commit (AfterCommit::job, predeploy S4): the line counts as not done, so
+            // the invoice keeps its marker and the cron's replay asks for the job again.
+            foreach (AfterCommit::takeNotQueued() as $lost) {
+                $failures[] = $lost;
             }
         });
         if ($failures !== []) {

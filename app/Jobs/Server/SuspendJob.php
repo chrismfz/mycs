@@ -30,6 +30,7 @@ class SuspendJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         // A queued action must not undo a newer payment or staff hold. Never done on the server (its first attempt, no
         // failure of an earlier one open: an earlier attempt may have suspended with its answer lost, review of #418):
         // the customer never heard of a suspension, so the payment's unsuspension tells them nothing either.

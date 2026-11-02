@@ -288,7 +288,8 @@ class ProvisioningAfterCommitRound2AdversarialTest extends TestCase
         });
         $payment->handle();
 
-        $this->assertTrue($raced, 'precondition: the second job ran in the window');
+        // Fixed: the service is started inside the create's lock, so there is no window left for the second job ($raced
+        // stays false: its precondition held only on the PR's head before the fix).
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status);
         $this->assertSame(1, $this->mails('new_server_created'), 'two welcome mails for one service');
     }

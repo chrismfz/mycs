@@ -29,6 +29,7 @@ class UnsuspendJob implements ShouldQueue
      */
     public function handle(): void
     {
+        $this->taken();
         // A queued action must not undo a newer payment or staff hold.
         if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
             return;

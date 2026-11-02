@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\AfterCommit;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 
@@ -40,7 +41,7 @@ class CancellationCreatedListener implements ShouldQueue
                     return false;
                 }
                 if (in_array($locked->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
-                    TerminateJob::dispatch($locked)->afterCommit();
+                    AfterCommit::job(new TerminateJob($locked));
                 }
                 $locked->update(['status' => Service::STATUS_CANCELLED]);
                 if ($locked->product?->stock !== null) {
