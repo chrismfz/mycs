@@ -123,8 +123,25 @@ final class AutoCharge
             return false;
         }
         $offset = (int) $invoice->due_at->copy()->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        $postponed = self::postponedSuspendDays($invoice);
+        $limit = max($postponed, self::window());
+        if ($offset > $limit) {
+            return false;
+        }
+        // Tried already: a day the run still tries, as chargeOne decides it (the retry days set, or a day a suspension
+        // window adds), from tomorrow if it tried today (review 1 of #580: after the last retry it charges nothing more).
+        $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
+        if (!(clone $cron)->exists()) {
+            return true;
+        }
+        $from = max(0, (clone $cron)->where('sent_at', '>=', CarbonImmutable::today())->exists() ? $offset + 1 : $offset);
+        for ($day = $from; $day <= $limit; $day++) {
+            if (self::retryOn($day) || ($day > self::suspendDays() && $day <= $postponed)) {
+                return true;
+            }
+        }
 
-        return $offset <= max(self::postponedSuspendDays($invoice), self::window());
+        return false;
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Admin\Resources\GatewayResource\Pages\EditGateway;
 use App\Livewire\Client\PaymentMethods;
 use App\Livewire\Invoices\Show;
 use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -27,6 +28,8 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
+use Livewire\Features\SupportTesting\Testable;
 use MyCS\Extensions\Gateways\SweepCardPay\SweepCardPay;
 use Tests\TestCase;
 
@@ -125,6 +128,90 @@ class PaymentSweepTest extends TestCase
         $this->assertSame('whsec_live_1', $stripe->fresh()->settings()->where('key', 'stripe_webhook_secret')->first()?->value, 'the live account\'s');
         $this->livewireAs($staff)->test(EditGateway::class, ['record' => $stripe->getRouteKey()])->call('save')->assertHasNoErrors();
         $this->assertSame(1, $made, 'the same key: not made again');
+    }
+
+    /** @param  list<string>  $log  what Stripe was asked, in order */
+    private function stripeOnEdit(callable $post, array &$log, array $existing = []): void
+    {
+        Http::fake(['api.stripe.com/v1/webhook_endpoints*' => function (Request $request) use ($post, &$log, $existing) {
+            $log[] = $request->method() . ' ' . parse_url($request->url(), PHP_URL_PATH);
+
+            return match ($request->method()) {
+                'GET' => Http::response(['data' => $existing]),
+                'DELETE' => Http::response(['id' => 'x', 'deleted' => true]),
+                default => $post(),
+            };
+        }, 'api.stripe.com/*' => Http::response(['object' => 'balance', 'available' => [], 'pending' => []])]);
+    }
+
+    private function stripeGateway(?string $for = null): Gateway
+    {
+        $stripe = Gateway::query()->create(['extension' => 'Stripe', 'name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
+        $stripe->settings()->create(['key' => 'stripe_secret_key', 'value' => 'sk_live_same', 'encrypted' => true]);
+        $stripe->settings()->create(['key' => 'stripe_publishable_key', 'value' => 'pk_live_same']);
+        $stripe->settings()->create(['key' => 'stripe_webhook_secret', 'value' => 'whsec_old', 'encrypted' => true]);
+        if ($for !== null) {
+            $stripe->settings()->create(['key' => 'stripe_webhook_for', 'value' => $for]);
+        }
+
+        return $stripe;
+    }
+
+    private function staffEdits(Gateway $gateway, array $settings = []): Testable
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $page = $this->livewireAs($staff)->test(EditGateway::class, ['record' => $gateway->getRouteKey()]);
+        foreach ($settings as $key => $value) {
+            $page->set("data.settings.{$key}", $value);
+        }
+
+        return $page->call('save');
+    }
+
+    /** Review 2 of #580: Stripe refuses: staff are told, the old secret stays, and the next save tries again. */
+    public function test_a_webhook_stripe_refuses_is_told_and_tried_again(): void
+    {
+        $log = [];
+        $this->stripeOnEdit(fn () => Http::response(['error' => ['message' => 'restricted key']], 403), $log);
+        $stripe = $this->stripeGateway();
+
+        $this->staffEdits($stripe, ['stripe_secret_key' => 'rk_live_restricted'])->assertNotified('Stripe webhook not created');
+
+        $this->assertSame('whsec_old', $stripe->fresh()->settings()->where('key', 'stripe_webhook_secret')->first()?->value);
+        $this->assertNull($stripe->fresh()->settings()->where('key', 'stripe_webhook_for')->first(), 'no fingerprint: the next save tries again');
+    }
+
+    /** Review 3 of #580: the new endpoint first, then the old ones of this address: never a moment without one. */
+    public function test_the_new_endpoint_is_made_before_the_old_one_goes(): void
+    {
+        $log = [];
+        $this->stripeOnEdit(fn () => Http::response(['id' => 'we_new', 'secret' => 'whsec_new']), $log,
+            [['id' => 'we_old', 'url' => route('extensions.gateways.stripe.webhook')], ['id' => 'we_other', 'url' => 'https://elsewhere.example/hook']]);
+        $stripe = $this->stripeGateway(); // an old row: no fingerprint
+
+        $this->staffEdits($stripe)->assertHasNoErrors();
+
+        $this->assertSame(['GET /v1/webhook_endpoints', 'POST /v1/webhook_endpoints', 'DELETE /v1/webhook_endpoints/we_old'], $log, 'never another site\'s');
+        $this->assertSame('whsec_new', $stripe->fresh()->settings()->where('key', 'stripe_webhook_secret')->first()?->value);
+    }
+
+    /** Review 1 of #580: after the last retry day the cron charges nothing more, so it is not «charged on its own». */
+    public function test_after_the_last_retry_day_it_is_not_said_to_be_charged(): void
+    {
+        config(['settings.autocharge_retry_days' => '1,3']);
+        SweepCardPay::$charges = [];
+        $invoice = $this->invoice('2026-11-01');
+        ChargeAttempt::query()->forceCreate(['invoice_id' => $invoice->id, 'client_id' => $this->client->id, 'billing_agreement_id' => $this->card->id,
+            'source' => ChargeAttempt::SOURCE_CRON, 'status' => ChargeAttempt::STATUS_FAILED, 'amount' => '10.00', 'currency_code' => 'USD',
+            'key' => (string) Str::uuid(), 'started_at' => '2026-11-04 09:00:00', 'sent_at' => '2026-11-04 09:00:00']);
+
+        Carbon::setTestNow('2026-11-03 10:00:00'); // day 2: day 3 is still to come
+        $this->assertTrue(PaymentReminders::chargedOnItsOwn($invoice->fresh()));
+        Carbon::setTestNow('2026-11-06 10:00:00'); // day 5: no retry day left before the suspension (8)
+        (new AutoCharge)->run();
+        $this->assertSame([], SweepCardPay::$charges, 'precondition: the run charges nothing');
+        $this->assertFalse(PaymentReminders::chargedOnItsOwn($invoice->fresh()));
     }
 
     /** SW-2a: an upgrade's charge alone is never charged by the cron: the customer is told to pay it, with the bank details. */

@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Str;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'Stripe Gateway',
@@ -139,54 +140,58 @@ class Stripe extends Gateway
     }
 
     /**
-     * Its webhook, on the account and mode of the secret key saved now: made once per key (review SW-1 of the payment
-     * sweep, 2026-11-02: keys changed from sandbox to live kept the sandbox's secret, and no live payment was recorded).
-     * The key it was made for is kept as a fingerprint (never the key); a stored secret for another key, or none, makes
-     * it again.
+     * Its webhook, on the account and mode of the secret key saved now: made once per key and address (review SW-1 of the
+     * payment sweep, 2026-11-02: keys changed from sandbox to live kept the sandbox's secret, and no live payment was
+     * recorded). What it was made for is kept as a fingerprint (never the key); a stored secret for another key or
+     * address, or none, makes it again. The new endpoint first, then the old ones of this address (no moment without
+     * one); a failure is told to staff on the page and kept for the next save (review 2 of #580), never a silent success.
      */
     public function updated(Extension $gateway)
     {
-        $for = substr(hash('sha256', (string) $this->config('stripe_secret_key')), 0, 16);
+        $url = route('extensions.gateways.stripe.webhook');
+        $for = substr(hash('sha256', (string) $this->config('stripe_secret_key') . '|' . $url), 0, 16);
         $stored = fn (string $key) => (string) $gateway->settings()->where('key', $key)->value('value');
         if ($stored('stripe_webhook_secret') !== '' && hash_equals($stored('stripe_webhook_for'), $for)) {
             return;
         }
 
-        // Check if webhook already exists
-        $webhooks = $this->request('get', '/webhook_endpoints');
-        foreach ($webhooks->data as $webhook) {
-            if ($webhook->url === route('extensions.gateways.stripe.webhook')) {
-                // Delete webhook
-                $this->request('delete', '/webhook_endpoints/' . $webhook->id);
-                break;
+        try {
+            $old = collect($this->request('get', '/webhook_endpoints')->data ?? [])->filter(fn ($webhook) => ($webhook->url ?? null) === $url);
+            $webhook = $this->request('post', '/webhook_endpoints', [
+                'url' => $url,
+                'description' => 'MyCS Stripe Webhook',
+                'enabled_events' => [
+                    'payment_intent.succeeded',
+                    'payment_intent.payment_failed',
+                    'payment_intent.processing',
+                    'setup_intent.succeeded',
+                    'subscription_schedule.canceled',
+                    'invoice.created',
+                    'invoice.payment_succeeded',
+                    'charge.updated',
+                    'refund.created',
+                    'refund.updated',
+                    'refund.failed',
+                    'charge.dispute.created',
+                    'charge.dispute.funds_withdrawn',
+                    'charge.dispute.funds_reinstated',
+                ],
+                'api_version' => self::API_VERSION,
+            ]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $for]);
+            foreach ($old as $previous) {
+                rescue(fn () => $this->request('delete', '/webhook_endpoints/' . $previous->id), report: true); // one left over is harmless
             }
+        } catch (Throwable $e) {
+            report($e);
+            Notification::make()->danger()->persistent()
+                ->title('Stripe webhook not created')
+                ->body('Stripe refused to create the webhook for this key (a restricted key needs the Webhook Endpoints permission): payments will not be recorded until it is. Save again to retry.')
+                ->send();
+
+            return;
         }
-
-        // Create webhook on stripe
-        $webhook = $this->request('post', '/webhook_endpoints', [
-            'url' => route('extensions.gateways.stripe.webhook'),
-            'description' => 'MyCS Stripe Webhook',
-            'enabled_events' => [
-                'payment_intent.succeeded',
-                'payment_intent.payment_failed',
-                'payment_intent.processing',
-                'setup_intent.succeeded',
-                'subscription_schedule.canceled',
-                'invoice.created',
-                'invoice.payment_succeeded',
-                'charge.updated',
-                'refund.created',
-                'refund.updated',
-                'refund.failed',
-                'charge.dispute.created',
-                'charge.dispute.funds_withdrawn',
-                'charge.dispute.funds_reinstated',
-            ],
-            'api_version' => self::API_VERSION,
-        ]);
-
-        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
-        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $for]);
 
         Notification::make()
             ->success()
