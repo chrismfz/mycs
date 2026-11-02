@@ -87,7 +87,6 @@ class Affiliates extends Extension
 
     public function boot()
     {
-        require __DIR__ . '/routes/web.php';
         View::addNamespace('affiliates', __DIR__ . '/resources/views');
         Lang::addNamespace('affiliates', __DIR__ . '/resources/lang');
 

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
+use App\Models\PaymentGatewayEvent;
+use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\CompiledRouteCollection;
 use Illuminate\Support\Facades\Process;
@@ -95,6 +97,21 @@ class ExtensionRoutesCacheTest extends TestCase
         $this->mock(Stripe::class, fn (MockInterface $mock) => $mock->shouldNotReceive('webhook'));
 
         $this->post('/extensions/stripe/webhook')->assertNotFound();
+    }
+
+    public function test_a_gateway_without_a_record_is_neither_logged_nor_counted_as_a_refused_callback(): void
+    {
+        // Review of #579: its route now matches, so the gateway log opened a row and the refused-callback throttle
+        // counted it. As a path that matches no route: nothing, and the installed gateways' callbacks are not held back.
+        $this->gateway(Mollie::class);
+        $this->bootLikeTheSite();
+        $this->reached(Mollie::class, 'webhook');
+
+        for ($i = 0; $i <= AppServiceProvider::GATEWAY_REFUSED_CALLBACKS_PER_MINUTE; $i++) {
+            $this->post('/extensions/paypal/webhook')->assertNotFound();
+        }
+        $this->assertSame(0, PaymentGatewayEvent::query()->count());
+        $this->post('/extensions/gateways/mollie/webhook')->assertOk()->assertSee('reached Mollie@webhook');
     }
 
     public function test_the_cached_routes_keep_their_middleware(): void

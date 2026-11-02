@@ -8,6 +8,7 @@ use App\Console\Commands\MailSweep;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
 use App\Http\Middleware\EnsureClientPermission;
+use App\Http\Middleware\EnsureExtensionBoots;
 use App\Http\Middleware\StartSessionWithoutPrivateLinks;
 use App\Mail\Mail;
 use App\Mail\ResentMail;
@@ -114,7 +115,8 @@ class AppServiceProvider extends ServiceProvider
     private static function countRefusedGatewayCallback(Request $request, int $status): void
     {
         if ($status < 400 || $status >= 500 || $status === 429
-            || !in_array((string) $request->route()?->getName(), self::GATEWAY_CALLBACKS_ASKING_BACK, true)) {
+            || !in_array((string) $request->route()?->getName(), self::GATEWAY_CALLBACKS_ASKING_BACK, true)
+            || !EnsureExtensionBoots::answers($request)) {
             return;
         }
         try {
@@ -296,10 +298,11 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // The gateway log (docs/money-trail.md §4, MT-2a): every request to a gateway's routes, without code in the
-        // gateways (their routes are registered in their own boot, outside any middleware group).
+        // gateways (their routes are in routes/extensions.php, outside any middleware group). Not a gateway's without a
+        // record: its route answers 404 (EnsureExtensionBoots), as a path that matches none.
         Event::listen(function (RouteMatched $event) {
             $name = (string) $event->route->getName();
-            if (str_starts_with($name, 'extensions.gateways.')) {
+            if (str_starts_with($name, 'extensions.gateways.') && EnsureExtensionBoots::answers($event->request)) {
                 GatewayLog::current()->start($event->request, $name);
                 self::throttleGatewayCallback($event->request, $name);
             }
