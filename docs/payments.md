@@ -329,8 +329,13 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   όπως πριν· να διορθωθεί αν ενεργοποιηθεί τέτοιο νόμισμα.
 - **Webhooks:**
   - Stripe: `refund.created`, `refund.updated`, `refund.failed` (status `succeeded` ή `pending` = καταγραφή). Το
-    endpoint που φτιάχνει το extension τα ζητά· ένα υπάρχον χρειάζεται τα τρία events στο dashboard του Stripe (ή
-    άδειασμα του webhook secret και αποθήκευση, ώστε να ξαναφτιαχτεί).
+    endpoint που φτιάχνει το extension τα ζητά· ένα υπάρχον χρειάζεται τα τρία events στο dashboard του Stripe. Το
+    webhook φτιάχνεται ξανά **μόνο του** όταν αποθηκευτεί άλλο secret key (π.χ. από sandbox σε live: διαφορετικός
+    λογαριασμός ή mode), γιατί το extension κρατά για ποιο κλειδί φτιάχτηκε (`stripe_webhook_for`, αποτύπωμα, όχι το
+    κλειδί, μαζί με τη διεύθυνση του webhook). Ένα gateway χωρίς αποτύπωμα (πριν από αυτό) το ξαναφτιάχνει μία φορά στην
+    επόμενη αποθήκευση: πρώτα το νέο endpoint, μετά σβήνει τα παλιά της ίδιας διεύθυνσης, ώστε να μη μείνει στιγμή χωρίς
+    webhook. Αν το Stripe αρνηθεί (π.χ. restricted key χωρίς δικαίωμα Webhook Endpoints), η σελίδα το λέει στο staff και η
+    επόμενη αποθήκευση ξαναδοκιμάζει (SW-1 του sweep, review του #580).
   - PayPal: `PAYMENT.CAPTURE.REFUNDED` (η πληρωμή από το link `up`) και `PAYMENT.SALE.REFUNDED` (συνδρομές). Να
     προστεθούν στο webhook της εφαρμογής στο PayPal.
   - Mollie: μόνο το id της δικής μας επιστροφής· το webhook του δεν φέρνει επιστροφές ακόμα.
@@ -388,7 +393,8 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Γνωστά, μένουν: η ανταμοιβή affiliate δίνεται ξανά σε κάθε paid→unpaid→paid (υπήρχε ήδη, π.χ. με διαγραφή
     συναλλαγής)· η αποθηκευμένη κάρτα του dispute μένει (το staff αποφασίζει)· όσο το τιμολόγιο του chargeback είναι
     ανοιχτό ο cron δεν βγάζει νέο τιμολόγιο ανανέωσης για την υπηρεσία (όπως σε κάθε ανοιχτό τιμολόγιο).
-  - Υπάρχον Stripe endpoint: χρειάζεται τα `charge.dispute.*` (dashboard, ή άδειασμα του webhook secret και Save).
+  - Υπάρχον Stripe endpoint: χρειάζεται τα `charge.dispute.*` (στο dashboard του Stripe· ένα gateway χωρίς αποτύπωμα
+    `stripe_webhook_for` το ξαναφτιάχνει με όλα τα events στην επόμενη αποθήκευση).
 - **Webhooks:** Stripe: τα τρία `charge.dispute.*` (το endpoint που φτιάχνει το extension τα ζητά). PayPal:
   `PAYMENT.CAPTURE.REVERSED`, `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` στο webhook της εφαρμογής.
 

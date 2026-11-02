@@ -498,10 +498,8 @@ class NotificationHelper
      */
     private static function autoChargeMethodName(Invoice $invoice): string
     {
-        $subscribed = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
-            ->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->exists();
-
-        return $subscribed || $invoice->remaining <= 0 ? '' : (string) AutoCharge::agreementFor($invoice)?->name;
+        // willCharge: the run's own pick, which leaves an invoice a gateway subscription pays.
+        return AutoCharge::willCharge($invoice) ? (string) AutoCharge::agreementFor($invoice)?->name : '';
     }
 
     public static function preferredMethod(Invoice $invoice): string

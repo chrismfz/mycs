@@ -111,6 +111,40 @@ final class AutoCharge
     }
 
     /**
+     * Whether the cron will charge it on its own (review SW-2 of the payment sweep, 2026-11-02): the run picks it up on some
+     * day (a renewal, of active items, not kept from it), it is not past its retry window (chargeOne's own limit), and a
+     * method charges it (agreementFor). What the customer is told («nothing to do»), the bank details left out and the
+     * reminder's kind follow it: never for an invoice the cron leaves (an upgrade's charge alone, one overdue too long).
+     */
+    public static function willCharge(Invoice $invoice): bool
+    {
+        // No due date: the run's dates never pick it (due()), so never charged on its own.
+        if ($invoice->due_at === null || $invoice->remaining <= 0 || !self::picks($invoice, false) || self::agreementFor($invoice) === null) {
+            return false;
+        }
+        $offset = (int) $invoice->due_at->copy()->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        $postponed = self::postponedSuspendDays($invoice);
+        $limit = max($postponed, self::window());
+        if ($offset > $limit) {
+            return false;
+        }
+        // Tried already: a day the run still tries, as chargeOne decides it (the retry days set, or a day a suspension
+        // window adds), from tomorrow if it tried today (review 1 of #580: after the last retry it charges nothing more).
+        $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
+        if (!(clone $cron)->exists()) {
+            return true;
+        }
+        $from = max(0, (clone $cron)->where('sent_at', '>=', CarbonImmutable::today())->exists() ? $offset + 1 : $offset);
+        for ($day = $from; $day <= $limit; $day++) {
+            if (self::retryOn($day) || ($day > self::suspendDays() && $day <= $postponed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * A line of a service or domain set «Do not charge automatically» (#568, by the customer, staff or the import): read
      * as it is now, not as billed, so turning it off stops the charge of its open invoice too. Such an item is billed on an
      * invoice apart, and turned off it leaves a shared open one (ItemPaymentMethod::keepApart); one it could not leave is

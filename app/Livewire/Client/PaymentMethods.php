@@ -120,7 +120,8 @@ class PaymentMethods extends Component
 
     public function createBillingAgreement()
     {
-        if (!$this->staffMayPay()) {
+        // As the page's other actions (payment sweep): a method is saved on the account the page was opened for.
+        if (!$this->staffMayPay() || !$this->sameAccount()) {
             return;
         }
         $this->validate([
@@ -144,7 +145,7 @@ class PaymentMethods extends Component
 
     public function removePaymentMethod($billingAgreementUlid)
     {
-        if (!$this->staffMayPay()) {
+        if (!$this->staffMayPay() || !$this->sameAccount()) {
             return;
         }
         $billingAgreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();

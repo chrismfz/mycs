@@ -132,7 +132,7 @@ final class ItemPaymentMethod
         // follows a change of its payment method (followOnOpenInvoices), unless a charge of it is on its way.
         $open = self::openInvoice($item);
         if ($open !== null) {
-            $agreement = AutoCharge::agreementFor($open);
+            $agreement = AutoCharge::willCharge($open) ? AutoCharge::agreementFor($open) : null; // the cron's own rules (SW-2)
             if ($agreement !== null) {
                 return $status('charged', ['method' => $agreement->name]);
             }

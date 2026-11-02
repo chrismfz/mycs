@@ -59,7 +59,9 @@ class InvoicePreferredMethodRound3Test extends TestCase
         $product = $this->createProduct();
         $service = Service::factory()->create(['client_id' => $client->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00]);
-        $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'preferred_gateway_id' => $this->bank->id]);
+        // A due date, as every real invoice has (the cron charges by it; payment sweep SW-2).
+        $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'preferred_gateway_id' => $this->bank->id,
+            'due_at' => now()->addDays(3)]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10.00, 'reference_type' => Service::class, 'reference_id' => $service->id]);
         // The card saved afterwards, Auto-charge on: the invoice is now paid on its own.
         $client->forceFill(['default_billing_agreement_id' => $agreement->id, 'auto_charge' => true])->save();

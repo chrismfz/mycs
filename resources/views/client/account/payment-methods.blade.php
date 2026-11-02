@@ -140,12 +140,13 @@
                         {{ __('account.make_default_payment_method') }}
                     </x-button.secondary>
                     @endif
+                    {{-- The texts as JS strings (Js::from): a name with an apostrophe (a PayPal email) broke the handler (payment sweep). --}}
                     <x-button.danger class="!px-2" x-on:click="$store.confirmation.confirm({
-                                title: '{{ __('account.remove_payment_method') }}',
-                                message: '{{ __('account.remove_payment_method_confirm', ['name' => $agreement->name]) }}',
-                                confirmText: '{{ __('account.confirm') }}',
-                                cancelText: '{{ __('account.cancel') }}',
-                                callback: () => $wire.removePaymentMethod('{{ $agreement->ulid }}')
+                                title: {{ \Illuminate\Support\Js::from(__('account.remove_payment_method')) }},
+                                message: {{ \Illuminate\Support\Js::from(__('account.remove_payment_method_confirm', ['name' => $agreement->name])) }},
+                                confirmText: {{ \Illuminate\Support\Js::from(__('account.confirm')) }},
+                                cancelText: {{ \Illuminate\Support\Js::from(__('account.cancel')) }},
+                                callback: () => $wire.removePaymentMethod({{ \Illuminate\Support\Js::from($agreement->ulid) }})
                             })">
                         <x-ri-delete-bin-line class="size-4" />
                     </x-button.danger>

@@ -667,6 +667,17 @@ class ExtensionHelper
      */
     public static function cancelBillingAgreement(BillingAgreement $billingAgreement)
     {
+        if ($billingAgreement->gateway === null) {
+            // Its gateway deleted (soft): asked to let go of it as well as it can (review 5 of #580), and removed here either
+            // way (review SW-3 of the payment sweep): the customer asked for it to go.
+            $deleted = Gateway::withTrashed()->find($billingAgreement->gateway_id);
+            if ($deleted !== null) {
+                rescue(fn () => self::getExtension('gateway', $deleted->extension, $deleted->settings)->cancelBillingAgreement($billingAgreement), report: false);
+            }
+
+            return true;
+        }
+
         return self::getExtension('gateway', $billingAgreement->gateway->extension, $billingAgreement->gateway->settings)->cancelBillingAgreement($billingAgreement);
     }
 
