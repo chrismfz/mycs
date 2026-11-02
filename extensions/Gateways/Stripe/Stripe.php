@@ -134,6 +134,40 @@ class Stripe extends Gateway
         ];
     }
 
+    /**
+     * Its webhook as staff see it on the gateway's page (owner 2026-11-02: to know it is saved): saved for this key and
+     * this site's address, or not, and what to do. From what is stored; Stripe is not asked. Never the secret itself.
+     *
+     * @return array{ok: bool, text: string}
+     */
+    public function webhookStatus(Extension $gateway): array
+    {
+        $setting = fn (string $key) => $gateway->settings()->where('key', $key)->first();
+        $secret = (string) $setting('stripe_webhook_secret')?->value;
+        if ($secret === '') {
+            return ['ok' => false, 'text' => 'Not saved: payments made with Stripe are not recorded. Press Save to create it (a restricted key needs the Webhook Endpoints permission).'];
+        }
+        $url = rescue(fn () => route('extensions.gateways.stripe.webhook'), null, false);
+        if ($url === null || !hash_equals((string) $setting('stripe_webhook_for')?->value, $this->webhookFor($url, $secret))) {
+            return ['ok' => false, 'text' => 'Saved, but not made for this key and this site\'s address (another key, another address, or typed in by hand): press Save to create it again.'];
+        }
+        // When it was made: the id's row, which only making it writes (every Save rewrites the secret's: R3).
+        $made = $setting('stripe_webhook_id') ?? $setting('stripe_webhook_for');
+        $id = (string) $setting('stripe_webhook_id')?->value;
+
+        return ['ok' => true, 'text' => sprintf('Saved %s%s: Stripe sends its events to %s.', $made?->updated_at?->format('Y-m-d H:i') ?? '',
+            $id !== '' ? " (endpoint {$id})" : '', $url)];
+    }
+
+    /**
+     * What its webhook was made for: this key, this site's address, and the secret Stripe gave it. A secret typed in over
+     * it, a key or an address changed, and it no longer matches (review of #586, R2): Save makes it again.
+     */
+    private function webhookFor(string $url, string $secret): string
+    {
+        return substr(hash('sha256', (string) $this->config('stripe_secret_key') . '|' . $url . '|' . $secret), 0, 16);
+    }
+
     public function enabled(Extension $gateway)
     {
         $this->updated($gateway);
@@ -149,9 +183,10 @@ class Stripe extends Gateway
     public function updated(Extension $gateway)
     {
         $url = route('extensions.gateways.stripe.webhook');
-        $for = substr(hash('sha256', (string) $this->config('stripe_secret_key') . '|' . $url), 0, 16);
-        $stored = fn (string $key) => (string) $gateway->settings()->where('key', $key)->value('value');
-        if ($stored('stripe_webhook_secret') !== '' && hash_equals($stored('stripe_webhook_for'), $for)) {
+        // Decrypted (the model, not ->value(): that one returns the ciphertext, never empty: review of #586, R1).
+        $stored = fn (string $key) => (string) $gateway->settings()->where('key', $key)->first()?->value;
+        $secret = $stored('stripe_webhook_secret');
+        if ($secret !== '' && hash_equals($stored('stripe_webhook_for'), $this->webhookFor($url, $secret))) {
             return;
         }
 
@@ -179,7 +214,8 @@ class Stripe extends Gateway
                 'api_version' => self::API_VERSION,
             ]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
-            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $for]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $this->webhookFor($url, (string) $webhook->secret)]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_id'], ['value' => (string) ($webhook->id ?? '')]);
             foreach ($old as $previous) {
                 rescue(fn () => $this->request('delete', '/webhook_endpoints/' . $previous->id), report: true); // one left over is harmless
             }
