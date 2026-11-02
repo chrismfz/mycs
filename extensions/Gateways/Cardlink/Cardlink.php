@@ -49,7 +49,6 @@ class Cardlink extends Gateway
 {
     public function boot()
     {
-        require __DIR__ . '/routes.php';
         View::addNamespace('gateways.cardlink', __DIR__ . '/resources/views');
     }
 

@@ -218,8 +218,6 @@ class PayPal extends Gateway
 
     public function boot()
     {
-        require __DIR__ . '/routes.php';
-        // Register webhook route
         View::addNamespace('gateways.paypal', __DIR__ . '/resources/views');
 
         // The renewal's tax changed (Δ1): the subscription bills the new amount, as the renewal invoices.

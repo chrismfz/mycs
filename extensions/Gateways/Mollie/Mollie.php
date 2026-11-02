@@ -25,12 +25,6 @@ use Illuminate\Support\Facades\Log;
 )]
 class Mollie extends Gateway
 {
-    public function boot()
-    {
-        require __DIR__ . '/routes.php';
-        // Register webhook route
-    }
-
     /** @throws Exception Mollie's error, with its HTTP status as the code */
     private function request($url, $method = 'get', $data = [], ?string $idempotencyKey = null)
     {

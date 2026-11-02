@@ -39,6 +39,7 @@ use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
 use Exception;
 use Filament\Forms\Components\Placeholder;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Migrations\Migrator;
@@ -99,12 +100,24 @@ class ExtensionHelper
      */
     public static function bootable(): \Illuminate\Support\Collection
     {
-        return Extension::query()->where(fn ($query) => $query->where('enabled', true)->orWhere('type', 'server')->orWhere('type', 'gateway'))
+        return Extension::query()->where(self::booting(...))
             ->get()->unique('extension')->map(fn (Extension $extension) => match ($extension->type) {
                 'gateway' => Gateway::query()->find($extension->id) ?? $extension,
                 'server' => Server::query()->find($extension->id) ?? $extension,
                 default => $extension,
             })->values();
+    }
+
+    /** Whether this extension boots (bootable): its routes answer only then (EnsureExtensionBoots). */
+    public static function boots(string $type, string $extension): bool
+    {
+        return Extension::query()->where('type', $type)->where('extension', $extension)->where(self::booting(...))->exists();
+    }
+
+    /** @param  Builder<Extension>  $query */
+    private static function booting($query): void
+    {
+        $query->where('enabled', true)->orWhere('type', 'server')->orWhere('type', 'gateway');
     }
 
     public static function getExtension($type, $extension, $config = [])
