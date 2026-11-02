@@ -11,6 +11,7 @@ use App\Models\Gateway;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -24,6 +25,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\HtmlString;
 
 class GatewayResource extends Resource
 {
@@ -101,6 +103,19 @@ class GatewayResource extends Resource
                     ->description('Specific settings for the selected gateway')
                     ->schema([
                         Grid::make()->schema(fn (Get $get, ?Model $record) => ExtensionHelper::getConfigAsInputs('gateway', $get('extension'), $get('settings'), $record instanceof Extension ? $record : null))->key('settings'),
+                        // Its webhook, saved or not (Stripe: owner 2026-11-02): its secret is never shown, so staff could not tell.
+                        Placeholder::make('webhook_status')->label('Webhook')
+                            ->visible(fn (?Model $record) => $record instanceof Extension && $record->exists
+                                && rescue(fn () => ExtensionHelper::hasFunction($record, 'webhookStatus'), false, false))
+                            ->content(function (?Model $record) {
+                                $status = $record instanceof Extension ? rescue(fn () => ExtensionHelper::getExtension('gateway', $record->extension, $record->settings)->webhookStatus($record), null) : null;
+                                if (!is_array($status)) {
+                                    return 'Could not be read.';
+                                }
+
+                                return new HtmlString('<span style="color: ' . ($status['ok'] ? 'rgb(22 163 74)' : 'rgb(220 38 38)') . '; font-weight: 600">'
+                                    . e($status['ok'] ? '✓ ' : '✗ ') . '</span>' . e($status['text']));
+                            }),
                     ]),
             ]);
     }

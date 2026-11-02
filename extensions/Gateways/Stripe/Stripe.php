@@ -134,6 +134,30 @@ class Stripe extends Gateway
         ];
     }
 
+    /**
+     * Its webhook as staff see it on the gateway's page (owner 2026-11-02: to know it is saved): saved for this key and
+     * this site's address, or not, and what to do. From what is stored; Stripe is not asked. Never the secret itself.
+     *
+     * @return array{ok: bool, text: string}
+     */
+    public function webhookStatus(Extension $gateway): array
+    {
+        $setting = fn (string $key) => $gateway->settings()->where('key', $key)->first();
+        $secret = $setting('stripe_webhook_secret');
+        if ((string) $secret?->value === '') {
+            return ['ok' => false, 'text' => 'Not saved: payments made with Stripe are not recorded. Press Save to create it (a restricted key needs the Webhook Endpoints permission).'];
+        }
+        $url = rescue(fn () => route('extensions.gateways.stripe.webhook'), null, false);
+        $for = $url === null ? null : substr(hash('sha256', (string) $this->config('stripe_secret_key') . '|' . $url), 0, 16);
+        if ($for === null || !hash_equals((string) $setting('stripe_webhook_for')?->value, $for)) {
+            return ['ok' => false, 'text' => 'Saved, but not made for this key and this site\'s address (another key, another address, or typed in by hand): press Save to create it again.'];
+        }
+        $id = (string) $setting('stripe_webhook_id')?->value;
+
+        return ['ok' => true, 'text' => sprintf('Saved %s%s: Stripe sends its events to %s.', $secret->updated_at?->format('Y-m-d H:i') ?? '',
+            $id !== '' ? " (endpoint {$id})" : '', $url)];
+    }
+
     public function enabled(Extension $gateway)
     {
         $this->updated($gateway);
@@ -180,6 +204,7 @@ class Stripe extends Gateway
             ]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $for]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_id'], ['value' => (string) ($webhook->id ?? '')]);
             foreach ($old as $previous) {
                 rescue(fn () => $this->request('delete', '/webhook_endpoints/' . $previous->id), report: true); // one left over is harmless
             }
