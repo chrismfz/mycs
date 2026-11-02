@@ -23,7 +23,7 @@
             <dt class="text-base/50">{{ __('services.ssl.order_ends') }}</dt><dd>{{ $sslOrder->order_ends_at->toDateString() }}</dd>
             @endif
             @if($sslOrder->reissue_at && !$sslOrder->reissue_at->isPast())
-            <dt class="text-base/50">{{ __('services.ssl.reissue') }}</dt><dd>{{ $sslOrder->reissue_at->toDateString() }}</dd>
+            <dt class="text-base/50">{{ __('services.ssl.next_reissue') }}</dt><dd>{{ $sslOrder->reissue_at->toDateString() }}</dd>
             @endif
         </dl>
 

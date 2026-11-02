@@ -39,7 +39,7 @@ class InvitesRelationManager extends RelationManager
                 TextColumn::make('invited_by')->label(__('Invited by'))
                     ->state(fn (ClientInvite $record) => $record->invitedByStaff->name ?? $record->invitedByUser->name ?? null),
                 TextColumn::make('created_at')->label(__('Sent'))->dateTime(),
-                TextColumn::make('expires_at')->label(__('account.expires'))->dateTime(),
+                TextColumn::make('expires_at')->label(__('account.invite_expires'))->dateTime(),
             ])
             ->recordActions([
                 Action::make('cancel')->label(__('account.cancel_invite'))->color('danger')->requiresConfirmation()

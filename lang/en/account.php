@@ -161,7 +161,7 @@ return [
     'last_login' => 'Last login',
     'never' => 'Never',
     'pending_invites' => 'Pending invitations',
-    'expires' => 'Expires',
+    'invite_expires' => 'Expires',
     'cancel_invite' => 'Cancel invitation',
     'remove_access' => 'Remove access',
     'remove_access_confirm' => 'Remove the access of :name to this account?',

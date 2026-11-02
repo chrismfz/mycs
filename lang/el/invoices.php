@@ -48,7 +48,6 @@ return [
     'quantity' => 'Ποσότητα',
     'transactions' => 'Συναλλαγές',
     'transaction_id' => 'Κωδικός συναλλαγής',
-    'gateway' => 'Τρόπος πληρωμής',
     'payment_date' => 'Ημερομηνία πληρωμής',
     'payment_method' => 'Τρόπος πληρωμής',
     'download_pdf' => 'Λήψη PDF',

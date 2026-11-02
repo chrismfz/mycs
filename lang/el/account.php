@@ -161,7 +161,7 @@ return [
     'last_login' => 'Τελευταία σύνδεση',
     'never' => 'Ποτέ',
     'pending_invites' => 'Εκκρεμείς προσκλήσεις',
-    'expires' => 'Λήγει',
+    'invite_expires' => 'Λήγει',
     'cancel_invite' => 'Ακύρωση πρόσκλησης',
     'remove_access' => 'Αφαίρεση πρόσβασης',
     'remove_access_confirm' => 'Να αφαιρεθεί η πρόσβαση του/της :name σε αυτόν τον λογαριασμό;',
