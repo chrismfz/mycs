@@ -279,13 +279,14 @@ final class AutoCharge
      */
     private function tellOfTakenNotRecorded(): void
     {
-        $open = ChargeAttempt::query()->whereIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_STARTED])
-            ->where('sent_at', '<=', now()->subHour())->pluck('invoice_id')->unique()->map(fn ($id) => (int) $id)->values()->all();
-        $unsettled = SavedMethodCharge::unresolved($open)->filter(fn (ChargeAttempt $attempt) => $attempt->sent_at->lessThanOrEqualTo(now()->subHour()))
+        // One query, whatever the history of charges (adversarial ADV-UNRES-6): its payment recorded is checked in SQL.
+        $unsettled = SavedMethodCharge::notRecorded(ChargeAttempt::query()
+            ->whereIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_STARTED])
+            ->where('sent_at', '<=', now()->subHour()))->orderBy('id')->get()
             ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS)));
         if ($unsettled->isNotEmpty()) {
-            NotificationHelper::sendSystemEmailNotification('Automatic charges taken but not recorded', e(sprintf(
-                "These charges are not settled: taken with no payment recorded since (check the gateway's webhooks), or of unknown outcome (check at the gateway). Each invoice is held, never charged or paid again, until staff record its payment or, if it was not taken, use «Resolve charge» on it.\n%s",
+            NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
+                "These charges are not settled: taken with no payment recorded since (check the gateway's webhooks), or of unknown outcome (check at the gateway). Each invoice is held, never charged or paid again, until staff record its payment, or settle it with «Resolve charge» on it (not taken, or its payment recorded another way).\n%s",
                 $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n"))));
         }
     }

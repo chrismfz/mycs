@@ -152,7 +152,7 @@ final class Charges
     public static function recent(?string $status, ?Client $client, ?Invoice $invoice, int $days, int $limit): array
     {
         $statuses = [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_UNKNOWN,
-            ChargeAttempt::STATUS_ACTION_REQUIRED, self::TAKEN_NOT_RECORDED];
+            ChargeAttempt::STATUS_ACTION_REQUIRED, ChargeAttempt::STATUS_SETTLED, self::TAKEN_NOT_RECORDED];
         if ($status !== null && $status !== '' && !in_array($status, $statuses, true)) {
             throw new NotFound("No status {$status}: one of " . implode(', ', $statuses) . '.');
         }
@@ -172,8 +172,9 @@ final class Charges
             'window' => "the last {$days} days",
             'counts' => $query()->toBase()->selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status')->map(fn ($n) => (int) $n)->all(),
             'taken_not_recorded' => $notRecorded->pluck('invoice_id')->unique()->values()->all(),
-            'unknown_outcome' => $query()->where(fn (Builder $query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
-                ->orWhere(fn (Builder $stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
+            // Settled by its payment recorded since (a late answer, staff): not unknown any more (code review of #581).
+            'unknown_outcome' => SavedMethodCharge::notRecorded($query()->where(fn (Builder $query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
+                ->orWhere(fn (Builder $stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES)))))
                 ->pluck('invoice_id')->unique()->values()->all(),
             'succeeded_more_than_once' => $taken->countBy('invoice_id')->filter(fn (int $n) => $n > 1)->keys()->map(fn ($id) => (int) $id)->values()->all(),
             'attempts' => self::rows($attempts),
@@ -231,9 +232,14 @@ final class Charges
      */
     public static function attentionOf(ChargeAttempt $attempt): ?string
     {
+        // Its payment recorded settles it, whatever its status said (an unknown outcome answered late: code review of #581).
+        if (in_array($attempt->status, [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_STARTED], true)
+            && SavedMethodCharge::recordedSince($attempt)) {
+            return null;
+        }
+
         return match ($attempt->status) {
-            ChargeAttempt::STATUS_SUCCEEDED => SavedMethodCharge::recordedSince($attempt) ? null
-                : ($attempt->sent_at->lessThanOrEqualTo(now()->subHour()) ? self::TAKEN_NOT_RECORDED : 'awaiting_payment'),
+            ChargeAttempt::STATUS_SUCCEEDED => $attempt->sent_at->lessThanOrEqualTo(now()->subHour()) ? self::TAKEN_NOT_RECORDED : 'awaiting_payment',
             ChargeAttempt::STATUS_UNKNOWN => self::UNKNOWN_OUTCOME,
             ChargeAttempt::STATUS_STARTED => $attempt->sent_at->lessThanOrEqualTo(now()->subMinutes(ChargeAttempt::HOLD_MINUTES)) ? self::UNKNOWN_OUTCOME : 'awaiting_answer',
             ChargeAttempt::STATUS_ACTION_REQUIRED => ChargeAttempt::STATUS_ACTION_REQUIRED,

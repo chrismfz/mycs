@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\ResolveCharge;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
@@ -178,7 +179,7 @@ class UnresolvedChargesTest extends TestCase
         (new AutoCharge)->run();
         Carbon::setTestNow('2026-11-10 10:30:00'); // an hour and more later: staff told
         (new AutoCharge)->run();
-        $this->assertSame(1, EmailLog::query()->where('subject', 'Automatic charges taken but not recorded')->where('body', 'like', '%unknown%')->count(), 'staff told');
+        $this->assertSame(1, EmailLog::query()->where('subject', 'Automatic charges not settled')->where('body', 'like', '%unknown%')->count(), 'staff told');
         Carbon::setTestNow('2026-11-12 09:00:00');
         (new AutoCharge)->run();
         $this->assertCount(1, AcrPay::$charges, 'past the key window: nothing sent again');
@@ -196,11 +197,36 @@ class UnresolvedChargesTest extends TestCase
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
-            ->callAction('resolveCharge', ['attempt' => (string) $attempt->id])->assertHasNoActionErrors();
+            ->callAction('resolveCharge', ['attempt' => (string) $attempt->id, 'outcome' => ResolveCharge::NOT_TAKEN])->assertHasNoActionErrors();
 
         $this->assertSame(ChargeAttempt::STATUS_FAILED, $attempt->fresh()->status);
         $this->assertFalse(SavedMethodCharge::onItsWay($invoice->fresh()), 'released');
         $this->assertTrue($invoice->audits()->where('event', 'charge_resolved_not_taken')->exists(), 'audited');
+    }
+
+    /**
+     * A group's charge of unknown outcome holds every invoice of the group; on another invoice of it staff see it and settle
+     * it: taken, its payment recorded another way (code review of #581). A charge still on its way is not offered.
+     */
+    public function test_staff_settle_a_group_charge_from_another_invoice_of_it(): void
+    {
+        $a = $this->invoice('2026-11-09');
+        $b = $this->invoice('2026-11-10');
+        $group = (new MassPay)->open($this->client, [$a->id, $b->id]);
+        AcrPay::$answer = fn () => throw new \RuntimeException('timeout');
+        $attempt = (new SavedMethodCharge)->charge($group->invoice, $this->agreement, ChargeAttempt::SOURCE_GROUP, $group);
+        $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, $attempt->fresh()->status);
+        $this->assertTrue(SavedMethodCharge::onItsWay($b->fresh()), 'the group charge holds B');
+        $this->assertTrue(SavedMethodCharge::holding($b->fresh())->contains('id', $attempt->id), 'and is shown on B');
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $b->getRouteKey()])
+            ->callAction('resolveCharge', ['attempt' => (string) $attempt->id, 'outcome' => ResolveCharge::RECORDED])->assertHasNoActionErrors();
+
+        $this->assertSame(ChargeAttempt::STATUS_SETTLED, $attempt->fresh()->status);
+        $this->assertFalse(SavedMethodCharge::onItsWay($b->fresh()), 'released');
+        $this->assertTrue($b->audits()->where('event', 'charge_resolved_recorded')->exists(), 'audited');
     }
 
     /** A payment recorded for it (the webhook late, or staff with the gateway's id) settles an unknown outcome too. */

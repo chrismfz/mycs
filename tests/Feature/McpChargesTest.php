@@ -207,7 +207,7 @@ class McpChargesTest extends TestCase
         $this->assertStringStartsWith('not charged: no method may charge it', $charge['cron']);
     }
 
-    /** Review of #571: an unknown outcome's key is reused, and the invoice held, for KEY_REUSE_HOURS only. */
+    /** Review of #571: an unknown outcome's key is reused, and the invoice held until settled (predeploy S1). */
     public function test_an_unknown_outcome_past_its_key_window_is_not_resent_and_still_holds(): void
     {
         $invoice = $this->invoice($this->service());

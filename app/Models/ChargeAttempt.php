@@ -45,6 +45,9 @@ class ChargeAttempt extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    /** Taken, and its payment recorded another way than from the gateway (a transfer, Mark Paid): settled by staff (ResolveCharge). */
+    public const STATUS_SETTLED = 'settled';
+
     /**
      * No answer about the money (a timeout, a 5xx): maybe taken. Holds the invoice until settled (SavedMethodCharge::unresolved),
      * and the next charge of the same amount to the same method is sent again with its key while its gateway keeps it

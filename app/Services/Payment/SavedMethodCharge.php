@@ -12,7 +12,8 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -68,19 +69,49 @@ final class SavedMethodCharge
     }
 
     /**
-     * Its charges whose outcome is not settled (predeploy S1): sent and not answered (started, any age: a crash is an
-     * unknown outcome), of unknown outcome, or taken and its payment not recorded; none of them released by time, only by
-     * the payment recorded (recordedSince) or by staff («not taken», ChargeAttempt::resolveNotTaken).
+     * Charges whose outcome is not settled (predeploy S1) on these invoices, or of these Mass Pay groups (on their first
+     * invoice: PR F2): sent and not answered (started, any age: a crash is an unknown outcome), of unknown outcome, or
+     * taken and its payment not recorded. None of them is released by time: only by the payment recorded (notRecorded) or
+     * by staff (App\Admin\Actions\ResolveCharge: not taken, or recorded another way).
      *
      * @param  list<int>  $invoiceIds
+     * @param  list<int>  $groupIds
      * @return Collection<int, ChargeAttempt>
      */
-    public static function unresolved(array $invoiceIds, ?int $except = null): Collection
+    public static function unresolved(array $invoiceIds, ?int $except = null, array $groupIds = []): Collection
     {
-        return ChargeAttempt::query()->whereIn('invoice_id', $invoiceIds)->when($except !== null, fn ($query) => $query->whereKeyNot($except))
-            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_SUCCEEDED])
-            ->with('billingAgreement')->orderBy('id')->get()
-            ->reject(fn (ChargeAttempt $attempt) => self::recordedSince($attempt))->values();
+        if ($invoiceIds === [] && $groupIds === []) {
+            return new Collection;
+        }
+
+        $attempts = ChargeAttempt::query()
+            ->where(fn (Builder $query) => $query->whereIn('invoice_id', $invoiceIds)->orWhereIn('payment_group_id', $groupIds))
+            ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except))
+            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_SUCCEEDED]);
+        self::notRecorded($attempts);
+
+        return $attempts->with('billingAgreement')->orderBy('id')->get();
+    }
+
+    /**
+     * The unsettled charges that could pay this invoice (or this group of it): those staff resolve on its page.
+     *
+     * @return Collection<int, ChargeAttempt>
+     */
+    public static function holding(Invoice $invoice, ?PaymentGroup $group = null): Collection
+    {
+        [$ids, $groups] = self::payable($invoice, $group);
+
+        return self::unresolved($ids, null, $groups);
+    }
+
+    /**
+     * Staff may settle it by hand: never one still on its way (started, under HOLD_MINUTES: its gateway call may be running,
+     * and nobody can have checked it at the gateway yet: adversarial ADV-UNRES-3).
+     */
+    public static function resolvable(ChargeAttempt $attempt): bool
+    {
+        return $attempt->status !== ChargeAttempt::STATUS_STARTED || $attempt->sent_at->lessThanOrEqualTo(now()->subMinutes(ChargeAttempt::HOLD_MINUTES));
     }
 
     /**
@@ -163,42 +194,63 @@ final class SavedMethodCharge
     /**
      * Paying this invoice now could pay it twice: a charge whose outcome is not settled (unresolved: on its way, of unknown
      * outcome, or taken and its payment not recorded; held for every method and every way of paying, however long, until
-     * its payment is recorded or staff resolve it: predeploy S1, S2) or a payment the gateway is still processing (SEPA, a
-     * PayPal review), on it or on an invoice of a Mass Pay group it is in: the group's charge pays it too (adversarial
-     * ADV-1). The expiry of a gateway's idempotency key never proves a charge failed.
+     * its payment is recorded or staff resolve it: predeploy S1, S2) that could pay it (its own, or of a Mass Pay group it
+     * is in: the group's charge pays it too, adversarial ADV-1), or a payment the gateway is still processing (SEPA, a
+     * PayPal review). A charge of another invoice alone never holds it, whatever group they were once in together
+     * (ADV-UNRES-5). The expiry of a gateway's idempotency key never proves a charge failed.
      */
     public static function onItsWay(Invoice $invoice, ?PaymentGroup $group = null, ?int $except = null): bool
     {
-        $ids = self::related($invoice, $group);
+        [$ids, $groups] = self::payable($invoice, $group);
+        if (self::unresolved($ids, $except, $groups)->isNotEmpty()) {
+            return true;
+        }
+        // A group's payment is recorded on the invoice its charge went to, and kept as the group's (MassPay).
+        $leads = $groups === [] ? [] : ChargeAttempt::query()->whereIn('payment_group_id', $groups)->pluck('invoice_id')->map(fn ($id) => (int) $id)->all();
+        $payments = $groups === [] ? [] : PaymentGroup::query()->whereIn('id', $groups)->whereNotNull('invoice_transaction_id')->pluck('invoice_transaction_id')->all();
 
-        return self::unresolved($ids, $except)->isNotEmpty()
-            || InvoiceTransaction::query()->whereIn('invoice_id', $ids)->where('status', InvoiceTransactionStatus::Processing)->exists();
+        return InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
+            ->where(fn ($query) => $query->whereIn('invoice_id', [...$ids, ...$leads])->orWhereIn('id', $payments))->exists();
+    }
+
+    /** The charge's payment was recorded: see notRecorded. */
+    public static function recordedSince(ChargeAttempt $attempt): bool
+    {
+        return self::notRecorded(ChargeAttempt::query()->whereKey($attempt->getKey()))->doesntExist();
     }
 
     /**
-     * The charge's payment was recorded (from the gateway's answer or its webhook): a payment on its invoice since it was
-     * sent, through its method's gateway, of at least its amount. Credit, a transfer staff record or a smaller payment is
-     * not it, and does not release the hold (code review CR-7).
+     * The attempts whose payment was not recorded (from the gateway's answer, its webhook, or staff with its transaction
+     * id): one on its invoice through its method's gateway, of at least its amount, that went through (a failed one is no
+     * money taken: ADV-UNRES-1), from the day it was sent (staff date a payment by its day, at the time they record it:
+     * ADV-UNRES-4). Credit, a transfer staff record or a smaller payment is not it (code review CR-7). In SQL, for any
+     * number of attempts at once (ADV-UNRES-6).
+     *
+     * @param  Builder<ChargeAttempt>  $attempts
+     * @return Builder<ChargeAttempt>
      */
-    public static function recordedSince(ChargeAttempt $attempt): bool
+    public static function notRecorded(Builder $attempts): Builder
     {
-        $gatewayId = $attempt->billingAgreement?->gateway_id;
-
-        return $gatewayId !== null && InvoiceTransaction::query()->where('invoice_id', $attempt->invoice_id)
-            ->where('gateway_id', $gatewayId)->where('is_credit_transaction', false)->where('amount', '>=', $attempt->amount)
-            ->where('created_at', '>=', $attempt->sent_at->copy()->subMinute())->exists();
+        return $attempts->whereNotExists(fn ($payment) => $payment->selectRaw('1')->from('invoice_transactions')
+            ->whereColumn('invoice_transactions.invoice_id', 'charge_attempts.invoice_id')
+            ->whereRaw('invoice_transactions.gateway_id = (select billing_agreements.gateway_id from billing_agreements where billing_agreements.id = charge_attempts.billing_agreement_id)')
+            ->where('invoice_transactions.is_credit_transaction', false)
+            ->whereIn('invoice_transactions.status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
+            ->whereColumn('invoice_transactions.amount', '>=', 'charge_attempts.amount')
+            ->whereRaw('invoice_transactions.created_at >= DATE(charge_attempts.sent_at)'));
     }
 
-    /** @return list<int> the invoice, and the invoices of the Mass Pay groups it is in (or of $group) */
-    private static function related(Invoice $invoice, ?PaymentGroup $group): array
+    /**
+     * What a charge of it would pay (the invoice, or every invoice of $group), and the Mass Pay groups any of them is in:
+     * a charge of one of those groups pays them too. @return array{0: list<int>, 1: list<int>}
+     */
+    private static function payable(Invoice $invoice, ?PaymentGroup $group): array
     {
-        $groups = DB::table('payment_group_invoice')->where('invoice_id', $invoice->id)->pluck('payment_group_id')->all();
-        if ($group !== null) {
-            $groups[] = $group->id;
-        }
-        $ids = $groups === [] ? [] : DB::table('payment_group_invoice')->whereIn('payment_group_id', $groups)->pluck('invoice_id')->all();
+        $ids = $group === null ? [(int) $invoice->id]
+            : array_values(array_unique([(int) $invoice->id, ...DB::table('payment_group_invoice')->where('payment_group_id', $group->id)->pluck('invoice_id')->map(fn ($id) => (int) $id)->all()]));
+        $groups = DB::table('payment_group_invoice')->whereIn('invoice_id', $ids)->pluck('payment_group_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
 
-        return array_values(array_unique(array_map('intval', [...$ids, $invoice->id])));
+        return [$ids, $groups];
     }
 
     private function finish(ChargeAttempt $attempt, BillingAgreement $agreement, string $status, ?string $error = null): void
