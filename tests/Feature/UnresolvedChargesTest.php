@@ -29,7 +29,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Str;
-use MyCS\Extensions\Gateways\AcrPay\AcrPay;
+use MyCS\Extensions\Gateways\UnresolvedPay\UnresolvedPay;
 use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
@@ -55,8 +55,8 @@ class UnresolvedChargesTest extends TestCase
         config(['settings.credits_auto_use' => false, 'settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false,
             'settings.autocharge_days_before' => 0, 'settings.autocharge_retry_days' => '', 'settings.autocharge_max_failures' => 0,
             'settings.cronjob_order_suspend' => 8, 'settings.cronjob_suspend_enabled' => true, 'settings.mass_pay_enabled' => true]);
-        if (!class_exists(AcrPay::class)) {
-            eval('namespace MyCS\\Extensions\\Gateways\\AcrPay; class AcrPay {
+        if (!class_exists(UnresolvedPay::class)) {
+            eval('namespace MyCS\\Extensions\\Gateways\\UnresolvedPay; class UnresolvedPay {
                 /** @var list<array{invoice: int, amount: float, key: ?string}> */
                 public static array $charges = [];
                 public static int $checkouts = 0;
@@ -72,14 +72,14 @@ class UnresolvedChargesTest extends TestCase
                     return self::$answer === null ? true : (self::$answer)($invoice, $amount);
                 } }');
         }
-        AcrPay::$charges = [];
-        AcrPay::$checkouts = 0;
-        AcrPay::$answer = null; // by default: the money is taken, its payment is recorded later (Stripe's webhook)
+        UnresolvedPay::$charges = [];
+        UnresolvedPay::$checkouts = 0;
+        UnresolvedPay::$answer = null; // by default: the money is taken, its payment is recorded later (Stripe's webhook)
         MailFacade::fake();
         Carbon::setTestNow('2026-11-10 09:00:00');
         $this->reviewUser = User::factory()->create();
         $this->client = $this->reviewUser->client();
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcrPay'], ['name' => 'AcrPay', 'type' => 'gateway', 'enabled' => true]);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'UnresolvedPay'], ['name' => 'UnresolvedPay', 'type' => 'gateway', 'enabled' => true]);
         $this->agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $gateway->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_r1', 'type' => 'card']);
         $this->client->refresh();
@@ -111,12 +111,12 @@ class UnresolvedChargesTest extends TestCase
     {
         $invoice = $this->invoice('2026-11-10');
         $this->client->forceFill(['auto_charge' => true])->save();
-        AcrPay::$answer = fn () => throw new \RuntimeException('Response lost after gateway accepted charge');
+        UnresolvedPay::$answer = fn () => throw new \RuntimeException('Response lost after gateway accepted charge');
         (new AutoCharge)->run();
-        $this->assertCount(1, AcrPay::$charges);
+        $this->assertCount(1, UnresolvedPay::$charges);
         Carbon::setTestNow('2026-11-11 09:00:00');
         (new AutoCharge)->run();
-        $this->assertCount(1, array_unique(array_column(AcrPay::$charges, 'key')), 'Unresolved outcome must not create a new charge next day');
+        $this->assertCount(1, array_unique(array_column(UnresolvedPay::$charges, 'key')), 'Unresolved outcome must not create a new charge next day');
     }
 
     public function test_crashed_charge_holds_invoice_when_customer_switches_card_after_fifteen_minutes(): void
@@ -133,7 +133,7 @@ class UnresolvedChargesTest extends TestCase
             (new SavedMethodCharge)->charge($invoice, $other, ChargeAttempt::SOURCE_CLIENT);
         } catch (DisplayException) {
         }
-        $this->assertCount(0, AcrPay::$charges, 'The first card may already have paid: do not charge another');
+        $this->assertCount(0, UnresolvedPay::$charges, 'The first card may already have paid: do not charge another');
     }
 
     public function test_invoice_with_taken_charge_cannot_be_deleted_before_webhook_arrives(): void
@@ -155,7 +155,7 @@ class UnresolvedChargesTest extends TestCase
         $this->assertTrue(SavedMethodCharge::onItsWay($invoice));
         $this->livewireAs($this->reviewUser)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'gateway-' . $this->agreement->gateway_id)->call('processPayment');
-        $this->assertSame(0, AcrPay::$checkouts, 'Do not offer a second checkout while the first payment has already been taken');
+        $this->assertSame(0, UnresolvedPay::$checkouts, 'Do not offer a second checkout while the first payment has already been taken');
     }
 
     public function test_mass_pay_checkout_is_blocked_while_group_card_payment_is_on_its_way(): void
@@ -167,7 +167,7 @@ class UnresolvedChargesTest extends TestCase
         $this->assertTrue(SavedMethodCharge::onItsWay($a));
         $this->livewireAs($this->reviewUser)->test(PayTogether::class, ['paymentGroup' => $group])
             ->set('selectedMethod', 'gateway-' . $this->agreement->gateway_id)->call('processPayment');
-        $this->assertSame(0, AcrPay::$checkouts, 'Do not open another checkout for a group already charged');
+        $this->assertSame(0, UnresolvedPay::$checkouts, 'Do not open another checkout for a group already charged');
     }
 
     /** The key is resent only while the gateway keeps it; past it, no new charge: the invoice stays held for staff. */
@@ -175,14 +175,14 @@ class UnresolvedChargesTest extends TestCase
     {
         $invoice = $this->invoice('2026-11-10');
         $this->client->forceFill(['auto_charge' => true])->save();
-        AcrPay::$answer = fn () => throw new \RuntimeException('timeout');
+        UnresolvedPay::$answer = fn () => throw new \RuntimeException('timeout');
         (new AutoCharge)->run();
         Carbon::setTestNow('2026-11-10 10:30:00'); // an hour and more later: staff told
         (new AutoCharge)->run();
         $this->assertSame(1, EmailLog::query()->where('subject', 'Automatic charges not settled')->where('body', 'like', '%unknown%')->count(), 'staff told');
         Carbon::setTestNow('2026-11-12 09:00:00');
         (new AutoCharge)->run();
-        $this->assertCount(1, AcrPay::$charges, 'past the key window: nothing sent again');
+        $this->assertCount(1, UnresolvedPay::$charges, 'past the key window: nothing sent again');
         $this->assertTrue(SavedMethodCharge::onItsWay($invoice->fresh()), 'still held');
     }
 
@@ -190,7 +190,7 @@ class UnresolvedChargesTest extends TestCase
     public function test_staff_resolve_an_unsettled_charge_as_not_taken(): void
     {
         $invoice = $this->invoice('2026-11-10');
-        AcrPay::$answer = fn () => throw new \RuntimeException('timeout');
+        UnresolvedPay::$answer = fn () => throw new \RuntimeException('timeout');
         $attempt = (new SavedMethodCharge)->charge($invoice, $this->agreement, ChargeAttempt::SOURCE_CLIENT);
         $this->assertTrue(SavedMethodCharge::onItsWay($invoice));
         Filament::setCurrentPanel(Filament::getPanel('admin'));
@@ -213,7 +213,7 @@ class UnresolvedChargesTest extends TestCase
         $a = $this->invoice('2026-11-09');
         $b = $this->invoice('2026-11-10');
         $group = (new MassPay)->open($this->client, [$a->id, $b->id]);
-        AcrPay::$answer = fn () => throw new \RuntimeException('timeout');
+        UnresolvedPay::$answer = fn () => throw new \RuntimeException('timeout');
         $attempt = (new SavedMethodCharge)->charge($group->invoice, $this->agreement, ChargeAttempt::SOURCE_GROUP, $group);
         $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, $attempt->fresh()->status);
         $this->assertTrue(SavedMethodCharge::onItsWay($b->fresh()), 'the group charge holds B');
@@ -233,12 +233,12 @@ class UnresolvedChargesTest extends TestCase
     public function test_a_payment_recorded_settles_an_unknown_outcome(): void
     {
         $invoice = $this->invoice('2026-11-10');
-        AcrPay::$answer = fn () => throw new \RuntimeException('timeout');
+        UnresolvedPay::$answer = fn () => throw new \RuntimeException('timeout');
         (new SavedMethodCharge)->charge($invoice, $this->agreement, ChargeAttempt::SOURCE_CLIENT);
         Carbon::setTestNow('2026-11-10 09:05:00');
-        ExtensionHelper::addPayment($invoice->id, 'AcrPay', 5, null, 'late-webhook', currency: 'USD');
+        ExtensionHelper::addPayment($invoice->id, 'UnresolvedPay', 5, null, 'late-webhook', currency: 'USD');
         $this->assertTrue(SavedMethodCharge::onItsWay($invoice->fresh()), 'a smaller payment is not it');
-        ExtensionHelper::addPayment($invoice->id, 'AcrPay', 10, null, 'late-webhook-2', currency: 'USD');
+        ExtensionHelper::addPayment($invoice->id, 'UnresolvedPay', 10, null, 'late-webhook-2', currency: 'USD');
         $this->assertFalse(SavedMethodCharge::onItsWay($invoice->fresh()));
     }
 }
