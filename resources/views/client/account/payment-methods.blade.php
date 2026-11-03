@@ -177,7 +177,7 @@
                         <a href="{{ $item instanceof \App\Models\Service ? route('services.show', $item) : route('domains.show', $item) }}" wire:navigate
                             class="font-semibold hover:underline break-words">{{ $name }}</a>
                         @if ($item->expires_at)
-                        <div class="text-xs text-base/60">{{ __('account.ways.renews', ['date' => $item->expires_at->format('d/m/Y')]) }}</div>
+                        <div class="text-xs text-base/60">{{ __($row['renews'] ? 'account.ways.renews' : 'account.ways.expires', ['date' => $item->expires_at->format('d/m/Y')]) }}</div>
                         @endif
                     </div>
                     <div class="min-w-0">
@@ -188,20 +188,17 @@
                             aria-label="{{ __('account.ways.paid_with_for', ['name' => $name]) }}"
                             class="w-full min-h-[40px] rounded-md bg-background-secondary border border-neutral px-2 text-sm">
                             {{-- Each way says whether a saved method charges it or it is paid from the invoice (owner 2026-11-01). --}}
-                            <option value="">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($item, null) }}</option>
-                            @foreach ($row['options'] as $gateway)
-                            <option value="{{ $gateway->id }}">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($item, $gateway) }}</option>
+                            @foreach ($row['choices'] as $value => $text)
+                            <option value="{{ $value }}">{{ $text }}</option>
                             @endforeach
-                            @if ($row['kept'])
-                            <option value="{{ $item->payment_gateway_id }}">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($item, $item->paymentGateway) }}</option>
-                            @endif
                         </select>
                         @else
-                        <span class="text-sm">{{ \App\Services\Payment\ItemPaymentMethod::optionLabel($item, $item->paymentGateway) }}</span>
+                        <span class="md:sr-only block text-xs font-semibold text-base/60">{{ __('account.ways.paid_with') }}</span>
+                        <span class="text-sm">{{ $row['current'] }}</span>
                         @endif
                     </div>
                     <div class="text-sm text-base/70">
-                        <span class="md:sr-only text-xs font-semibold text-base/60">{{ __('account.ways.automatic') }}:</span>
+                        <span class="md:sr-only block text-xs font-semibold text-base/60">{{ __('account.ways.automatic') }}</span>
                         {{ $row['status'] }}
                     </div>
                 </div>

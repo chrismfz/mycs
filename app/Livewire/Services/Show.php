@@ -190,6 +190,13 @@ class Show extends Component
     public function updatedPaymentGatewayId($value)
     {
         abort_unless($this->canSetPaymentMethod(), 403);
+        // Only one with a way to choose (a subscription, a cancelled service: none), as the table on «Payment methods» (ADV-612-4).
+        if (!ItemPaymentAccess::offersChoice($this->service)) {
+            $this->paymentGatewayId = $this->service->payment_gateway_id;
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
         // It chooses which saved method charges it (#568): the money permission's in «Login as client» (SA-5, ADV-568-R2-2).
         if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
             $this->paymentGatewayId = $this->service->payment_gateway_id;

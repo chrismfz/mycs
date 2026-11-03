@@ -155,6 +155,7 @@ return [
         'paid_with_for' => 'Paid with: :name',
         'automatic' => 'Automatic?',
         'renews' => 'Renews :date',
+        'expires' => 'Expires :date',
     ],
     'expires' => 'Expires :date',
     'cancel' => 'Cancel',

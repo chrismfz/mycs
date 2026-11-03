@@ -155,6 +155,7 @@ return [
         'paid_with_for' => 'Πληρώνεται με: :name',
         'automatic' => 'Αυτόματα;',
         'renews' => 'Ανανέωση :date',
+        'expires' => 'Λήγει :date',
     ],
     'expires' => 'Λήγει :date',
     'cancel' => 'Άκυρο',

@@ -167,7 +167,7 @@ class PaymentMethodsWaysTest extends TestCase
     {
         $service = $this->service(['payment_gateway_id' => $this->paypal->id]);
         $login = User::factory()->create();
-        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $login->id, 'permissions' => ['invoices'], 'granted_at' => now()]);
+        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $login->id, 'permissions' => ['invoices', 'products'], 'granted_at' => now()]);
         $this->actingAs($login);
         app(CurrentClient::class)->switchTo($this->client->id);
 
@@ -262,5 +262,79 @@ class PaymentMethodsWaysTest extends TestCase
 
         $this->livewireAs($this->user)->test(PaymentMethods::class)
             ->assertSee('Πώς πληρώνεται κάθε υπηρεσία')->assertSee('Πληρώνεται με');
+    }
+
+    /** Review of #612: `invoices` opens the page, not the services and domains (`products`, `domains`). */
+    public function test_an_invoices_only_login_does_not_see_services_and_domains_it_may_not_view(): void
+    {
+        $service = $this->service();
+        $domain = $this->domain();
+        $login = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $login->id, 'permissions' => ['invoices'], 'granted_at' => now()]);
+        $this->actingAs($login);
+        app(CurrentClient::class)->switchTo($this->client->id);
+
+        $this->livewireAs($login)->test(PaymentMethods::class)
+            ->assertDontSee($service->label)->assertDontSee($domain->fqdn)->assertDontSee(__('account.ways.title'));
+    }
+
+    /** Review of #612: manageproducts without managedomains changes the service only. */
+    public function test_a_login_that_manages_services_but_not_domains(): void
+    {
+        $service = $this->service();
+        $domain = $this->domain();
+        $login = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $login->id, 'permissions' => ['invoices', 'products', 'domains', 'manageproducts'], 'granted_at' => now()]);
+        $this->actingAs($login);
+        app(CurrentClient::class)->switchTo($this->client->id);
+
+        $page = $this->livewireAs($login)->test(PaymentMethods::class);
+        $page->set('ways.s' . $service->id, (string) $this->bank->id);
+        $this->assertSame($this->bank->id, $service->fresh()->payment_gateway_id);
+        $page->set('ways.d' . $domain->id, (string) $this->bank->id)->assertForbidden();
+        $this->assertNull($domain->fresh()->payment_gateway_id);
+    }
+
+    /** Review of #612: the whole array, or an array as a value, changes nothing. */
+    public function test_whole_array_and_nested_values_change_nothing(): void
+    {
+        $service = $this->service();
+        $page = $this->livewireAs($this->user)->test(PaymentMethods::class);
+        $page->set('ways', ['s' . $service->id => (string) $this->bank->id]);
+        $page->set('ways.s' . $service->id, [(string) $this->bank->id]);
+
+        $this->assertNull($service->fresh()->payment_gateway_id);
+        $this->assertSame('', $page->get('ways')['s' . $service->id]);
+    }
+
+    /** Review of #612: a page with the last services and the first domains, past the end, a crafted page. */
+    public function test_the_pages_across_services_and_domains(): void
+    {
+        config(['settings.pagination' => 2]);
+        $this->storeSettings(['pagination' => 2]);
+        $s = [$this->service(), $this->service(), $this->service()];
+        $d = [$this->domain(), $this->domain(), $this->domain()];
+
+        $page = $this->livewireAs($this->user)->test(PaymentMethods::class)->call('gotoPage', 2, 'items');
+        $this->assertSame(['s' . $s[2]->id, 'd' . $d[0]->id], array_keys($page->get('ways')));
+        $page->call('gotoPage', 3, 'items');
+        $this->assertSame(['d' . $d[1]->id, 'd' . $d[2]->id], array_keys($page->get('ways')));
+        $page->call('gotoPage', 9, 'items')->assertOk();
+        $this->assertSame([], $page->get('ways'));
+        foreach (['abc', PHP_INT_MAX, -3] as $crafted) {
+            $page->call('gotoPage', $crafted, 'items')->assertOk();
+        }
+    }
+
+    /** Review of #612: a domain that does not renew says when it expires. */
+    public function test_a_domain_that_does_not_renew_says_it_expires(): void
+    {
+        $renewing = $this->domain(['expires_at' => '2026-12-01', 'auto_renew' => true]);
+        $off = $this->domain(['expires_at' => '2026-11-15', 'auto_renew' => false]);
+
+        $this->livewireAs($this->user)->test(PaymentMethods::class)
+            ->assertSee(__('account.ways.renews', ['date' => '01/12/2026']))
+            ->assertSee(__('account.ways.expires', ['date' => '15/11/2026']))
+            ->assertDontSee(__('account.ways.renews', ['date' => '15/11/2026']));
     }
 }

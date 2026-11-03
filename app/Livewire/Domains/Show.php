@@ -594,6 +594,12 @@ class Show extends Component
     public function setPaymentMethod(int $gatewayId): void
     {
         abort_unless($this->setsPaymentMethod(), 403);
+        // Only one billed for renewal, as the select shows and the table on «Payment methods» (ADV-612-4).
+        if (!ItemPaymentAccess::offersChoice($this->domain)) {
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
         // It chooses which saved method charges it (#568): the money permission's in «Login as client» (SA-5, ADV-568-R2-2).
         if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
             $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');

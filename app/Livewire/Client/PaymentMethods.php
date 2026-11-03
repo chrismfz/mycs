@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Client;
 
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
@@ -237,7 +238,7 @@ class PaymentMethods extends Component
     /** A row's service or domain, of the page's account only. */
     private function item(string $key): Service|Domain|null
     {
-        if (preg_match('/^([sd])([1-9][0-9]{0,18})$/', $key, $match) !== 1) {
+        if (preg_match('/^([sd])([1-9][0-9]{0,18})\z/', $key, $match) !== 1) {
             return null;
         }
         $query = $match[1] === 's' ? Service::query() : Domain::query();
@@ -253,12 +254,16 @@ class PaymentMethods extends Component
      */
     private function items(Client $client): LengthAwarePaginator
     {
+        // Only what the login may see (`products`, `domains`): `invoices` opens this page, not those (review of #612).
         $services = Service::query()->where('client_id', $client->id)->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
-            ->whereNull('subscription_id')->whereHas('plan', fn ($plan) => $plan->where('type', 'recurring'));
+            ->whereNull('subscription_id')->whereHas('plan', fn ($plan) => $plan->where('type', 'recurring'))
+            ->when(!CurrentClient::allows('products'), fn ($query) => $query->whereRaw('1 = 0'));
         $domains = Domain::query()->where('client_id', $client->id)
-            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS));
-        $perPage = (int) config('settings.pagination');
-        $page = $this->getPage('items');
+            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
+            ->when(!CurrentClient::allows('domains'), fn ($query) => $query->whereRaw('1 = 0'));
+        $perPage = max(1, (int) config('settings.pagination') ?: 15); // 0 or none: paginate()'s 15, as the transactions (ADV-612-2)
+        // A crafted page (gotoPage('abc')) is the first, not a 500: paginate() would check it, this is built by hand (review of #612).
+        $page = filter_var($this->getPage('items'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000000]]) ?: 1;
         $serviceCount = (clone $services)->count();
         $total = $serviceCount + (clone $domains)->count();
         $skip = ($page - 1) * $perPage;
@@ -331,16 +336,31 @@ class PaymentMethods extends Component
         // As the database has it (review of 6a, the radios): a refused or superseded change shows what it still is.
         $this->ways = $items === null ? [] : $items->getCollection()->mapWithKeys(fn (Service|Domain $item) => [self::rowKey($item) => (string) ($item->payment_gateway_id ?? '')])->all();
         $offered = []; // ItemPaymentMethod::options, once per amount and currency
+        // A way's label depends on the gateway and the item's own switch only (the account is the page's): once each (review of #612).
+        $labels = [];
+        $label = function (Service|Domain $item, ?Gateway $gateway) use (&$labels): string {
+            return $labels[($gateway?->id ?? 0) . '|' . (int) $item->no_auto_charge . '|' . (int) ($gateway?->enabled ?? 1)] ??= ItemPaymentMethod::optionLabel($item, $gateway);
+        };
 
         return view('client.account.payment-methods', [
             'items' => $items,
-            'itemRows' => $items === null ? [] : $items->getCollection()->map(function (Service|Domain $item) use (&$offered) {
+            'itemRows' => $items === null ? [] : $items->getCollection()->map(function (Service|Domain $item) use (&$offered, $label) {
                 $mayChange = ItemPaymentAccess::mayChange($item);
                 $amount = $item instanceof Service ? (string) $item->price : (string) $item->recurring_amount;
                 $options = $mayChange ? ($offered[$amount . '|' . $item->currency_code] ??= ItemPaymentMethod::options($item)) : collect();
+                // The choices as its page lists them: the account's, those on offer, and its own kept when no longer offered.
+                $choices = ['' => $label($item, null)];
+                foreach ($options as $gateway) {
+                    $choices[(string) $gateway->id] = $label($item, $gateway);
+                }
+                if ($item->paymentGateway !== null && !isset($choices[(string) $item->payment_gateway_id])) {
+                    $choices[(string) $item->payment_gateway_id] = $label($item, $item->paymentGateway);
+                }
+                // A domain that does not renew (auto renew off, or past its date) says when it expires, not «Renews» (review of #612).
+                $renews = $item instanceof Service || ($item->auto_renew && $item->status === DomainStatus::Active);
 
-                return ['key' => self::rowKey($item), 'item' => $item, 'mayChange' => $mayChange, 'options' => $options,
-                    'kept' => $item->paymentGateway !== null && !$options->contains('id', $item->payment_gateway_id),
+                return ['key' => self::rowKey($item), 'item' => $item, 'mayChange' => $mayChange, 'choices' => $choices,
+                    'current' => $label($item, $item->paymentGateway), 'renews' => $renews,
                     'status' => ItemPaymentMethod::autoChargeStatus($item)];
             })->all(),
             'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
