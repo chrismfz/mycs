@@ -835,12 +835,6 @@ parameters:
 			path: app/Livewire/Client/Notifications.php
 
 		-
-			message: '#^Access to an undefined property App\\Livewire\\Client\\PaymentMethods\:\:\$gateways\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Livewire/Client/PaymentMethods.php
-
-		-
 			message: '#^Method App\\Livewire\\Client\\PaymentMethods\:\:gateways\(\) is unused\.$#'
 			identifier: method.unused
 			count: 1

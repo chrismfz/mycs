@@ -41,6 +41,9 @@ class PaymentMethodsCardsTest extends TestCase
                 public function supportsBillingAgreements() { return true; } public function cancelBillingAgreement($agreement): bool { return true; }
                 public function createBillingAgreement($client) { return "https://cards-save.test/setup/" . $client->id; } }');
             eval('namespace MyCS\\Extensions\\Gateways\\CardsNoSave; class CardsNoSave { public $explicitConfig; public function __construct($config = []) {} }');
+            eval('namespace MyCS\\Extensions\\Gateways\\CardsView; class CardsView { public $explicitConfig; public function __construct($config = []) {}
+                public function supportsBillingAgreements() { return true; } public function cancelBillingAgreement($agreement): bool { return true; }
+                public function createBillingAgreement($client) { return new \\Illuminate\\Support\\HtmlString("<div>CARDS VIEW FORM</div>"); } }');
         }
         $this->saves = Gateway::query()->create(['extension' => 'CardsSave', 'name' => 'Cards Save', 'type' => 'gateway', 'enabled' => true]);
         $this->savesNothing = Gateway::query()->create(['extension' => 'CardsNoSave', 'name' => 'Wire Transfer', 'type' => 'gateway', 'enabled' => true]);
@@ -196,5 +199,42 @@ class PaymentMethodsCardsTest extends TestCase
             ->assertSee('Αυτόματη πληρωμή ανανεώσεων · Ενεργή')
             ->assertSee('Χρησιμοποιείται για τις αυτόματες πληρωμές')
             ->assertSee('Δεν αποθηκεύει τρόπους πληρωμής');
+    }
+
+    /** Review of 6a: the default changed meanwhile (an invoice paid with «save», staff); the next render shows it. */
+    public function test_the_radios_follow_the_account_on_any_render(): void
+    {
+        $this->method('Visa 4242');
+        $second = $this->method('Visa 1111');
+        $page = $this->livewireAs($this->user)->test(PaymentMethods::class);
+
+        $this->client->update(['default_billing_agreement_id' => $second->id]); // another tab
+        $page->set('autoCharge', false); // any other request on the page
+
+        $this->assertSame($second->ulid, $page->get('automaticMethod'));
+    }
+
+    /** Review of 6a: a gateway whose setup is a form (Stripe) shows it from the card's «Add» and from «?setup=1». */
+    public function test_a_gateways_setup_form_shows_from_the_card_and_from_the_chooser(): void
+    {
+        $view = Gateway::query()->create(['extension' => 'CardsView', 'name' => 'Cards View', 'type' => 'gateway', 'enabled' => true]);
+
+        $this->livewireAs($this->user)->test(PaymentMethods::class)
+            ->assertDontSee('CARDS VIEW FORM')
+            ->call('addMethod', $view->id)->assertSee('CARDS VIEW FORM')->assertSee(__('account.setup_payment_method'))
+            ->call('cancelSetup')->assertDontSee('CARDS VIEW FORM');
+
+        $this->livewireAs($this->user)->withQueryParams(['setup' => 1])->test(PaymentMethods::class)
+            ->assertSee(__('account.input.payment_gateway'))
+            ->set('gateway', $view->id)->call('createBillingAgreement')->assertSee('CARDS VIEW FORM');
+    }
+
+    public function test_a_radio_is_named_by_its_method_and_waits_for_its_pick(): void
+    {
+        $this->method('Visa 4242');
+
+        $this->livewireAs($this->user)->test(PaymentMethods::class)
+            ->assertSee('<span class="sr-only">: Visa 4242</span>', false)
+            ->assertSee('wire:target="automaticMethod"', false);
     }
 }

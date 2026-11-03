@@ -117,10 +117,14 @@
                     </div>
                     @if ($usable)
                     <label class="flex items-center gap-2 min-h-[32px] cursor-pointer">
+                        {{-- Disabled while a pick is on its way: a second one sent meanwhile would supersede it, and the radios could
+                             show one method while the account pays with another (review of 6a). --}}
                         <input type="radio" name="automatic-method" value="{{ $agreement->ulid }}" wire:model.live="automaticMethod"
+                            wire:loading.attr="disabled" wire:target="automaticMethod"
                             class="form-radio text-primary focus:ring-primary">
                         <span class="text-sm font-semibold {{ $marked ? 'text-primary' : 'text-base/70' }}">
                             {{ $marked ? __('account.default_payment_method') : __('account.make_default_payment_method') }}
+                            <span class="sr-only">: {{ $agreement->name }}</span>
                         </span>
                     </label>
                     @endif

@@ -18,6 +18,7 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 
+/** @property-read array<int, Gateway> $gateways the gateways that save methods (the computed gateways()) */
 class PaymentMethods extends Component
 {
     use WithPagination;
@@ -227,6 +228,9 @@ class PaymentMethods extends Component
 
     public function render()
     {
+        // The radios say what the account has on every render, not only after their own change: the default may have
+        // changed meanwhile (an invoice paid with «save» in another tab, staff; review of 6a).
+        $this->automaticMethod = $this->markedMethod();
         $client = CurrentClient::model()->fresh();
         $agreements = CurrentClient::model()->billingAgreements()->with('gateway')->latest()->get();
         $defaultAgreementId = $client?->default_billing_agreement_id === null ? null : (int) $client->default_billing_agreement_id;
