@@ -66,14 +66,26 @@ jobs:
   test-mariadb:
     runs-on: ubuntu-latest
     timeout-minutes: 30   # a hung test fails the job, not after GitHub's 6 hours (#428)
+    # The suite in two halves on two runners, each with its own MariaDB: the test step is CPU-bound PHP (a faster server
+    # saved ~3%, more processes than the runner's 4 cores slowed it), and on an AMD EPYC 7763 runner it alone took 15
+    # minutes (#603). Both halves run to the end: one failing does not cancel the other's failures.
     strategy:
-      fail-fast: false   # EXPERIMENT, removed before merge
+      fail-fast: false
       matrix:
         php: ['8.4']
         mariadb: ['10.11']   # same as the devbox
-        tuned: [false, true]          # EXPERIMENT, removed before merge
-        rep: [1, 2, 3]                # EXPERIMENT, removed before merge
+        shard: [1, 2]
     
+    services:
+      mariadb:
+        image: mariadb:${{ matrix.mariadb }}
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: mycs_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -97,27 +109,6 @@ jobs:
       - name: MariaDB client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client
 
-      # EXPERIMENT: tuned = durability off on tmpfs; not tuned = what the service container ran.
-      - name: Start MariaDB
-        run: |
-          if [ "${{ matrix.tuned }}" = true ]; then
-            storage="--tmpfs /var/lib/mysql:rw"
-            args="--innodb-flush-log-at-trx-commit=0 --innodb-doublewrite=0 --skip-log-bin --sync-binlog=0 --innodb-buffer-pool-size=2G"
-          else
-            storage=""; args=""
-          fi
-          docker run -d --name mariadb -p 3306:3306 $storage \
-            -e MARIADB_ROOT_PASSWORD=password -e MARIADB_DATABASE=mycs_test \
-            --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=2s --health-timeout=5s --health-retries=30 \
-            mariadb:${{ matrix.mariadb }} $args
-          for i in $(seq 90); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' mariadb)" = healthy ] && break
-            sleep 1
-          done
-          docker logs mariadb 2>&1 | tail -20
-          [ "$(docker inspect -f '{{.State.Health.Status}}' mariadb)" = healthy ]
-          mariadb -h127.0.0.1 -uroot -ppassword -e "SELECT VERSION(); SHOW VARIABLES WHERE Variable_name IN ('innodb_flush_log_at_trx_commit','innodb_doublewrite','log_bin','sync_binlog','innodb_buffer_pool_size','innodb_flush_method','datadir')"
-
       - name: Copy .env
         run: php -r "file_exists('.env') || copy('.env.example', '.env');"
         
@@ -140,11 +131,5 @@ jobs:
           DB_DATABASE: mycs_test
           DB_USERNAME: root
           DB_PASSWORD: password
-        run: lscpu | grep -E 'Model name|^CPU\(s\)'; php artisan test --parallel --log-junit=junit.xml   # one database per process (CLAUDE.md, «Tests»)
-
-      - name: EXPERIMENT upload junit
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: junit-${{ matrix.tuned }}-${{ matrix.rep }}
-          path: junit.xml
+        # Round-robin over the tests (not files), so a long class is split too. One database per process (CLAUDE.md, «Tests»).
+        run: php artisan test --parallel --shard=${{ matrix.shard }}/2 --shard-distribution=round-robin
