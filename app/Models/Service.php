@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
+use Illuminate\Support\Str;
 use MyCS\BillingPeriod\BillingPeriod;
 use MyCS\BillingPeriod\Prorata;
 use MyCS\Pricing\LinePricer;
@@ -50,6 +51,9 @@ use OwenIt\Auditing\Contracts\Auditable;
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
 {
+    /** The longest of what tells a service apart in a mail's name (mailName). */
+    public const MAIL_NAME_DETAIL = 80;
+
     use HasFactory, HasProperties, Traits\Auditable;
 
     public const STATUS_PENDING = 'pending';
@@ -247,7 +251,10 @@ class Service extends Model implements Auditable
     /**
      * The service as a mail names it (owner 2026-11-03: «which one?»): its product, and what tells it apart from the
      * others of the same product. A license: its own label (its nickname) and the IP it runs on (owner: more use than its
-     * key), else its key masked (prefix…last4, as everywhere). Anything else: its domain, else its own label.
+     * key), else its key masked (prefix…last4, as everywhere); a service of the licensing module with no license row
+     * yet (its domain is its key: code review of #592, F5) the same, never its whole key. Anything else: its domain (one
+     * with no dot is no domain but a key: masked), else its own label. What tells it apart is cut to MAIL_NAME_DETAIL characters: a customer's label of 255 would
+     * overflow the mail log's subject (F3).
      *
      * @return Attribute<string, never>
      */
@@ -256,16 +263,24 @@ class Service extends Model implements Auditable
         return Attribute::make(get: function (): string {
             $license = $this->license;
             $label = trim((string) ($this->getAttributes()['label'] ?? ''));
-            if ($license !== null) {
-                $ips = array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
+            if ($license !== null || $this->product?->server?->extension === 'NixpalLicensing') {
+                $ips = $license === null ? [] : array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
                 $ip = $ips === [] ? '' : $ips[0] . (count($ips) > 1 ? ' +' . (count($ips) - 1) : '');
-                $detail = implode(' · ', array_filter([$label, $ip])) ?: Scrub::licenseKey((string) $license->license_key);
+                $key = (string) ($license->license_key ?? $this->domain ?? '');
+                $detail = implode(' · ', array_filter([$label, $ip])) ?: (string) Scrub::licenseKey($key);
             } else {
-                $detail = trim((string) $this->domain) ?: $label;
+                $domain = trim((string) $this->domain);
+                // No dot: no domain but a key, or whatever was typed there (a license whose module is gone): masked.
+                $detail = $domain === '' ? $label : (str_contains($domain, '.') ? $domain : (string) Scrub::licenseKey($domain));
             }
-            $name = (string) ($this->product->name ?? '');
+            $detail = Str::limit($detail, self::MAIL_NAME_DETAIL);
+            $name = trim((string) ($this->product->name ?? ''));
 
-            return $detail === null || $detail === '' ? $name : "{$name} — {$detail}";
+            return match (true) {
+                $detail === '' => $name,
+                $name === '' => $detail,
+                default => "{$name} — {$detail}",
+            };
         });
     }
 
