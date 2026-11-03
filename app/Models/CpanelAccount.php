@@ -26,7 +26,8 @@ class CpanelAccount extends Model
     protected $fillable = ['server_id', 'user', 'domain', 'owner', 'plan', 'ip', 'reseller', 'disk_used_mb', 'disk_limit_mb', 'inodes_used',
         'inodes_limit', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'suspended', 'suspend_reason', 'suspended_at', 'mail_held', 'mail_suspended',
         'max_email_per_hour', 'backup', 'created_on_server_at', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note',
-        'lve_memory_limit_mb', 'lve_entry_processes_limit', 'lve_processes_limit', 'lve_io_limit_kbs', 'lve_iops_limit', 'lve_read_at'];
+        'lve_memory_limit_mb', 'lve_entry_processes_limit', 'lve_processes_limit', 'lve_io_limit_kbs', 'lve_iops_limit', 'lve_read_at',
+        'plan_disk_mb', 'plan_bandwidth_mb', 'limits_check', 'limits_check_mb', 'limits_checked_at'];
 
     /**
      * CloudLinux's limits (cpanel:lve): each one's column in a sample and its limit's on the account (CPU is a percent of
@@ -44,7 +45,8 @@ class CpanelAccount extends Model
     protected function casts(): array
     {
         return ['reseller' => 'boolean', 'suspended' => 'boolean', 'mail_held' => 'boolean', 'mail_suspended' => 'boolean', 'backup' => 'boolean',
-            'internal' => 'boolean', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
+            'internal' => 'boolean', 'plan_disk_mb' => 'integer', 'plan_bandwidth_mb' => 'integer', 'limits_check_mb' => 'integer',
+            'limits_checked_at' => 'datetime', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
     }
 
     /** @return BelongsTo<Server, $this> */
