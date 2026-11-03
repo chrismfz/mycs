@@ -33,7 +33,7 @@
                 </div>
                 <x-slot name="closeTrigger">
                     <div class="flex gap-4">
-                        <button wire:confirm="Are you sure?" wire:click="cancelSetup" wire:loading.attr="disabled"
+                        <button wire:confirm="{{ __('account.cancel_setup_confirm') }}" wire:click="cancelSetup" wire:loading.attr="disabled"
                             wire:target="cancelSetup" class="text-primary-100">
                             <x-ri-close-fill class="size-6" />
                         </button>
@@ -173,16 +173,13 @@
                             <x-ri-bill-line class="size-5 text-secondary" />
                         </div>
                         <span class="font-medium">
-                            {{ $transaction->transaction_id ? 'Transaction: ' . $transaction->transaction_id :
-                            'Transaction ID N/A' }}
+                            {{ $transaction->transaction_id ? __('account.transaction_ref', ['id' => $transaction->transaction_id]) : __('account.transaction_ref_none') }}
                         </span>
                         <span class="text-base/50 font-semibold">
                             <x-ri-circle-fill class="size-1 text-base/20" />
                         </span>
                         <span class="text-base text-sm">
-                            {{ $transaction->formattedAmount }}
-                            using
-                            {{ $transaction->gateway ? $transaction->gateway->name : 'N/A' }}
+                            {{ __('account.transaction_with', ['amount' => $transaction->formattedAmount, 'gateway' => $transaction->is_credit_transaction ? __('invoices.paid_with_credits') : ($transaction->gateway?->name ?? '—')]) }}
                         </span>
                     </div>
                     <div class="pr-2">

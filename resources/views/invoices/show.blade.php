@@ -77,8 +77,7 @@
                     </div>
                     <x-button.primary wire:click="$set('showPayModal', true)" class="mt-2" wire:loading.attr="disabled"
                         wire:target="$set('showPayModal')">
-                        <span wire:loading wire:target="pay">Processing...</span>
-                        <span wire:loading.remove wire:target="pay">Pay</span>
+                        {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
                     </x-button.primary>
                     @endif
                     @endif
