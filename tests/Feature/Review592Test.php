@@ -129,13 +129,19 @@ class Review592Test extends TestCase
     /** Holds: invalid JSON and non-string values in translations are left as they are. */
     public function test_the_migration_leaves_invalid_or_odd_translations(): void
     {
-        DB::table('notification_templates')->where('key', 'server_suspended')->update(['translations' => '{not json {{ service.product.name }}']);
+        // Invalid JSON only where the column takes it (SQLite): MariaDB's JSON column refuses it, so it never meets the migration.
+        $invalid = DB::connection()->getDriverName() === 'sqlite';
+        if ($invalid) {
+            DB::table('notification_templates')->where('key', 'server_suspended')->update(['translations' => '{not json {{ service.product.name }}']);
+        }
         DB::table('notification_templates')->where('key', 'server_unsuspended')
             ->update(['translations' => json_encode(['el' => ['subject' => 'A {{ service.product.name }}', 'n' => 3, 'b' => true, 'x' => null, 'deep' => ['s' => '{{ service.product.name }}']]])]);
 
         (require database_path(self::MIGRATION))->up();
 
-        $this->assertSame('{not json {{ service.product.name }}', DB::table('notification_templates')->where('key', 'server_suspended')->value('translations'));
+        if ($invalid) {
+            $this->assertSame('{not json {{ service.product.name }}', DB::table('notification_templates')->where('key', 'server_suspended')->value('translations'));
+        }
         $this->assertSame(['el' => ['subject' => 'A {{ service.mailName }}', 'n' => 3, 'b' => true, 'x' => null, 'deep' => ['s' => '{{ service.mailName }}']]],
             json_decode(DB::table('notification_templates')->where('key', 'server_unsuspended')->value('translations'), true));
     }
@@ -147,7 +153,7 @@ class Review592Test extends TestCase
         $service->load('product', 'client');
         DB::enableQueryLog();
         NotificationHelper::serverSuspendedNotification($service->client, $service);
-        $licenseQueries = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], '"licenses"'))->count();
+        $licenseQueries = collect(DB::getQueryLog())->filter(fn (array $q) => preg_match('/from [`"]licenses[`"]/', $q['query']) === 1)->count();
 
         $this->assertSame(1, $licenseQueries);
     }
