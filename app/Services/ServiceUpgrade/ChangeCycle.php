@@ -104,6 +104,13 @@ final class ChangeCycle
             && !self::sharedWithCreditOnly($invoice, $service))) {
             return __('An open invoice of this service has a payment on it.');
         }
+        // An open invoice of it kept from the automatic charge (the customer's «I'll pay another way», or staff's «Do not
+        // auto-charge»: a payment agreed another way, a transfer maybe on its way) would go, and the period it bills come
+        // back on an invoice the cron charges to the saved method: paid twice (ADV-623-1). Pay it, or settle it, first.
+        if (!$service->no_auto_charge && $service->client?->auto_charge && $service->client->billingAgreements()->exists()
+            && $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->where('invoices.no_auto_charge', true)->exists()) {
+            return __('An open invoice of this service is to be paid another way: pay it first, or ask us.');
+        }
         $coupon = $service->coupon;
         if ($coupon !== null && $service->coupon_expired_at === null && ($coupon->cycles() > 1 || in_array($coupon->type, ['fixed', 'override'], true))) {
             return __('A discount for its billing cycle runs on this service: ask us to change it.');

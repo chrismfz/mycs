@@ -13,13 +13,16 @@ use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\PaymentStatus;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
+use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\KeepPay\KeepPay;
@@ -179,6 +182,41 @@ class InvoiceKeepFromAutoChargeTest extends TestCase
         $this->assertSame([], $this->audits($invoice));
         // The component has no way to turn it back on.
         $this->assertFalse(method_exists($page->instance(), 'allowAutoCharge'));
+    }
+
+    public function test_staff_as_the_customer_need_the_admin_permission_the_same_change_needs(): void
+    {
+        $invoice = $this->invoice();
+        $impersonate = function (array $permissions) {
+            session(['impersonating' => $this->user->id, CurrentClient::SESSION_KEY => $this->client->id, CurrentClient::IMPERSONATING_KEY => $this->client->id]);
+            Auth::guard('staff')->setUser(Staff::factory()->withPermissions(array_merge(['admin.users.impersonate'], $permissions))->create());
+        };
+
+        // Without admin.invoices.update (SetAutoCharge's): neither offered nor done (SA-5, review of #623).
+        $impersonate([]);
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
+            ->assertDontSee(__('invoices.keep_from_charge.button'))->call('keepFromAutoCharge');
+        $this->assertFalse($invoice->fresh()->no_auto_charge);
+
+        // With it: done, and the audit says staff did it as the customer.
+        $impersonate(['admin.invoices.update']);
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice->fresh()])
+            ->assertSee(__('invoices.keep_from_charge.button'))->call('keepFromAutoCharge');
+        $this->assertTrue($invoice->fresh()->no_auto_charge);
+        $audit = Audit::query()->where('auditable_id', $invoice->id)->where('event', 'auto_charge_disabled')->sole();
+        $this->assertSame('staff_as_client', $audit->new_values['by']);
+        $this->assertNotNull($audit->new_values['staff_id']);
+    }
+
+    public function test_after_it_the_transfer_is_chosen_not_the_saved_method_just_declined(): void
+    {
+        $bank = Gateway::query()->create(['extension' => 'BankTransfer', 'name' => 'Bank transfer', 'type' => 'gateway', 'enabled' => true]);
+        $bank->settings()->create(['key' => 'accounts', 'value' => "Example Bank\nIBAN: GR00 0000 0000 0000 0000 0000 000"]);
+        $invoice = $this->invoice();
+        $invoice->forceFill(['preferred_gateway_id' => $this->agreement->gateway_id])->save();
+
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice->fresh()])
+            ->call('keepFromAutoCharge')->assertSet('selectedMethod', 'gateway-' . $bank->id);
     }
 
     public function test_never_while_a_charge_of_it_may_still_land(): void

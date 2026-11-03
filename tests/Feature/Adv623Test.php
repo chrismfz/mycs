@@ -128,17 +128,15 @@ class Adv623Test extends TestCase
         $this->livewireAs($this->user)->test(Show::class, ['invoice' => $kept])->call('keepFromAutoCharge');
         $this->assertTrue($kept->fresh()->no_auto_charge, 'precondition: kept');
 
+        // Fixed by refusing the change while the kept invoice is open (ChangeCycle::refusal): the kept invoice stays, the
+        // period is never billed again on an invoice the cron charges (author, review of #623).
         $this->livewireAs($this->user)->test(ServiceShow::class, ['service' => $service])->set('cyclePlan', $this->yearly->id)->call('changeCycle');
-        $this->assertSame($this->yearly->id, (int) $service->fresh()->next_plan_id, 'precondition: the change is set');
-        $this->assertSame(Invoice::STATUS_CANCELLED, $kept->fresh()->status, 'precondition: the kept renewal went with the old cycle');
+        $this->assertNull($service->fresh()->next_plan_id, 'the change is refused while the kept invoice is open');
+        $this->assertSame(Invoice::STATUS_UNPAID, $kept->fresh()->status, 'the kept renewal stays');
 
         Carbon::setTestNow('2026-11-12 09:00:00');
         $this->artisan('app:cron-job');
 
-        $rebilled = Invoice::query()->where('status', '!=', Invoice::STATUS_CANCELLED)->whereKeyNot($kept->id)
-            ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class)->where('reference_id', $service->id)
-                ->whereDate('period_start', '2026-11-12'))->first();
-        $this->assertNotNull($rebilled, 'precondition: the period the customer kept is billed again');
         $this->assertSame([], AdvKeepPay::$charges,
             'the card is charged for the period the customer chose to pay another way (a transfer would pay it twice)');
     }

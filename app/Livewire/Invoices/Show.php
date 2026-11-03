@@ -271,10 +271,20 @@ class Show extends Component
      */
     public function keepFromAutoCharge(): void
     {
+        // Staff in «Login as client» stop the collection only with the admin permission the same change needs there
+        // (SetAutoCharge: admin.invoices.update; SA-5, review of #623).
+        if (!$this->mayKeepFromAutoCharge()) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
         $kept = DB::transaction(function () {
             $locked = (new RecordPaymentService)->lockInvoice($this->invoice->id);
-            if ($locked->status !== Invoice::STATUS_UNPAID || $locked->no_auto_charge || !AutoCharge::willCharge($locked)) {
-                return 'none'; // nothing the cron would charge (paid meanwhile, kept already, a subscription's)
+            if ($locked->status !== Invoice::STATUS_UNPAID) {
+                return 'closed'; // paid, or cancelled, meanwhile
+            }
+            if ($locked->no_auto_charge || !AutoCharge::willCharge($locked)) {
+                return 'none'; // nothing the cron would charge (kept already, a subscription's)
             }
             if (SavedMethodCharge::onItsWay($locked)) {
                 return 'held';
@@ -284,7 +294,7 @@ class Show extends Component
             $locked->auditEvent = 'auto_charge_disabled';
             $locked->isCustomEvent = true;
             $locked->auditCustomOld = ['no_auto_charge' => false];
-            $locked->auditCustomNew = ['no_auto_charge' => true, 'by' => 'client', 'user_id' => Auth::id(),
+            $locked->auditCustomNew = ['no_auto_charge' => true, 'by' => Actor::impersonating() ? 'staff_as_client' : 'client', 'user_id' => Auth::id(),
                 'staff_id' => Actor::impersonating() ? Auth::guard('staff')->id() : null];
             event(new AuditCustom($locked));
 
@@ -293,13 +303,22 @@ class Show extends Component
         $this->invoice->refresh();
         $this->statusMemo = null;
         if ($kept === 'kept') {
-            $this->selectedMethod ??= $this->preferredChoice(); // none was chosen for it while it was paid on its own
+            // Another way: the bank transfer, where it is offered; never the saved method just declined (review of #623).
+            $transfer = collect($this->gateways)->first(fn ($gateway) => $gateway->extension === 'BankTransfer');
+            $this->selectedMethod = $transfer !== null ? 'gateway-' . $transfer->id : null;
         }
         match ($kept) {
             'kept' => $this->notify(__('invoices.keep_from_charge.done'), 'success'),
             'held' => $this->notify(__('A payment for this invoice is already on its way.'), 'error'),
+            'closed' => $this->notify(__('This invoice cannot be paid.'), 'error'),
             default => $this->notify(__('invoices.keep_from_charge.not_charged'), 'error'),
         };
+    }
+
+    /** Who may press «I'll pay another way»: the account, or staff as it with the admin permission (SA-5). */
+    public function mayKeepFromAutoCharge(): bool
+    {
+        return !Actor::impersonating() || Actor::staffMayAs('pay');
     }
 
     public function processPayment()

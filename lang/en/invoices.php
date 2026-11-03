@@ -140,10 +140,11 @@ return [
 
     // Bank transfer (#287)
     'bank_transfer_charged' => 'This invoice will be paid automatically with your saved payment method on :date, so there is no need to pay by transfer. If you would rather pay it by transfer, close this window and choose «I\'ll pay another way» at the top of the invoice: the bank details are shown then.',
+    'bank_transfer_subscribed' => 'This invoice is paid automatically by your subscription, so there is no need to pay by transfer. If you would rather pay it by transfer, please contact us first.',
     // «I'll pay another way» on an invoice the cron charges (Show::keepFromAutoCharge).
     'keep_from_charge' => [
         'button' => 'I\'ll pay another way',
-        'confirm' => 'Your saved payment method will not be charged for this invoice. Please pay it yourself by its due date, by bank transfer or any other way. Your next renewals are still charged automatically.',
+        'confirm' => 'Your saved payment method will not be charged for this invoice. Please pay it yourself soon, by bank transfer or any other way. Your next renewals are still charged automatically.',
         'done' => 'This invoice will not be charged automatically. You can pay it now in any way you like.',
         'not_charged' => 'This invoice is not charged automatically.',
     ],

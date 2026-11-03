@@ -48,7 +48,7 @@
                     <p class="text-sm text-base">{{ $statusBody }}</p>
                     @endif
                     {{-- Charged on its own: the customer may keep it from that and pay another way, a transfer say (Show::keepFromAutoCharge). --}}
-                    @if ($paymentStatus->charged())
+                    @if ($paymentStatus->charged() && $this->mayKeepFromAutoCharge())
                     <button type="button" wire:click="keepFromAutoCharge" wire:confirm="{{ __('invoices.keep_from_charge.confirm') }}"
                         wire:loading.attr="disabled" wire:target="keepFromAutoCharge" class="text-sm text-primary underline text-left">
                         {{ __('invoices.keep_from_charge.button') }}
