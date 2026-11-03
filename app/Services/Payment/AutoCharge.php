@@ -2,6 +2,8 @@
 
 namespace App\Services\Payment;
 
+use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\InvoiceResource;
 use App\Console\Commands\CronJob;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
@@ -63,8 +65,11 @@ final class AutoCharge
         }
         $this->declined = count($declined);
         if ($declined !== []) {
-            NotificationHelper::sendSystemEmailNotification('Automatic charges declined', e(sprintf(
-                "%d automatic charge(s) were declined today and will be tried again as set:\n%s", count($declined), implode("\n", $declined))));
+            // One line each, with the invoice and its customer linked in the admin (owner 2026-11-04: «Invoice #9000010,
+            // customer #1» on one line told staff neither which invoice nor whose).
+            NotificationHelper::sendSystemEmailNotification('Automatic charges declined', '<p>' . e(sprintf(
+                '%d automatic charge(s) were declined today and will be tried again as set:', count($declined))) . '</p><ul><li>'
+                . implode('</li><li>', $declined) . '</li></ul>');
         }
         $this->tellOfTakenNotRecorded();
 
@@ -308,8 +313,7 @@ final class AutoCharge
             return true;
         }
 
-        $declined[] = sprintf('Invoice #%d (%s %s, customer #%d): %s', $invoice->id, $attempt->amount, $attempt->currency_code,
-            $invoice->client_id, $attempt->error ?? 'declined');
+        $declined[] = self::declinedLine($invoice, $attempt);
         if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
             return false; // maybe taken: sent again with its key, the customer is not told it failed
         }
@@ -328,6 +332,22 @@ final class AutoCharge
         }
 
         return false;
+    }
+
+    /**
+     * A declined charge's line in staff's digest (HTML): the invoice and its customer, each linked in the admin (as the chat
+     * cards link them), the amount and the gateway's answer.
+     */
+    private static function declinedLine(Invoice $invoice, ChargeAttempt $attempt): string
+    {
+        $invoiceLink = sprintf('<a href="%s">%s</a>', e(InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')),
+            e(($invoice->number ?: '#' . $invoice->id) . ($invoice->number ? ' (#' . $invoice->id . ')' : '')));
+        $client = $invoice->client;
+        $clientLink = $client === null ? e('customer #' . $invoice->client_id) : sprintf('<a href="%s">%s</a>',
+            e(ClientResource::getUrl('view', ['record' => $client], panel: 'admin')), e(trim((string) $client->name) . ' (#' . $client->id . ')'));
+
+        return sprintf('%s · %s · %s %s · %s', $invoiceLink, $clientLink, e((string) $attempt->amount), e((string) $attempt->currency_code),
+            e($attempt->error ?? 'declined'));
     }
 
     /**

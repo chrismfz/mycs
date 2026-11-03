@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\InvoiceResource;
 use App\Console\Commands\CronJob;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
@@ -177,5 +179,12 @@ class CronCatchUpTest extends TestCase
         $this->assertSame(1, (int) CronStat::query()->where('key', 'charges_declined')->sum('value'));
         $this->assertSame(0, (int) CronStat::query()->where('key', 'invoices_charged')->sum('value'));
         $this->assertStringContainsString(__('admin.cronjob.charges_declined') . "' completed: Processed 1 items.", Artisan::output());
+
+        // Staff's digest names the invoice and its customer, each linked in the admin (owner 2026-11-04).
+        $mail = EmailLog::query()->where('subject', 'Automatic charges declined')->sole();
+        $this->assertStringContainsString(e(InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')), (string) $mail->body);
+        $this->assertStringContainsString(e(ClientResource::getUrl('view', ['record' => $client], panel: 'admin')), (string) $mail->body);
+        $this->assertStringContainsString(e($client->name), (string) $mail->body);
+        $this->assertStringContainsString('Card declined: insufficient_funds', (string) $mail->body);
     }
 }
