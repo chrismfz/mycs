@@ -5,7 +5,7 @@ return [
     'cronjob' => [
         'invoices_created' => 'Invoices created',
         'invoices_charged' => 'Invoices charged to saved payment methods',
-        'charges_declined' => 'Automatic charges declined',
+        'charges_declined' => 'Automatic charges not taken (declined, to confirm, or of unknown outcome)',
         'domains_renewed' => 'Domains renewed',
         'bulk_mails_resumed' => 'Bulk mails resumed',
         'card_expiry_notices' => 'Expiry notices of saved payment methods sent',

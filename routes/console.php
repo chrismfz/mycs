@@ -32,7 +32,7 @@ Schedule::call(function () {
     if (app()->isDownForMaintenance()) {
         NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
             The daily run's time came while the app was in maintenance (a deploy): today's invoices, charges and reminders are not done yet.<br>
-            The hourly check starts it by itself at the next half past (:35) once the deploy is over. To run it now: <code>php artisan app:cron-job</code>.
+            The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the deploy is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
             HTML);
     }
 })->name('cron-skipped-in-maintenance')->description('Tells staff when the daily run fell in maintenance')

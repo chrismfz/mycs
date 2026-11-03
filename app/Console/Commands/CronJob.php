@@ -99,6 +99,9 @@ class CronJob extends Command
     /** When a daily run last got to the suspensions (the hourly run's gate). */
     public const DUNNING_READY = 'cron_dunning_ready_at';
 
+    /** When a daily run last started (runSteps): the catch-up's «today's run started», ended or not (ADV-624-2). */
+    public const STARTED = 'cron_run_started_at';
+
     /**
      * Execute the console command.
      */
@@ -135,7 +138,7 @@ class CronJob extends Command
             // of #411). Run it again by hand once the other run is over.
             NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
                 The daily run found another run of the cron in progress (or the lock of one that crashed, for up to two hours) and did not start: today's invoices, charges and reminders are not done yet.<br>
-                The hourly check starts it by itself at the next half past (:35) once the other is over. To run it now: <code>php artisan app:cron-job</code>.
+                The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the other is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
                 HTML);
 
             return self::FAILURE;
@@ -161,7 +164,7 @@ class CronJob extends Command
         if (!$this->option('dunning-only')) {
             NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
                 The daily run started while the app was in maintenance (a deploy) and did nothing: today's invoices, charges and reminders are not done yet.<br>
-                The hourly check starts it by itself at the next half past (:35) once the deploy is over. To run it now: <code>php artisan app:cron-job</code>.
+                The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the deploy is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
                 HTML);
         }
 
@@ -171,9 +174,10 @@ class CronJob extends Command
     /**
      * Today's daily run that did not start: its minute fell in a deploy, the server was down, or another run held the lock
      * past its wait. The hourly check starts it, once a day, so the day's invoices, charges and reminders do not wait for
-     * staff to read the mail (2026-11-04: a deploy from 23:59 skipped the 00:00 run). Nothing before its time (and ten
-     * minutes for it to begin), once a run of today ended (last_cron_run, with errors too), while the app is down (the next
-     * hour then), or while a run holds the lock (today's, maybe, still running). A run at 23:50 that did not start is not
+     * staff to read the mail (2026-11-04: a deploy from 23:59 skipped the 00:00 run). Nothing before its time (and the
+     * daily run's own wait for the lock, with a margin: review of #624), once a run started today (ended, still running past
+     * its lock, or killed: that one is staff's, not run again; ADV-624-2), while the app is down, read again under the lock
+     * (the next hour then; ADV-624-1), or while a run holds the lock. A run at 23:25 or later that did not start is not
      * caught up: the next day is the next run's.
      */
     private function catchUp(): int
@@ -183,7 +187,8 @@ class CronJob extends Command
         } catch (Throwable) {
             return self::SUCCESS;
         }
-        if (Carbon::now()->lt($time->copy()->addMinutes(10)) || self::ranSince($time) || app()->isDownForMaintenance()) {
+        $margin = max(10, intdiv(self::$lockWait, 60) + 5);
+        if (Carbon::now()->lt($time->copy()->addMinutes($margin)) || self::startedToday() || self::down()) {
             return self::SUCCESS;
         }
         $lock = Cache::lock('app:cron-job', 7200);
@@ -191,13 +196,13 @@ class CronJob extends Command
             return self::SUCCESS;
         }
         try {
-            // Read again under the lock: a run that ended meanwhile is today's. Once a day, whatever it ends with.
-            if (self::ranSince($time) || !Cache::add('cron-catch-up:' . Carbon::today()->toDateString(), true, 86400)) {
+            // Read again under the lock: a run that started meanwhile, a deploy that went down. Once a day, whatever it ends with.
+            if (self::startedToday() || self::down() || !Cache::add('cron-catch-up:' . Carbon::today()->toDateString(), true, 86400)) {
                 return self::SUCCESS;
             }
             $this->warn("Today's daily run did not start at {$time->format('H:i')}: starting it now.");
             NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run started late', e(sprintf(
-                "Today's daily run did not start at %s (a deploy at that minute, the server down, or another run in progress). It was started at %s by the hourly check: nothing to do.",
+                "Today's daily run did not start at %s (a deploy at that minute, the server down, or another run in progress). The hourly check started it at %s; a «Cron Job Error» follows if anything in it fails.",
                 $time->format('H:i'), Carbon::now()->format('H:i'))));
 
             return $this->runSteps() ?? self::SUCCESS;
@@ -207,18 +212,34 @@ class CronJob extends Command
     }
 
     /**
-     * A daily run ended at or after $time (last_cron_run). An unreadable time counts as none.
+     * The app is in maintenance (a deploy).
      *
-     * @phpstan-impure it reads the database: a run may have ended since the last call
+     * @phpstan-impure a deploy may have gone down since the last call (ADV-624-1)
      */
-    private static function ranSince(Carbon $time): bool
+    private static function down(): bool
     {
-        $last = Setting::query()->where('key', 'last_cron_run')->where('settingable_type', CronStat::class)->value('value');
-        try {
-            return $last !== null && Carbon::parse((string) $last)->gte($time);
-        } catch (Throwable) {
-            return false;
-        }
+        return app()->isDownForMaintenance();
+    }
+
+    /**
+     * A daily run started today: its start (STARTED), its reaching the suspensions (DUNNING_READY) or its end
+     * (last_cron_run) is of today, whatever the daily time is now (staff may move it later: ADV-624-3). An unreadable or
+     * future time counts as none.
+     *
+     * @phpstan-impure it reads the database: a run may have started since the last call
+     */
+    private static function startedToday(): bool
+    {
+        return Setting::query()->whereIn('key', [self::STARTED, self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)
+            ->pluck('value')->contains(function ($value) {
+                try {
+                    $at = Carbon::parse((string) $value);
+                } catch (Throwable) {
+                    return false;
+                }
+
+                return $at->isToday() && $at->lte(Carbon::now());
+            });
     }
 
     /**
@@ -310,6 +331,8 @@ class CronJob extends Command
 
     private function runSteps()
     {
+        // Started: the hourly catch-up never starts today's run again, ended or not (ADV-624-2).
+        Setting::updateOrCreate(['key' => self::STARTED, 'settingable_type' => CronStat::class], ['value' => now()->toDateTimeString(), 'type' => 'string']);
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
         $this->failures = $this->notices = $this->suspended = $this->terminated = [];

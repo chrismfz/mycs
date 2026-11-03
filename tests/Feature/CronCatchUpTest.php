@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\CronJob;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\CronStat;
@@ -131,6 +132,22 @@ class CronCatchUpTest extends TestCase
         Carbon::setTestNow('2026-11-04 02:35:00');
         Artisan::call('app:cron-job', ['--catch-up' => true]);
         $this->assertSame('2026-11-04 02:35:00', $this->ranAt());
+    }
+
+    public function test_once_a_day_even_when_its_run_left_no_trace(): void
+    {
+        $this->lastRun('2026-11-03 00:00:40');
+        Carbon::setTestNow('2026-11-04 00:35:00');
+        Artisan::call('app:cron-job', ['--catch-up' => true]);
+        $this->assertSame(1, $this->lateMails());
+
+        // Its start and end lost (a crash before they were written, say): the next hour still does not start it again.
+        Setting::query()->where('settingable_type', CronStat::class)->whereIn('key', [CronJob::STARTED, CronJob::DUNNING_READY])->delete();
+        $this->lastRun('2026-11-03 00:00:40');
+        Carbon::setTestNow('2026-11-04 01:35:00');
+        Artisan::call('app:cron-job', ['--catch-up' => true]);
+        $this->assertSame('2026-11-03 00:00:40', $this->ranAt());
+        $this->assertSame(1, $this->lateMails());
     }
 
     public function test_it_is_scheduled_hourly(): void
