@@ -407,9 +407,11 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                Your service **{{ service.mailName }}** was changed{% if old_product %} from **{{ old_product }}**{% endif %} to **{{ service.product.name }}**. It is ready to use.
+                Your service **{{ service.mailName }}** was changed{% if old_product %} from **{{ old_product }}**{% endif %} to **{{ service.product.name }}**.
+                {% if service.expires_at %}{% if service.plan.type == "recurring" %}
 
                 From its next renewal on **{{ service.expires_at|date("d/m/Y") }}** it renews at **{{ service.formattedPrice }}**.
+                {% endif %}{% endif %}
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.service }}">
@@ -1527,9 +1529,11 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Η υπηρεσία σας **{{ service.mailName }}** άλλαξε{% if old_product %} από **{{ old_product }}**{% endif %} σε **{{ service.product.name }}** και είναι έτοιμη για χρήση.
+                    Η υπηρεσία σας **{{ service.mailName }}** άλλαξε{% if old_product %} από **{{ old_product }}**{% endif %} σε **{{ service.product.name }}**.
+                    {% if service.expires_at %}{% if service.plan.type == "recurring" %}
 
                     Από την επόμενη ανανέωση, στις **{{ service.expires_at|date("d/m/Y") }}**, ανανεώνεται με **{{ service.formattedPrice }}**.
+                    {% endif %}{% endif %}
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.service }}">

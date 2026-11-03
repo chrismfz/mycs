@@ -17,6 +17,7 @@ use App\Support\AfterCommit;
 use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class ServiceUpgradeService
 {
@@ -161,10 +162,15 @@ class ServiceUpgradeService
 
             // Its customer told, once it is committed (an upgrade, a downgrade or options; WHMCS confirms one).
             $id = (int) $service->id;
+            // A mail that fails is reported and goes no further: the after-commit callbacks behind it still run (EVT-2).
             DB::afterCommit(function () use ($id, $from) {
-                $changed = Service::query()->with('product', 'client')->find($id);
-                if ($changed?->client !== null) {
-                    NotificationHelper::serviceUpgradedNotification($changed->client, $changed, $from);
+                try {
+                    $changed = Service::query()->with('product', 'plan', 'client')->find($id);
+                    if ($changed?->client !== null) {
+                        NotificationHelper::serviceUpgradedNotification($changed->client, $changed, $from);
+                    }
+                } catch (Throwable $e) {
+                    report($e);
                 }
             });
 

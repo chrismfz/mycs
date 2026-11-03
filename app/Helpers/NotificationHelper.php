@@ -650,13 +650,13 @@ class NotificationHelper
         self::toAccount($client, 'server_suspended', $data);
     }
 
-    /** $byStaff: staff's «Unsuspend» with «Send notification» (ADV-545-1): sent whatever the contact takes. */
     /** An upgrade or downgrade applied (owner's live test 2026-11-03: none told; WHMCS confirms one): from what, to what, at what price. */
     public static function serviceUpgradedNotification(Client $client, Service $service, ?string $from): void
     {
         self::toAccount($client, 'service_upgraded', ['service' => $service, 'old_product' => $from]);
     }
 
+    /** $byStaff: staff's «Unsuspend» with «Send notification» (ADV-545-1): sent whatever the contact takes. */
     public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = [], bool $byStaff = false): void
     {
         $data['service'] = $service;

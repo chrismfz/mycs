@@ -402,7 +402,8 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         }
 
         // Why, as WHM shows it (WHMCS sends its reason too: «Overdue on Payment»; owner's live test 2026-11-03 saw «Unknown»).
-        $why = array_filter(['reason' => mb_substr(trim((string) $service->suspend_reason), 0, 250)]);
+        // One line, no control characters (a reason imported from WHMCS may carry a newline into WHM's file).
+        $why = array_filter(['reason' => mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (string) $service->suspend_reason)), 0, 250)]);
         // A reseller: its own accounts with it (WHM's suspendreseller), as WHMCS for a reseller product.
         $this->resellerInWhm($settings, $properties, $properties['cpanel_username'])
             ? $this->whm('/suspendreseller', ['user' => $properties['cpanel_username']] + $why, timeout: self::LONG)
