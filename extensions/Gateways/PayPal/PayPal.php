@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use JsonException;
 use Throwable;
 
 #[ExtensionMeta(
@@ -347,6 +348,7 @@ class PayPal extends Gateway
     }
 
     /**
+     * @param  array<mixed>|string  $data  a string is sent as the JSON body as it is (the webhook's verification)
      * @param  string|null  $requestId  PayPal-Request-Id: the same id for a retry of the same operation lets PayPal
      *                                  answer the first result instead of doing it twice (refunds); null = a new one
      *
@@ -355,11 +357,15 @@ class PayPal extends Gateway
     public function request($method, $url, $data = [], ?string $requestId = null, array $headers = [])
     {
         $requestId ??= (string) Str::uuid();
-        $send = fn () => Http::withHeaders([
-            'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->generateAccessToken(),
-            'PayPal-Request-Id' => $requestId,
-        ] + $headers)->$method($url, $data);
+        $send = function () use ($method, $url, $data, $requestId, $headers) {
+            $http = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $this->generateAccessToken(),
+                'PayPal-Request-Id' => $requestId,
+            ] + $headers);
+
+            return is_string($data) ? $http->withBody($data, 'application/json')->$method($url) : $http->$method($url, $data);
+        };
 
         $response = $send();
         if ($response->status() === 401) { // expired token: a new one, same request id
@@ -627,16 +633,33 @@ class PayPal extends Gateway
     public function webhook(Request $request)
     {
         $body = $request->getContent();
+        // Only a JSON object is an event; anything else is not asked about (and could not be embedded below as a value).
+        if (!is_array(json_decode($body, true)) || !str_starts_with(ltrim($body), '{')) {
+            GatewayLog::current()->signature(false);
+
+            return response()->json(['status' => 'error'], 400);
+        }
+        // The event goes to PayPal as it came, never decoded and encoded again: a decoded `{}` comes back `[]`, and the
+        // event no longer matches its signature (two of the first live events, 2026-11-02, failed so on every retry).
         try {
-            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
+            $fields = json_encode([
                 'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
                 'cert_url' => $request->header('PAYPAL-CERT-URL'),
                 'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
                 'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
                 'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
                 'webhook_id' => $this->config('webhook_id'),
-                'webhook_event' => json_decode($body, true),
-            ]);
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException) {
+            // A header that is not UTF-8 is none PayPal sent: refused as a forged call, never a 500 that reads as a
+            // payment lost (ADV-601-1).
+            GatewayLog::current()->signature(false);
+
+            return response()->json(['status' => 'error'], 400);
+        }
+        try {
+            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature',
+                substr($fields, 0, -1) . ',"webhook_event":' . $body . '}');
         } catch (PayPalApiException $e) {
             if ($e->status >= 500) {
                 throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
