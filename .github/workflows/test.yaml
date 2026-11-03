@@ -131,5 +131,6 @@ jobs:
           DB_DATABASE: mycs_test
           DB_USERNAME: root
           DB_PASSWORD: password
-        # Round-robin over the tests (not files), so a long class is split too. One database per process (CLAUDE.md, «Tests»).
-        run: php artisan test --parallel --shard=${{ matrix.shard }}/2 --shard-distribution=round-robin
+        # ParaTest's sequential split: the sorted tests cut in two by count, then run file by file (a file astride the cut runs
+        # in both halves, so nothing is left out). One database per process (CLAUDE.md, «Tests»).
+        run: php artisan test --parallel --shard=${{ matrix.shard }}/2
