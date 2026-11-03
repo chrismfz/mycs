@@ -141,4 +141,22 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertStringContainsString('400', $output);
         $this->assertStringContainsString('5000', $output);
     }
+
+    /**
+     * «Credit on Downgrade» comes as WHMCS has it (2026-11-03): nixpal on, myip off (an empty value), MyCS's default on: myip's
+     * downgrades would have given credit WHMCS never gave.
+     */
+    public function test_credit_on_downgrade_comes_as_whmcs_has_it(): void
+    {
+        $downgrade = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'credits_on_downgrade')->first()?->getRawOriginal('value');
+        $this->import(['CreditOnDowngrade' => '']);
+        $this->assertSame('0', $downgrade(), 'myip: off');
+
+        $this->import(['CreditOnDowngrade' => 'on']);
+        $this->assertSame('1', $downgrade(), 'nixpal: on');
+
+        Setting::query()->whereNull('settingable_type')->where('key', 'credits_on_downgrade')->delete();
+        $this->import(['AutoSuspension' => 'on']);
+        $this->assertNull($downgrade(), 'none in WHMCS: MyCS\'s own kept (no row written)');
+    }
 }
