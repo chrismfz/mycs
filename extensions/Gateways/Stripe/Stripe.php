@@ -10,6 +10,7 @@ use App\Events\ServiceCancellation\Created;
 use App\Exceptions\ChargeNeedsAction;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Extension;
@@ -17,11 +18,14 @@ use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\GatewayReference;
+use App\Services\Money\PaymentsLog;
+use App\Services\Payment\SubscriptionEnded;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
@@ -29,6 +33,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
@@ -201,6 +206,10 @@ class Stripe extends Gateway
                     'payment_intent.processing',
                     'setup_intent.succeeded',
                     'subscription_schedule.canceled',
+                    'customer.subscription.deleted',
+                    'customer.subscription.updated',
+                    'customer.subscription.paused',
+                    'customer.subscription.resumed',
                     'invoice.created',
                     'invoice.payment_succeeded',
                     'charge.updated',
@@ -413,11 +422,15 @@ class Stripe extends Gateway
                 }
                 break;
             case 'subscription_schedule.canceled':
-                $subscriptionSchedule = $event->data->object; // contains a StripeSubscriptionSchedule
-                $service = Service::where('subscription_id', $subscriptionSchedule->id)->first();
-                if ($service) {
-                    $service->update(['subscription_id' => null]);
-                }
+                // A schedule cancelled cancels its subscription. The services carry the subscription's id
+                // (setupSubscription), never the schedule's: looked up by that, it never matched (review of #605).
+                $this->subscriptionChanged((string) ($event->data->object->subscription ?? ''), 'canceled');
+                break;
+            case 'customer.subscription.deleted':
+            case 'customer.subscription.updated':
+            case 'customer.subscription.paused':
+            case 'customer.subscription.resumed':
+                $this->subscriptionChanged((string) ($event->data->object->id ?? ''), (string) ($event->data->object->status ?? ''));
                 break;
             case 'invoice.created':
                 $invoice = $event->data->object; // contains a StripeInvoice
@@ -445,7 +458,8 @@ class Stripe extends Gateway
                     break;
                 }
 
-                $service = Service::where('subscription_id', $invoice->parent->subscription_details->subscription)->first();
+                // Also a subscription that ended here before this payment came (SubscriptionEnded): its money is still theirs.
+                $service = SubscriptionEnded::services((string) $invoice->parent->subscription_details->subscription)->first();
                 if ($service) {
                     $invoiceModel = $service->invoiceItems->sortByDesc('created_at')->first()->invoice;
                     $paymentIntents = $this->request('get', '/invoice_payments', ['invoice' => $invoice->id]);
@@ -718,12 +732,80 @@ class Stripe extends Gateway
             }
         }
 
+        // Kept aside: a payment of it already on its way still finds the service (SubscriptionEnded).
+        SubscriptionEnded::keep($service, (string) $service->subscription_id);
         // Remove subscription id from service
         $service->update(['subscription_id' => null]);
         // Remove has_stripe_subscription property
         $service->properties()->where('key', 'has_stripe_subscription')->delete();
 
         return true;
+    }
+
+    /** The statuses of a subscription that bills no more: cancelled, never paid, unpaid (retries over), paused. */
+    private const SUBSCRIPTION_ENDED = ['canceled', 'incomplete_expired', 'unpaid', 'paused'];
+
+    /** The statuses of one that bills (again). */
+    private const SUBSCRIPTION_BILLING = ['active', 'trialing', 'past_due'];
+
+    /**
+     * A subscription's status changed at Stripe ($status: what the event says). Ended there (cancelled in the dashboard
+     * or the customer portal, unpaid after the retries, paused): its services no longer carry it, so their invoices are
+     * charged and paid as any other (SubscriptionEnded). Only once Stripe says so now: an old event sent again never
+     * clears one that still bills. One that ended here and bills again: staff are told, as for PayPal.
+     */
+    private function subscriptionChanged(string $id, string $status): void
+    {
+        if (preg_match('/^sub_[A-Za-z0-9]{1,250}\z/', $id) !== 1) {
+            return;
+        }
+        $carried = Service::query()->where('subscription_id', $id)->exists();
+        if ($carried && in_array($status, self::SUBSCRIPTION_ENDED, true)) {
+            $now = $this->subscriptionStatus($id);
+            if (in_array($now, self::SUBSCRIPTION_ENDED, true)) {
+                SubscriptionEnded::clear('Stripe', $id, 'subscription ' . $status . ', ' . $now . ' at Stripe', ['has_stripe_subscription']);
+
+                return;
+            }
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'subscription_still_' . ($now ?? 'unknown'), ['external_id' => $id]);
+
+            return;
+        }
+        if ($carried || !in_array($status, self::SUBSCRIPTION_BILLING, true)) {
+            return; // a subscription that bills as before (a routine update), or one none of ours carries
+        }
+        $ended = SubscriptionEnded::ended($id)
+            ->where(fn ($unset) => $unset->whereNull('subscription_id')->orWhere('subscription_id', '!=', $id))
+            ->orderBy('id')->pluck('id');
+        if ($ended->isEmpty() || !in_array($this->subscriptionStatus($id), self::SUBSCRIPTION_BILLING, true)) {
+            return;
+        }
+        $message = sprintf('The Stripe subscription %s bills again. It was cleared from service #%s when it ended, so those invoices are charged and payable as any other while the subscription bills too: what is paid twice becomes credit. Set it back as the service\'s subscription id if it should pay them, or cancel it in Stripe.',
+            $id, $ended->implode(', #'));
+        PaymentsLog::warning($message, ['subscription_id' => $id, 'services' => $ended->all()]);
+        if (Cache::add('stripe-subscription-active-again:' . $id, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('Stripe subscription active again', e($message));
+        }
+    }
+
+    /**
+     * The subscription's status as Stripe has it now; null when Stripe does not know it (another account's). Any other
+     * failure is thrown: the webhook answers 500 and Stripe sends the event again.
+     */
+    private function subscriptionStatus(string $id): ?string
+    {
+        try {
+            $subscription = $this->request('get', '/subscriptions/' . $id);
+        } catch (RequestException $e) {
+            if ($e->response->status() !== 404 || $e->response->json('error.code') !== 'resource_missing') {
+                throw $e;
+            }
+            PaymentsLog::warning('Stripe does not know subscription ' . $id . ': nothing changed here.', ['subscription_id' => $id]);
+
+            return null;
+        }
+
+        return is_string($subscription->status ?? null) ? $subscription->status : null;
     }
 
     public function supportsBillingAgreements(): bool
