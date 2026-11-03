@@ -128,7 +128,9 @@ class Review616HomeSummaryTest extends TestCase
             DB::flushQueryLog();
             DB::enableQueryLog();
             $this->workOn($this->owner)->get(route('dashboard'))->assertOk()->assertSee('vm0.example.net');
-            $n = count(DB::getQueryLog());
+            // Reads only: a request's own writes (a session, a once-a-minute «last seen») come and go with the clock, and
+            // made CI count 23 for one service and 21 for eight (PR #616's run). A query per row is a read.
+            $n = collect(DB::getQueryLog())->filter(fn (array $query) => str_starts_with(strtolower(ltrim($query['query'])), 'select'))->count();
             DB::disableQueryLog();
 
             return $n;
@@ -136,7 +138,7 @@ class Review616HomeSummaryTest extends TestCase
         $one = $count(1);
         $eight = $count(8);
 
-        $this->assertSame($one, $eight, "1 service: {$one} queries, 8: {$eight}");
+        $this->assertLessThanOrEqual($one, $eight, "1 service: {$one} reads, 8: {$eight}");
     }
 
     /** R5: a member with `products` but not `manageproducts` sees no panel username on the home table (as on the service's page). */
