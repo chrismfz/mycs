@@ -76,10 +76,11 @@ class WhmcsRecordParityTest extends TestCase
             $invoice->items()->delete();
             $invoice->items()->create(['description' => 'Hosting', 'price' => 10, 'quantity' => 1]);
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
-            DB::table('invoice_transactions')->insert(['invoice_id' => $invoice->id, 'amount' => 10, 'is_credit_transaction' => false, 'status' => 'succeeded',
-                'created_at' => now(), 'updated_at' => now()]);
+            // The importer keeps a payment's id (tblaccounts.id): the same on both sides, whatever MariaDB's counter is at.
+            $paymentId = DB::table('invoice_transactions')->insertGetId(['invoice_id' => $invoice->id, 'amount' => 10, 'is_credit_transaction' => false,
+                'status' => 'succeeded', 'created_at' => now(), 'updated_at' => now()]);
             $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, status, duedate, subtotal, total) VALUES ({$invoice->id}, {$client->id}, 'Paid', '2026-11-10', 10, 10)");
-            $this->whmcs->exec("INSERT INTO tblaccounts (userid, invoiceid, amountin) VALUES ({$client->id}, {$invoice->id}, 10)");
+            $this->whmcs->exec("INSERT INTO tblaccounts (id, userid, invoiceid, amountin) VALUES ({$paymentId}, {$client->id}, {$invoice->id}, 10)");
         }
         $server = Extension::query()->create(['name' => 'cp1', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
         $server->forceFill(['whmcs_id' => 3])->save();
