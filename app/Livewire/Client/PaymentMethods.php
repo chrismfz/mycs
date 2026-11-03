@@ -339,7 +339,7 @@ class PaymentMethods extends Component
         // A way's label depends on the gateway and the item's own switch only (the account is the page's): once each (review of #612).
         $labels = [];
         $label = function (Service|Domain $item, ?Gateway $gateway) use (&$labels): string {
-            return $labels[($gateway?->id ?? 0) . '|' . (int) $item->no_auto_charge . '|' . (int) ($gateway?->enabled ?? 1)] ??= ItemPaymentMethod::optionLabel($item, $gateway);
+            return $labels[($gateway->id ?? 0) . '|' . (int) $item->no_auto_charge . '|' . (int) ($gateway->enabled ?? 1)] ??= ItemPaymentMethod::optionLabel($item, $gateway);
         };
 
         return view('client.account.payment-methods', [
