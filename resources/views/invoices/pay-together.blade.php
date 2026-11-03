@@ -15,75 +15,63 @@
     </x-modal>
     @endif
 
-    <div class="bg-background-secondary border border-neutral p-6 rounded-lg">
+    {{-- The group's invoices beside the ways to pay (docs/pay-flow-ux.md, PR 4); under them on a phone. --}}
+    @php($payable = !$this->held && !$this->staleness)
+    @php($held = $this->heldInvoices)
+    <div class="grid gap-4 items-start {{ $payable ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
+    <div class="bg-background-secondary border border-neutral p-6 rounded-lg min-w-0">
         <h1 class="text-2xl font-bold">{{ __('invoices.mass_pay_title') }}</h1>
         <p class="text-base text-sm mt-2">{{ __('invoices.mass_pay_explain') }}</p>
 
-        <div class="mt-6 divide-y divide-neutral">
+        <ol role="list" class="mt-6 divide-y divide-neutral">
             @foreach ($paymentGroup->invoices as $invoice)
-            <div class="flex justify-between py-2">
-                <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="underline">
+            <li class="flex justify-between gap-4 py-2">
+                <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="underline min-w-0">
                     {{ $invoice->displayTitle() }}
                     @if ($invoice->due_at)
                     <span class="text-base/50 text-sm">({{ __('invoices.due_date') }}: {{ $invoice->due_at->format('d M Y') }})</span>
                     @endif
                 </a>
-                <span>{{ number_format((float) $invoice->pivot->amount, 2) }} {{ $paymentGroup->currency_code }}</span>
-            </div>
+                @if (in_array((int) $invoice->id, $held, true) && count($held) < $paymentGroup->invoices->count())
+                <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-warning/20 text-warning whitespace-nowrap">{{ __('invoices.mass_pay_held_mark') }}</span>
+                @endif
+                <span class="whitespace-nowrap">{{ number_format((float) $invoice->pivot->amount, 2) }} {{ $paymentGroup->currency_code }}</span>
+            </li>
             @endforeach
-            <div class="flex justify-between py-2 font-semibold">
-                <span>{{ __('invoices.total') }}</span>
-                <span>{{ number_format((float) $paymentGroup->total, 2) }} {{ $paymentGroup->currency_code }}</span>
-            </div>
+        </ol>
+        <div class="flex justify-between py-2 mt-1 border-t border-neutral font-semibold">
+            <span>{{ __('invoices.total') }}</span>
+            <span>{{ number_format((float) $paymentGroup->total, 2) }} {{ $paymentGroup->currency_code }}</span>
         </div>
     </div>
 
-    @if ($this->staleness)
-    <div class="bg-background-secondary border border-neutral p-6 rounded-lg">
-        <p class="text-warning">{{ $this->staleness }}</p>
-        <a href="{{ route('invoices') }}" wire:navigate class="underline">{{ __('invoices.invoices') }}</a>
+    @if ($this->held)
+    {{-- A payment of these invoices on its way: no other is made meanwhile (SavedMethodCharge::onItsWay), not «changed».
+    Of some of them only: the others can be chosen again without those (review of #599). --}}
+    @php($all = count($held) >= $paymentGroup->invoices->count())
+    <div role="status" class="border border-warning bg-warning/10 rounded-lg p-6 space-y-2">
+        <h2 class="text-lg font-semibold text-warning">{{ __($all ? 'invoices.mass_pay_held_title' : 'invoices.mass_pay_held_some_title') }}</h2>
+        <p class="text-sm">{{ __($all ? 'invoices.mass_pay_held_body' : 'invoices.mass_pay_held_some_body') }}</p>
+        <a href="{{ route('invoices') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.invoices') }}</a>
+    </div>
+    @elseif ($this->staleness)
+    <div role="status" class="border border-warning bg-warning/10 rounded-lg p-6 space-y-2">
+        <p class="text-warning font-semibold">{{ $this->staleness }}</p>
+        <a href="{{ route('invoices') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.invoices') }}</a>
     </div>
     @else
-    <div class="bg-background-secondary border border-neutral p-6 rounded-lg space-y-3">
-        @foreach ($this->savedPaymentMethods as $method)
-        <div wire:click="$set('selectedMethod', '{{ $method->ulid }}')" wire:loading.class="opacity-50 pointer-events-none" wire:target="selectedMethod,processPayment"
-            class="flex items-center justify-between p-4 border rounded-lg cursor-pointer {{ $selectedMethod === $method->ulid ? 'border-primary ring-2 ring-primary' : 'border-neutral' }}">
-            <div>
-                <p class="font-semibold">{{ $method->name }}</p>
-                <p class="text-sm text-base/50">{{ __('account.saved_payment_methods') }}</p>
-            </div>
-            @if ($selectedMethod === $method->ulid)
-            <x-ri-check-line class="size-5 text-primary" />
-            @endif
-        </div>
-        @endforeach
-
-        @foreach ($this->gateways as $method)
-        <div wire:click="$set('selectedMethod', 'gateway-{{ $method->id }}')" wire:loading.class="opacity-50 pointer-events-none" wire:target="selectedMethod,processPayment"
-            class="flex items-center justify-between p-4 border rounded-lg cursor-pointer {{ $selectedMethod === 'gateway-' . $method->id ? 'border-primary ring-2 ring-primary' : 'border-neutral' }}">
-            <div class="flex items-center gap-4">
-                @if ($method->meta?->icon)
-                <img src="{{ $method->meta->icon }}" alt="{{ $method->name }} Icon" class="h-9 w-9 object-contain" />
-                @else
-                <x-ri-secure-payment-line class="size-5 text-primary" />
-                @endif
-                <div>
-                    <p class="font-medium">{{ $method->name }}</p>
-                    <p class="text-sm text-base/50">{{ __('invoices.one_time_payment') }}</p>
-                </div>
-            </div>
-            @if ($selectedMethod === 'gateway-' . $method->id)
-            <x-ri-check-line class="size-5 text-primary" />
-            @endif
-        </div>
-        @endforeach
-
-        <x-button.primary class="w-full mt-4" wire:click="processPayment" wire:loading.attr="disabled" :disabled="!$selectedMethod">
-            <x-loading target="processPayment" />
-            <span wire:loading.remove wire:target="processPayment">
-                {{ __('invoices.pay_amount', ['amount' => number_format((float) $paymentGroup->total, 2) . ' ' . $paymentGroup->currency_code]) }}
-            </span>
-        </x-button.primary>
-    </div>
+    <section aria-labelledby="pay-title">
+        @include('invoices.partials.pay-panel', [
+            'payAmount' => number_format((float) $paymentGroup->total, 2) . ' ' . $paymentGroup->currency_code,
+            'payGroups' => $this->payGroups,
+            'payLabel' => $this->payLabel,
+            'credit' => null,
+            'automaticMethodId' => $this->automaticMethodId,
+            'renewalsChoice' => null,
+            'payNote' => $this->otherWaysElsewhere ? __('invoices.mass_pay_not_here') : null,
+            'showManage' => false,
+        ])
+    </section>
     @endif
+    </div>
 </div>

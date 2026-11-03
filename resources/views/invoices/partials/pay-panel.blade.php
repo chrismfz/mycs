@@ -1,16 +1,25 @@
 {{--
-    The ways to pay the invoice by provider (docs/pay-flow-ux.md, PR 3), on its page: each gateway once, its saved methods
-    inside it, its one-time payment after them. The values are the old window's ('credit', a saved method's ulid,
-    'gateway-{id}'), so processPayment and its guards are the same. A gateway's own form still opens in the window.
+    The ways to pay by provider (docs/pay-flow-ux.md, PR 3 and 4), on the invoice's page and on a Mass Pay group's: each
+    gateway once, its saved methods inside it, its one-time payment after them. The values are the old window's ('credit',
+    a saved method's ulid, 'gateway-{id}'), so each page's processPayment and its guards are the same. A gateway's own form
+    still opens in the window.
+
+    Given by the page: $payAmount, $payGroups (PayOptions::byProvider), $payLabel; and, where they apply, $credit (the
+    balance), $automaticMethodId (the method marked), $renewalsChoice ('toggle', 'already' or null), $payNote (a line under
+    the choices) and $showManage (the link to the payment methods).
 --}}
 @php
-    $credit = $this->usableCredit;
+    $credit ??= null;
+    $automaticMethodId ??= null;
+    $renewalsChoice ??= null;
+    $payNote ??= null;
+    $showManage ??= false;
     $row = fn (bool $chosen) => 'flex items-center gap-3 px-3 py-3 min-h-[44px] cursor-pointer transition-colors ' . ($chosen ? 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--color-primary))]' : 'hover:bg-background-secondary');
 @endphp
 <div class="bg-background border border-neutral rounded-lg p-4 space-y-3" wire:loading.class="opacity-60 pointer-events-none" wire:target="selectedMethod,processPayment">
     <div class="flex items-baseline justify-between gap-2">
         <h2 id="pay-title" class="text-base font-semibold">{{ __('invoices.pay_panel.title') }}</h2>
-        <span class="text-lg font-bold whitespace-nowrap">{{ $invoice->formattedRemaining }}</span>
+        <span class="text-lg font-bold whitespace-nowrap">{{ $payAmount }}</span>
     </div>
 
     <fieldset class="space-y-3">
@@ -27,7 +36,7 @@
         </label>
         @endif
 
-        @foreach ($this->payGroups as $group)
+        @foreach ($payGroups as $group)
         @php($gateway = $group['gateway'])
         @if ($group['saved'] === [])
         {{-- A provider with nothing saved: one row, its one-time payment. --}}
@@ -64,7 +73,7 @@
                         @endif
                     </span>
                 </span>
-                @if ((int) $method->id === $this->automaticMethodId)
+                @if ((int) $method->id === $automaticMethodId)
                 <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-success/20 text-success whitespace-nowrap">{{ __('invoices.pay_panel.automatic') }}</span>
                 @endif
             </label>
@@ -84,21 +93,25 @@
         @endforeach
     </fieldset>
 
-    @if ($this->renewalsChoice === 'toggle')
+    @if ($payNote)
+    <p class="text-sm text-base/70">{{ $payNote }}</p>
+    @endif
+
+    @if ($renewalsChoice === 'toggle')
     <div>
         <x-form.toggle :label="__('invoices.use_for_recurring')" wire:model.live="setAsDefault" />
         <p class="text-sm text-base/70 mt-1">{{ __('invoices.use_for_recurring_hint') }}</p>
     </div>
-    @elseif ($this->renewalsChoice === 'already')
+    @elseif ($renewalsChoice === 'already')
     <p class="text-sm text-base/70">{{ __('invoices.pay_panel.renewals_already') }}</p>
     @endif
 
     <x-button.primary class="w-full" wire:click="processPayment" wire:loading.attr="disabled" :disabled="!$selectedMethod">
         <x-loading target="processPayment" />
-        <span wire:loading.remove wire:target="processPayment">{{ $this->payLabel }}</span>
+        <span wire:loading.remove wire:target="processPayment">{{ $payLabel }}</span>
     </x-button.primary>
 
-    @if ($this->savedPaymentMethods->isNotEmpty() || count($this->paymentMethods) > 0)
+    @if ($showManage)
     <a href="{{ route('account.payment-methods') }}" wire:navigate class="block text-center text-sm text-primary hover:underline">{{ __('invoices.pay_panel.manage') }}</a>
     @endif
 </div>

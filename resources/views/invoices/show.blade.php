@@ -62,7 +62,16 @@
         <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
         @if ($paymentStatus->payable())
         <section id="pay" aria-labelledby="pay-title" class="xl:order-last">
-            @include('invoices.partials.pay-panel')
+            @include('invoices.partials.pay-panel', [
+                'payAmount' => $invoice->formattedRemaining,
+                'payGroups' => $this->payGroups,
+                'payLabel' => $this->payLabel,
+                'credit' => $this->usableCredit,
+                'automaticMethodId' => $this->automaticMethodId,
+                'renewalsChoice' => $this->renewalsChoice,
+                'payNote' => null,
+                'showManage' => $this->savedPaymentMethods->isNotEmpty() || count($this->paymentMethods) > 0,
+            ])
         </section>
         @endif
         <div class="bg-background-secondary border border-neutral p-6 sm:p-10 rounded-lg min-w-0">
