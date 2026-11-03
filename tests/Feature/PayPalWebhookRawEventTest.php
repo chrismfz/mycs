@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\PaymentGatewayEvent;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -48,6 +49,11 @@ class PayPalWebhookRawEventTest extends TestCase
             // As PayPal: SUCCESS only for the event exactly as it was signed (its bytes, here), else FAILURE.
             self::VERIFY => function (Request $request) {
                 $this->verified[] = $request->body();
+                if ($this->expiredTokens > 0) {
+                    $this->expiredTokens--;
+
+                    return Http::response(['error' => 'invalid_token'], 401);
+                }
                 $signed = $this->signed ?? null;
 
                 return Http::response(['verification_status' => $signed !== null && str_ends_with($request->body(), ',"webhook_event":' . $signed . '}') ? 'SUCCESS' : 'FAILURE']);
@@ -59,6 +65,9 @@ class PayPalWebhookRawEventTest extends TestCase
     }
 
     private ?string $signed = null;
+
+    /** How many verification calls answer 401 (an expired token) first. */
+    private int $expiredTokens = 0;
 
     private function postEvent(string $raw)
     {
@@ -84,6 +93,21 @@ class PayPalWebhookRawEventTest extends TestCase
         $this->assertSame('sig/+="1"', $sent['transmission_sig'], 'the headers are sent as they came, quotes and all');
         $this->assertSame('SHA256withRSA', $sent['auth_algo']);
         $this->assertSame('T-1', $sent['transmission_id']);
+        $this->assertSame('https://api.paypal.com/v1/notifications/certs/CERT-1', $sent['cert_url']);
+        $this->assertSame('2026-11-02T12:36:05Z', $sent['transmission_time']);
+    }
+
+    /** Review of #601: an expired token's retry sends the same bytes again, not an empty body. */
+    public function test_an_expired_token_retry_sends_the_event_as_it_came_again(): void
+    {
+        $raw = '{"event_type":"CHECKOUT.ORDER.APPROVED","resource":{"id":"ORDER-2","payment_source":{"paypal":{"attributes":{}}}}}';
+        $this->signed = $raw;
+        $this->expiredTokens = 1;
+
+        $this->postEvent($raw)->assertOk();
+
+        $this->assertCount(2, $this->verified);
+        $this->assertSame($this->verified[0], $this->verified[1]);
     }
 
     public function test_a_handled_event_is_still_recorded(): void
@@ -117,5 +141,7 @@ class PayPalWebhookRawEventTest extends TestCase
         }
 
         $this->assertSame([], $this->verified);
+        // Logged as refused calls whose signature failed (noise, throttled), never as errors.
+        $this->assertSame(7, PaymentGatewayEvent::query()->where('outcome', PaymentGatewayEvent::OUTCOME_REJECTED)->where('signature_verified', false)->count());
     }
 }

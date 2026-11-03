@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use JsonException;
 use Throwable;
 
 #[ExtensionMeta(
@@ -640,14 +641,22 @@ class PayPal extends Gateway
         }
         // The event goes to PayPal as it came, never decoded and encoded again: a decoded `{}` comes back `[]`, and the
         // event no longer matches its signature (two of the first live events, 2026-11-02, failed so on every retry).
-        $fields = json_encode([
-            'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
-            'cert_url' => $request->header('PAYPAL-CERT-URL'),
-            'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
-            'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
-            'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
-            'webhook_id' => $this->config('webhook_id'),
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        try {
+            $fields = json_encode([
+                'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
+                'cert_url' => $request->header('PAYPAL-CERT-URL'),
+                'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
+                'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
+                'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
+                'webhook_id' => $this->config('webhook_id'),
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException) {
+            // A header that is not UTF-8 is none PayPal sent: refused as a forged call, never a 500 that reads as a
+            // payment lost (ADV-601-1).
+            GatewayLog::current()->signature(false);
+
+            return response()->json(['status' => 'error'], 400);
+        }
         try {
             $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature',
                 substr($fields, 0, -1) . ',"webhook_event":' . $body . '}');
