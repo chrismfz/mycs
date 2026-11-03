@@ -195,9 +195,11 @@ return [
     // The ways to pay by provider, on the invoice's page (docs/pay-flow-ux.md, PR 3).
     'pay_panel' => [
         'title' => 'How would you like to pay?',
-        'saved' => 'Saved',
+        'saved' => 'Saved method',
         'automatic' => 'Automatic payments',
         'once' => 'Pay once',
+        'once_hint' => 'Without a saved method',
+        'ways' => 'Ways to pay',
         'renewals_already' => 'This method already pays your renewals automatically.',
         'pay_with' => 'Pay :amount with :method',
         'continue_with' => 'Continue with :gateway · :amount',

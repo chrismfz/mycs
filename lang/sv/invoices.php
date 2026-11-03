@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Betalning behandlas',
     'duplicate_payment' => 'Det finns redan en betalning som behandlas för denna faktura. Att betala igen kan resultera i dubbla avgifter.',
-    'pay_with_one_time_method' => 'Eller betala med en engångsmetod',
     'pay_with_credits' => 'Betala med krediter',
     'apply_credit' => 'Tillämpa kredit ( :amount )',
     'no_invoices' => 'Inga fakturor hittades.',

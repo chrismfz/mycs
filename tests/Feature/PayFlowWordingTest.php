@@ -34,11 +34,7 @@ class PayFlowWordingTest extends TestCase
         $page = $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice]);
         $this->assertSame(1, substr_count($page->html(), $label), 'the pay panel\'s button');
         $page->assertDontSee('Processing...')->assertDontSee(':amount');
-
-        // That window asks to close in the customer's language.
-        $window = file_get_contents(resource_path('views/invoices/partials/payment-modal.blade.php'));
-        $this->assertStringContainsString("wire:confirm=\"{{ __('invoices.close_payment_confirm') }}\"", $window);
-        $this->assertStringNotContainsString('Are you sure?', $window);
+        // The window, which asks to close in the customer's language, is rendered in InvoicePayPanelTest (a gateway's form).
     }
 
     public function test_the_payment_methods_page_speaks_greek_with_one_name_for_automatic_payments(): void

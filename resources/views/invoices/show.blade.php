@@ -35,7 +35,9 @@
             ][$paymentStatus->tone()];
             $statusBody = $paymentStatus->body();
         @endphp
-        <div class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 {{ $tone['box'] }}">
+        {{-- An email's or the cart's ?pay=1 lands here: what happens now, then the ways to pay; clear of the fixed bar. --}}
+        <div id="status" class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 scroll-mt-20 {{ $tone['box'] }}"
+            @if ($showPayModal && $paymentStatus->payable()) x-init="$el.scrollIntoView({ block: 'start' })" @endif>
             <div role="status" class="flex gap-3 items-start">
                 @if ($paymentStatus->waiting())
                 <x-ri-loader-5-fill aria-hidden="true" class="size-6 shrink-0 animate-spin {{ $tone['text'] }}" />
@@ -55,13 +57,15 @@
 
         {{-- The ways to pay beside the invoice (under the status on a phone), while it may be paid; an email's ?pay=1 brings
         the customer to them (docs/pay-flow-ux.md, PR 3). --}}
-        <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : '' }}">
+        {{-- Two columns only where the invoice keeps room beside the sidebar (xl); the panel follows it in the reading order
+        of a phone, before it on the page (review of #597). --}}
+        <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
         @if ($paymentStatus->payable())
-        <section id="pay" aria-labelledby="pay-title" class="lg:order-last lg:sticky lg:top-4" @if ($showPayModal) x-init="$el.scrollIntoView({ block: 'start' })" @endif>
+        <section id="pay" aria-labelledby="pay-title" class="xl:order-last">
             @include('invoices.partials.pay-panel')
         </section>
         @endif
-        <div class="bg-background-secondary border border-neutral p-6 sm:p-12 rounded-lg min-w-0">
+        <div class="bg-background-secondary border border-neutral p-6 sm:p-10 rounded-lg min-w-0">
             <h1 class="text-2xl font-bold sm:text-3xl">
                 {{ $invoiceTitle }}
             </h1>

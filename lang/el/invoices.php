@@ -194,9 +194,11 @@ return [
     // The ways to pay by provider, on the invoice's page (docs/pay-flow-ux.md, PR 3).
     'pay_panel' => [
         'title' => 'Πώς θέλετε να πληρώσετε;',
-        'saved' => 'Αποθηκευμένος',
+        'saved' => 'Αποθηκευμένος τρόπος',
         'automatic' => 'Αυτόματες πληρωμές',
         'once' => 'Πληρωμή μία φορά',
+        'once_hint' => 'Χωρίς αποθηκευμένο τρόπο',
+        'ways' => 'Τρόποι πληρωμής',
         'renewals_already' => 'Αυτός ο τρόπος πληρώνει ήδη αυτόματα τις ανανεώσεις σας.',
         'pay_with' => 'Πληρωμή :amount με :method',
         'continue_with' => 'Συνέχεια με :gateway · :amount',

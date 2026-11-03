@@ -17,16 +17,30 @@ use App\Models\Service;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use App\Support\PayOptions;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
+/**
+ * The customer's invoice page: its status card (PaymentStatus) and its ways to pay (PayOptions, docs/pay-flow-ux.md).
+ *
+ * @property-read array<int, Gateway> $gateways
+ * @property-read array<int, Gateway> $paymentMethods
+ * @property-read Collection<int, BillingAgreement> $savedPaymentMethods
+ * @property-read list<array{gateway: Gateway, saved: list<BillingAgreement>, oneTime: bool}> $payGroups
+ * @property-read Credit|null $usableCredit
+ * @property-read int|null $automaticMethodId
+ * @property-read string $payLabel
+ * @property-read string|null $renewalsChoice
+ */
 class Show extends Component
 {
     #[Locked]
@@ -108,8 +122,10 @@ class Show extends Component
     #[Computed]
     public function savedPaymentMethods()
     {
-        // Only those of a gateway customers may pay through: a disabled gateway's methods are kept, not offered.
-        return $this->accountAgreements()->whereHas('gateway', fn ($gateway) => $gateway->where('enabled', true))->with('gateway')->get();
+        // Only those of a gateway customers may pay through: a disabled gateway's methods are kept, not offered; nor those of
+        // a gateway that saves no methods now (PayPal's vault turned off), which payWithSavedMethod refuses (ADV-597-1).
+        return $this->accountAgreements()->whereHas('gateway', fn ($gateway) => $gateway->where('enabled', true))
+            ->whereIn('gateway_id', array_column($this->paymentMethods, 'id'))->with('gateway')->get();
     }
 
     /**
@@ -141,7 +157,7 @@ class Show extends Component
     #[Computed]
     public function payGroups(): array
     {
-        return PayOptions::byProvider($this->savedPaymentMethods(), $this->gateways(), $this->invoice->client?->default_billing_agreement_id);
+        return PayOptions::byProvider($this->savedPaymentMethods, $this->gateways, $this->invoice->client?->default_billing_agreement_id);
     }
 
     /** The account's balance in its currency, when it may pay it (as the old window offered it), else null. */
@@ -161,19 +177,20 @@ class Show extends Component
     public function payLabel(): string
     {
         $amount = $this->invoice->formattedRemaining;
-        $credit = $this->usableCredit();
-        if ($this->selectedMethod === 'credit' && $credit !== null) {
+        $credit = $this->usableCredit;
+        $chosen = $this->chosen();
+        if ($chosen === 'credit' && $credit !== null) {
             return $credit->amount >= $this->invoice->formattedRemaining->total
                 ? __('invoices.apply_credits_and_pay')
                 : __('invoices.apply_credit_and_continue', ['amount' => $credit->formattedAmount]);
         }
-        if (str_starts_with((string) $this->selectedMethod, 'gateway-')) {
-            $gateway = collect($this->gateways())->firstWhere('id', (int) substr((string) $this->selectedMethod, 8));
+        if ($chosen !== null && str_starts_with($chosen, 'gateway-')) {
+            $gateway = collect($this->gateways)->firstWhere('id', (int) substr($chosen, 8));
             if ($gateway !== null) {
                 return __('invoices.pay_panel.continue_with', ['gateway' => $gateway->name, 'amount' => $amount]);
             }
         }
-        $agreement = $this->savedPaymentMethods()->firstWhere('ulid', $this->selectedMethod);
+        $agreement = $chosen === null ? null : $this->savedPaymentMethods->firstWhere('ulid', '===', $chosen);
 
         return $agreement !== null ? __('invoices.pay_panel.pay_with', ['amount' => $amount, 'method' => $agreement->name])
             : __('invoices.pay_amount', ['amount' => $amount]);
@@ -181,18 +198,48 @@ class Show extends Component
 
     /**
      * The «future renewals» toggle (setAsDefault) for the saved method chosen: «toggle» when it would change something,
-     * «already» when that method already pays the account's renewals, null when it does not apply.
+     * «already» when that method already pays the account's renewals and this one too, null when it does not apply: the
+     * account's method, while another way pays this invoice's renewal (its service paid with PayPal, say: AutoCharge::
+     * agreementFor), is neither (ADV-597-2).
      */
     #[Computed]
     public function renewalsChoice(): ?string
     {
-        $agreement = $this->savedPaymentMethods()->firstWhere('ulid', $this->selectedMethod);
+        $chosen = $this->chosen();
+        $agreement = $chosen === null ? null : $this->savedPaymentMethods->firstWhere('ulid', '===', $chosen);
         if ($agreement === null || !$this->recurringServices()->exists()) {
             return null;
         }
-        $client = $this->invoice->client;
+        if ($this->automaticMethodId !== (int) $agreement->id) {
+            return 'toggle';
+        }
 
-        return $client !== null && $client->auto_charge && (int) $client->default_billing_agreement_id === (int) $agreement->id ? 'already' : 'toggle';
+        return AutoCharge::agreementFor($this->invoice)?->id === $agreement->id ? 'already' : null;
+    }
+
+    /** The way chosen, when it is one: a crafted update sets anything (ADV-597-5). */
+    private function chosen(): ?string
+    {
+        return is_string($this->selectedMethod) && $this->selectedMethod !== '' ? $this->selectedMethod : null;
+    }
+
+    /**
+     * The saved method that pays the account's renewals now, as the cron reads it (Client::autoChargeAgreement: «Auto-charge»
+     * on, its default, its gateway enabled; not stopped at autocharge_max_failures): the one marked, and the one for which
+     * the renewals toggle would change nothing (review of #597).
+     */
+    #[Computed]
+    public function automaticMethodId(): ?int
+    {
+        $agreement = $this->invoice->client?->autoChargeAgreement();
+
+        return $agreement !== null && !$agreement->stopped() ? (int) $agreement->id : null;
+    }
+
+    /** Another way chosen: the renewals toggle starts off again, so it never applies to a method it was not shown for. */
+    public function updatedSelectedMethod(): void
+    {
+        $this->setAsDefault = false;
     }
 
     public function updatedShowPayModal($value)
@@ -225,8 +272,8 @@ class Show extends Component
             return $this->notify(__('This invoice bills a service that has ended: please contact us.'), 'error');
         }
 
-        if (is_null($this->selectedMethod)) {
-            return;
+        if ($this->chosen() === null) {
+            return; // none, or a crafted value no choice holds (ADV-597-5)
         }
 
         if ($this->selectedMethod === 'credit') {
@@ -290,6 +337,9 @@ class Show extends Component
         if ($this->invoice->status === Invoice::STATUS_PAID) {
             return $this->redirect(route('invoices.show', $this->invoice), true);
         }
+        // The balance is spent: its choice is gone, the way it would open with is chosen again (ADV-597-4).
+        $this->selectedMethod = $this->preferredChoice();
+        $this->statusMemo = null;
         $this->notify(__('Part of the invoice has been paid with credits. Please pay the remaining amount'));
     }
 

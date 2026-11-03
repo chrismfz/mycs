@@ -5,7 +5,6 @@
 --}}
 @php
     $credit = $this->usableCredit;
-    $defaultId = (int) ($invoice->client?->default_billing_agreement_id ?? 0);
     $row = fn (bool $chosen) => 'flex items-center gap-3 px-3 py-3 min-h-[44px] cursor-pointer transition-colors ' . ($chosen ? 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--color-primary))]' : 'hover:bg-background-secondary');
 @endphp
 <div class="bg-background border border-neutral rounded-lg p-4 space-y-3" wire:loading.class="opacity-60 pointer-events-none" wire:target="selectedMethod,processPayment">
@@ -15,11 +14,11 @@
     </div>
 
     <fieldset class="space-y-3">
-        <legend class="sr-only">{{ __('invoices.pay_panel.title') }}</legend>
+        <legend class="sr-only">{{ __('invoices.pay_panel.ways') }}</legend>
 
         @if ($credit)
         <label class="border border-dashed border-neutral rounded-lg {{ $row($selectedMethod === 'credit') }}">
-            <input type="radio" name="pay-way" value="credit" wire:model.live="selectedMethod" class="text-primary focus:ring-primary">
+            <input type="radio" name="pay-way" value="credit" wire:model.live="selectedMethod" class="form-radio text-primary focus:ring-primary">
             <x-ri-copper-coin-line class="size-6 text-primary shrink-0" aria-hidden="true" />
             <span class="min-w-0">
                 <span class="block font-medium">{{ __('invoices.account_credits') }}</span>
@@ -33,7 +32,7 @@
         @if ($group['saved'] === [])
         {{-- A provider with nothing saved: one row, its one-time payment. --}}
         <label class="border border-neutral rounded-lg {{ $row($selectedMethod === 'gateway-' . $gateway->id) }}" wire:key="pay-gateway-{{ $gateway->id }}">
-            <input type="radio" name="pay-way" value="gateway-{{ $gateway->id }}" wire:model.live="selectedMethod" class="text-primary focus:ring-primary">
+            <input type="radio" name="pay-way" value="gateway-{{ $gateway->id }}" wire:model.live="selectedMethod" class="form-radio text-primary focus:ring-primary">
             @if ($gateway->meta?->icon)
             <img src="{{ $gateway->meta->icon }}" alt="" class="size-8 object-contain shrink-0" />
             @else
@@ -54,7 +53,7 @@
             </div>
             @foreach ($group['saved'] as $method)
             <label class="border-b border-neutral last:border-b-0 {{ $row($selectedMethod === $method->ulid) }}" wire:key="pay-saved-{{ $method->ulid }}">
-                <input type="radio" name="pay-way" value="{{ $method->ulid }}" wire:model.live="selectedMethod" class="text-primary focus:ring-primary">
+                <input type="radio" name="pay-way" value="{{ $method->ulid }}" wire:model.live="selectedMethod" class="form-radio text-primary focus:ring-primary">
                 @include('invoices.partials.method-icon', ['type' => $method->type])
                 <span class="min-w-0 grow">
                     <span class="block font-medium truncate">{{ $method->name }}</span>
@@ -65,18 +64,18 @@
                         @endif
                     </span>
                 </span>
-                @if ((int) $method->id === $defaultId && $invoice->client?->auto_charge)
+                @if ((int) $method->id === $this->automaticMethodId)
                 <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-success/20 text-success whitespace-nowrap">{{ __('invoices.pay_panel.automatic') }}</span>
                 @endif
             </label>
             @endforeach
             @if ($group['oneTime'])
             <label class="{{ $row($selectedMethod === 'gateway-' . $gateway->id) }}" wire:key="pay-gateway-{{ $gateway->id }}">
-                <input type="radio" name="pay-way" value="gateway-{{ $gateway->id }}" wire:model.live="selectedMethod" class="text-primary focus:ring-primary">
+                <input type="radio" name="pay-way" value="gateway-{{ $gateway->id }}" wire:model.live="selectedMethod" class="form-radio text-primary focus:ring-primary">
                 <x-ri-add-line class="size-6 text-base/60 shrink-0" aria-hidden="true" />
                 <span class="min-w-0">
                     <span class="block font-medium">{{ __('invoices.pay_panel.once') }}</span>
-                    <span class="block text-sm text-base/60">{{ __('invoices.one_time_payment') }}</span>
+                    <span class="block text-sm text-base/60">{{ __('invoices.pay_panel.once_hint') }}</span>
                 </span>
             </label>
             @endif

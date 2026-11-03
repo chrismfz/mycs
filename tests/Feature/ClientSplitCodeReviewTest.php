@@ -40,6 +40,8 @@ class ClientSplitCodeReviewTest extends TestCase
     private function agreementOf(Client $client, string $ref): BillingAgreement
     {
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
+        // Its vault on: only a gateway that saves methods has its saved methods offered on an invoice (ADV-597-1).
+        $gateway->settings()->updateOrCreate(['key' => 'paypal_support_billing_agreements'], ['value' => '1']);
 
         return BillingAgreement::create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal',
             'external_reference' => $ref, 'type' => 'paypal']);
