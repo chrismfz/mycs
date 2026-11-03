@@ -86,6 +86,21 @@ class ImportServicePasswordsAdversarialTest extends TestCase
         $this->assertSame(['services' => 1, 'imported' => 0, 'empty' => 1, 'skipped' => 0], $result['counts']);
     }
 
+    /** Review of #600: empty answers before WHMCS refuses are counted once, the refused rest as skipped. */
+    public function test_empty_answers_then_a_refusal_still_add_up(): void
+    {
+        foreach (range(1, 5) as $i) {
+            $this->service(encrypted: "enc-{$i}");
+        }
+        $calls = 0;
+
+        $result = $this->import(fn () => ++$calls <= 2
+            ? Http::response(['result' => 'success', 'password' => ''])
+            : Http::response(['result' => 'error', 'message' => 'Invalid Permissions: API action "decryptpassword" is not allowed']));
+
+        $this->assertSame(['services' => 5, 'imported' => 0, 'empty' => 2, 'skipped' => 3], $result['counts']);
+    }
+
     /**
      * ADV-547-3 (Low). The API credentials' role without DecryptPassword (docs/importer.md lists it as a prerequisite)
      * or wrong credentials: WHMCS answers the same error to every call. The step goes on asking for each of the 356/715

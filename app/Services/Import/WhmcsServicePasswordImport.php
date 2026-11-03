@@ -15,7 +15,7 @@ use Throwable;
  * database, so read through WHMCS's own API (DecryptPassword), never by reading its key, as the saved payment methods
  * (WhmcsPayMethodImport). Stored as MyCS keeps them (Service's `encrypted` cast, under this instance's APP_KEY).
  *
- * - Only the services still live here (active, suspended, pending: nixpal 356, myip 715): an ended one's password is
+ * - Only the services still live here (active, suspended, pending: nixpal 357 in the 2026-11-03 rehearsal, myip 715): an ended one's password is
  *   asked of no one.
  * - Without the API nothing is asked, and it says so. One that fails is skipped (its id listed), never the run.
  * - A password is never printed, logged nor kept anywhere else: the notes carry service ids only.
