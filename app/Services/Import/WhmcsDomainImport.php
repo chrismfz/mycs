@@ -44,6 +44,33 @@ final class WhmcsDomainImport
         'cancelled' => DomainStatus::Cancelled, 'fraud' => DomainStatus::Cancelled,
     ];
 
+    /** A WHMCS domain's status (tbldomains.status, by its type) here, as imported and as parity expects it; null for one unknown. */
+    public static function status(string $status, string $type): ?DomainStatus
+    {
+        $raw = strtolower(trim($status));
+
+        return self::STATUSES[$raw] ?? (str_starts_with($raw, 'pending')
+            ? (stripos($type, 'transfer') !== false || $raw === 'pending transfer' ? DomainStatus::PendingTransfer : DomainStatus::PendingRegister)
+            : null);
+    }
+
+    /**
+     * Still «Pending» in WHMCS, but registered (an order has no expiry until it is) or renewed and paid there: live, never
+     * an order the cron cancels as unpaid (review of #535). Not a pending transfer carrying the losing registrar's expiry
+     * (R2-3 of #535): renewed here, or registered over a year ago, and its expiry still ahead. Imported active.
+     *
+     * @param  array<string, mixed>  $row  its tbldomains row
+     */
+    public static function registeredWhilePending(DomainStatus $status, array $row, bool $paidRenewal): bool
+    {
+        $expires = self::date($row['expirydate'] ?? null, dateOnly: true);
+        $registered = self::date($row['registrationdate'] ?? null, dateOnly: true);
+
+        return in_array($status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
+            && $expires !== null && $expires >= now()->toDateString()
+            && ($paidRenewal || ($registered !== null && $registered <= now()->subYear()->toDateString()));
+    }
+
     /** A paid renewal is done when WHMCS's expiry reaches its end within this many days (an expiry a sync moves a little). */
     private const COVERED_WITHIN_DAYS = 31;
 
@@ -307,23 +334,13 @@ final class WhmcsDomainImport
                 continue;
             }
             $tld = $this->tldOf($fqdn, $tlds);
-            $raw = strtolower(trim((string) $row['status']));
-            $status = self::STATUSES[$raw] ?? (str_starts_with($raw, 'pending')
-                ? (stripos((string) $row['type'], 'transfer') !== false || $raw === 'pending transfer' ? DomainStatus::PendingTransfer : DomainStatus::PendingRegister)
-                : null);
+            $status = self::status((string) $row['status'], (string) $row['type']);
             if ($status === null) {
                 $status = DomainStatus::Cancelled;
                 $this->notes[] = "Domain #{$id} {$fqdn}: WHMCS status «{$row['status']}» unknown, imported cancelled: check it.";
             }
-            // Still «Pending» in WHMCS, but registered (an order has no expiry until it is) or renewed and paid there: live,
-            // never an order the cron cancels as unpaid (review of #535).
             $expires = $this->date($row['expirydate'] ?? null, dateOnly: true);
-            // Not a pending transfer carrying the losing registrar's expiry (R2-3 of #535): renewed here, or registered over a
-            // year ago, and its expiry still ahead.
-            $registered = $this->date($row['registrationdate'] ?? null, dateOnly: true);
-            if (in_array($status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-                && $expires !== null && $expires >= now()->toDateString()
-                && (isset($paidRenewals[$id]) || ($registered !== null && $registered <= now()->subYear()->toDateString()))) {
+            if (self::registeredWhilePending($status, $row, isset($paidRenewals[$id]))) {
                 $status = DomainStatus::Active;
                 $this->notes[] = "Domain #{$id} {$fqdn}: «Pending» in WHMCS with an expiry ({$expires}): imported active, check it.";
             }
@@ -613,7 +630,7 @@ final class WhmcsDomainImport
                 'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true), 'pending' => in_array($domain->status, $pending, true)]])->all();
     }
 
-    private function date(mixed $value, bool $dateOnly = false): ?string
+    private static function date(mixed $value, bool $dateOnly = false): ?string
     {
         $value = trim((string) $value);
         if ($value === '' || str_starts_with($value, '0000-00-00')) {

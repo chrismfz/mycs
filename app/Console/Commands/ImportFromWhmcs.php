@@ -281,6 +281,32 @@ class ImportFromWhmcs extends Command
         };
     }
 
+    /** WHMCS's service statuses (tblhosting.domainstatus) here; parity maps them the same way (WhmcsRecordParity). */
+    public const SERVICE_STATUSES = ['Active' => 'active', 'Suspended' => 'suspended', 'Terminated' => 'terminated', 'Cancelled' => 'cancelled',
+        'Fraud' => 'cancelled', 'Pending' => 'pending'];
+
+    /** A WHMCS service's status here: one it does not name is pending (parity reports it). */
+    public static function serviceStatus(string $whmcs): string
+    {
+        return self::SERVICE_STATUSES[$whmcs] ?? 'pending';
+    }
+
+    /** The plan a WHMCS billing cycle (tblhosting.billingcycle) is, by name (the catalog's); parity maps it the same way. */
+    public static function planName(string $cycle): string
+    {
+        return match ($cycle) {
+            'Monthly' => 'Monthly',
+            'Quarterly' => 'Quarterly',
+            'Semi-Annually' => 'Semiannually',
+            'Annually' => 'Annually',
+            'Biennially' => 'Biennially',
+            'Triennially' => 'Triennially',
+            'One Time' => 'One-Time',
+            'Free Account' => 'Free',
+            default => 'Monthly',
+        };
+    }
+
     /**
      * Whether the source named is this instance's own database: the same name, on a local host or the same host and
      * port. A first, cheap check only: a copy under another name, or the server reached by its own hostname, is not
@@ -1301,17 +1327,7 @@ class ImportFromWhmcs extends Command
                 $planId = DB::table('plans')
                     ->where('priceable_id', $record['packageid'])
                     ->where('priceable_type', Product::class)
-                    ->where('name', match ($record['billingcycle']) {
-                        'Monthly' => 'Monthly',
-                        'Quarterly' => 'Quarterly',
-                        'Semi-Annually' => 'Semiannually',
-                        'Annually' => 'Annually',
-                        'Biennially' => 'Biennially',
-                        'Triennially' => 'Triennially',
-                        'One Time' => 'One-Time',
-                        'Free Account' => 'Free',
-                        default => 'Monthly',
-                    })
+                    ->where('name', self::planName((string) $record['billingcycle']))
                     ->first()?->id;
 
                 $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
@@ -1338,15 +1354,7 @@ class ImportFromWhmcs extends Command
                     'server_id' => $server?->id,
                     'whmcs_server_id' => $whmcsServer,
                     'product_id' => $record['packageid'],
-                    'status' => match ($record['domainstatus']) {
-                        'Active' => 'active',
-                        'Suspended' => 'suspended',
-                        'Terminated' => 'terminated',
-                        'Cancelled' => 'cancelled',
-                        'Fraud' => 'cancelled',
-                        'Pending' => 'pending',
-                        default => 'pending',
-                    },
+                    'status' => self::serviceStatus((string) $record['domainstatus']),
                     // Never below zero (ADV-551-3): it would renew free; staff are told.
                     'price' => $this->recurringAmount($record),
                     'quantity' => $record['qty'],
