@@ -9,6 +9,7 @@ use App\Services\Invoice\PaymentReminders;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use PDO;
@@ -96,5 +97,60 @@ class ImportReminderStateTest extends TestCase
 
         Carbon::setTestNow('2026-11-02 09:00:00'); // 603 due in 6 days; 601 a day late; 602 six days late
         $this->assertSame(3, (new PaymentReminders)->send(), '603 «due soon», 601 day 1 and 602 day 5');
+    }
+
+    private function whmcsRanDaily(string $ended): void
+    {
+        $this->whmcs->exec("INSERT INTO tblconfiguration VALUES ('lastDailyCronInvocationTime', '" . substr($ended, 0, 10) . " 09:00:02')");
+        $this->whmcs->exec("INSERT INTO tblconfiguration VALUES ('lastDailyCronEndTime', '{$ended}')");
+    }
+
+    /**
+     * Replay of nixpal, 2026-11-03: the dump came before WHMCS's 09:00 run, so that day's notices had not gone, and on the
+     * cut-over day WHMCS's cron is off. Only what its last run sent counts as sent; the day's notices are the cron's.
+     */
+    public function test_a_dump_before_whmcss_daily_run_leaves_the_days_notices_to_the_cron(): void
+    {
+        Carbon::setTestNow('2026-10-29 02:21:00');
+        $this->whmcsRanDaily('2026-10-28 09:00:26');
+        $this->invoice(602, '2026-10-13', '2026-10-27'); // day 1 went on 10-28, day 2 is today's
+        $this->invoice(604, '2026-10-20', '2026-10-28'); // due on WHMCS's last run: day 1 is today's
+        $this->invoice(605, '2026-10-20', '2026-11-03'); // «due soon» went on 10-28 (6 days before)
+        $this->invoice(606, '2026-10-20', '2026-11-04'); // «due soon» is today's
+        $this->import();
+        config(['settings.cronjob_overdue_reminders' => '1,2']);
+
+        Carbon::setTestNow('2026-10-29 09:00:00');
+        $this->assertSame(3, (new PaymentReminders)->send(), '602 day 2, 604 day 1, 606 «due soon»; not 602 day 1 nor 605');
+        $this->assertSame(3, $this->sent());
+        $this->assertSame(0, (new PaymentReminders)->send(), 'once');
+        $this->assertSame(1, DB::table('invoice_reminders')->where(['invoice_id' => 602, 'kind' => 'overdue', 'days' => 2])->count());
+    }
+
+    /** After the day's run (a dump of the evening), the day's notices went: none again. */
+    public function test_a_dump_after_whmcss_daily_run_counts_the_days_notices_as_sent(): void
+    {
+        Carbon::setTestNow('2026-10-29 18:00:00');
+        $this->whmcsRanDaily('2026-10-29 09:00:35');
+        $this->invoice(602, '2026-10-13', '2026-10-27');
+        $this->invoice(604, '2026-10-20', '2026-10-28');
+        $this->invoice(606, '2026-10-20', '2026-11-04');
+        $this->import();
+        config(['settings.cronjob_overdue_reminders' => '1,2']);
+
+        $this->assertSame(0, (new PaymentReminders)->send());
+    }
+
+    /** A run time ahead of the importer's clock (another time zone, a wrong clock) is today, never later. */
+    public function test_a_daily_run_after_today_counts_as_today(): void
+    {
+        $this->whmcsRanDaily('2026-11-05 09:00:26');
+        $this->invoice(602, '2026-10-13', '2026-10-27');
+        $this->invoice(607, '2026-10-20', '2026-11-08'); // 10 days ahead: its «due soon» is the cron's
+        $this->import();
+        config(['settings.cronjob_overdue_reminders' => '1,2']);
+
+        $this->assertSame(0, (new PaymentReminders)->send(), '602 day 2 counted as sent, as without the setting');
+        $this->assertSame(0, DB::table('invoice_reminders')->where('invoice_id', 607)->count());
     }
 }

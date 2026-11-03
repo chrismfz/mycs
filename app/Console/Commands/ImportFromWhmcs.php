@@ -1964,8 +1964,8 @@ class ImportFromWhmcs extends Command
     /**
      * The reminders WHMCS has sent already, as sent here (review of #531): with the due dates in (AUD9-2), the first cron
      * run would otherwise send each open invoice's «due soon» again, and the overdue notice of the last few days. Every
-     * overdue day up to today counts as sent, and «due soon» where its due date is within WHMCS's reminder days. The days
-     * ahead are the cron's own.
+     * overdue day up to WHMCS's last daily run counts as sent, and «due soon» where that run was within WHMCS's reminder
+     * days of its due date. The days after it are the cron's own.
      */
     private function importReminderState(): void
     {
@@ -1975,22 +1975,24 @@ class ImportFromWhmcs extends Command
             $before = ctype_digit($value) && (int) $value <= PaymentReminders::MAX_DAYS ? (int) $value : 0;
         }
         $today = Carbon::today();
+        $sentUpTo = $this->whmcsLastDailyRun($today);
         $rows = [];
         foreach (DB::table('invoices')->where('status', Invoice::STATUS_UNPAID)->whereNotNull('due_at')->get(['id', 'due_at']) as $invoice) {
             $due = Carbon::parse($invoice->due_at)->startOfDay();
             $row = ['invoice_id' => $invoice->id, 'due_on' => $due->toDateString(), 'sent_at' => now()];
             if ($due->greaterThan($today)) {
-                if ($due->lessThanOrEqualTo($today->copy()->addDays($before))) {
+                if ($due->lessThanOrEqualTo($sentUpTo->copy()->addDays($before))) {
                     $rows[] = ['kind' => 'due', 'days' => 0] + $row;
                 }
 
                 continue;
             }
             // Only within the overdue days the cron still sends on (and catches up): an older one is never reminded again.
-            $late = (int) $due->diffInDays($today);
-            if ($late > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
+            if ((int) $due->diffInDays($today) > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
                 continue;
             }
+            // Late on WHMCS's last run: due after it, none of its notices went yet (0 days).
+            $late = $due->lessThan($sentUpTo) ? (int) $due->diffInDays($sentUpTo) : 0;
             for ($day = 1; $day <= min($late, PaymentReminders::MAX_DAYS); $day++) {
                 $rows[] = ['kind' => 'overdue', 'days' => $day] + $row;
             }
@@ -1998,7 +2000,34 @@ class ImportFromWhmcs extends Command
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('invoice_reminders')->insertOrIgnore($chunk);
         }
-        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . '.');
+        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . " (up to its daily run of {$sentUpTo->toDateString()}).");
+    }
+
+    /**
+     * The day of WHMCS's last finished daily run (its reminders go in it): a dump taken before the day's run has not sent
+     * the day's notices, and WHMCS's cron is off from the cut-over (replay of nixpal, 2026-11-03: four «Second Overdue
+     * Notice» of 09:00 counted as sent by an import of 02:21). Never after today; today when WHMCS does not say.
+     */
+    private function whmcsLastDailyRun(Carbon $today): Carbon
+    {
+        if (!$this->sourceHas('tblconfiguration')) {
+            return $today;
+        }
+        $at = [];
+        foreach ($this->pdo->query("SELECT setting, value FROM tblconfiguration WHERE setting IN ('lastDailyCronEndTime', 'lastDailyCronInvocationTime')") as $row) {
+            $at[$row['setting']] = trim((string) $row['value']);
+        }
+        $value = ($at['lastDailyCronEndTime'] ?? '') !== '' ? $at['lastDailyCronEndTime'] : ($at['lastDailyCronInvocationTime'] ?? '');
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $m) !== 1 || $m[1] === '0000-00-00') {
+            return $today;
+        }
+        try {
+            $day = Carbon::createFromFormat('!Y-m-d', $m[1]);
+        } catch (Throwable) {
+            return $today;
+        }
+
+        return $day === null || $day->greaterThan($today) ? $today : $day;
     }
 
     private function importInvoiceItems()
