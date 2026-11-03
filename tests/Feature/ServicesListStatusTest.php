@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Livewire\Services\Index as ServicesIndex;
 use App\Livewire\Services\Show as ServiceShow;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -36,6 +38,7 @@ class ServicesListStatusTest extends TestCase
     private function service(string $status, string $domain): Service
     {
         $product = $this->createProduct();
+        Carbon::setTestNow(Carbon::now()->addMinute()); // each its own created_at: the list is the newest first
 
         return Service::factory()->create(['client_id' => $this->user->client()->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
             'status' => $status, 'price' => 10, 'quantity' => 1, 'currency_code' => 'USD', 'domain' => $domain, 'expires_at' => '2026-12-03']);
@@ -47,16 +50,37 @@ class ServicesListStatusTest extends TestCase
         $suspended = $this->service(Service::STATUS_SUSPENDED, 'suspended.example.gr');
         $cancelled = $this->service(Service::STATUS_CANCELLED, 'cancelled.example.gr');
 
-        $html = $this->livewireAs($this->user)->test(ServicesIndex::class)
-            ->assertSeeInOrder(['cancelled.example.gr', __('services.statuses.cancelled')])
-            ->assertSeeInOrder(['suspended.example.gr', __('services.statuses.suspended')])
-            ->assertSeeInOrder(['active.example.gr', __('services.statuses.active')])->html();
+        $html = $this->livewireAs($this->user)->test(ServicesIndex::class)->html();
 
-        // The newest first: the cancelled one's card ends where the suspended one's begins.
-        $card = fn (Service $service) => substr($html, strpos($html, route('services.show', $service)), 2500);
-        $this->assertStringNotContainsString(__('services.renews_in'), strstr($card($cancelled), 'suspended.example.gr', true) ?: $card($cancelled));
-        $this->assertStringContainsString(__('services.renews_in'), $card($suspended));
-        $this->assertStringContainsString(__('services.renews_in'), $card($active));
+        $this->assertStringContainsString(__('services.statuses.cancelled'), $this->card($html, $cancelled));
+        $this->assertStringNotContainsString(__('services.renews_in'), $this->card($html, $cancelled));
+        $this->assertStringContainsString(__('services.statuses.suspended'), $this->card($html, $suspended));
+        $this->assertStringContainsString(__('services.renews_in'), $this->card($html, $suspended), 'a suspended one renews once paid');
+        $this->assertStringContainsString(__('services.statuses.active'), $this->card($html, $active));
+        $this->assertStringContainsString(__('services.renews_in'), $this->card($html, $active));
+    }
+
+    /** Review of #619: an active one being cancelled says so, as its page does, and renews no more on either. */
+    public function test_an_active_one_being_cancelled_says_so_and_no_renewal(): void
+    {
+        $ending = $this->service(Service::STATUS_ACTIVE, 'ending.example.gr');
+        ServiceCancellation::query()->create(['service_id' => $ending->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
+
+        $card = $this->card($this->livewireAs($this->user)->test(ServicesIndex::class)->html(), $ending);
+        $this->assertStringContainsString(__('services.statuses.cancellation_pending'), $card);
+        $this->assertStringNotContainsString('>' . __('services.statuses.active') . '<', $card);
+        $this->assertStringNotContainsString(__('services.renews_in'), $card);
+        $this->livewireAs($this->user)->test(ServiceShow::class, ['service' => $ending->fresh()])
+            ->assertSee(__('services.statuses.cancellation_pending'))->assertDontSee(__('services.renews_on') . ':');
+    }
+
+    /** One service's card on the list: from its link to the link's end, whatever the order. */
+    private function card(string $html, Service $service): string
+    {
+        $card = Str::betweenFirst($html, 'href="' . route('services.show', $service) . '"', '</a>');
+        $this->assertNotSame($html, $card, 'its card is on the list');
+
+        return $card;
     }
 
     public function test_an_ended_services_page_says_no_renewal(): void
