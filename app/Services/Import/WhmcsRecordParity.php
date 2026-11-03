@@ -278,6 +278,9 @@ final class WhmcsRecordParity
                 [$type, $period, $unit] = self::CYCLES[$planName];
                 $same = (string) $plan->type === $type
                     && ($type !== 'recurring' || ((int) $plan->billing_period === $period && strtolower((string) $plan->billing_unit) === $unit));
+                // A «Free Account» of a product with no Free plan: its first plan at 0.00 (ImportFromWhmcs::freeAccountPlan).
+                $same = $same || ($cycle === 'Free Account' && WhmcsMassPay::cents($service->price) === 0
+                    && (int) $service->plan_id === ImportFromWhmcs::freeAccountPlan((int) $service->product_id));
                 $this->check('Services', $id, $same, $billed . "here on plan «{$plan->name}» ("
                     . ((string) $plan->type === 'recurring' ? "every {$plan->billing_period} {$plan->billing_unit}" : $plan->type) . ')');
             }
