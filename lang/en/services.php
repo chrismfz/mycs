@@ -403,7 +403,7 @@ return [
     'auto_charge_turned_on' => 'Automatic payment turned on.',
     'auto_charge_turned_off' => 'Automatic payment turned off.',
     'payment_method' => 'Paid with',
-    'payment_method_account_short' => 'As the account',
+    'payment_method_account_short' => 'Same as the account',
     'payment_method_option_auto' => ':gateway (automatically with :method)',
     'payment_method_option_unavailable' => ':gateway (not available)',
     'payment_method_option_manual' => ':gateway (paid from the invoice)',

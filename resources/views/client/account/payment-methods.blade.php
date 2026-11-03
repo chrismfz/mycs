@@ -179,7 +179,11 @@
                             <x-ri-circle-fill class="size-1 text-base/20" />
                         </span>
                         <span class="text-base text-sm">
-                            {{ __('account.transaction_with', ['amount' => $transaction->formattedAmount, 'gateway' => $transaction->is_credit_transaction ? __('invoices.paid_with_credits') : ($transaction->gateway?->name ?? '—')]) }}
+                            @if ($transaction->is_credit_transaction)
+                            {{ __('account.transaction_from_credit', ['amount' => $transaction->formattedAmount]) }}
+                            @else
+                            {{ __('account.transaction_with', ['amount' => $transaction->formattedAmount, 'gateway' => $transaction->gateway?->name ?? '—']) }}
+                            @endif
                         </span>
                     </div>
                     <div class="pr-2">
