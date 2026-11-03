@@ -511,7 +511,7 @@ class ImportFromWhmcs extends Command
             . " 'SendReminder', 'SendInvoiceReminderDays', 'SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder',"
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
-            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -574,6 +574,9 @@ class ImportFromWhmcs extends Command
             'credits_enabled' => $has('AddFundsEnabled') || $balances > 0 ? ['boolean', $on('AddFundsEnabled') || $balances > 0 ? '1' : '0'] : null,
             // WHMCS's «Disable Credit Auto-Apply» is MyCS's credit auto-apply, inverted (review of #518: myip has it on).
             'credits_auto_use' => $has('NoAutoApplyCredit') ? ['boolean', $on('NoAutoApplyCredit') ? '0' : '1'] : null,
+            // «Credit on Downgrade»: the rest of the period's difference as account credit, or nothing (2026-11-03: nixpal on,
+            // myip off, MyCS's default on: myip's downgrades would have given credit WHMCS never gave).
+            'credits_on_downgrade' => $has('CreditOnDowngrade') ? ['boolean', $on('CreditOnDowngrade') ? '1' : '0'] : null,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
