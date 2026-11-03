@@ -80,6 +80,12 @@ final class PaymentStatus
         return in_array($this->state, [self::HELD, self::TAKEN, self::PROCESSING, self::PROCESSING_GROUP, self::CHECKING], true);
     }
 
+    /** The cron charges it: the customer may keep it from that and pay another way (Show::keepFromAutoCharge). */
+    public function charged(): bool
+    {
+        return in_array($this->state, [self::SCHEDULED, self::RETRY], true);
+    }
+
     /** The customer may need us: a payment on its way that does not settle, or one they cannot make. */
     public function offersContact(): bool
     {

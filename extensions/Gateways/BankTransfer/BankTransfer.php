@@ -6,7 +6,9 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Models\Invoice;
 use App\Services\Invoice\PaymentReminders;
+use App\Services\Invoice\PaymentStatus;
 use App\Services\Money\BankTransferDetails;
+use App\Services\Payment\AutoCharge;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
 
@@ -136,9 +138,16 @@ class BankTransfer extends Gateway
      */
     public function pay(Invoice $invoice, $total)
     {
-        // A saved method pays it on its due date: a transfer too would be paid twice (adversarial BT-ADV-3).
-        if (PaymentReminders::chargedOnItsOwn($invoice)) {
-            return View::file(__DIR__ . '/resources/views/charged.blade.php', ['due' => $invoice->due_at?->format('d/m/Y')]);
+        // A saved method pays it on a day to come, or a gateway subscription does: a transfer too would be paid twice
+        // (adversarial BT-ADV-3). The cron's charge as its page tells it (PaymentStatus): one it may still be kept from (the
+        // page's «I'll pay another way»), told so. A subscription's: ask us (ADV-623-2). The last day of its window, once
+        // the run is over, is neither: the cron charges it no more, the details (ADV-623-3).
+        $status = PaymentStatus::for($invoice);
+        if ($status->charged()) {
+            return View::file(__DIR__ . '/resources/views/charged.blade.php', ['text' => __('invoices.bank_transfer_charged', ['date' => $status->params['date'] ?? '—'])]);
+        }
+        if (PaymentReminders::chargedOnItsOwn($invoice) && !AutoCharge::willCharge($invoice)) {
+            return View::file(__DIR__ . '/resources/views/charged.blade.php', ['text' => __('invoices.bank_transfer_subscribed')]);
         }
 
         return View::file(__DIR__ . '/resources/views/pay.blade.php', [
