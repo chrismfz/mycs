@@ -4,7 +4,8 @@
 @endphp
 <div class="container mt-14">
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
-    <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @endif>
+    {{-- Back from a gateway: every 5 seconds; a charge held or a payment processed (it may take days): every 30. --}}
+    <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @elseif ($paymentStatus->waiting()) wire:poll.30s="checkPaymentStatus" @endif>
         @if ($this->pay || $showPayModal)
         @include('invoices.partials.payment-modal')
         @endif
@@ -20,6 +21,40 @@
                     </span>
                 </span>
             </div>
+        </div>
+
+        {{-- What happens now, before any click (docs/pay-flow-ux.md, PR 2): App\Services\Invoice\PaymentStatus. --}}
+        @php
+            $tone = [
+                'ok' => ['box' => 'border-success bg-success/10', 'text' => 'text-success'],
+                'info' => ['box' => 'border-primary bg-primary/10', 'text' => 'text-primary'],
+                'warn' => ['box' => 'border-warning bg-warning/10', 'text' => 'text-warning'],
+                'error' => ['box' => 'border-error bg-error/10', 'text' => 'text-error'],
+                'plain' => ['box' => 'border-neutral bg-background-secondary', 'text' => 'text-base'],
+            ][$paymentStatus->tone()];
+            $statusBody = $paymentStatus->body();
+        @endphp
+        <div class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 {{ $tone['box'] }}">
+            <div role="status" class="flex gap-3 items-start">
+                @if ($paymentStatus->waiting())
+                <x-ri-loader-5-fill aria-hidden="true" class="size-6 shrink-0 animate-spin {{ $tone['text'] }}" />
+                @endif
+                <div class="space-y-1">
+                    <p class="text-lg font-semibold {{ $tone['text'] }}">{{ $paymentStatus->title() }}</p>
+                    @if ($statusBody !== '')
+                    <p class="text-sm text-base">{{ $statusBody }}</p>
+                    @endif
+                    {{-- A ticket of the invoice's own account, where tickets are on (review of #593). --}}
+                    @if ($paymentStatus->offersContact() && !config('settings.tickets_disabled') && (int) \App\Support\CurrentClient::id() === (int) $invoice->client_id && \App\Support\CurrentClient::allows('tickets'))
+                    <a href="{{ route('tickets.create') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.payment_status.contact') }}</a>
+                    @endif
+                </div>
+            </div>
+            @if ($paymentStatus->payable())
+            <x-button.primary class="sm:!w-fit shrink-0" wire:click="$set('showPayModal', true)" wire:loading.attr="disabled" wire:target="$set('showPayModal')">
+                {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
+            </x-button.primary>
+            @endif
         </div>
 
         <div class="bg-background-secondary border border-neutral p-12 rounded-lg mt-2">
@@ -49,37 +84,6 @@
                     @endif
                     @if($invoice->number)
                     <p class="text-base">{{ __('invoices.invoice_no')}}: {{ $invoice->number }}</p>
-                    @endif
-                </div>
-                <div class="max-w-[300px] w-full">
-                    @if ($invoice->status == 'paid')
-                    <div class="text-green-500 mt-6 text-lg text-center font-semibold">
-                        {{ __('invoices.paid') }}
-                    </div>
-                    @elseif ($invoice->status == 'refunded')
-                    <div class="text-sky-500 mt-6 text-lg text-center font-semibold">
-                        {{ __('invoices.statuses.refunded') }}
-                    </div>
-                    @elseif ($invoice->status == 'unpaid')
-                    @if($checkPayment || $invoice->transactions->where('status', \App\Enums\InvoiceTransactionStatus::Processing)->where('created_at', '>=', now()->subDays(1))->count() > 0)
-                    <div class="text-yellow-500 mb-6 text-lg text-center flex items-center justify-center">
-                        {{ __('invoices.payment_processing') }}
-                        <x-ri-loader-5-fill aria-hidden="true" class="size-6 ms-2 fill-yellow-600 animate-spin" />
-                    </div>
-                    @else
-                    <div class="mb-6 text-lg text-center">
-                        @if($invoice->transactions->where('status', \App\Enums\InvoiceTransactionStatus::Processing)->count() > 0)
-                        <span class="text-yellow-500">{{ __('invoices.payment_processing') }}</span>
-                        <p class="text-sm">{{ __('invoices.duplicate_payment') }}</p>
-                        @else
-                        <span class="text-yellow-500">{{ __('invoices.payment_pending') }}</span>
-                        @endif
-                    </div>
-                    <x-button.primary wire:click="$set('showPayModal', true)" class="mt-2" wire:loading.attr="disabled"
-                        wire:target="$set('showPayModal')">
-                        {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
-                    </x-button.primary>
-                    @endif
                     @endif
                 </div>
             </div>

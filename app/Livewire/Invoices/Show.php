@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Invoice\PaymentReminders;
+use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
@@ -48,14 +49,15 @@ class Show extends Component
         if (Request::has('checkPayment') && $this->invoice->status === Invoice::STATUS_UNPAID) {
             $this->checkPayment = true;
         }
-        if ($this->invoice->transactions()->where('status', InvoiceTransactionStatus::Processing)->exists()) {
-            $this->checkPayment = true;
-        }
+        // A payment the gateway processes (SEPA can take days) is shown and looked at again by the status card, every 30
+        // seconds and rendered (review of #593): no longer the 5-second check, which skipped rendering until it was paid.
 
         // Load relations
         $this->invoice->load('transactions', 'transactions.gateway', 'transactions.invoice', 'adjustmentNotes', 'ekdosiDocuments');
 
-        if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
+        // Its window is not opened (an email's ?pay=1) for one that cannot be paid now: paid, or a payment on its way that the
+        // server would refuse (docs/pay-flow-ux.md, PR 2).
+        if ($this->showPayModal && !$this->status()->payable()) {
             $this->showPayModal = false;
         }
         $this->selectedMethod ??= $this->preferredChoice();
@@ -136,9 +138,17 @@ class Show extends Component
 
     public function updatedShowPayModal($value)
     {
-        if ($value && $this->invoice->status !== Invoice::STATUS_UNPAID) {
+        if ($value && !$this->status()->payable()) {
             $this->showPayModal = false;
         }
+    }
+
+    /** What its page tells the customer (PaymentStatus): read once a request, again after the invoice is read again. */
+    private ?PaymentStatus $statusMemo = null;
+
+    private function status(): PaymentStatus
+    {
+        return $this->statusMemo ??= PaymentStatus::for($this->invoice, (bool) $this->checkPayment);
     }
 
     public function processPayment()
@@ -166,6 +176,11 @@ class Show extends Component
             }
             if ($this->invoice->items->contains(fn ($item) => $item->reference_type === Credit::class)) {
                 return $this->notify(__('This invoice cannot be paid with credits.'), 'error');
+            }
+            // A charge or a payment on its way holds it for every way of paying (docs/payments.md, predeploy S1): the
+            // balance too, read under its payment lock as a gateway's is (adversarial ADV-593-3).
+            if (DB::transaction(fn () => SavedMethodCharge::onItsWay((new RecordPaymentService)->lockInvoice($this->invoice->id)))) {
+                return $this->notify(__('A payment for this invoice is already on its way.'), 'error');
             }
 
             return $this->payWithCredit();
@@ -209,6 +224,7 @@ class Show extends Component
         // Read and spend the credit under the payment locks (RecordPaymentService): never a stale copy.
         $transaction = (new RecordPaymentService)->payWithCredit($this->invoice);
         $this->invoice = $this->invoice->fresh();
+        $this->statusMemo = null;
         if ($transaction === null) {
             return;
         }
@@ -271,6 +287,7 @@ class Show extends Component
     public function checkPaymentStatus()
     {
         $this->invoice->refresh();
+        $this->statusMemo = null;
 
         // Check for transactions that failed since lastChecked
         if ($this->lastChecked) {
@@ -290,6 +307,11 @@ class Show extends Component
 
         // Update lastChecked to current time
         $this->lastChecked = now();
+        // Back from a gateway, its payment now seen (held, processed, paid) or a way to pay again: the card shows it.
+        if ($this->checkPayment && $this->status()->state !== PaymentStatus::CHECKING) {
+            $this->checkPayment = false;
+            $this->statusMemo = null;
+        }
 
         // Check if invoice is paid
         if ($this->invoice->status === 'paid') {
@@ -306,7 +328,7 @@ class Show extends Component
 
     public function render()
     {
-        return view('invoices.show')->layoutData([
+        return view('invoices.show', ['paymentStatus' => $this->status()])->layoutData([
             'title' => $this->invoice->displayTitle(),
             'sidebar' => true,
         ]);

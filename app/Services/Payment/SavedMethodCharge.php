@@ -205,8 +205,11 @@ final class SavedMethodCharge
         if (self::unresolved($ids, $except, $groups)->isNotEmpty()) {
             return true;
         }
-        // A group's payment is recorded on the invoice its charge went to, and kept as the group's (MassPay).
-        $leads = $groups === [] ? [] : ChargeAttempt::query()->whereIn('payment_group_id', $groups)->pluck('invoice_id')->map(fn ($id) => (int) $id)->all();
+        // A group's payment is recorded on the invoice its charge went to, and kept as the group's (MassPay). A charge that
+        // took nothing (declined, or the bank asked to confirm) makes no group payment: the lead's own payment on its way
+        // holds only the lead (adversarial ADV-593-5).
+        $leads = $groups === [] ? [] : ChargeAttempt::query()->whereIn('payment_group_id', $groups)
+            ->whereNotIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED])->pluck('invoice_id')->map(fn ($id) => (int) $id)->all();
         $payments = $groups === [] ? [] : PaymentGroup::query()->whereIn('id', $groups)->whereNotNull('invoice_transaction_id')->pluck('invoice_transaction_id')->all();
 
         return InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
