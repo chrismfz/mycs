@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Invoice\PaymentReminders;
+use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
@@ -55,7 +56,9 @@ class Show extends Component
         // Load relations
         $this->invoice->load('transactions', 'transactions.gateway', 'transactions.invoice', 'adjustmentNotes', 'ekdosiDocuments');
 
-        if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
+        // Its window is not opened (an email's ?pay=1) for one that cannot be paid now: paid, or a payment on its way that the
+        // server would refuse (docs/pay-flow-ux.md, PR 2).
+        if ($this->showPayModal && !$this->status()->payable()) {
             $this->showPayModal = false;
         }
         $this->selectedMethod ??= $this->preferredChoice();
@@ -136,9 +139,15 @@ class Show extends Component
 
     public function updatedShowPayModal($value)
     {
-        if ($value && $this->invoice->status !== Invoice::STATUS_UNPAID) {
+        if ($value && !$this->status()->payable()) {
             $this->showPayModal = false;
         }
+    }
+
+    /** What its page tells the customer, read again on each render (PaymentStatus). */
+    private function status(): PaymentStatus
+    {
+        return PaymentStatus::for($this->invoice, (bool) $this->checkPayment);
     }
 
     public function processPayment()
@@ -306,7 +315,7 @@ class Show extends Component
 
     public function render()
     {
-        return view('invoices.show')->layoutData([
+        return view('invoices.show', ['paymentStatus' => $this->status()])->layoutData([
             'title' => $this->invoice->displayTitle(),
             'sidebar' => true,
         ]);

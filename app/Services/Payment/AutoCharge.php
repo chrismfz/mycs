@@ -118,30 +118,41 @@ final class AutoCharge
      */
     public static function willCharge(Invoice $invoice): bool
     {
+        return self::nextAttempt($invoice) !== null;
+    }
+
+    /**
+     * The day the run charges it next (today included: the hourly run charges too), or null when it never will (willCharge).
+     * What the invoice's page tells the customer (docs/pay-flow-ux.md, PR 2).
+     */
+    public static function nextAttempt(Invoice $invoice): ?CarbonImmutable
+    {
         // No due date: the run's dates never pick it (due()), so never charged on its own.
         if ($invoice->due_at === null || $invoice->remaining <= 0 || !self::picks($invoice, false) || self::agreementFor($invoice) === null) {
-            return false;
+            return null;
         }
-        $offset = (int) $invoice->due_at->copy()->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        $today = CarbonImmutable::today();
+        $offset = (int) $invoice->due_at->copy()->startOfDay()->diffInDays($today, false);
         $postponed = self::postponedSuspendDays($invoice);
         $limit = max($postponed, self::window());
         if ($offset > $limit) {
-            return false;
+            return null;
+        }
+        // Not tried yet: from the day due() first picks it (autocharge_days_before before its due date), or today.
+        $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
+        if (!(clone $cron)->exists()) {
+            return $today->addDays(max(0, -self::daysBefore() - $offset));
         }
         // Tried already: a day the run still tries, as chargeOne decides it (the retry days set, or a day a suspension
         // window adds), from tomorrow if it tried today (review 1 of #580: after the last retry it charges nothing more).
-        $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
-        if (!(clone $cron)->exists()) {
-            return true;
-        }
-        $from = max(0, (clone $cron)->where('sent_at', '>=', CarbonImmutable::today())->exists() ? $offset + 1 : $offset);
+        $from = max(0, (clone $cron)->where('sent_at', '>=', $today)->exists() ? $offset + 1 : $offset);
         for ($day = $from; $day <= $limit; $day++) {
             if (self::retryOn($day) || ($day > self::suspendDays() && $day <= $postponed)) {
-                return true;
+                return $today->addDays($day - $offset);
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
