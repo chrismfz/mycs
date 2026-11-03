@@ -1304,7 +1304,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => true,
-                    'description' => 'Customers choose several unpaid invoices and pay them at once through a gateway, as in WHMCS. No combined invoice is made: the payment is recorded on the invoice due first and pays the others in order.',
+                    'description' => 'Customers choose several unpaid invoices and pay them at once through a gateway, as in WHMCS. No combined invoice is made: the payment is recorded on the invoice due first and pays the others in order. Switched off, a choice already made is not paid either (a payment already sent for it still pays its invoices).',
                 ],
                 [
                     'name' => 'immutable_invoices_enabled',

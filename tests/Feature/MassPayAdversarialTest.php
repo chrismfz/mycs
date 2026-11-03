@@ -110,12 +110,13 @@ class MassPayAdversarialTest extends TestCase
      */
     public function test_a_paypal_subscription_sale_on_a_group_lead_pays_the_subscription_not_the_group(): void
     {
-        $a = $this->service(['subscription_id' => 'I-MASS']);
+        $a = $this->service();
         $b = $this->service(['subscription_id' => 'I-MASS']);
         $saleOnA = $this->invoice(10, '+1 day', $a->id);
         $saleOnB = $this->invoice(10, '+1 day', $b->id);
         $unrelated = $this->invoice(10, '+2 days');
         $group = (new MassPay)->open($this->user->client(), [$saleOnA->id, $unrelated->id], $this->user); // chosen, never paid
+        $a->update(['subscription_id' => 'I-MASS']); // subscribed after: a subscription invoice is not chosen since
 
         (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-MASS', 'billing_agreement_id' => 'I-MASS', 'amount' => ['total' => '20.00', 'currency' => 'USD']]);
 
