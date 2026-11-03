@@ -32,7 +32,7 @@ class Index extends Component
     public function render()
     {
         $query = CurrentClient::model()->services()->orderBy('created_at', 'desc')
-            ->with(['license', 'product.settings', 'product.server', 'properties', 'plan']);
+            ->with(['license', 'product.settings', 'product.server', 'properties', 'plan', 'cancellation']);
 
         if ($this->status) {
             $query->where('status', $this->status);
@@ -58,6 +58,26 @@ class Index extends Component
             'title' => __('navigation.services'),
             'sidebar' => true,
         ]);
+    }
+
+    /**
+     * Its status on the list in words, with the tone of its icon (owner 2026-11-03): an active one being cancelled says
+     * so, as its page does, and renews no more (review of #619).
+     *
+     * @return array{0: string, 1: string, 2: string, 3: bool} its classes, its icon, its word, whether it is being cancelled
+     */
+    public static function status(Service $service): array
+    {
+        $ending = $service->status === Service::STATUS_ACTIVE && $service->cancellation !== null;
+        $label = Service::statusLabel($service->status);
+
+        return match (true) {
+            $ending => ['text-warning bg-warning/20', 'ri-error-warning-fill', __('services.statuses.cancellation_pending'), true],
+            $service->status === Service::STATUS_ACTIVE => ['text-success bg-success/20', 'ri-checkbox-circle-fill', $label, false],
+            $service->isEnded() => ['text-inactive bg-inactive/20', 'ri-forbid-fill', $label, false],
+            $service->status === Service::STATUS_SUSPENDED => ['text-warning bg-warning/20', 'ri-forbid-fill', $label, false],
+            default => ['text-warning bg-warning/20', 'ri-error-warning-fill', $label, false],
+        };
     }
 
     /**
