@@ -401,10 +401,12 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             throw new Exception('Service has not been created');
         }
 
+        // Why, as WHM shows it (WHMCS sends its reason too: «Overdue on Payment»; owner's live test 2026-11-03 saw «Unknown»).
+        $why = array_filter(['reason' => mb_substr(trim((string) $service->suspend_reason), 0, 250)]);
         // A reseller: its own accounts with it (WHM's suspendreseller), as WHMCS for a reseller product.
         $this->resellerInWhm($settings, $properties, $properties['cpanel_username'])
-            ? $this->whm('/suspendreseller', ['user' => $properties['cpanel_username']], timeout: self::LONG)
-            : $this->whm('/suspendacct', ['user' => $properties['cpanel_username']]);
+            ? $this->whm('/suspendreseller', ['user' => $properties['cpanel_username']] + $why, timeout: self::LONG)
+            : $this->whm('/suspendacct', ['user' => $properties['cpanel_username']] + $why);
 
         return true;
     }

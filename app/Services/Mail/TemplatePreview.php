@@ -168,6 +168,7 @@ final class TemplatePreview
             'new_order_created' => ['order' => $order, 'items' => collect([$service]), 'total' => $total],
             'new_server_created' => ['service' => $service, 'service_password' => 'Ex4mple-Pass'],
             'server_suspended', 'server_unsuspended', 'server_terminated', 'service_cancelled' => ['service' => $service],
+            'service_upgraded' => ['service' => $service, 'old_product' => 'Web Hosting Basic'],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => $cancellation],
             'ssl_certificate_issued' => ['service' => $service, 'common_name' => 'shop.example.gr', 'expires' => now()->addYear()->format('d/m/Y')],
             'new_ticket_message' => ['ticketMessage' => $message, 'author_name' => 'Γιώργος (Υποστήριξη)'],

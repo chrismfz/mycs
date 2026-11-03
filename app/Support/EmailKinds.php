@@ -36,6 +36,7 @@ final class EmailKinds
         'server_suspended' => 'product',
         'service_hold_ending' => 'product',
         'server_unsuspended' => 'product',
+        'service_upgraded' => 'product',
         'server_terminated' => 'product',
         'service_cancelled' => 'product',
         'service_cancellation_received' => 'product',

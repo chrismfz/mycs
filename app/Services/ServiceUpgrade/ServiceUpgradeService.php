@@ -87,6 +87,7 @@ class ServiceUpgradeService
             // after: a task for what it takes or gives back (OptionTasks).
             $staffOptions = OptionTasks::on($service);
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
+            $from = $productChanged ? $service->product?->name : null;
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
             if ($productChanged) {
@@ -157,6 +158,15 @@ class ServiceUpgradeService
             if ($shortfall !== null) {
                 $this->billShortfall($serviceUpgrade, $service, $shortfall);
             }
+
+            // Its customer told, once it is committed (an upgrade, a downgrade or options; WHMCS confirms one).
+            $id = (int) $service->id;
+            DB::afterCommit(function () use ($id, $from) {
+                $changed = Service::query()->with('product', 'client')->find($id);
+                if ($changed?->client !== null) {
+                    NotificationHelper::serviceUpgradedNotification($changed->client, $changed, $from);
+                }
+            });
 
             return true;
         });
