@@ -35,8 +35,18 @@ final class SubscriptionEnded
         foreach (Service::query()->where('subscription_id', $subscriptionId)->orderBy('id')->pluck('id') as $id) {
             DB::transaction(function () use ($id, $gateway, $subscriptionId, $why, $markers, &$cleared) {
                 $service = Service::query()->whereKey($id)->lockForUpdate()->first();
-                // As the database matched it (MariaDB: case and trailing spaces aside); another id: staff changed it meanwhile.
-                if ($service === null || strcasecmp(rtrim((string) $service->subscription_id), $subscriptionId) !== 0) {
+                if ($service === null) {
+                    return;
+                }
+                // Exactly the id: MariaDB's collation also matches one differing in case or with trailing spaces, and a
+                // Stripe id is case-sensitive (a different subscription). Such a near match, or an id staff changed
+                // meanwhile, is left as it is; a near match is told in the log, for staff to check (MariaDB CI of #605).
+                if ($service->subscription_id !== $subscriptionId) {
+                    if (strcasecmp(rtrim((string) $service->subscription_id), $subscriptionId) === 0) {
+                        PaymentsLog::warning(sprintf('The %s subscription %s ended at the gateway, but service #%d carries «%s», which differs in case or spaces: not cleared, check it.',
+                            $gateway, $subscriptionId, $service->id, $service->subscription_id), ['service_id' => $service->id]);
+                    }
+
                     return;
                 }
                 // The marker first: the gateway's listener of the service's update never cancels what has ended.
