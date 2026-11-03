@@ -57,7 +57,7 @@ class ImportServicePasswordsTest extends TestCase
         $this->assertNull($ended->fresh()->password);
         $this->assertNotContains('enc-3', $asked, 'an ended service\'s is asked of no one');
         $this->assertNull($failing->fresh()->password);
-        $this->assertSame(['services' => 3, 'imported' => 2, 'skipped' => 1], $result['counts']);
+        $this->assertSame(['services' => 3, 'imported' => 2, 'empty' => 0, 'skipped' => 1], $result['counts']);
         $notes = implode("\n", $result['notes']);
         $this->assertStringContainsString("service #{$failing->id}", $notes);
         $this->assertStringNotContainsString('Plain-', $notes);
@@ -88,7 +88,7 @@ class ImportServicePasswordsTest extends TestCase
 
         $result = (new WhmcsServicePasswordImport($this->whmcs, new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1')))->run();
 
-        $this->assertSame(['services' => 8, 'imported' => 0, 'skipped' => 8], $result['counts']);
+        $this->assertSame(['services' => 8, 'imported' => 0, 'empty' => 0, 'skipped' => 8], $result['counts']);
         $this->assertStringContainsString('5 failed in a row: WHMCS is not answering, the other 3 not asked', implode("\n", $result['notes']));
     }
 }

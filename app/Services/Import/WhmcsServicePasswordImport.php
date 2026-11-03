@@ -26,7 +26,7 @@ final class WhmcsServicePasswordImport
     private const LIVE = [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING];
 
     /** @var array<string, int> */
-    private array $counts = ['services' => 0, 'imported' => 0, 'skipped' => 0];
+    private array $counts = ['services' => 0, 'imported' => 0, 'empty' => 0, 'skipped' => 0];
 
     /** @var list<string> */
     private array $notes = [];
@@ -89,7 +89,11 @@ final class WhmcsServicePasswordImport
                 $inARow = 0;
                 $password = $answer['password'] ?? null;
                 if ($password === '') {
-                    continue; // none set in WHMCS (an empty one encrypted): nothing to import, nothing failed (ADV-547-2)
+                    // None set in WHMCS (an empty one encrypted): nothing to import, nothing failed (ADV-547-2). Counted, so
+                    // the summary adds up (nixpal's rehearsal 2026-11-03: «29 of 357», 328 licenses with none).
+                    $this->counts['empty']++;
+
+                    continue;
                 }
                 if (!is_string($password)) {
                     throw new RuntimeException('no password in the answer');

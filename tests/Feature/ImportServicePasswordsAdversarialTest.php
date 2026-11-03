@@ -82,6 +82,8 @@ class ImportServicePasswordsAdversarialTest extends TestCase
         $this->assertNull($service->fresh()->password);
         Exceptions::assertNothingReported();
         $this->assertStringNotContainsString("#{$service->id}", implode("\n", $result['notes']), 'not listed as one WHMCS could not decrypt');
+        // Counted as empty, so the summary adds up (nixpal's rehearsal 2026-11-03 read «29 of 357, 0 skipped»).
+        $this->assertSame(['services' => 1, 'imported' => 0, 'empty' => 1, 'skipped' => 0], $result['counts']);
     }
 
     /**
