@@ -12,7 +12,7 @@ credentials. Το import της ημέρας τα φέρνει όλα:
 |---|---|---|---|
 | Logins servers, registrars, gateways, SMTP | `--with-logins` | το token του WHM, τα logins των cnic/openprovider, τα κλειδιά των gateways, το SMTP της εταιρείας | χωρίς (κατά πρόθεση) |
 | Το κλειδί του WHMCS | `WHMCS_CC_ENCRYPTION_HASH` στο `.env` (από το `configuration.php` του WHMCS) | το 2FA των logins, τις ρυθμίσεις των gateways όπου διαβάζονται | 2FA: 1 login, πέρασε στις 31/10 |
-| Το API του WHMCS | `--whmcs-api-url=https://clients.nixpal.com/` και `WHMCS_API_IDENTIFIER` / `WHMCS_API_SECRET` στο περιβάλλον (ποτέ ως όρισμα) | τις αποθηκευμένες μεθόδους πληρωμής (tokens Stripe και PayPal vault), τους κωδικούς των υπηρεσιών (`DecryptPassword`) | μέθοδοι 66/66· κωδικοί υπηρεσιών **29 από 357**: **ανοιχτό**, να εξηγηθεί πριν το cut-over |
+| Το API του WHMCS | `--whmcs-api-url=https://clients.nixpal.com/` και `WHMCS_API_IDENTIFIER` / `WHMCS_API_SECRET` στο περιβάλλον (ποτέ ως όρισμα) | τις αποθηκευμένες μεθόδους πληρωμής (tokens Stripe και PayPal vault), τους κωδικούς των υπηρεσιών (`DecryptPassword`) | μέθοδοι 66/66· κωδικοί υπηρεσιών: ήρθαν όλοι όσοι υπάρχουν (29: τα 11 cPanel, 17 άδειες, 1 άλλη)· οι άλλες 328 άδειες έχουν κενό κωδικό στο WHMCS (κρυπτογραφημένο, άρα το πεδίο δεν είναι άδειο). Η γραμμή του importer τους μετρά πια ως «empty in WHMCS» (#600). Μένουν χωρίς κωδικό, οπότε σε κάθε επανάληψη του import ξαναρωτιούνται: «0 of 328 imported, 328 empty» δεν είναι regression |
 | Τα attachments των tickets | `--ticket-attachments=` (αντίγραφο του φακέλου) | τα αρχεία των tickets | — |
 
 - **Κωδικοί πελατών και admins:** έρχονται αυτούσιοι. Στη nixpal και οι 247 είναι bcrypt (`$2y$`), και το MyCS τους
@@ -32,11 +32,14 @@ credentials. Το import της ημέρας τα φέρνει όλα:
 - **Το cron του WHMCS.**
 - **Stripe:** τα endpoints του WHMCS στον ίδιο λογαριασμό Stripe (στο myip: δύο,
   `myip.gr/clients/modules/gateways/callback/stripe.php`), απενεργοποίηση ή διαγραφή.
-- **PayPal:** τα webhooks και το IPN του WHMCS (το app του WHMCS). Στο app του MyCS μένει μόνο το δικό του webhook.
-  Στις δοκιμές της 2–3/11 έφταναν events με λάθος υπογραφή, κατά πάσα πιθανότητα από δεύτερο app προς το ίδιο URL:
-  **ανοιχτό**, έλεγχος στο PayPal Developer.
-- **Registrars:** ό,τι ανανεώνει στη θέση του WHMCS (modules, auto-renew), ώστε να ανανεώνει μόνο το MyCS: **ανοιχτό**,
-  έλεγχος ανά registrar.
+- **PayPal:** τα webhooks και το IPN του WHMCS (το app του WHMCS). Στο app του MyCS μένει μόνο το δικό του webhook
+  (ένα webhook ανά app, επιβεβαίωσε ο υπεύθυνος στις 3/11). Τα 400 της 2–3/11 **δεν** ήταν δεύτερο app: στο access
+  log του nginx είναι όλα retries (`PayPal/AUHR`) δύο events της πρώτης πληρωμής (2/11 14:36:05 και 14:37:09,
+  `PayPal/AUHD`), που απέτυχαν στον έλεγχο υπογραφής. Οι επόμενες πρώτες αποστολές πέρασαν όλες. Πιθανή αιτία: ο
+  έλεγχος στέλνει στο PayPal το event ξαναγραμμένο από `json_decode`/encode και όχι αυτούσιο (π.χ. ένα `{}` γίνεται
+  `[]`). **Ανοιχτό:** να επιβεβαιωθεί και να διορθωθεί πριν το cut-over.
+- **Registrars:** hard cut (υπεύθυνος, 2026-11-03). Την ημέρα που μπαίνει live το MyCS κλείνουν τα crons του WHMCS,
+  οπότε ανανεώνει μόνο το MyCS.
 - **Mail:** το piping/POP του WHMCS για τα tickets, ώστε να τα διαβάζει μόνο το MyCS.
 
 ## 3. Καθαρισμός όταν τελειώσουν οι δοκιμές

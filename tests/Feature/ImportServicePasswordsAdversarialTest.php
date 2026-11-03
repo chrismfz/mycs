@@ -82,6 +82,25 @@ class ImportServicePasswordsAdversarialTest extends TestCase
         $this->assertNull($service->fresh()->password);
         Exceptions::assertNothingReported();
         $this->assertStringNotContainsString("#{$service->id}", implode("\n", $result['notes']), 'not listed as one WHMCS could not decrypt');
+        // Counted as empty, so the summary adds up (nixpal's rehearsal 2026-11-03 read «29 of 357, 0 skipped»).
+        $this->assertSame(['services' => 1, 'imported' => 0, 'empty' => 1, 'skipped' => 0], $result['counts']);
+    }
+
+    /** Review of #600: empty answers before WHMCS refuses are counted once, the refused rest as skipped. */
+    public function test_empty_answers_then_a_refusal_still_add_up(): void
+    {
+        foreach (range(1, 5) as $i) {
+            $this->service(encrypted: "enc-{$i}");
+        }
+        $calls = 0;
+
+        $result = $this->import(function () use (&$calls) {
+            return ++$calls <= 2
+                ? Http::response(['result' => 'success', 'password' => ''])
+                : Http::response(['result' => 'error', 'message' => 'Invalid Permissions: API action "decryptpassword" is not allowed']);
+        });
+
+        $this->assertSame(['services' => 5, 'imported' => 0, 'empty' => 2, 'skipped' => 3], $result['counts']);
     }
 
     /**
