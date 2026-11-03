@@ -51,8 +51,18 @@ class PayTogether extends Component
         // The account's automatic-payments method chosen to start with, when it may pay the group (as the invoice's page
         // chooses its preferred way): the button names it, nothing is charged before it is pressed. Not when each invoice
         // is one the cron charges on its own: the invoice's page chooses nothing then either (ADV-599-1).
+        // Nor when the bank last asked the customer to confirm a charge of it for one of the invoices (3-D Secure, which
+        // AutoCharge::agreementFor skips too): charged again, it would ask again.
         $ownWay = $this->paymentGroup->invoices->every(fn (Invoice $invoice) => PaymentReminders::chargedOnItsOwn($invoice));
-        $this->selectedMethod = $ownWay ? null : $this->savedPaymentMethods->firstWhere('id', $this->automaticMethodId)?->ulid;
+        $automatic = $ownWay || $this->automaticMethodId === null || $this->askedToConfirm($this->automaticMethodId) ? null : $this->automaticMethodId;
+        $this->selectedMethod = $automatic === null ? null : $this->savedPaymentMethods->firstWhere('id', $automatic)?->ulid;
+    }
+
+    /** Whether the last charge of this method for one of the group's invoices is one the bank asked to confirm. */
+    private function askedToConfirm(int $agreementId): bool
+    {
+        return $this->paymentGroup->invoices->contains(fn (Invoice $invoice) => ChargeAttempt::query()->where('invoice_id', $invoice->id)
+            ->where('billing_agreement_id', $agreementId)->latest('id')->value('status') === ChargeAttempt::STATUS_ACTION_REQUIRED);
     }
 
     #[Computed]
@@ -208,6 +218,9 @@ class PayTogether extends Component
         }
         if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
             return $this->notify(__('We could not confirm the payment with your bank yet. Please check this invoice again in a few minutes before paying again.'), 'error');
+        }
+        if ($attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
+            return $this->notify(__('Your bank asks you to confirm this payment: please pay these invoices with your card instead.'), 'error');
         }
 
         return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');

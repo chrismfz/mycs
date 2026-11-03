@@ -9,6 +9,7 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
+use App\Models\Service;
 use App\Models\User;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Eloquent\Builder;
@@ -58,6 +59,12 @@ final class MassPay
         }
         if ($invoice->billsEndedService()) {
             return __('Invoice :invoice bills a service that has ended: please contact us.', ['invoice' => $label]);
+        }
+        // A service a gateway subscription pays (AutoCharge::due leaves it to it too): paid in a group, the subscription's
+        // own payment would pay it again, as credit.
+        if (Service::query()->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+            ->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))->exists()) {
+            return __('Invoice :invoice is paid by a subscription: it is paid on its own.', ['invoice' => $label]);
         }
         // A payment on its way (SEPA, a PayPal review): paying it again would pay it twice. A group's payment sits on its
         // first invoice only, so the group's others are held too while it is processed (F2 review CR-3).
@@ -134,10 +141,14 @@ final class MassPay
 
     /**
      * Why this group cannot be paid now, or null: it is still the account's open one, and each invoice is still payable
-     * with what was left on it when chosen (staff may have changed one meanwhile). The customer then chooses again.
+     * with what was left on it when chosen (staff may have changed one meanwhile). The customer then chooses again. Not
+     * while Mass Pay is switched off: an open group is not paid then either (a payment already sent for it is still spread).
      */
     public static function staleness(PaymentGroup $group): ?string
     {
+        if (!self::enabled()) {
+            return __('Paying several invoices at once is not available.');
+        }
         if ($group->status !== PaymentGroup::STATUS_OPEN) {
             return __('These invoices were paid or chosen again: choose them again from your invoices.');
         }
