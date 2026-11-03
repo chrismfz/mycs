@@ -55,16 +55,17 @@ class ServiceIdentifierTest extends TestCase
     public function test_without_a_domain_its_panels_username_or_hostname_never_another_property(): void
     {
         $radio = $this->service([], ['centova_username' => 'radio-example', 'centova_password' => 'secret-pass']);
-        $this->assertSame(['radio-example'], ServiceIdentifier::parts($radio));
+        $this->assertSame(['radio-example'], ServiceIdentifier::parts($radio, username: true));
+        $this->assertSame([], ServiceIdentifier::parts($radio, username: false), 'only to who may manage it');
 
         $pending = $this->service([], ['cpanel_pending_username' => 'notyet', 'password' => 'secret-pass']);
-        $this->assertSame([], ServiceIdentifier::parts($pending), 'no pending username, never a password');
+        $this->assertSame([], ServiceIdentifier::parts($pending, username: true), 'no pending username, never a password');
 
         $vm = $this->service(['dedicated_ip' => '203.0.113.12'], ['hostname' => 'vm7.example.gr']);
         $this->assertSame('vm7.example.gr · 203.0.113.12', ServiceIdentifier::line($vm));
 
         $hosting = $this->service(['domain' => 'site.example.gr'], ['cpanel_username' => 'siteuser']);
-        $this->assertSame(['site.example.gr'], ServiceIdentifier::parts($hosting), 'a domain says it: not its username too');
+        $this->assertSame(['site.example.gr'], ServiceIdentifier::parts($hosting, username: true), 'a domain says it: not its username too');
     }
 
     public function test_a_domain_with_no_dot_is_a_key_masked(): void
@@ -143,5 +144,21 @@ class ServiceIdentifierTest extends TestCase
 
         $this->livewireAs($this->user)->test(InvoiceShow::class, ['invoice' => $invoice])->assertSee('shop.example.gr');
         $this->livewireAs($this->user)->test(InvoicesIndex::class)->assertSee('Hosting Plus (01/11/2026 - 30/11/2026) — shop.example.gr');
+    }
+
+    /** Review of #615: who may manage it sees its panel's username (its module's first, else the service's column). */
+    public function test_who_manages_it_sees_its_panel_username(): void
+    {
+        $radio = $this->service(['username' => 'column-login'], ['centova_username' => 'radio-login']);
+        $this->livewireAs($this->user)->test(ServiceShow::class, ['service' => $radio])->assertSee($radio->label . ' — radio-login');
+
+        $imported = $this->service(['username' => 'column-login']);
+        $this->assertSame(['column-login'], ServiceIdentifier::parts($imported, username: true));
+
+        $server = Server::query()->create(['name' => 'Panel', 'extension' => 'DirectAdmin', 'type' => 'server']);
+        $moved = $this->service([], ['cpanel_username' => 'old-login', 'directadmin_username' => 'new-login']);
+        $moved->product->forceFill(['server_id' => $server->id])->save();
+        $this->assertSame(['new-login'], ServiceIdentifier::parts($moved->fresh(), username: true), 'its module\'s, not a stale one');
+        $this->assertStringNotContainsString('login', $moved->fresh()->mailName, 'never in a mail');
     }
 }

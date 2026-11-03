@@ -907,6 +907,7 @@ class Show extends Component
         }
 
         return view('services.show', [
+            'serviceName' => $serviceName = ServiceIdentifier::named($this->service, (string) $this->service->label), // once, for the heading and the title
             'extensionView' => $view,
             'canEditContact' => $canEditContact,
             'canSetPaymentMethod' => $canSetPaymentMethod = $this->canSetPaymentMethod(),
@@ -917,7 +918,7 @@ class Show extends Component
             'sslOrder' => $sslOrder = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
             ...$this->sslVaultView($sslOrder),
         ])->layoutData([
-            'title' => ServiceIdentifier::named($this->service, (string) $this->service->label),
+            'title' => $serviceName,
             'sidebar' => true,
         ]);
     }

@@ -277,7 +277,7 @@ class Service extends Model implements Auditable
     public function mailName(): Attribute
     {
         // ServiceIdentifier, as every page names it (owner 2026-11-03): what tells it apart cut to MAIL_NAME_DETAIL.
-        return Attribute::make(get: fn (): string => ServiceIdentifier::named($this, trim((string) ($this->product->name ?? '')), self::MAIL_NAME_DETAIL));
+        return Attribute::make(get: fn (): string => ServiceIdentifier::named($this, trim((string) ($this->product->name ?? '')), self::MAIL_NAME_DETAIL, username: false));
     }
 
     /** @return Attribute<mixed, mixed> */

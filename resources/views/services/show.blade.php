@@ -1,6 +1,5 @@
 <div class="container mt-14">
-    {{-- Its name and what tells it apart (ServiceIdentifier, owner 2026-11-03): ten «Hosting Plus» look alike. --}}
-    @php($serviceName = \App\Support\ServiceIdentifier::named($service, (string) $service->label))
+    {{-- Its name and what tells it apart ($serviceName, ServiceIdentifier, owner 2026-11-03): ten «Hosting Plus» look alike. --}}
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.services'), 'url' => route('services')], ['name' => $serviceName]]" />
     @if($invoice = $service->invoices()->where('status', 'unpaid')->first())
     <div class="w-full mb-4">
@@ -15,7 +14,7 @@
     @endif
     <div class="bg-background-secondary border border-neutral p-6 rounded-lg mt-2">
         <div class="flex flex-col md:flex-row justify-between">
-            <h1 class="text-2xl font-semibold break-words min-w-0">{{ $serviceName }}</h1>
+            <h1 class="text-2xl font-semibold [overflow-wrap:anywhere] min-w-0">{{ $serviceName }}</h1>
         </div>
         <div class="grid md:grid-cols-2 gap-4 my-4">
             <div>

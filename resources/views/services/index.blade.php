@@ -7,16 +7,17 @@
     <a href="{{ route('services.show', $service) }}" wire:navigate>
         <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg mb-4">
         <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 min-w-0">
             <div class="bg-secondary/10 p-2 rounded-lg">
                 <x-ri-instance-line class="size-5 text-secondary" />
             </div>
             <span class="min-w-0">
                 <span class="block font-medium">{{ $service->label }}</span>
                 {{-- What tells it apart (ServiceIdentifier, owner 2026-11-03); a license's key and IPs are on the line below. --}}
-                @php($identifier = $service->license === null ? \App\Support\ServiceIdentifier::besides($service, (string) $service->label) : '')
+                {{-- Its IP is on that line too, as «Dedicated IP» (review of #615). --}}
+                @php($identifier = $service->license === null ? \App\Support\ServiceIdentifier::besides($service, (string) $service->label, except: [(string) $service->dedicated_ip]) : '')
                 @if ($identifier !== '')
-                <span class="block text-sm text-base/60 break-words">{{ $identifier }}</span>
+                <span class="block text-sm text-base/60 [overflow-wrap:anywhere]">{{ $identifier }}</span>
                 @endif
             </span>
             </div>
