@@ -19,6 +19,7 @@ use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
+use App\Support\PayOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
@@ -134,6 +135,64 @@ class Show extends Component
                     $planQuery->whereNotIn('type', ['one-time', 'free']);
                 });
             });
+    }
+
+    /** The ways to pay it, by provider (PayOptions, docs/pay-flow-ux.md PR 3): the same methods and gateways as before. */
+    #[Computed]
+    public function payGroups(): array
+    {
+        return PayOptions::byProvider($this->savedPaymentMethods(), $this->gateways(), $this->invoice->client?->default_billing_agreement_id);
+    }
+
+    /** The account's balance in its currency, when it may pay it (as the old window offered it), else null. */
+    #[Computed]
+    public function usableCredit(): ?Credit
+    {
+        if (!config('settings.credits_enabled') || $this->invoice->items->contains(fn ($item) => $item->reference_type === Credit::class)) {
+            return null;
+        }
+
+        return Credit::query()->where('client_id', $this->invoice->client_id ?? 0)->where('currency_code', $this->invoice->currency_code)
+            ->where('amount', '>', 0)->first();
+    }
+
+    /** What the pay button says for the way chosen. */
+    #[Computed]
+    public function payLabel(): string
+    {
+        $amount = $this->invoice->formattedRemaining;
+        $credit = $this->usableCredit();
+        if ($this->selectedMethod === 'credit' && $credit !== null) {
+            return $credit->amount >= $this->invoice->formattedRemaining->total
+                ? __('invoices.apply_credits_and_pay')
+                : __('invoices.apply_credit_and_continue', ['amount' => $credit->formattedAmount]);
+        }
+        if (str_starts_with((string) $this->selectedMethod, 'gateway-')) {
+            $gateway = collect($this->gateways())->firstWhere('id', (int) substr((string) $this->selectedMethod, 8));
+            if ($gateway !== null) {
+                return __('invoices.pay_panel.continue_with', ['gateway' => $gateway->name, 'amount' => $amount]);
+            }
+        }
+        $agreement = $this->savedPaymentMethods()->firstWhere('ulid', $this->selectedMethod);
+
+        return $agreement !== null ? __('invoices.pay_panel.pay_with', ['amount' => $amount, 'method' => $agreement->name])
+            : __('invoices.pay_amount', ['amount' => $amount]);
+    }
+
+    /**
+     * The «future renewals» toggle (setAsDefault) for the saved method chosen: «toggle» when it would change something,
+     * «already» when that method already pays the account's renewals, null when it does not apply.
+     */
+    #[Computed]
+    public function renewalsChoice(): ?string
+    {
+        $agreement = $this->savedPaymentMethods()->firstWhere('ulid', $this->selectedMethod);
+        if ($agreement === null || !$this->recurringServices()->exists()) {
+            return null;
+        }
+        $client = $this->invoice->client;
+
+        return $client !== null && $client->auto_charge && (int) $client->default_billing_agreement_id === (int) $agreement->id ? 'already' : 'toggle';
     }
 
     public function updatedShowPayModal($value)

@@ -6,7 +6,8 @@
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
     {{-- Back from a gateway: every 5 seconds; a charge held or a payment processed (it may take days): every 30. --}}
     <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @elseif ($paymentStatus->waiting()) wire:poll.30s="checkPaymentStatus" @endif>
-        @if ($this->pay || $showPayModal)
+        {{-- The window holds only a gateway's own form now (Stripe's, say): the ways to pay are on the page (PR 3). --}}
+        @if ($this->pay)
         @include('invoices.partials.payment-modal')
         @endif
 
@@ -50,14 +51,17 @@
                     @endif
                 </div>
             </div>
-            @if ($paymentStatus->payable())
-            <x-button.primary class="sm:!w-fit shrink-0" wire:click="$set('showPayModal', true)" wire:loading.attr="disabled" wire:target="$set('showPayModal')">
-                {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
-            </x-button.primary>
-            @endif
         </div>
 
-        <div class="bg-background-secondary border border-neutral p-12 rounded-lg mt-2">
+        {{-- The ways to pay beside the invoice (under the status on a phone), while it may be paid; an email's ?pay=1 brings
+        the customer to them (docs/pay-flow-ux.md, PR 3). --}}
+        <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : '' }}">
+        @if ($paymentStatus->payable())
+        <section id="pay" aria-labelledby="pay-title" class="lg:order-last lg:sticky lg:top-4" @if ($showPayModal) x-init="$el.scrollIntoView({ block: 'start' })" @endif>
+            @include('invoices.partials.pay-panel')
+        </section>
+        @endif
+        <div class="bg-background-secondary border border-neutral p-6 sm:p-12 rounded-lg min-w-0">
             <h1 class="text-2xl font-bold sm:text-3xl">
                 {{ $invoiceTitle }}
             </h1>
@@ -370,5 +374,6 @@
 
         </div>
 
+        </div>
     </div>
 </div>

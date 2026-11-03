@@ -30,15 +30,15 @@ class PayFlowWordingTest extends TestCase
         $invoice = $invoice->fresh();
         $label = e(__('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]));
 
+        // The pay panel's button, on the page since PR 3 (the window holds only a gateway's own form).
         $page = $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice]);
-        $this->assertSame(1, substr_count($page->html(), $label), 'the page\'s button');
+        $this->assertSame(1, substr_count($page->html(), $label), 'the pay panel\'s button');
         $page->assertDontSee('Processing...')->assertDontSee(':amount');
 
-        // Its payment window adds its own button with the amount, and asks to close in the customer's language.
-        $page->set('showPayModal', true);
-        $this->assertSame(2, substr_count($page->html(), $label), 'and the window\'s');
-        $page->assertSeeHtml('wire:confirm="' . e(__('invoices.close_payment_confirm')) . '"')
-            ->assertDontSeeHtml('Are you sure?');
+        // That window asks to close in the customer's language.
+        $window = file_get_contents(resource_path('views/invoices/partials/payment-modal.blade.php'));
+        $this->assertStringContainsString("wire:confirm=\"{{ __('invoices.close_payment_confirm') }}\"", $window);
+        $this->assertStringNotContainsString('Are you sure?', $window);
     }
 
     public function test_the_payment_methods_page_speaks_greek_with_one_name_for_automatic_payments(): void

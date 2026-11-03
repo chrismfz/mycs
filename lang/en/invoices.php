@@ -61,7 +61,6 @@ return [
         'processing' => 'Processing',
         'failed' => 'Failed',
     ],
-    'pay_with_one_time_method' => 'Or pay with a one-time method',
     'pay_with_credits' => 'Pay with Credits',
     'apply_credit' => 'Apply Credit ( :amount )',
     'no_invoices' => 'No invoices found.',
@@ -193,6 +192,17 @@ return [
     'my_documents_note' => 'The legal documents (invoices, receipts) issued for your payments and filed with the tax authority (AADE).',
     'from_invoice' => 'From',
     'no_documents' => 'No documents yet.',
+    // The ways to pay by provider, on the invoice's page (docs/pay-flow-ux.md, PR 3).
+    'pay_panel' => [
+        'title' => 'How would you like to pay?',
+        'saved' => 'Saved',
+        'automatic' => 'Automatic payments',
+        'once' => 'Pay once',
+        'renewals_already' => 'This method already pays your renewals automatically.',
+        'pay_with' => 'Pay :amount with :method',
+        'continue_with' => 'Continue with :gateway · :amount',
+        'manage' => 'Manage payment methods',
+    ],
     // The invoice's status card (docs/pay-flow-ux.md, PR 2: App\Services\Invoice\PaymentStatus).
     'payment_status' => [
         'saved_method' => 'saved payment method',
