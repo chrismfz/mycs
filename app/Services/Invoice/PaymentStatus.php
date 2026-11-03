@@ -52,6 +52,9 @@ final class PaymentStatus
 
     public const UNPAID = 'unpaid';
 
+    /** It bills a service that has ended: every way of paying is refused (Show::processPayment), staff see to it. */
+    public const ENDED = 'ended';
+
     /** @param array<string, string> $params */
     private function __construct(public readonly string $state, public readonly array $params = [], private readonly bool $today = false) {}
 
@@ -75,6 +78,12 @@ final class PaymentStatus
     public function waiting(): bool
     {
         return in_array($this->state, [self::HELD, self::TAKEN, self::PROCESSING, self::PROCESSING_GROUP, self::CHECKING], true);
+    }
+
+    /** The customer may need us: a payment on its way that does not settle, or one they cannot make. */
+    public function offersContact(): bool
+    {
+        return in_array($this->state, [self::HELD, self::TAKEN, self::PROCESSING, self::PROCESSING_GROUP, self::ENDED], true);
     }
 
     /** ok, info, warn, error or plain: the card's colour. */
@@ -104,6 +113,8 @@ final class PaymentStatus
     {
         return match (true) {
             $this->today && in_array($this->state, [self::SCHEDULED, self::RETRY], true) => $this->state . '_today',
+            $this->state === self::PAID && ($this->params['credit'] ?? '') === '1' => 'paid_credit',
+            $this->state === self::PAID && !isset($this->params['date']) => 'paid_nodate',
             $this->state === self::PAID && !isset($this->params['method']) => 'paid_on',
             default => $this->state,
         };
@@ -114,11 +125,13 @@ final class PaymentStatus
         $payment = $invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded)->with('gateway')->latest('id')->first();
         $date = ($invoice->paid_at ?? $payment?->created_at)?->format('d/m/Y');
         if ($date === null) {
-            return new self(self::PAID, ['date' => '—']);
+            return new self(self::PAID);
         }
-        $method = $payment === null ? null : ($payment->is_credit_transaction ? __('invoices.paid_with_credits') : $payment->gateway?->name);
+        if ($payment?->is_credit_transaction) {
+            return new self(self::PAID, ['date' => $date, 'credit' => '1']); // «from your account balance» (review of #593)
+        }
 
-        return new self(self::PAID, array_filter(['date' => $date, 'method' => $method], fn ($value) => $value !== null && $value !== ''));
+        return new self(self::PAID, array_filter(['date' => $date, 'method' => $payment?->gateway?->name], fn ($value) => $value !== null && $value !== ''));
     }
 
     private static function unpaid(Invoice $invoice, bool $checking): self
@@ -145,16 +158,22 @@ final class PaymentStatus
         if ($checking) {
             return new self(self::CHECKING);
         }
+        // Every way of paying is refused for it (Show::processPayment), and the cron leaves it (a service not active).
+        if ($invoice->billsEndedService()) {
+            return new self(self::ENDED);
+        }
         // The cron charges it: when, and with which method (agreementFor, as the run).
         $next = AutoCharge::nextAttempt($invoice);
         if ($next !== null) {
-            $declined = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON)
-                ->where('status', ChargeAttempt::STATUS_FAILED)->exists();
+            $declined = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('client_id', $invoice->client_id)
+                ->where('source', ChargeAttempt::SOURCE_CRON)->where('status', ChargeAttempt::STATUS_FAILED)->exists();
 
             return new self($declined ? self::RETRY : self::SCHEDULED,
-                ['date' => $next->format('d/m/Y'), 'method' => (string) AutoCharge::agreementFor($invoice)?->name], $next->isSameDay(CarbonImmutable::today()));
+                ['date' => $next->format('d/m/Y'), 'method' => AutoCharge::agreementFor($invoice)->name ?? __('invoices.payment_status.saved_method')],
+                $next->isSameDay(CarbonImmutable::today()));
         }
-        $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->with('billingAgreement')->latest('id')->first();
+        // This account's own: an invoice staff moved keeps the other account's attempts, never shown here (ADV-593-4).
+        $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('client_id', $invoice->client_id)->with('billingAgreement')->latest('id')->first();
         if ($last?->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
             return new self(self::ACTION, ['method' => $last->billingAgreement->name ?? __('invoices.payment_status.saved_method')]);
         }

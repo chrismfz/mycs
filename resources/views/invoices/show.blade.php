@@ -4,7 +4,7 @@
 @endphp
 <div class="container mt-14">
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
-    {{-- Back from a gateway: every 5 seconds; a charge held or processed (it may take days): every 30. --}}
+    {{-- Back from a gateway: every 5 seconds; a charge held or a payment processed (it may take days): every 30. --}}
     <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @elseif ($paymentStatus->waiting()) wire:poll.30s="checkPaymentStatus" @endif>
         @if ($this->pay || $showPayModal)
         @include('invoices.partials.payment-modal')
@@ -34,8 +34,8 @@
             ][$paymentStatus->tone()];
             $statusBody = $paymentStatus->body();
         @endphp
-        <div role="status" class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 {{ $tone['box'] }}">
-            <div class="flex gap-3 items-start">
+        <div class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 {{ $tone['box'] }}">
+            <div role="status" class="flex gap-3 items-start">
                 @if ($paymentStatus->waiting())
                 <x-ri-loader-5-fill aria-hidden="true" class="size-6 shrink-0 animate-spin {{ $tone['text'] }}" />
                 @endif
@@ -44,7 +44,8 @@
                     @if ($statusBody !== '')
                     <p class="text-sm text-base">{{ $statusBody }}</p>
                     @endif
-                    @if ($paymentStatus->waiting() && $paymentStatus->state !== \App\Services\Invoice\PaymentStatus::CHECKING && \App\Support\CurrentClient::allows('tickets'))
+                    {{-- A ticket of the invoice's own account, where tickets are on (review of #593). --}}
+                    @if ($paymentStatus->offersContact() && !config('settings.tickets_disabled') && (int) \App\Support\CurrentClient::id() === (int) $invoice->client_id && \App\Support\CurrentClient::allows('tickets'))
                     <a href="{{ route('tickets.create') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.payment_status.contact') }}</a>
                     @endif
                 </div>

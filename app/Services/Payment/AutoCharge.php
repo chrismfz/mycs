@@ -2,17 +2,20 @@
 
 namespace App\Services\Payment;
 
+use App\Console\Commands\CronJob;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\CronStat;
 use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Support\DunningWindow;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -118,14 +121,21 @@ final class AutoCharge
      */
     public static function willCharge(Invoice $invoice): bool
     {
-        return self::nextAttempt($invoice) !== null;
+        return self::chargeDay($invoice, false) !== null;
     }
 
     /**
-     * The day the run charges it next (today included: the hourly run charges too), or null when it never will (willCharge).
-     * What the invoice's page tells the customer (docs/pay-flow-ux.md, PR 2).
+     * The day the run charges it next, or null when it will not, as the invoice's page tells the customer
+     * (docs/pay-flow-ux.md, PR 2). A day closer to the run than willCharge (review of #593): not today once today's run is
+     * over and no hourly run charges later today, and a charge declined before the due date retried the next day. Neither
+     * changes willCharge's answer for the reminders. Both leave out a retry day after the service's suspension.
      */
     public static function nextAttempt(Invoice $invoice): ?CarbonImmutable
+    {
+        return self::chargeDay($invoice, true);
+    }
+
+    private static function chargeDay(Invoice $invoice, bool $asRun): ?CarbonImmutable
     {
         // No due date: the run's dates never pick it (due()), so never charged on its own.
         if ($invoice->due_at === null || $invoice->remaining <= 0 || !self::picks($invoice, false) || self::agreementFor($invoice) === null) {
@@ -135,24 +145,58 @@ final class AutoCharge
         $offset = (int) $invoice->due_at->copy()->startOfDay()->diffInDays($today, false);
         $postponed = self::postponedSuspendDays($invoice);
         $limit = max($postponed, self::window());
+        // A service's invoice is charged up to the run that suspends the service (charges come first in it), then never:
+        // due() leaves a suspended service. A retry day set after that never comes (adversarial ADV-593-2). The nominal
+        // suspension comes the day after Suspend Days (suspendable(): expired before the cutoff), a postponed one on its day.
+        if (config('settings.cronjob_suspend_enabled', true) && $invoice->items()->where('reference_type', Service::class)->exists()) {
+            $limit = min($limit, $postponed > self::suspendDays() ? $postponed : self::suspendDays() + 1);
+        }
         if ($offset > $limit) {
             return null;
         }
-        // Not tried yet: from the day due() first picks it (autocharge_days_before before its due date), or today.
         $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
+        $triedToday = (clone $cron)->where('sent_at', '>=', $today)->exists();
+        // Today's run is over (tried or not) and no hourly run charges later today: tomorrow at the earliest.
+        $notToday = $asRun && ($triedToday || self::chargedToday());
+        // Not tried yet: from the day due() first picks it (autocharge_days_before before its due date), or today.
         if (!(clone $cron)->exists()) {
-            return $today->addDays(max(0, -self::daysBefore() - $offset));
+            $day = max($offset + ($notToday ? 1 : 0), -self::daysBefore());
+
+            return $day <= $limit ? $today->addDays($day - $offset) : null;
         }
         // Tried already: a day the run still tries, as chargeOne decides it (the retry days set, or a day a suspension
         // window adds), from tomorrow if it tried today (review 1 of #580: after the last retry it charges nothing more).
-        $from = max(0, (clone $cron)->where('sent_at', '>=', $today)->exists() ? $offset + 1 : $offset);
-        for ($day = $from; $day <= $limit; $day++) {
+        // The run retries before the due date too (autocharge_days_before): the page counts those days (review of #593).
+        $from = $notToday || $triedToday ? $offset + 1 : $offset;
+        for ($day = $asRun ? $from : max(0, $from); $day <= $limit; $day++) {
             if (self::retryOn($day) || ($day > self::suspendDays() && $day <= $postponed)) {
                 return $today->addDays($day - $offset);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Today's charges are done: the daily run got past them (DUNNING_READY or last_cron_run today), and no hourly run
+     * charges later today (it charges only inside a suspension window, on its days: CronJob::runDunning).
+     */
+    private static function chargedToday(): bool
+    {
+        if (!DunningWindow::always() && in_array(CarbonImmutable::today()->isoWeekday(), DunningWindow::days(), true)) {
+            return false;
+        }
+
+        return Setting::query()->whereIn('key', [CronJob::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)
+            ->pluck('value')->contains(function ($time) {
+                try {
+                    $at = CarbonImmutable::parse((string) $time);
+                } catch (Throwable) {
+                    return false;
+                }
+
+                return $at->isToday() && $at->lte(CarbonImmutable::now());
+            });
     }
 
     /**

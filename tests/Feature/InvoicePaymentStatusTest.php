@@ -9,15 +9,19 @@ use App\Livewire\Invoices\Show;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Client;
+use App\Models\Credit;
+use App\Models\CronStat;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Invoice\PaymentStatus;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\AutoCharge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -197,7 +201,7 @@ class InvoicePaymentStatusTest extends TestCase
         $this->assertStringContainsString('PsPay', $status->body());
 
         $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
-            ->assertSee($status->title())->assertDontSeeHtml($this->payButton($invoice))->assertSeeHtml('wire:poll.5s="checkPaymentStatus"');
+            ->assertSee($status->title())->assertDontSeeHtml($this->payButton($invoice))->assertSeeHtml('wire:poll.30s="checkPaymentStatus"');
     }
 
     public function test_a_group_payment_on_its_way_holds_the_groups_other_invoices(): void
@@ -241,5 +245,63 @@ class InvoicePaymentStatusTest extends TestCase
         $this->assertSame(__('invoices.payment_status.paid.body', ['date' => '10/11/2026', 'method' => 'PsPay']), $status->body());
         $this->assertFalse($status->payable());
         $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice->fresh()])->assertSee($status->title())->assertDontSeeHtml($this->payButton($invoice));
+    }
+
+    /** Review of #593: «today» is not promised once today's run is over and no hourly run charges; the reminders keep willCharge. */
+    public function test_today_is_not_promised_once_todays_run_is_over(): void
+    {
+        $invoice = $this->invoice('2026-11-10');
+        $this->assertSame('2026-11-10', AutoCharge::nextAttempt($invoice)?->toDateString(), 'the run has not come yet');
+
+        Setting::query()->create(['key' => 'last_cron_run', 'settingable_type' => CronStat::class, 'value' => '2026-11-10 08:00:00', 'type' => 'string']);
+        $this->assertSame('2026-11-11', AutoCharge::nextAttempt($invoice)?->toDateString(), 'today\'s run is over: tomorrow');
+        $this->assertTrue(AutoCharge::willCharge($invoice), 'willCharge unchanged');
+        $this->assertSame(__('invoices.payment_status.scheduled.title', ['date' => '11/11/2026']), PaymentStatus::for($invoice)->title());
+    }
+
+    /** Review of #593: a charge declined before its due date is retried the next day (autocharge_days_before), as the run does. */
+    public function test_a_decline_before_the_due_date_is_retried_the_next_day(): void
+    {
+        config(['settings.autocharge_days_before' => 3]);
+        $invoice = $this->invoice('2026-11-13');
+        $this->assertSame('2026-11-10', AutoCharge::nextAttempt($invoice)?->toDateString(), 'first charged 3 days before');
+
+        PsPay::$answer = fn () => throw new DisplayException('Card declined');
+        (new AutoCharge)->run();
+        $this->assertSame('2026-11-11', AutoCharge::nextAttempt($invoice->fresh())?->toDateString());
+    }
+
+    public function test_paid_from_the_balance_says_so(): void
+    {
+        config(['settings.credits_enabled' => true]);
+        Credit::query()->create(['client_id' => $this->client->id, 'currency_code' => 'USD', 'amount' => '50.00']);
+        $invoice = $this->manual();
+        (new RecordPaymentService)->payWithCredit($invoice);
+
+        $status = PaymentStatus::for($invoice->fresh());
+        $this->assertSame(PaymentStatus::PAID, $status->state);
+        $this->assertSame(__('invoices.payment_status.paid_credit.body', ['date' => '10/11/2026']), $status->body());
+    }
+
+    /** Review of #593: an invoice of an ended service is refused every way of paying (processPayment): not offered, ask us. */
+    public function test_an_invoice_of_an_ended_service_offers_no_payment(): void
+    {
+        $invoice = $this->invoice();
+        Service::query()->whereKey($invoice->items()->value('reference_id'))->update(['status' => Service::STATUS_CANCELLED]);
+
+        $status = PaymentStatus::for($invoice->fresh());
+        $this->assertSame(PaymentStatus::ENDED, $status->state);
+        $this->assertFalse($status->payable());
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice->fresh()])
+            ->assertSee($status->body())->assertDontSeeHtml($this->payButton($invoice))->assertSee(__('invoices.payment_status.contact'));
+    }
+
+    public function test_an_emails_pay_link_does_not_open_the_window_of_a_held_invoice(): void
+    {
+        $invoice = $this->invoice();
+        $this->attempt($invoice, ChargeAttempt::STATUS_STARTED);
+
+        $this->livewireAs($this->user)->withQueryParams(['pay' => 1])->test(Show::class, ['invoice' => $invoice])->assertSet('showPayModal', false);
+        $this->livewireAs($this->user)->withQueryParams(['pay' => 1])->test(Show::class, ['invoice' => $this->manual()])->assertSet('showPayModal', true);
     }
 }
