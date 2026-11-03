@@ -39,6 +39,9 @@ use Throwable;
  */
 final class AutoCharge
 {
+    /** The last run's charges not taken (declined, or of unknown outcome): counted apart, as «charged 0» hid them. */
+    public int $declined = 0;
+
     /**
      * @param  callable(int, Throwable): void|null  $failed  an invoice the run could not handle (reported to staff)
      * @return int the invoices charged
@@ -58,6 +61,7 @@ final class AutoCharge
                 }
             }
         }
+        $this->declined = count($declined);
         if ($declined !== []) {
             NotificationHelper::sendSystemEmailNotification('Automatic charges declined', e(sprintf(
                 "%d automatic charge(s) were declined today and will be tried again as set:\n%s", count($declined), implode("\n", $declined))));

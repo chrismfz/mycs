@@ -93,7 +93,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 
 | WHMCS (`tblconfiguration`) | myip | nixpal | MyCS |
 |---|---|---|---|
-| Time of Day (`DailyCronExecutionHour`) | 10 | 09 | **P:** `cronjob_time` (default 09:00· όχι 03:xx, αλλαγή ώρας, BIL-16) |
+| Time of Day (`DailyCronExecutionHour`) | 10 | 09 | **P:** `cronjob_time` (default 09:00· όχι 03:xx, αλλαγή ώρας, BIL-16). Αν η ημερήσια εκτέλεση δεν ξεκινήσει στην ώρα της (deploy εκείνο το λεπτό, server κάτω, άλλο run με το lock), το ωριαίο `app:cron-job --catch-up` (στο :35) την ξεκινά μία φορά την ίδια μέρα, από 10' μετά την ώρα της, εφόσον δεν είναι σε maintenance και δεν τρέχει άλλο run· το staff παίρνει «the daily run started late» (2026-11-04). Δεν καλύπτει μια ώρα μετά τις 23:25 (η επόμενη μέρα είναι του επόμενου run) |
 | Enable Suspension (`AutoSuspension`) | on | on | **P:** `cronjob_suspend_enabled` (default on) |
 | Suspend Days (`AutoSuspensionDays`), από την ημερομηνία λήξης | 15 | 8 | **P:** `cronjob_order_suspend` (default 8) |
 | — μόνο με ληξιπρόθεσμο τιμολόγιο | (όχι στο WHMCS) | | **P:** `cronjob_suspend_requires_invoice`, default off· on: τιμολόγιο ληξιπρόθεσμο **και** εκδομένο πριν από Suspend Days, ειδοποίηση staff για «ληγμένη χωρίς τιμολόγιο» (BIL-5) |
