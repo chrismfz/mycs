@@ -258,6 +258,11 @@ class PayPal extends Gateway
             }
             // From the database: an earlier event of the same commit may have cancelled and removed the marker.
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
+                // Ended by this save: one that ended here as suspended (it can be activated again) goes with it (ADV-607-1).
+                if ($event->endedBySave()) {
+                    rescue(fn () => $this->cancelEndedSubscriptions($event->service), report: true);
+                }
+
                 return;
             }
             // A failure is reported, never thrown: the service change is committed; a failed cancel keeps the marker.
@@ -280,6 +285,8 @@ class PayPal extends Gateway
         Event::listen(Created::class, function (Created $event) {
             $service = $event->cancellation->service;
             if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
+                rescue(fn () => $this->cancelEndedSubscriptions($service), report: true); // ADV-607-1
+
                 return;
             }
             try {
@@ -600,7 +607,7 @@ class PayPal extends Gateway
     public function recordSubscriptionSale(array $resource): void
     {
         // Also a subscription that ended here before its sale came (SubscriptionEnded): its money is still theirs.
-        $services = SubscriptionEnded::services((string) $resource['billing_agreement_id'])->orderBy('id')->get();
+        $services = SubscriptionEnded::services((string) $resource['billing_agreement_id']);
         if ($services->isEmpty()) {
             // No service of ours carries it: never ours to record, and never lost without staff knowing.
             GatewayReference::foreign('PayPal', 'PAYMENT.SALE.COMPLETED of subscription ' . $resource['billing_agreement_id'], (string) ($resource['id'] ?? ''),
@@ -828,6 +835,32 @@ class PayPal extends Gateway
         }
 
         return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * The service ends: a subscription that ended here as suspended (so no longer carried, and not cancelled with it)
+     * can be activated again in PayPal and bill an ended service. Cancelled now, as one it still carried would be
+     * (ADV-607-1, the PayPal side).
+     */
+    public function cancelEndedSubscriptions(Service $service): void
+    {
+        $kept = $service->properties()->where('key', 'like', SubscriptionEnded::KEPT . ':%')->pluck('value')
+            ->filter(fn ($id) => is_string($id) && self::isSubscriptionId($id));
+        $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        foreach ($kept as $id) {
+            if (Service::query()->where('subscription_id', $id)->exists() || $this->subscriptionStatus($id) !== 'SUSPENDED') {
+                continue; // set on a service again (it pays that one), or over for good (cancelled, expired), or unknown
+            }
+            try {
+                $this->request('post', $url . '/v1/billing/subscriptions/' . $id . '/cancel', ['reason' => 'Service ended']);
+            } catch (PayPalApiException $e) {
+                if ($e->issue !== 'SUBSCRIPTION_STATUS_INVALID') {
+                    throw $e;
+                }
+            }
+            PaymentsLog::info('PayPal subscription ' . $id . ' (suspended) cancelled with service #' . $service->id . ', which ended.',
+                ['subscription_id' => $id, 'service_id' => $service->id]);
+        }
     }
 
     /** A PayPal subscription id (I-…): never anything else in the URL it is read from. */

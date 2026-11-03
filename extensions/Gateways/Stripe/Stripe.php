@@ -68,7 +68,11 @@ class Stripe extends Gateway
         });
         Event::listen(Updated::class, function (Updated $event) {
             if (!$this->ownsSubscription($event->service)) {
-                // If the service is not a stripe subscription, skip
+                // Not a Stripe subscription now; ended by this save, one that ended here but may bill again goes with it.
+                if ($event->endedBySave()) {
+                    rescue(fn () => $this->cancelEndedSubscriptions($event->service), report: true);
+                }
+
                 return;
             }
             if ($event->changed('price', 'expires_at')) {
@@ -90,7 +94,8 @@ class Stripe extends Gateway
         Event::listen(Created::class, function (Created $event) {
             $service = $event->cancellation->service;
             if (!$this->ownsSubscription($service)) {
-                // If the service is not a stripe subscription, skip
+                rescue(fn () => $this->cancelEndedSubscriptions($service), report: true); // ADV-607-1
+
                 return;
             }
             try {
@@ -173,6 +178,55 @@ class Stripe extends Gateway
         return substr(hash('sha256', (string) $this->config('stripe_secret_key') . '|' . $url . '|' . $secret), 0, 16);
     }
 
+    /** The events its webhook asks for. */
+    private const WEBHOOK_EVENTS = [
+        'payment_intent.succeeded',
+        'payment_intent.payment_failed',
+        'payment_intent.processing',
+        'setup_intent.succeeded',
+        'subscription_schedule.canceled',
+        'customer.subscription.deleted',
+        'customer.subscription.updated',
+        'customer.subscription.paused',
+        'customer.subscription.resumed',
+        'invoice.created',
+        'invoice.payment_succeeded',
+        'charge.updated',
+        'refund.created',
+        'refund.updated',
+        'refund.failed',
+        'charge.dispute.created',
+        'charge.dispute.funds_withdrawn',
+        'charge.dispute.funds_reinstated',
+    ];
+
+    private static function webhookEventsMark(): string
+    {
+        return substr(hash('sha256', implode(',', self::WEBHOOK_EVENTS)), 0, 16);
+    }
+
+    /**
+     * An endpoint made before an event was added (the subscription ones, #607) gets the list as it is now, on the next
+     * Save: otherwise it never receives them (ADV-607-3). A failure is told to staff and tried again on the next Save.
+     */
+    private function syncWebhookEvents(Extension $gateway, string $id, string $mark): void
+    {
+        if ($id === '' || hash_equals($mark, self::webhookEventsMark())) {
+            return;
+        }
+        try {
+            $this->request('post', '/webhook_endpoints/' . $id, ['enabled_events' => self::WEBHOOK_EVENTS]);
+        } catch (Throwable $e) {
+            report($e);
+            Notification::make()->danger()->persistent()->title('Stripe webhook not updated')
+                ->body('Stripe refused to add the newer events to the webhook: a subscription ended at Stripe is not seen here until it is. Save again to retry.')
+                ->send();
+
+            return;
+        }
+        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_events'], ['value' => self::webhookEventsMark()]);
+    }
+
     public function enabled(Extension $gateway)
     {
         $this->updated($gateway);
@@ -192,6 +246,8 @@ class Stripe extends Gateway
         $stored = fn (string $key) => (string) $gateway->settings()->where('key', $key)->first()?->value;
         $secret = $stored('stripe_webhook_secret');
         if ($secret !== '' && hash_equals($stored('stripe_webhook_for'), $this->webhookFor($url, $secret))) {
+            $this->syncWebhookEvents($gateway, $stored('stripe_webhook_id'), $stored('stripe_webhook_events'));
+
             return;
         }
 
@@ -200,31 +256,13 @@ class Stripe extends Gateway
             $webhook = $this->request('post', '/webhook_endpoints', [
                 'url' => $url,
                 'description' => 'MyCS Stripe Webhook',
-                'enabled_events' => [
-                    'payment_intent.succeeded',
-                    'payment_intent.payment_failed',
-                    'payment_intent.processing',
-                    'setup_intent.succeeded',
-                    'subscription_schedule.canceled',
-                    'customer.subscription.deleted',
-                    'customer.subscription.updated',
-                    'customer.subscription.paused',
-                    'customer.subscription.resumed',
-                    'invoice.created',
-                    'invoice.payment_succeeded',
-                    'charge.updated',
-                    'refund.created',
-                    'refund.updated',
-                    'refund.failed',
-                    'charge.dispute.created',
-                    'charge.dispute.funds_withdrawn',
-                    'charge.dispute.funds_reinstated',
-                ],
+                'enabled_events' => self::WEBHOOK_EVENTS,
                 'api_version' => self::API_VERSION,
             ]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_for'], ['value' => $this->webhookFor($url, (string) $webhook->secret)]);
             $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_id'], ['value' => (string) ($webhook->id ?? '')]);
+            $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_events'], ['value' => self::webhookEventsMark()]);
             foreach ($old as $previous) {
                 rescue(fn () => $this->request('delete', '/webhook_endpoints/' . $previous->id), report: true); // one left over is harmless
             }
@@ -430,7 +468,7 @@ class Stripe extends Gateway
             case 'customer.subscription.updated':
             case 'customer.subscription.paused':
             case 'customer.subscription.resumed':
-                $this->subscriptionChanged((string) ($event->data->object->id ?? ''), (string) ($event->data->object->status ?? ''));
+                $this->subscriptionChanged((string) ($event->data->object->id ?? ''), self::statusOf($event->data->object));
                 break;
             case 'invoice.created':
                 $invoice = $event->data->object; // contains a StripeInvoice
@@ -459,8 +497,13 @@ class Stripe extends Gateway
                 }
 
                 // Also a subscription that ended here before this payment came (SubscriptionEnded): its money is still theirs.
-                $service = SubscriptionEnded::services((string) $invoice->parent->subscription_details->subscription)->first();
-                if ($service) {
+                $subscription = (string) $invoice->parent->subscription_details->subscription;
+                $service = SubscriptionEnded::services($subscription)->first();
+                if ($service === null) {
+                    // No service of ours carries it: never ours to record, and never lost without staff knowing (as PayPal).
+                    GatewayReference::foreign('Stripe', 'invoice.payment_succeeded of subscription ' . $subscription, (string) ($invoice->id ?? ''),
+                        ($invoice->amount_paid ?? 0) / 100, $invoice->currency ?? null);
+                } else {
                     $invoiceModel = $service->invoiceItems->sortByDesc('created_at')->first()->invoice;
                     $paymentIntents = $this->request('get', '/invoice_payments', ['invoice' => $invoice->id]);
                     $paymentIntent = collect($paymentIntents->data)->first();
@@ -742,8 +785,53 @@ class Stripe extends Gateway
         return true;
     }
 
-    /** The statuses of a subscription that bills no more: cancelled, never paid, unpaid (retries over), paused. */
+    /**
+     * The statuses of a subscription that bills no more: cancelled, never paid, unpaid (retries over), paused (and one
+     * whose payment collection is paused: statusOf).
+     */
     private const SUBSCRIPTION_ENDED = ['canceled', 'incomplete_expired', 'unpaid', 'paused'];
+
+    /** Ended, but the customer (paying its open invoice) or staff (resuming it) can make it bill again. */
+    private const SUBSCRIPTION_MAY_BILL_AGAIN = ['unpaid', 'paused'];
+
+    /**
+     * Its status, with a paused payment collection («Pause payment collection» in the dashboard: the status stays
+     * active, its invoices are voided, uncollectible or left as drafts) read as paused (code review of #607).
+     */
+    private static function statusOf(mixed $subscription): string
+    {
+        $status = (string) ($subscription->status ?? '');
+
+        return !empty($subscription->pause_collection) && in_array($status, ['active', 'trialing', 'past_due'], true) ? 'paused' : $status;
+    }
+
+    /**
+     * The service ends: a subscription that ended here as unpaid or paused (so no longer carried, and not cancelled with
+     * it) can bill again, a terminated service each cycle. Cancelled now, as one it still carried would be (ADV-607-1).
+     */
+    public function cancelEndedSubscriptions(Service $service): void
+    {
+        $kept = $service->properties()->where('key', 'like', SubscriptionEnded::KEPT . ':%')->pluck('value')
+            ->filter(fn ($id) => is_string($id) && preg_match('/^sub_[A-Za-z0-9]{1,250}\z/', $id) === 1);
+        foreach ($kept as $id) {
+            if (Service::query()->where('subscription_id', $id)->exists()) {
+                continue; // staff set it on a service again: it pays that one
+            }
+            $status = $this->subscriptionStatus($id);
+            if ($status === null || in_array($status, ['canceled', 'incomplete_expired'], true)) {
+                continue; // over for good
+            }
+            try {
+                $this->request('delete', '/subscriptions/' . $id);
+            } catch (RequestException $e) {
+                if ($e->response->status() !== 404 || $e->response->json('error.code') !== 'resource_missing') {
+                    throw $e;
+                }
+            }
+            PaymentsLog::info('Stripe subscription ' . $id . ' (' . $status . ') cancelled with service #' . $service->id . ', which ended.',
+                ['subscription_id' => $id, 'service_id' => $service->id]);
+        }
+    }
 
     /** The statuses of one that bills (again). */
     private const SUBSCRIPTION_BILLING = ['active', 'trialing', 'past_due'];
@@ -763,7 +851,14 @@ class Stripe extends Gateway
         if ($carried && in_array($status, self::SUBSCRIPTION_ENDED, true)) {
             $now = $this->subscriptionStatus($id);
             if (in_array($now, self::SUBSCRIPTION_ENDED, true)) {
-                SubscriptionEnded::clear('Stripe', $id, 'subscription ' . $status . ', ' . $now . ' at Stripe', ['has_stripe_subscription']);
+                $cleared = SubscriptionEnded::clear('Stripe', $id, 'subscription ' . $status . ', ' . $now . ' at Stripe', ['has_stripe_subscription']);
+                if ($cleared !== [] && in_array($now, self::SUBSCRIPTION_MAY_BILL_AGAIN, true)) {
+                    // Not over for good: paying its open invoice (Stripe's link, the portal) or resuming it makes it bill
+                    // again, while the invoices here are charged too. Staff decide whether to cancel it (code review of #607).
+                    NotificationHelper::sendSystemEmailNotification('Stripe subscription stopped billing', e(sprintf(
+                        'The Stripe subscription %s is %s: it was cleared from service #%s, whose invoices are charged and payable as any other now. It may bill again (its open invoice paid, or resumed): cancel it in Stripe if it should not, so that nothing is paid twice.',
+                        $id, $now, implode(', #', $cleared))));
+                }
 
                 return;
             }
@@ -805,7 +900,7 @@ class Stripe extends Gateway
             return null;
         }
 
-        return is_string($subscription->status ?? null) ? $subscription->status : null;
+        return is_string($subscription->status ?? null) ? self::statusOf($subscription) : null;
     }
 
     public function supportsBillingAgreements(): bool

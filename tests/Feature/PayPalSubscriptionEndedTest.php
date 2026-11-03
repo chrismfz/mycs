@@ -364,4 +364,29 @@ class PayPalSubscriptionEndedTest extends TestCase
         $this->assertFalse($service->properties()->where('key', SubscriptionEnded::keptKey('I-SUB1'))->exists());
         $this->assertSame(0, SubscriptionEnded::services('I-SUB1')->count());
     }
+
+    /** Review of #607 (ADV-607-1, the PayPal side): one suspended, so cleared, is cancelled when its service ends. */
+    public function test_a_suspended_subscription_is_cancelled_when_its_service_ends(): void
+    {
+        ExtensionHelper::getExtension('gateway', 'PayPal', Gateway::query()->where('extension', 'PayPal')->sole()->settings)->boot();
+        $service = $this->subscribed();
+        $this->status = 'SUSPENDED';
+        $this->event('BILLING.SUBSCRIPTION.SUSPENDED')->assertOk();
+        Http::fake([self::API . '/v1/billing/subscriptions/I-SUB1/cancel' => Http::response(null, 204)]);
+
+        $service->fresh()->markTerminated();
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/I-SUB1/cancel'));
+    }
+
+    public function test_a_cancelled_subscription_is_not_cancelled_again_when_its_service_ends(): void
+    {
+        ExtensionHelper::getExtension('gateway', 'PayPal', Gateway::query()->where('extension', 'PayPal')->sole()->settings)->boot();
+        $service = $this->subscribed();
+        $this->event('BILLING.SUBSCRIPTION.CANCELLED')->assertOk();
+
+        $service->fresh()->markTerminated();
+
+        Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/cancel'));
+    }
 }

@@ -76,18 +76,30 @@
     (`recurring_payment_suspended[_due_to_max_failed_payment]`) δεν καθαρίζει τίποτα: μπορεί να αναιρεθεί, και ένα IPN
     ξαναστέλνεται για μέρες (ADV-605-3). Πηγαίνει στο staff ως notice, όπως πριν. Το extension PayPal IPN δεν φτιάχνει
     συνδρομές (μόνο `_xclick`), άρα δεν έχει τι να καθαρίσει.
-  - **Stripe (με `stripe_use_subscriptions`), το ίδιο:** πριν, το `subscription_schedule.canceled` έψαχνε την υπηρεσία με
-    το id του schedule (`sub_sched_…`), ενώ οι υπηρεσίες κρατούν το id της συνδρομής (`sub_…`, `setupSubscription`): δεν
-    ταίριαζε ποτέ· και το `customer.subscription.deleted` δεν το χειριζόταν κανείς. Τώρα τα `customer.subscription.deleted`,
-    `.updated`, `.paused`, `.resumed` και το `subscription_schedule.canceled` (με το `subscription` του) καθαρίζουν το id
-    και τη σήμανση `has_stripe_subscription` όταν η κατάσταση είναι `canceled`, `incomplete_expired`, `unpaid` (τέλος των
-    retries) ή `paused`, και το Stripe το επιβεβαιώνει τώρα (`GET /v1/subscriptions/{id}`· 404 `resource_missing` →
+  - **Stripe, το ίδιο (#607):** κανένας δρόμος δεν φτιάχνει πια συνδρομές Stripe (τα SetupIntents είναι μόνο για
+    αποθηκευμένες μεθόδους, ο importer δεν φέρνει το `subscriptionid`), άρα αφορά ids `sub_…` που έγραψε το staff ή το API.
+    Πριν, το `subscription_schedule.canceled` έψαχνε την υπηρεσία με το id του schedule (`sub_sched_…`), που καμία δεν
+    κρατά, και το `customer.subscription.deleted` δεν το χειριζόταν κανείς. Τώρα τα `customer.subscription.deleted`,
+    `.updated`, `.paused` και το `subscription_schedule.canceled` (με το `subscription` του) καθαρίζουν το id και τη σήμανση
+    `has_stripe_subscription` όταν η κατάσταση είναι `canceled`, `incomplete_expired`, `unpaid` (τέλος των retries) ή
+    `paused`, ή όταν η συλλογή πληρωμών είναι σε παύση (`pause_collection`, «Pause payment collection» του dashboard: η
+    κατάσταση μένει `active`), και το Stripe το επιβεβαιώνει τώρα (`GET /v1/subscriptions/{id}`· 404 `resource_missing` →
     τίποτα, κάθε άλλη αποτυχία → 500 και retry). Ένα `updated` ρουτίνας (`active`, `trialing`, `past_due`: η τιμή, το
-    `trial_end` του `updateSubscription`) δεν ρωτά το Stripe. Μια πληρωμή (`invoice.payment_succeeded`) που φτάνει μετά βρίσκει
-    την υπηρεσία από το id που κρατήθηκε, και το ίδιο κρατά το `cancelSubscription` του Stripe (staff, λήξη υπηρεσίας).
-    Συνδρομή που τελείωσε εδώ και χρεώνει ξανά (πληρώθηκε το unpaid, συνεχίστηκε η paused): mail στο staff, όπως στο PayPal.
-    Τα τέσσερα `customer.subscription.*` μπαίνουν στο endpoint που φτιάχνει το extension· ένα **υπάρχον** τα θέλει
-    προσθήκη στο dashboard του Stripe.
+    `trial_end` του `updateSubscription`) δεν ρωτά το Stripe.
+    - `unpaid` και `paused` δεν είναι οριστικά: ο πελάτης πληρώνει το ανοιχτό invoice του Stripe (link, portal) ή η
+      συνδρομή συνεχίζεται, και ξαναχρεώνει ενώ τα τιμολόγια εδώ χρεώνονται κι αυτά. Όταν καθαρίζεται από αυτά, το staff
+      παίρνει mail («Stripe subscription stopped billing») να την ακυρώσει στο Stripe αν δεν πρέπει να ξαναχρεώσει. Αν
+      ξαναχρεώσει (`.updated` σε `active`, `.resumed`): mail «active again», όπως στο PayPal· το id δεν ξαναμπαίνει μόνο του.
+    - Μια πληρωμή (`invoice.payment_succeeded`) που φτάνει μετά βρίσκει την υπηρεσία από το id που κρατήθηκε (το ίδιο κρατά
+      και το `cancelSubscription` του Stripe: staff, λήξη υπηρεσίας). Πληρωμή συνδρομής που καμία υπηρεσία δεν έχει → mail
+      στο staff (`GatewayReference::foreign`), όπως στο PayPal· πριν αγνοούνταν σιωπηλά.
+    - **Λήξη της υπηρεσίας** (terminate, αίτημα ακύρωσης, διαγραφή): μια συνδρομή που καθαρίστηκε ως `unpaid`/`paused`
+      (Stripe) ή `SUSPENDED` (PayPal) δεν ακυρωνόταν πια μαζί της, γιατί η υπηρεσία δεν την κρατά, και μπορούσε να
+      ξαναχρεώνει μια υπηρεσία που έληξε. Τώρα ακυρώνεται στο gateway (`cancelEndedSubscriptions`), αφού ρωτηθεί η κατάστασή
+      της· όχι μια που τελείωσε οριστικά, ούτε μια που το staff έβαλε ξανά σε υπηρεσία (ADV-607-1).
+    - Τα τέσσερα `customer.subscription.*` μπαίνουν στο endpoint που φτιάχνει το extension. Ένα **υπάρχον** τα παίρνει στο
+      επόμενο Save του gateway (`POST /webhook_endpoints/{id}` με όλη τη λίστα· `stripe_webhook_events` κρατά ποια λίστα
+      έχει: ADV-607-3). Αν το Stripe αρνηθεί, η σελίδα το λέει και το επόμενο Save ξαναδοκιμάζει.
   - **Τα events πρέπει να είναι στο webhook του PayPal** (runbook του cut-over, `docs/importer.md`): `BILLING.SUBSCRIPTION.
     CANCELLED/EXPIRED/SUSPENDED/ACTIVATED`, μαζί με `PAYMENT.SALE.COMPLETED`/`REFUNDED` των συνδρομών. Χωρίς αυτά
     τίποτα από τα παραπάνω δεν τρέχει.

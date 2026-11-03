@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SubscriptionEnded;
+use App\Services\Service\DeleteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
@@ -38,6 +39,9 @@ class StripeSubscriptionEndedTest extends TestCase
     /** What Stripe answers to GET /subscriptions/{id}: a status, or an HTTP error code. */
     private string|int $status = 'canceled';
 
+    /** Whether Stripe's answer has its payment collection paused. */
+    private bool $pauseCollection = false;
+
     private User $user;
 
     protected function setUp(): void
@@ -54,7 +58,8 @@ class StripeSubscriptionEndedTest extends TestCase
             'https://api.stripe.com/v1/subscriptions/*' => fn (Request $request) => match (true) {
                 $request->method() === 'DELETE' => Http::response(['id' => basename($request->url()), 'status' => 'canceled']),
                 is_int($this->status) => Http::response(['error' => ['code' => $this->status === 404 ? 'resource_missing' : 'rate_limit']], $this->status),
-                default => Http::response(['id' => basename($request->url()), 'status' => $this->status]),
+                default => Http::response(['id' => basename($request->url()), 'status' => $this->status,
+                    'pause_collection' => $this->pauseCollection ? ['behavior' => 'void'] : null]),
             },
             'https://api.stripe.com/v1/invoice_payments*' => Http::response(['data' => [['payment' => ['type' => 'payment_intent', 'payment_intent' => 'pi_late']]]]),
         ]);
@@ -258,5 +263,56 @@ class StripeSubscriptionEndedTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->method() === 'POST' && str_ends_with($request->url(), '/webhook_endpoints')
             && in_array('customer.subscription.deleted', (array) ($request->data()['enabled_events'] ?? []), true)
             && in_array('customer.subscription.updated', (array) ($request->data()['enabled_events'] ?? []), true));
+    }
+
+    /** Code review of #607: «Pause payment collection» keeps the status active; nothing is collected, so it has ended here. */
+    public function test_a_paused_payment_collection_clears_it(): void
+    {
+        $service = $this->subscribed();
+        $this->status = 'active';
+        $this->pauseCollection = true;
+
+        $this->event('customer.subscription.updated', ['id' => 'sub_1', 'status' => 'active', 'pause_collection' => ['behavior' => 'void']])->assertOk();
+
+        $this->assertNull($service->fresh()->subscription_id);
+    }
+
+    /** Code review of #607: unpaid (or paused) can bill again: staff are told, so they may cancel it in Stripe. */
+    public function test_an_unpaid_subscription_cleared_is_told_to_staff(): void
+    {
+        $this->subscribed();
+        $this->status = 'unpaid';
+
+        $this->event('customer.subscription.updated', ['id' => 'sub_1', 'status' => 'unpaid'])->assertOk();
+        $this->status = 'canceled';
+        $this->subscribed('sub_2');
+        $this->event('customer.subscription.deleted', ['id' => 'sub_2', 'status' => 'canceled'])->assertOk();
+
+        $this->assertSame(1, EmailLog::query()->where('subject', 'Stripe subscription stopped billing')->count(), 'not for one cancelled for good');
+    }
+
+    /** Code review of #607: a subscription payment no service of ours has is told to staff, as PayPal's. */
+    public function test_a_payment_of_a_subscription_no_service_had_is_told_to_staff(): void
+    {
+        $this->subscribed('sub_mine');
+
+        $this->event('invoice.payment_succeeded', ['id' => 'in_9', 'object' => 'invoice', 'amount_paid' => 1000, 'currency' => 'usd',
+            'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_unknown']]])->assertOk();
+
+        $this->assertSame(0, InvoiceTransaction::query()->count());
+        $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway event for a payment not made here')->count());
+    }
+
+    /** ADV-607-1, the delete path: a service deleted with an unpaid subscription cleared from it cancels it at Stripe. */
+    public function test_an_unpaid_subscription_is_cancelled_when_its_service_is_deleted(): void
+    {
+        $service = $this->subscribed();
+        $this->status = 'unpaid';
+        $this->event('customer.subscription.updated', ['id' => 'sub_1', 'status' => 'unpaid'])->assertOk();
+        $this->invoiceOf($service)->update(['status' => Invoice::STATUS_CANCELLED]);
+
+        rescue(fn () => app(DeleteService::class)->handle($service->fresh()), report: false);
+
+        Http::assertSent(fn (Request $request) => $request->method() === 'DELETE' && str_ends_with($request->url(), '/v1/subscriptions/sub_1'));
     }
 }
