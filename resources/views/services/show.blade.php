@@ -35,7 +35,8 @@
                             ])
                             }}</span>
                     </div>
-                    @if($service->expires_at)
+                    {{-- An ended service renews no more (owner 2026-11-03). --}}
+                    @if($service->expires_at && !$service->isEnded())
                     <div class="flex items-center text-base">
                         <span class="mr-2">{{ __('services.renews_on') }}:</span>
                         <span class="text-base/50">

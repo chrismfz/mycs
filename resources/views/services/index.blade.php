@@ -21,19 +21,18 @@
                 @endif
             </span>
             </div>
-            <div class="size-5 rounded-md p-0.5
-                @if ($service->status == 'active') text-success bg-success/20 
-                @elseif($service->status == 'suspended' || $service->isEnded()) text-inactive bg-inactive/20
-                @else text-warning bg-warning/20 
-                @endif">
-                @if ($service->status == 'active')
-                    <x-ri-checkbox-circle-fill />
-                @elseif($service->status == 'suspended' || $service->isEnded())
-                    <x-ri-forbid-fill />
-                @elseif($service->status == 'pending')
-                    <x-ri-error-warning-fill />
+            {{-- Its status in words, not only a colour (owner 2026-11-03: suspended and cancelled had the same grey icon). --}}
+            <span class="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
+                {{ match (true) { $service->status === 'active' => 'text-success bg-success/20', $service->isEnded() => 'text-inactive bg-inactive/20', default => 'text-warning bg-warning/20' } }}">
+                @if ($service->status === 'active')
+                <x-ri-checkbox-circle-fill class="size-4" aria-hidden="true" />
+                @elseif ($service->status === 'suspended' || $service->isEnded())
+                <x-ri-forbid-fill class="size-4" aria-hidden="true" />
+                @else
+                <x-ri-error-warning-fill class="size-4" aria-hidden="true" />
                 @endif
-            </div>
+                {{ \App\Models\Service::statusLabel($service->status) }}
+            </span>
         </div>
         <div class="text-base text-sm flex gap-1">
             {{
@@ -42,7 +41,8 @@
                 'unit' => trans_choice(__('services.billing_cycles.' . $service->plan->billing_unit),
                 $service->plan->billing_period)
                 ]) : '' }}
-                @if($service->expires_at && $service->expires_at > now())
+                {{-- An ended service renews no more (owner 2026-11-03: a cancelled one said «Renews in 4 weeks»). --}}
+                @if($service->expires_at && $service->expires_at > now() && !$service->isEnded())
                 -  {{ __('services.renews_in') }} 
                 <x-tooltip :message="$service->expires_at->format('M d, Y')">
                     {{ $service->expires_at->longAbsoluteDiffForHumans() }}
