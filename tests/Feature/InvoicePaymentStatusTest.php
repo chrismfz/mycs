@@ -103,7 +103,7 @@ class InvoicePaymentStatusTest extends TestCase
 
     private function attempt(Invoice $invoice, string $status, string $source = ChargeAttempt::SOURCE_CLIENT): ChargeAttempt
     {
-        return ChargeAttempt::query()->create(['key' => (string) Str::ulid(), 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
+        return ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
             'billing_agreement_id' => $this->agreement->id, 'amount' => '10.00', 'currency_code' => 'USD', 'source' => $source, 'status' => $status,
             'started_at' => now(), 'sent_at' => now()]);
     }

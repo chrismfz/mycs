@@ -112,7 +112,7 @@ class Adv593PaymentStatusTest extends TestCase
     {
         $agreement ??= $this->agreement;
 
-        return ChargeAttempt::query()->create(['key' => (string) Str::ulid(), 'invoice_id' => $invoice->id, 'client_id' => $agreement->client_id,
+        return ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $agreement->client_id,
             'billing_agreement_id' => $agreement->id, 'payment_group_id' => $group, 'amount' => '10.00', 'currency_code' => 'USD', 'source' => $source,
             'status' => $status, 'started_at' => now(), 'sent_at' => now()]);
     }
