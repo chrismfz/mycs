@@ -142,6 +142,7 @@
     @if($selectedMethod && $selectedMethod !== 'credit' && !str_starts_with($selectedMethod, 'gateway-') && $this->recurringServices()->exists())
     <div class="mt-4 p-2">
         <x-form.toggle :label="__('invoices.use_for_recurring')" wire:model.live="setAsDefault" />
+        <p class="text-sm text-base/70 mt-1">{{ __('invoices.use_for_recurring_hint') }}</p>
     </div>
     @endif
 
@@ -155,7 +156,7 @@
                 @elseif($selectedMethod === 'credit' && $credit)
                 {{ __('invoices.apply_credit_and_continue', ['amount' => $credit->formattedAmount]) }}
                 @else
-                {{ __('invoices.pay_now', ['amount' => $invoice->formattedRemaining]) }}
+                {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
                 @endif
             </div>
         </x-button.primary>

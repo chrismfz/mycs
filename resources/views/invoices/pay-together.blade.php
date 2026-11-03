@@ -6,7 +6,7 @@
         <x-slot name="closeTrigger">
             <div class="flex gap-4">
                 {{ __('invoices.amount_due', ['amount' => number_format((float) $paymentGroup->total, 2) . ' ' . $paymentGroup->currency_code]) }}
-                <button wire:confirm="Are you sure?" wire:click="exitPay" @click="open = false" class="text-primary-100">
+                <button wire:confirm="{{ __('invoices.close_payment_confirm') }}" wire:click="exitPay" @click="open = false" class="text-primary-100">
                     <x-ri-close-fill class="size-6" />
                 </button>
             </div>
@@ -81,7 +81,7 @@
         <x-button.primary class="w-full mt-4" wire:click="processPayment" wire:loading.attr="disabled" :disabled="!$selectedMethod">
             <x-loading target="processPayment" />
             <span wire:loading.remove wire:target="processPayment">
-                {{ __('invoices.pay_now') }} ({{ number_format((float) $paymentGroup->total, 2) }} {{ $paymentGroup->currency_code }})
+                {{ __('invoices.pay_amount', ['amount' => number_format((float) $paymentGroup->total, 2) . ' ' . $paymentGroup->currency_code]) }}
             </span>
         </x-button.primary>
     </div>
