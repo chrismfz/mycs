@@ -57,8 +57,10 @@ class PaymentsTracking extends TableWidget
                         default => 'In the mailbox before the reading started',
                     }),
                 TextColumn::make('amount')->label('Amount')->alignEnd()
-                    ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €')
-                    ->description(fn (BankMovement $record) => $record->bankName()),
+                    ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €'),
+                // A column of its own, not a second line under the amount: a row is one line (owner 2026-11-03, dashboard direction B).
+                TextColumn::make('bank')->label('Bank')->color('gray')
+                    ->formatStateUsing(fn (BankMovement $record) => $record->bankName()),
                 TextColumn::make('reason')->label('Reference')->wrap()->searchable()
                     ->description(fn (BankMovement $record) => $record->authentic ? null
                         : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
