@@ -264,7 +264,9 @@ final class WhmcsRecordParity
             $price = max(0, WhmcsMassPay::cents($row['amount']));
             $this->check('Services', $id, $price === WhmcsMassPay::cents($service->price),
                 "service #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
-            $this->check('Services', $id, self::day($row['nextduedate']) === self::day($service->expires_at),
+            // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1).
+            $this->check('Services', $id, self::day($row['nextduedate']) === self::day($service->expires_at)
+                || (trim((string) ($row['billingcycle'] ?? '')) === 'Free Account' && $service->expires_at === null),
                 "service #{$id}: due " . self::day($row['nextduedate']) . ' in WHMCS, ' . self::day($service->expires_at) . ' here');
             // Its cycle: the plan the importer picks by name (ImportFromWhmcs::planName), compared by what it renews as.
             $cycle = trim((string) ($row['billingcycle'] ?? ''));
@@ -278,6 +280,9 @@ final class WhmcsRecordParity
                 [$type, $period, $unit] = self::CYCLES[$planName];
                 $same = (string) $plan->type === $type
                     && ($type !== 'recurring' || ((int) $plan->billing_period === $period && strtolower((string) $plan->billing_unit) === $unit));
+                // A «Free Account» of a product with no Free plan: its first plan at 0.00 (ImportFromWhmcs::freeAccountPlan).
+                $same = $same || ($cycle === 'Free Account' && WhmcsMassPay::cents($service->price) === 0
+                    && (int) $service->plan_id === ImportFromWhmcs::freeAccountPlan((int) $service->product_id));
                 $this->check('Services', $id, $same, $billed . "here on plan «{$plan->name}» ("
                     . ((string) $plan->type === 'recurring' ? "every {$plan->billing_period} {$plan->billing_unit}" : $plan->type) . ')');
             }

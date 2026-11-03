@@ -291,6 +291,17 @@ class ImportFromWhmcs extends Command
         return self::SERVICE_STATUSES[$whmcs] ?? 'pending';
     }
 
+    /**
+     * The plan a WHMCS «Free Account» goes on when its product has no Free plan: the product's first (its order here: sort,
+     * then id). Null: a product with no plan at all (parity reports the service).
+     */
+    public static function freeAccountPlan(int $productId): ?int
+    {
+        $id = DB::table('plans')->where('priceable_id', $productId)->where('priceable_type', Product::class)->orderBy('sort')->orderBy('id')->value('id');
+
+        return $id === null ? null : (int) $id;
+    }
+
     /** The plan a WHMCS billing cycle (tblhosting.billingcycle) is, by name (the catalog's); parity maps it the same way. */
     public static function planName(string $cycle): string
     {
@@ -1310,8 +1321,9 @@ class ImportFromWhmcs extends Command
         $servers = Server::query()->whereNotNull('whmcs_id')->get(['id', 'whmcs_id', 'extension'])->keyBy('whmcs_id');
         $productServers = DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')->pluck('extensions.extension', 'products.id');
         $withoutServer = [];
+        $freeOnPlan = [];
         $marked = [];
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked) {
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
@@ -1329,6 +1341,16 @@ class ImportFromWhmcs extends Command
                     ->where('priceable_type', Product::class)
                     ->where('name', self::planName((string) $record['billingcycle']))
                     ->first()?->id;
+                // A «Free Account» of a product sold on its prices (staff gave this one free, nixpal's licenses): no Free plan
+                // is made for it, which customers could order free (owner 2026-11-03), but its first plan at 0.00: it renews
+                // as it is, never invoiced, as WHMCS left it.
+                $freeAccount = (string) $record['billingcycle'] === 'Free Account';
+                if ($planId === null && $freeAccount) {
+                    $planId = self::freeAccountPlan((int) $record['packageid']);
+                    if ($planId !== null) {
+                        $freeOnPlan[] = (int) $record['id'];
+                    }
+                }
 
                 $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
                 $server = $whmcsServer ? $servers->get($whmcsServer) : null;
@@ -1355,13 +1377,19 @@ class ImportFromWhmcs extends Command
                     'whmcs_server_id' => $whmcsServer,
                     'product_id' => $record['packageid'],
                     'status' => self::serviceStatus((string) $record['domainstatus']),
-                    // Never below zero (ADV-551-3): it would renew free; staff are told.
-                    'price' => $this->recurringAmount($record),
+                    // Never below zero (ADV-551-3): it would renew free; staff are told. A «Free Account» is free whatever
+                    // amount WHMCS left on it: WHMCS never invoiced it.
+                    'price' => $freeAccount ? '0.00' : $this->recurringAmount($record),
                     'quantity' => $record['qty'],
                     'client_id' => $record['userid'],
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
-                    'expires_at' => $this->validateDate($record['nextduedate']),
+                    // A «Free Account» has no due date here, whatever WHMCS kept: WHMCS never bills nor suspends one, and a
+                    // past date would be suspended and terminated here (adversarial ADV-594-1).
+                    'expires_at' => $freeAccount ? null : $this->validateDate($record['nextduedate']),
+                    // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
+                    // (ADV-594-3), and the price report reads it as kept.
+                    'price_locked' => $freeAccount,
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason
@@ -1399,6 +1427,10 @@ class ImportFromWhmcs extends Command
             DB::table('services')->insert($data);
             DB::table('properties')->insert($marks);
         });
+        if ($freeOnPlan !== []) {
+            $this->info(count($freeOnPlan) . ' «Free Account» service(s) of a product with no Free plan: on its first plan at 0.00 (renews free, never invoiced, as in WHMCS): '
+                . implode(', ', array_map(fn (int $id) => "#{$id}", $freeOnPlan)) . '.');
+        }
         if ($withoutServer !== []) {
             $this->warn(count($withoutServer) . ' live service(s) whose WHMCS server is not here: no server action until staff set one.');
             $this->table(['Service', 'WHMCS server'], $withoutServer);

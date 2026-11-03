@@ -1089,6 +1089,9 @@ class Service extends Model implements Auditable
                 // Nor while its order is unpaid (set up before payment, Σ1-b1): an upgrade would reprice the order's line
                 // and lose what it owes, the setup fee (adversarial A5). Paid, its line gets its period.
                 && !$this->orderUnpaid()
+                // Nor a recurring one with no due date (a «Free Account» from WHMCS): never billed, an upgrade paid once
+                // would keep the dearer product for good (adversarial ADV-594-2). Staff give it a date first.
+                && !($this->plan->type === 'recurring' && $this->expires_at === null)
         );
     }
 
