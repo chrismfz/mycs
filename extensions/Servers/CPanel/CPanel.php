@@ -321,7 +321,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /** «10», «+10GB», «10 GB» → 10; «2.5» → 2; anything else (negative, words) → 0. */
-    private static function gigabytes(mixed $value): int
+    public static function gigabytes(mixed $value): int
     {
         $text = trim((string) $value);
         if (is_numeric($text)) {
@@ -1017,7 +1017,57 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             ];
         }
 
+        // What each account's package says (the package and limits check: AccountCheck); a package not read is none, never a failed read.
+        $limits = $this->packageLimits(array_values(array_unique(array_filter(array_column($accounts, 'plan')))));
+        foreach ($accounts as $i => $account) {
+            $accounts[$i]['plan_disk_mb'] = $limits[$account['plan']]['disk'] ?? null;
+            $accounts[$i]['plan_bandwidth_mb'] = $limits[$account['plan']]['bandwidth'] ?? null;
+        }
+
         return $accounts;
+    }
+
+    /**
+     * Disk and bandwidth of each package, as WHM's getpkginfo says (a call a package; QUOTA and BWLIMIT in MB, «unlimited» is 0).
+     * A package that cannot be read is left out: its accounts are not checked. After a few calls in a row that fail the
+     * rest are not asked (a login without the right to read packages), and the failure is reported once.
+     *
+     * @param  list<string>  $plans
+     * @return array<string, array{disk: int|null, bandwidth: int|null}>
+     */
+    private function packageLimits(array $plans): array
+    {
+        $read = [];
+        $failures = 0;
+        foreach ($plans as $plan) {
+            try {
+                $package = $this->whm('/getpkginfo', ['pkg' => $plan])['data']['pkg'] ?? null;
+            } catch (Throwable $e) {
+                if (++$failures >= self::LVE_GIVE_UP) {
+                    report($e);
+
+                    break;
+                }
+
+                continue;
+            }
+            $failures = 0;
+            if (is_array($package)) {
+                $read[$plan] = ['disk' => self::packageLimit($package['QUOTA'] ?? null), 'bandwidth' => self::packageLimit($package['BWLIMIT'] ?? null)];
+            }
+        }
+
+        return $read;
+    }
+
+    /** A package's number in MB; «unlimited» is 0; anything else is not told. */
+    private static function packageLimit(mixed $value): ?int
+    {
+        if (is_numeric($value)) {
+            return max(0, (int) $value);
+        }
+
+        return strtolower(trim((string) $value)) === 'unlimited' ? 0 : null;
     }
 
     /**

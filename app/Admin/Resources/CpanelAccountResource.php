@@ -6,6 +6,7 @@ use App\Admin\Resources\CpanelAccountResource\Pages\ListCpanelAccounts;
 use App\Models\CpanelAccount;
 use App\Models\Server;
 use App\Models\Service;
+use App\Services\Cpanel\AccountCheck;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
@@ -91,6 +92,19 @@ class CpanelAccountResource extends Resource
                         $record->suspended ? trim('Suspended ' . ($record->suspended_at?->format('d/m/Y') ?? '') . ($record->suspend_reason ? ': ' . $record->suspend_reason : '')) : null,
                         $record->mail_suspended ? 'Outgoing mail suspended' : ($record->mail_held ? 'Outgoing mail held' : null),
                     ])) ?: null),
+                // The package and limits check (ROADMAP, Admin): what the account has against what we bill, as of the last read.
+                TextColumn::make('limits_check')->label('Check')->badge()->sortable()
+                    ->placeholder('—')
+                    ->formatStateUsing(fn (?string $state) => AccountCheck::LABELS[$state] ?? $state)
+                    ->color(fn (?string $state) => match ($state) {
+                        AccountCheck::OK => 'success',
+                        AccountCheck::NOT_CHECKED, null => 'gray',
+                        AccountCheck::BILLED_NOT_APPLIED => 'danger',
+                        default => 'warning',
+                    })
+                    ->description(fn (CpanelAccount $record) => in_array($record->limits_check, [AccountCheck::EXTRA_NOT_BILLED, AccountCheck::BILLED_NOT_APPLIED, AccountCheck::BELOW_PACKAGE], true) && $record->limits_check_mb !== null
+                        ? ($record->limits_check_mb > 0 ? '+' : '−') . round(abs($record->limits_check_mb) / 1024, 1) . ' GB' : null)
+                    ->tooltip(fn (CpanelAccount $record) => AccountCheck::explain($record)),
                 // Cut short, whole on hover (as the package).
                 TextColumn::make('mapping')->label('Is')->badge()
                     ->state(fn (CpanelAccount $record) => self::mapping($record))
@@ -110,6 +124,13 @@ class CpanelAccountResource extends Resource
                         'service' => $query->whereNotNull('service_id'),
                         'internal' => $query->where('internal', true),
                         default => $query,
+                    }),
+                SelectFilter::make('limits_check')->label('Check')
+                    ->options(['attention' => 'Needs attention'] + AccountCheck::LABELS)
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        null, '' => $query,
+                        'attention' => $query->whereIn('cpanel_accounts.limits_check', AccountCheck::FINDINGS),
+                        default => $query->where('cpanel_accounts.limits_check', $data['value']),
                     }),
                 TernaryFilter::make('near')->label('Near a limit (90%)')
                     ->queries(true: fn (Builder $query) => $query->where(fn ($q) => $q
@@ -153,7 +174,7 @@ class CpanelAccountResource extends Resource
                             ->getOptionLabelUsing(fn ($value) => ProxmoxGuestResource::serviceLabel(Service::query()->with(['product', 'client'])->find($value))),
                     ])
                     ->action(function (CpanelAccount $record, array $data) {
-                        $record->update(['service_id' => (int) $data['service_id'], 'internal' => false, 'note' => null]);
+                        self::remap($record, ['service_id' => (int) $data['service_id'], 'internal' => false, 'note' => null]);
                         Notification::make()->success()->title('Mapped')->send();
                     }),
                 Action::make('internal')->label('Internal')->icon('ri-home-gear-line')->color('gray')
@@ -161,18 +182,26 @@ class CpanelAccountResource extends Resource
                     ->fillForm(fn (CpanelAccount $record) => ['note' => $record->note])
                     ->schema([TextInput::make('note')->label('What it is')->maxLength(255)->placeholder('e.g. our site, a demo')])
                     ->action(function (CpanelAccount $record, array $data) {
-                        $record->update(['service_id' => null, 'internal' => true, 'note' => $data['note'] ?? null]);
+                        self::remap($record, ['service_id' => null, 'internal' => true, 'note' => $data['note'] ?? null]);
                         Notification::make()->success()->title('Marked internal')->send();
                     }),
                 Action::make('unmap')->label('Clear')->icon('ri-link-unlink')->color('gray')
                     ->authorize('update')
                     ->visible(fn (CpanelAccount $record) => $record->service_id !== null || $record->internal)
                     ->requiresConfirmation()
-                    ->action(fn (CpanelAccount $record) => $record->update(['service_id' => null, 'internal' => false, 'note' => null])),
+                    ->action(fn (CpanelAccount $record) => self::remap($record, ['service_id' => null, 'internal' => false, 'note' => null])),
             ])]);
     }
 
     /** «#12 Business10 · Acme», «Internal: our site», «Not mapped». */
+    /** A mapping staff changed: the check follows it at once, not at the next read (the account is then compared with another service, or none). */
+    private static function remap(CpanelAccount $record, array $values): void
+    {
+        $record->fill($values);
+        AccountCheck::apply($record);
+        $record->save();
+    }
+
     private static function mapping(CpanelAccount $record): string
     {
         return match (true) {
