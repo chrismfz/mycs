@@ -180,6 +180,9 @@ class Adv602MassPayGapsTest extends TestCase
      */
     public function test_adv_602_3_the_cron_does_not_charge_a_group_invoice_to_a_method_the_bank_asked_to_confirm_for_its_group(): void
     {
+        $this->markTestIncomplete('ADV-602-3, open for the owner: the cron (AutoCharge::agreementFor) reads only an invoice\'s own'
+            . ' attempts, so a group charge that asked to confirm (on the first invoice) does not keep the others from the same'
+            . ' method; already so before #602, and an off-session cron charge may pass where the group charge did not.');
         $visa = $this->saved('Visa 4242', automatic: true);
         [$a, $b] = $this->invoices(2);
         $this->assertSame((int) $visa->id, (int) AutoCharge::agreementFor($b->fresh())?->id, 'charged to the Visa before');

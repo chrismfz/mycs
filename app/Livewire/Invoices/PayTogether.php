@@ -17,6 +17,7 @@ use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use App\Support\PayOptions;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -58,11 +59,28 @@ class PayTogether extends Component
         $this->selectedMethod = $automatic === null ? null : $this->savedPaymentMethods->firstWhere('id', $automatic)?->ulid;
     }
 
-    /** Whether the last charge of this method for one of the group's invoices is one the bank asked to confirm. */
+    /**
+     * Whether the last charge of this method that paid one of the group's invoices is one the bank asked to confirm: of
+     * the invoice itself, or of a group it is in (a group's charge sits on its first invoice only: review of #602).
+     */
     private function askedToConfirm(int $agreementId): bool
     {
-        return $this->paymentGroup->invoices->contains(fn (Invoice $invoice) => ChargeAttempt::query()->where('invoice_id', $invoice->id)
-            ->where('billing_agreement_id', $agreementId)->latest('id')->value('status') === ChargeAttempt::STATUS_ACTION_REQUIRED);
+        $ids = $this->paymentGroup->invoices->map(fn (Invoice $invoice) => (int) $invoice->id)->all();
+        $groupsOf = DB::table('payment_group_invoice')->whereIn('invoice_id', $ids)->get(['payment_group_id', 'invoice_id'])
+            ->groupBy('payment_group_id')->map(fn ($rows) => $rows->pluck('invoice_id')->map(fn ($id) => (int) $id)->all());
+        $attempts = ChargeAttempt::query()->where('billing_agreement_id', $agreementId)
+            ->where(fn ($query) => $query->whereIn('invoice_id', $ids)->orWhereIn('payment_group_id', $groupsOf->keys()))
+            ->orderBy('id')->get(['id', 'invoice_id', 'payment_group_id', 'status']);
+        $last = [];
+        foreach ($attempts as $attempt) {
+            $covers = $attempt->payment_group_id !== null && $groupsOf->has($attempt->payment_group_id)
+                ? $groupsOf->get($attempt->payment_group_id) : [(int) $attempt->invoice_id];
+            foreach (array_intersect($covers, $ids) as $id) {
+                $last[$id] = $attempt->status;
+            }
+        }
+
+        return in_array(ChargeAttempt::STATUS_ACTION_REQUIRED, $last, true);
     }
 
     #[Computed]

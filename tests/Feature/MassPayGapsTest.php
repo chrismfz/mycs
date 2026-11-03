@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Exceptions\ChargeNeedsAction;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Livewire\Invoices\PayTogether;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
@@ -113,7 +114,7 @@ class MassPayGapsTest extends TestCase
             ->assertDontSeeHtml('type="radio"')
             ->set('selectedMethod', 'gateway-' . $this->card->id)->call('processPayment')->assertNoRedirect();
 
-        // An empty subscription id (WHMCS imports) is none.
+        // An empty subscription id is none.
         $service->update(['subscription_id' => '']);
         $this->assertNull(MassPay::refusal($fourth->fresh()));
     }
@@ -138,6 +139,30 @@ class MassPayGapsTest extends TestCase
         $this->assertNull(MassPay::staleness($group->fresh()));
     }
 
+    /** Review of #602: a payment sent for the group before it was switched off still pays its invoices. */
+    public function test_a_payment_sent_before_mass_pay_was_switched_off_is_still_spread(): void
+    {
+        [$first, $second] = $this->invoices();
+        $group = $this->group([$first, $second]);
+        $this->storeSettings(['mass_pay_enabled' => false]);
+
+        ExtensionHelper::addPayment($first->id, 'MpgCard', '20.00', transactionId: 'ch_group', currency: 'USD', paymentGroup: $group->ulid);
+
+        $this->assertSame(Invoice::STATUS_PAID, $first->fresh()->status);
+        $this->assertSame(Invoice::STATUS_PAID, $second->fresh()->status);
+        $this->assertSame(PaymentGroup::STATUS_PAID, $group->fresh()->status);
+    }
+
+    /** Review of #602: a paid or replaced group says so, switched off or not (not «not available», as if still owed). */
+    public function test_a_paid_group_says_it_was_paid_when_mass_pay_is_off(): void
+    {
+        $group = $this->group($this->invoices());
+        $group->update(['status' => PaymentGroup::STATUS_PAID]);
+        $this->storeSettings(['mass_pay_enabled' => false]);
+
+        $this->assertSame(__('These invoices were paid or chosen again: choose them again from your invoices.'), MassPay::staleness($group->fresh()));
+    }
+
     /** Gap 3: the automatic method is not chosen to start with when the bank asked to confirm it for one of the invoices. */
     public function test_a_method_the_bank_asked_to_confirm_is_not_chosen_to_start_with(): void
     {
@@ -157,6 +182,30 @@ class MassPayGapsTest extends TestCase
         // Asked for another method only: this one is still chosen.
         $other = $this->saved('Mastercard 5100');
         $attempt->update(['billing_agreement_id' => $other->id]);
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])->assertSet('selectedMethod', $visa->ulid);
+    }
+
+    /** Review of #602: an earlier group's charge (on its first invoice only) that asked to confirm covers its other invoices too. */
+    public function test_an_earlier_groups_charge_the_bank_asked_to_confirm_counts_for_its_invoices(): void
+    {
+        $visa = $this->saved('Visa 4242');
+        $this->client->forceFill(['default_billing_agreement_id' => $visa->id, 'auto_charge' => true])->save();
+        [$x, $y] = $this->invoices();
+        $earlier = $this->group([$x, $y]);
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $x->id, 'client_id' => $this->client->id,
+            'billing_agreement_id' => $visa->id, 'payment_group_id' => $earlier->id, 'amount' => '20.00', 'currency_code' => 'USD',
+            'source' => ChargeAttempt::SOURCE_GROUP, 'status' => ChargeAttempt::STATUS_ACTION_REQUIRED, 'started_at' => now()->subDay(),
+            'sent_at' => now()->subDay(), 'finished_at' => now()->subDay()]);
+        [$z] = $this->invoices();
+
+        // Y with another invoice, without X: the earlier group's charge asked to confirm a charge that paid Y.
+        $group = $this->group([$y, $z]);
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])->assertSet('selectedMethod', null);
+
+        // A later charge of Y alone that went through: the method is chosen again.
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $y->id, 'client_id' => $this->client->id,
+            'billing_agreement_id' => $visa->id, 'amount' => '10.00', 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CLIENT,
+            'status' => ChargeAttempt::STATUS_FAILED, 'started_at' => now(), 'sent_at' => now(), 'finished_at' => now()]);
         $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])->assertSet('selectedMethod', $visa->ulid);
     }
 

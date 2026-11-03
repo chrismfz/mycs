@@ -183,6 +183,13 @@ class Invoice extends Model implements Auditable
             ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id'))->exists();
     }
 
+    /** It bills a service a gateway subscription pays (its sale pays the subscription's services: AutoCharge::due leaves it). */
+    public function billsSubscription(): bool
+    {
+        return Service::query()->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+            ->whereIn('id', $this->items()->where('reference_type', Service::class)->select('reference_id'))->exists();
+    }
+
     /** It records a service period given up on (Δ3a): kept, else the cron would bill that period again. */
     public function recordsForgonePeriod(): bool
     {
