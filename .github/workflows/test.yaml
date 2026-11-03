@@ -66,10 +66,15 @@ jobs:
   test-mariadb:
     runs-on: ubuntu-latest
     timeout-minutes: 30   # a hung test fails the job, not after GitHub's 6 hours (#428)
+    # The suite in two halves on two runners, each with its own MariaDB: the test step is CPU-bound PHP (a faster server
+    # saved ~3%, more processes than the runner's 4 cores slowed it), and on an AMD EPYC 7763 runner it alone took 15
+    # minutes (#603). Both halves run to the end: one failing does not cancel the other's failures.
     strategy:
+      fail-fast: false
       matrix:
         php: ['8.4']
         mariadb: ['10.11']   # same as the devbox
+        shard: [1, 2]
     
     services:
       mariadb:
@@ -126,4 +131,6 @@ jobs:
           DB_DATABASE: mycs_test
           DB_USERNAME: root
           DB_PASSWORD: password
-        run: php artisan test --parallel   # one database per process (CLAUDE.md, «Tests»)
+        # ParaTest's sequential split: the sorted tests cut in two by count, then run file by file (a file astride the cut runs
+        # in both halves, so nothing is left out). One database per process (CLAUDE.md, «Tests»).
+        run: php artisan test --parallel --shard=${{ matrix.shard }}/2
