@@ -47,6 +47,13 @@
                     @if ($statusBody !== '')
                     <p class="text-sm text-base">{{ $statusBody }}</p>
                     @endif
+                    {{-- Charged on its own: the customer may keep it from that and pay another way, a transfer say (Show::keepFromAutoCharge). --}}
+                    @if ($paymentStatus->charged())
+                    <button type="button" wire:click="keepFromAutoCharge" wire:confirm="{{ __('invoices.keep_from_charge.confirm') }}"
+                        wire:loading.attr="disabled" wire:target="keepFromAutoCharge" class="text-sm text-primary underline text-left">
+                        {{ __('invoices.keep_from_charge.button') }}
+                    </button>
+                    @endif
                     {{-- A ticket of the invoice's own account, where tickets are on (review of #593). --}}
                     @if ($paymentStatus->offersContact() && !config('settings.tickets_disabled') && (int) \App\Support\CurrentClient::id() === (int) $invoice->client_id && \App\Support\CurrentClient::allows('tickets'))
                     <a href="{{ route('tickets.create') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.payment_status.contact') }}</a>

@@ -336,6 +336,7 @@
     "Check VAT number": "Έλεγχος ΑΦΜ ΕΕ",
     "Set VAT status": "Ορισμός κατάστασης ΑΦΜ ΕΕ",
     "This invoice is not open for payment.": "Αυτό το τιμολόγιο δεν είναι ανοιχτό για πληρωμή.",
+    "This invoice is not charged automatically.": "Αυτό το τιμολόγιο δεν χρεώνεται αυτόματα.",
     "Nothing is left to pay on this invoice.": "Δεν απομένει τίποτα να πληρωθεί σε αυτό το τιμολόγιο.",
     "A payment for this invoice is already on its way.": "Μια πληρωμή για αυτό το τιμολόγιο είναι ήδη σε εξέλιξη.",
     "Your bank asks you to confirm this payment: please pay the invoice yourself.": "Η τράπεζά σας ζητά επιβεβαίωση της πληρωμής: πληρώστε το τιμολόγιο εσείς.",

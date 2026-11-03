@@ -26,11 +26,13 @@ use App\Support\ServiceIdentifier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
+use OwenIt\Auditing\Events\AuditCustom;
 
 /**
  * The customer's invoice page: its status card (PaymentStatus) and its ways to pay (PayOptions, docs/pay-flow-ux.md).
@@ -258,6 +260,46 @@ class Show extends Component
     private function status(): PaymentStatus
     {
         return $this->statusMemo ??= PaymentStatus::for($this->invoice, (bool) $this->checkPayment);
+    }
+
+    /**
+     * «I'll pay another way» (owner 2026-11-03): the customer keeps this invoice from the cron's charge of their saved method,
+     * as staff's «Do not auto-charge» does (SetAutoCharge), so a transfer they make is not paid twice. This invoice only:
+     * the account's later renewals are still charged. Under its payment lock, the one the cron's charge reads the flag under
+     * (SavedMethodCharge::charge), and never while a charge of it may still land. One way: paying it now with the saved
+     * method does what turning it back on would, and a customer never undoes a hold staff or the import set.
+     */
+    public function keepFromAutoCharge(): void
+    {
+        $kept = DB::transaction(function () {
+            $locked = (new RecordPaymentService)->lockInvoice($this->invoice->id);
+            if ($locked->status !== Invoice::STATUS_UNPAID || $locked->no_auto_charge || !AutoCharge::willCharge($locked)) {
+                return 'none'; // nothing the cron would charge (paid meanwhile, kept already, a subscription's)
+            }
+            if (SavedMethodCharge::onItsWay($locked)) {
+                return 'held';
+            }
+            Invoice::query()->whereKey($locked->id)->update(['no_auto_charge' => true]);
+            // Who stopped the collection of money, and when: in the invoice's audit, as staff's (CR-4 of PR H2b).
+            $locked->auditEvent = 'auto_charge_disabled';
+            $locked->isCustomEvent = true;
+            $locked->auditCustomOld = ['no_auto_charge' => false];
+            $locked->auditCustomNew = ['no_auto_charge' => true, 'by' => 'client', 'user_id' => Auth::id(),
+                'staff_id' => Actor::impersonating() ? Auth::guard('staff')->id() : null];
+            event(new AuditCustom($locked));
+
+            return 'kept';
+        });
+        $this->invoice->refresh();
+        $this->statusMemo = null;
+        if ($kept === 'kept') {
+            $this->selectedMethod ??= $this->preferredChoice(); // none was chosen for it while it was paid on its own
+        }
+        match ($kept) {
+            'kept' => $this->notify(__('invoices.keep_from_charge.done'), 'success'),
+            'held' => $this->notify(__('A payment for this invoice is already on its way.'), 'error'),
+            default => $this->notify(__('invoices.keep_from_charge.not_charged'), 'error'),
+        };
     }
 
     public function processPayment()
