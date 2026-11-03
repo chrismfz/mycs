@@ -16,7 +16,7 @@
     @if ($massPay)
     <div class="bg-primary/10 border border-primary/30 px-4 py-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
         <p class="text-sm">{{ __('invoices.mass_pay_hint') }}</p>
-        @if (collect($refusals)->contains(null))
+        @if (collect($rowInfo)->pluck('refusal')->containsStrict(null))
         <button type="button" wire:click="selectAll" class="text-sm font-semibold text-primary underline">{{ __('invoices.mass_pay_bar.select_all') }}</button>
         @endif
     </div>
@@ -31,17 +31,18 @@
     @endphp
     @php
         $ticked = in_array((string) $invoice->id, array_map(fn ($id) => is_scalar($id) ? (string) $id : '', $selected), true);
-        $refusal = $refusals[$invoice->id] ?? null;
-        $state = $statuses[$invoice->id] ?? null;
+        $row = $rowInfo[$invoice->id] ?? null;
+        $refusal = $massPay ? $row['refusal'] ?? null : null;
     @endphp
     <div wire:key="invoice-{{ $invoice->id }}"
         class="bg-background-secondary border p-4 rounded-lg flex items-start gap-3 {{ $ticked ? 'border-primary ring-1 ring-primary' : 'border-neutral' }}">
         @if ($massPay)
         <div class="pt-1 w-5 shrink-0">
             @if ($invoice->status === 'unpaid')
-            {{-- One that cannot join (MassPay::refusal) says why, instead of failing after the click. --}}
+            {{-- One that cannot join (MassPay::refusal) says why, instead of failing after the click; one ticked before it
+            could not stays enabled, so it can be unticked (review of #606). --}}
             <input type="checkbox" id="pay-together-{{ $invoice->id }}" value="{{ $invoice->id }}" wire:model.live="selected"
-                aria-label="{{ __('invoices.mass_pay_select') }}: {{ $title }}" @if ($refusal) disabled aria-describedby="pay-together-why-{{ $invoice->id }}" @endif
+                aria-label="{{ __('invoices.mass_pay_select') }}: {{ $title }}" @if ($refusal) aria-describedby="pay-together-why-{{ $invoice->id }}" @if (!$ticked) disabled @endif @endif
                 class="form-checkbox size-5 rounded border-neutral text-primary focus:ring-primary disabled:opacity-40" />
             @endif
         </div>
@@ -64,11 +65,12 @@
                 <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="text-sm text-base/60 hover:underline">{{ trans_choice('invoices.more_lines', $more, ['count' => $more]) }}</a>
                 @endif
                 {{-- What happens to it now (PaymentStatus, PR 2): a charge to come, a payment on its way, the bank asking. --}}
-                @if ($state && !in_array($state->state, [\App\Services\Invoice\PaymentStatus::DUE, \App\Services\Invoice\PaymentStatus::OVERDUE, \App\Services\Invoice\PaymentStatus::UNPAID], true))
-                <p class="text-sm font-medium {{ ['ok' => 'text-success', 'info' => 'text-primary', 'warn' => 'text-warning', 'error' => 'text-error', 'plain' => 'text-base/70'][$state->tone()] }}">{{ $state->title() }}</p>
+                @if ($row && $row['status'])
+                <p class="text-sm font-medium {{ ['ok' => 'text-success', 'info' => 'text-primary', 'warn' => 'text-warning', 'error' => 'text-error', 'plain' => 'text-base/70'][$row['tone']] }}">{{ $row['status'] }}</p>
                 @endif
+                {{-- Its refusal is a sentence of its own; not said twice when the status line says it (on its way, ended). --}}
                 @if ($refusal)
-                <p id="pay-together-why-{{ $invoice->id }}" class="text-sm text-base/60">{{ __('invoices.mass_pay_bar.cannot_join', ['why' => $refusal]) }}</p>
+                <p id="pay-together-why-{{ $invoice->id }}" class="text-sm text-base/60 {{ $row['showRefusal'] ? '' : 'sr-only' }}">{{ $refusal }}</p>
                 @endif
             </div>
             <div class="flex flex-wrap md:flex-col items-center md:items-end gap-x-4 gap-y-1 shrink-0 text-sm">
@@ -96,10 +98,13 @@
     @endforelse
 
     {{-- The bar follows the ticks: how many, their total, what still stops them (PR 5). MassPay::open checks again. --}}
-    @if ($massPay && $selection && $selection['count'] > 0)
+    {{-- Always there while Mass Pay applies, so a screen reader hears the first tick too (review of #606). --}}
+    @if ($massPay && $selection)
+    <div aria-live="polite">
+    @if ($selection['count'] > 0)
     <div role="region" aria-label="{{ __('invoices.mass_pay_title') }}"
         class="sticky bottom-4 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg border border-primary bg-background shadow-lg">
-        <div aria-live="polite">
+        <div>
             <p class="font-semibold">
                 {{ trans_choice('invoices.mass_pay_bar.selected', $selection['count'], ['count' => $selection['count']]) }}
                 @if ($selection['total'])
@@ -115,6 +120,8 @@
                 <span wire:loading.remove wire:target="payTogether">{{ $selection['total'] && !$selection['problem'] ? __('invoices.mass_pay_bar.pay', ['amount' => $selection['total']]) : __('invoices.mass_pay_title') }}</span>
             </x-button.primary>
         </div>
+    </div>
+    @endif
     </div>
     @endif
 

@@ -305,7 +305,8 @@ class Adv606MassPayBarTest extends TestCase
         $total = $page->viewData('selection')['total'];
         $page->call('payTogether');
         $group = PaymentGroup::query()->latest('id')->firstOrFail();
-        $this->assertSame(number_format((float) $group->total, 2) . ' USD', $total);
+        // In the currency's own format since the code review of #606 (the amount pinned is the same).
+        $this->assertSame((string) $group->invoice->formattedTotal->format((float) $group->total), $total);
     }
 
     /**
