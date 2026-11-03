@@ -1384,7 +1384,12 @@ class ImportFromWhmcs extends Command
                     'client_id' => $record['userid'],
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
-                    'expires_at' => $this->validateDate($record['nextduedate']),
+                    // A «Free Account» has no due date here, whatever WHMCS kept: WHMCS never bills nor suspends one, and a
+                    // past date would be suspended and terminated here (adversarial ADV-594-1).
+                    'expires_at' => $freeAccount ? null : $this->validateDate($record['nextduedate']),
+                    // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
+                    // (ADV-594-3), and the price report reads it as kept.
+                    'price_locked' => $freeAccount,
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason

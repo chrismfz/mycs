@@ -264,7 +264,9 @@ final class WhmcsRecordParity
             $price = max(0, WhmcsMassPay::cents($row['amount']));
             $this->check('Services', $id, $price === WhmcsMassPay::cents($service->price),
                 "service #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
-            $this->check('Services', $id, self::day($row['nextduedate']) === self::day($service->expires_at),
+            // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1).
+            $this->check('Services', $id, self::day($row['nextduedate']) === self::day($service->expires_at)
+                || (trim((string) ($row['billingcycle'] ?? '')) === 'Free Account' && $service->expires_at === null),
                 "service #{$id}: due " . self::day($row['nextduedate']) . ' in WHMCS, ' . self::day($service->expires_at) . ' here');
             // Its cycle: the plan the importer picks by name (ImportFromWhmcs::planName), compared by what it renews as.
             $cycle = trim((string) ($row['billingcycle'] ?? ''));
