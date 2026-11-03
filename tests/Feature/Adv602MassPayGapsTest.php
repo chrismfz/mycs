@@ -263,8 +263,8 @@ class Adv602MassPayGapsTest extends TestCase
 
     /**
      * Held (gap 1): the group's FIRST invoice's service gets a subscription after the group was chosen: the group is
-     * stale and neither its gateway nor a saved method is used. A subscription id of only a space or «0» is a subscription
-     * as for AutoCharge (PHP (string) !== ''), on SQLite; NULL and '' are none.
+     * stale and neither its gateway nor a saved method is used. «0» is a subscription; a blank id (a space, '') and NULL
+     * are none (Service::subscriptionId stores a blank one as null), on MariaDB as on SQLite.
      */
     public function test_held_a_subscription_on_the_lead_after_the_choice_makes_the_group_stale(): void
     {

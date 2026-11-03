@@ -759,7 +759,9 @@ class PayPal extends Gateway
 
     public function updateSubscription(Service $service)
     {
-        if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
+        // No id (its marker kept, the id cleared): no subscription to change; else every service without one would be
+        // summed and «/subscriptions/» patched (review of #608).
+        if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1' || blank($service->subscription_id)) {
             return false;
         }
         // Update subscription price
