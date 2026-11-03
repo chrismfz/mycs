@@ -71,10 +71,7 @@ jobs:
         php: ['8.4']
         mariadb: ['10.11']   # same as the devbox
         tuned: [false, true]          # EXPERIMENT, removed before merge
-        jit: [false, true]            # EXPERIMENT, removed before merge
-        rep: [1, 2]                   # EXPERIMENT, removed before merge
-        exclude:
-          - { tuned: false, jit: true }
+        rep: [1, 2, 3]                # EXPERIMENT, removed before merge
     
     steps:
       - name: Checkout code
@@ -87,7 +84,6 @@ jobs:
           extensions: bcmath, curl, gd, mbstring, mysql, openssl, pdo, tokenizer, xml, zip
           tools: composer:v2
           coverage: none
-          ini-values: ${{ matrix.jit && 'opcache.enable_cli=1, opcache.jit=tracing, opcache.jit_buffer_size=128M' || '' }}
 
       - name: Cache Composer Dependencies
         uses: actions/cache@v6
@@ -143,11 +139,11 @@ jobs:
           DB_DATABASE: mycs_test
           DB_USERNAME: root
           DB_PASSWORD: password
-        run: php -i | grep -E '^opcache.(enable_cli|jit) ' ; php artisan test --parallel --log-junit=junit.xml   # one database per process (CLAUDE.md, «Tests»)
+        run: lscpu | grep -E 'Model name|^CPU\(s\)'; php artisan test --parallel --log-junit=junit.xml   # one database per process (CLAUDE.md, «Tests»)
 
       - name: EXPERIMENT upload junit
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-${{ matrix.tuned }}-${{ matrix.jit }}-${{ matrix.rep }}
+          name: junit-${{ matrix.tuned }}-${{ matrix.rep }}
           path: junit.xml
