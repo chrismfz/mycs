@@ -282,7 +282,9 @@ class Adv602MassPayGapsTest extends TestCase
         }
         $this->assertSame(0, ChargeAttempt::query()->count());
 
-        foreach ([['0', true], [' ', true], ['', false], [null, false]] as [$id, $refused]) {
+        // A blank id is none (Service::subscriptionId stores it as null), on MariaDB as on SQLite: MariaDB's padded
+        // comparison made the SQL say «none» where PHP said «a subscription» (main's MariaDB job, 2026-11-03).
+        foreach ([['0', true], [' ', false], ['', false], [null, false]] as [$id, $refused]) {
             $service->update(['subscription_id' => $id]);
             $this->assertSame($refused, MassPay::refusal($a->fresh()) !== null, 'subscription id ' . var_export($id, true));
         }
