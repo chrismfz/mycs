@@ -94,9 +94,11 @@ class ImportServicePasswordsAdversarialTest extends TestCase
         }
         $calls = 0;
 
-        $result = $this->import(fn () => ++$calls <= 2
-            ? Http::response(['result' => 'success', 'password' => ''])
-            : Http::response(['result' => 'error', 'message' => 'Invalid Permissions: API action "decryptpassword" is not allowed']));
+        $result = $this->import(function () use (&$calls) {
+            return ++$calls <= 2
+                ? Http::response(['result' => 'success', 'password' => ''])
+                : Http::response(['result' => 'error', 'message' => 'Invalid Permissions: API action "decryptpassword" is not allowed']);
+        });
 
         $this->assertSame(['services' => 5, 'imported' => 0, 'empty' => 2, 'skipped' => 3], $result['counts']);
     }
