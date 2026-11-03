@@ -61,7 +61,7 @@
         of a phone, before it on the page (review of #597). --}}
         <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
         @if ($paymentStatus->payable())
-        <section id="pay" aria-labelledby="pay-title" class="xl:order-last">
+        <section id="pay" aria-labelledby="pay-title" class="xl:order-last min-w-0">
             @include('invoices.partials.pay-panel', [
                 'payAmount' => $invoice->formattedRemaining,
                 'payGroups' => $this->payGroups,
