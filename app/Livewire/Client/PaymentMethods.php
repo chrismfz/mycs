@@ -4,12 +4,15 @@ namespace App\Livewire\Client;
 
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
+use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Gateway;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\PayOptions;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -31,10 +34,31 @@ class PaymentMethods extends Component
     #[Locked]
     public ?int $clientId = null;
 
+    /** The method marked for the account's automatic payments (its ulid), as the cards' radios show it (PR 6a). */
+    public ?string $automaticMethod = null;
+
     public function mount(): void
     {
         $this->clientId = CurrentClient::id();
         $this->autoCharge = (bool) CurrentClient::model()->auto_charge;
+        $this->automaticMethod = $this->markedMethod();
+    }
+
+    /** The ulid of the method the page's account pays its renewals with, if any. */
+    private function markedMethod(): ?string
+    {
+        $id = Client::query()->whereKey($this->clientId)->value('default_billing_agreement_id');
+
+        return $id === null ? null : BillingAgreement::query()->where('client_id', $this->clientId)->whereKey($id)->value('ulid');
+    }
+
+    /** A radio picked (PR 6a): makeDefault and its guards, then the radios show what the account has, refused or not. */
+    public function updatedAutomaticMethod($value): void
+    {
+        if (is_string($value) && $value !== '') {
+            $this->makeDefault($value);
+        }
+        $this->automaticMethod = $this->markedMethod();
     }
 
     /** Staff in «Login as client» change how the customer's money is spent (a saved card, the vault, auto-charge) only with
@@ -143,6 +167,16 @@ class PaymentMethods extends Component
         }
     }
 
+    /** «Add a payment method» in a provider's card (PR 6a): that gateway's setup, as the window's button starts it. */
+    public function addMethod($gatewayId)
+    {
+        if (!is_numeric($gatewayId) || !in_array((int) $gatewayId, array_map(fn (Gateway $gateway) => (int) $gateway->id, $this->gateways), true)) {
+            return $this->notify(__('account.invalid_payment_gateway'), 'error');
+        }
+        $this->gateway = (int) $gatewayId;
+        $this->createBillingAgreement();
+    }
+
     public function removePaymentMethod($billingAgreementUlid)
     {
         if (!$this->staffMayPay() || !$this->sameAccount()) {
@@ -169,14 +203,39 @@ class PaymentMethods extends Component
         $this->setupModalVisible = false;
     }
 
+    /**
+     * The account's providers, one card each (docs/pay-flow-ux.md, PR 6a), in the invoice's order (PayOptions::byProvider):
+     * those with saved methods (the default's first), then the ones that save methods, then those that save none (paid
+     * from the invoice). A method whose gateway was deleted is under «Other», to be removed.
+     *
+     * @param  Collection<int, BillingAgreement>  $agreements  with their gateways
+     * @return list<array{gateway: Gateway|null, saved: list<BillingAgreement>, canAdd: bool}>
+     */
+    private function providers(Collection $agreements, ?int $defaultAgreementId): array
+    {
+        $savable = array_map(fn (Gateway $gateway) => (int) $gateway->id, $this->gateways);
+        $gateways = ExtensionHelper::customerGateways()->sortBy(fn (Gateway $gateway) => in_array((int) $gateway->id, $savable, true) ? 0 : 1)->values();
+        $cards = array_map(fn (array $group) => ['gateway' => $group['gateway'], 'saved' => $group['saved'],
+            'canAdd' => in_array((int) $group['gateway']->id, $savable, true)], PayOptions::byProvider($agreements, $gateways, $defaultAgreementId));
+        $orphans = $agreements->filter(fn (BillingAgreement $agreement) => $agreement->gateway === null)->values()->all();
+        if ($orphans !== []) {
+            $cards[] = ['gateway' => null, 'saved' => $orphans, 'canAdd' => false];
+        }
+
+        return $cards;
+    }
+
     public function render()
     {
         $client = CurrentClient::model()->fresh();
+        $agreements = CurrentClient::model()->billingAgreements()->with('gateway')->latest()->get();
+        $defaultAgreementId = $client?->default_billing_agreement_id === null ? null : (int) $client->default_billing_agreement_id;
 
         return view('client.account.payment-methods', [
             'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
-            'billingAgreements' => CurrentClient::model()->billingAgreements()->latest()->get(),
-            'defaultAgreementId' => $client?->default_billing_agreement_id,
+            'billingAgreements' => $agreements,
+            'providers' => $this->providers($agreements, $defaultAgreementId),
+            'defaultAgreementId' => $defaultAgreementId,
             'ownWayMethods' => $client === null ? [] : ItemPaymentMethod::ownWayMethods($client),
         ])->layoutData([
             'sidebar' => true,

@@ -1,11 +1,27 @@
 <div class="container mt-14">
     <x-navigation.breadcrumb />
     <div class="px-2">
-        @if($setupModalVisible)
+        @if ($this->setup)
+        {{-- A gateway's own form to save a method (a card's «Add», or the chooser below). --}}
+        <x-modal :title="__('account.setup_payment_method')" open>
+            <div class="mt-8">
+                {{ $this->setup }}
+            </div>
+            <x-slot name="closeTrigger">
+                <div class="flex gap-4">
+                    <button wire:confirm="{{ __('account.cancel_setup_confirm') }}" wire:click="cancelSetup" wire:loading.attr="disabled"
+                        wire:target="cancelSetup" class="text-primary-100" aria-label="{{ __('account.cancel') }}">
+                        <x-ri-close-fill class="size-6" />
+                    </button>
+                </div>
+            </x-slot>
+        </x-modal>
+        @elseif($setupModalVisible)
+        {{-- «?setup=1»: with several gateways that save methods, which one. --}}
         <x-modal :title="__('account.payment_methods')" open="true">
             <x-slot name="closeTrigger">
                 <div class="flex gap-4">
-                    <button wire:click="$set('setupModalVisible', false)" class="text-primary-100">
+                    <button wire:click="$set('setupModalVisible', false)" class="text-primary-100" aria-label="{{ __('account.cancel') }}">
                         <x-ri-close-fill class="size-6" />
                     </button>
                 </div>
@@ -26,135 +42,108 @@
                     {{ __('account.setup_payment_method') }}
                 </div>
             </x-button.primary>
-            @if ($this->setup)
-            <x-modal :title="__('account.setup_payment_method')" open>
-                <div class="mt-8">
-                    {{ $this->setup }}
-                </div>
-                <x-slot name="closeTrigger">
-                    <div class="flex gap-4">
-                        <button wire:confirm="{{ __('account.cancel_setup_confirm') }}" wire:click="cancelSetup" wire:loading.attr="disabled"
-                            wire:target="cancelSetup" class="text-primary-100">
-                            <x-ri-close-fill class="size-6" />
-                        </button>
-                    </div>
-                </x-slot>
-            </x-modal>
-            @endif
         </x-modal>
         @endif
-        <div class="flex items-center justify-between mb-4">
-            <div>
-                <h3 class="text-2xl font-bold">{{ __('account.saved_payment_methods') }}</h3>
-                <p class="text-sm text-base/70">{{ __('account.saved_payment_methods_description') }}</p>
-            </div>
-            @if(count($this->gateways) > 0)
-            <x-button.primary class="h-fit !w-fit" wire:click="$set('setupModalVisible', true)"
-                wire:loading.attr="disabled" wire:target="setupModalVisible">
-                <x-ri-add-line class="size-4" />
-                {{ __('account.add_payment_method') }}
-            </x-button.primary>
-            @endif
+
+        <div class="mb-4">
+            <h3 class="text-2xl font-bold">{{ __('account.saved_payment_methods') }}</h3>
+            <p class="text-sm text-base/70">{{ __('account.saved_payment_methods_description') }}</p>
         </div>
 
-        @php
-        $groupedAgreements = $billingAgreements->groupBy('gateway.name');
-        @endphp
-
         @if($billingAgreements->count() > 0)
-        <div class="mt-4">
-            <x-form.toggle :label="__('account.auto_charge')" wire:model.live="autoCharge" />
-            <p class="text-sm text-base/70 mt-1">{{ __('account.auto_charge_description') }}</p>
+        {{-- The account's switch (PR 1's words): on or off, and what it does. --}}
+        <div class="bg-background-secondary border border-neutral rounded-lg p-4 mb-6">
+            <x-form.toggle :label="__('account.auto_charge') . ' · ' . ($autoCharge ? __('account.methods_cards.on') : __('account.methods_cards.off'))" wire:model.live="autoCharge" />
+            <p class="text-sm text-base/70 mt-2">{{ __('account.auto_charge_description') }}</p>
         </div>
         @endif
 
-        @if($groupedAgreements->count() > 0)
-        @foreach($groupedAgreements as $gatewayName => $agreements)
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center gap-3 mt-8">
-                <div class="bg-background-secondary border border-neutral rounded-lg overflow-hidden size-9 flex items-center justify-center">
-                    @if($agreements->first()?->gateway?->meta?->icon)
-                    <img src="{{ $agreements->first()->gateway->meta->icon }}" alt="{{ $gatewayName }}" class="size-9" />
+        {{--
+            One card per provider (docs/pay-flow-ux.md, PR 6a), as the invoice groups them: its saved methods, a radio for the
+            account's automatic payments (makeDefault, with its guards), «Add» where the gateway saves methods, and a line
+            where it saves none (paid from the invoice).
+        --}}
+        @if ($providers !== [])
+        <fieldset class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <legend class="sr-only">{{ __('account.methods_cards.automatic_legend') }}</legend>
+            @foreach ($providers as $card)
+            @php($gateway = $card['gateway'])
+            <section class="bg-background border border-neutral rounded-lg overflow-hidden" wire:key="provider-{{ $gateway?->id ?? 'other' }}"
+                aria-labelledby="provider-{{ $gateway?->id ?? 'other' }}">
+                <div class="flex items-center gap-3 px-4 py-3 bg-background-secondary border-b border-neutral">
+                    @if ($gateway?->meta?->icon)
+                    <img src="{{ $gateway->meta->icon }}" alt="" class="size-8 object-contain shrink-0" />
                     @else
-                    <x-ri-secure-payment-line class="size-5 text-primary" />
+                    <x-ri-secure-payment-line class="size-6 text-primary shrink-0" aria-hidden="true" />
                     @endif
-                </div>
-                <h2 class="text-xl font-semibold">{{ $gatewayName }}</h2>
-            </div>
-            <span class="bg-primary flex items-center justify-center font-semibold rounded-md size-5 text-sm text-white">
-                {{ $agreements->count() }}
-            </span>
-        </div>
-
-        @foreach($agreements as $agreement)
-        <div class="bg-background-secondary border border-neutral p-4 rounded-lg mb-4 hover:bg-background-secondary/80 transition-colors">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="rounded-lg overflow-hidden flex items-center justify-center">
-                        @switch(strtolower($agreement->type))
-                        @case('visa')<x-icons.visa class="size-9" />@break
-                        @case('mastercard')<x-icons.mastercard class="size-9" />@break
-                        @case('amex')<x-icons.amex class="size-9" />@break
-                        @case('american express')<x-icons.american-express class="size-9" />@break
-                        @case('discover')<x-icons.discover class="size-9" />@break
-                        @case('paypal')<x-icons.paypal class="size-9" />@break
-                        @case('sepa_debit')<x-icons.sepa class="size-9" />@break
-                        @case('ideal')<x-icons.ideal class="size-9" />@break
-                        @case('bancontact')<x-icons.bancontact class="size-9" />@break
-                        @case('sofort')<x-icons.sofort class="size-9" />@break
-                        @case('us_bank_account')
-                        @case('bacs_debit')
-                        @case('au_becs_debit')<x-icons.bank-debit class="size-9" />@break
-                        @default<x-ri-bank-card-line class="size-6 text-primary" />
-                        @endswitch
-                    </div>
-                    <div>
-                        <div class="font-semibold text-base">
-                            {{ $agreement->name }}
-                        </div>
-                        @if($agreement->expiry)
-                        <div class="text-sm text-neutral-500">
-                            {{ __('account.expires', ['date' => \Carbon\Carbon::parse($agreement->expiry)->format('m/Y')]) }}
-                        </div>
-                        @endif
-                        @if(!$agreement->gateway?->enabled)
-                        <div class="text-xs text-base/50 mt-1">
-                            {{ __('account.payment_method_unavailable') }}
-                        </div>
-                        @elseif((int) $defaultAgreementId === (int) $agreement->id)
-                        <div class="text-xs text-base/50 mt-1">
-                            {{ __('account.default_payment_method') }}
-                        </div>
-                        @elseif(isset($ownWayMethods[$agreement->id]))
-                        {{-- Another gateway's: it charges the items paid with that gateway (owner 2026-11-01). --}}
-                        <div class="text-xs text-base/50 mt-1">
-                            {{ __('account.pays_own_way', ['gateway' => $ownWayMethods[$agreement->id]]) }}
-                        </div>
-                        @endif
-                    </div>
+                    <h2 id="provider-{{ $gateway?->id ?? 'other' }}" class="text-base font-semibold">{{ $gateway?->name ?? __('account.methods_cards.other') }}</h2>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    @if((int) $defaultAgreementId !== (int) $agreement->id && $agreement->gateway?->enabled)
-                    <x-button.secondary class="!w-fit !px-2 text-sm" wire:click="makeDefault('{{ $agreement->ulid }}')" wire:loading.attr="disabled">
-                        {{ __('account.make_default_payment_method') }}
-                    </x-button.secondary>
-                    @endif
-                    {{-- The texts as JS strings (Js::from): a name with an apostrophe (a PayPal email) broke the handler (payment sweep). --}}
-                    <x-button.danger class="!px-2" x-on:click="$store.confirmation.confirm({
+                @foreach ($card['saved'] as $agreement)
+                @php($usable = (bool) $agreement->gateway?->enabled)
+                @php($marked = (int) $defaultAgreementId === (int) $agreement->id)
+                <div class="px-4 py-3 border-b border-neutral last:border-b-0 space-y-2 {{ $marked && $usable ? 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--color-primary))]' : '' }}" wire:key="method-{{ $agreement->ulid }}">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            @include('invoices.partials.method-icon', ['type' => $agreement->type])
+                            <div class="min-w-0">
+                                <div class="font-semibold truncate">{{ $agreement->name }}</div>
+                                @if($agreement->expiry)
+                                <div class="text-sm text-base/60">
+                                    {{ __('account.expires', ['date' => \Carbon\Carbon::parse($agreement->expiry)->format('m/Y')]) }}
+                                </div>
+                                @endif
+                                @if(!$usable)
+                                <div class="text-xs text-base/60 mt-1">{{ __('account.payment_method_unavailable') }}</div>
+                                @elseif(!$marked && isset($ownWayMethods[$agreement->id]))
+                                {{-- Another gateway's: it charges the items paid with that gateway (owner 2026-11-01). --}}
+                                <div class="text-xs text-base/60 mt-1">{{ __('account.pays_own_way', ['gateway' => $ownWayMethods[$agreement->id]]) }}</div>
+                                @endif
+                            </div>
+                        </div>
+                        {{-- The texts as JS strings (Js::from): a name with an apostrophe (a PayPal email) broke the handler (payment sweep). --}}
+                        <button type="button" class="shrink-0 min-h-[36px] px-2.5 rounded-md border border-neutral text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-500/10 cursor-pointer"
+                            aria-label="{{ __('account.methods_cards.remove', ['name' => $agreement->name]) }}"
+                            x-on:click="$store.confirmation.confirm({
                                 title: {{ \Illuminate\Support\Js::from(__('account.remove_payment_method')) }},
                                 message: {{ \Illuminate\Support\Js::from(__('account.remove_payment_method_confirm', ['name' => $agreement->name])) }},
                                 confirmText: {{ \Illuminate\Support\Js::from(__('account.confirm')) }},
                                 cancelText: {{ \Illuminate\Support\Js::from(__('account.cancel')) }},
                                 callback: () => $wire.removePaymentMethod({{ \Illuminate\Support\Js::from($agreement->ulid) }})
                             })">
-                        <x-ri-delete-bin-line class="size-4" />
-                    </x-button.danger>
+                            <x-ri-delete-bin-line class="size-4 sm:hidden" aria-hidden="true" />
+                            <span class="hidden sm:inline">{{ __('account.methods_cards.remove_short') }}</span>
+                        </button>
+                    </div>
+                    @if ($usable)
+                    <label class="flex items-center gap-2 min-h-[32px] cursor-pointer">
+                        <input type="radio" name="automatic-method" value="{{ $agreement->ulid }}" wire:model.live="automaticMethod"
+                            class="form-radio text-primary focus:ring-primary">
+                        <span class="text-sm font-semibold {{ $marked ? 'text-primary' : 'text-base/70' }}">
+                            {{ $marked ? __('account.default_payment_method') : __('account.make_default_payment_method') }}
+                        </span>
+                    </label>
+                    @endif
                 </div>
-            </div>
-        </div>
-        @endforeach
-        @endforeach
+                @endforeach
+
+                @if ($card['saved'] === [] && $card['canAdd'])
+                <p class="px-4 pt-3 text-sm text-base/60">{{ __('account.methods_cards.none_saved') }}</p>
+                @elseif ($card['saved'] === [])
+                <p class="px-4 py-3 text-sm text-base/60">{{ __('account.methods_cards.saves_nothing') }}</p>
+                @endif
+                @if ($card['canAdd'])
+                <div class="p-3">
+                    <button type="button" wire:click="addMethod({{ (int) $gateway->id }})" wire:loading.attr="disabled" wire:target="addMethod"
+                        class="w-full min-h-[40px] rounded-md border border-dashed border-primary text-primary text-sm font-semibold hover:bg-primary/5 cursor-pointer disabled:opacity-50">
+                        <x-ri-add-line class="size-4 inline" aria-hidden="true" />
+                        {{ __('account.add_payment_method') }}
+                    </button>
+                </div>
+                @endif
+            </section>
+            @endforeach
+        </fieldset>
         @else
         <div class="bg-background-secondary border border-neutral p-6 rounded-lg text-center">
             <x-ri-bank-card-line class="size-12 text-base/30 mx-auto mb-3" />

@@ -135,6 +135,17 @@ return [
     'remove' => 'Remove',
     'remove_payment_method' => 'Remove Payment Method',
     'remove_payment_method_confirm' => 'Are you sure you want to remove :name? This action cannot be undone.',
+    // The provider cards on «Payment methods» (docs/pay-flow-ux.md, PR 6a).
+    'methods_cards' => [
+        'on' => 'On',
+        'off' => 'Off',
+        'automatic_legend' => 'The method for automatic payments',
+        'remove' => 'Remove :name',
+        'remove_short' => 'Remove',
+        'none_saved' => 'No method saved here yet.',
+        'saves_nothing' => 'Saves no payment methods: what you pay with it, you pay from the invoice, not automatically.',
+        'other' => 'Other',
+    ],
     'expires' => 'Expires :date',
     'cancel' => 'Cancel',
     'confirm' => 'Yes, Remove',
