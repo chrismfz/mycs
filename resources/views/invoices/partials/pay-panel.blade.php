@@ -22,7 +22,8 @@
         <span class="text-lg font-bold whitespace-nowrap">{{ $payAmount }}</span>
     </div>
 
-    <fieldset class="space-y-3">
+    {{-- min-w-0: a fieldset is at least as wide as its widest row (a long name, the badge), and pushed out of the panel. --}}
+    <fieldset class="space-y-3 min-w-0">
         <legend class="sr-only">{{ __('invoices.pay_panel.ways') }}</legend>
 
         @if ($credit)

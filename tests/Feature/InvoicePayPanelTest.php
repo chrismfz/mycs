@@ -222,4 +222,12 @@ class InvoicePayPanelTest extends TestCase
         $this->livewireAs($this->user)->withQueryParams(['pay' => 1])->test(Show::class, ['invoice' => $invoice->fresh()])
             ->assertDontSeeHtml('id="pay"')->assertDontSee(__('invoices.pay_panel.title'));
     }
+
+    /** Owner 2026-11-03: a long name and the «Automatic payments» badge pushed the ways out of the panel (a fieldset's min-width). */
+    public function test_the_ways_stay_inside_the_panel(): void
+    {
+        $this->saved($this->card, 'Mastercard **** 5597 with a long name');
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $this->invoice()])
+            ->assertSeeHtml('<fieldset class="space-y-3 min-w-0">');
+    }
 }
