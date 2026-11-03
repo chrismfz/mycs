@@ -58,7 +58,7 @@ class Adv319MailRenderingTest extends TestCase
     {
         $html = $this->html('server_suspended', [
             'user' => ['first_name' => 'Maria'],
-            'service' => ['product' => ['name' => 'Web Hosting'], 'dunning_suspended_at' => null, 'suspend_reason' => 'Abuse report'],
+            'service' => ['product' => ['name' => 'Web Hosting'], 'mailName' => 'Web Hosting', 'dunning_suspended_at' => null, 'suspend_reason' => 'Abuse report'],
             'urls' => ['invoices' => 'https://example.test/invoices'],
         ]);
 
@@ -72,7 +72,7 @@ class Adv319MailRenderingTest extends TestCase
         $template = NotificationTemplate::query()->where('key', 'server_suspended')->sole()->inLocale('el');
         $html = (new Mail($template, [
             'user' => ['first_name' => 'Maria'],
-            'service' => ['product' => ['name' => 'Web Hosting'], 'dunning_suspended_at' => null, 'suspend_reason' => null],
+            'service' => ['product' => ['name' => 'Web Hosting'], 'mailName' => 'Web Hosting', 'dunning_suspended_at' => null, 'suspend_reason' => null],
             'urls' => ['invoices' => 'https://example.test/invoices'],
         ]))->renderedHtml;
 
@@ -84,7 +84,7 @@ class Adv319MailRenderingTest extends TestCase
     {
         $html = $this->html('new_server_created', [
             'user' => ['first_name' => 'Maria'], 'app' => ['name' => 'Acme'],
-            'service' => ['product' => ['name' => 'Web Hosting'], 'expires_at' => null, 'username' => null],
+            'service' => ['product' => ['name' => 'Web Hosting'], 'mailName' => 'Web Hosting', 'expires_at' => null, 'username' => null],
             'product_info' => new Html('<p>Your control panel: <strong>cp.example.test</strong></p>'),
             'urls' => ['service' => 'https://example.test/s/1'],
         ]);

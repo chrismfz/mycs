@@ -128,7 +128,10 @@ class NotificationTemplateTest extends TestCase
             $this->assertStringContainsString("{$field}[]", $body, $field);
         }
         $this->assertStringContainsString('logs[] svc[]', $body);
-        $this->assertStringNotContainsString('192.0.2.', $body);
+        // Its valid IP names the service (Service::mailName, owner 2026-11-03: «which license?»), never as a field of its
+        // own; what it was last seen from, and its access logs, never.
+        $this->assertStringNotContainsString('192.0.2.10', $body);
+        $this->assertStringNotContainsString('192.0.2.30', $body);
     }
 
     public function test_a_service_without_a_license_mails_its_snippet_without_one(): void

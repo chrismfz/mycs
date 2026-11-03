@@ -11,6 +11,7 @@ use App\Redactors\FullRedactor;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
+use App\Services\Ops\Scrub;
 use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Brick\Math\BigDecimal;
@@ -241,6 +242,31 @@ class Service extends Model implements Auditable
         return Attribute::make(
             get: fn ($value) => $value ?: $this->baseLabel
         );
+    }
+
+    /**
+     * The service as a mail names it (owner 2026-11-03: «which one?»): its product, and what tells it apart from the
+     * others of the same product. A license: its own label (its nickname) and the IP it runs on (owner: more use than its
+     * key), else its key masked (prefix…last4, as everywhere). Anything else: its domain, else its own label.
+     *
+     * @return Attribute<string, never>
+     */
+    public function mailName(): Attribute
+    {
+        return Attribute::make(get: function (): string {
+            $license = $this->license;
+            $label = trim((string) ($this->getAttributes()['label'] ?? ''));
+            if ($license !== null) {
+                $ips = array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
+                $ip = $ips === [] ? '' : $ips[0] . (count($ips) > 1 ? ' +' . (count($ips) - 1) : '');
+                $detail = implode(' · ', array_filter([$label, $ip])) ?: Scrub::licenseKey((string) $license->license_key);
+            } else {
+                $detail = trim((string) $this->domain) ?: $label;
+            }
+            $name = (string) ($this->product->name ?? '');
+
+            return $detail === null || $detail === '' ? $name : "{$name} — {$detail}";
+        });
     }
 
     /** @return Attribute<mixed, mixed> */

@@ -275,7 +275,7 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.services }}',
         ],
         'new_server_created' => [
-            'subject' => 'Your service is active: {{ service.product.name }}',
+            'subject' => 'Your service is active: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Your service is active
 
@@ -283,7 +283,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Thank you for choosing {{ app.name }}. Your service is ready. Please keep this email: it has what you need to get started.
 
-                - Service: **{{ service.product.name }}**
+                - Service: **{{ service.mailName }}**
                 {% if service.expires_at %}
                 - Renewal date: **{{ service.expires_at|date("d/m/Y") }}**
                 {% endif %}
@@ -314,20 +314,20 @@ class EmailTemplateSeeder extends Seeder
                 If you have any trouble or questions, we are here to help.
                 HTML,
             'in_app_title' => 'Your service is active',
-            'in_app_body' => 'Your service {{ service.product.name }} is active.',
+            'in_app_body' => 'Your service {{ service.mailName }} is active.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about new service activations',
             'in_app_url' => '{{ urls.service }}',
         ],
         'service_hold_ending' => [
-            'subject' => 'Your service {{ service.product.name }} will be suspended on {{ suspend_on }}',
+            'subject' => 'Your service {{ service.mailName }} will be suspended on {{ suspend_on }}',
             'body' => <<<'HTML'
                 # Your service will be suspended
 
                 Dear {{ user.first_name }},
 
-                Your service **{{ service.product.name }}** stays active until **{{ hold_until }}**. If its unpaid invoice is not
+                Your service **{{ service.mailName }}** stays active until **{{ hold_until }}**. If its unpaid invoice is not
                 paid by then, it will be suspended.
 
                 <div class="action">
@@ -339,21 +339,21 @@ class EmailTemplateSeeder extends Seeder
                 If you have already paid, please ignore this message.
                 HTML,
             'in_app_title' => 'Your service will be suspended on {{ suspend_on }}',
-            'in_app_body' => 'Your service {{ service.product.name }} stays active until {{ hold_until }}; pay its invoice to keep it.',
+            'in_app_body' => 'Your service {{ service.mailName }} stays active until {{ hold_until }}; pay its invoice to keep it.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me before a held service is suspended',
             'in_app_url' => '{{ urls.invoices }}',
         ],
         'server_suspended' => [
-            'subject' => 'Service suspended: {{ service.product.name }}',
+            'subject' => 'Service suspended: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Service suspended
 
                 Dear {{ user.first_name }},
 
                 {% if service.dunning_suspended_at %}
-                Your service **{{ service.product.name }}** was suspended because its renewal is overdue.
+                Your service **{{ service.mailName }}** was suspended because its renewal is overdue.
 
                 Once its invoice is paid, the service is reactivated automatically, usually within minutes.
 
@@ -363,7 +363,7 @@ class EmailTemplateSeeder extends Seeder
                 	</a>
                 </div>
                 {% else %}
-                Your service **{{ service.product.name }}** was suspended.
+                Your service **{{ service.mailName }}** was suspended.
                 {% if service.suspend_reason %}
 
                 Reason: {{ service.suspend_reason }}
@@ -372,20 +372,20 @@ class EmailTemplateSeeder extends Seeder
                 If you think this is a mistake, please contact us.
                 HTML,
             'in_app_title' => 'Service suspended',
-            'in_app_body' => 'Your service {{ service.product.name }} was suspended{% if service.dunning_suspended_at %} because its renewal is overdue. Pay its invoice to reactivate it{% endif %}.',
+            'in_app_body' => 'Your service {{ service.mailName }} was suspended{% if service.dunning_suspended_at %} because its renewal is overdue. Pay its invoice to reactivate it{% endif %}.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service suspensions',
             'in_app_url' => '{{ urls.service }}',
         ],
         'server_unsuspended' => [
-            'subject' => 'Service reactivated: {{ service.product.name }}',
+            'subject' => 'Service reactivated: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Service reactivated
 
                 Dear {{ user.first_name }},
 
-                Your service **{{ service.product.name }}** is active again. Thank you!
+                Your service **{{ service.mailName }}** is active again. Thank you!
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.service }}">
@@ -394,20 +394,20 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 HTML,
             'in_app_title' => 'Service reactivated',
-            'in_app_body' => 'Your service {{ service.product.name }} is active again.',
+            'in_app_body' => 'Your service {{ service.mailName }} is active again.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me when a suspended service is reactivated',
             'in_app_url' => '{{ urls.service }}',
         ],
         'server_terminated' => [
-            'subject' => 'Service terminated: {{ service.product.name }}',
+            'subject' => 'Service terminated: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Service terminated
 
                 Dear {{ user.first_name }},
 
-                Your service **{{ service.product.name }}** has been terminated.
+                Your service **{{ service.mailName }}** has been terminated.
 
                 If you think this is a mistake, please contact us as soon as possible.
 
@@ -418,7 +418,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 HTML,
             'in_app_title' => 'Service terminated',
-            'in_app_body' => 'Your service {{ service.product.name }} has been terminated.',
+            'in_app_body' => 'Your service {{ service.mailName }} has been terminated.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service terminations',
@@ -591,13 +591,13 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.payment_methods }}',
         ],
         'service_cancelled' => [
-            'subject' => 'Service cancelled: {{ service.product.name }}',
+            'subject' => 'Service cancelled: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Service cancelled
 
                 Dear {{ user.first_name }},
 
-                As you asked, your service **{{ service.product.name }}** has ended at the end of its billing period.
+                As you asked, your service **{{ service.mailName }}** has ended at the end of its billing period.
 
                 Thank you for using our services; we hope to see you again.
 
@@ -610,12 +610,12 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'in_app_title' => 'Service cancelled',
-            'in_app_body' => 'Your service {{ service.product.name }} has ended, as you asked.',
+            'in_app_body' => 'Your service {{ service.mailName }} has ended, as you asked.',
             'edit_preference_message' => 'Notify me when a service I cancelled ends',
             'in_app_url' => '{{ urls.service }}',
         ],
         'service_cancellation_received' => [
-            'subject' => 'Cancellation request confirmed: {{ service.product.name }}',
+            'subject' => 'Cancellation request confirmed: {{ service.mailName }}',
             'body' => <<<'HTML'
                 # Cancellation request confirmed
 
@@ -623,7 +623,7 @@ class EmailTemplateSeeder extends Seeder
 
                 We received your cancellation request.
 
-                - Service: **{{ service.product.name }}**
+                - Service: **{{ service.mailName }}**
                 {% if cancellation.reason %}
                 - Reason: {{ cancellation.reason }}
                 {% endif %}
@@ -648,7 +648,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 HTML,
             'in_app_title' => 'Cancellation request confirmed',
-            'in_app_body' => 'We received your cancellation request for {{ service.product.name }}.',
+            'in_app_body' => 'We received your cancellation request for {{ service.mailName }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about service cancellations',
@@ -1379,7 +1379,7 @@ class EmailTemplateSeeder extends Seeder
         ],
         'new_server_created' => [
             'el' => [
-                'subject' => 'Η υπηρεσία σας είναι ενεργή: {{ service.product.name }}',
+                'subject' => 'Η υπηρεσία σας είναι ενεργή: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Η υπηρεσία σας είναι ενεργή
 
@@ -1387,7 +1387,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Σας ευχαριστούμε που επιλέξατε την {{ app.name }}. Η υπηρεσία σας είναι έτοιμη. Παρακαλούμε κρατήστε αυτό το email: περιέχει όσα χρειάζεστε για να ξεκινήσετε.
 
-                    - Υπηρεσία: **{{ service.product.name }}**
+                    - Υπηρεσία: **{{ service.mailName }}**
                     {% if service.expires_at %}
                     - Ημερομηνία ανανέωσης: **{{ service.expires_at|date("d/m/Y") }}**
                     {% endif %}
@@ -1418,18 +1418,18 @@ class EmailTemplateSeeder extends Seeder
                     Αν αντιμετωπίσετε οποιοδήποτε πρόβλημα ή έχετε απορία, είμαστε στη διάθεσή σας.
                     HTML,
                 'in_app_title' => 'Η υπηρεσία σας είναι ενεργή',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} είναι ενεργή.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} είναι ενεργή.',
             ],
         ],
         'service_hold_ending' => [
             'el' => [
-                'subject' => 'Η υπηρεσία σας {{ service.product.name }} θα ανασταλεί στις {{ suspend_on }}',
+                'subject' => 'Η υπηρεσία σας {{ service.mailName }} θα ανασταλεί στις {{ suspend_on }}',
                 'body' => <<<'HTML'
                     # Η υπηρεσία σας θα ανασταλεί
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Η υπηρεσία σας **{{ service.product.name }}** μένει ενεργή ως τις **{{ hold_until }}**. Αν το απλήρωτο
+                    Η υπηρεσία σας **{{ service.mailName }}** μένει ενεργή ως τις **{{ hold_until }}**. Αν το απλήρωτο
                     προτιμολόγιό της δεν εξοφληθεί ως τότε, θα τεθεί σε αναστολή.
 
                     <div class="action">
@@ -1441,19 +1441,19 @@ class EmailTemplateSeeder extends Seeder
                     Αν έχετε ήδη πληρώσει, αγνοήστε αυτό το μήνυμα.
                     HTML,
                 'in_app_title' => 'Η υπηρεσία σας θα ανασταλεί στις {{ suspend_on }}',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} μένει ενεργή ως τις {{ hold_until }}· εξοφλήστε το προτιμολόγιό της για να τη διατηρήσετε.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} μένει ενεργή ως τις {{ hold_until }}· εξοφλήστε το προτιμολόγιό της για να τη διατηρήσετε.',
             ],
         ],
         'server_suspended' => [
             'el' => [
-                'subject' => 'Αναστολή υπηρεσίας: {{ service.product.name }}',
+                'subject' => 'Αναστολή υπηρεσίας: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Αναστολή υπηρεσίας
 
                     Αγαπητέ/ή {{ user.first_name }},
 
                     {% if service.dunning_suspended_at %}
-                    Η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.
+                    Η υπηρεσία σας **{{ service.mailName }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.
 
                     Μόλις εξοφληθεί το προτιμολόγιό της, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.
 
@@ -1463,7 +1463,7 @@ class EmailTemplateSeeder extends Seeder
                     	</a>
                     </div>
                     {% else %}
-                    Η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή.
+                    Η υπηρεσία σας **{{ service.mailName }}** τέθηκε σε αναστολή.
                     {% if service.suspend_reason %}
 
                     Λόγος: {{ service.suspend_reason }}
@@ -1472,18 +1472,18 @@ class EmailTemplateSeeder extends Seeder
                     Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας.
                     HTML,
                 'in_app_title' => 'Αναστολή υπηρεσίας',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή{% if service.dunning_suspended_at %} επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά{% endif %}.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} τέθηκε σε αναστολή{% if service.dunning_suspended_at %} επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά{% endif %}.',
             ],
         ],
         'server_unsuspended' => [
             'el' => [
-                'subject' => 'Επανενεργοποίηση υπηρεσίας: {{ service.product.name }}',
+                'subject' => 'Επανενεργοποίηση υπηρεσίας: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Η υπηρεσία σας ενεργοποιήθηκε ξανά
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Η υπηρεσία σας **{{ service.product.name }}** είναι και πάλι ενεργή. Σας ευχαριστούμε!
+                    Η υπηρεσία σας **{{ service.mailName }}** είναι και πάλι ενεργή. Σας ευχαριστούμε!
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.service }}">
@@ -1492,18 +1492,18 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Η υπηρεσία σας ενεργοποιήθηκε ξανά',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} είναι και πάλι ενεργή.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} είναι και πάλι ενεργή.',
             ],
         ],
         'server_terminated' => [
             'el' => [
-                'subject' => 'Τερματισμός υπηρεσίας: {{ service.product.name }}',
+                'subject' => 'Τερματισμός υπηρεσίας: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Τερματισμός υπηρεσίας
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Η υπηρεσία σας **{{ service.product.name }}** τερματίστηκε.
+                    Η υπηρεσία σας **{{ service.mailName }}** τερματίστηκε.
 
                     Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας το συντομότερο.
 
@@ -1514,7 +1514,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Τερματισμός υπηρεσίας',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τερματίστηκε.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} τερματίστηκε.',
             ],
         ],
         'new_ticket_message' => [
@@ -1677,13 +1677,13 @@ class EmailTemplateSeeder extends Seeder
         ],
         'service_cancelled' => [
             'el' => [
-                'subject' => 'Διακοπή υπηρεσίας: {{ service.product.name }}',
+                'subject' => 'Διακοπή υπηρεσίας: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Διακοπή υπηρεσίας
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Όπως ζητήσατε, η υπηρεσία σας **{{ service.product.name }}** διακόπηκε στο τέλος της περιόδου χρέωσης.
+                    Όπως ζητήσατε, η υπηρεσία σας **{{ service.mailName }}** διακόπηκε στο τέλος της περιόδου χρέωσης.
 
                     Σας ευχαριστούμε που χρησιμοποιήσατε τις υπηρεσίες μας· ελπίζουμε να σας δούμε ξανά.
 
@@ -1694,12 +1694,12 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Διακοπή υπηρεσίας',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} διακόπηκε, όπως ζητήσατε.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} διακόπηκε, όπως ζητήσατε.',
             ],
         ],
         'service_cancellation_received' => [
             'el' => [
-                'subject' => 'Επιβεβαίωση αιτήματος διακοπής: {{ service.product.name }}',
+                'subject' => 'Επιβεβαίωση αιτήματος διακοπής: {{ service.mailName }}',
                 'body' => <<<'HTML'
                     # Επιβεβαίωση αιτήματος διακοπής
 
@@ -1707,7 +1707,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Το αίτημά σας για διακοπή υπηρεσίας ελήφθη.
 
-                    - Υπηρεσία: **{{ service.product.name }}**
+                    - Υπηρεσία: **{{ service.mailName }}**
                     {% if cancellation.reason %}
                     - Αιτία: {{ cancellation.reason }}
                     {% endif %}
@@ -1732,7 +1732,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Επιβεβαίωση αιτήματος διακοπής',
-                'in_app_body' => 'Λάβαμε το αίτημα διακοπής για την υπηρεσία {{ service.product.name }}.',
+                'in_app_body' => 'Λάβαμε το αίτημα διακοπής για την υπηρεσία {{ service.mailName }}.',
             ],
         ],
         'invoice_payment_reminder' => [
