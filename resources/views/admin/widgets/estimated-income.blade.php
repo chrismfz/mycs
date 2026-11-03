@@ -78,8 +78,8 @@
                 </div>
             </div>
             <div class="rounded-md bg-gray-50 dark:bg-white/5 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300">
-                <div>{{ __('Today') }}: <span class="font-semibold text-gray-950 dark:text-white">{{ $today }}</span></div>
-                <div>{{ __('All Time') }}: <span class="font-semibold text-gray-950 dark:text-white">{{ $all }}</span></div>
+                <div class="font-semibold text-gray-950 dark:text-white">{{ __('Today') }}: {{ $today }}</div>
+                <div class="font-semibold text-gray-950 dark:text-white">{{ __('All Time') }}: {{ $all }}</div>
             </div>
         </div>
 
