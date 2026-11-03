@@ -6,18 +6,23 @@
 
     {{-- The account at a glance, each a link to its list (home PR 2, owner 2026-11-03: as WHMCS's) --}}
     @if ($tiles !== [])
-    <nav aria-label="{{ __('dashboard.summary.title') }}" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        @foreach ($tiles as $tile)
-        <a href="{{ $tile['url'] }}" wire:navigate wire:key="tile-{{ $tile['key'] }}"
-            class="min-w-0 bg-background-secondary hover:bg-background-secondary/80 border border-neutral rounded-lg px-4 py-3 border-b-4 {{ match ($tile['tone']) { 'error' => 'border-b-error', 'warning' => 'border-b-warning', default => 'border-b-primary' } }}">
-            <span class="block text-3xl font-bold leading-tight {{ $tile['tone'] === 'error' ? 'text-error' : 'text-primary' }}">{{ $tile['count'] }}</span>
-            <span class="block text-xs font-semibold uppercase tracking-wide text-base/70">{{ $tile['label'] }}</span>
-            @if ($tile['detail'] !== '')
-            <span class="block text-xs text-base/60 [overflow-wrap:anywhere]">{{ $tile['detail'] }}</span>
-            @endif
-        </a>
-        @endforeach
-    </nav>
+    <section aria-labelledby="summary-title">
+        <h2 id="summary-title" class="sr-only">{{ __('dashboard.summary.title') }}</h2>
+        <ul class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            @foreach ($tiles as $tile)
+            <li class="min-w-0" wire:key="tile-{{ $tile['key'] }}">
+                <a href="{{ $tile['url'] }}" wire:navigate
+                    class="block h-full bg-background-secondary hover:bg-background-secondary/80 border border-neutral rounded-lg px-4 py-3 border-b-4 {{ match ($tile['tone']) { 'error' => 'border-b-error', 'warning' => 'border-b-warning', default => 'border-b-primary' } }}">
+                    <span class="block text-3xl font-bold leading-tight {{ $tile['tone'] === 'error' ? 'text-error' : 'text-primary' }}">{{ $tile['count'] }}</span>
+                    <span class="block text-xs font-semibold uppercase tracking-wide text-base/70">{{ $tile['label'] }}</span>
+                    @if ($tile['detail'] !== '')
+                    <span class="block text-xs text-base/60 [overflow-wrap:anywhere]">{{ $tile['detail'] }}</span>
+                    @endif
+                </a>
+            </li>
+            @endforeach
+        </ul>
+    </section>
     @endif
 
     {{-- What waits on the customer, in one place (P4b) --}}
@@ -106,9 +111,9 @@
         <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-neutral">
             <h2 id="services-title" class="text-lg font-semibold flex items-center gap-2">
                 <x-ri-archive-stack-fill class="size-5" />
-                {{ __('dashboard.active_services') }}
+                {{ __('dashboard.summary.services_table') }}
             </h2>
-            <a href="{{ route('services') }}" wire:navigate class="text-sm font-semibold text-primary hover:underline whitespace-nowrap">{{ __('dashboard.summary.all_services', ['count' => $servicesCount]) }}</a>
+            <a href="{{ route('services') }}" wire:navigate class="text-sm font-semibold text-primary hover:underline whitespace-nowrap">{{ __('dashboard.summary.all_services') }}</a>
         </div>
         @forelse ($services as $service)
         @php($identifier = \App\Support\ServiceIdentifier::besides($service, (string) $service->label))
@@ -120,9 +125,13 @@
                     @if ($identifier !== '')
                     <div class="text-sm text-base/60 [overflow-wrap:anywhere]">{{ $identifier }}</div>
                     @endif
+                    @if ($service->expires_at)
+                    <div class="text-xs text-base/60">{{ __('dashboard.summary.renews', ['date' => $service->expires_at->format('d/m/Y')]) }}</div>
+                    @endif
                 </div>
             </div>
-            <a href="{{ route('services.show', $service) }}" wire:navigate aria-label="{{ __('dashboard.summary.manage') }}: {{ $service->label }}"
+            {{-- The same page as its name's link: one tab stop a row (review of #616). --}}
+            <a href="{{ route('services.show', $service) }}" wire:navigate tabindex="-1" aria-hidden="true"
                 class="shrink-0 self-start sm:self-auto min-h-[36px] inline-flex items-center px-3 rounded-md border border-neutral bg-background text-sm font-semibold hover:bg-background-secondary">{{ __('dashboard.summary.manage') }}</a>
         </div>
         @empty
@@ -151,9 +160,6 @@
                             <x-ri-add-fill class="size-5 h-5" />
                         </a>
                     </div>
-                    <span class="bg-primary flex items-center justify-center font-semibold rounded-md size-5 text-sm text-white">
-                        {{ \App\Support\CurrentClient::model()->tickets()->where('status', '!=', 'closed')->count() }}
-                    </span>
                 </div>
                 <div class="space-y-4">
                     <livewire:tickets.widget />
@@ -178,9 +184,6 @@
                         </div>
                         <h2 class="text-xl font-semibold">{{ __('dashboard.unpaid_invoices') }}</h2>
                     </div>
-                    <span class="bg-primary flex items-center justify-center font-semibold rounded-md size-5 text-sm text-white">
-                        {{ \App\Support\CurrentClient::model()->invoices()->where('status', 'unpaid')->count() }}
-                    </span>
                 </div>
                 <div class="space-y-4">
                     <livewire:invoices.widget :limit="3" />

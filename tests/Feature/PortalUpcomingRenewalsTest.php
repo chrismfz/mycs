@@ -113,7 +113,7 @@ class PortalUpcomingRenewalsTest extends TestCase
 
         $card = $this->card($this->workOn($user)->get(route('dashboard'))->assertOk()->getContent());
         foreach (['Being cancelled', 'One time setup', 'Free thing', 'Suspended one', 'not-renewing.gr'] as $name) {
-            $this->assertStringNotContainsString($name, $card); // the services widget lists the active ones, not this card
+            $this->assertStringNotContainsString($name, $card); // the services table lists the running ones, not this card
         }
     }
 

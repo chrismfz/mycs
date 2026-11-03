@@ -61,13 +61,13 @@ class HomeSummaryTest extends TestCase
             'plan_id' => $product->plan->id, 'status' => $status, 'price' => 10, 'quantity' => 1, 'currency_code' => 'EUR', 'domain' => null]);
     }
 
-    private function domain(string $fqdn, string $expires, DomainStatus $status = DomainStatus::Active): Domain
+    private function domain(string $fqdn, string $expires, DomainStatus $status = DomainStatus::Active, bool $autoRenew = true): Domain
     {
         [$sld, $tld] = explode('.', $fqdn, 2);
         $domainTld = DomainTld::query()->firstOrCreate(['tld' => $tld], ['grace_days' => 15, 'redemption_days' => 0, 'is_active' => true]);
 
         return Domain::factory()->create(['client_id' => $this->client->id, 'sld' => $sld, 'tld' => $tld, 'fqdn' => $fqdn, 'domain_tld_id' => $domainTld->id,
-            'status' => $status, 'expires_at' => $expires, 'auto_renew' => true]);
+            'status' => $status, 'expires_at' => $expires, 'auto_renew' => $autoRenew]);
     }
 
     private function invoice(string $due, string $price = '10'): Invoice
@@ -90,7 +90,8 @@ class HomeSummaryTest extends TestCase
         $this->service(Service::STATUS_SUSPENDED);
         $this->service(Service::STATUS_CANCELLED);
         $this->domain('kept.gr', '2027-06-01');
-        $this->domain('soon.gr', '2026-11-05');
+        $this->domain('soon.gr', '2026-11-05', autoRenew: false);
+        $this->domain('renews.gr', '2026-11-06'); // renews by itself: nothing to tell (review of #616)
         $this->domain('gone.gr', '2026-01-01', DomainStatus::Cancelled);
         $this->ticket(Ticket::STATUS_OPEN);
         $this->ticket(Ticket::STATUS_ANSWERED);
@@ -103,7 +104,7 @@ class HomeSummaryTest extends TestCase
         $tiles = collect((new Summary($this->client))->tiles())->keyBy('key');
 
         $this->assertSame(['services', 'domains', 'tickets', 'invoices'], $tiles->keys()->all());
-        $this->assertSame([2, 2, 2, 2], $tiles->pluck('count')->all());
+        $this->assertSame([2, 3, 2, 2], $tiles->pluck('count')->all());
         $this->assertSame(trans_choice('dashboard.summary.services_suspended', 1, ['count' => 1]), $tiles['services']['detail']);
         $this->assertSame(trans_choice('dashboard.summary.domains_ending', 1, ['count' => 1, 'days' => 30]), $tiles['domains']['detail']);
         $this->assertSame(trans_choice('dashboard.summary.tickets_yours', 1, ['count' => 1]), $tiles['tickets']['detail']);
@@ -142,7 +143,7 @@ class HomeSummaryTest extends TestCase
     public function test_the_services_table_says_what_tells_each_apart_active_first(): void
     {
         $suspended = $this->service(Service::STATUS_SUSPENDED, ['domain' => 'radio.example.gr']);
-        $hosting = $this->service(Service::STATUS_ACTIVE, ['domain' => 'shop.example.gr']);
+        $hosting = $this->service(Service::STATUS_ACTIVE, ['domain' => 'shop.example.gr', 'expires_at' => '2026-11-20']);
         $vps = $this->service(Service::STATUS_ACTIVE, ['domain' => 'vps1.example.gr', 'dedicated_ip' => '203.0.113.10']);
         $cancelled = $this->service(Service::STATUS_CANCELLED, ['domain' => 'old.example.gr']);
         $pending = $this->service(Service::STATUS_PENDING, ['domain' => 'new.example.gr']);
@@ -150,7 +151,7 @@ class HomeSummaryTest extends TestCase
 
         $this->workOn($this->owner)->get(route('dashboard'))->assertOk()
             ->assertSeeInOrder([$vps->label, 'vps1.example.gr · 203.0.113.10', $hosting->label, 'shop.example.gr', $suspended->label, 'radio.example.gr'])
-            ->assertSee(__('dashboard.summary.all_services', ['count' => 3]))
+            ->assertSee(__('dashboard.summary.all_services'))->assertSee(__('dashboard.summary.renews', ['date' => $hosting->expires_at->format('d/m/Y')]))
             ->assertSee(route('services.show', $hosting), false)
             ->assertDontSee('old.example.gr')->assertDontSee('new.example.gr')->assertDontSee('theirs.example.gr');
         $this->assertNotNull($cancelled);

@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Ticket;
 use App\Support\CurrentClient;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * «Needs your attention» on the home page (P4b, owner 2026-10-19): what waits on the customer, in one place, instead of
@@ -24,9 +25,20 @@ final class Attention
     public const CARD_MONTHS_AFTER = 3;
 
     /** A domain past its expiry but still recoverable (review of #230: the most urgent of all). */
-    private const RECOVERABLE = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+    public const RECOVERABLE = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
 
-    public function __construct(private readonly Client $client) {}
+    /** @param  Collection<int, Invoice>|null  $unpaid  the account's unpaid invoices, read once by the page (Summary too; review of #616) */
+    public function __construct(private readonly Client $client, private readonly ?Collection $unpaid = null) {}
+
+    /**
+     * The account's unpaid invoices, with what their remaining and their overdue read.
+     *
+     * @return Collection<int, Invoice>
+     */
+    public static function unpaidOf(Client $client): Collection
+    {
+        return $client->invoices()->where('status', Invoice::STATUS_UNPAID)->with(['transactions', 'items', 'adjustmentNotes', 'currency'])->get();
+    }
 
     /**
      * @return list<array{kind: string, text: string, detail: string, action: string, url: string, urgent: bool}>
@@ -50,7 +62,7 @@ final class Attention
     /** Unpaid invoices: how many, what they come to (per currency), the oldest due date. */
     private function unpaid(): array
     {
-        $invoices = $this->client->invoices()->where('status', Invoice::STATUS_UNPAID)->with(['transactions', 'items', 'adjustmentNotes', 'currency'])->get();
+        $invoices = $this->unpaid ?? self::unpaidOf($this->client);
         if ($invoices->isEmpty()) {
             return [];
         }
