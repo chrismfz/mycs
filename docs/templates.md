@@ -11,7 +11,7 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 ## Σύνταξη (υποσύνολο του Twig)
 | Τι | Παράδειγμα |
 |---|---|
-| Τιμή (με HTML escape) | `{{ invoice.number }}`, `{{ service.product.name }}`, `{{ user.first_name }}` |
+| Τιμή (με HTML escape) | `{{ invoice.number }}`, `{{ service.product.name }}`, `{{ service.mailName }}` (η υπηρεσία: προϊόν και domain, label ή άδεια: label και IP, αλλιώς κλειδί με μάσκα), `{{ user.first_name }}` |
 | Φίλτρα | `{{ service.expires_at\|date("d/m/Y") }}`, `{{ cancellation.reason\|default("—") }}`, `upper`, `lower`, `raw` (χωρίς escape) |
 | Συνθήκη | `{% if has_subscription %} … {% else %} … {% endif %}`, `{% if not cancellation.reason %}` |
 | Σύγκριση | `{% if cancellation.type == "end_of_period" %}` (και `!=`) |

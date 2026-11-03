@@ -37,7 +37,8 @@ class License extends Model implements Auditable
     /**
      * Not for a template: only its key and status are (`{{ service.license.license_key }}`, nixpal's welcome mail). A
      * service reaches mail sent to others too (a ticket's CC, code review of #291): where it is installed, what was seen
-     * checking it and the WHMCS row stay staff's and the client area's.
+     * checking it and the WHMCS row stay staff's and the client area's. Its valid IP does reach a mail, as part of its
+     * service's name only (Service::mailName, owner 2026-11-03), never as a field of its own.
      */
     public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'whmcs_id', 'last_access', 'last_ok_at',
         'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];

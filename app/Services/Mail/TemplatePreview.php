@@ -109,7 +109,9 @@ final class TemplatePreview
         $service->setRelation('product', $product);
         $service->setRelation('plan', $plan);
         $service->setRelation('client', $client);
-        $service->setRelation('license', $license);
+        // A license only where its mail reads one (the welcome mail's snippet): a hosting sample otherwise, named by its
+        // domain as a real one is (Service::mailName; code review of #592, F4).
+        $service->setRelation('license', $key === 'new_server_created' ? $license : null);
         $due = $key === 'invoice_overdue' ? now()->subDays(3)->startOfDay() : now()->addDays(7)->startOfDay();
         $line = new InvoiceItem(['description' => 'Web Hosting Pro – example.gr (' . $due->format('d/m/Y') . ' - ' . $due->copy()->addMonth()->subDay()->format('d/m/Y') . ')',
             'quantity' => 1, 'price' => '15.00']);
