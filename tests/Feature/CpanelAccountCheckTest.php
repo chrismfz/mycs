@@ -57,9 +57,13 @@ class CpanelAccountCheckTest extends TestCase
                 str_ends_with($call, '/listaccts') => $ok(['acct' => $this->accounts]),
                 str_ends_with($call, '/showbw') => $ok(['acct' => array_map(fn (array $a) => ['user' => strtolower($a['user']), 'totalbytes' => 1073741824, 'limit' => ($a['bw'] ?? 100) * 1073741824], $this->accounts)]),
                 str_ends_with($call, '/listresellers') => $ok(['reseller' => ['resel1']]),
-                str_ends_with($call, '/getpkginfo') => ($this->packages[$query['pkg'] ?? ''] ?? null) === null
-                    ? Http::response(['metadata' => ['result' => 0, 'reason' => 'no such package']])
-                    : $ok(['pkg' => $this->packages[$query['pkg']]]),
+                // As WHM answers: a package it does not know is «Failed to load package», a login without the right is refused.
+                str_ends_with($call, '/getpkginfo') => match (true) {
+                    !array_key_exists($query['pkg'] ?? '', $this->packages) => Http::response(['metadata' => ['result' => 0,
+                        'reason' => 'Failed to load package “' . ($query['pkg'] ?? '') . '”: No such file or directory']]),
+                    $this->packages[$query['pkg']] === null => Http::response(['metadata' => ['result' => 0, 'reason' => 'Access denied']]),
+                    default => $ok(['pkg' => $this->packages[$query['pkg']]]),
+                },
                 default => Http::response(['metadata' => ['result' => 0, 'reason' => 'not here']]),
             };
         });
@@ -153,13 +157,46 @@ class CpanelAccountCheckTest extends TestCase
 
     public function test_another_package_on_the_server_than_the_services_is_found_and_a_resellers_prefix_is_not(): void
     {
-        $this->accounts = [$this->acct('northwind', 'Starter-20GB', '20480M'), $this->acct('prefixed', 'resel1_Starter', '20480M')];
+        $this->packages['Premium_Starter'] = ['QUOTA' => '20480', 'BWLIMIT' => '102400'];
+        $this->accounts = [$this->acct('northwind', 'Starter-20GB', '20480M'), $this->acct('prefixed', 'resel1_Starter', '20480M', ['owner' => 'resel1']),
+            $this->acct('rootprefix', 'Premium_Starter', '20480M')];
         $this->service('northwind');
-        $this->service('prefixed');
+        $prefixed = $this->service('prefixed');
+        $this->service('rootprefix');
         AccountSync::sync($this->server);
+        // A reseller's customer's account is never mapped by its name alone: staff map it.
+        $row = CpanelAccount::query()->where('user', 'prefixed')->sole();
+        $row->update(['service_id' => $prefixed->id]);
+        AccountCheck::apply($row);
+        $row->save();
 
         $this->assertSame(AccountCheck::PLAN_DIFFERS, $this->check('northwind'), '«MyIP_Starter-20GB» for «MyIP_Starter»');
         $this->assertSame(AccountCheck::OK, $this->check('prefixed'), 'a reseller\'s package is stored without its prefix');
+        $this->assertSame(AccountCheck::PLAN_DIFFERS, $this->check('rootprefix'), 'root\'s «Premium_Starter» is not «Starter»: only the owner\'s prefix is dropped');
+    }
+
+    public function test_a_package_gone_from_whm_does_not_stop_the_ones_after_it(): void
+    {
+        $this->accounts = [$this->acct('lost1', 'GoneA', '20480M'), $this->acct('lost2', 'GoneB', '20480M'), $this->acct('lost3', 'GoneC', '20480M'),
+            $this->acct('studionord', 'Starter', '30720M')];
+        foreach (['lost1', 'lost2', 'lost3'] as $user) {
+            $this->service($user);
+        }
+        $this->service('studionord');
+        AccountSync::sync($this->server);
+
+        $this->assertNull($this->check('lost1'));
+        $this->assertSame(AccountCheck::EXTRA_NOT_BILLED, $this->check('studionord'), 'the package after three that WHM does not know is still read');
+    }
+
+    public function test_a_login_that_cannot_read_any_package_asks_only_a_few_times(): void
+    {
+        $this->packages = array_fill_keys(array_map(fn (int $i) => "Plan{$i}", range(1, 6)), null);
+        $this->accounts = array_map(fn (int $i) => $this->acct("acc{$i}", "Plan{$i}", '20480M'), range(1, 6));
+        AccountSync::sync($this->server);
+
+        Http::assertSentCount(1 + 1 + 1 + 3, 'listaccts, showbw, listresellers and three getpkginfo, then no more');
+        $this->assertNull(CpanelAccount::query()->whereNotNull('plan_disk_mb')->first());
     }
 
     public function test_a_service_own_package_property_wins_over_the_products(): void
@@ -182,13 +219,17 @@ class CpanelAccountCheckTest extends TestCase
 
     public function test_a_package_with_no_bandwidth_key_is_unlimited_and_matches_an_account_with_no_bandwidth_limit(): void
     {
-        $this->packages['resel1_V16'] = ['QUOTA' => '16384'];
-        $this->accounts = [$this->acct('nopulsar', 'resel1_V16', '16384M', ['bw' => 0])];
+        $this->packages['V16'] = ['QUOTA' => '16384', 'BWLIMIT' => null]; // as the live servers say it
+        $this->packages['V17'] = ['QUOTA' => '16384'];
+        $this->accounts = [$this->acct('nopulsar', 'V16', '16384M', ['bw' => 0]), $this->acct('nokey', 'V17', '16384M', ['bw' => 0])];
         $this->service('nopulsar', 'V16');
+        $this->service('nokey', 'V17');
         AccountSync::sync($this->server);
 
-        $a = CpanelAccount::query()->where('user', 'nopulsar')->sole();
-        $this->assertSame([16384, 0, AccountCheck::OK], [$a->plan_disk_mb, $a->plan_bandwidth_mb, $a->limits_check]);
+        foreach (['nopulsar', 'nokey'] as $user) {
+            $a = CpanelAccount::query()->where('user', $user)->sole();
+            $this->assertSame([16384, 0, AccountCheck::OK], [$a->plan_disk_mb, $a->plan_bandwidth_mb, $a->limits_check], $user);
+        }
     }
 
     public function test_the_worst_finding_is_the_one_kept(): void

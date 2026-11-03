@@ -68,7 +68,7 @@ final class AccountCheck
 
         $found = [];
         $package = self::package($service);
-        if ($package !== '' && $account->plan !== null && !self::samePackage($account->plan, $package)) {
+        if ($package !== '' && $account->plan !== null && !self::samePackage($account->plan, $package, $account->owner)) {
             $found[self::PLAN_DIFFERS] = null;
         }
 
@@ -100,8 +100,16 @@ final class AccountCheck
     /** Keeps what for() found with the account (null when there is nothing to check). */
     public static function apply(CpanelAccount $account): void
     {
-        // The mapping may have changed since the service was loaded.
-        $account->unsetRelation('service')->load(['service.properties', 'service.product.settings']);
+        // The service the mapping says now (it may have changed since it was loaded), with what the check reads: nothing to load for
+        // an account that has none, and what is loaded already is kept (the read goes through many accounts: review of #622).
+        if ($account->service_id === null) {
+            $account->setRelation('service', null);
+        } else {
+            if ($account->relationLoaded('service') && $account->service?->id !== $account->service_id) {
+                $account->unsetRelation('service');
+            }
+            $account->loadMissing(['service.properties', 'service.product.settings']);
+        }
         $result = self::for($account);
         $account->forceFill(['limits_check' => $result['status'] ?? null, 'limits_check_mb' => $result['mb'] ?? null,
             'limits_checked_at' => $result === null ? null : now()]);
@@ -144,13 +152,17 @@ final class AccountCheck
         return trim((string) ($own ?? $service->product?->settings->pluck('value', 'key')->get('package') ?? ''));
     }
 
-    /** A reseller's package is «reseller_package» on WHM and stored without the prefix on the service. */
-    public static function samePackage(string $onServer, string $stored): bool
+    /**
+     * A reseller's package is «reseller_package» on WHM and stored without the prefix on the service: the prefix is the account's
+     * owner's, never another (root's «Premium_Starter» is not «Starter»: review of #622).
+     */
+    public static function samePackage(string $onServer, string $stored, ?string $owner = null): bool
     {
         $onServer = strtolower(trim($onServer));
         $stored = strtolower(trim($stored));
+        $owner = strtolower(trim((string) $owner));
 
-        return $onServer === $stored || str_ends_with($onServer, '_' . $stored);
+        return $onServer === $stored || ($owner !== '' && $owner !== 'root' && $onServer === $owner . '_' . $stored);
     }
 
     private static function bandwidthDiffers(CpanelAccount $account): bool

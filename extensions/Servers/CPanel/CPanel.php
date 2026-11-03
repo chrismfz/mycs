@@ -1029,8 +1029,8 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 
     /**
      * Disk and bandwidth of each package, as WHM's getpkginfo says (a call a package; QUOTA and BWLIMIT in MB, «unlimited» is 0).
-     * A package that cannot be read is left out: its accounts are not checked. After a few calls in a row that fail the
-     * rest are not asked (a login without the right to read packages), and the failure is reported once.
+     * A package that cannot be read is left out: its accounts are not checked. A package WHM does not know is only that; a few
+     * other failures in a row (a login without the right to read packages) stop the rest, and the failure is reported once.
      *
      * @param  list<string>  $plans
      * @return array<string, array{disk: int|null, bandwidth: int|null}>
@@ -1043,7 +1043,9 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             try {
                 $package = $this->whm('/getpkginfo', ['pkg' => $plan])['data']['pkg'] ?? null;
             } catch (Throwable $e) {
-                if (++$failures >= self::LVE_GIVE_UP) {
+                // A package WHM does not know (gone after a move, still named on accounts) is only not told: it is no sign of a login
+                // without the right, and must not stop the packages after it (review of #622). Anything else, a few times in a row, does.
+                if (!str_contains($e->getMessage(), 'Failed to load package') && ++$failures >= self::LVE_GIVE_UP) {
                     report($e);
 
                     break;
@@ -1053,10 +1055,10 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             }
             $failures = 0;
             if (is_array($package)) {
-                // A reseller's package has no BWLIMIT at all when its bandwidth is unlimited (seen on the live servers, 2026-11-03: its accounts
-                // have no bandwidth limit either): none is no limit, not «not told».
+                // A reseller's package has a null BWLIMIT (or none) when its bandwidth is unlimited (seen on the live servers, 2026-11-03: its
+                // accounts have no bandwidth limit either): none is no limit, not «not told».
                 $read[$plan] = ['disk' => self::packageLimit($package['QUOTA'] ?? null),
-                    'bandwidth' => array_key_exists('BWLIMIT', $package) ? self::packageLimit($package['BWLIMIT']) : 0];
+                    'bandwidth' => ($package['BWLIMIT'] ?? null) === null ? 0 : self::packageLimit($package['BWLIMIT'])];
             }
         }
 
