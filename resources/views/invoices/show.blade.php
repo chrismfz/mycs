@@ -69,6 +69,7 @@
                 'credit' => $this->usableCredit,
                 'automaticMethodId' => $this->automaticMethodId,
                 'renewalsChoice' => $this->renewalsChoice,
+                'payNote' => null,
                 'showManage' => $this->savedPaymentMethods->isNotEmpty() || count($this->paymentMethods) > 0,
             ])
         </section>

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Livewire\Invoices\PayTogether;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
@@ -13,6 +14,7 @@ use App\Models\PaymentGroup;
 use App\Models\User;
 use App\Services\Invoice\MassPay;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -118,8 +120,72 @@ class PayTogetherPanelTest extends TestCase
         $page = $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()]);
         $page->assertSee(__('invoices.mass_pay_held_title'))->assertDontSeeHtml('id="pay-title"')->assertDontSeeHtml('type="radio"')
             ->assertDontSee(__('One of these invoices changed: choose them again from your invoices.'));
-        // The server refuses as before.
+        // The server refuses as before: a gateway, and the saved method again (no second charge).
         $page->set('selectedMethod', 'gateway-' . $this->card->id)->call('processPayment')->assertNoRedirect();
+        $page->set('selectedMethod', $visa->ulid)->call('processPayment');
+        $this->assertSame(1, ChargeAttempt::query()->count(), 'no second charge while the first is unsettled');
+    }
+
+    /** Review of #599: a payment on its way for one invoice only holds that one; the others can be chosen again. */
+    public function test_a_payment_on_its_way_for_one_invoice_names_it(): void
+    {
+        $group = $this->group();
+        $other = $group->invoices()->whereKeyNot($group->invoice_id)->firstOrFail();
+        DB::table('invoice_transactions')->insert(['invoice_id' => $other->id, 'gateway_id' => $this->card->id, 'amount' => 10,
+            'status' => InvoiceTransactionStatus::Processing->value, 'transaction_id' => 'sepa_1', 'created_at' => now(), 'updated_at' => now()]);
+
+        $page = $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()]);
+        $page->assertSee(__('invoices.mass_pay_held_some_title'))->assertDontSee(__('invoices.mass_pay_held_title'))
+            ->assertDontSeeHtml('type="radio"');
+        $this->assertSame([(int) $other->id], $page->get('heldInvoices'));
+        $this->assertSame(1, substr_count($page->html(), 'bg-warning/20 text-warning whitespace-nowrap">' . __('invoices.mass_pay_held_mark')), 'the held invoice marked, only it');
+
+        // Its lead deleted by staff: the other's payment is still told (each invoice read).
+        Invoice::query()->whereKey($group->invoice_id)->delete();
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])->assertSet('held', true);
+    }
+
+    /** A group chosen again with its own charge unsettled is still «on its way» (ADV-599-2); chosen again without one, «choose again». */
+    public function test_a_replaced_group_is_on_its_way_while_its_charge_is_unsettled(): void
+    {
+        $visa = $this->saved('Visa 4242');
+        $group = $this->group();
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $group->invoice_id, 'client_id' => $this->client->id,
+            'billing_agreement_id' => $visa->id, 'payment_group_id' => $group->id, 'amount' => '20.00', 'currency_code' => 'USD',
+            'source' => ChargeAttempt::SOURCE_GROUP, 'status' => ChargeAttempt::STATUS_UNKNOWN, 'started_at' => now(), 'sent_at' => now()]);
+        $group->update(['status' => PaymentGroup::STATUS_REPLACED]);
+
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])
+            ->assertSet('held', true)->assertSee(__('invoices.mass_pay_held_title'));
+
+        ChargeAttempt::query()->update(['status' => ChargeAttempt::STATUS_FAILED]);
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])
+            ->assertSet('held', false)->assertSee(__('These invoices were paid or chosen again: choose them again from your invoices.'));
+    }
+
+    /** Review of #599: only a method the cron would charge is chosen to start with, and choosing charges nothing. */
+    public function test_a_stopped_method_is_not_chosen_and_choosing_charges_nothing(): void
+    {
+        config(['settings.autocharge_max_failures' => 2]);
+        $visa = $this->saved('Visa 4242');
+        $this->client->forceFill(['default_billing_agreement_id' => $visa->id, 'auto_charge' => true])->save();
+        $visa->forceFill(['failed_count' => 2])->save();
+
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $this->group()])->assertSet('selectedMethod', null);
+
+        $visa->forceFill(['failed_count' => 0])->save();
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $this->group()])->assertSet('selectedMethod', $visa->ulid);
+        $this->assertSame(0, ChargeAttempt::query()->count(), 'nothing charged before the button is pressed');
+    }
+
+    /** Review of #599: the note on other ways shows only when there are some (the balance, a gateway left out). */
+    public function test_the_note_on_other_ways_shows_only_when_there_are_some(): void
+    {
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $this->group()])->assertSee(__('invoices.mass_pay_not_here'));
+
+        $this->bank->update(['enabled' => false]);
+        config(['settings.credits_enabled' => false]);
+        $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $this->group()])->assertDontSee(__('invoices.mass_pay_not_here'));
     }
 
     public function test_an_invoice_changed_meanwhile_asks_to_choose_again(): void

@@ -234,7 +234,7 @@ class Adv599PayTogetherTest extends TestCase
         InvoiceTransaction::query()->create(['invoice_id' => $other->id, 'gateway_id' => $this->card->id, 'amount' => '10.00',
             'transaction_id' => 'tr_' . Str::random(8), 'status' => InvoiceTransactionStatus::Processing]);
         $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $group->fresh()])
-            ->assertSee(__('invoices.mass_pay_held_title'))->assertDontSeeHtml('type="radio"')
+            ->assertSee(__('invoices.mass_pay_held_some_title'))->assertDontSeeHtml('type="radio"') // one invoice held: «some» (code review of #599)
             ->set('selectedMethod', 'gateway-' . $this->card->id)->call('processPayment')->assertNoRedirect();
 
         // An older group's processing checkout payment (on its lead) pays a shared invoice: the newer group is held too.
@@ -247,7 +247,7 @@ class Adv599PayTogetherTest extends TestCase
         $this->assertSame(PaymentGroup::STATUS_REPLACED, $old->fresh()->status, 'setup');
 
         $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $newer->fresh()])
-            ->assertSee(__('invoices.mass_pay_held_title'))->assertDontSeeHtml('type="radio"')
+            ->assertSee(__('invoices.mass_pay_held_some_title'))->assertDontSeeHtml('type="radio"') // one invoice held: «some» (code review of #599)
             ->set('selectedMethod', 'gateway-' . $this->card->id)->call('processPayment')->assertNoRedirect();
     }
 

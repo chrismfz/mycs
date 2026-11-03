@@ -7,10 +7,12 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\MassPay;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use App\Support\PayOptions;
@@ -30,6 +32,9 @@ use Livewire\Attributes\Locked;
  * @property-read int|null $automaticMethodId
  * @property-read string $payLabel
  * @property-read bool $held
+ * @property-read list<int> $heldInvoices
+ * @property-read string|null $staleness
+ * @property-read bool $otherWaysElsewhere
  */
 class PayTogether extends Component
 {
@@ -44,8 +49,10 @@ class PayTogether extends Component
     {
         $this->paymentGroup->load('invoices', 'invoice', 'client');
         // The account's automatic-payments method chosen to start with, when it may pay the group (as the invoice's page
-        // chooses its preferred way): the button names it, nothing is charged before it is pressed.
-        $this->selectedMethod = $this->savedPaymentMethods->firstWhere('id', $this->automaticMethodId)?->ulid;
+        // chooses its preferred way): the button names it, nothing is charged before it is pressed. Not when each invoice
+        // is one the cron charges on its own: the invoice's page chooses nothing then either (ADV-599-1).
+        $ownWay = $this->paymentGroup->invoices->every(fn (Invoice $invoice) => PaymentReminders::chargedOnItsOwn($invoice));
+        $this->selectedMethod = $ownWay ? null : $this->savedPaymentMethods->firstWhere('id', $this->automaticMethodId)?->ulid;
     }
 
     #[Computed]
@@ -76,7 +83,8 @@ class PayTogether extends Component
     #[Computed]
     public function payGroups(): array
     {
-        return PayOptions::byProvider($this->savedPaymentMethods, $this->gateways, $this->automaticMethodId);
+        // Ordered as on the invoice's page: the account's default first (review of #599).
+        return PayOptions::byProvider($this->savedPaymentMethods, $this->gateways, $this->paymentGroup->client?->default_billing_agreement_id);
     }
 
     /** The saved method that pays the account's renewals now (as the invoice's page marks it). */
@@ -107,15 +115,43 @@ class PayTogether extends Component
     }
 
     /**
-     * A payment of these invoices on its way (a saved method's charge not settled, a payment the gateway processes: of the
-     * group or of one of its invoices): told as such, not as «changed», which the customer could not fix by choosing again.
+     * The group's invoices with a payment on its way (a saved method's charge not settled, a payment the gateway processes:
+     * the group's, or one of its own, SavedMethodCharge::onItsWay), unless the group is paid: told as such, not as
+     * «changed» or «chosen again», which choosing again could not fix (a replaced group's own charge: ADV-599-2). All of
+     * them: nothing can be paid until it settles; some: the others can be chosen again without them (review of #599).
+     * Each invoice read, so a deleted lead hides nothing.
+     *
+     * @return list<int>
      */
+    #[Computed]
+    public function heldInvoices(): array
+    {
+        if ($this->paymentGroup->status === PaymentGroup::STATUS_PAID) {
+            return [];
+        }
+
+        return $this->paymentGroup->invoices->filter(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice))
+            ->map(fn (Invoice $invoice) => (int) $invoice->id)->values()->all();
+    }
+
     #[Computed]
     public function held(): bool
     {
-        $lead = $this->paymentGroup->invoice;
+        return $this->heldInvoices !== [];
+    }
 
-        return $this->paymentGroup->status === PaymentGroup::STATUS_OPEN && $lead !== null && SavedMethodCharge::onItsWay($lead, $this->paymentGroup);
+    /**
+     * Ways to pay these invoices that this page does not offer: the balance, or a gateway that takes no group payment
+     * (a bank transfer). The note under the choices points to each invoice's page only then (review of #599).
+     */
+    #[Computed]
+    public function otherWaysElsewhere(): bool
+    {
+        $credit = config('settings.credits_enabled') && Credit::query()->where('client_id', $this->paymentGroup->client_id)
+            ->where('currency_code', $this->paymentGroup->currency_code)->where('amount', '>', 0)->exists();
+        $items = $this->paymentGroup->invoices->flatMap(fn (Invoice $invoice) => $invoice->items);
+
+        return $credit || count(ExtensionHelper::getCheckoutGateways((float) $this->paymentGroup->total, $this->paymentGroup->currency_code, 'invoice', $items)) > count($this->gateways);
     }
 
     /** The way chosen, when it is one: a crafted update sets anything (as the invoice's page). */
