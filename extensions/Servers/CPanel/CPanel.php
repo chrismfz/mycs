@@ -1053,7 +1053,10 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             }
             $failures = 0;
             if (is_array($package)) {
-                $read[$plan] = ['disk' => self::packageLimit($package['QUOTA'] ?? null), 'bandwidth' => self::packageLimit($package['BWLIMIT'] ?? null)];
+                // A reseller's package has no BWLIMIT at all when its bandwidth is unlimited (seen on the live servers, 2026-11-03: its accounts
+                // have no bandwidth limit either): none is no limit, not «not told».
+                $read[$plan] = ['disk' => self::packageLimit($package['QUOTA'] ?? null),
+                    'bandwidth' => array_key_exists('BWLIMIT', $package) ? self::packageLimit($package['BWLIMIT']) : 0];
             }
         }
 

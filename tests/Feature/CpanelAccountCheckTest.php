@@ -180,6 +180,17 @@ class CpanelAccountCheckTest extends TestCase
         $this->assertSame(AccountCheck::BANDWIDTH_DIFFERS, $this->check('bwone'));
     }
 
+    public function test_a_package_with_no_bandwidth_key_is_unlimited_and_matches_an_account_with_no_bandwidth_limit(): void
+    {
+        $this->packages['resel1_V16'] = ['QUOTA' => '16384'];
+        $this->accounts = [$this->acct('nopulsar', 'resel1_V16', '16384M', ['bw' => 0])];
+        $this->service('nopulsar', 'V16');
+        AccountSync::sync($this->server);
+
+        $a = CpanelAccount::query()->where('user', 'nopulsar')->sole();
+        $this->assertSame([16384, 0, AccountCheck::OK], [$a->plan_disk_mb, $a->plan_bandwidth_mb, $a->limits_check]);
+    }
+
     public function test_the_worst_finding_is_the_one_kept(): void
     {
         $this->accounts = [$this->acct('both', 'Starter-20GB', '30720M', ['bw' => 200])];
