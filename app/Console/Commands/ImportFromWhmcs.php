@@ -1780,7 +1780,7 @@ class ImportFromWhmcs extends Command
         }
         $result = (new WhmcsServicePasswordImport($this->pdo, $api))->run();
         $c = $result['counts'];
-        $this->info("Service passwords: {$c['imported']} of {$c['services']} live service(s) imported, {$c['skipped']} skipped.");
+        $this->info("Service passwords: {$c['imported']} of {$c['services']} live service(s) imported, {$c['empty']} empty in WHMCS, {$c['skipped']} skipped.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }

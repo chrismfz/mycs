@@ -69,6 +69,6 @@ class ImportServicePasswordsRound2Test extends TestCase
         $this->assertStringNotContainsString('eyJ', $notes, 'the stored ciphertext is printed');
         $this->assertStringNotContainsString('SQL', $notes);
         $this->assertSame('Invented-9', $second->fresh()->password, 'the rest of the step was abandoned');
-        $this->assertSame(['services' => 2, 'imported' => 1, 'skipped' => 1], $result['counts']);
+        $this->assertSame(['services' => 2, 'imported' => 1, 'empty' => 0, 'skipped' => 1], $result['counts']);
     }
 }
