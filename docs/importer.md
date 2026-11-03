@@ -1030,7 +1030,8 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - **PayPal** (app «MyApp_WHMCS»): ένα webhook, `clients.nixpal.com/modules/gateways/callback/paypal_ppcpv.php`, με
     Payment capture completed/declined/denied/pending/refunded/reversed και Vault payment-token created/deleted.
     **Στο cut-over:** νέο webhook στην ίδια app προς `https://<host του MyCS>/extensions/paypal/webhook`, με τα ίδια
-    events **και** `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (τα disputes, `payments.md`)· το Webhook ID
+    events **και** `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (τα disputes, `payments.md`), `PAYMENT.SALE.COMPLETED`,
+    `PAYMENT.SALE.REFUNDED` και `BILLING.SUBSCRIPTION.CANCELLED/EXPIRED/SUSPENDED/ACTIVATED` (συνδρομές, #605)· το Webhook ID
     του μπαίνει στο gateway PayPal της MyCS (υποχρεωτικό: με αυτό ελέγχεται η υπογραφή). Μετά σβήνεται το παλιό.
   - **Stripe** (λογαριασμός Nixpal): ένα endpoint, `clients.nixpal.com/modules/gateways/callback/stripe.php`, API
     2019-09-09, μόνο 4 events αλλαγής κάρτας (`customer.card.updated`, `customer.source.updated`,
@@ -1072,7 +1073,8 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
    - **PayPal** — developer.paypal.com → Apps & Credentials (Live) → «MyApp_WHMCS»:
      1. Add webhook: `https://clients.nixpal.com/extensions/paypal/webhook`, events: Payment capture
         completed/declined/denied/pending/refunded/reversed, Vault payment-token created/deleted, **Customer dispute
-        created/resolved**.
+        created/resolved**, **Payment sale completed/refunded**, **Billing subscription cancelled/expired/suspended/activated**
+        (χωρίς αυτά μια συνδρομή που ακυρώνεται στο PayPal κρατά τα τιμολόγια των υπηρεσιών της: `payments.md`).
      2. Το **Webhook ID** του νέου → MyCS, Gateways → PayPal → «Webhook ID». Client ID/Secret της ίδιας app (τα βάζει ο
         υπεύθυνος στη φόρμα). Save.
      3. Delete το παλιό webhook (`.../callback/paypal_ppcpv.php`).
