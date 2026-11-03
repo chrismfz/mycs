@@ -24,7 +24,7 @@ class WhmcsParity extends Command
         {--source-port=3306 : its port}
         {--source-socket= : its unix socket, instead of host and port}
         {--only-differences : print only the lines that differ}
-        {--records : also compare record by record (each account\'s money, invoice, service with its server and account, domain with its registrar)}
+        {--records : also compare record by record (each account\'s money, invoice, payment, service with its cycle, server and account, domain with its status and registrar)}
         {--examples=20 : with --records, how many differences of each kind to list}';
 
     protected $description = 'Compare an imported WHMCS database (a copy) with this instance, number by number';
@@ -70,9 +70,12 @@ class WhmcsParity extends Command
             return self::FAILURE;
         }
         $records = [];
+        $recordNotes = [];
         if ($this->option('records')) {
             try {
-                $records = (new RecordParity($pdo, max(0, (int) $this->option('examples'))))->run();
+                $recordParity = new RecordParity($pdo, max(0, (int) $this->option('examples')));
+                $records = $recordParity->run();
+                $recordNotes = $recordParity->notes();
             } catch (PDOException $e) {
                 $this->error('The comparison by record stopped (SQLSTATE ' . $e->getCode() . '): a WHMCS table it reads may be missing.');
 
@@ -93,8 +96,12 @@ class WhmcsParity extends Command
         if ($records !== []) {
             // Record by record (predeploy review 2026-11-02): totals that agree can hide two errors that cancel out.
             $this->newLine();
-            $this->table(['Record by record', 'Compared', 'Differ'], array_map(fn (string $check, array $result) => [$check, $result['checked'], $result['count'] ?: ''],
+            $this->table(['Record by record', 'Records', 'Differ'], array_map(fn (string $check, array $result) => [$check, $result['checked'], $result['count'] ?: ''],
                 array_keys($records), $records));
+            // No difference, but to be known: what the importer leaves out by its rule, a server staff set.
+            foreach ($recordNotes as $note) {
+                $this->warn("  Note: {$note}");
+            }
             foreach ($records as $check => $result) {
                 foreach ($result['differ'] as $what) {
                     $this->line("  {$check}: {$what}");
