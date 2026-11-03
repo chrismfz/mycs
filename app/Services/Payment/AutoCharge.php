@@ -336,15 +336,25 @@ final class AutoCharge
 
     /**
      * A declined charge's line in staff's digest (HTML): the invoice and its customer, each linked in the admin (as the chat
-     * cards link them), the amount and the gateway's answer.
+     * cards link them), the amount and the gateway's answer. A link that cannot be made (the panel's routes) leaves the
+     * text alone: the customer's notice and the failure count after it never wait on a link (review of #624).
      */
     private static function declinedLine(Invoice $invoice, ChargeAttempt $attempt): string
     {
-        $invoiceLink = sprintf('<a href="%s">%s</a>', e(InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')),
-            e(($invoice->number ?: '#' . $invoice->id) . ($invoice->number ? ' (#' . $invoice->id . ')' : '')));
+        $link = function (callable $url, string $text): string {
+            try {
+                return sprintf('<a href="%s">%s</a>', e($url()), e($text));
+            } catch (Throwable $e) {
+                report($e);
+
+                return e($text);
+            }
+        };
+        $invoiceLink = $link(fn () => InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin'),
+            ($invoice->number ?: '#' . $invoice->id) . ($invoice->number ? ' (#' . $invoice->id . ')' : ''));
         $client = $invoice->client;
-        $clientLink = $client === null ? e('customer #' . $invoice->client_id) : sprintf('<a href="%s">%s</a>',
-            e(ClientResource::getUrl('view', ['record' => $client], panel: 'admin')), e(trim((string) $client->name) . ' (#' . $client->id . ')'));
+        $clientLink = $client === null ? e('customer #' . $invoice->client_id)
+            : $link(fn () => ClientResource::getUrl('view', ['record' => $client], panel: 'admin'), trim((string) $client->name) . ' (#' . $client->id . ')');
 
         return sprintf('%s · %s · %s %s · %s', $invoiceLink, $clientLink, e((string) $attempt->amount), e((string) $attempt->currency_code),
             e($attempt->error ?? 'declined'));

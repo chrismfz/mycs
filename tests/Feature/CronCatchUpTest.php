@@ -162,7 +162,8 @@ class CronCatchUpTest extends TestCase
     public function test_a_declined_charge_is_counted_apart_from_the_charged_ones(): void
     {
         Carbon::setTestNow('2026-11-10 00:00:00');
-        $user = User::factory()->create();
+        // A name and a gateway answer outsiders write: escaped in staff's HTML mail.
+        $user = User::factory()->create(['first_name' => '<b>Eve</b>"', 'last_name' => 'Example']);
         $client = $user->client();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'CatchPay'], ['name' => 'CatchPay', 'type' => 'gateway', 'enabled' => true]);
         BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card']);
@@ -173,7 +174,7 @@ class CronCatchUpTest extends TestCase
             'price' => 10, 'quantity' => 1, 'currency_code' => 'USD', 'status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-12-10']);
         $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-10']);
         $invoice->items()->create(['description' => 'Renewal', 'price' => '10.00', 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => $service->id]);
-        CatchPay::$answer = fn () => throw new DisplayException('Card declined: insufficient_funds');
+        CatchPay::$answer = fn () => throw new DisplayException('Card declined: insufficient_funds <script>x</script>');
 
         Artisan::call('app:cron-job');
         $this->assertSame(1, (int) CronStat::query()->where('key', 'charges_declined')->sum('value'));
@@ -181,10 +182,13 @@ class CronCatchUpTest extends TestCase
         $this->assertStringContainsString(__('admin.cronjob.charges_declined') . "' completed: Processed 1 items.", Artisan::output());
 
         // Staff's digest names the invoice and its customer, each linked in the admin (owner 2026-11-04).
-        $mail = EmailLog::query()->where('subject', 'Automatic charges declined')->sole();
-        $this->assertStringContainsString(e(InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')), (string) $mail->body);
-        $this->assertStringContainsString(e(ClientResource::getUrl('view', ['record' => $client], panel: 'admin')), (string) $mail->body);
-        $this->assertStringContainsString(e($client->name), (string) $mail->body);
-        $this->assertStringContainsString('Card declined: insufficient_funds', (string) $mail->body);
+        $this->assertStringContainsString('<b>Eve</b>"', $client->name, 'precondition: the hostile name is the account\'s');
+        $body = (string) EmailLog::query()->where('subject', 'Automatic charges declined')->sole()->body;
+        $invoiceText = ($invoice->number ?: '#' . $invoice->id) . ($invoice->number ? ' (#' . $invoice->id . ')' : '');
+        $this->assertStringContainsString('<li><a href="' . e(InvoiceResource::getUrl('edit', ['record' => $invoice], panel: 'admin')) . '">' . e($invoiceText) . '</a>', $body);
+        $this->assertStringContainsString('<a href="' . e(ClientResource::getUrl('view', ['record' => $client], panel: 'admin')) . '">' . e($client->name . ' (#' . $client->id . ')') . '</a>', $body);
+        $this->assertStringContainsString(e('Card declined: insufficient_funds <script>x</script>'), $body);
+        $this->assertStringNotContainsString('<script>', $body);
+        $this->assertStringNotContainsString('<b>Eve', $body);
     }
 }
