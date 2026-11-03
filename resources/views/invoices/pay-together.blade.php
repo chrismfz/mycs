@@ -60,7 +60,7 @@
         <a href="{{ route('invoices') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.invoices') }}</a>
     </div>
     @else
-    <section aria-labelledby="pay-title">
+    <section aria-labelledby="pay-title" class="min-w-0">
         @include('invoices.partials.pay-panel', [
             'payAmount' => number_format((float) $paymentGroup->total, 2) . ' ' . $paymentGroup->currency_code,
             'payGroups' => $this->payGroups,

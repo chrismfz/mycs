@@ -223,11 +223,19 @@ class InvoicePayPanelTest extends TestCase
             ->assertDontSeeHtml('id="pay"')->assertDontSee(__('invoices.pay_panel.title'));
     }
 
-    /** Owner 2026-11-03: a long name and the «Automatic payments» badge pushed the ways out of the panel (a fieldset's min-width). */
+    /**
+     * Owner 2026-11-03: a long name and the «Automatic payments» badge pushed the ways out of the panel (a fieldset's and a
+     * grid item's min-width is their content's). A pin of the classes that let them shrink, not a layout test: the fieldset,
+     * and the page's section that holds the panel (below xl the grid's one column, review of #613).
+     */
     public function test_the_ways_stay_inside_the_panel(): void
     {
         $this->saved($this->card, 'Mastercard **** 5597 with a long name');
-        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $this->invoice()])
-            ->assertSeeHtml('<fieldset class="space-y-3 min-w-0">');
+        $html = $this->livewireAs($this->user)->test(Show::class, ['invoice' => $this->invoice()])->html();
+
+        $this->assertMatchesRegularExpression('/<fieldset class="[^"]*\bmin-w-0\b/', $html);
+        $this->assertMatchesRegularExpression('/<section id="pay"[^>]*class="[^"]*\bmin-w-0\b/', $html);
+        $this->assertMatchesRegularExpression('/<section aria-labelledby="pay-title" class="[^"]*\bmin-w-0\b/',
+            (string) file_get_contents(resource_path('views/invoices/pay-together.blade.php')), 'the pay-together page\'s section too');
     }
 }

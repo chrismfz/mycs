@@ -22,7 +22,8 @@
         <span class="text-lg font-bold whitespace-nowrap">{{ $payAmount }}</span>
     </div>
 
-    {{-- min-w-0: a fieldset is at least as wide as its widest row (a long name, the badge), and pushed out of the panel. --}}
+    {{-- min-w-0: a fieldset is at least as wide as its widest row (a long name, the badge), and pushed out of the panel; the pages' sections
+         have it too, or below xl the grid's one column grows to that width (review of #613). --}}
     <fieldset class="space-y-3 min-w-0">
         <legend class="sr-only">{{ __('invoices.pay_panel.ways') }}</legend>
 
@@ -57,9 +58,9 @@
         <div role="group" aria-labelledby="pay-group-{{ $gateway->id }}" class="border border-neutral rounded-lg overflow-hidden" wire:key="pay-group-{{ $gateway->id }}">
             <div class="flex items-center gap-2 px-3 py-2 bg-background-secondary border-b border-neutral">
                 @if ($gateway->meta?->icon)
-                <img src="{{ $gateway->meta->icon }}" alt="" class="size-5 object-contain" />
+                <img src="{{ $gateway->meta->icon }}" alt="" class="size-5 object-contain shrink-0" />
                 @endif
-                <span id="pay-group-{{ $gateway->id }}" class="text-sm font-semibold">{{ $gateway->name }}</span>
+                <span id="pay-group-{{ $gateway->id }}" class="text-sm font-semibold min-w-0 break-words">{{ $gateway->name }}</span>
             </div>
             @foreach ($group['saved'] as $method)
             <label class="border-b border-neutral last:border-b-0 {{ $row($selectedMethod === $method->ulid) }}" wire:key="pay-saved-{{ $method->ulid }}">
