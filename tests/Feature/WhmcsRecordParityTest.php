@@ -174,9 +174,12 @@ class WhmcsRecordParityTest extends TestCase
     {
         [$a] = $this->clients;
         $child = (int) DB::table('invoices')->where('client_id', $a)->value('id');
-        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, status, duedate, subtotal, total) VALUES (900, {$a}, 'Paid', '2026-11-10', 10, 10)");
-        $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES (900, 'Invoice', {$child}, 10)");
-        $this->whmcs->exec("UPDATE tblaccounts SET invoiceid = 900 WHERE invoiceid = {$child}");
+        // The parent's id clear of every invoice of both sides, and of the one made below: the fixture's WHMCS invoices
+        // carry MyCS's ids, and MariaDB's counter does not restart per test (a fixed 900 collided on CI, #624).
+        $parent = (int) DB::table('invoices')->max('id') + 1000;
+        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, status, duedate, subtotal, total) VALUES ({$parent}, {$a}, 'Paid', '2026-11-10', 10, 10)");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES ({$parent}, 'Invoice', {$child}, 10)");
+        $this->whmcs->exec("UPDATE tblaccounts SET invoiceid = {$parent} WHERE invoiceid = {$child}");
         $this->assertSame(0, $this->differing());
 
         $other = Invoice::factory()->create(['client_id' => $a, 'status' => 'unpaid', 'currency_code' => 'USD']);
@@ -185,7 +188,7 @@ class WhmcsRecordParityTest extends TestCase
 
         $records = $this->records();
         $this->assertSame(1, $records['Payments']['count']);
-        $this->assertStringContainsString("on Mass Pay invoice #900 in WHMCS (its invoices #{$child}), here on invoice #{$other->id}", $records['Payments']['differ'][0]);
+        $this->assertStringContainsString("on Mass Pay invoice #{$parent} in WHMCS (its invoices #{$child}), here on invoice #{$other->id}", $records['Payments']['differ'][0]);
     }
 
     /** M7: a payment on no invoice here is not imported (importPayments): a note, never a difference, and out of the account's sums. */
