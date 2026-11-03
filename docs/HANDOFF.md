@@ -21,6 +21,8 @@
 3. `whmcs-usage.md` + `settings-map.md`: τι χρησιμοποιούν πραγματικά οι δύο εταιρείες και με ποιες ρυθμίσεις.
 4. `history/audit-billing.md`, `history/audit-security.md`: τι είναι στραβό στον πυρήνα που κληρονομήσαμε.
 5. `../CLAUDE.md`: κανόνες (secrets, δεδομένα πελατών, contracts).
+6. `cutover-runbook.md` (ξεκίνησε 2026-11-03): τι φέρνει το τελικό import (logins, το κλειδί και το API του WHMCS,
+   attachments), τι κλείνει στο WHMCS την ίδια ώρα, ο καθαρισμός μετά τις δοκιμές.
 
 ## Περιβάλλοντα και πρόσβαση
 | Τι | Πού | Όρια |
