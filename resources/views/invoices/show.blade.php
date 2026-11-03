@@ -6,7 +6,8 @@
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
     {{-- Back from a gateway: every 5 seconds; a charge held or a payment processed (it may take days): every 30. --}}
     <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @elseif ($paymentStatus->waiting()) wire:poll.30s="checkPaymentStatus" @endif>
-        @if ($this->pay || $showPayModal)
+        {{-- The window holds only a gateway's own form now (Stripe's, say): the ways to pay are on the page (PR 3). --}}
+        @if ($this->pay)
         @include('invoices.partials.payment-modal')
         @endif
 
@@ -34,7 +35,9 @@
             ][$paymentStatus->tone()];
             $statusBody = $paymentStatus->body();
         @endphp
-        <div class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 {{ $tone['box'] }}">
+        {{-- An email's or the cart's ?pay=1 lands here: what happens now, then the ways to pay; clear of the fixed bar. --}}
+        <div id="status" class="mt-2 border rounded-lg p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 scroll-mt-20 {{ $tone['box'] }}"
+            @if ($showPayModal && $paymentStatus->payable()) x-init="$el.scrollIntoView({ block: 'start' })" @endif>
             <div role="status" class="flex gap-3 items-start">
                 @if ($paymentStatus->waiting())
                 <x-ri-loader-5-fill aria-hidden="true" class="size-6 shrink-0 animate-spin {{ $tone['text'] }}" />
@@ -50,14 +53,19 @@
                     @endif
                 </div>
             </div>
-            @if ($paymentStatus->payable())
-            <x-button.primary class="sm:!w-fit shrink-0" wire:click="$set('showPayModal', true)" wire:loading.attr="disabled" wire:target="$set('showPayModal')">
-                {{ __('invoices.pay_amount', ['amount' => $invoice->formattedRemaining]) }}
-            </x-button.primary>
-            @endif
         </div>
 
-        <div class="bg-background-secondary border border-neutral p-12 rounded-lg mt-2">
+        {{-- The ways to pay beside the invoice (under the status on a phone), while it may be paid; an email's ?pay=1 brings
+        the customer to them (docs/pay-flow-ux.md, PR 3). --}}
+        {{-- Two columns only where the invoice keeps room beside the sidebar (xl); the panel follows it in the reading order
+        of a phone, before it on the page (review of #597). --}}
+        <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
+        @if ($paymentStatus->payable())
+        <section id="pay" aria-labelledby="pay-title" class="xl:order-last">
+            @include('invoices.partials.pay-panel')
+        </section>
+        @endif
+        <div class="bg-background-secondary border border-neutral p-6 sm:p-10 rounded-lg min-w-0">
             <h1 class="text-2xl font-bold sm:text-3xl">
                 {{ $invoiceTitle }}
             </h1>
@@ -370,5 +378,6 @@
 
         </div>
 
+        </div>
     </div>
 </div>

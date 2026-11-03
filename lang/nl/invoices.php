@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Betalingsverwerking',
     'duplicate_payment' => 'Er wordt al een betaling verwerkt voor deze factuur. Opnieuw betalen kan leiden tot dubbele kosten.',
-    'pay_with_one_time_method' => 'Of betaal met een eenmalige methode',
     'pay_with_credits' => 'Betaal met Credits',
     'apply_credit' => 'Apply Credit ( :amount )',
     'no_invoices' => 'No invoices found.',

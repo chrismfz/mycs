@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Zahlungsabwicklung',
     'duplicate_payment' => 'Es wird bereits eine Zahlung für diese Rechnung bearbeitet. Eine erneute Zahlung kann zu doppelten Gebühren führen.',
-    'pay_with_one_time_method' => 'Oder mit einer einmaligen Methode bezahlen',
     'pay_with_credits' => 'Mit Guthaben bezahlen',
     'apply_credit' => 'Guthaben anwenden ( :amount )',
     'no_invoices' => 'Keine Rechnungen vorhanden.',

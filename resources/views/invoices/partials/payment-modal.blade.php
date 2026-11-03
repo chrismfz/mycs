@@ -8,9 +8,5 @@
         </div>
     </x-slot>
 
-    @if ($this->pay)
-        <div class="mt-8">{{ $this->pay }}</div>
-    @else
-        @include('invoices.partials.payment-options')
-    @endif
+    <div class="mt-8">{{ $this->pay }}</div>
 </x-modal>

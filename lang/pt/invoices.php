@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Processando Pagamento',
     'duplicate_payment' => 'Já existe um pagamento sendo processado para esta fatura. Pagar novamente pode resultar em cobranças duplicadas.',
-    'pay_with_one_time_method' => 'Ou pagar usando um método único',
     'pay_with_credits' => 'Pagar com Créditos',
     'apply_credit' => 'Aplicar Crédito ( :amount )',
     'no_invoices' => 'Nenhuma fatura encontrada.',

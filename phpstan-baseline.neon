@@ -961,18 +961,6 @@ parameters:
 			path: app/Livewire/Invoices/Index.php
 
 		-
-			message: '#^Access to an undefined property App\\Livewire\\Invoices\\Show\:\:\$gateways\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
-			message: '#^Access to an undefined property App\\Livewire\\Invoices\\Show\:\:\$paymentMethods\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1

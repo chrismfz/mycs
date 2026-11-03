@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Paiement en cours de traitement',
     'duplicate_payment' => 'Il y a déjà un paiement en cours de traitement pour cette facture. Payer à nouveau peut entraîner un double paiement.',
-    'pay_with_one_time_method' => 'Ou régler ponctuellement avec un autre mode de paiement',
     'pay_with_credits' => 'Payer avec le crédit',
     'apply_credit' => 'Appliquer le crédit ( :amount )',
     'no_invoices' => 'Vous n\'avez à ce jour aucune facture.',

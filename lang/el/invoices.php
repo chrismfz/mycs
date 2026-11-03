@@ -60,7 +60,6 @@ return [
         'processing' => 'Σε επεξεργασία',
         'failed' => 'Απέτυχε',
     ],
-    'pay_with_one_time_method' => 'Ή πληρώστε εφάπαξ με άλλον τρόπο',
     'pay_with_credits' => 'Πληρωμή από το υπόλοιπο',
     'apply_credit' => 'Χρήση υπολοίπου ( :amount )',
     'no_invoices' => 'Δεν υπάρχουν τιμολόγια.',
@@ -192,6 +191,19 @@ return [
     'my_documents_note' => 'Τα νόμιμα παραστατικά (τιμολόγια, αποδείξεις) που εκδόθηκαν για τις πληρωμές σου και διαβιβάστηκαν στην ΑΑΔΕ.',
     'from_invoice' => 'Από το',
     'no_documents' => 'Δεν υπάρχουν ακόμα παραστατικά.',
+    // The ways to pay by provider, on the invoice's page (docs/pay-flow-ux.md, PR 3).
+    'pay_panel' => [
+        'title' => 'Πώς θέλετε να πληρώσετε;',
+        'saved' => 'Αποθηκευμένος τρόπος',
+        'automatic' => 'Αυτόματες πληρωμές',
+        'once' => 'Πληρωμή μία φορά',
+        'once_hint' => 'Χωρίς αποθηκευμένο τρόπο',
+        'ways' => 'Τρόποι πληρωμής',
+        'renewals_already' => 'Αυτός ο τρόπος πληρώνει ήδη αυτόματα τις ανανεώσεις σας.',
+        'pay_with' => 'Πληρωμή :amount με :method',
+        'continue_with' => 'Συνέχεια με :gateway · :amount',
+        'manage' => 'Διαχείριση τρόπων πληρωμής',
+    ],
     // The invoice's status card (docs/pay-flow-ux.md, PR 2: App\Services\Invoice\PaymentStatus).
     'payment_status' => [
         'saved_method' => 'αποθηκευμένος τρόπος πληρωμής',

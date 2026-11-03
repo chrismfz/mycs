@@ -43,7 +43,6 @@ return [
     ],
     'payment_processing' => 'Behandler betaling',
     'duplicate_payment' => 'Der er allerede en betaling ved at blive behandlet for denne faktura. Betaling igen kan resultere i duplikerede gebyrer.',
-    'pay_with_one_time_method' => 'Eller betal med en engangsmetode',
     'pay_with_credits' => 'Betal med kredit',
     'apply_credit' => 'Brug kredit (:amount)',
     'no_invoices' => 'Ingen fakturaer fundet.',
