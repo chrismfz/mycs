@@ -17,6 +17,7 @@ use App\Services\Payment\ItemPaymentMethod;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\Ssl\SslVault;
 use App\Support\Actor;
+use App\Support\ItemPaymentAccess;
 use App\Support\Redact;
 use App\Support\ServicePassword;
 use Exception;
@@ -183,7 +184,7 @@ class Show extends Component
     /** Who sets its payment method: a login that manages the service and pays the account's invoices. */
     private function canSetPaymentMethod(): bool
     {
-        return Gate::allows('update', $this->service) && $this->ownsWith('invoices');
+        return ItemPaymentAccess::mayChange($this->service); // as the table on «Payment methods» (PR 6b)
     }
 
     public function updatedPaymentGatewayId($value)

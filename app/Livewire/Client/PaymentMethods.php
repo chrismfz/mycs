@@ -2,16 +2,22 @@
 
 namespace App\Livewire\Client;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Currency;
+use App\Models\Domain;
 use App\Models\Gateway;
+use App\Models\Service;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\ItemPaymentAccess;
 use App\Support\PayOptions;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -37,6 +43,14 @@ class PaymentMethods extends Component
 
     /** The method marked for the account's automatic payments (its ulid), as the cards' radios show it (PR 6a). */
     public ?string $automaticMethod = null;
+
+    /**
+     * «Paid with» of each service and domain in the table (PR 6b), by row key (`s{id}`, `d{id}`): a gateway's id, or ''
+     * for the account's. Set from the database on every render, so a refused change shows what it still is.
+     *
+     * @var array<mixed>
+     */
+    public array $ways = [];
 
     public function mount(): void
     {
@@ -178,6 +192,85 @@ class PaymentMethods extends Component
         $this->createBillingAgreement();
     }
 
+    /**
+     * A row's «Paid with» changed (PR 6b): the same change as on its own page (ItemPaymentMethod::set, its open invoices
+     * following), by whom may make it there (ItemPaymentAccess), on the page's account only, and the money permission's
+     * in «Login as client» (SA-5).
+     */
+    public function updatedWays($value, $key): void
+    {
+        if (!is_string($key) || !$this->sameAccount()) {
+            return;
+        }
+        $item = $this->item($key);
+        if ($item === null || !ItemPaymentAccess::offersChoice($item)) {
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
+        abort_unless(ItemPaymentAccess::mayChange($item), 403);
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
+        $gatewayId = match (true) {
+            $value === null || $value === '' || $value === '0' || $value === 0 => null,
+            is_int($value) && $value > 0, is_string($value) && ctype_digit($value) => (int) $value,
+            default => false,
+        };
+        if ($gatewayId === false) {
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
+        try {
+            ItemPaymentMethod::set($item, $gatewayId);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        $this->notify(__('services.payment_method_saved'), 'success');
+    }
+
+    /** A row's service or domain, of the page's account only. */
+    private function item(string $key): Service|Domain|null
+    {
+        if (preg_match('/^([sd])([1-9][0-9]{0,18})$/', $key, $match) !== 1) {
+            return null;
+        }
+        $query = $match[1] === 's' ? Service::query() : Domain::query();
+
+        return $query->where('client_id', $this->clientId)->whereKey((int) $match[2])->first();
+    }
+
+    /**
+     * The table's rows (PR 6b): the account's services and domains that have a payment method to choose
+     * (ItemPaymentAccess::offersChoice), services first, a page at a time.
+     *
+     * @return LengthAwarePaginator<int, Service|Domain>
+     */
+    private function items(Client $client): LengthAwarePaginator
+    {
+        $services = Service::query()->where('client_id', $client->id)->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+            ->whereNull('subscription_id')->whereHas('plan', fn ($plan) => $plan->where('type', 'recurring'));
+        $domains = Domain::query()->where('client_id', $client->id)
+            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS));
+        $perPage = (int) config('settings.pagination');
+        $page = $this->getPage('items');
+        $serviceCount = (clone $services)->count();
+        $total = $serviceCount + (clone $domains)->count();
+        $skip = ($page - 1) * $perPage;
+        $rows = $services->with(['plan', 'product', 'client', 'paymentGateway'])->orderBy('id')->skip($skip)->take($perPage)->get();
+        if ($rows->count() < $perPage) {
+            $rows = $rows->concat($domains->with(['client', 'paymentGateway'])->orderBy('id')
+                ->skip(max(0, $skip - $serviceCount))->take($perPage - $rows->count())->get());
+        }
+
+        return new LengthAwarePaginator($rows->values(), $total, $perPage, $page, ['path' => request()->url(), 'pageName' => 'items']);
+    }
+
     public function removePaymentMethod($billingAgreementUlid)
     {
         if (!$this->staffMayPay() || !$this->sameAccount()) {
@@ -234,8 +327,22 @@ class PaymentMethods extends Component
         $client = CurrentClient::model()->fresh();
         $agreements = CurrentClient::model()->billingAgreements()->with('gateway')->latest()->get();
         $defaultAgreementId = $client?->default_billing_agreement_id === null ? null : (int) $client->default_billing_agreement_id;
+        $items = $client === null ? null : $this->items($client);
+        // As the database has it (review of 6a, the radios): a refused or superseded change shows what it still is.
+        $this->ways = $items === null ? [] : $items->getCollection()->mapWithKeys(fn (Service|Domain $item) => [self::rowKey($item) => (string) ($item->payment_gateway_id ?? '')])->all();
+        $offered = []; // ItemPaymentMethod::options, once per amount and currency
 
         return view('client.account.payment-methods', [
+            'items' => $items,
+            'itemRows' => $items === null ? [] : $items->getCollection()->map(function (Service|Domain $item) use (&$offered) {
+                $mayChange = ItemPaymentAccess::mayChange($item);
+                $amount = $item instanceof Service ? (string) $item->price : (string) $item->recurring_amount;
+                $options = $mayChange ? ($offered[$amount . '|' . $item->currency_code] ??= ItemPaymentMethod::options($item)) : collect();
+
+                return ['key' => self::rowKey($item), 'item' => $item, 'mayChange' => $mayChange, 'options' => $options,
+                    'kept' => $item->paymentGateway !== null && !$options->contains('id', $item->payment_gateway_id),
+                    'status' => ItemPaymentMethod::autoChargeStatus($item)];
+            })->all(),
             'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
             'billingAgreements' => $agreements,
             'providers' => $this->providers($agreements, $defaultAgreementId),
@@ -245,5 +352,10 @@ class PaymentMethods extends Component
             'sidebar' => true,
             'title' => __('account.payment_methods'),
         ]);
+    }
+
+    private static function rowKey(Service|Domain $item): string
+    {
+        return ($item instanceof Service ? 's' : 'd') . $item->id;
     }
 }

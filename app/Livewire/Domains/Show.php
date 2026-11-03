@@ -25,6 +25,7 @@ use App\Support\CurrentClient;
 use App\Support\Domains\DnssecOptions;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
+use App\Support\ItemPaymentAccess;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -628,7 +629,7 @@ class Show extends Component
 
     private function setsPaymentMethod(): bool
     {
-        return Gate::allows('update', $this->domain) && $this->staffMay('admin.domains.update') && $this->seesInvoices();
+        return ItemPaymentAccess::mayChange($this->domain); // as the table on «Payment methods» (PR 6b)
     }
 
     public function addNameserver(): void

@@ -146,6 +146,16 @@ return [
         'saves_nothing' => 'Saves no payment methods: what you pay with it, you pay from the invoice, not automatically.',
         'other' => 'Other',
     ],
+    // «How each service is paid» on «Payment methods» (docs/pay-flow-ux.md, PR 6b).
+    'ways' => [
+        'title' => 'How each service is paid',
+        'lead' => 'The same choice as on the service\'s page; a change also applies to its open invoice.',
+        'service' => 'Service',
+        'paid_with' => 'Paid with',
+        'paid_with_for' => 'Paid with: :name',
+        'automatic' => 'Automatic?',
+        'renews' => 'Renews :date',
+    ],
     'expires' => 'Expires :date',
     'cancel' => 'Cancel',
     'confirm' => 'Yes, Remove',
