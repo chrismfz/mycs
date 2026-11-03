@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Import\WhmcsParity as Parity;
+use App\Services\Import\WhmcsRecordParity as RecordParity;
 use Closure;
 use Illuminate\Console\Command;
 use PDO;
@@ -22,7 +23,9 @@ class WhmcsParity extends Command
         {--source-host= : its host}
         {--source-port=3306 : its port}
         {--source-socket= : its unix socket, instead of host and port}
-        {--only-differences : print only the lines that differ}';
+        {--only-differences : print only the lines that differ}
+        {--records : also compare record by record (each account\'s money, invoice, service with its server and account, domain with its registrar)}
+        {--examples=20 : with --records, how many differences of each kind to list}';
 
     protected $description = 'Compare an imported WHMCS database (a copy) with this instance, number by number';
 
@@ -66,6 +69,16 @@ class WhmcsParity extends Command
 
             return self::FAILURE;
         }
+        $records = [];
+        if ($this->option('records')) {
+            try {
+                $records = (new RecordParity($pdo, max(0, (int) $this->option('examples'))))->run();
+            } catch (PDOException $e) {
+                $this->error('The comparison by record stopped (SQLSTATE ' . $e->getCode() . '): a WHMCS table it reads may be missing.');
+
+                return self::FAILURE;
+            }
+        }
         $differ = array_values(array_filter($rows, fn (array $row) => !$row['same']));
         $shown = $this->option('only-differences') ? $differ : $rows;
         $this->table(['', 'WHMCS', 'MyCS', 'Difference'], array_map(fn (array $row) => [
@@ -77,12 +90,27 @@ class WhmcsParity extends Command
         foreach ($notes as $note) {
             $this->warn($note);
         }
-        if ($differ === []) {
+        if ($records !== []) {
+            // Record by record (predeploy review 2026-11-02): totals that agree can hide two errors that cancel out.
+            $this->newLine();
+            $this->table(['Record by record', 'Compared', 'Differ'], array_map(fn (string $check, array $result) => [$check, $result['checked'], $result['count'] ?: ''],
+                array_keys($records), $records));
+            foreach ($records as $check => $result) {
+                foreach ($result['differ'] as $what) {
+                    $this->line("  {$check}: {$what}");
+                }
+                if ($result['count'] > count($result['differ'])) {
+                    $this->line("  {$check}: … and " . ($result['count'] - count($result['differ'])) . ' more');
+                }
+            }
+        }
+        $recordsDiffer = array_sum(array_map(fn (array $result) => $result['count'], $records));
+        if ($differ === [] && $recordsDiffer === 0) {
             $this->info('No difference.');
 
             return self::SUCCESS;
         }
-        $this->warn(count($differ) . ' line(s) differ: each to be fixed, or explained and written down before the cut-over.');
+        $this->warn(count($differ) . ' line(s) differ' . ($recordsDiffer > 0 ? ", and {$recordsDiffer} record(s)" : '') . ': each to be fixed, or explained and written down before the cut-over.');
 
         return self::FAILURE;
     }
