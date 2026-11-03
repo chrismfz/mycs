@@ -18,6 +18,7 @@ use App\Models\Staff;
 use App\Services\Invoice\InvoiceLineMove;
 use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Payment\SubscriptionEnded;
 use App\Support\AfterCommit;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +63,8 @@ final class MoveToClient
             }
             $plan = $this->plan($refs, $service);
             $service->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
+            // A late payment of the first client's ended subscription is never the new client's (code review of #605).
+            SubscriptionEnded::forget($service);
             $result = $this->moveInvoices($plan, $to);
             $label = '#' . $service->id . ' ' . (string) $service->product?->name;
             $this->notes($from, $to, $by, 'service', $label);

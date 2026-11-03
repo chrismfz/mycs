@@ -248,6 +248,14 @@ class PayPal extends Gateway
             }
         });
         Event::listen(Updated::class, function (Updated $event) {
+            // Staff set back an id that ended here (SubscriptionEnded, «active again»): its marker again, so that ending
+            // the service cancels the subscription in PayPal.
+            if ($event->changed('subscription_id') && is_string($id = $event->changes['subscription_id']) && self::isSubscriptionId($id)
+                && Service::query()->whereKey($event->service->id)->value('subscription_id') === $id
+                && $event->service->properties()->where('key', SubscriptionEnded::keptKey($id))->exists()) {
+                $event->service->properties()->updateOrCreate(['key' => 'has_paypal_subscription'], ['name' => 'PayPal', 'value' => '1']);
+                $event->service->unsetRelation('properties');
+            }
             // From the database: an earlier event of the same commit may have cancelled and removed the marker.
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
                 return;
@@ -595,7 +603,8 @@ class PayPal extends Gateway
         $services = SubscriptionEnded::services((string) $resource['billing_agreement_id'])->orderBy('id')->get();
         if ($services->isEmpty()) {
             // No service of ours carries it: never ours to record, and never lost without staff knowing.
-            GatewayReference::foreign('PayPal', 'PAYMENT.SALE.COMPLETED', (string) ($resource['id'] ?? ''), $resource['amount']['total'] ?? null, $resource['amount']['currency'] ?? null);
+            GatewayReference::foreign('PayPal', 'PAYMENT.SALE.COMPLETED of subscription ' . $resource['billing_agreement_id'], (string) ($resource['id'] ?? ''),
+                $resource['amount']['total'] ?? null, $resource['amount']['currency'] ?? null);
 
             return;
         }
@@ -811,7 +820,7 @@ class PayPal extends Gateway
         if ($ended->isEmpty() || $this->subscriptionStatus($id) !== 'ACTIVE') {
             return response()->json(['status' => 'ignored']);
         }
-        $message = sprintf('The PayPal subscription %s is active again. It was cleared from service #%s when it ended, so those invoices are charged and payable as any other while the subscription bills again: what is paid twice becomes credit. Set it back as the service\'s subscription id if it should pay them, or cancel it in PayPal.',
+        $message = sprintf('The PayPal subscription %s is active again. It was cleared from service #%s when it ended, so those invoices are charged and payable as any other while the subscription bills again: what is paid twice becomes credit. Set it back as the service\'s subscription id if it should pay them (it is then cancelled with the service again), or cancel it in PayPal.',
             $id, $ended->implode(', #'));
         PaymentsLog::warning($message, ['subscription_id' => $id, 'services' => $ended->all()]);
         if (Cache::add('paypal-subscription-active-again:' . $id, true, now()->addDay())) {
@@ -824,17 +833,21 @@ class PayPal extends Gateway
     /** A PayPal subscription id (I-…): never anything else in the URL it is read from. */
     private static function isSubscriptionId(string $id): bool
     {
-        return preg_match('/^I-[A-Z0-9]{1,60}$/', $id) === 1;
+        return preg_match('/^I-[A-Z0-9]{1,60}\z/', $id) === 1;
     }
 
-    /** The subscription's status as PayPal has it now; null when PayPal does not know it. PayPal down: thrown (retried). */
+    /**
+     * The subscription's status as PayPal has it now; null when PayPal does not know it (404). Any other failure (PayPal
+     * down, a rate limit, our credentials) is thrown: the webhook is answered 500 and PayPal sends it again, so an ended
+     * subscription is never left on its services for good (review of #605).
+     */
     private function subscriptionStatus(string $id): ?string
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
         try {
             $subscription = $this->request('get', $url . '/v1/billing/subscriptions/' . $id);
         } catch (PayPalApiException $e) {
-            if ($e->status >= 500) {
+            if ($e->status !== 404) {
                 throw $e;
             }
             PaymentsLog::warning('PayPal could not say the status of subscription ' . $id . ': nothing changed here.', ['subscription_id' => $id, 'error' => $e->getMessage()]);

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\CancelSubscriptionAction;
+use App\Helpers\ExtensionHelper;
 use App\Models\Audit;
 use App\Models\BillingAgreement;
 use App\Models\EmailLog;
@@ -10,7 +12,9 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Clients\MoveToClient;
 use App\Services\Invoice\MassPay;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SubscriptionEnded;
@@ -72,11 +76,13 @@ class PayPalSubscriptionEndedTest extends TestCase
     }
 
     /** An active service the subscription pays, with its open renewal invoice due today. */
-    private function subscribed(string $subscription = 'I-SUB1'): Service
+    private function subscribed(string $subscription = 'I-SUB1', bool $marked = true): Service
     {
         $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'status' => Service::STATUS_ACTIVE,
             'currency_code' => 'USD', 'price' => 10, 'expires_at' => '2026-11-10', 'subscription_id' => $subscription]);
-        $service->properties()->create(['key' => 'has_paypal_subscription', 'name' => 'PayPal', 'value' => '1']);
+        if ($marked) {
+            $service->properties()->create(['key' => 'has_paypal_subscription', 'name' => 'PayPal', 'value' => '1']);
+        }
         $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID,
             'currency_code' => 'USD', 'due_at' => '2026-11-10']);
         $invoice->items()->create(['description' => 'Renewal', 'price' => '10.00', 'quantity' => 1, 'reference_type' => Service::class,
@@ -114,7 +120,7 @@ class PayPalSubscriptionEndedTest extends TestCase
             $service->refresh();
             $this->assertNull($service->subscription_id);
             $this->assertFalse($service->properties()->where('key', 'has_paypal_subscription')->exists(), 'its marker goes with it');
-            $this->assertSame('I-SUB1', $service->properties()->where('key', SubscriptionEnded::KEPT)->value('value'));
+            $this->assertSame('I-SUB1', $service->properties()->where('key', SubscriptionEnded::keptKey('I-SUB1'))->value('value'));
             $this->assertTrue(AutoCharge::picks($this->invoiceOf($service)), 'the cron charges it again');
             $this->assertNull(MassPay::refusal($this->invoiceOf($service)), 'Mass Pay takes it again');
             $audit = Audit::query()->where('auditable_type', $service->getMorphClass())->where('auditable_id', $service->id)
@@ -257,8 +263,8 @@ class PayPalSubscriptionEndedTest extends TestCase
     {
         $this->storeSettings(['paypal_legacy_receivers' => 'billing@example.test']);
         Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
-        $service = $this->subscribed('I-LEGACY1');
-        $other = $this->subscribed('I-LEGACY2');
+        $service = $this->subscribed('I-LEGACY1', marked: false);
+        $other = $this->subscribed('I-LEGACY2', marked: false);
 
         $this->call('POST', '/modules/gateways/callback/paypal.php', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'],
             http_build_query(['txn_type' => 'recurring_payment_profile_cancel', 'recurring_payment_id' => 'I-LEGACY1', 'receiver_email' => 'billing@example.test']))
@@ -284,5 +290,78 @@ class PayPalSubscriptionEndedTest extends TestCase
             ->assertOk();
 
         $this->assertSame('I-LEGACY1', $service->fresh()->subscription_id);
+    }
+
+    /** @param  array<string, string>  $fields */
+    private function legacyIpn(array $fields): TestResponse
+    {
+        $this->storeSettings(['paypal_legacy_receivers' => 'billing@example.test']);
+        Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
+
+        return $this->call('POST', '/modules/gateways/callback/paypal.php', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'],
+            http_build_query($fields + ['receiver_email' => 'billing@example.test']));
+    }
+
+    /** Code review of #605: a suspension may be undone, and an IPN has no status to ask: staff are told, nothing cleared. */
+    public function test_a_legacy_ipn_suspension_clears_nothing(): void
+    {
+        $service = $this->subscribed('I-LEGACY1', marked: false);
+
+        $this->legacyIpn(['txn_type' => 'recurring_payment_suspended_due_to_max_failed_payment', 'recurring_payment_id' => 'I-LEGACY1'])->assertOk();
+
+        $this->assertSame('I-LEGACY1', $service->fresh()->subscription_id);
+    }
+
+    /** Code review of #605: a rate limit (or any answer but «not found») is retried, never taken as «nothing to do». */
+    public function test_a_rate_limited_status_check_is_retried(): void
+    {
+        $service = $this->subscribed();
+        $this->status = 429;
+
+        $this->event('BILLING.SUBSCRIPTION.CANCELLED')->assertStatus(500);
+
+        $this->assertSame('I-SUB1', $service->fresh()->subscription_id);
+    }
+
+    /** Code review of #605: staff set the id back after «active again»: its marker comes back, so ending the service cancels it. */
+    public function test_an_id_set_back_by_staff_gets_its_marker_again(): void
+    {
+        $service = $this->subscribed();
+        $this->event('BILLING.SUBSCRIPTION.SUSPENDED')->assertOk();
+        $this->assertFalse($service->properties()->where('key', 'has_paypal_subscription')->exists());
+        // Its listeners, as the app boots an enabled gateway on each request.
+        ExtensionHelper::getExtension('gateway', 'PayPal', Gateway::query()->where('extension', 'PayPal')->sole()->settings)->boot();
+
+        $service->fresh()->update(['subscription_id' => 'I-SUB1']);
+
+        $this->assertSame('1', $service->properties()->where('key', 'has_paypal_subscription')->value('value'));
+        $other = $this->subscribed('I-OTHER', marked: false);
+        $other->update(['subscription_id' => 'I-NEW']);
+        $this->assertFalse($other->properties()->where('key', 'has_paypal_subscription')->exists(), 'only an id that ended here');
+    }
+
+    /** Code review of #605: staff cancel it; its last payment, already on its way, still pays the invoice. */
+    public function test_a_sale_after_staff_cancelled_it_is_still_recorded(): void
+    {
+        $service = $this->subscribed();
+        Http::fake([self::API . '/v1/billing/subscriptions/I-SUB1/cancel' => Http::response(null, 204)]);
+        $this->assertNull(CancelSubscriptionAction::cancel($service));
+
+        (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-LAST', 'billing_agreement_id' => 'I-SUB1',
+            'amount' => ['total' => '10.00', 'currency' => 'USD']]);
+
+        $this->assertSame(Invoice::STATUS_PAID, $this->invoiceOf($service)->status);
+    }
+
+    /** Code review of #605: a service moved to another customer leaves the first one's ended subscription behind. */
+    public function test_a_service_moved_to_another_customer_drops_the_ended_id(): void
+    {
+        $service = $this->subscribed();
+        $this->event('BILLING.SUBSCRIPTION.CANCELLED')->assertOk();
+
+        app(MoveToClient::class)->service($service->fresh(), User::factory()->create()->client(), Staff::factory()->create());
+
+        $this->assertFalse($service->properties()->where('key', SubscriptionEnded::keptKey('I-SUB1'))->exists());
+        $this->assertSame(0, SubscriptionEnded::services('I-SUB1')->count());
     }
 }

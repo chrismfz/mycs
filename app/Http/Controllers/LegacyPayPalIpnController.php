@@ -39,9 +39,11 @@ class LegacyPayPalIpnController extends Controller
      */
     private const FORGED_PER_MINUTE = 30;
 
-    /** The notices of a subscription or recurring profile that bills no more: cancelled, at its end, expired, suspended. */
-    private const ENDED = ['subscr_cancel', 'subscr_eot', 'recurring_payment_profile_cancel', 'recurring_payment_expired',
-        'recurring_payment_suspended', 'recurring_payment_suspended_due_to_max_failed_payment'];
+    /**
+     * The notices of a subscription or recurring profile that has ended for good: cancelled, at its end, expired. Not a
+     * suspension: it may be activated again, and an IPN has no status to ask (code review of #605).
+     */
+    private const ENDED = ['subscr_cancel', 'subscr_eot', 'recurring_payment_profile_cancel', 'recurring_payment_expired'];
 
     public function __invoke(Request $request): Response
     {
@@ -120,9 +122,10 @@ class LegacyPayPalIpnController extends Controller
         ]);
 
         // The one thing done from here: a service that still carries the ended subscription no longer does, so its
-        // invoices are charged and paid as any other (SubscriptionEnded). Nothing about money is recorded.
+        // invoices are charged and paid as any other (SubscriptionEnded), its PayPal marker with it (ADV-605-4). Nothing
+        // about money is recorded. Only an end for good: nothing activates a cancelled or expired subscription again.
         $cleared = in_array($type, self::ENDED, true) && $subscription !== ''
-            ? SubscriptionEnded::clear('PayPal', $subscription, 'legacy IPN ' . $type) : [];
+            ? SubscriptionEnded::clear('PayPal', $subscription, 'legacy IPN ' . $type, ['has_paypal_subscription']) : [];
 
         $kind = match (true) {
             $status === 'Completed' => 'money',
