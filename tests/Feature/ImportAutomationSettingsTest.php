@@ -154,5 +154,9 @@ class ImportAutomationSettingsTest extends TestCase
 
         $this->import(['CreditOnDowngrade' => 'on']);
         $this->assertSame('1', $downgrade(), 'nixpal: on');
+
+        Setting::query()->whereNull('settingable_type')->where('key', 'credits_on_downgrade')->delete();
+        $this->import(['AutoSuspension' => 'on']);
+        $this->assertNull($downgrade(), 'none in WHMCS: MyCS\'s own kept (no row written)');
     }
 }
