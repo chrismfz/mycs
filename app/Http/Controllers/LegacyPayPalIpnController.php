@@ -6,6 +6,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\PaymentGatewayEvent;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\PaymentsLog;
+use App\Services\Payment\SubscriptionEnded;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -16,7 +17,8 @@ use Throwable;
 /**
  * The safety net for WHMCS's PayPal IPN after the move (PR H2b, sweep Π7.9, decision (a)): the legacy PayPal
  * subscriptions are moved to the PayPal vault, and one that still pays (or a WHMCS-era one-off payment, a refund, a
- * cancellation) calls WHMCS's IPN URL. Nothing is recorded from here: an IPN that PayPal confirms is genuine is kept in the
+ * cancellation) calls WHMCS's IPN URL. No money is recorded from here (a subscription that ended is only cleared from the
+ * services that still carry it: SubscriptionEnded): an IPN that PayPal confirms is genuine is kept in the
  * gateway log and told to staff once, with what they need to find it in PayPal and record it by hand. A forged one is
  * refused quietly, and so is a genuine one for someone else's PayPal account (anyone can point an IPN of their own at
  * this address) or from PayPal's sandbox in production (code review CR-1). PayPal down: 503, so it sends the IPN again.
@@ -36,6 +38,10 @@ class LegacyPayPalIpnController extends Controller
      * sends it again later (adversarial ADV-3). Behind a proxy, set the trusted proxies so that each caller has its address.
      */
     private const FORGED_PER_MINUTE = 30;
+
+    /** The notices of a subscription or recurring profile that bills no more: cancelled, at its end, expired, suspended. */
+    private const ENDED = ['subscr_cancel', 'subscr_eot', 'recurring_payment_profile_cancel', 'recurring_payment_expired',
+        'recurring_payment_suspended', 'recurring_payment_suspended_due_to_max_failed_payment'];
 
     public function __invoke(Request $request): Response
     {
@@ -113,6 +119,11 @@ class LegacyPayPalIpnController extends Controller
             'amount' => is_numeric($amount) ? $amount : null, 'currency_code' => $currency, 'external_id' => $txn ?: $subscription,
         ]);
 
+        // The one thing done from here: a service that still carries the ended subscription no longer does, so its
+        // invoices are charged and paid as any other (SubscriptionEnded). Nothing about money is recorded.
+        $cleared = in_array($type, self::ENDED, true) && $subscription !== ''
+            ? SubscriptionEnded::clear('PayPal', $subscription, 'legacy IPN ' . $type) : [];
+
         $kind = match (true) {
             $status === 'Completed' => 'money',
             in_array($status, ['Refunded', 'Reversed', 'Canceled_Reversal'], true) => 'reversal',
@@ -125,7 +136,8 @@ class LegacyPayPalIpnController extends Controller
                 'money' => 'The money WAS taken by PayPal and is NOT recorded here: find it in PayPal by its transaction and record it on the customer\'s invoice by hand.',
                 // A refund or a chargeback of a WHMCS-era payment: staff act on it (a credit note, the service) (CR-5).
                 'reversal' => 'Money was given back or taken back by PayPal (a refund, a chargeback) and is NOT recorded here: check it in PayPal and act on the customer\'s invoice and service.',
-                default => 'No money moved; check it in PayPal (a cancelled or ended legacy subscription has nothing left to do).',
+                default => 'No money moved; check it in PayPal (a cancelled or ended legacy subscription has nothing left to do).'
+                    . ($cleared !== [] ? ' Its subscription id was cleared from service #' . implode(', #', $cleared) . ': its invoices are charged and paid as any other now.' : ''),
             },
             $txn ?: '-', $subscription ?: '-', $amount ?: '-', $currency ?: '', self::field($fields, 'item_number') ?: '-');
         PaymentsLog::warning($message);
