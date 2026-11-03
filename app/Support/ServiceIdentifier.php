@@ -158,7 +158,7 @@ final class ServiceIdentifier
         $module = strtolower((string) $service->product?->server?->extension);
         $names = $properties->filter(fn ($property) => preg_match('/^[a-z0-9]+_username$/', (string) $property->key) === 1 && filled($property->value))
             ->sortByDesc(fn ($property) => $module !== '' && str_starts_with($module, Str::before((string) $property->key, '_username')));
-        $name = trim((string) ($names->first()?->value ?? $service->getAttributes()['username'] ?? ''));
+        $name = trim((string) ($names->first()->value ?? $service->getAttributes()['username'] ?? ''));
 
         return [$hostname, $name];
     }
