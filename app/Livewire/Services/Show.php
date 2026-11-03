@@ -17,6 +17,7 @@ use App\Services\Payment\ItemPaymentMethod;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\Ssl\SslVault;
 use App\Support\Actor;
+use App\Support\ItemPaymentAccess;
 use App\Support\Redact;
 use App\Support\ServicePassword;
 use Exception;
@@ -183,12 +184,19 @@ class Show extends Component
     /** Who sets its payment method: a login that manages the service and pays the account's invoices. */
     private function canSetPaymentMethod(): bool
     {
-        return Gate::allows('update', $this->service) && $this->ownsWith('invoices');
+        return ItemPaymentAccess::mayChange($this->service); // as the table on «Payment methods» (PR 6b)
     }
 
     public function updatedPaymentGatewayId($value)
     {
         abort_unless($this->canSetPaymentMethod(), 403);
+        // Only one with a way to choose (a subscription, a cancelled service: none), as the table on «Payment methods» (ADV-612-4).
+        if (!ItemPaymentAccess::offersChoice($this->service)) {
+            $this->paymentGatewayId = $this->service->payment_gateway_id;
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
         // It chooses which saved method charges it (#568): the money permission's in «Login as client» (SA-5, ADV-568-R2-2).
         if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
             $this->paymentGatewayId = $this->service->payment_gateway_id;

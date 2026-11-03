@@ -155,6 +155,59 @@
         </div>
         @endif
 
+        {{--
+            How each service and domain is paid (docs/pay-flow-ux.md, PR 6b): the same choice as on its own page
+            (updatedWays → ItemPaymentMethod::set, its open invoice following), and what the cron does with it.
+        --}}
+        @if ($items !== null && $items->total() > 0)
+        <section class="mt-8" aria-labelledby="ways-title">
+            <h3 id="ways-title" class="text-lg font-bold">{{ __('account.ways.title') }}</h3>
+            <p class="text-sm text-base/70 mb-3">{{ __('account.ways.lead') }}</p>
+            <div class="border border-neutral rounded-lg overflow-hidden" wire:loading.class="opacity-60" wire:target="ways">
+                <div class="hidden md:grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-4 px-4 py-2 bg-background-secondary text-xs font-semibold uppercase tracking-wide text-base/60" aria-hidden="true">
+                    <span>{{ __('account.ways.service') }}</span>
+                    <span>{{ __('account.ways.paid_with') }}</span>
+                    <span>{{ __('account.ways.automatic') }}</span>
+                </div>
+                @foreach ($itemRows as $row)
+                @php($item = $row['item'])
+                @php($name = $item instanceof \App\Models\Service ? $item->label : $item->fqdn)
+                <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-2 md:gap-4 md:items-center px-4 py-3 border-t border-neutral first:border-t-0 md:first:border-t" wire:key="way-{{ $row['key'] }}">
+                    <div class="min-w-0">
+                        <a href="{{ $item instanceof \App\Models\Service ? route('services.show', $item) : route('domains.show', $item) }}" wire:navigate
+                            class="font-semibold hover:underline break-words">{{ $name }}</a>
+                        @if ($item->expires_at)
+                        <div class="text-xs text-base/60">{{ __($row['renews'] ? 'account.ways.renews' : 'account.ways.expires', ['date' => $item->expires_at->format('d/m/Y')]) }}</div>
+                        @endif
+                    </div>
+                    <div class="min-w-0">
+                        @if ($row['mayChange'])
+                        <label for="way-{{ $row['key'] }}" class="md:sr-only text-xs font-semibold text-base/60">{{ __('account.ways.paid_with') }}</label>
+                        {{-- Disabled while a change is on its way, as the radios above (review of 6a). --}}
+                        <select id="way-{{ $row['key'] }}" wire:model.live="ways.{{ $row['key'] }}" wire:loading.attr="disabled" wire:target="ways"
+                            aria-label="{{ __('account.ways.paid_with_for', ['name' => $name]) }}"
+                            class="w-full min-h-[40px] rounded-md bg-background-secondary border border-neutral px-2 text-sm">
+                            {{-- Each way says whether a saved method charges it or it is paid from the invoice (owner 2026-11-01). --}}
+                            @foreach ($row['choices'] as $value => $text)
+                            <option value="{{ $value }}">{{ $text }}</option>
+                            @endforeach
+                        </select>
+                        @else
+                        <span class="md:sr-only block text-xs font-semibold text-base/60">{{ __('account.ways.paid_with') }}</span>
+                        <span class="text-sm">{{ $row['current'] }}</span>
+                        @endif
+                    </div>
+                    <div class="text-sm text-base/70">
+                        <span class="md:sr-only block text-xs font-semibold text-base/60">{{ __('account.ways.automatic') }}</span>
+                        {{ $row['status'] }}
+                    </div>
+                </div>
+                @endforeach
+            </div>
+            <div class="mt-2">{{ $items->links(data: ['scrollTo' => '#ways-title']) }}</div>
+        </section>
+        @endif
+
         <h3 class="text-lg font-bold pb-3 mt-8">{{ __('account.recent_transactions') }}</h3>
         @foreach ($transactions as $transaction)
         <a href="{{ route('invoices.show', $transaction->invoice) }}" wire:navigate>
