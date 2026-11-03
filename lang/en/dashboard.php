@@ -29,6 +29,22 @@ return [
         'tickets' => '{1} We answered your ticket|[2,*] We answered :count of your tickets',
         'reply' => 'See the reply',
     ],
+    // The home page's counts and services table (docs/ROADMAP.md, home PR 2).
+    'summary' => [
+        'title' => 'Account summary',
+        'services' => '{1} Active service|[0,*] Active services',
+        'services_suspended' => '{1} 1 suspended|[2,*] :count suspended',
+        'domains' => '{1} Domain|[0,*] Domains',
+        'domains_ending' => '{1} 1 expires within :days days|[2,*] :count expire within :days days',
+        'tickets' => '{1} Open ticket|[0,*] Open tickets',
+        'tickets_yours' => '{1} 1 waits for your reply|[2,*] :count wait for your reply',
+        'invoices' => '{1} Unpaid invoice|[0,*] Unpaid invoices',
+        'invoices_overdue' => '{1} :amount · 1 overdue|[2,*] :amount · :count overdue',
+        'all_services' => 'All (:count) →',
+        'manage' => 'Manage',
+        'no_services' => 'No active services.',
+        'more_services' => '{1} + 1 more|[2,*] + :count more',
+    ],
     'renewals' => [
         'title' => 'Upcoming renewals',
         'hint' => 'What renews from today to the end of the second month after this one, and what it will cost with VAT. Domains with auto renew off are not included.',
