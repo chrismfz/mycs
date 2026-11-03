@@ -8,12 +8,16 @@ use App\Livewire\Traits\RemembersFilter;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
+use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Invoice\MassPay;
 use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\CurrentClient;
+use App\Support\ServiceIdentifier;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -199,8 +203,13 @@ class Index extends Component
      */
     public static function lines(Invoice $invoice): array
     {
-        return $invoice->items->map(fn ($item) => trim(strtok((string) $item->description, "\n") ?: ''))
-            ->filter()->unique()->values()->all();
+        // A service's line with what tells it apart, unless its text says it (ServiceIdentifier, owner 2026-11-03).
+        return $invoice->items->map(function ($item) {
+            $line = trim(strtok((string) $item->description, "\n") ?: '');
+            $identifier = $line === '' ? '' : ServiceIdentifier::forLine($item);
+
+            return $identifier === '' ? $line : "{$line} — {$identifier}";
+        })->filter()->unique()->values()->all();
     }
 
     /** @return HasMany<Invoice, Client> */
@@ -217,7 +226,12 @@ class Index extends Component
         }
 
         return $this->issued()->when($this->status !== '', fn ($q) => $q->whereIn('status', self::FILTERS[$this->status]))
-            ->with(['client.primaryContact', 'client.ownerGrant.user', 'snapshot', 'items', 'adjustmentNotes', 'currency'])
+            ->with(['client.primaryContact', 'client.ownerGrant.user', 'snapshot', 'adjustmentNotes', 'currency',
+                // Each line's service, with what ServiceIdentifier reads (an upgrade's through its service).
+                'items.reference' => fn (MorphTo $reference) => $reference->morphWith([
+                    Service::class => ServiceIdentifier::RELATIONS,
+                    ServiceUpgrade::class => array_map(fn (string $relation) => 'service.' . $relation, ServiceIdentifier::RELATIONS),
+                ])])
             ->orderBy('id', 'desc')->paginate(config('settings.pagination'));
     }
 

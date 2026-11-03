@@ -19,6 +19,7 @@ use App\Services\Ssl\SslVault;
 use App\Support\Actor;
 use App\Support\ItemPaymentAccess;
 use App\Support\Redact;
+use App\Support\ServiceIdentifier;
 use App\Support\ServicePassword;
 use Exception;
 use Illuminate\Support\Collection;
@@ -906,6 +907,7 @@ class Show extends Component
         }
 
         return view('services.show', [
+            'serviceName' => $serviceName = ServiceIdentifier::named($this->service, (string) $this->service->label), // once, for the heading and the title
             'extensionView' => $view,
             'canEditContact' => $canEditContact,
             'canSetPaymentMethod' => $canSetPaymentMethod = $this->canSetPaymentMethod(),
@@ -916,7 +918,7 @@ class Show extends Component
             'sslOrder' => $sslOrder = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
             ...$this->sslVaultView($sslOrder),
         ])->layoutData([
-            'title' => $this->service->label,
+            'title' => $serviceName,
             'sidebar' => true,
         ]);
     }

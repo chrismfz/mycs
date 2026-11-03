@@ -126,7 +126,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach ($invoice->items as $item)
+                        @foreach ($lines as $item)
                         <tr>
                             <td class="p-4 font-normal whitespace-nowrap">
                                 {{-- A line of a service deleted since keeps its text, without a link (DATA-2). --}}
@@ -138,7 +138,13 @@
                                 {{ $item->description }}
                                 @endif
 
-                                @if($item->reference_type && $item->reference && $item->reference->label)
+                                {{-- A service's line: what tells it apart (ServiceIdentifier, owner 2026-11-03), unless its text says it. --}}
+                                @php
+                                    $identifier = $identifiers[$item->id] ?? '';
+                                @endphp
+                                @if($identifier !== '')
+                                    <br><small class="text-base/60 whitespace-normal break-words">{{ $identifier }}</small>
+                                @elseif($item->reference_type && $item->reference && $item->reference->label)
                                     <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
                                 @endif
                             </td>

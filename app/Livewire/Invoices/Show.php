@@ -14,6 +14,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
@@ -21,8 +22,10 @@ use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use App\Support\PayOptions;
+use App\Support\ServiceIdentifier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
@@ -437,10 +440,18 @@ class Show extends Component
 
     public function render()
     {
-        return view('invoices.show', ['paymentStatus' => $this->status()])->layoutData([
-            'title' => $this->invoice->displayTitle(),
-            'sidebar' => true,
-        ]);
+        // The lines with their references, and what tells each one's service apart, read here in a few queries (review of #615: ~5 a line, every render), and
+        // apart from the public invoice, so its relations are not dehydrated and loaded again on each request.
+        $lines = $this->invoice->items()->with(['reference' => fn (MorphTo $reference) => $reference->morphWith([
+            Service::class => ServiceIdentifier::RELATIONS,
+            ServiceUpgrade::class => array_map(fn (string $relation) => 'service.' . $relation, ServiceIdentifier::RELATIONS),
+        ])])->get()->each(fn (InvoiceItem $item) => $item->setRelation('invoice', $this->invoice)); // its price's currency, not a query a line
+
+        return view('invoices.show', ['paymentStatus' => $this->status(), 'lines' => $lines,
+            'identifiers' => $lines->mapWithKeys(fn (InvoiceItem $item) => [$item->id => ServiceIdentifier::forLine($item)])->all()])->layoutData([
+                'title' => $this->invoice->displayTitle(),
+                'sidebar' => true,
+            ]);
     }
 
     public function downloadPDF()

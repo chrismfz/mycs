@@ -32,7 +32,7 @@ class Index extends Component
     public function render()
     {
         $query = CurrentClient::model()->services()->orderBy('created_at', 'desc')
-            ->with(['license', 'product.settings', 'properties', 'plan']);
+            ->with(['license', 'product.settings', 'product.server', 'properties', 'plan']);
 
         if ($this->status) {
             $query->where('status', $this->status);
