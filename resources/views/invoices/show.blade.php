@@ -138,7 +138,13 @@
                                 {{ $item->description }}
                                 @endif
 
-                                @if($item->reference_type && $item->reference && $item->reference->label)
+                                {{-- A service's line: what tells it apart (ServiceIdentifier, owner 2026-11-03), unless its text says it. --}}
+                                @php
+                                    $identifier = \App\Support\ServiceIdentifier::forLine($item);
+                                @endphp
+                                @if($identifier !== '')
+                                    <br><small class="text-base/60 whitespace-normal break-words">{{ $identifier }}</small>
+                                @elseif($item->reference_type && $item->reference && $item->reference->label)
                                     <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
                                 @endif
                             </td>

@@ -11,9 +11,9 @@ use App\Redactors\FullRedactor;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
-use App\Services\Ops\Scrub;
 use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\ServiceIdentifier;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -29,7 +29,6 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
-use Illuminate\Support\Str;
 use MyCS\BillingPeriod\BillingPeriod;
 use MyCS\BillingPeriod\Prorata;
 use MyCS\Pricing\LinePricer;
@@ -269,35 +268,16 @@ class Service extends Model implements Auditable
      * others of the same product. A license: its own label (its nickname) and the IP it runs on (owner: more use than its
      * key), else its key masked (prefix…last4, as everywhere); a service of the licensing module with no license row
      * yet (its domain is its key: code review of #592, F5) the same, never its whole key. Anything else: its domain (one
-     * with no dot is no domain but a key: masked), else its own label. What tells it apart is cut to MAIL_NAME_DETAIL characters: a customer's label of 255 would
-     * overflow the mail log's subject (F3).
+     * with no dot is no domain but a key: masked) and its IP, else its panel's username, else its own label: the rules
+     * of ServiceIdentifier, the same on every page. What tells it apart is cut to MAIL_NAME_DETAIL characters: a
+     * customer's label of 255 would overflow the mail log's subject (F3).
      *
      * @return Attribute<string, never>
      */
     public function mailName(): Attribute
     {
-        return Attribute::make(get: function (): string {
-            $license = $this->license;
-            $label = trim((string) ($this->getAttributes()['label'] ?? ''));
-            if ($license !== null || $this->product?->server?->extension === 'NixpalLicensing') {
-                $ips = $license === null ? [] : array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
-                $ip = $ips === [] ? '' : $ips[0] . (count($ips) > 1 ? ' +' . (count($ips) - 1) : '');
-                $key = (string) ($license->license_key ?? $this->domain ?? '');
-                $detail = implode(' · ', array_filter([$label, $ip])) ?: (string) Scrub::licenseKey($key);
-            } else {
-                $domain = trim((string) $this->domain);
-                // No dot: no domain but a key, or whatever was typed there (a license whose module is gone): masked.
-                $detail = $domain === '' ? $label : (str_contains($domain, '.') ? $domain : (string) Scrub::licenseKey($domain));
-            }
-            $detail = Str::limit($detail, self::MAIL_NAME_DETAIL);
-            $name = trim((string) ($this->product->name ?? ''));
-
-            return match (true) {
-                $detail === '' => $name,
-                $name === '' => $detail,
-                default => "{$name} — {$detail}",
-            };
-        });
+        // ServiceIdentifier, as every page names it (owner 2026-11-03): what tells it apart cut to MAIL_NAME_DETAIL.
+        return Attribute::make(get: fn (): string => ServiceIdentifier::named($this, trim((string) ($this->product->name ?? '')), self::MAIL_NAME_DETAIL));
     }
 
     /** @return Attribute<mixed, mixed> */

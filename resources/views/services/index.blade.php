@@ -11,7 +11,14 @@
             <div class="bg-secondary/10 p-2 rounded-lg">
                 <x-ri-instance-line class="size-5 text-secondary" />
             </div>
-            <span class="font-medium">{{ $service->label }}</span>
+            <span class="min-w-0">
+                <span class="block font-medium">{{ $service->label }}</span>
+                {{-- What tells it apart (ServiceIdentifier, owner 2026-11-03); a license's key and IPs are on the line below. --}}
+                @php($identifier = $service->license === null ? \App\Support\ServiceIdentifier::besides($service, (string) $service->label) : '')
+                @if ($identifier !== '')
+                <span class="block text-sm text-base/60 break-words">{{ $identifier }}</span>
+                @endif
+            </span>
             </div>
             <div class="size-5 rounded-md p-0.5
                 @if ($service->status == 'active') text-success bg-success/20 
