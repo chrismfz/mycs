@@ -400,6 +400,32 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me when a suspended service is reactivated',
             'in_app_url' => '{{ urls.service }}',
         ],
+        'service_upgraded' => [
+            'subject' => 'Service changed: {{ service.mailName }}',
+            'body' => <<<'HTML'
+                # Service changed
+
+                Dear {{ user.first_name }},
+
+                Your service **{{ service.mailName }}** was changed{% if old_product %} from **{{ old_product }}**{% endif %} to **{{ service.product.name }}**.
+                {% if service.expires_at %}{% if service.plan.type == "recurring" %}
+
+                From its next renewal on **{{ service.expires_at|date("d/m/Y") }}** it renews at **{{ service.formattedPrice }}**.
+                {% endif %}{% endif %}
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.service }}">
+                		Manage service
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Service changed',
+            'in_app_body' => 'Your service {{ service.mailName }} was changed to {{ service.product.name }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Notify me when a service is upgraded or downgraded',
+            'in_app_url' => '{{ urls.service }}',
+        ],
         'server_terminated' => [
             'subject' => 'Service terminated: {{ service.mailName }}',
             'body' => <<<'HTML'
@@ -1493,6 +1519,30 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Η υπηρεσία σας ενεργοποιήθηκε ξανά',
                 'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} είναι και πάλι ενεργή.',
+            ],
+        ],
+        'service_upgraded' => [
+            'el' => [
+                'subject' => 'Αλλαγή υπηρεσίας: {{ service.mailName }}',
+                'body' => <<<'HTML'
+                    # Η υπηρεσία σας άλλαξε
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η υπηρεσία σας **{{ service.mailName }}** άλλαξε{% if old_product %} από **{{ old_product }}**{% endif %} σε **{{ service.product.name }}**.
+                    {% if service.expires_at %}{% if service.plan.type == "recurring" %}
+
+                    Από την επόμενη ανανέωση, στις **{{ service.expires_at|date("d/m/Y") }}**, ανανεώνεται με **{{ service.formattedPrice }}**.
+                    {% endif %}{% endif %}
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.service }}">
+                    		Διαχείριση υπηρεσίας
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Η υπηρεσία σας άλλαξε',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.mailName }} άλλαξε σε {{ service.product.name }}.',
             ],
         ],
         'server_terminated' => [
