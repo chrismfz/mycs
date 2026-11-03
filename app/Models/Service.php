@@ -240,6 +240,22 @@ class Service extends Model implements Auditable
         );
     }
 
+    /**
+     * A gateway subscription's id, or null: a blank one (spaces, from a staff form) is none. MariaDB compares a VARCHAR
+     * with trailing spaces padded (`' ' = ''`), and its collation (uca1400) holds invisible characters equal to '' too
+     * (a no-break or zero-width space, a control character: review of #608); SQLite and PHP do not. So the SQL checks
+     * (`subscription_id != ''`: AutoCharge::due, Invoice::billsSubscription) and the PHP ones (`(string) … !== ''`)
+     * disagreed on such a row (main's MariaDB job on Adv602, 2026-11-03). A value with no visible character is none.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    public function subscriptionId(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($value) => $value === null || preg_match('/^[\s\p{Z}\p{C}]*$/u', (string) $value) === 1 ? null : (string) $value
+        );
+    }
+
     /** @return Attribute<mixed, mixed> */
     public function label(): Attribute
     {

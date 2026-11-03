@@ -263,8 +263,8 @@ class Adv602MassPayGapsTest extends TestCase
 
     /**
      * Held (gap 1): the group's FIRST invoice's service gets a subscription after the group was chosen: the group is
-     * stale and neither its gateway nor a saved method is used. A subscription id of only a space or «0» is a subscription
-     * as for AutoCharge (PHP (string) !== ''), on SQLite; NULL and '' are none.
+     * stale and neither its gateway nor a saved method is used. «0» is a subscription; a blank id (a space, '') and NULL
+     * are none (Service::subscriptionId stores a blank one as null), on MariaDB as on SQLite.
      */
     public function test_held_a_subscription_on_the_lead_after_the_choice_makes_the_group_stale(): void
     {
@@ -282,7 +282,9 @@ class Adv602MassPayGapsTest extends TestCase
         }
         $this->assertSame(0, ChargeAttempt::query()->count());
 
-        foreach ([['0', true], [' ', true], ['', false], [null, false]] as [$id, $refused]) {
+        // A blank id is none (Service::subscriptionId stores it as null), on MariaDB as on SQLite: MariaDB's padded
+        // comparison made the SQL say «none» where PHP said «a subscription» (main's MariaDB job, 2026-11-03).
+        foreach ([['0', true], [' ', false], ['', false], [null, false]] as [$id, $refused]) {
             $service->update(['subscription_id' => $id]);
             $this->assertSame($refused, MassPay::refusal($a->fresh()) !== null, 'subscription id ' . var_export($id, true));
         }
