@@ -20,21 +20,19 @@ final class RolePermissions
         1 => ['widgets.overview'], // Main Homepage
         2 => ['widgets.overview'], // Sidebar Statistics
         3 => [], // My Account: every staff has their own
-        4 => ['clients.viewAny', 'users.viewAny'], // List Clients
+        4 => ['clients.viewAny'], // List Clients
         5 => ['services.viewAny'], // List Services
         6 => ['services.viewAny'], // List Addons
         7 => ['domains.viewAny'], // List Domains
-        8 => ['clients.create', 'users.create'], // Add New Client
-        9 => ['clients.update', 'users.update'], // Edit Clients Details
+        8 => ['clients.create'], // Add New Client
+        9 => ['clients.update'], // Edit Clients Details
         10 => ['billing_agreements.viewAny'], // Manage Pay Methods
         11 => ['services.viewAny'], // View Clients Products/Services
         12 => ['services.update', 'services.move', 'service_cancellations.create'], // Edit Clients Products/Services
         13 => ['services.delete', 'services.deleteAny'], // Delete Clients Products/Services
-        14 => ['services.update'], // Perform Module Command Operations
         15 => ['domains.viewAny'], // View Clients Domains
-        16 => ['domains.update', 'domains.manage'], // Edit Clients Domains
+        16 => ['domains.update', 'domains.manage', 'domains.move'], // Edit Clients Domains
         18 => ['clients.viewAny'], // View Clients Notes
-        19 => ['clients.update'], // Add/Edit Client Notes
         20 => ['clients.delete'], // Delete Client
         21 => ['bulk_mails.viewAny', 'bulk_mails.create', 'bulk_mails.update', 'bulk_mails.delete', 'bulk_mails.send'], // Email Campaigns/Mass Mail
         22 => ['service_cancellations.viewAny', 'service_cancellations.update', 'service_cancellations.delete', 'service_cancellations.deleteAny'], // View Cancellation Requests
@@ -44,7 +42,6 @@ final class RolePermissions
         27 => ['orders.create', 'services.create', 'domains.create'], // Add New Order
         28 => ['invoice_transactions.viewAny'], // List Transactions
         29 => ['invoice_transactions.create'], // Add Transaction
-        30 => ['invoice_transactions.update'], // Edit Transaction
         31 => ['invoice_transactions.delete', 'invoice_transactions.deleteAny'], // Delete Transaction
         32 => ['gateway_events.viewAny'], // View Gateway Log
         33 => ['invoices.viewAny'], // List Invoices
@@ -84,10 +81,8 @@ final class RolePermissions
         91 => ['client_groups.viewAny', 'client_groups.create', 'client_groups.update', 'client_groups.delete', 'client_groups.deleteAny'], // Configure Client Groups
         92 => ['invoice_transactions.update'], // Refund Invoice Payments
         93 => ['tickets.delete', 'tickets.deleteAny', 'ticket_messages.delete'], // Delete Ticket
-        94 => ['widgets.revenue', 'widgets.payments_tracking', 'widgets.bank_totals'], // View Income Totals
-        97 => ['clients.update'], // Delete Client Notes
-        98 => ['domains.manage', 'domains.epp', 'domains.renew', 'domains.owner_change', 'domains.move'], // Perform Registrar Operations
-        99 => ['services.update'], // Create Upgrade/Downgrade Orders
+        94 => ['widgets.revenue', 'widgets.payments_tracking'], // View Income Totals
+        98 => ['domains.manage', 'domains.epp', 'domains.renew', 'domains.owner_change'], // Perform Registrar Operations
         100 => ['extensions.viewAny', 'extensions.update', 'extensions.install', 'extensions.delete'], // Configure Addon Modules
         101 => ['bulk_mails.viewAny', 'bulk_mails.create', 'bulk_mails.update', 'bulk_mails.send'], // Email Marketer
         103 => ['debug_logs.view'], // View Module Debug Log
@@ -112,18 +107,25 @@ final class RolePermissions
         138 => ['cron_stats.view'], // Automation Status
         142 => ['api_keys.viewAny', 'api_keys.create', 'api_keys.update', 'api_keys.delete', 'api_keys.deleteAny'], // Manage API Credentials
         144 => ['chat_notifications.viewAny', 'chat_notifications.create', 'chat_notifications.update', 'chat_notifications.delete'], // Manage Notifications
-        149 => ['credits.create'], // Create Add Funds Invoice
         150 => ['users.viewAny'], // View Account Users
         151 => ['users.create', 'users.update'], // Manage Users
         152 => ['users.viewAny'], // List Users
         153 => ['users.delete', 'users.deleteAny'], // Delete Users
         154 => ['widgets.bank_totals'], // View Gateway Balances
         158 => ['invoices.viewAny'], // View Invoice
-        159 => ['invoices.update'], // Cancel Invoice
     ];
 
-    /** @var array<int, string> the WHMCS permissions MyCS has nothing for, by their WHMCS name */
+    /**
+     * @var array<int, string> the WHMCS permissions MyCS has nothing for, by their WHMCS name, and those whose closest
+     *                         MyCS permission would give more (review of #649): «Edit Transaction» (MyCS's
+     *                         invoice_transactions.update is the refund), «Add/Delete Client Notes» (the whole client),
+     *                         «Module Command Operations» and «Create Upgrade/Downgrade Orders» (the whole service),
+     *                         «Create Add Funds Invoice» (credits.create is free credit), «Cancel Invoice» (the whole invoice)
+     */
     public const UNMAPPED = [
+        14 => 'Perform Module Command Operations', 19 => 'Add/Edit Client Notes', 30 => 'Edit Transaction',
+        97 => 'Delete Client Notes', 99 => 'Create Upgrade/Downgrade Orders', 149 => 'Create Add Funds Invoice',
+        159 => 'Cancel Invoice',
         17 => 'Delete Clients Domains', 23 => 'Manage Affiliates', 37 => 'Offline Credit Card Processing',
         39 => 'Manage Announcements', 41 => 'Manage Downloads', 46 => 'Addon Modules', 47 => 'Link Tracking',
         49 => 'Calendar', 50 => 'To-Do List', 51 => 'WHOIS Lookups', 52 => 'Domain Resolver Checker',

@@ -499,13 +499,19 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 ### Ρόλοι staff (WG-5, 2026-11-04)
 Κάθε ρόλος εκτός του Full Administrator παίρνει τα `tbladminperms` του ως δικαιώματα του MyCS
 (`App\Services\Whmcs\RolePermissions`), και τα προεπιλεγμένα του MyCS (online staff, staff chat, chats). Κάθε
-δικαίωμα του WHMCS δίνει τα πλησιέστερα του MyCS και ποτέ περισσότερα· ένα delete δίνει και το bulk delete. Τα
+δικαίωμα του WHMCS δίνει τα πλησιέστερα του MyCS και **ποτέ περισσότερα**· ένα delete δίνει και το bulk delete. Τα
 «Configure General/Automation Settings» δίνουν το `settings.update`, δηλαδή όλες τις ρυθμίσεις (απόφαση του owner,
-2026-11-04: όπως στο WHMCS). Από τα 163 αντιστοιχούν 104· τα 59 που μένουν (affiliates, downloads, calendar, to-do,
-banned IPs, MarketConnect, disputes, scheduled ticket actions, update του WHMCS κ.ά.) τα γράφει ο importer με το όνομά
-τους ανά ρόλο. Ρόλος με όνομα «Admin» γίνεται «Admin (WHMCS)», ώστε να μην πάρει ποτέ το `*` του `admin`. Ζωντανοί ρόλοι
-(2026-11-04): Sales Operator της nixpal 70 → 66 δικαιώματα του MyCS (χάνει 15), Support Operator της myip 99 → 95
-(χάνει 25). Για το `app:import-whmcs-admins` το JSON φέρνει τα permids του ρόλου στο πεδίο `permids`:
+2026-11-04: όπως στο WHMCS). Από τα 162 αντιστοιχούν 96. Τα 66 που μένουν τα γράφει ο importer με το όνομά τους ανά
+ρόλο: λειτουργίες που το MyCS δεν έχει (affiliates, downloads, calendar, to-do, banned IPs, MarketConnect, disputes,
+scheduled ticket actions, update του WHMCS κ.ά.), και όσα το πλησιέστερο δικαίωμα του MyCS θα έδινε περισσότερα (review
+του #649): «Edit Transaction» (το `invoice_transactions.update` είναι το refund), οι σημειώσεις πελάτη (όλος ο πελάτης),
+«Module Command Operations» και «Create Upgrade/Downgrade Orders» (όλη η υπηρεσία), «Create Add Funds Invoice» (το
+`credits.create` είναι δωρεάν πίστωση), «Cancel Invoice» (όλο το τιμολόγιο). Τα logins των πελατών (`users.*`) έρχονται
+μόνο από τα «Manage/List Users», τα υπόλοιπα των gateways μόνο από το «View Gateway Balances». Ρόλος με όνομα «Admin»
+γίνεται «Admin (WHMCS)», ώστε να μην πάρει ποτέ το `*` του `admin`· δύο ρόλοι με όνομα που διαφέρει μόνο σε
+κεφαλαία/κενά και άλλα δικαιώματα μένουν δύο («… (WHMCS #id)»). Ζωντανοί ρόλοι (2026-11-04): Sales Operator της
+nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστοιχο), Support Operator της myip 99 → 114 (32). Για το
+`app:import-whmcs-admins` το JSON φέρνει τα permids του ρόλου στο πεδίο `permids`:
 `(SELECT GROUP_CONCAT(permid) FROM tbladminperms p WHERE p.roleid = a.roleid) AS permids`.
 
 ## Πύλες πληρωμών και promotions (2026-10-20)

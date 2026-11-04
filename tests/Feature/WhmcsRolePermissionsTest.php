@@ -52,13 +52,13 @@ class WhmcsRolePermissionsTest extends TestCase
             $this->assertNotContains($permission, $sales['permissions'], 'nothing the role did not have');
         }
         $this->assertSame([], array_values(array_diff(RoleResource::DEFAULT_PERMISSIONS, $sales['permissions'])), 'MyCS\'s defaults');
-        $this->assertCount(15, $sales['unmapped']);
+        $this->assertCount(21, $sales['unmapped'], 'review of #649: «Edit Transaction», notes, module commands, upgrades, Add Funds invoice, Cancel Invoice too');
         $this->assertContains('Delete Clients Domains', $sales['unmapped']);
 
         $support = RolePermissions::map(explode(',', self::MYIP_SUPPORT));
         $this->assertContains('admin.settings.update', $support['permissions'], 'Configure General Settings, as in WHMCS (owner, 2026-11-04)');
         $this->assertNotContains('admin.staff.update', $support['permissions']);
-        $this->assertCount(25, $support['unmapped']);
+        $this->assertCount(32, $support['unmapped']);
     }
 
     public function test_the_full_import_gives_a_role_its_permissions_and_says_what_is_left(): void
@@ -67,7 +67,7 @@ class WhmcsRolePermissionsTest extends TestCase
         $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $whmcs->exec('CREATE TABLE tbladminroles (id INTEGER PRIMARY KEY, name TEXT)');
         $whmcs->exec('CREATE TABLE tbladminperms (roleid INTEGER, permid INTEGER)');
-        $whmcs->exec("INSERT INTO tbladminroles VALUES (2, 'Sales Operator'), (5, 'Admin'), (6, 'Empty')");
+        $whmcs->exec("INSERT INTO tbladminroles VALUES (2, 'Sales Operator'), (5, 'Admin'), (6, 'Empty'), (7, 'sales operator ')");
         $whmcs->exec('INSERT INTO tbladminperms VALUES (2, 35), (2, 120), (2, 49), (5, 33)');
         $command = app(ImportFromWhmcs::class);
         (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
@@ -87,6 +87,11 @@ class WhmcsRolePermissionsTest extends TestCase
         $this->assertSame('Admin (WHMCS)', $admin->name, 'never the Full Administrator\'s role by its name');
         $this->assertNotContains('*', $admin->permissions);
 
+        // Review of #649: a role named alike but with other permissions is a role of its own, never the first one's power.
+        $alike = Role::query()->findOrFail($roleId->invoke($command, 7));
+        $this->assertSame('sales operator (WHMCS #7)', $alike->name);
+        $this->assertNotContains('admin.invoices.update', $alike->permissions);
+
         $defaults = RoleResource::DEFAULT_PERMISSIONS;
         sort($defaults);
         $this->assertSame($defaults, Role::query()->findOrFail($roleId->invoke($command, 6))->permissions, 'a role with none: MyCS\'s defaults only');
@@ -104,5 +109,27 @@ class WhmcsRolePermissionsTest extends TestCase
         $this->assertContains('admin.tickets.update', $role('Support Operator'));
         $this->assertSame([], $role('Old File'), 'a file without permids: none, as before');
         $this->assertNotEmpty(array_filter($result['notes'], fn (string $note) => str_contains($note, 'Role «Sales Operator»') && str_contains($note, 'MyCS has nothing for: Calendar.')));
+    }
+
+    /** Review of #649: a role with none (GROUP_CONCAT's NULL), one id as a number, ids that are not, a role already here. */
+    public function test_odd_permids(): void
+    {
+        $row = fn (int $id, string $role, mixed $permids) => ['id' => $id, 'firstname' => 'A', 'lastname' => 'B', 'email' => "b{$id}@example.test",
+            'password' => '', 'roleid' => $id, 'rolename' => $role, 'disabled' => 0, 'permids' => $permids];
+        Role::query()->create(['name' => 'Here', 'permissions' => ['admin.tickets.viewAny']]);
+
+        $result = (new AdminImport)->run([$row(2, 'None', null), $row(3, 'One', 33), $row(4, 'Odd', '33;35, 42'), $row(5, 'Here', '35')]);
+
+        $role = fn (string $name) => Role::query()->where('name', $name)->sole()->permissions;
+        $defaults = RoleResource::DEFAULT_PERMISSIONS;
+        sort($defaults);
+        $this->assertSame($defaults, $role('None'), 'none in WHMCS: MyCS\'s defaults, as in the full import');
+        $this->assertContains('admin.invoices.viewAny', $role('One'));
+        $this->assertContains('admin.tickets.viewAny', $role('Odd'));
+        $this->assertNotContains('admin.invoices.update', $role('Odd'));
+        $this->assertSame(['admin.tickets.viewAny'], $role('Here'), 'a role already here is left as it is');
+        $notes = implode("\n", $result['notes']);
+        $this->assertStringContainsString('1 permid(s) in the file not read', $notes);
+        $this->assertStringContainsString('Role «Here»: already here, used with its 1 permission(s), not the WHMCS ones in the file.', $notes);
     }
 }

@@ -75,7 +75,9 @@ final class AdminImport
             'first_name' => (string) ($admin['firstname'] ?? ''),
             'last_name' => (string) ($admin['lastname'] ?? ''),
             'email' => $email,
-            'role_id' => $this->role((int) ($admin['roleid'] ?? 0), (string) ($admin['rolename'] ?? ''), $admin['permids'] ?? null),
+            // GROUP_CONCAT gives NULL for a role with none: the key there is a role without permissions, not an old file.
+            'role_id' => $this->role((int) ($admin['roleid'] ?? 0), (string) ($admin['rolename'] ?? ''),
+                array_key_exists('permids', $admin) ? ($admin['permids'] ?? []) : null),
             'active' => (int) ($admin['disabled'] ?? 0) !== 1,
             // Not null in the table: an unusable one until the WHMCS hash replaces it, or «Forgot password» does.
             'password' => Str::random(64),
@@ -119,12 +121,15 @@ final class AdminImport
             $existing = Role::query()->where('name', $name)->first();
         }
         if ($existing !== null) {
-            $this->notes[] = "Role «{$existing->name}»: already here, used with its " . count($existing->permissions ?? []) . ' permission(s).';
+            $this->notes[] = "Role «{$existing->name}»: already here, used with its " . count($existing->permissions ?? []) . ' permission(s)'
+                . ($permIds === null ? '.' : ', not the WHMCS ones in the file.');
 
             return (int) $existing->id;
         }
         if (is_string($permIds)) {
-            $permIds = $permIds === '' ? [] : explode(',', $permIds);
+            $permIds = trim($permIds) === '' ? [] : array_map('trim', explode(',', $permIds));
+        } elseif (is_int($permIds) || is_float($permIds)) {
+            $permIds = [$permIds];
         }
         if (!is_array($permIds)) {
             $role = Role::query()->create(['name' => $name, 'permissions' => []]);
@@ -133,11 +138,13 @@ final class AdminImport
 
             return (int) $role->id;
         }
-        $mapped = RolePermissions::map(array_filter($permIds, 'is_numeric'));
+        $numeric = array_filter($permIds, fn ($permId) => is_int($permId) || (is_string($permId) && ctype_digit($permId)));
+        $mapped = RolePermissions::map($numeric);
         $role = Role::query()->create(['name' => $name, 'permissions' => $mapped['permissions']]);
         $this->counts['roles']++;
         $this->notes[] = "Role «{$name}»: added with " . count($mapped['permissions']) . ' permission(s) from WHMCS'
-            . ($mapped['unmapped'] === [] ? '.' : '; MyCS has nothing for: ' . implode(', ', $mapped['unmapped']) . '.');
+            . ($mapped['unmapped'] === [] ? '' : '; MyCS has nothing for: ' . implode(', ', $mapped['unmapped']))
+            . (count($numeric) === count($permIds) ? '.' : '; ' . (count($permIds) - count($numeric)) . ' permid(s) in the file not read, check its permissions.');
 
         return (int) $role->id;
     }

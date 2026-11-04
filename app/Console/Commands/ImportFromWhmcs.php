@@ -947,6 +947,11 @@ class ImportFromWhmcs extends Command
             $perms->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
             $perms->execute();
             $mapped = RolePermissions::map($perms->fetchAll(PDO::FETCH_COLUMN));
+            // Two WHMCS roles named alike (by case or spaces, as the collation sees them) stay two (review of #649).
+            $same = Role::query()->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->first();
+            if ($same !== null && $same->permissions !== $mapped['permissions']) {
+                $name .= " (WHMCS #{$whmcsRoleId})";
+            }
             $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => $mapped['permissions']]);
             if ($role->wasRecentlyCreated && $mapped['unmapped'] !== []) {
                 $this->warn("Role «{$name}»: " . count($mapped['unmapped']) . ' WHMCS permission(s) MyCS has nothing for: '
