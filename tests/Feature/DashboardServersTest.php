@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
+use App\Admin\Resources\ServerResource;
 use App\Admin\Widgets\Servers;
 use App\Admin\Widgets\Support;
 use App\Models\Role;
@@ -96,7 +97,7 @@ class DashboardServersTest extends TestCase
             DB::flushQueryLog();
             DB::enableQueryLog();
             $this->rows();
-            $queries = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], '"services"'))->count();
+            $queries = collect(DB::getQueryLog())->filter(fn (array $q) => preg_match('/from [`"]?services\b/', $q['query']) === 1)->count();
             DB::disableQueryLog();
 
             return $queries;
@@ -106,7 +107,34 @@ class DashboardServersTest extends TestCase
             $this->accounts($this->server($name, 10), 1);
         }
 
+        $this->assertGreaterThan(0, $one, 'the count is seen (quotes differ between SQLite and MariaDB)');
         $this->assertSame($one, $count());
+    }
+
+    public function test_over_the_limit_comes_before_exactly_full_and_red_starts_at_ninety_percent(): void
+    {
+        $this->actAs(['*']);
+        $this->accounts($this->server('Exactly', 10), 10);
+        $this->accounts($this->server('Over', 4), 6);
+        $this->accounts($this->server('Almost', 1000), 896);
+
+        $rows = collect($this->rows())->keyBy('name');
+
+        $this->assertSame(['Over', 'Exactly', 'Almost'], $rows->keys()->all());
+        $this->assertSame([100, 'danger'], [$rows['Over']['percent'], $rows['Over']['color']]);
+        $this->assertSame([90, 'warning'], [$rows['Almost']['percent'], $rows['Almost']['color']], '89.6 %: shown 90, still amber');
+    }
+
+    /** A staff member who may see servers but not edit them gets the names without links. */
+    public function test_names_link_only_for_staff_who_may_edit(): void
+    {
+        $this->actAs(['admin.servers.viewAny']);
+        $server = $this->server('Readonly', 10);
+
+        $rows = $this->rows();
+
+        $this->assertNull($rows[0]['url']);
+        Livewire::test(Servers::class)->assertSee('Readonly')->assertDontSee(ServerResource::getUrl('edit', ['record' => $server]));
     }
 
     public function test_staff_without_the_servers_permission_do_not_see_it(): void

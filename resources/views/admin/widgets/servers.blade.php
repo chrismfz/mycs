@@ -18,8 +18,8 @@
                     <span class="text-xs text-gray-500 dark:text-gray-400">{{ $row['module'] }}</span>
                 </span>
                 @if ($row['max'] !== null)
-                {{-- Inline: the theme's CSS has only the classes it was built with. --}}
-                <span class="h-1.5 w-32 shrink-0 overflow-hidden rounded-full" style="background: var(--gray-200)" role="meter" aria-valuemin="0" aria-valuemax="{{ $row['max'] }}" aria-valuenow="{{ $row['used'] }}">
+                {{-- Inline: the theme's CSS has only the classes it was built with; the track is the text colour, faint, in both themes. --}}
+                <span class="h-1.5 w-32 shrink-0 overflow-hidden rounded-full text-gray-500 dark:text-gray-400" style="background: color-mix(in oklab, currentColor 20%, transparent)" role="meter" aria-valuemin="0" aria-valuemax="{{ $row['max'] }}" aria-valuenow="{{ $row['used'] }}">
                     <span class="block h-full rounded-full" style="width: {{ $row['percent'] }}%; background: var(--{{ $row['color'] }}-500)"></span>
                 </span>
                 @endif

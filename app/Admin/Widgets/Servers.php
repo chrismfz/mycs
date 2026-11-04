@@ -43,6 +43,7 @@ class Servers extends Widget
                     'module' => $server->extension,
                     'used' => $used,
                     'max' => $max,
+                    'share' => $share,
                     'percent' => $share === null ? null : (int) min(100, round($share * 100)),
                     'color' => match (true) {
                         $share === null => null,
@@ -53,7 +54,8 @@ class Servers extends Widget
                     'url' => ServerResource::canEdit($server) ? ServerResource::getUrl('edit', ['record' => $server]) : null,
                 ];
             })
-            ->sortBy([fn (array $a, array $b) => ($b['percent'] ?? -1) <=> ($a['percent'] ?? -1), fn (array $a, array $b) => $b['used'] <=> $a['used']])
+            // By the share itself, not the rounded and capped percent: 6 of 4 before 10 of 10.
+            ->sortBy([fn (array $a, array $b) => ($b['share'] ?? -1) <=> ($a['share'] ?? -1), fn (array $a, array $b) => $b['used'] <=> $a['used']])
             ->values()->all();
 
         return view($this->view, [
