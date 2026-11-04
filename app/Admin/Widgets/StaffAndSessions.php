@@ -19,15 +19,16 @@ class StaffAndSessions extends Widget
     /** A customer's session counts as open for this long after its last request. */
     public const SESSION_MINUTES = 60;
 
-    /** The customers' sessions listed; the heading counts all of them. */
-    public const SESSIONS_SHOWN = 5;
+    /** The customers' sessions listed (they scroll); the heading counts all of them. */
+    public const SESSIONS_SHOWN = 20;
+
+    /** Rows each part shows before it scrolls, as Servers does (owner 2026-11-04: «small like Servers»). */
+    public const VISIBLE_ROWS = 5;
 
     protected string $view = 'admin.widgets.staff-and-sessions';
 
-    // Near the end, the width of the page (below the two columns).
+    // In the left column, under Payments tracking (`Dashboard::LEFT`).
     protected static ?int $sort = 29;
-
-    protected int|string|array $columnSpan = 'full';
 
     public function render(): View
     {

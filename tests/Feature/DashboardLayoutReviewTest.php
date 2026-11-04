@@ -42,7 +42,7 @@ class DashboardLayoutReviewTest extends TestCase
 
     /**
      * R1. Two columns that stack on their own (2026-11-04): the money on the left, the work on the right, the cards and
-     * bars above and staff online / active users below. Staff without admin.reports.view have no income: Revenue
+     * bars above; Staff and sessions under Payments tracking (owner 2026-11-04: «small like Servers»). Staff without admin.reports.view have no income: Revenue
      * alone, and the work beside it.
      */
     public function test_the_money_is_one_column_and_the_work_the_other(): void
@@ -52,15 +52,15 @@ class DashboardLayoutReviewTest extends TestCase
         $layout = (new Dashboard)->layout();
 
         $this->assertSame([Overview::class], $layout['above']);
-        $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, StaffAndSessions::class], $layout['left']);
         $this->assertSame([NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
-        $this->assertSame([StaffAndSessions::class], $layout['below']);
+        $this->assertSame([], $layout['below']);
     }
 
     /** Payments tracking is back on the left with Recent activity on the right (devbox 2026-11-04: 1435 against 1170 px). */
     public function test_payments_tracking_is_in_the_money_column(): void
     {
-        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class], Dashboard::LEFT);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class, StaffAndSessions::class], Dashboard::LEFT);
         $this->assertNotContains(PaymentsTracking::class, Dashboard::RIGHT);
     }
 
@@ -79,10 +79,10 @@ class DashboardLayoutReviewTest extends TestCase
         $this->assertStringNotContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(2', $html, 'no half-width column beside nothing');
     }
 
-    /** Nothing in either column (only a widget below): no empty cell and its gap between the full-width widgets. */
+    /** Nothing in either column (only a full-width bar): no empty cell and its gap between the full-width widgets. */
     public function test_no_columns_no_empty_cell(): void
     {
-        $this->actAs(['admin.widgets.active_users']);
+        $this->actAs(['admin.widgets.bank_totals']);
 
         $html = $this->get('/sysadmin')->assertOk()->getContent();
 
@@ -98,7 +98,7 @@ class DashboardLayoutReviewTest extends TestCase
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
 
-        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffAndSessions::class];
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, StaffAndSessions::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class];
         $offsets = array_map($at, $order);
         $this->assertNotContains(0, $offsets, 'every widget is on the page');
         $sorted = $offsets;

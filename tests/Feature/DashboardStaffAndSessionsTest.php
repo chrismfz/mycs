@@ -51,7 +51,7 @@ class DashboardStaffAndSessionsTest extends TestCase
         Livewire::test(StaffAndSessions::class)
             ->assertSee('1 online · 2 customer sessions')
             ->assertSeeInOrder(['Viewer', __('Available'), __('Connected now'), 'Away', __('Offline'), __('Never'),
-                'Recent', 'recent@example.test', '4 minutes ago', '192.0.2.10', 'Older', '192.0.2.11'])
+                'Recent', 'recent@example.test', now()->subMinutes(4)->diffForHumans(short: true), '192.0.2.10', 'Older', '192.0.2.11'])
             ->assertDontSee('Stale')->assertDontSee('192.0.2.12');
     }
 
@@ -87,16 +87,19 @@ class DashboardStaffAndSessionsTest extends TestCase
         $this->assertFalse(StaffAndSessions::canView());
     }
 
-    public function test_the_list_shows_five_sessions_and_the_heading_counts_all(): void
+    /** Small like Servers (owner 2026-11-04): each part scrolls after five rows; up to 20 sessions, all counted. */
+    public function test_each_part_scrolls_and_the_heading_counts_all_sessions(): void
     {
         $this->actAs($this->member());
-        foreach (range(1, 7) as $i) {
-            $this->customerSession(['first_name' => "Client{$i}"], "192.0.2.{$i}", $i);
+        foreach (range(1, StaffAndSessions::SESSIONS_SHOWN + 2) as $i) {
+            $this->customerSession(['first_name' => "Client{$i}x"], '192.0.2.' . $i, $i);
         }
 
-        $component = Livewire::test(StaffAndSessions::class)->assertSee('7 customer sessions')
-            ->assertSee('Client1')->assertSee('Client5');
-        $component->assertDontSee('Client6')->assertDontSee('Client7');
+        $html = Livewire::test(StaffAndSessions::class)->assertSee((StaffAndSessions::SESSIONS_SHOWN + 2) . ' customer sessions')
+            ->assertSee('Client1x')->assertSee('Client' . StaffAndSessions::SESSIONS_SHOWN . 'x')
+            ->assertDontSee('Client' . (StaffAndSessions::SESSIONS_SHOWN + 1) . 'x')->html();
+
+        $this->assertSame(2, substr_count($html, 'max-height: ' . (StaffAndSessions::VISIBLE_ROWS * 2.125) . 'rem; overflow-y: auto'));
     }
 
     public function test_without_customers_it_says_so(): void

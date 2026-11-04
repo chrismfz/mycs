@@ -11,16 +11,19 @@
             </span>
         </x-slot>
 
+        @php($scroll = 'max-height: ' . (\App\Admin\Widgets\StaffAndSessions::VISIBLE_ROWS * 2.125) . 'rem; overflow-y: auto')
+
         @if ($staff !== null)
         {{-- Who is in, never from where (docs/livechat.md §7β): no email, IP or device here. --}}
         <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('Staff') }}</h3>
-        <ul class="mb-3 divide-y divide-gray-100 dark:divide-white/5">
+        {{-- About five rows, then it scrolls, as Servers does (owner 2026-11-04: «small like Servers»). --}}
+        <ul class="-me-2 mb-3 divide-y divide-gray-100 pe-2 dark:divide-white/5" style="{{ $scroll }}">
             @foreach ($staff as $member)
             <li class="flex items-center gap-3 py-1.5 text-sm">
                 <span aria-hidden="true" class="size-2 shrink-0 rounded-full" style="background: var(--{{ $member['online'] ? $member['status']->color() : 'gray' }}-{{ $member['online'] ? '500' : '300' }})"></span>
                 <span class="min-w-0 flex-1 truncate font-medium text-gray-900 dark:text-white">{{ $member['staff']->name }}</span>
-                <span class="w-28 shrink-0 text-gray-700 dark:text-gray-200">{{ $member['online'] ? $member['status']->label() : __('Offline') }}</span>
-                <span class="w-36 shrink-0 text-end text-gray-500 dark:text-gray-400">
+                <span class="w-24 shrink-0 truncate text-gray-700 dark:text-gray-200">{{ $member['online'] ? $member['status']->label() : __('Offline') }}</span>
+                <span class="w-32 shrink-0 truncate text-end text-gray-500 dark:text-gray-400">
                     @if ($member['online'])
                     {{ __('Connected now') }}
                     @else
@@ -37,14 +40,15 @@
         @if ($sessions === [])
         <p class="py-1.5 text-sm text-gray-500 dark:text-gray-400">{{ __('No customer is signed in.') }}</p>
         @else
-        <ul class="divide-y divide-gray-100 dark:divide-white/5">
+        <ul class="-me-2 divide-y divide-gray-100 pe-2 dark:divide-white/5" style="{{ $scroll }}">
             @foreach ($sessions as $session)
             <li class="flex items-center gap-3 py-1.5 text-sm">
-                <a href="{{ $session['url'] }}" wire:navigate class="min-w-0 flex-1 truncate font-medium text-gray-900 hover:underline dark:text-white">{{ $session['name'] }}</a>
-                <span class="min-w-0 flex-1 truncate text-gray-500 dark:text-gray-400">{{ $session['email'] }}</span>
-                <span class="w-28 shrink-0 text-gray-700 dark:text-gray-200">{{ $session['last_activity']->diffForHumans() }}</span>
+                {{-- The email in the name's tooltip: the column is half the page now. --}}
+                <a href="{{ $session['url'] }}" wire:navigate title="{{ $session['email'] }}" class="min-w-0 flex-1 truncate font-medium text-gray-900 hover:underline dark:text-white">{{ $session['name'] }}
+                    <span class="font-normal text-gray-500 dark:text-gray-400">{{ $session['email'] }}</span></a>
+                <span class="w-24 shrink-0 truncate text-gray-700 dark:text-gray-200">{{ $session['last_activity']->diffForHumans(short: true) }}</span>
                 {{-- The address through a data attribute, never inside the script: a click copies it. --}}
-                <button type="button" class="w-36 shrink-0 cursor-pointer select-none truncate text-end font-mono text-xs text-gray-500 hover:text-primary-500 dark:text-gray-400"
+                <button type="button" class="w-32 shrink-0 cursor-pointer select-none truncate text-end font-mono text-xs text-gray-500 hover:text-primary-500 dark:text-gray-400"
                     data-ip="{{ $session['ip'] }}" title="{{ $session['ip'] }} · {{ __('Copy') }}"
                     x-data="{ copied: false }"
                     x-on:click="navigator.clipboard.writeText($el.dataset.ip); copied = true; setTimeout(() => copied = false, 2000)">
