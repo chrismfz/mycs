@@ -45,6 +45,7 @@ use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Tax\EuVat;
 use App\Services\Whmcs\CatalogImport;
+use App\Services\Whmcs\RolePermissions;
 use App\Support\Locales;
 use Closure;
 use DB;
@@ -938,8 +939,24 @@ class ImportFromWhmcs extends Command
             $stmt = $this->pdo->prepare('SELECT name FROM tbladminroles WHERE id = :id LIMIT 1');
             $stmt->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
             $stmt->execute();
-            $name = (string) ($stmt->fetchColumn() ?: 'WHMCS role ' . $whmcsRoleId);
-            $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => []]);
+            $name = trim((string) $stmt->fetchColumn()) ?: 'WHMCS role ' . $whmcsRoleId;
+            if (mb_strtolower($name) === 'admin') {
+                $name .= ' (WHMCS)'; // never the Full Administrator's `*` by its name (a case-insensitive collation)
+            }
+            $perms = $this->pdo->prepare('SELECT permid FROM tbladminperms WHERE roleid = :id');
+            $perms->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
+            $perms->execute();
+            $mapped = RolePermissions::map($perms->fetchAll(PDO::FETCH_COLUMN));
+            // Two WHMCS roles named alike (by case or spaces, as the collation sees them) stay two (review of #649).
+            $same = Role::query()->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->first();
+            if ($same !== null && $same->permissions !== $mapped['permissions']) {
+                $name .= " (WHMCS #{$whmcsRoleId})";
+            }
+            $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => $mapped['permissions']]);
+            if ($role->wasRecentlyCreated && $mapped['unmapped'] !== []) {
+                $this->warn("Role «{$name}»: " . count($mapped['unmapped']) . ' WHMCS permission(s) MyCS has nothing for: '
+                    . implode(', ', $mapped['unmapped']) . '.');
+            }
         }
 
         return $this->staffRoles[$whmcsRoleId] = $role->id;
