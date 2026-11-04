@@ -1162,8 +1162,17 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
     παραγγελία. Τα κενά της συμπληρώνει το `tblsslorders`, μόνο όταν είναι η ίδια παραγγελία (και ποτέ γραμμή άλλου
     module ή addon). Ποτέ το CSR, τα κλειδιά ή το `authdata`. Στο myip υπάρχουν στοιχεία για 4 από τις 12· στις άλλες τα
     συμπληρώνει το staff. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
-  - Hetzner Cloud: 1 υπηρεσία. Γίνεται Offline VM.
-  - ngm: 1 υπηρεσία. Γίνεται Offline VM.
+  - Hetzner Cloud: 1 υπηρεσία. ngm: 1 υπηρεσία· είναι δικό μας panel και θα αποκτήσει δικό του extension.
+    - Ως τις 2026-11-04 ο importer **παρέλειπε** τους servers τους («no MyCS extension»), και οι υπηρεσίες έρχονταν χωρίς
+      server (βρέθηκε στην πρόβα του myip).
+    - Τώρα ο server του WHMCS γίνεται server **Offline VM** («<όνομα> (Hetzner Cloud, offline)»), χωρίς διεύθυνση και
+      login. Κάθε ενέργεια πάνω τους γίνεται εργασία του staff.
+- **Proxmox (pvewhmcs):** οι servers του WHMCS (Pegasus, Vega) είναι κόμβοι **ενός cluster** (υπεύθυνος, 2026-11-04).
+  - Γίνονται ένας server Proxmox. Αν το staff έχει ήδη στήσει έναν (π.χ. «vega-proxmox»), υιοθετείται όπως είναι, με
+    τη διεύθυνση και το token του. Αλλιώς δημιουργείται με το host του πρώτου κόμβου (`:8006`), χωρίς login.
+  - Είναι ενεργός αν είναι ενεργός κάποιος κόμβος.
+  - Οι υπηρεσίες κάθε κόμβου πάνε σε αυτόν. Οι VM αντιστοιχίζονται με το χέρι (`proxmox.md` → Α3).
+  - Ως τις 2026-11-04 κι αυτοί παραλείπονταν.
 - **Centova:** custom fields `port`, `username`, `sourcepassword` (μυστικό, κρυπτογραφείται), `servertype`, `sourcetype`,
   `transferlimit`. Ο mailcow έχει 10 ενεργές.
 - **Domains, για το D6:**

@@ -24,6 +24,11 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   - **Stripe:** Save στο gateway, που φτιάχνει το webhook. Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
   - **PayPal:** το `webhook_id` του app της εταιρείας.
   - **Cardlink:** τα URLs return/notify στο vPOS της Eurobank.
+  - **Proxmox (myip):**
+    - ο server του cluster: το API token του, αν δεν είναι ο ήδη στημένος·
+    - οι VPS του WHMCS αντιστοιχίζονται με το χέρι από τα Proxmox Guests (`proxmox.md` → Α3), και μετά το «Pool command».
+    Μέχρι τότε η MyCS δεν αγγίζει κανένα VM.
+  - **Offline VM (myip: Hetzner Cloud, ngm):** καμία ρύθμιση. Κάθε ενέργεια γίνεται εργασία στα Pending Module Actions.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Υπενθυμίσεις της ημέρας:** ως σταλμένες μετρούν όσες έστειλε το WHMCS ως το τελευταίο **ολοκληρωμένο** ημερήσιο

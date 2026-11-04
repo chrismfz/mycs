@@ -1322,11 +1322,20 @@ class ImportFromWhmcs extends Command
         // Each account's own server (tblhosting.server), by the catalog's WHMCS ids; one not here (deleted, or a module
         // with no extension) stays none, never the product's (AUD4-1).
         $servers = Server::query()->whereNotNull('whmcs_id')->get(['id', 'whmcs_id', 'extension'])->keyBy('whmcs_id');
+        // A cluster's other nodes (myip's Pegasus beside Vega): one server here, its WHMCS id the first node's (CatalogImport).
+        $byId = Server::query()->whereKey(array_values($this->whmcsServers))->get(['id', 'whmcs_id', 'extension'])->keyBy('id');
+        foreach ($this->whmcsServers as $whmcsId => $serverId) {
+            if (!$servers->has($whmcsId) && $byId->has($serverId)) {
+                $servers->put($whmcsId, $byId->get($serverId));
+            }
+        }
         $productServers = DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')->pluck('extensions.extension', 'products.id');
         $withoutServer = [];
         $freeOnPlan = [];
+        $offCycle = [];
+        $unpriced = []; // plan id => it has no prices
         $marked = [];
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan) {
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
@@ -1353,6 +1362,16 @@ class ImportFromWhmcs extends Command
                     if ($planId !== null) {
                         $freeOnPlan[] = (int) $record['id'];
                     }
+                }
+                // Billed on a cycle its product does not offer (WHMCS bills the service's own amount): a plan of that cycle
+                // without prices, never sold, so it renews here at its price (myip rehearsal 2026-11-04: 13 live ones).
+                if ($planId === null && !$freeAccount && ($product = Product::query()->find((int) $record['packageid'])) !== null) {
+                    $planId = CatalogImport::unpricedPlan($product, (string) $record['billingcycle']);
+                }
+                // Listed for staff: each live one on a plan without prices (made here, or a cycle WHMCS no longer sells).
+                if ($planId !== null && !$freeAccount && in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true)
+                    && ($unpriced[$planId] ??= !DB::table('prices')->where('plan_id', $planId)->exists())) {
+                    $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
                 }
 
                 $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
@@ -1438,12 +1457,19 @@ class ImportFromWhmcs extends Command
             $this->warn(count($withoutServer) . ' live service(s) whose WHMCS server is not here: no server action until staff set one.');
             $this->table(['Service', 'WHMCS server'], $withoutServer);
         }
+        if ($offCycle !== []) {
+            $this->warn(count($offCycle) . ' live service(s) billed on a cycle their product does not offer: on a plan of that cycle without prices (not sold), renewed at their own price. Check each one\'s price.');
+            $this->table(['Service', 'Cycle', 'Product'], $offCycle);
+        }
         if ($marked !== []) {
             // Before the cut-over: each one checked disabled (Centova) or locked (mailcow) there, as WHMCS left it.
             $this->info(count($marked) . ' suspended service(s) marked as suspended by us: a payment enables them again.');
             $this->table(['Service', 'Module', 'Account'], $marked);
         }
     }
+
+    /** @var array<int, int> WHMCS server id => its server here (a cluster's nodes share one), from importServers */
+    private array $whmcsServers = [];
 
     /** WHMCS's servers and groups, and its products' (the catalog's step): before the services, which come on theirs. */
     private function importServers()
@@ -1452,6 +1478,7 @@ class ImportFromWhmcs extends Command
             return;
         }
         $result = (new CatalogImport($this->pdo))->serversForFullImport();
+        $this->whmcsServers = $result['server_ids'];
         $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
         foreach ($result['notes'] as $note) {
             $this->warn($note);

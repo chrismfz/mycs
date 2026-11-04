@@ -41,10 +41,23 @@ use Throwable;
 final class CatalogImport
 {
     /** WHMCS's server module → MyCS's server extension; the others are reported and skipped. */
-    private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow'];
+    private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow', 'pvewhmcs' => 'Proxmox',
+        'hetznercloud' => 'OfflineVm', 'ngm' => 'OfflineVm'];
+
+    /**
+     * Modules whose WHMCS servers are nodes of one cluster: one server here for them all, as the extension talks to the
+     * cluster (myip's Proxmox: Pegasus and Vega, owner 2026-11-04). A server staff already set up of the extension is it.
+     */
+    public const CLUSTER_MODULES = ['pvewhmcs'];
+
+    /**
+     * Modules with no API here (Hetzner Cloud; ngm, our own panel, until it has an extension): their servers come as
+     * Offline VM, so every action on their services is a task for staff, never a silent «nothing» (docs/importer.md).
+     */
+    private const OFFLINE_MODULES = ['hetznercloud' => 'Hetzner Cloud', 'ngm' => 'ngm'];
 
     /** A module's default port when WHMCS has none (its admin API over TLS). */
-    private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199];
+    private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199, 'pvewhmcs' => 8006];
 
     /** WHMCS's recurring cycles → [plan name, billing period, unit, setup fee column]. */
     private const CYCLES = [
@@ -90,6 +103,12 @@ final class CatalogImport
 
     /** @var array<string, int> WHMCS module => the MyCS server of its default (active) WHMCS server */
     private array $defaultServers = [];
+
+    /** @var array<string, Server> a cluster module (CLUSTER_MODULES) => its one server here */
+    private array $clusters = [];
+
+    /** @var array<string, list<string>> a cluster module => its WHMCS servers, for the note */
+    private array $clusterNodes = [];
 
     /** @var array<int, int> */
     private array $groupIds = [];
@@ -152,7 +171,7 @@ final class CatalogImport
      * product's group and server as run() gives them, so that every account comes in on its own server (AUD4-1). A
      * product is found by its `whmcs_id`, else by the same id (the full importer keeps WHMCS's).
      *
-     * @return array{counts: array<string, int>, notes: list<string>}
+     * @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} server_ids: WHMCS server id => its server here (a cluster's nodes share one)
      */
     public function serversForFullImport(): array
     {
@@ -173,7 +192,7 @@ final class CatalogImport
             $product->save();
         }
 
-        return ['counts' => $this->counts, 'notes' => $this->notes];
+        return ['counts' => $this->counts, 'notes' => $this->notes, 'server_ids' => $this->serverIds];
     }
 
     /**
@@ -259,6 +278,21 @@ final class CatalogImport
                 continue;
             }
             $hostname = strtolower(trim((string) ($row['hostname'] ?: $row['ipaddress'])));
+            $enabled = !(int) ($row['disabled'] ?? 0);
+            // Another node of a cluster already here: its services are that server's.
+            $cluster = in_array($module, self::CLUSTER_MODULES, true) ? ($this->clusters[$module] ?? null) : null;
+            if ($cluster !== null) {
+                $this->serverIds[(int) $row['id']] = $cluster->id;
+                $this->clusterNodes[$module][] = "#{$row['id']} «{$row['name']}»";
+                if ($enabled && !$cluster->enabled && $cluster->wasRecentlyCreated) {
+                    $cluster->forceFill(['enabled' => true])->save(); // one live node: the cluster is
+                }
+                if (($row['active'] ?? 0) && $enabled) {
+                    $this->defaultServers[$module] = $cluster->id;
+                }
+
+                continue;
+            }
             $server = Server::withTrashed()->where('whmcs_id', (int) $row['id'])->first();
             if ($server?->trashed()) {
                 // Deleted here on purpose: not brought back (review 6).
@@ -266,22 +300,31 @@ final class CatalogImport
 
                 continue;
             }
-            // One staff already set up (same module and host) is adopted, not copied without its password (review F10).
-            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)) !== null;
+            // One staff already set up (same module and host) is adopted, not copied without its password (review F10). A
+            // cluster's: the extension's only one staff set up, whatever node its address is (owner 2026-11-04).
+            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)
+                ?? (in_array($module, self::CLUSTER_MODULES, true) ? $this->onlyServer($extension) : null)) !== null;
             $server ??= new Server;
+            $offline = self::OFFLINE_MODULES[$module] ?? null;
             $server->forceFill([
                 'whmcs_id' => (int) $row['id'],
-                'name' => (string) $row['name'],
+                'name' => $adopted ? $server->name : ($offline !== null ? "{$row['name']} ({$offline}, offline)" : (string) $row['name']),
                 'extension' => $extension,
                 'type' => 'server',
-                'enabled' => !(int) ($row['disabled'] ?? 0),
+                'enabled' => $adopted ? $server->enabled : $enabled,
                 'max_accounts' => (int) ($row['maxaccounts'] ?? 0) > 0 ? (int) $row['maxaccounts'] : null,
             ])->save();
+            if (in_array($module, self::CLUSTER_MODULES, true)) {
+                $this->clusters[$module] = $server;
+                $this->clusterNodes[$module] = ["#{$row['id']} «{$row['name']}»"];
+            }
             // Its address (a URL, as the extension takes it: review 3) and login, only where none is set yet: a URL or
             // login staff corrected stays, and a stored API key is never sent to a host they did not type (R6). Never
-            // its password (the API token comes with the credentials step).
+            // its password (the API token comes with the credentials step). An offline one has neither; Proxmox's login
+            // is an API token staff make (its username is not WHMCS's root@pam).
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
-            $settings = ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
+            $settings = $offline !== null ? [] : ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '',
+                'username' => $module === 'pvewhmcs' ? '' : (string) ($row['username'] ?? '')];
             // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
             // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
             // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
@@ -302,6 +345,18 @@ final class CatalogImport
             $this->defaultServers[$module] ??= $server->id;
             $this->counts['servers']++;
         }
+        foreach ($this->clusters as $module => $cluster) {
+            $this->notes[] = 'Servers ' . implode(', ', $this->clusterNodes[$module]) . " («{$module}»): one cluster here, server «{$cluster->name}»"
+                . ' (' . ($cluster->enabled ? 'enabled' : 'disabled') . '). Its API token is staff\'s to enter, and its VMs are mapped by hand (Proxmox Guests).';
+        }
+    }
+
+    /** The one server of this extension staff set up (not from WHMCS), or none when there is none or more than one. */
+    private function onlyServer(string $extension): ?Server
+    {
+        $servers = Server::query()->where('extension', $extension)->whereNull('whmcs_id')->limit(2)->get();
+
+        return $servers->count() === 1 ? $servers->first() : null;
     }
 
     /** A server of this extension not from WHMCS, at this host (its URL or bare name). */
@@ -511,6 +566,26 @@ final class CatalogImport
             $withdrawn->delete();
         }
         $this->withdraw($priceable, $kept);
+    }
+
+    /**
+     * A plan of the product for a WHMCS billing cycle it does not offer, without prices: so none is sold, as a cycle WHMCS no
+     * longer offers (withdraw()), while a service WHMCS bills on it renews here at its own price, as WHMCS bills its amount
+     * (myip rehearsal 2026-11-04: 13 live services had no plan, «not billed (set its plan)»). Null for a cycle with no
+     * period (One Time, Free Account) or an unknown one.
+     */
+    public static function unpricedPlan(Product $product, string $whmcsCycle): ?int
+    {
+        [$name, $period, $unit] = self::CYCLES[strtolower(str_replace('-', '', trim($whmcsCycle)))] ?? [null, null, null];
+        if ($name === null) {
+            return null;
+        }
+        $plan = Plan::query()->where(['priceable_type' => $product->getMorphClass(), 'priceable_id' => $product->id, 'type' => 'recurring'])
+            ->where('billing_period', $period)->where('billing_unit', $unit)->orderBy('id')->first();
+        $plan ??= Plan::query()->forceCreate(['priceable_type' => $product->getMorphClass(), 'priceable_id' => $product->id, 'type' => 'recurring',
+            'name' => $name, 'billing_period' => $period, 'billing_unit' => $unit, 'sort' => 99]);
+
+        return (int) $plan->id;
     }
 
     /** The plan of this type and cycle, or a new one (not saved). */

@@ -10,6 +10,7 @@ use App\Models\Extension;
 use App\Models\Server;
 use App\Models\Setting;
 use App\Services\Money\MoneyTrail;
+use App\Services\Whmcs\CatalogImport;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use PDO;
@@ -246,6 +247,16 @@ final class WhmcsRecordParity
         foreach ($this->whmcs->query('SELECT * FROM tblservers')->fetchAll(PDO::FETCH_ASSOC) as $server) {
             $whmcsServers[(int) $server['id']] = $server;
         }
+        // A cluster's nodes are one server here, its WHMCS id one node's (CatalogImport::CLUSTER_MODULES): each node is it.
+        foreach ($whmcsServers as $whmcsId => $server) {
+            $module = strtolower((string) ($server['type'] ?? ''));
+            if (!$byWhmcs->has($whmcsId) && in_array($module, CatalogImport::CLUSTER_MODULES, true)) {
+                $node = collect($whmcsServers)->first(fn ($other) => strtolower((string) ($other['type'] ?? '')) === $module && $byWhmcs->has((int) $other['id']));
+                if ($node !== null) {
+                    $byWhmcs->put($whmcsId, $byWhmcs->get((int) $node['id']));
+                }
+            }
+        }
         $byHand = [];
         foreach ($this->whmcs->query('SELECT * FROM tblhosting ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $id = (int) $row['id'];
@@ -334,8 +345,18 @@ final class WhmcsRecordParity
                 continue;
             }
             $this->check('Service servers', $id, $server !== null && $server->id === $expected->id, "service #{$id}: on WHMCS server {$name}, here on {$on}");
-            // The server here is reached where WHMCS's is: its host, and its IP (cPanel and DirectAdmin connect to it).
-            $at = $theirs === null ? null : $this->pointsElsewhere($addresses[$expected->id] ?? [], $theirs, strict: false);
+            // The server here is reached where WHMCS's is: its host, and its IP (cPanel and DirectAdmin connect to it). A
+            // cluster's is reached at any of its nodes (Pegasus's service, the cluster's server at Vega's address).
+            $module = strtolower((string) ($theirs['type'] ?? ''));
+            $nodes = $theirs === null ? [] : (in_array($module, CatalogImport::CLUSTER_MODULES, true)
+                ? array_filter($whmcsServers, fn ($other) => strtolower((string) ($other['type'] ?? '')) === $module) : [$theirs]);
+            $at = null;
+            foreach ($nodes as $node) {
+                $at = $this->pointsElsewhere($addresses[$expected->id] ?? [], $node, strict: false);
+                if ($at === null) {
+                    break;
+                }
+            }
             $this->check('Service servers', $id, $at === null,
                 "service #{$id}: WHMCS server {$name} is " . self::whmcsAddress($theirs ?? []) . ", server #{$expected->id} here points to {$at}");
         }

@@ -1,0 +1,198 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Console\Commands\ImportFromWhmcs;
+use App\Models\InvoiceItem;
+use App\Models\Plan;
+use App\Models\Price;
+use App\Models\Server;
+use App\Models\Service;
+use App\Models\User;
+use App\Services\Billing\RenewalBilling;
+use App\Services\Whmcs\CatalogImport;
+use Illuminate\Console\OutputStyle;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use PDO;
+use ReflectionMethod;
+use ReflectionProperty;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Tests\TestCase;
+
+/**
+ * The myip rehearsal (2026-11-04): WHMCS's Proxmox servers (pvewhmcs: Pegasus and Vega, one cluster), its Hetzner Cloud
+ * one and ngm's were skipped as «no MyCS extension», and their live services came with no server. The Proxmox nodes are
+ * one server here, the extension's (staff's own when there is one); Hetzner Cloud and ngm are Offline VM.
+ */
+class ImportClusterServersTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private PDO $whmcs;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Http::preventStrayRequests();
+        Mail::fake();
+        Queue::fake();
+        config(['settings.default_currency' => 'USD']);
+        $this->whmcs = new PDO('sqlite::memory:');
+        $this->whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $this->whmcs->exec('CREATE TABLE tblservers (id INTEGER PRIMARY KEY, name TEXT, type TEXT, hostname TEXT, ipaddress TEXT, port INT, username TEXT,
+            maxaccounts INT, active INT, disabled INT)');
+        $this->whmcs->exec('CREATE TABLE tblservergroups (id INTEGER PRIMARY KEY, name TEXT, filltype INT)');
+        $this->whmcs->exec('CREATE TABLE tblservergroupsrel (groupid INT, serverid INT)');
+        $this->whmcs->exec('CREATE TABLE tblproducts (id INTEGER PRIMARY KEY, name TEXT, servertype TEXT, servergroup INT)');
+        $this->whmcs->exec("INSERT INTO tblservers VALUES
+            (25, 'Mars', 'cpanel', 'mars.example.test', '192.0.2.25', 0, 'root', 0, 1, 0),
+            (54, 'Vega', 'pvewhmcs', 'vega.example.test', '192.0.2.54', 0, 'root@pam', 0, 0, 1),
+            (57, 'None', 'HetznerCloud', '', '', 0, '', 0, 1, 0),
+            (61, 'Pegasus', 'pvewhmcs', 'pegasus.example.test', '192.0.2.61', 0, 'root@pam', 0, 1, 0),
+            (64, 'NGM-test', 'ngm', 'ngm.example.test', '', 0, 'admin', 0, 1, 0)");
+    }
+
+    /** @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} */
+    private function servers(): array
+    {
+        return (new CatalogImport($this->whmcs))->serversForFullImport();
+    }
+
+    private function setting(Server $server, string $key): ?string
+    {
+        return $server->settings()->where('key', $key)->value('value');
+    }
+
+    public function test_a_clusters_nodes_are_one_proxmox_server_enabled_by_its_live_node(): void
+    {
+        $result = $this->servers();
+
+        $proxmox = Server::query()->where('extension', 'Proxmox')->sole();
+        $this->assertSame(54, (int) $proxmox->whmcs_id, 'the first node\'s id');
+        $this->assertTrue((bool) $proxmox->enabled, 'Pegasus is live, though Vega is disabled');
+        $this->assertSame('https://vega.example.test:8006', $this->setting($proxmox, 'host'));
+        $this->assertNull($this->setting($proxmox, 'username'), 'WHMCS\'s root@pam is no API token');
+        $this->assertSame([54 => $proxmox->id, 61 => $proxmox->id], array_intersect_key($result['server_ids'], [54 => 0, 61 => 0]));
+        $this->assertNotEmpty(array_filter($result['notes'], fn ($note) => str_contains($note, '«Vega»') && str_contains($note, '«Pegasus»') && str_contains($note, 'one cluster')));
+
+        // Re-run: the same one server.
+        $this->servers();
+        $this->assertSame(1, Server::query()->where('extension', 'Proxmox')->count());
+    }
+
+    public function test_the_server_staff_set_up_for_the_cluster_is_adopted_as_it_is(): void
+    {
+        $own = Server::query()->create(['name' => 'vega-proxmox', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $own->settings()->create(['key' => 'host', 'value' => 'https://node3.example.test:8006']);
+
+        $result = $this->servers();
+
+        $this->assertSame(1, Server::query()->where('extension', 'Proxmox')->count(), 'no second server for the same cluster');
+        $own->refresh();
+        $this->assertSame('vega-proxmox', $own->name);
+        $this->assertTrue((bool) $own->enabled);
+        $this->assertSame('https://node3.example.test:8006', $this->setting($own, 'host'), 'its address is staff\'s');
+        $this->assertSame($own->id, $result['server_ids'][61]);
+    }
+
+    public function test_hetzner_cloud_and_ngm_come_as_offline_vm_servers(): void
+    {
+        $result = $this->servers();
+
+        $offline = Server::query()->where('extension', 'OfflineVm')->orderBy('whmcs_id')->get();
+        $this->assertSame([57 => 'None (Hetzner Cloud, offline)', 64 => 'NGM-test (ngm, offline)'], $offline->pluck('name', 'whmcs_id')->all());
+        $this->assertSame(0, $offline->sum(fn (Server $server) => $server->settings()->count()), 'no address or login: nothing is called');
+        $this->assertEmpty(array_filter($result['notes'], fn ($note) => str_contains($note, 'has no MyCS extension')));
+    }
+
+    /** tblhosting and its account's currency, for importServices. */
+    private function hosting(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, currency INT)');
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, orderid INT, packageid INT, server INT, regdate TEXT, domain TEXT,
+            qty INT, amount REAL, billingcycle TEXT, nextduedate TEXT, domainstatus TEXT, username TEXT, password TEXT, notes TEXT, suspendreason TEXT,
+            dedicatedip TEXT, assignedips TEXT, overideautosuspend INT, overidesuspenduntil TEXT)');
+        $this->whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD')");
+    }
+
+    private function importServices(): string
+    {
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        (new ReflectionMethod($command, 'importServices'))->invoke($command);
+
+        return $output->fetch();
+    }
+
+    /**
+     * The myip rehearsal: 13 live services billed on a cycle their product does not price (WHMCS bills the service's amount)
+     * came with no plan, and the cron would not bill them («set its plan»). A plan of that cycle without prices: never sold,
+     * renewed at the service's own price.
+     */
+    public function test_a_service_on_a_cycle_its_product_does_not_offer_renews_at_its_own_price(): void
+    {
+        $this->hosting();
+        $product = $this->createProduct(); // a Monthly plan only
+        $client = User::factory()->create()->client();
+        $this->whmcs->exec("INSERT INTO tblclients VALUES ({$client->id}, 1)");
+        foreach ([[901, 'Quarterly', 'Active', 62.9], [902, 'Quarterly', 'Active', 70.0], [903, 'One Time', 'Active', 50.0]] as [$id, $cycle, $status, $amount]) {
+            $this->whmcs->prepare("INSERT INTO tblhosting VALUES (?, ?, NULL, ?, 0, '2024-01-01', 'site.example.test', 1, ?, ?, '2026-12-01', ?, '',
+                '', '', '', '', '', 0, '0000-00-00')")->execute([$id, $client->id, $product->product->id, $amount, $cycle, $status]);
+        }
+
+        $output = $this->importServices();
+
+        $quarterly = Plan::query()->where('priceable_id', $product->product->id)->where('billing_period', 3)->where('billing_unit', 'month')->sole();
+        $this->assertSame('Quarterly', $quarterly->name);
+        $this->assertSame(0, Price::query()->where('plan_id', $quarterly->id)->count(), 'never sold');
+        $this->assertSame([901 => $quarterly->id, 902 => $quarterly->id, 903 => null], Service::query()->orderBy('id')->pluck('plan_id', 'id')->all());
+        $this->assertStringContainsString('2 live service(s) billed on a cycle their product does not offer', $output);
+
+        // The cron bills its next quarter at its own price.
+        Carbon::setTestNow('2026-11-25 09:00:00');
+        $billed = DB::transaction(fn () => (new RenewalBilling)->billRenewal(901, now()->addDays(7)));
+        $this->assertSame(1, $billed);
+        $line = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', 901)->sole();
+        $this->assertSame('62.90', number_format((float) $line->price, 2, '.', ''));
+        $this->assertSame(['2026-12-01', '2027-03-01'], [$line->period_start?->toDateString(), $line->period_end?->toDateString()]);
+        Carbon::setTestNow();
+    }
+
+    public function test_a_service_on_another_node_comes_on_the_clusters_server(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, currency INT)');
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, orderid INT, packageid INT, server INT, regdate TEXT, domain TEXT,
+            qty INT, amount REAL, billingcycle TEXT, nextduedate TEXT, domainstatus TEXT, username TEXT, password TEXT, notes TEXT, suspendreason TEXT,
+            dedicatedip TEXT, assignedips TEXT, overideautosuspend INT, overidesuspenduntil TEXT)');
+        $this->whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD')");
+        $product = $this->createProduct();
+        $client = User::factory()->create()->client();
+        $this->whmcs->exec("INSERT INTO tblclients VALUES ({$client->id}, 1)");
+        foreach ([[801, 61], [802, 57], [803, 59]] as [$id, $server]) { // Pegasus, Hetzner, a server WHMCS deleted
+            $this->whmcs->prepare("INSERT INTO tblhosting VALUES (?, ?, NULL, ?, ?, '2024-01-01', 'vm.example.test', 1, 10, 'Monthly', '2026-12-01', 'Active', '',
+                '', '', '', '', '', 0, '0000-00-00')")->execute([$id, $client->id, $product->product->id, $server]);
+        }
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        (new ReflectionMethod($command, 'importServers'))->invoke($command);
+        (new ReflectionMethod($command, 'importServices'))->invoke($command);
+
+        $proxmox = Server::query()->where('extension', 'Proxmox')->sole();
+        $hetzner = Server::query()->where('whmcs_id', 57)->sole();
+        $this->assertSame([801 => $proxmox->id, 802 => $hetzner->id, 803 => null], Service::query()->orderBy('id')->pluck('server_id', 'id')->all());
+        $this->assertStringContainsString('1 live service(s) whose WHMCS server is not here', $output->fetch(), 'only the deleted one');
+    }
+}
