@@ -12,6 +12,7 @@ use App\Admin\Widgets\Servers;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
@@ -19,6 +20,7 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -132,7 +134,7 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertSame('danger', $row['color']);
         $this->assertTrue($row['since']->isSameDay(now()->subDays(2)), 'the oldest attempt');
         $this->assertSame(['filters' => ['charge_to_settle' => ['isActive' => '1']]], $this->queryOf($row['url']));
-        Livewire::test(ListInvoices::class)->set('tableFilters.status.value', null)->filterTable('charge_to_settle')
+        Livewire::test(ListInvoices::class)->filterTable('charge_to_settle')
             ->assertCanSeeTableRecords([$unknown, $stale, $taken])->assertCountTableRecords(3);
     }
 
@@ -141,14 +143,16 @@ class DashboardNeedsAttentionTest extends TestCase
     {
         $this->actAs(['*']);
         $givenUp = $this->action(['given_up_at' => now()->subHours(5), 'last_error' => 'refused']);
+        $domain = Domain::factory()->create(['client_id' => $this->user->client()->id, 'sld' => 'renew', 'fqdn' => 'renew.test']);
+        $renewal = ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_RENEW, 'status' => ModuleAction::STATUS_OPEN]);
         $this->action([]); // still retrying
         $this->action(['given_up_at' => now(), 'status' => ModuleAction::STATUS_RESOLVED]);
 
         $row = $this->rows()[0];
 
-        $this->assertSame(trans_choice(':count server action needs staff|:count server actions need staff', 1), $row['title']);
+        $this->assertSame(trans_choice(':count server action needs staff|:count server actions need staff', 2), $row['title'], 'given up, and a paid domain renewal (never given up by itself)');
         $this->assertSame(['filters' => ['needs_staff' => ['isActive' => '1']]], $this->queryOf($row['url']));
-        Livewire::test(ListModuleActions::class)->filterTable('needs_staff')->assertCanSeeTableRecords([$givenUp])->assertCountTableRecords(1);
+        Livewire::test(ListModuleActions::class)->filterTable('needs_staff')->assertCanSeeTableRecords([$givenUp, $renewal])->assertCountTableRecords(2);
     }
 
     public function test_overdue_invoices_link_to_the_overdue_filter(): void
@@ -215,6 +219,34 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertStringStartsWith(InvoiceResource::getUrl('index'), $rows[0]['url']);
         $this->assertSame([__('Charges'), __('Invoices')], NeedsAttention::report()['checked']);
+    }
+
+    public function test_tickets_awaiting_reply_link_to_the_awaiting_tab(): void
+    {
+        $this->actAs(['*']);
+        Ticket::factory()->create(['client_id' => $this->user->client()->id, 'subject' => 'Help', 'status' => Ticket::AWAITING_STAFF[0]]);
+        Ticket::factory()->create(['client_id' => $this->user->client()->id, 'subject' => 'Done', 'status' => Ticket::STATUS_CLOSED]);
+
+        $row = $this->rows()[0];
+
+        $this->assertSame(trans_choice(':count ticket awaiting reply|:count tickets awaiting reply', 1), $row['title']);
+        $this->assertSame(['warning', ['tab' => 'open']], [$row['color'], $this->queryOf($row['url'])]);
+    }
+
+    /** A failed check is red; module actions stay in the automation row for a role that may not open their list. */
+    public function test_a_failed_check_is_red_and_module_actions_stay_for_a_role_without_their_list(): void
+    {
+        $this->actAs(['admin.cron_stats.view']);
+        Cache::put('ops.health', ['at' => now()->getTimestamp(), 'report' => ['status' => 'fail', 'checks' => [
+            'tax' => ['status' => 'fail', 'detail' => 'no country'], 'module_actions' => ['status' => 'warn', 'detail' => '1 given up'],
+        ]]]);
+
+        $rows = $this->rows();
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('danger', $rows[0]['color']);
+        $this->assertSame(__('health.tax') . ', ' . __('health.module_actions'), $rows[0]['detail']);
+        $this->assertNotSame('health.tax', __('health.tax'));
     }
 
     public function test_staff_with_none_of_its_lists_do_not_see_it(): void

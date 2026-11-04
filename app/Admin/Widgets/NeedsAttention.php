@@ -35,8 +35,8 @@ class NeedsAttention extends Widget
     /** Red first, then amber, then grey; in each, the order they are built in. */
     private const ORDER = ['danger' => 0, 'warning' => 1, 'gray' => 2];
 
-    /** Automation checks with a row of their own here. */
-    private const OWN_ROW = ['module_actions'];
+    /** Automation checks with a row of their own here, left out of the automation row only when that row was checked. */
+    private const OWN_ROW = ['module_actions' => ModuleActionResource::class];
 
     /**
      * @return array{rows: list<array{title: string, detail: string, since: ?Carbon, color: string, url: string}>, checked: list<string>}
@@ -93,8 +93,9 @@ class NeedsAttention extends Widget
         if (CronStats::canAccess()) {
             $checked[] = __('Automation');
             try {
+                // A role that may open Automation status but not Module actions still sees given-up actions here (review of #631).
                 $failing = array_filter(Health::cached()['checks'], fn (array $check, string $name): bool => $check['status'] !== Health::OK
-                    && !in_array($name, self::OWN_ROW, true), ARRAY_FILTER_USE_BOTH);
+                    && !(isset(self::OWN_ROW[$name]) && self::OWN_ROW[$name]::canViewAny()), ARRAY_FILTER_USE_BOTH);
             } catch (Throwable) {
                 $failing = []; // Automation status says why; the dashboard still opens.
             }
