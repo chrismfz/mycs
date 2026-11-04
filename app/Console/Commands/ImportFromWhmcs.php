@@ -1335,7 +1335,10 @@ class ImportFromWhmcs extends Command
         $offCycle = [];
         $unpriced = []; // plan id => it has no prices
         $marked = [];
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced) {
+        // Each account's group discount, as its services' prices hold it (ClientGroupPricing).
+        $groupPercents = DB::table('clients')->join('client_groups', 'client_groups.id', '=', 'clients.client_group_id')
+            ->pluck('client_groups.discount_percent', 'clients.id')->map(fn ($percent) => number_format((float) $percent, 2, '.', ''))->all();
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced, $groupPercents) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
@@ -1416,6 +1419,10 @@ class ImportFromWhmcs extends Command
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,
+                    // WHMCS's amount is what its account's group gave it: WHMCS applies a group's discount when ordering,
+                    // never again on a renewal. Held at the group's percent, the cron's reconcile of group prices leaves it
+                    // as it is (nixpal: a 10% group's 24 services would have lost 10% more on the first run: review of #628).
+                    'group_percent' => $groupPercents[(int) $record['userid']] ?? '0.00',
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason
