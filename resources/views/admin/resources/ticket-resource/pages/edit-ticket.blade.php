@@ -6,7 +6,47 @@
             <a class="font-semibold underline" href="{{ App\Admin\Resources\TicketResource::getUrl('edit', ['record' => $this->record->mergedInto]) }}">#{{ $this->record->mergedInto->reference }}</a>.
         </div>
     @endif
-    <div class="md:grid grid-cols-4 flex flex-col gap-4" wire:poll.10s>
+    {{-- The page's heartbeat (docs/tickets.md §6ν), which refreshes the thread too: every 10″ in front, every 30″ behind
+         another tab. It says whether the tab is in front and someone moved lately, and whether the reply box changed;
+         the page's row goes as soon as it is closed or left (the admin is an SPA: Alpine's destroy on navigation). --}}
+    <div class="md:grid grid-cols-4 flex flex-col gap-4"
+        x-data="{
+            typed: false,
+            active: Date.now(),
+            last: Date.now(),
+            timer: null,
+            gone: false,
+            init() {
+                this.timer = setInterval(() => {
+                    // By the clock, not by ticks: a browser slows the timers of a tab behind another (review).
+                    if (!document.hidden || Date.now() - this.last >= {{ \App\Support\Tickets\TicketPresence::BACKGROUND_BEAT * 1000 - 1000 }}) this.beat();
+                }, {{ \App\Support\Tickets\TicketPresence::BEAT * 1000 }});
+            },
+            beat() {
+                if (this.gone) return;
+                const viewing = !document.hidden && Date.now() - this.active < 300000;
+                const typed = this.typed;
+                this.typed = false;
+                this.last = Date.now();
+                $wire.presenceBeat(viewing, typed);
+            },
+            leave() {
+                if (this.gone) return;
+                this.gone = true;
+                clearInterval(this.timer);
+                const body = new FormData();
+                body.append('_token', @js(csrf_token()));
+                body.append('page', @js($this->getId()));
+                navigator.sendBeacon(@js(route('filament.admin.ticket-presence.leave')), body);
+            },
+            destroy() { this.leave(); },
+        }"
+        x-on:mousemove.window.throttle.5000ms="active = Date.now()"
+        x-on:keydown.window="active = Date.now()"
+        x-on:scroll.window.throttle.5000ms="active = Date.now()"
+        x-on:visibilitychange.document="if (!document.hidden) { active = Date.now(); beat(); }"
+        x-on:pagehide.window="leave()"
+        x-on:pageshow.window="if ($event.persisted) { gone = false; init(); beat(); }">
         <div class="md:col-span-3">
             <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4">
                 @foreach ($this->record->messages()->with(['user', 'staff', 'attachments'])->get() as $index => $message)
@@ -117,7 +157,43 @@
                     </div>
                 </x-filament::section>
             @endforeach
-            <form wire:submit="send">
+            @if ($presence !== [])
+                {{-- Who else is on it now, from pages that beat (docs/tickets.md §6ν): it never outlives them. --}}
+                <div class="mt-4 flex flex-wrap gap-2" data-ticket-presence>
+                    @foreach ($presence as $member)
+                        <x-filament::badge
+                            :color="match ($member['state']) { 'writing' => 'warning', 'draft' => 'gray', default => 'info' }"
+                            :icon="match ($member['state']) { 'writing' => 'heroicon-m-pencil-square', 'draft' => 'heroicon-m-document-text', default => 'heroicon-m-eye' }">
+                            @switch ($member['state'])
+                                @case ('writing')
+                                    {{ __(':name is writing a reply', ['name' => $member['name']]) }}
+                                    @break
+                                @case ('draft')
+                                    {{ __(':name has an unsent reply, last typed :time', ['name' => $member['name'], 'time' => $member['typed_at']?->diffForHumans() ?? '—']) }}
+                                    @break
+                                @default
+                                    {{ __(':name is viewing this ticket', ['name' => $member['name']]) }}
+                            @endswitch
+                        </x-filament::badge>
+                    @endforeach
+                </div>
+            @endif
+            @if ($newer->isNotEmpty())
+                {{-- Another's message came in while this member wrote: the first «Send» stops (docs/tickets.md §6ν). --}}
+                <div class="mt-4 rounded-lg border border-danger-300 bg-danger-50 p-3 text-sm dark:border-danger-600 dark:bg-danger-950/40" data-ticket-newer>
+                    <p class="font-semibold">{{ __('New in this ticket since you started writing:') }}</p>
+                    <ul class="mt-1 list-disc ps-5">
+                        @foreach ($newer as $message)
+                            <li>
+                                {{ $message->staff?->name ?? $message->user?->name ?? $message->sender_email ?? ($message->is_internal ? __('Staff') : null) ?? ($this->record->isGuest() ? $this->record->guest_name : null) ?? __('Customer') }}
+                                · {{ $message->created_at?->diffForHumans() }}@if ($message->is_internal) · {{ __('Internal note') }}@endif
+                            </li>
+                        @endforeach
+                    </ul>
+                    <p class="mt-1">{{ __('Read it before you send yours: Send will stop once.') }}</p>
+                </div>
+            @endif
+            <form wire:submit="send" x-on:input="typed = true">
                 <div class="mt-4 mb-4">
                     {{ $this->form }}
                 </div>

@@ -10,8 +10,10 @@ use App\Admin\Resources\TicketResource\TicketBulkActionsMenu;
 use App\Admin\Resources\TicketResource\TicketFilters;
 use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
 use App\Admin\Search\SearchTitle;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Support\AdminBadge;
+use App\Support\Tickets\TicketPresence;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\MarkdownEditor;
@@ -28,6 +30,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
+use WeakMap;
 
 class TicketResource extends Resource
 {
@@ -203,6 +206,8 @@ class TicketResource extends Resource
                     ->state(fn (Ticket $record) => '#' . $record->reference . ' – ' . $record->subject)
                     ->url(fn (Ticket $record) => self::getUrl('edit', ['record' => $record]))
                     ->color('primary')
+                    // Who else views it or writes in it now (docs/tickets.md §6ν), from one query per request.
+                    ->description(fn (Ticket $record, $livewire) => self::presence(self::presenceOn($livewire)[$record->id] ?? []))
                     ->wrap()
                     ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => $query
                         ->where(fn (Builder $query) => self::whereContains($query, 'subject', $search))
@@ -254,7 +259,45 @@ class TicketResource extends Resource
                 BulkActionGroup::make(TicketBulkActionsMenu::make())->label(__('With selected')),
             ])
             // As WHMCS: the latest reply first (pinned still on top), those without one last.
-            ->defaultSort(fn (Builder $query) => $query->orderByRaw('last_reply_at IS NULL')->orderBy('last_reply_at', 'desc')->orderBy('id', 'desc'));
+            ->defaultSort(fn (Builder $query) => $query->orderByRaw('last_reply_at IS NULL')->orderBy('last_reply_at', 'desc')->orderBy('id', 'desc'))
+            // Fresh «viewing / writing» lines (§6ν) and new replies without a reload.
+            ->poll('30s');
+    }
+
+    /** @var WeakMap<object, array<int, list<array{staff_id: int, name: string, state: string, typed_at: ?Carbon}>>>|null */
+    private static ?WeakMap $presence = null;
+
+    /**
+     * Who else is on the tickets now, read once per request of the page that shows the table (its object lives one
+     * request). Not a method of the page: Livewire would answer a public one to the browser.
+     *
+     * @return array<int, list<array{staff_id: int, name: string, state: string, typed_at: ?Carbon}>>
+     */
+    private static function presenceOn(object $livewire): array
+    {
+        self::$presence ??= new WeakMap;
+        $staff = auth('staff')->user();
+
+        return self::$presence[$livewire] ??= TicketPresence::on(null, $staff instanceof Staff ? $staff->id : null);
+    }
+
+    /** @param  list<array{staff_id: int, name: string, state: string, typed_at: ?Carbon}>  $members */
+    private static function presence(array $members): ?HtmlString
+    {
+        if ($members === []) {
+            return null;
+        }
+        $parts = array_map(function (array $member) {
+            [$icon, $colour, $text] = match ($member['state']) {
+                TicketPresence::WRITING_STATE => ['heroicon-m-pencil-square', 'text-warning-600 dark:text-warning-400', __(':name is writing', ['name' => $member['name']])],
+                TicketPresence::DRAFT_STATE => ['heroicon-m-document-text', 'text-gray-500 dark:text-gray-400', __(':name: unsent reply', ['name' => $member['name']])],
+                default => ['heroicon-m-eye', 'text-gray-500 dark:text-gray-400', __(':name is viewing', ['name' => $member['name']])],
+            };
+
+            return '<span class="inline-flex items-center gap-0.5 ' . $colour . '">' . svg($icon, 'h-3.5 w-3.5')->toHtml() . e($text) . '</span>';
+        }, $members);
+
+        return new HtmlString('<span class="inline-flex flex-wrap gap-x-2 text-xs" data-ticket-presence>' . implode('', $parts) . '</span>');
     }
 
     /** @return array<string, string> */

@@ -7,6 +7,7 @@ use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
 use App\Http\Controllers\Admin\LoginAsClientController;
 use App\Http\Controllers\Admin\ServicePanelLoginController;
+use App\Http\Controllers\Admin\TicketPresenceController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\EnsureStaffTwoFactor;
@@ -201,6 +202,9 @@ class AdminPanelProvider extends PanelProvider
             ->authenticatedRoutes(function () {
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
                     ->name('ticket-attachments.show')->middleware([EnsureStaffTwoFactor::class, 'can:view,attachment']);
+                // A ticket's page closed or left: its «viewing / writing» goes at once (docs/tickets.md §6ν).
+                Route::post('ticket-presence/leave', [TicketPresenceController::class, 'leave'])->name('ticket-presence.leave')
+                    ->middleware(EnsureStaffTwoFactor::class);
                 // Opened in a new tab from the panel's pages (owner 2026-10-26), by a signed link for its staff member
                 // (StaffLink, checked by each): «Log in to panel» and «Login as client».
                 Route::get('services/{service}/panel-login', ServicePanelLoginController::class)->name('sso.service')
