@@ -1045,9 +1045,14 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - **2 ορφανές γραμμές**, χωρίς τιμολόγιο: θα σπάσουν το FK, άρα παραλείπονται με αναφορά.
 - **Χώρα του τιμολογίου:** `tblinvoicedata` (6.116) → `invoice_snapshots.tax_country`. Χρειάζεται ως στοιχείο για το
   ΦΠΑ ΕΕ (OSS, reverse charge).
-- **Συναίνεση marketing:** `tblclients.emailoptout` (76), `marketing_emails_opt_in` (156), `tblmarketing_consent`
-  (269) → το opt-out του `announcement_news` (`NotificationPreference`). Χωρίς αυτό, το πρώτο μαζικό email θα πάει σε
-  όσους έχουν πει όχι (GDPR).
+- ~~**Συναίνεση marketing**~~ **έγινε** (WG-9, 2026-11-04, `importMarketingConsent`): λογαριασμός με `emailoptout` = 1
+  ή `marketing_emails_opt_in` = 0 (η τρέχουσα κατάσταση· το `tblmarketing_consent` είναι το ιστορικό) → «news» off
+  (`announcement_news`, mail και in-app) για τον owner του, όπως το «Stop these emails». Τα σημαντικά announcements
+  φεύγουν κανονικά. Parity: «Owners without news (marketing)». Myip 345/346, nixpal 76/77.
+- **Κλειστοί πελάτες** (WG-8, 2026-11-04): `tblclients.status` Closed → `clients.closed_at`. Τα logins του δεν μπαίνουν
+  (κωδικός, social, «Remember me»), εκτός αν έχουν κι άλλον ανοιχτό λογαριασμό, και δεν δέχεται παραγγελίες. Το staff
+  τον ξανανοίγει αδειάζοντας το «Closed» στη φόρμα του πελάτη. Το Inactive δεν αποθηκεύεται: το λένε οι υπηρεσίες του.
+  Parity: «Customers closed». Nixpal 2, myip 0.
 - **Κατάσταση υπενθυμίσεων:** των τιμολογίων **έγινε** (review του #531): κάθε απλήρωτο με `due_at` παίρνει ως «στάλθηκε»
   κάθε overdue ημέρα ως σήμερα, και το «due soon» όταν λήγει μέσα στις `SendInvoiceReminderDays` του WHMCS· οι επόμενες
   είναι του cron. Των domains έγινε με το D6 (`domain_reminders`, ενότητα «Domains»).

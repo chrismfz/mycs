@@ -86,6 +86,14 @@ class Login extends Component
             return;
         }
 
+        // Its every account closed (WG-8): told so, after the password, as WHMCS does.
+        if ($user->closedOut()) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, LoginAttempt::FAILED);
+            $this->addError('email', __('auth.closed'));
+
+            return;
+        }
+
         // Check 2FA
         if ($user->tfa_secret) {
             Session::put('2fa', [

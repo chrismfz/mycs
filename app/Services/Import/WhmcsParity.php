@@ -42,6 +42,20 @@ final class WhmcsParity
             DB::table('clients')->whereNotExists(fn ($contact) => $contact->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id')
                 ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
 
+        // WG-8: the closed accounts (no sign-in, no orders); WG-9: the owners who said no to marketing mail, news off here.
+        if ($this->hasColumn('tblclients', 'status') && $this->hasColumn('tblusers_clients', 'owner')) {
+            $owned = 'EXISTS (SELECT 1 FROM tblusers_clients uc JOIN tblusers u ON u.id = uc.auth_user_id WHERE uc.client_id = c.id AND uc.owner = 1)';
+            $add('Customers closed', $this->count("SELECT COUNT(*) FROM tblclients c WHERE c.status = 'Closed' AND {$owned}"),
+                DB::table('clients')->whereNotNull('closed_at')->count());
+        }
+        if ($this->hasColumn('tblclients', 'emailoptout') && $this->hasColumn('tblusers_clients', 'owner')) {
+            $no = 'c.emailoptout = 1' . ($this->hasColumn('tblclients', 'marketing_emails_opt_in') ? ' OR c.marketing_emails_opt_in = 0' : '');
+            $add('Owners without news (marketing)', $this->count('SELECT COUNT(DISTINCT uc.auth_user_id) FROM tblusers_clients uc JOIN tblusers u ON u.id = uc.auth_user_id'
+                . " JOIN tblclients c ON c.id = uc.client_id WHERE uc.owner = 1 AND ({$no})"),
+                DB::table('notification_preferences')->where('mail_enabled', false)
+                    ->whereIn('notification_template_id', DB::table('notification_templates')->where('key', 'announcement_news')->select('id'))->count());
+        }
+
         // WG-2: the catalog as the catalog's import brings it, every product (one of a group WHMCS deleted too, hidden:
         // ADV-646-2). Listed: neither hidden nor retired, in a group there and not hidden, and of no SSL module retired here
         // (importOfflineSsl). A package: cPanel's, ngm's.

@@ -47,6 +47,8 @@ class Client extends Model implements Auditable
         'separate_invoices',
         'dunning_exempt',
         'no_overdue_reminders',
+        // Closed (WHMCS «Closed», WG-8): no sign-in through it, no new orders.
+        'closed_at',
         'default_billing_agreement_id',
         'auto_charge',
         'client_group_id',
@@ -59,6 +61,7 @@ class Client extends Model implements Auditable
     {
         return [
             'credit_auto_apply' => 'boolean',
+            'closed_at' => 'datetime',
             'tax_exempt' => 'boolean',
             'separate_invoices' => 'boolean',
             'dunning_exempt' => 'boolean',

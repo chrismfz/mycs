@@ -10,6 +10,7 @@ use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\NotificationTemplate;
 use App\Models\Order;
 use App\Models\PaymentGroup;
 use App\Models\Product;
@@ -196,6 +197,7 @@ class ImportFromWhmcs extends Command
             $this->importCurrencies();
             $this->importAutomationSettings();
             $this->importUsers();
+            $this->importMarketingConsent();
             $this->importAdmins();
             $this->importServers();
             // After the servers: each product takes its group and server from them (WG-2).
@@ -717,6 +719,36 @@ class ImportFromWhmcs extends Command
         return $ids;
     }
 
+    /**
+     * Who said no to marketing mail in WHMCS (WG-9): «news» off for the account's owner (its login), as «Stop these
+     * emails» sets it (AnnouncementUnsubscribeController), so the first news mail never reaches them. WHMCS's state is
+     * `tblclients.emailoptout` and, from WHMCS 8, `marketing_emails_opt_in` (tblmarketing_consent is its history): either
+     * one saying no is no (myip 345/346, nixpal 76/77). Important announcements are not news: still sent.
+     */
+    private function importMarketingConsent(): void
+    {
+        $template = NotificationTemplate::query()->where('key', 'announcement_news')->first();
+        if ($template === null) {
+            $this->warn('Marketing consent: no «announcement_news» template here, nothing set.');
+
+            return;
+        }
+        try {
+            $clients = $this->pdo->query('SELECT id FROM tblclients WHERE emailoptout = 1 OR marketing_emails_opt_in = 0')->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException) {
+            $clients = $this->pdo->query('SELECT id FROM tblclients WHERE emailoptout = 1')->fetchAll(PDO::FETCH_COLUMN); // before WHMCS 8
+        }
+        $users = DB::table('client_user')->where('owner', true)->whereIn('client_id', array_map('intval', $clients))->distinct()->pluck('user_id');
+        $now = now();
+        foreach ($users->chunk(500) as $chunk) {
+            // No unique key on the pair: one row each, the earlier ones (a re-run) replaced.
+            DB::table('notification_preferences')->where('notification_template_id', $template->id)->whereIn('user_id', $chunk->all())->delete();
+            DB::table('notification_preferences')->insert($chunk->map(fn ($user) => ['user_id' => $user, 'notification_template_id' => $template->id,
+                'mail_enabled' => false, 'in_app_enabled' => false, 'created_at' => $now, 'updated_at' => $now])->values()->all());
+        }
+        $this->info('Marketing consent: news off for ' . $users->count() . ' login(s) of ' . count($clients) . ' account(s) that said no in WHMCS.');
+    }
+
     private function importUsers()
     {
         $this->importLogins();
@@ -753,6 +785,8 @@ class ImportFromWhmcs extends Command
                     'auto_charge' => !($record['disableautocc'] ?? false),
                     // «Disable overdue notices», and its group (sweep of myip, 2026-10-25).
                     'no_overdue_reminders' => (bool) ($record['overideduenotices'] ?? false),
+                    // WHMCS «Closed» (WG-8: nixpal 2): no sign-in, no orders. «Inactive» is what its services say.
+                    'closed_at' => ($record['status'] ?? null) === 'Closed' ? now() : null,
                     'client_group_id' => isset($groups[(int) ($record['groupid'] ?? 0)]) ? (int) $record['groupid'] : null,
                     // Its mails' language (WHMCS «greek», «english», …; empty: the instance's).
                     'language' => Locales::fromWhmcs($record['language'] ?? null)];

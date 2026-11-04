@@ -49,6 +49,10 @@ final class PlaceOrderService
         if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
         }
+        // A closed account takes no new orders (WG-8): staff reopen it first.
+        if ($client->closed_at !== null) {
+            throw new DisplayException(__('This account is closed.'));
+        }
         // The VAT is the account's country's: without one, only an «all» rate would apply, else 0% with no reason, a
         // consumer's sale without the VAT the company owes (AUD5-1). Asked first, as WHMCS always does.
         if (config('settings.tax_enabled') && EuVat::iso($client->country) === null) {

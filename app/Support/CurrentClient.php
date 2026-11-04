@@ -125,7 +125,8 @@ class CurrentClient
     /** The account a user works on by default: the one they own, else the first they were given. */
     public static function defaultFor(User $user): ?Client
     {
-        return $user->clients()->orderByDesc('client_user.owner')->orderBy('clients.id')->first();
+        // An open account before a closed one (WG-8).
+        return $user->clients()->orderByRaw('clients.closed_at IS NULL DESC')->orderByDesc('client_user.owner')->orderBy('clients.id')->first();
     }
 
     private function session(): ?Session
