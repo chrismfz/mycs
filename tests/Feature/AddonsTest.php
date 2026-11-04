@@ -182,7 +182,7 @@ class AddonsTest extends TestCase
         $addon->product->update(['server_id' => $parent->product->server_id]);
 
         $this->assertNull($addon->fresh()->provisioningServer());
-        $this->assertFalse($addon->fresh()->hasServerActions());
+        $this->assertTrue($addon->fresh()->hasServerActions(), 'its actions run, as staff\'s tasks (ADV-634-6)');
     }
 
     public function test_the_cron_terminating_the_parent_ends_its_addons_with_their_invoices_and_stock(): void

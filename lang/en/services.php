@@ -457,6 +457,7 @@ return [
         'has_addons' => 'A service with addons cannot become an addon itself.',
         'parent_other_client' => 'An addon belongs to the same account as its main service.',
         'parent_other_currency' => 'An addon is billed in the same currency as its main service.',
+        'parent_currency' => 'This service has addons: its currency is theirs too, and cannot change.',
         'move_addon' => 'An addon moves with its main service: move that one.',
         'delete_parent' => 'This service has addons still running: end or delete them first.',
     ],

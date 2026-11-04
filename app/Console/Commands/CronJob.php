@@ -542,7 +542,7 @@ class CronJob extends Command
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
                 // Off by default (owner 2026-10-19): as WHMCS, only staff cancel an order, from Pending Orders.
                 $days = (int) config('settings.cronjob_order_cancel', 0);
-                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->orderBy('id')->pluck('id');
+                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->tap(self::parentsFirst(...))->pluck('id');
                 if ($days > 0) {
                     foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
                         $this->notices["orders_cancelled #{$partPaid}"] = new DisplayException("Service #{$partPaid} is an order part paid and not started: not cancelled (refund it, or take the rest and start it).");
@@ -821,7 +821,7 @@ class CronJob extends Command
         $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where('expires_at', '<=', now()->endOfDay())
             ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
-            ->orderBy('id')
+            ->tap(self::parentsFirst(...)) // an addon ending with its parent ends with it, not on its own (ADV-634-3b)
             ->pluck('id');
         foreach ($ids as $id) {
             try {
@@ -833,6 +833,17 @@ class CronJob extends Command
         }
 
         return $number;
+    }
+
+    /**
+     * Services in id order, parents before their addons (docs/addons.md): an addon follows what its parent's step does to it
+     * in the same run, whatever the ids (an older service fastened to a newer one, ids from WHMCS).
+     *
+     * @param  Builder<Service>  $query
+     */
+    private static function parentsFirst(Builder $query): void
+    {
+        $query->orderByRaw('CASE WHEN parent_service_id IS NULL THEN 0 ELSE 1 END')->orderBy('id');
     }
 
     /** Suspend services Suspend Days past due: the daily run's step, and the hourly one's (DunningWindow). */
@@ -853,7 +864,9 @@ class CronJob extends Command
                 $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
             }
         }
-        foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
+        // Parents before addons, whatever their ids: an addon follows its parent's suspension (AddonCascade) rather
+        // than being suspended on its own first (ADV-634-3a).
+        foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->tap(self::parentsFirst(...))->pluck('id') as $id) {
             $heldUntil = null;
             try {
                 $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly, &$heldUntil) {
@@ -972,7 +985,7 @@ class CronJob extends Command
         // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
         // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
         // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
-        foreach ($this->terminable()->orderBy('id')->pluck('id') as $id) {
+        foreach ($this->terminable()->tap(self::parentsFirst(...))->pluck('id') as $id) {
             try {
                 $done = DB::transaction(function () use ($id) {
                     $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();

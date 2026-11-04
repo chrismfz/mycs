@@ -3,6 +3,7 @@
 namespace App\Services\Service;
 
 use App\Helpers\NotificationHelper;
+use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
@@ -11,6 +12,7 @@ use App\Models\ServiceCancellation;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -60,6 +62,14 @@ final class AddonCascade
             if ($addon->suspend_reason !== Service::SUSPEND_REASON_PARENT) {
                 continue;
             }
+            // Overdue on its own past Suspend Days (its own invoice unpaid): it stays suspended, now for that, as the cron
+            // would have suspended it, and its server is asked for it (a task: the parent's suspension covered it).
+            if ($addon->expires_at !== null && $addon->stillOverdue(CarbonImmutable::parse($addon->expires_at))) {
+                $addon->forceFill(['suspend_reason' => 'Overdue on Payment', 'dunning_suspended_at' => now()])->save();
+                AfterCommit::job(new SuspendJob($addon));
+
+                continue;
+            }
             $addon->forceFill(['status' => Service::STATUS_ACTIVE])->save();
             if (self::suspendedByHand($addon)) {
                 AfterCommit::job(new UnsuspendJob($addon));
@@ -84,6 +94,40 @@ final class AddonCascade
             }
         }
         self::tellStaff($parent, $left);
+    }
+
+    /**
+     * An addon that starts or comes back (its creation done, paid, staff) while its parent is suspended is suspended with
+     * it: back when its parent is (ADV-634-7).
+     */
+    public static function keepUnderParent(Service $addon): void
+    {
+        DB::transaction(function () use ($addon) {
+            if (Service::query()->whereKey($addon->parent_service_id)->value('status') !== Service::STATUS_SUSPENDED) {
+                return;
+            }
+            $locked = Service::query()->whereKey($addon->id)->lockForUpdate()->first();
+            if ($locked?->status === Service::STATUS_ACTIVE) {
+                $locked->forceFill(['status' => Service::STATUS_SUSPENDED, 'suspend_reason' => Service::SUSPEND_REASON_PARENT, 'dunning_suspended_at' => null])->save();
+                $addon->setRawAttributes($locked->getAttributes(), true);
+            }
+        });
+    }
+
+    /**
+     * Fastened to a service that already has its request at the end of its period: the request is its too, so it is not
+     * billed past its parent's end (ADV-634-9).
+     */
+    public static function fastened(Service $addon): void
+    {
+        if ($addon->isEnded() || $addon->cancellation()->exists()) {
+            return;
+        }
+        $request = ServiceCancellation::query()->where('service_id', $addon->parent_service_id)->where('type', 'end_of_period')->first();
+        if ($request !== null) {
+            (new ServiceCancellation(['service_id' => $addon->id, 'type' => 'end_of_period', 'reason' => (string) $request->reason]))
+                ->forceFill(['with_parent' => true])->save();
+        }
     }
 
     /**

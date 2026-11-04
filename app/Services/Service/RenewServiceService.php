@@ -17,6 +17,7 @@ use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
@@ -172,7 +173,18 @@ class RenewServiceService
             AfterCommit::job(new UnsuspendJob($service));
         }
         if (!$manualHold && $service->hasServerActions()) {
-            if ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
+            if ($service->status == Service::STATUS_PENDING && !$waitsForStaff && $service->isAddon()) {
+                // An addon's creation is a task for staff on its parent's machine, no module (ADV-634-6): made once this
+                // commits, the addon started now (suspended with a suspended parent: AddonCascade).
+                $id = $service->id;
+                DB::afterCommit(function () use ($id) {
+                    try {
+                        ($addon = Service::query()->find($id)) !== null ? ExtensionHelper::createServer($addon) : null;
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                });
+            } elseif ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
                 AfterCommit::job(new CreateJob($service));
             }
         }
@@ -189,7 +201,7 @@ class RenewServiceService
         }
         // A pending one with a server turns active once its account is made (CreateJob, Σ1): paid now, it may still
         // fail on the server and wait in Pending Module Actions. Without a server there is nothing to make.
-        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions();
+        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions() && !$service->isAddon();
         if (!$manualHold && !$awaitsCreate && !$waitsForStaff) {
             $service->status = Service::STATUS_ACTIVE;
         }

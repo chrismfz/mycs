@@ -627,7 +627,8 @@ class Service extends Model implements Auditable
             }
             $locked->status = self::STATUS_SUSPENDED;
             // A staff hold: not the cron's «Overdue on Payment» any more (review R5); staff write their own reason.
-            if ($locked->dunning_suspended_at !== null) {
+            // Nor «with its parent» (an addon): their hold is not lifted with the parent's (ADV-634-1).
+            if ($locked->dunning_suspended_at !== null || $locked->suspend_reason === self::SUSPEND_REASON_PARENT) {
                 $locked->suspend_reason = null;
             }
             $locked->dunning_suspended_at = null;
@@ -1008,11 +1009,12 @@ class Service extends Model implements Auditable
 
     /**
      * Whether its server actions run: a server to act on, or an account (or an order, pending) on a server of WHMCS's not
-     * here. Those fail to staff in checkServer(), never skipped (reviews of #530).
+"     * here. Those fail to staff in checkServer(), never skipped (reviews of #530). An addon's are staff's tasks on its
+     * parent's machine (ExtensionHelper::addonTask): they run too, a paid addon's creation among them (ADV-634-6).
      */
     public function hasServerActions(): bool
     {
-        return $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
+        return $this->parent_service_id !== null || $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
     }
 
     /**

@@ -133,6 +133,9 @@ class ChatNotifications
 
     public function handleCancellation(CancellationCreated $event): void
     {
+        if ($event->cancellation->with_parent) {
+            return; // made with its parent's request: one notice, the parent's (ADV-634-4)
+        }
         [$type, $reason, $serviceId] = [$event->cancellation->type, $event->cancellation->reason, $event->cancellation->service_id];
         $this->tell(fn () => ChatNotifier::notify('cancellation_requested', function () use ($type, $reason, $serviceId) {
             $service = Service::query()->with('product', 'client')->findOrFail($serviceId);
