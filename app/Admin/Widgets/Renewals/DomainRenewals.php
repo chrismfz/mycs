@@ -33,6 +33,9 @@ class DomainRenewals extends TableWidget
     {
         return $table
             ->heading(__('Upcoming domain renewals'))
+            // Denser (B2, owner 2026-11-04): the window under the heading instead of a row of «Active filters».
+            ->description(fn () => __('Within :days days', ['days' => (int) ($this->tableFilters['within']['value'] ?? 30) ?: 30]))
+            ->hiddenFilterIndicators()
             ->query(Domain::query()->with(['client.primaryContact', 'client.ownerGrant.user', 'registrarConnection', 'domainTld.registrarConnection'])
                 ->whereIn('status', [DomainStatus::Active->value, DomainStatus::Expired->value, DomainStatus::Grace->value, DomainStatus::Redemption->value])
                 ->whereNotNull('expires_at')->whereDate('expires_at', '>=', today()->subDays(self::PAST_DAYS)))
