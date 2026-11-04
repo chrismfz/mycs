@@ -31,7 +31,7 @@ class CpanelAccount extends Model
         'lve_memory_limit_mb', 'lve_entry_processes_limit', 'lve_processes_limit', 'lve_io_limit_kbs', 'lve_iops_limit', 'lve_read_at',
         'plan_disk_mb', 'plan_bandwidth_mb', 'limits_check', 'limits_check_mb', 'limits_checked_at',
         'temporary_extra_mb', 'temporary_extra_until', 'temporary_extra_note', 'temporary_extra_by',
-        'approved_check', 'approved_state', 'approved_note', 'approved_by', 'approved_at'];
+        'approved_check', 'approved_state', 'approved_mb', 'approved_note', 'approved_by', 'approved_at'];
 
     /**
      * CloudLinux's limits (cpanel:lve): each one's column in a sample and its limit's on the account (CPU is a percent of
@@ -50,7 +50,7 @@ class CpanelAccount extends Model
     {
         return ['reseller' => 'boolean', 'suspended' => 'boolean', 'mail_held' => 'boolean', 'mail_suspended' => 'boolean', 'backup' => 'boolean',
             'internal' => 'boolean', 'plan_disk_mb' => 'integer', 'plan_bandwidth_mb' => 'integer', 'limits_check_mb' => 'integer',
-            'limits_checked_at' => 'datetime', 'temporary_extra_mb' => 'integer', 'temporary_extra_until' => 'date', 'approved_at' => 'datetime', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
+            'limits_checked_at' => 'datetime', 'temporary_extra_mb' => 'integer', 'approved_mb' => 'integer', 'temporary_extra_until' => 'date', 'approved_at' => 'datetime', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
     }
 
     /** @return BelongsTo<Server, $this> */

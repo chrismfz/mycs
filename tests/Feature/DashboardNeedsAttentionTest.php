@@ -244,7 +244,7 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertSame([trans_choice(':count hosting account with an extra not billed|:count hosting accounts with an extra not billed', 2),
             trans_choice(':count temporary extra to take back|:count temporary extras to take back', 1)], array_column($rows, 'title'));
         $this->assertSame(['warning', 'warning'], array_column($rows, 'color'));
-        $this->assertTrue($rows[1]['since']->isSameDay(today()->subDays(4)), 'the oldest date passed');
+        $this->assertTrue($rows[1]['since']->isSameDay(today()->subDays(3)), 'the day after the oldest last day: when it ended');
         $this->assertSame(['filters' => ['limits_check' => ['value' => AccountCheck::EXTRA_NOT_BILLED]]], $this->queryOf($rows[0]['url']));
         $this->assertSame([__('Hosting accounts')], NeedsAttention::report()['checked']);
         Livewire::test(ListCpanelAccounts::class)->filterTable('limits_check', AccountCheck::EXTRA_NOT_BILLED)->assertCountTableRecords(2)->assertCanSeeTableRecords([$extra]);

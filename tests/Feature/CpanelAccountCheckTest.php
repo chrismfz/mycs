@@ -334,7 +334,7 @@ class CpanelAccountCheckTest extends TestCase
         AccountSync::sync($this->server);
         $a = $this->account('lent');
         $this->assertSame([AccountCheck::EXTRA_TO_TAKE_BACK, 10240], [$a->limits_check, $a->limits_check_mb]);
-        $this->assertStringContainsString('the temporary extra ended', (string) AccountCheck::explain($a));
+        $this->assertSame('10 GB of a temporary extra still there: it ended ' . today()->format('d/m/Y') . ' · moving a site', AccountCheck::explain($a));
 
         $this->accounts = [$this->acct('lent', 'Starter', '20480M')];
         AccountSync::sync($this->server);
@@ -376,8 +376,14 @@ class CpanelAccountCheckTest extends TestCase
         $this->accounts = [$this->acct('friend', 'Starter', '40960M')];
         AccountSync::sync($this->server);
         $a = $this->account('friend');
-        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 20480, null, null], [$a->limits_check, $a->limits_check_mb, $a->approved_check, $a->approved_state],
-            'more again: something new to look at');
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 10240, AccountCheck::EXTRA_NOT_BILLED], [$a->limits_check, $a->limits_check_mb, $a->approved_check],
+            'more again: the 10 GB more is new, the free 10 GB still approved');
+
+        $this->accounts = [$this->acct('friend', 'Starter', '25600M')];
+        AccountSync::sync($this->server);
+        $a = $this->account('friend');
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 5120, null, null], [$a->limits_check, $a->limits_check_mb, $a->approved_check, $a->approved_state],
+            'the free extra partly taken back: what is left is something new to look at');
     }
 
     public function test_an_approval_does_not_hide_another_finding_and_what_we_bill_changing_drops_it(): void

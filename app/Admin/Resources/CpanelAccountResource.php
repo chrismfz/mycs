@@ -251,10 +251,7 @@ class CpanelAccountResource extends Resource
     /** A mapping staff changed: the check follows it at once, not at the next read (the account is then compared with another service, or none). */
     private static function remap(CpanelAccount $record, array $values): void
     {
-        // What staff said about it was said of that service's client.
-        if (($values['service_id'] ?? null) !== $record->service_id) {
-            AccountCheck::forget($record);
-        }
+        // What staff said about it was said of that service's client: apply() forgets it when the service changes.
         $record->fill($values);
         AccountCheck::apply($record);
         $record->save();

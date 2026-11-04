@@ -82,14 +82,14 @@ final class AccountCheck
     }
 
     /**
-     * @return array{result: array{status: string, mb: int|null}|null, approved: bool}
+     * @return array{result: array{status: string, mb: int|null}|null, approved: bool, take_back: bool}
      */
     private static function evaluate(CpanelAccount $account): array
     {
         $service = $account->service;
         if ($account->gone_at !== null || $account->internal || $service === null
             || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) || $account->plan_disk_mb === null) {
-            return ['result' => null, 'approved' => false];
+            return ['result' => null, 'approved' => false, 'take_back' => false];
         }
 
         $found = [];
@@ -98,21 +98,53 @@ final class AccountCheck
             $found[self::PLAN_DIFFERS] = null;
         }
 
+        // An approved free extra is an amount, expected as what we bill is (review of #645: a temporary extra beside it, or the
+        // limit raised for one, is not a reason to drop it); null approved «no limit» while the server has none.
+        $approvedState = $account->approved_check !== null && hash_equals((string) $account->approved_state, self::approvedState($account, $account->approved_check));
+        $freeExtra = $approvedState && $account->approved_check === self::EXTRA_NOT_BILLED;
+        $freeMb = $freeExtra ? $account->approved_mb : 0;
+        if ($freeExtra && $freeMb === null && $account->disk_limit_mb !== null) {
+            $freeExtra = false;
+            $freeMb = 0;
+        }
+
         $comparable = $account->plan_disk_mb > 0;
         $temporaryInUse = false;
         if ($comparable) {
             $billed = $account->plan_disk_mb + self::billedExtraGb($service) * 1024;
+            if ($freeExtra && $freeMb !== null && $account->disk_limit_mb !== null && $account->disk_limit_mb - $billed < $freeMb - self::TOLERANCE_MB) {
+                // The free extra was taken back (some or all): nothing left to approve.
+                $freeExtra = false;
+                $freeMb = 0;
+            }
+            $base = $billed + (int) $freeMb;
             $temporary = self::temporaryExtraMb($account);
-            $expected = $billed + $temporary;
-            // No limit on the server for a package that has one: more than anything billed.
-            $diff = $account->disk_limit_mb === null ? null : $account->disk_limit_mb - $expected;
-            if ($account->disk_limit_mb === null || $diff > self::TOLERANCE_MB) {
-                $found[self::temporaryExtraEnded($account) ? self::EXTRA_TO_TAKE_BACK : self::EXTRA_NOT_BILLED] = $diff;
-            } elseif ($account->disk_limit_mb - $billed < -self::TOLERANCE_MB) {
-                // Measured from what we bill: a temporary extra not given yet (or taken back early) is not a shortfall.
-                $found[self::shortfall($service)] = $account->disk_limit_mb - $billed;
+            $ended = self::temporaryExtraEnded($account) ? (int) $account->temporary_extra_mb : 0;
+            if ($account->disk_limit_mb === null) {
+                // No limit on the server for a package that has one: more than anything billed, unless that was approved.
+                if (!$freeExtra) {
+                    $found[self::EXTRA_NOT_BILLED] = null;
+                }
+                if ($ended > 0) {
+                    $found[self::EXTRA_TO_TAKE_BACK] = $ended;
+                }
             } else {
-                $temporaryInUse = $temporary > 0 && $account->disk_limit_mb - $billed > self::TOLERANCE_MB;
+                $over = $account->disk_limit_mb - $base;
+                if ($over - $temporary > self::TOLERANCE_MB) {
+                    // An ended temporary extra is to take back up to what was lent; anything more than that was never said.
+                    $back = min($over, $ended);
+                    if ($back > self::TOLERANCE_MB) {
+                        $found[self::EXTRA_TO_TAKE_BACK] = $back;
+                    }
+                    if ($over - $temporary - $back > self::TOLERANCE_MB) {
+                        $found[self::EXTRA_NOT_BILLED] = $over - $temporary - $back;
+                    }
+                } elseif ($account->disk_limit_mb - $billed < -self::TOLERANCE_MB) {
+                    // Measured from what we bill: a temporary extra not given yet (or taken back early) is not a shortfall.
+                    $found[self::shortfall($service)] = $account->disk_limit_mb - $billed;
+                } else {
+                    $temporaryInUse = $temporary > 0 && $over > self::TOLERANCE_MB;
+                }
             }
         }
 
@@ -120,23 +152,28 @@ final class AccountCheck
             $found[self::BANDWIDTH_DIFFERS] = null;
         }
 
-        // The approved finding is quiet while nothing it was approved on changed; another one still shows.
-        $approved = $account->approved_check !== null && array_key_exists($account->approved_check, $found)
-            && hash_equals((string) $account->approved_state, self::approvedState($account));
+        // Another finding is quiet while nothing it was approved on changed and it is still found; any other one still shows.
+        $approved = $freeExtra || ($approvedState && $account->approved_check !== self::EXTRA_NOT_BILLED && array_key_exists($account->approved_check, $found));
+        $takeBack = array_key_exists(self::EXTRA_TO_TAKE_BACK, $found);
         foreach (self::FINDINGS as $status) {
-            if (array_key_exists($status, $found) && !($approved && $status === $account->approved_check)) {
-                return ['result' => ['status' => $status, 'mb' => $found[$status]], 'approved' => $approved];
+            // A free extra is already in what is expected: an extra not billed beside it is more than was approved.
+            if (array_key_exists($status, $found) && !($approved && !$freeExtra && $status === $account->approved_check)) {
+                return ['result' => ['status' => $status, 'mb' => $found[$status]], 'approved' => $approved, 'take_back' => $takeBack];
             }
         }
 
         $status = match (true) {
-            $approved => self::APPROVED,
             $temporaryInUse => self::TEMPORARY_EXTRA,
+            $approved => self::APPROVED,
             $comparable => self::OK,
             default => self::NOT_CHECKED,
         };
+        $mb = match ($status) {
+            self::APPROVED => $freeExtra ? $freeMb : $found[$account->approved_check],
+            default => null,
+        };
 
-        return ['result' => ['status' => $status, 'mb' => $approved ? $found[$account->approved_check] : null], 'approved' => $approved];
+        return ['result' => ['status' => $status, 'mb' => $mb], 'approved' => $approved, 'take_back' => $takeBack];
     }
 
     /** The temporary extra still expected (its date is today or later), in MB. */
@@ -152,16 +189,21 @@ final class AccountCheck
     }
 
     /**
-     * What an approval is given on: the account's limits and package, the package's, the service and what we bill for it. A
-     * change in any of them is something new to look at.
+     * What an approval is given on: the service, the packages and what we bill, and the limit the finding is about (the disk
+     * for a shortfall, the bandwidth for its own; a free extra is its amount, approved_mb, not the limit). A change in any of
+     * them is something new to look at.
      */
-    public static function approvedState(CpanelAccount $account): string
+    public static function approvedState(CpanelAccount $account, string $check): string
     {
         $service = $account->service;
+        $limit = match ($check) {
+            self::BILLED_NOT_APPLIED, self::BELOW_PACKAGE => $account->disk_limit_mb,
+            self::BANDWIDTH_DIFFERS => $account->bandwidth_limit_mb,
+            default => null,
+        };
 
-        return sha1(json_encode([$account->service_id, $account->plan, $account->disk_limit_mb, $account->bandwidth_limit_mb,
-            $account->plan_disk_mb, $account->plan_bandwidth_mb, $service === null ? null : self::package($service),
-            $service === null ? null : self::billedExtraGb($service)]));
+        return sha1(json_encode([$check, $account->service_id, $account->plan, $account->plan_disk_mb, $account->plan_bandwidth_mb, $limit,
+            $service === null ? null : self::package($service), $service === null ? null : self::billedExtraGb($service)]));
     }
 
     /** Keeps what for() found with the account (null when there is nothing to check). */
@@ -177,7 +219,11 @@ final class AccountCheck
             }
             $account->loadMissing(['service.properties', 'service.product.settings']);
         }
-        ['result' => $result, 'approved' => $approved] = self::evaluate($account);
+        // Another service is another client: what staff said of this one's is not theirs (the sync remaps by itself too: review of #645).
+        if ($account->exists && $account->isDirty('service_id') && $account->getOriginal('service_id') !== null) {
+            self::forget($account);
+        }
+        ['result' => $result, 'approved' => $approved, 'take_back' => $takeBack] = self::evaluate($account);
         $account->forceFill(['limits_check' => $result['status'] ?? null, 'limits_check_mb' => $result['mb'] ?? null,
             'limits_checked_at' => $result === null ? null : now()]);
         // Until it changes (owner 2026-11-04): an approval that no longer holds is dropped, not kept for a day it might again.
@@ -185,7 +231,7 @@ final class AccountCheck
             self::forget($account, temporary: false);
         }
         // An ended temporary extra the account no longer has was taken back: nothing left to remind.
-        if ($result !== null && self::temporaryExtraEnded($account) && $result['status'] !== self::EXTRA_TO_TAKE_BACK) {
+        if ($result !== null && self::temporaryExtraEnded($account) && !$takeBack) {
             self::forget($account, approval: false);
         }
     }
@@ -197,8 +243,8 @@ final class AccountCheck
         if (!in_array($account->limits_check, self::APPROVABLE, true)) {
             return;
         }
-        $account->forceFill(['approved_check' => $account->limits_check, 'approved_state' => self::approvedState($account),
-            'approved_note' => $note, 'approved_by' => $staffId, 'approved_at' => now()]);
+        $account->forceFill(['approved_check' => $account->limits_check, 'approved_state' => self::approvedState($account, $account->limits_check),
+            'approved_mb' => $account->limits_check === self::EXTRA_NOT_BILLED ? $account->limits_check_mb : null, 'approved_note' => $note, 'approved_by' => $staffId, 'approved_at' => now()]);
         self::apply($account);
     }
 
@@ -206,7 +252,7 @@ final class AccountCheck
     public static function forget(CpanelAccount $account, bool $approval = true, bool $temporary = true): void
     {
         if ($approval) {
-            $account->forceFill(['approved_check' => null, 'approved_state' => null, 'approved_note' => null, 'approved_by' => null, 'approved_at' => null]);
+            $account->forceFill(['approved_check' => null, 'approved_state' => null, 'approved_mb' => null, 'approved_note' => null, 'approved_by' => null, 'approved_at' => null]);
         }
         if ($temporary) {
             $account->forceFill(['temporary_extra_mb' => null, 'temporary_extra_until' => null, 'temporary_extra_note' => null, 'temporary_extra_by' => null]);
@@ -225,8 +271,8 @@ final class AccountCheck
             self::BELOW_PACKAGE => "{$gb} less disk than its package",
             self::PLAN_DIFFERS => 'The package on the server is not the service\'s',
             self::BANDWIDTH_DIFFERS => 'The bandwidth limit is not its package\'s',
-            self::EXTRA_TO_TAKE_BACK => "{$gb} more disk than its package and what we bill: the temporary extra ended "
-                . $account->temporary_extra_until?->format('d/m/Y') . self::note($account->temporary_extra_note),
+            self::EXTRA_TO_TAKE_BACK => "{$gb} of a temporary extra still there: it ended "
+                . $account->temporary_extra_until?->addDay()->format('d/m/Y') . self::note($account->temporary_extra_note),
             self::TEMPORARY_EXTRA => '+' . round((int) $account->temporary_extra_mb / 1024, 1) . ' GB until ' . $account->temporary_extra_until?->format('d/m/Y')
                 . self::note($account->temporary_extra_note),
             self::APPROVED => 'Approved' . ($account->approvedBy ? ' by ' . $account->approvedBy->name : '') . ' on ' . $account->approved_at?->format('d/m/Y')

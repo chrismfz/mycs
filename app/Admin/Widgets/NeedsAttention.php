@@ -107,7 +107,7 @@ class NeedsAttention extends Widget
             $count = (clone $back)->count();
             if ($count > 0) {
                 $rows[] = self::row(trans_choice(':count temporary extra to take back|:count temporary extras to take back', $count),
-                    __('its date has passed'), $back->min('temporary_extra_until'), 'warning',
+                    __('its date has passed'), ($until = $back->min('temporary_extra_until')) === null ? null : Carbon::parse($until)->addDay(), 'warning',
                     CpanelAccountResource::getUrl('index', ['filters' => ['limits_check' => ['value' => AccountCheck::EXTRA_TO_TAKE_BACK]]]));
             }
         }
