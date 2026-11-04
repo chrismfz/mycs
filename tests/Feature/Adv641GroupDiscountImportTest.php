@@ -68,8 +68,6 @@ class Adv641GroupDiscountImportTest extends TestCase
         $client->forceFill(['client_group_id' => null])->save();
         ClientGroupPricing::reconcile();
 
-        $this->markTestIncomplete('ADV-641-1, open for the owner: neither company has a 100% group (nixpal 10% and 50%, myip none),'
-            . ' and any service put in a 100% group here loses its price the same way (ClientGroupPricing, before #641 too).');
         $this->assertSame('62.90', number_format((float) $service->refresh()->price, 2, '.', ''), 'WHMCS bills its amount once the account leaves the group');
     }
 
@@ -91,9 +89,6 @@ class Adv641GroupDiscountImportTest extends TestCase
         $client->forceFill(['client_group_id' => null])->save();
         ClientGroupPricing::reconcile();
 
-        $this->markTestIncomplete('ADV-641-2, open for the owner: a cent, only when the account leaves its group, on a custom amount'
-            . ' whose discount rounds; nixpal\'s group account has 1.80 and 5.00 only (exact). The ratio scaling of any custom price'
-            . ' does the same here (ClientGroupPricing, before #641 too).');
         $this->assertSame('1.85', number_format((float) $service->refresh()->price, 2, '.', ''), 'WHMCS bills its amount once the account leaves the group');
     }
 

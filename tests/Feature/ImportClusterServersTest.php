@@ -196,6 +196,14 @@ class ImportClusterServersTest extends TestCase
 
         $this->assertSame(0, ClientGroupPricing::reconcile());
         $this->assertSame(['1.62', '4.50', '1.66'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+
+        // ADV-641-2: WHMCS's amount is kept; staff's own price is no longer that one, and a change of group scales theirs.
+        $this->assertSame('1.85', number_format((float) Service::query()->findOrFail(913)->undiscounted_price, 2, '.', ''));
+        Service::query()->findOrFail(912)->update(['price' => 3.00]);
+        $this->assertNull(Service::query()->findOrFail(912)->undiscounted_price);
+        $client->forceFill(['client_group_id' => null])->save();
+        ClientGroupPricing::reconcile();
+        $this->assertSame(['1.80', '3.33', '1.85'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
     }
 
     /**
