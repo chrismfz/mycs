@@ -25,6 +25,7 @@ class Coupon extends Model implements Auditable
         'recurring',
         'customers',
         'once_per_client',
+        'kept_on_product_change',
         'requires_existing',
         'billing_cycles',
     ];
@@ -53,6 +54,7 @@ class Coupon extends Model implements Auditable
         'max_uses_per_user' => 'integer',
         'value' => 'float',
         'once_per_client' => 'boolean',
+        'kept_on_product_change' => 'boolean',
         'requires_existing' => 'boolean',
         'billing_cycles' => 'array',
     ];

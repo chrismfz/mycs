@@ -277,6 +277,10 @@ class ServiceUpgrade extends Model implements Auditable
         $after->exists = true;
         $after->product_id = $this->product_id ?? $this->product->id ?? $service->product_id;
         $after->setRelation('product', $this->product ?? $service->product);
+        // A coupon that is not kept on a product change ends with it (ADV-650-1, as WHMCS's promotion that is not lifetime).
+        if ((int) $after->product_id !== (int) $service->product_id && $service->coupon?->kept_on_product_change === false) {
+            $after->coupon_expired_at = now()->toImmutable();
+        }
         $plan = $this->targetPlan() ?? $service->plan;
         $after->plan_id = $plan?->id;
         $after->setRelation('plan', $plan);

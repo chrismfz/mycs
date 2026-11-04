@@ -148,6 +148,10 @@ class CouponResource extends Resource
                 Toggle::make('once_per_client')
                     ->label(__('Once per customer'))
                     ->helperText(__('A customer who used it once, in any order, cannot use it again.')),
+                Toggle::make('kept_on_product_change')
+                    ->label(__('Kept on upgrades'))
+                    ->default(true)
+                    ->helperText(__('Off: an upgrade to another product renews at its full price (WHMCS «Lifetime Promotion» off).')),
                 Select::make('requiredProducts')
                     ->label(__('Requires'))
                     ->relationship(name: 'requiredProducts', titleAttribute: 'name')

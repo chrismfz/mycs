@@ -122,8 +122,8 @@ adversarial review.
       `order_days_grace` (default 7), από τον importer (feat/import-funds-order-grace).
 - [x] **WG-5** Δικαιώματα των ρόλων staff εκτός Full Administrator: αντιστοίχιση των `tbladminperms` (`RolePermissions`),
   με σημείωση για ό,τι δεν υπάρχει εδώ.
-- [ ] **WG-6** Promotions: να μην κλείνουν όσα εκφράζει πια το MyCS (#274).
-- [ ] **WG-7** `TermsOfService` → `tos`.
+- [x] **WG-6** Promotions: να μην κλείνουν όσα εκφράζει πια το MyCS (#274).
+- [x] **WG-7** `TermsOfService` → `tos`.
 - [ ] **WG-8** Κλειστοί πελάτες (Closed) χωρίς login.
 - [ ] **WG-9** Συναίνεση marketing → opt-out του `announcement_news`.
 - [ ] **WG-10** `mail_must_verify` off στο cut-over της nixpal (settings-map).

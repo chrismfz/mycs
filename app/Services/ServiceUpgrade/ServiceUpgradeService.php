@@ -96,6 +96,10 @@ class ServiceUpgradeService
             $service->product_id = $serviceUpgrade->product_id;
             if ($productChanged) {
                 $service->next_plan_id = null; // a change of cycle set for the old product's plans (SVC-14b)
+                // A coupon not kept on a product change ends here, as newRecurringPrice priced it (ADV-650-1).
+                if ($service->coupon_id !== null && $service->coupon_expired_at === null && $service->coupon?->kept_on_product_change === false) {
+                    $service->coupon_expired_at = now()->toImmutable();
+                }
             }
             $service->save();
 

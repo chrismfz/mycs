@@ -515,7 +515,7 @@ class ImportFromWhmcs extends Command
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
             . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade', 'AddFundsMinimum', 'AddFundsMaximum',"
-            . " 'AddFundsMaximumBalance', 'OrderDaysGrace')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -578,6 +578,15 @@ class ImportFromWhmcs extends Command
         }
         $overdue = array_values(array_unique($overdue));
         sort($overdue);
+        // The terms the cart and the sign-up ask to accept (WG-7: both companies have it on, with a URL): a web page only,
+        // as the Settings page takes it (review of #330); WHMCS's off is none here.
+        $tosUrl = trim((string) ($config['TermsOfService'] ?? ''));
+        $tosValid = strlen($tosUrl) <= 255 && filter_var($tosUrl, FILTER_VALIDATE_URL) !== false
+            && in_array(strtolower((string) parse_url($tosUrl, PHP_URL_SCHEME)), ['http', 'https'], true);
+        $tos = !$has('EnableTOSAccept') ? null : (!$on('EnableTOSAccept') ? ['string', ''] : ($tosValid ? ['string', $tosUrl] : null));
+        if ($on('EnableTOSAccept') && !$tosValid) {
+            $this->warn("Terms of Service: WHMCS asks for them, but «{$tosUrl}» is no web address: set the tos setting by hand.");
+        }
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
@@ -608,6 +617,7 @@ class ImportFromWhmcs extends Command
             ...array_map(fn (?string $value) => $value !== null ? ['string', $value] : null, $deposits),
             // «Order Days Grace»: a new order's invoice is due after it (WG-4: myip 8, nixpal 0, the same day).
             'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
+            'tos' => $tos,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
@@ -2323,11 +2333,21 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * WHMCS promotions (tblpromotions) as coupons, with their ids (tblhosting.promoid). One MyCS cannot express as WHMCS
-     * applies it (a price override, some billing cycles only, new or existing clients only, «requires», once per order,
-     * recurring for N times) is imported closed for new orders (expired now) and reported: staff recreate it. The
-     * services ordered with it keep it, for the record (serviceCoupon).
+     * WHMCS promotions (tblpromotions) as coupons, with their ids (tblhosting.promoid), and their rules as MyCS has them
+     * since #274 (WG-6): a price override, its billing cycles, new or existing clients, once per client, «requires» (held
+     * already, with «Requires Existing»), recurring for N times (N discounted invoices, the order's among them: review of
+     * #650), «Lifetime Promotion» (kept_on_product_change: ADV-650-1). One MyCS still cannot express as WHMCS applies it
+     * (once per order, for upgrades, a fixed amount in more than one currency, a negative value, addons or domains) is
+     * imported closed for new orders (expired now) and reported: staff recreate it. The services ordered with it keep it,
+     * for the record (serviceCoupon), also those WHMCS no longer marks (ADV-650-2: «once per client» remembers them).
      */
+    /** WHMCS's billing cycles as a coupon lists them (Coupon::cycleKey); its domains' «1Years»… are no product's. */
+    private const PROMOTION_CYCLES = ['Monthly' => 'month:1', 'Quarterly' => 'month:3', 'Semi-Annually' => 'month:6',
+        'Annually' => 'year:1', 'Biennially' => 'year:2', 'Triennially' => 'year:3', 'One Time' => 'one_time'];
+
+    /** @var array<int, int> WHMCS orders placed with a promotion's code (tblorders.promocode) => its id: serviceCoupon */
+    private array $orderPromotions = [];
+
     /** @var array<int, array{recurring: int, recurfor: int, code: string}> the promotions imported, by id: serviceCoupon */
     private array $promotions = [];
 
@@ -2339,47 +2359,91 @@ class ImportFromWhmcs extends Command
         $currencies = (int) $this->pdo->query('SELECT COUNT(*) FROM tblcurrencies')->fetchColumn();
         $closed = now()->subSecond()->toDateTimeString(); // past already: closed from the import on
 
+        $promotionCodes = $this->pdo->query('SELECT code, id FROM tblpromotions ORDER BY id')->fetchAll(PDO::FETCH_KEY_PAIR);
+        try {
+            foreach ($this->pdo->query("SELECT id, promocode FROM tblorders WHERE promocode <> ''")->fetchAll(PDO::FETCH_KEY_PAIR) as $order => $code) {
+                if (isset($promotionCodes[$code])) {
+                    $this->orderPromotions[(int) $order] = (int) $promotionCodes[$code];
+                }
+            }
+        } catch (PDOException) {
+            // a source without tblorders (a test's): none
+        }
+
         foreach ($this->pdo->query('SELECT * FROM tblpromotions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $promo) {
             $why = [];
             [$type, $value, $appliesTo] = match ($promo['type']) {
                 'Percentage' => ['percentage', $promo['value'], 'all'],
                 'Fixed Amount' => ['fixed', $promo['value'], 'all'],
                 'Free Setup' => ['percentage', '100.00', 'setup_fee'],
+                'Price Override' => ['override', $promo['value'], 'all'],
                 default => ['fixed', '0.00', 'all'],
             };
-            if (!in_array($promo['type'], ['Percentage', 'Fixed Amount', 'Free Setup'], true)) {
+            if (!in_array($promo['type'], ['Percentage', 'Fixed Amount', 'Free Setup', 'Price Override'], true)) {
                 $why[] = "type «{$promo['type']}»";
             }
-            $recurring = (int) $promo['recurring'] === 0 ? null : 0; // the first payment only, or every one
-            if ((int) $promo['recurring'] === 1 && (int) $promo['recurfor'] > 0) {
+            // A surcharge or a price below zero (WHMCS takes one; MyCS's discount refuses it, the cart would fail: ADV-650-3),
+            // or more than the whole.
+            if (!is_numeric($value) || $value < 0 || ($type === 'percentage' && $value > 100)) {
+                $why[] = "value {$promo['value']}";
+            }
+            // The first payment only (null), every one (0), or N invoices, the order's among them: WHMCS's promocount is 1
+            // after the order and the promotion stops at recurfor (review of #650: FREETRIAL, 2, never more than 2
+            // discounted invoices; divramis50, 1, the first renewal at full price). MyCS counts cycles the same way.
+            $recurring = (int) $promo['recurring'] === 0 ? null : max(0, (int) $promo['recurfor']);
+            if ($recurring !== null && $recurring > 1000) {
                 $why[] = "recurring for {$promo['recurfor']} times";
             }
-            $cycles = array_filter(array_map('trim', explode(',', (string) $promo['cycles'])));
-            // MyCS has no cycle limit: one WHMCS limits (a list without every cycle, «One Time» too) is not expressible.
-            if ($cycles !== [] && array_diff(['Monthly', 'Quarterly', 'Semi-Annually', 'Annually', 'Biennially', 'Triennially', 'One Time'], $cycles) !== []) {
-                $why[] = 'some billing cycles only (' . implode(', ', $cycles) . ')';
+            $cycles = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $promo['cycles'])))));
+            $billingCycles = null; // every cycle: none listed, or all of them
+            if ($cycles !== []) {
+                // A free account has nothing to discount: known, no cycle (review of #650: it is no one-time plan).
+                $unknown = array_filter($cycles, fn (string $cycle) => !isset(self::PROMOTION_CYCLES[$cycle]) && $cycle !== 'Free Account'
+                    && preg_match('/^\d+Years$/', $cycle) !== 1);
+                $keys = array_values(array_unique(array_map(fn (string $cycle) => self::PROMOTION_CYCLES[$cycle],
+                    array_filter($cycles, fn (string $cycle) => isset(self::PROMOTION_CYCLES[$cycle])))));
+                if ($unknown !== []) {
+                    $why[] = 'billing cycles unknown here (' . implode(', ', $unknown) . ')';
+                } elseif ($keys === []) {
+                    $why[] = 'billing cycles of domains or free accounts only (' . implode(', ', $cycles) . ')';
+                } elseif (array_diff(array_unique(self::PROMOTION_CYCLES), $keys) !== []) {
+                    $billingCycles = $keys;
+                }
             }
             // A MyCS coupon has no currency: a fixed amount means another sum in each one (WHMCS converts it).
             if ($promo['type'] === 'Fixed Amount' && $currencies > 1) {
                 $why[] = 'a fixed amount with more than one currency';
             }
-            foreach (['newsignups' => 'new clients only', 'existingclient' => 'existing clients only', 'requiresexisting' => 'requires an existing product',
-                'applyonce' => 'once per order', 'upgrades' => 'for upgrades', 'lifetimepromo' => 'kept on upgrades'] as $column => $label) {
+            foreach (['applyonce' => 'once per order', 'upgrades' => 'for upgrades'] as $column => $label) {
                 if ((int) ($promo[$column] ?? 0) === 1) {
                     $why[] = $label;
                 }
             }
-            if (trim((string) ($promo['requires'] ?? '')) !== '') {
-                $why[] = 'requires other products';
+            $customers = 'all';
+            if ((int) ($promo['newsignups'] ?? 0) === 1 && (int) ($promo['existingclient'] ?? 0) === 1) {
+                $why[] = 'new and existing clients only'; // no one, as WHMCS reads it
+            } elseif ((int) ($promo['newsignups'] ?? 0) === 1) {
+                $customers = 'new';
+            } elseif ((int) ($promo['existingclient'] ?? 0) === 1) {
+                $customers = 'existing';
+            }
+            $requires = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) ($promo['requires'] ?? ''))))));
+            $requiredIds = array_values(array_unique(array_filter(array_map('intval', array_filter($requires, 'ctype_digit')), fn (int $id) => $products->has($id))));
+            if (count($requiredIds) !== count($requires)) {
+                $why[] = 'requires addons, domains or products not imported';
             }
             $applies = array_filter(array_map('trim', explode(',', (string) $promo['appliesto'])));
-            $productIds = array_values(array_filter(array_map('intval', array_filter($applies, 'ctype_digit')), fn (int $id) => $products->has($id)));
-            if (count($productIds) !== count($applies)) {
+            $productIds = array_values(array_unique(array_filter(array_map('intval', array_filter($applies, 'ctype_digit')), fn (int $id) => $products->has($id))));
+            if (count($productIds) !== count(array_unique($applies))) {
                 $why[] = 'addons, domains or products not imported';
             }
             // No products in MyCS means every product (ADV-3): one WHMCS applies to nothing stays closed.
             if ($applies === []) {
                 $why[] = 'applies to no product';
+            }
+            // An override is for the products it names, in the default currency (Coupon::covers): said where WHMCS has more.
+            if ($type === 'override' && $currencies > 1 && $why === []) {
+                $this->warn("Promotion #{$promo['id']} «{$promo['code']}»: a price override, applied here in the default currency only.");
             }
             // Its uses: MyCS counts the services with it, WHMCS counted more (deleted services, orders). Used up there:
             // closed; else the uses left there on top of those brought here (ADV-2).
@@ -2389,7 +2453,10 @@ class ImportFromWhmcs extends Command
                 if ($left <= 0) {
                     $why[] = "used up ({$promo['uses']} of {$promo['maxuses']})";
                 }
-                $statement = $this->pdo->prepare('SELECT COALESCE(SUM(qty), 0) FROM tblhosting WHERE promoid = ?');
+                // The services that come with it (serviceCoupon): those with its promoid, and those of orders with its code.
+                $orders = array_keys(array_filter($this->orderPromotions, fn (int $id) => $id === (int) $promo['id']));
+                $statement = $this->pdo->prepare('SELECT COALESCE(SUM(qty), 0) FROM tblhosting WHERE promoid = ?'
+                    . ($orders === [] ? '' : ' OR (COALESCE(promoid, 0) = 0 AND orderid IN (' . implode(',', array_map('intval', $orders)) . '))'));
                 $statement->execute([$promo['id']]);
                 $maxUses = (int) $statement->fetchColumn() + max(0, $left);
             }
@@ -2405,7 +2472,13 @@ class ImportFromWhmcs extends Command
                 'applies_to' => $appliesTo,
                 'recurring' => $recurring,
                 'max_uses' => $maxUses,
-                'max_uses_per_user' => (int) $promo['onceperclient'] === 1 ? 1 : null,
+                'max_uses_per_user' => null,
+                'once_per_client' => (int) $promo['onceperclient'] === 1,
+                // WHMCS drops one that is not lifetime on an upgrade (ADV-650-1).
+                'kept_on_product_change' => (int) ($promo['lifetimepromo'] ?? 0) === 1,
+                'customers' => $customers,
+                'requires_existing' => (int) ($promo['requiresexisting'] ?? 0) === 1 && $requiredIds !== [],
+                'billing_cycles' => $billingCycles === null ? null : json_encode($billingCycles),
                 'starts_at' => $this->validateDate($promo['startdate'] ?? null),
                 // Closed for new orders when MyCS would apply it otherwise than WHMCS.
                 'expires_at' => $why !== [] && ($expires === null || $expires > $now) ? $closed : $expires,
@@ -2415,6 +2488,9 @@ class ImportFromWhmcs extends Command
             $this->promotions[(int) $promo['id']] = ['recurring' => (int) $promo['recurring'], 'recurfor' => (int) $promo['recurfor'], 'code' => (string) $promo['code']];
             if ($productIds !== []) {
                 DB::table('coupon_products')->insert(array_map(fn (int $id) => ['coupon_id' => $promo['id'], 'product_id' => $id], $productIds));
+            }
+            if ($requiredIds !== []) {
+                DB::table('coupon_required_products')->insert(array_map(fn (int $id) => ['coupon_id' => $promo['id'], 'product_id' => $id], $requiredIds));
             }
             if ($why !== []) {
                 $this->warn("Promotion #{$promo['id']} «{$promo['code']}»: imported closed for new orders (" . implode('; ', $why) . '): recreate it by hand if still offered.');
@@ -2432,7 +2508,8 @@ class ImportFromWhmcs extends Command
      */
     private function serviceCoupon(array $record): array
     {
-        $promo = (int) ($record['promoid'] ?? 0);
+        // WHMCS sets promoid back to 0 when a recurring promotion ends: its order's code still says it (ADV-650-2).
+        $promo = (int) ($record['promoid'] ?? 0) ?: ($this->orderPromotions[(int) ($record['orderid'] ?? 0)] ?? 0);
         $row = $this->promotions[$promo] ?? null;
         if ($row === null) {
             return ['coupon_id' => null, 'coupon_started_at' => null, 'coupon_expired_at' => null];
