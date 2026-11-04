@@ -42,7 +42,7 @@ final class CatalogImport
 {
     /** WHMCS's server module → MyCS's server extension; the others are reported and skipped. */
     private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow', 'pvewhmcs' => 'Proxmox',
-        'hetznercloud' => 'OfflineVm', 'ngm' => 'OfflineVm'];
+        'hetznercloud' => 'OfflineVm', 'ngm' => 'Ngm'];
 
     /**
      * Modules whose WHMCS servers are nodes of one cluster: one server here for them all, as the extension talks to the
@@ -51,10 +51,16 @@ final class CatalogImport
     public const CLUSTER_MODULES = ['pvewhmcs'];
 
     /**
-     * Modules with no API here (Hetzner Cloud; ngm, our own panel, until it has an extension): their servers come as
-     * Offline VM, so every action on their services is a task for staff, never a silent «nothing» (docs/importer.md).
+     * Modules with no API here (Hetzner Cloud): their servers come as Offline VM, so every action on their services is a
+     * task for staff, never a silent «nothing» (docs/importer.md).
      */
-    private const OFFLINE_MODULES = ['hetznercloud' => 'Hetzner Cloud', 'ngm' => 'ngm'];
+    private const OFFLINE_MODULES = ['hetznercloud' => 'Hetzner Cloud'];
+
+    /**
+     * Modules whose API is on a port of its own, not WHMCS's server port (ngm's on 9601, its 443 serves the customers'
+     * sites, as our WHMCS module ignores that port): their host comes bare, and the extension adds its port.
+     */
+    private const OWN_PORT_MODULES = ['ngm'];
 
     /** A module's default port when WHMCS has none (its admin API over TLS). */
     private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199, 'pvewhmcs' => 8006];
@@ -301,7 +307,11 @@ final class CatalogImport
             // login staff corrected stays, and a stored API key is never sent to a host they did not type (R6). Never
             // its password (the API token comes with the credentials step). An offline one has neither.
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
-            $settings = $offline !== null ? [] : ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
+            $settings = match (true) {
+                $offline !== null => [],
+                in_array($module, self::OWN_PORT_MODULES, true) => ['host' => $hostname], // no login: its token is staff's to enter
+                default => ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')],
+            };
             // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
             // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
             // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
@@ -518,11 +528,20 @@ final class CatalogImport
                 Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => 'package'],
                     ['value' => (string) $row['configoption1'], 'type' => 'string', 'encrypted' => false]);
             }
+            if ($module === 'ngm') {
+                // As our WHMCS module's options: configoption1 the ngm package (by name), configoption2 the PHP version.
+                foreach (['package' => 'configoption1', 'php' => 'configoption2'] as $key => $option) {
+                    if (trim((string) ($row[$option] ?? '')) !== '') {
+                        Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key],
+                            ['value' => trim((string) $row[$option]), 'type' => 'string', 'encrypted' => false]);
+                    }
+                }
+            }
             if ($module === 'licensing') {
                 $licensing ??= Server::query()->firstOrCreate(['extension' => 'NixpalLicensing'], ['name' => 'nixpal Licensing', 'type' => 'server', 'enabled' => true]);
                 (new WhmcsLicensingImport($this->whmcs))->productSettings($product, $row, $licensing);
                 $this->counts['licensing_products']++;
-            } elseif ($module !== '' && $module !== 'cpanel') {
+            } elseif ($module !== '' && !in_array($module, ['cpanel', 'ngm'], true)) {
                 $this->notes[] = "Product #{$row['id']} «{$row['name']}»: module «{$module}» not mapped (its settings stay to be set).";
             }
         }

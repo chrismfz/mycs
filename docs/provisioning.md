@@ -181,7 +181,8 @@
 | CentovaCast | ναι (`adminpassword`) | ναι | ναι |
 | Proxmox | **όχι** (παρακάτω) | ναι | ναι, με τον αποθηκευμένο κωδικό |
 | Nixpal Licensing | δεν έχει κωδικό | — | ναι (το κλειδί) |
-| Offline VM / Dedicated (ngm, Hetzner) | όχι (χωρίς API) | ναι | ναι, αν έχει username/κωδικό |
+| ngm | ναι (`POST /accounts/{user}/password`: panel και SSH/SFTP) | ναι | ναι |
+| Offline VM / Dedicated (Hetzner) | όχι (χωρίς API) | ναι | ναι, αν έχει username/κωδικό |
 | DirectAdmin | όχι ακόμα (παρακάτω) | ναι | ναι |
 
 - **Proxmox, γιατί όχι:** δύο δρόμοι, κανένας έτοιμος.
@@ -197,8 +198,37 @@
   τον ίδιο τρόπο με το cPanel: πρώτα ο server, μετά `services.password`, `ServerRefused` στην άρνηση. Με αυτό ανάβει
   μόνο του και το κουμπί, ο generator και το checkbox. Πριν από αυτό: live δοκιμή σε DirectAdmin με άδεια του
   υπεύθυνου, και έλεγχος ότι οι κανόνες κωδικού του (`DIFFICULT_PASSWORD_ENFORCEMENT`) δέχονται τα σύμβολα του generator.
-- **ngm, αργότερα** (1 υπηρεσία, Offline VM): αν ο πάροχος δώσει API για reset του root, γίνεται module με
-  `changePassword`· αλλιώς μένει «Save a password set elsewhere» μετά την αλλαγή στο panel του ngm.
+- **ngm** (έγινε, 2026-11-04): το extension `Ngm` αλλάζει τον κωδικό του account (panel και SSH/SFTP), ποτέ των
+  mailboxes ή των FTP accounts. Η πολιτική κωδικών του ngm (`security.password_policy`) απαντά 400 με τον λόγο, που τον
+  βλέπει ο πελάτης (`ServerRefused`).
+
+## ngm (2026-11-04)
+
+Το δικό μας panel (ngm.myip.gr, ngm2, ngm-debian). Το extension `Ngm` (`extensions/Servers/Ngm`) κάνει ό,τι και το
+WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδιο `/api/v1` (`docs/api-whmcs.md` του ngm):
+
+- **Server:** `host` (https και port 9601, εκτός αν δοθούν: `https://host:port`, `http://` για lab) και `token`
+  (encrypted). Το «Test connection» είναι `GET /ping`.
+- **Προϊόν:** `package` (όνομα πακέτου στο ngm, κενό = κανένα) και `php` (της κύριας σελίδας, κενό = του host).
+- **Create:** `POST /accounts` με username, κωδικό, πακέτο, domain (κύρια σελίδα) και php. Το username είναι της
+  υπηρεσίας (καθαρισμένο όπως στο WHMCS: `^[a-z][a-z0-9_]{0,31}$`), αλλιώς από το domain, με ψηφίο όταν είναι πιασμένο
+  στο ngm ή σε άλλη υπηρεσία. Το όνομα και ο κωδικός φυλάγονται πριν από την κλήση. Ένα 409 μετά από χαμένη απάντηση
+  είναι δικό μας account μόνο αν το είχαμε ζητήσει, αν δεν το έχει άλλη υπηρεσία και αν το ngm το έχει με αυτό ακριβώς
+  το όνομα (ο έλεγχος «own retry» του WHMCS). Τότε υιοθετείται, με αναφορά για το staff: το ngm απαντά 409 και σε
+  account που έμεινε μισό. Υπηρεσία suspended πριν από το create παίρνει `enabled: false`. Μια pending παίρνει `true`,
+  γιατί στη MyCS το create γίνεται πάντα πριν η υπηρεσία γίνει active.
+- **Suspend** (με το `suspend_reason`), **unsuspend**, **change package**, **password**, **SSO** (`POST …/sso`, το
+  κουμπί «Log in to the panel»), **usage** (`GET /usage`, ένα αίτημα ανά server). Πρώτα ελέγχεται ότι το account
+  υπάρχει με αυτό το όνομα και ότι δεν το έχει άλλη ζωντανή υπηρεσία.
+- **Terminate:** `DELETE /accounts/{user}`. Το ngm κρατά τα backups και το username μένει στην υπηρεσία. Αν το account
+  λείπει ήδη, η ενέργεια θεωρείται έγινε μόνο για account που έφτιαξε η MyCS. Για ένα εισαγόμενο είναι εργασία του staff.
+- **Αποτυχίες:** μένουν ανοιχτές στα Pending Module Actions με τον λόγο του ngm. Τα 400/409/422 είναι `ServerRefused`
+  (ο λόγος του ngm φαίνεται στον πελάτη). Τα 401/403 (token, scopes, `api.account_writes`), 5xx και timeouts είναι
+  μόνο για το staff, χωρίς ποτέ το token. Τα `warning`/`warnings` του ngm (π.χ. η κύρια σελίδα δεν στήθηκε) πάνε στο
+  `report()`, και η ενέργεια μετρά ως έγινε.
+- **Δεν πέρασαν ακόμα** (τα έχει το WHMCS module, ή η νεότερη έκδοσή του στο `chrismfz/ngm`): οι καρτέλες του
+  πελάτη (domains, mailboxes, βάσεις), το admin SSO (impersonation), η λίστα πακέτων από το `GET /packages` στη
+  ρύθμιση του προϊόντος, τα όρια ανά account (`/limits`), η μεταφορά του token από το WHMCS (`accesshash`).
 
 ## Provisioning fixes (sweep §2, §4, §7)
 - **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:

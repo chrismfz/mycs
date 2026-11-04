@@ -171,8 +171,10 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       elsewhere» χωρίς κλήση στον server· «Δημιουργία ισχυρού κωδικού» και για τον πελάτη (`provisioning.md`, «Κωδικός
       υπηρεσίας και welcome email»). cPanel, mailcow, Centova αλλάζουν στον server· Proxmox όχι ακόμα (PR 6 του
       `proxmox.md`).
-- [ ] **DirectAdmin και ngm: αλλαγή κωδικού στον server** (σημειώσεις στο `provisioning.md`): DirectAdmin με
-      `CMD_API_USER_PASSWD` μετά από live δοκιμή· ngm μόνο αν ο πάροχος δώσει API. Ως τότε «Save a password set elsewhere».
+- [ ] **DirectAdmin: αλλαγή κωδικού στον server** (σημειώσεις στο `provisioning.md`): με `CMD_API_USER_PASSWD` μετά
+      από live δοκιμή. Ως τότε «Save a password set elsewhere». (Το ngm την έχει από το extension `Ngm`, 2026-11-04.)
+- [ ] **ngm, μετά το πρώτο extension** (`provisioning.md` → «ngm»): live δοκιμή σε ngm-debian με άδεια του υπεύθυνου·
+      ό,τι κάνει το WHMCS module και δεν πέρασε ακόμα (καρτέλες του πελάτη, admin SSO, πακέτα σε λίστα, όρια ανά account).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

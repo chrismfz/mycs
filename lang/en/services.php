@@ -242,6 +242,11 @@ return [
         'server' => 'Stream server',
         'servertype' => 'Server type',
     ],
+    'ngm' => [
+        'login' => 'Log in to the panel',
+        'username' => 'Username',
+        'panel' => 'Panel',
+    ],
     'mailcow' => [
         'login' => 'Login to mailcow',
         'dns_title' => 'Mail setup for :domain',
