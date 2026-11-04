@@ -8,10 +8,8 @@ use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Classes\Price;
 use App\Enums\DashboardPeriod;
-use App\Enums\InvoiceTransactionStatus;
 use App\Models\Credit;
 use App\Models\Currency;
-use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
@@ -147,9 +145,8 @@ class Overview extends BaseWidget
 
     private function invoiceTransaction(): Stat
     {
-        $query = InvoiceTransaction::query()
-            ->where('status', InvoiceTransactionStatus::Succeeded)
-            ->where('is_credit_transaction', false);
+        // The chart's payments, so that the card and the chart's total agree.
+        $query = Revenue::payments();
 
         $chart = $this->trend(Trend::query(clone $query))->sum('amount');
 
