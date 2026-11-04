@@ -64,7 +64,7 @@ class Dashboard extends BaseDashboard
                 // One column left (a staff member without the other's permissions) is not squeezed into half the width.
                 Grid::make(['default' => 1, 'lg' => max(1, count($columns))])->schema(
                     array_map(fn (array $column): Grid => Grid::make(1)->schema($this->getWidgetsSchemaComponents($column)), $columns),
-                ),
+                )->hidden($columns === []),
                 ...$this->getWidgetsSchemaComponents($layout['below']),
             ];
         });

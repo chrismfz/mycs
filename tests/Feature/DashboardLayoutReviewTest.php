@@ -65,8 +65,19 @@ class DashboardLayoutReviewTest extends TestCase
         $this->assertNotContains(Support::class, $layout['above']);
         $this->assertContains(DomainRenewals::class, $layout['right']);
         $html = $this->get('/sysadmin')->assertOk()->getContent();
-        $this->assertStringContainsString('--cols-lg: repeat(1, minmax(0, 1fr))', $html);
+        $this->assertStringContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(1', $html, 'the columns grid is one column wide');
         $this->assertStringNotContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(2', $html, 'no half-width column beside nothing');
+    }
+
+    /** Nothing in either column (only a widget below): no empty cell and its gap between the full-width widgets. */
+    public function test_no_columns_no_empty_cell(): void
+    {
+        $this->actAs(['admin.widgets.active_users']);
+
+        $html = $this->get('/sysadmin')->assertOk()->getContent();
+
+        $this->assertSame([], (new Dashboard)->layout()['left'] + (new Dashboard)->layout()['right']);
+        $this->assertStringNotContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(1', $html);
     }
 
     /** The page renders the two columns: the left one's widgets come before the right one's in the document. */
