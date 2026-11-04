@@ -155,6 +155,43 @@ class ImportTemplatesHistoryTest extends TestCase
         $this->assertSame('365', Setting::query()->where('key', 'cronjob_delete_email_logs')->whereNull('settingable_type')->value('value'));
     }
 
+    /** myip's history (rehearsal 2026-11-04): 500 HTML mails in one INSERT passed max_allowed_packet. Batches stay small. */
+    public function test_large_bodies_go_in_batches_a_database_packet_holds(): void
+    {
+        $body = '<p>' . str_repeat('Lorem ipsum dolor sit amet. ', 6_500) . '</p>'; // ~180 KB, under the 200 KB cut
+        foreach (range(1, 40) as $id) {
+            $this->mail($id, '2026-10-01 10:00:00', $body);
+        }
+        $inserts = [];
+        DB::listen(function ($query) use (&$inserts) {
+            if (str_starts_with($query->sql, 'insert into') && str_contains($query->sql, 'email_logs')) {
+                $inserts[] = array_sum(array_map(fn ($value) => strlen((string) $value), $query->bindings));
+            }
+        });
+
+        $result = (new WhmcsEmailHistoryImport($this->whmcs, '2025-10-31 00:00:00'))->run();
+
+        $this->assertSame(40, $result['counts']['mails']);
+        $this->assertSame(40, DB::table('email_logs')->count());
+        $this->assertGreaterThan(1, count($inserts), 'more than one INSERT for ~7 MB of bodies');
+        $this->assertLessThan(5_000_000, max($inserts), 'each INSERT well under the 16 MB default packet');
+    }
+
+    /** Read a page at a time (rehearsal 2026-11-04: a year of myip's mail ran the import out of memory): every page comes, once. */
+    public function test_the_source_is_read_a_page_at_a_time_and_every_page_comes(): void
+    {
+        foreach ([...range(1, 400), 402, 403] as $id) { // two full pages, one more, and a gap in the ids
+            $this->mail($id, '2026-10-01 10:00:00');
+        }
+        $this->mail(401, '2024-01-01 10:00:00'); // older: not this year's
+
+        $result = (new WhmcsEmailHistoryImport($this->whmcs, '2025-10-31 00:00:00'))->run();
+
+        $this->assertSame(402, $result['counts']['mails']);
+        $this->assertSame(402, DB::table('email_logs')->distinct()->count('message_id'));
+        $this->assertSame(['whmcs:402', 'whmcs:403'], DB::table('email_logs')->orderByDesc('id')->limit(2)->pluck('message_id')->reverse()->values()->all());
+    }
+
     public function test_passwords_and_link_keys_are_masked_in_the_bodies(): void
     {
         $this->mail(1, '2026-10-01 10:00:00', '<p>Username: bob<br />Password: Sup3r-Secret!</p><p>Reset: https://clients.example.test/pwreset.php?key=abcDEF123456&amp;id=7</p><p>Your passwd = hunter2</p>');
