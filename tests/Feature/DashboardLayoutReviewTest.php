@@ -7,6 +7,7 @@ use App\Admin\Widgets\ActiveUsers;
 use App\Admin\Widgets\EstimatedIncome;
 use App\Admin\Widgets\Overview;
 use App\Admin\Widgets\PaymentsTracking;
+use App\Admin\Widgets\RecentActivity;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Revenue;
@@ -51,16 +52,15 @@ class DashboardLayoutReviewTest extends TestCase
 
         $this->assertSame([Overview::class], $layout['above']);
         $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
-        $this->assertSame([Support::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
         $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
     }
 
-    /** Payments tracking is in neither column: in either, that column is twice as tall as the other (devbox 2026-11-04). */
-    public function test_payments_tracking_keeps_the_full_width_below_the_columns(): void
+    /** Payments tracking is back on the left with Recent activity on the right (devbox 2026-11-04: 1435 against 1170 px). */
+    public function test_payments_tracking_is_in_the_money_column(): void
     {
-        $this->assertNotContains(PaymentsTracking::class, Dashboard::LEFT);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class], Dashboard::LEFT);
         $this->assertNotContains(PaymentsTracking::class, Dashboard::RIGHT);
-        $this->assertGreaterThan(Revenue::getSort(), PaymentsTracking::getSort(), 'it sorts after the columns start, so it is below them');
     }
 
     /** A column nobody can see is not left empty beside the other: the page does not render a hole. */
@@ -97,7 +97,7 @@ class DashboardLayoutReviewTest extends TestCase
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
 
-        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Support::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
         $offsets = array_map($at, $order);
         $this->assertNotContains(0, $offsets, 'every widget is on the page');
         $sorted = $offsets;

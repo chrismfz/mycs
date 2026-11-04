@@ -3,6 +3,8 @@
 namespace App\Admin\Pages;
 
 use App\Admin\Widgets\EstimatedIncome;
+use App\Admin\Widgets\PaymentsTracking;
+use App\Admin\Widgets\RecentActivity;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\RecordsToCheck;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
@@ -22,17 +24,17 @@ class Dashboard extends BaseDashboard
     /**
      * Two columns that stack on their own (owner 2026-11-04, direction B2): the money on the left, the work on the
      * right. In one grid a row is as tall as its tallest card, so Support sat beside Revenue with a hole under it.
-     * The widgets in neither list (the cards, the credit and bank bars above; Payments tracking, staff online and
-     * active users below) keep the full width, in their `$sort` order: above the columns when they sort before the first
-     * of them. Payments tracking is below because with it in either column that one is twice as tall as the other
-     * (devbox 2026-11-04: Revenue + Income 774 px, Support + renewals 685 px, Payments tracking 645 px).
+     * The widgets in neither list (the cards, the credit and bank bars above, staff online and active users below) keep
+     * the full width, in their `$sort` order: above the columns when they sort before the first of them. Payments
+     * tracking is on the left since Recent activity (devbox 2026-11-04: left 1435 px, right 1170 px; without it on the
+     * right, before Recent activity, the left was 774 px against 685 px and it sat below, full width).
      *
      * @var array<int, class-string>
      */
-    public const LEFT = [Revenue::class, EstimatedIncome::class];
+    public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class];
 
     /** @var array<int, class-string> */
-    public const RIGHT = [Support::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
+    public const RIGHT = [Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
 
     /**
      * What the viewer sees, in four groups: the full width above, the two columns, the full width below.
