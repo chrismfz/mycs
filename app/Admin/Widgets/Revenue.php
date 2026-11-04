@@ -109,7 +109,6 @@ class Revenue extends ChartWidget
                 [
                     'type' => 'bar',
                     'label' => __('New orders'),
-                    'yAxisID' => 'orders',
                     'data' => $newOrders->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
                     'backgroundColor' => '#a9c1ff',
                     'borderColor' => '#a9c1ff',
@@ -120,7 +119,7 @@ class Revenue extends ChartWidget
                     'backgroundColor' => '#d97706',
                     'borderColor' => '#d97706',
                     // Named: a line without its axis goes on the first one, the orders' (seen on the devbox).
-                    'yAxisID' => 'y',
+                    'yAxisID' => 'money',
                     'fill' => false,
                     'pointRadius' => 0,
                 ],
@@ -130,7 +129,7 @@ class Revenue extends ChartWidget
                     'backgroundColor' => '#059669',
                     'borderColor' => '#059669',
                     // Named: a line without its axis goes on the first one, the orders' (seen on the devbox).
-                    'yAxisID' => 'y',
+                    'yAxisID' => 'money',
                     'fill' => false,
                     'pointRadius' => 0,
                 ],
@@ -158,16 +157,18 @@ class Revenue extends ChartWidget
     protected function getOptions(): array|RawJs|null
     {
         return [
+            // The orders' axis is `y`, the one with the chart area's grid lines, which Filament gives the theme's colour.
             'scales' => [
-                'orders' => [
+                'y' => [
                     'position' => 'left',
                     'beginAtZero' => true,
                     'ticks' => ['precision' => 0],
                 ],
-                'y' => [
+                'money' => [
                     'position' => 'right',
                     'beginAtZero' => true,
                     'grid' => ['drawOnChartArea' => false],
+                    'border' => ['display' => false],
                 ],
             ],
         ];

@@ -54,16 +54,18 @@ class DashboardRevenueChartTest extends TestCase
         $data = $this->data(new Revenue);
         [$orders, $revenue, $net] = $data['datasets'];
 
-        $this->assertSame(['bar', 'orders'], [$orders['type'], $orders['yAxisID']]);
+        $this->assertSame('bar', $orders['type']);
+        $this->assertArrayNotHasKey('yAxisID', $orders); // `y`, the axis Filament colours
         $this->assertArrayNotHasKey('type', $revenue);
         // Each line names the money axis: without it Chart.js puts it on the first y axis, the orders', and the bars
         // of 1 or 2 vanish under a scale of hundreds (seen on the devbox).
-        $this->assertSame(['y', 'y'], [$revenue['yAxisID'], $net['yAxisID']]);
+        $this->assertSame(['money', 'money'], [$revenue['yAxisID'], $net['yAxisID']]);
         $this->assertSame(['New orders', 'Revenue', 'Net revenue'], array_column($data['datasets'], 'label'));
 
         $scales = (fn () => $this->getOptions())->call(new Revenue)['scales'];
-        $this->assertSame(['left', 0], [$scales['orders']['position'], $scales['orders']['ticks']['precision']]);
-        $this->assertSame('right', $scales['y']['position']);
+        $this->assertSame(['y', 'money'], array_keys($scales));
+        $this->assertSame(['left', 0], [$scales['y']['position'], $scales['y']['ticks']['precision']]);
+        $this->assertSame('right', $scales['money']['position']);
         $this->assertSame('line', (fn () => $this->getType())->call(new Revenue));
     }
 
