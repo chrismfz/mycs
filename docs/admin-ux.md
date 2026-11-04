@@ -237,7 +237,7 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
 | **Pending Cancellations** | — | `service_cancellations` `end_of_period` με υπηρεσία ακόμα active/suspended | νέο |
 | **Pending Module Actions** | badge στα Failed Jobs | `failed_jobs` με `Jobs\Server\*`, υπηρεσίες κολλημένες σε pending | νέο |
 | Support (awaiting reply, assigned to you, πρόσφατα) | `Support` (5 πρόσφατα) | `tickets.assigned_to` | επέκταση: «Assigned to me» |
-| Client Activity (active clients, online, πρόσφατα logins) | `ActiveUsers` | πελάτες με ενεργή υπηρεσία, `user_sessions` | επέκταση |
+| Client Activity (active clients, online, πρόσφατα logins) | `StaffAndSessions` (πρώην `ActiveUsers`) | πελάτες με ενεργή υπηρεσία, `user_sessions` | επέκταση |
 | Billing (Today / This Month / This Year / All Time) | `Overview` με φίλτρο περιόδου | `invoice_transactions` succeeded, όχι credit, μείον refunds | νέο: 4 ποσά μαζί |
 | Income Forecast (ανά κύκλο, ετήσια εκτίμηση) | — | ενεργές υπηρεσίες: τιμή × κύκλος χρέωσης | νέο |
 | Upcoming Renewals (υπηρεσίες) | — | `services.expires_at` στις επόμενες N ημέρες | νέο |

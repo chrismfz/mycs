@@ -1,6 +1,6 @@
 <x-filament-widgets::widget>
-    {{-- A plain widget has no polling of its own: every 30 seconds, as often as the heartbeat. --}}
-    <div wire:poll.30s>
+    {{-- A plain widget has no polling of its own: every 30 seconds, as often as the heartbeat, and only while the tab is seen. --}}
+    <div wire:poll.30s.visible>
     <x-filament::section :heading="__('Staff and sessions')">
         <x-slot name="afterHeader">
             <span class="text-sm text-gray-500 dark:text-gray-400">
@@ -44,8 +44,8 @@
                 <span class="min-w-0 flex-1 truncate text-gray-500 dark:text-gray-400">{{ $session['email'] }}</span>
                 <span class="w-28 shrink-0 text-gray-700 dark:text-gray-200">{{ $session['last_activity']->diffForHumans() }}</span>
                 {{-- The address through a data attribute, never inside the script: a click copies it. --}}
-                <button type="button" class="w-36 shrink-0 cursor-pointer select-none text-end font-mono text-xs text-gray-500 hover:text-primary-500 dark:text-gray-400"
-                    data-ip="{{ $session['ip'] }}" title="{{ __('Copy') }}"
+                <button type="button" class="w-36 shrink-0 cursor-pointer select-none truncate text-end font-mono text-xs text-gray-500 hover:text-primary-500 dark:text-gray-400"
+                    data-ip="{{ $session['ip'] }}" title="{{ $session['ip'] }} · {{ __('Copy') }}"
                     x-data="{ copied: false }"
                     x-on:click="navigator.clipboard.writeText($el.dataset.ip); copied = true; setTimeout(() => copied = false, 2000)">
                     <span x-show="!copied">{{ $session['ip'] }}</span><span x-show="copied" x-cloak>{{ __('Copied!') }}</span>

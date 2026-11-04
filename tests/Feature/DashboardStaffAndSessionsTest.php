@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Widgets\StaffAndSessions;
+use App\Enums\StaffPresenceStatus;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
@@ -124,5 +125,33 @@ class DashboardStaffAndSessionsTest extends TestCase
 
         Livewire::test(StaffAndSessions::class)->assertSeeHtml('wire:poll.30s')
             ->assertSee('Staff και συνδέσεις')->assertSee('0 συνδέσεις πελατών');
+    }
+
+    /** Review of #636: «1 συνδεδεμένος», not «1 συνδεδεμένοι»; a busy member shows Busy in amber. */
+    public function test_one_online_is_singular_in_greek_and_busy_shows_its_status(): void
+    {
+        $viewer = $this->member(attributes: ['first_name' => 'Busy']);
+        StaffPresence::heartbeat($viewer);
+        StaffPresence::setStatus($viewer, StaffPresenceStatus::Busy);
+        $this->actAs($viewer->fresh());
+
+        Livewire::test(StaffAndSessions::class)->assertSeeInOrder(['Busy', __('Busy')])->assertSeeHtml('var(--warning-500)');
+
+        app()->setLocale('el');
+        Livewire::test(StaffAndSessions::class)->assertSee('1 συνδεδεμένος')->assertDontSee('1 συνδεδεμένοι');
+    }
+
+    /** The parts are checked again on each poll: a permission taken away drops its part without a reload. */
+    public function test_a_poll_after_a_permission_is_taken_away_drops_that_part(): void
+    {
+        $viewer = $this->member();
+        $this->actAs($viewer);
+        $this->customerSession(['first_name' => 'Customer'], '192.0.2.30', 1);
+        $component = Livewire::test(StaffAndSessions::class)->assertSee('192.0.2.30');
+
+        $viewer->role->update(['permissions' => ['admin.staff_online.view']]);
+        $this->actAs($viewer->fresh());
+
+        $component->call('$refresh')->assertDontSee('192.0.2.30')->assertDontSee('customer session');
     }
 }

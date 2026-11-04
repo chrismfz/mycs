@@ -1606,7 +1606,7 @@
     "Net revenue": "Καθαρά έσοδα",
     "New orders :orders · Revenue :revenue · Net revenue :net": "Νέες παραγγελίες :orders · Έσοδα :revenue · Καθαρά έσοδα :net",
     "Staff and sessions": "Staff και συνδέσεις",
-    ":count online": ":count συνδεδεμένοι",
+    ":count online": ":count συνδεδεμένος|:count συνδεδεμένοι",
     "Offline": "Εκτός",
     "Copy": "Αντιγραφή",
     "Copied!": "Αντιγράφηκε!",
