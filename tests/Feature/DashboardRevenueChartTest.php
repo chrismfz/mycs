@@ -56,10 +56,10 @@ class DashboardRevenueChartTest extends TestCase
 
         $this->assertSame(['bar', 'orders'], [$orders['type'], $orders['yAxisID']]);
         $this->assertArrayNotHasKey('type', $revenue);
-        $this->assertArrayNotHasKey('yAxisID', $net);
+        // Each line names the money axis: without it Chart.js puts it on the first y axis, the orders', and the bars
+        // of 1 or 2 vanish under a scale of hundreds (seen on the devbox).
+        $this->assertSame(['y', 'y'], [$revenue['yAxisID'], $net['yAxisID']]);
         $this->assertSame(['New orders', 'Revenue', 'Net revenue'], array_column($data['datasets'], 'label'));
-        // The bars drawn behind the lines.
-        $this->assertGreaterThan($revenue['order'], $orders['order']);
 
         $scales = (fn () => $this->getOptions())->call(new Revenue)['scales'];
         $this->assertSame(['left', 0], [$scales['orders']['position'], $scales['orders']['ticks']['precision']]);
