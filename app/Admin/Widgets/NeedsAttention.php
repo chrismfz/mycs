@@ -3,15 +3,18 @@
 namespace App\Admin\Widgets;
 
 use App\Admin\Pages\CronStats;
+use App\Admin\Resources\CpanelAccountResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\ChargeAttempt;
+use App\Models\CpanelAccount;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Ticket;
+use App\Services\Cpanel\AccountCheck;
 use App\Services\Ops\Health;
 use App\Support\AdminBadge;
 use Filament\Widgets\Widget;
@@ -22,8 +25,8 @@ use Throwable;
 /**
  * «Needs attention» (owner 2026-11-04, direction B2): only what waits on staff, the most urgent first, each row the
  * count of a list and a link to that list with the same filter (the same scope counts both). A row only for a list the
- * viewer may open. The hosting accounts' rows of the mockup (a temporary extra, an extra not billed) wait for their
- * own decisions; the accounts not mapped are «Records to check» below.
+ * viewer may open. The hosting accounts: an extra not billed and a temporary extra to take back (owner 2026-11-04); the
+ * accounts not mapped are «Records to check» below.
  */
 class NeedsAttention extends Widget
 {
@@ -90,6 +93,25 @@ class NeedsAttention extends Widget
             }
         }
 
+        if (CpanelAccountResource::canViewAny()) {
+            $checked[] = __('Hosting accounts');
+            // The list's own scope (accounts of a server, still on it) and its «Check» filter.
+            $accounts = fn (string $check) => CpanelAccount::query()->whereHas('server')->whereNull('gone_at')->where('limits_check', $check);
+            $count = $accounts(AccountCheck::EXTRA_NOT_BILLED)->count();
+            if ($count > 0) {
+                $rows[] = self::row(trans_choice(':count hosting account with an extra not billed|:count hosting accounts with an extra not billed', $count),
+                    __('more disk than the package and what we bill'), null, 'warning',
+                    CpanelAccountResource::getUrl('index', ['filters' => ['limits_check' => ['value' => AccountCheck::EXTRA_NOT_BILLED]]]));
+            }
+            $back = $accounts(AccountCheck::EXTRA_TO_TAKE_BACK);
+            $count = (clone $back)->count();
+            if ($count > 0) {
+                $rows[] = self::row(trans_choice(':count temporary extra to take back|:count temporary extras to take back', $count),
+                    __('its date has passed'), ($until = $back->min('temporary_extra_until')) === null ? null : Carbon::parse($until)->addDay(), 'warning',
+                    CpanelAccountResource::getUrl('index', ['filters' => ['limits_check' => ['value' => AccountCheck::EXTRA_TO_TAKE_BACK]]]));
+            }
+        }
+
         if (CronStats::canAccess()) {
             $checked[] = __('Automation');
             try {
@@ -140,6 +162,6 @@ class NeedsAttention extends Widget
     public static function canView(): bool
     {
         return InvoiceResource::canViewAny() || ModuleActionResource::canViewAny() || TicketResource::canViewAny()
-            || CronStats::canAccess() || PaymentGatewayEventResource::canViewAny();
+            || CpanelAccountResource::canViewAny() || CronStats::canAccess() || PaymentGatewayEventResource::canViewAny();
     }
 }
