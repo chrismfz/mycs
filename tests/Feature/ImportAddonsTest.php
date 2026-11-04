@@ -10,7 +10,9 @@ use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\User;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsForecastParity;
 use App\Services\Import\WhmcsNoteImport;
@@ -67,6 +69,7 @@ class ImportAddonsTest extends TestCase
             amount REAL, taxed INT)');
         $this->whmcs->exec('CREATE TABLE tblaccounts (id INTEGER PRIMARY KEY, userid INT, invoiceid INT, gateway TEXT, date TEXT, amountin REAL,
             amountout REAL, fees REAL, transid TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblcancelrequests (id INTEGER PRIMARY KEY, date TEXT, relid INT, reason TEXT, type TEXT)');
         $this->whmcs->exec('INSERT INTO tblcurrencies VALUES (1, \'USD\'), (5, \'EUR\')');
         $this->whmcs->exec("INSERT INTO tblclients (id, currency) VALUES ({$this->clientId}, 1)");
         // The catalog's Dedicated IP (WHMCS 7+: a price per cycle, −1 off) and System Maintenance (one cycle, before 7: its
@@ -315,5 +318,69 @@ class ImportAddonsTest extends TestCase
         $records = new WhmcsRecordParity($this->whmcs);
         (new ReflectionMethod($records, 'addons'))->invoke($records);
         $this->assertStringContainsString('addon #104: 24.00 in WHMCS, 30.00 here', implode("\n", (new ReflectionProperty($records, 'checks'))->getValue($records)['Addons']['examples']));
+    }
+
+    /** Code review 1 of #647: a parent's end-of-period request reaches its addons, which are never billed again. */
+    public function test_a_parents_end_of_period_cancellation_is_its_addons_too(): void
+    {
+        $this->service(1692, expires: '2026-11-20');
+        $this->service(1693, expires: '2026-11-20');
+        $this->addon(123, 1692, ['nextduedate' => '2026-11-10']);
+        $this->addon(124, 1693, ['nextduedate' => '2026-11-10']);
+        $this->whmcs->exec("INSERT INTO tblcancelrequests VALUES (1, '2026-10-30', 1692, 'Moving away', 'End of Billing Period'), (2, '2026-10-30', 1693, 'Done', 'Immediate')");
+
+        $this->import(['importAddons', 'importCancellations']);
+
+        $copy = ServiceCancellation::query()->where('service_id', $this->addonService(123)->id)->sole();
+        $this->assertSame(['end_of_period', true, 'Moving away'], [$copy->type, (bool) $copy->with_parent, $copy->reason]);
+        $this->assertFalse(ServiceCancellation::query()->where('service_id', $this->addonService(124)->id)->exists(),
+            'an immediate one ends the parent, and the addons with it: no copy');
+        $this->assertSame(0, (new RenewalBilling)->billRenewal($this->addonService(123)->id, Carbon::parse('2026-11-10')));
+    }
+
+    /** Code review 2 of #647: an addon never takes the id of a service WHMCS deleted, whose lines still name it. */
+    public function test_an_addon_never_takes_the_id_of_a_service_whmcs_deleted(): void
+    {
+        $this->service(1648);
+        $this->addon(104, 1648);
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (900, {$this->clientId}, '', '2026-09-27', '2026-12-17', NULL, 'Unpaid', 10, 0, 0)");
+        $deleted = $this->line(900, 1649, 10, 'Hosting');
+
+        $this->import(['importAddons', 'importInvoices', 'importInvoiceItems']);
+
+        $this->assertGreaterThan(1649, $this->addonService(104)->id);
+        $this->assertNotSame($this->addonService(104)->id, (int) InvoiceItem::query()->findOrFail($deleted)->reference_id);
+    }
+
+    /** Code review 3 of #647: a live addon of an ended service ends with it here, never renewed on its own. */
+    public function test_a_live_addon_of_an_ended_service_ends_with_it(): void
+    {
+        $this->service(1700, Service::STATUS_TERMINATED);
+        $this->addon(180, 1700);
+
+        $output = $this->import();
+
+        $this->assertSame(Service::STATUS_TERMINATED, $this->addonService(180)->status);
+        $this->assertStringContainsString('imported terminated with it', $output);
+        $records = new WhmcsRecordParity($this->whmcs);
+        (new ReflectionMethod($records, 'addons'))->invoke($records);
+        $this->assertSame([], (new ReflectionProperty($records, 'checks'))->getValue($records)['Addons']['examples']);
+    }
+
+    /** Code review 6 of #647: parity checks the tax an addon is billed with, and a negative amount is told to staff. */
+    public function test_parity_checks_its_tax_and_a_negative_amount_is_told(): void
+    {
+        $this->service(1328);
+        $this->addon(105, 1328, ['tax' => '0']);
+        $this->addon(106, 1328, ['recurring' => -5]);
+
+        $output = $this->import();
+
+        $this->assertStringContainsString('WHMCS addon #106: its recurring amount -5', $output);
+        $catalog = Product::query()->where('whmcs_addon_id', 26)->sole();
+        $this->addonService(105)->forceFill(['product_id' => $catalog->id])->saveQuietly();
+        $records = new WhmcsRecordParity($this->whmcs);
+        (new ReflectionMethod($records, 'addons'))->invoke($records);
+        $this->assertContains('addon #105: not taxed in WHMCS, taxed here', (new ReflectionProperty($records, 'checks'))->getValue($records)['Addons']['examples']);
     }
 }

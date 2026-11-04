@@ -52,6 +52,9 @@ final class WhmcsAddonImport
     /** @var array<int, array<string, mixed>> tbladdons id => its row */
     private array $addons = [];
 
+    /** @var array<int, string> tbladdons id => name: WHMCS's «Suspend Parent Product», unpaid it suspends its parent */
+    private array $suspendsParent = [];
+
     /** @var array<string, int> a product made here (by hand's group, or a tax variant) => its id */
     private array $made = [];
 
@@ -80,6 +83,9 @@ final class WhmcsAddonImport
             ->pluck('client_groups.discount_percent', 'clients.id')->map(fn ($percent) => number_format((float) $percent, 2, '.', ''))->all();
         $orders = DB::table('orders')->whereIn('id', array_map(fn ($row) => (int) $row['orderid'], $rows))->pluck('id')->flip()->all();
         $overdue = $this->overdue();
+        // Above every id WHMCS gave a service, even one it deleted since: its lines, cancellation requests and fields still
+        // name it, and an addon in its place would take them (code review 2 of #647).
+        $next = $this->firstFreeServiceId();
         $services = [];
         $underSuspended = [];
         $parentEnded = [];
@@ -108,6 +114,9 @@ final class WhmcsAddonImport
             }
             $recurring = DB::table('plans')->where('id', $planId)->value('type') === 'recurring';
             $amount = number_format(max(0, (float) $row['recurring']), 2, '.', '');
+            if ((float) $row['recurring'] < 0) {
+                $this->notes[] = "WHMCS addon #{$id}: its recurring amount {$row['recurring']} is below zero; imported as 0.00, set its price.";
+            }
             $percent = $groupPercents[(int) $parent->client_id] ?? '0.00';
             $priced = DB::table('prices')->where('plan_id', $planId)->where('currency_code', $parent->currency_code)->exists();
 
@@ -127,13 +136,17 @@ final class WhmcsAddonImport
                     $suspendReason = self::SUSPENDED_IN_WHMCS;
                 }
             }
+            // Never live under an ended parent here (AddonCascade ends addons with it): ended with it, its parent's status,
+            // so nothing renews it (code review 3 of #647).
             if (in_array($parent->status, [Service::STATUS_TERMINATED, Service::STATUS_CANCELLED], true)) {
                 $parentEnded[] = [$id, $status, (int) $parent->id, (string) $parent->status];
+                [$wanted, $suspendReason, $dunning] = [(string) $parent->status, null, null];
             }
             $name = trim(WhmcsNoteImport::text($row['name'] ?? null) ?? '');
             $productName = (string) DB::table('products')->where('id', $product)->value('name');
 
-            $services[$id] = (int) DB::table('services')->insertGetId([
+            DB::table('services')->insert([
+                'id' => $services[$id] = $next++,
                 'parent_service_id' => (int) $parent->id,
                 'whmcs_addon_id' => $id,
                 'client_id' => (int) $parent->client_id,
@@ -142,7 +155,7 @@ final class WhmcsAddonImport
                 'product_id' => $product,
                 'plan_id' => $planId,
                 'status' => $wanted,
-                'quantity' => max(1, (int) $row['qty']),
+                'quantity' => max(1, (int) ($row['qty'] ?? 1)),
                 // As a service's (ImportFromWhmcs::importServices, WG-1): WHMCS's amount less its account's group discount.
                 'price' => ClientGroupPricing::discounted($amount, $percent),
                 'group_percent' => $percent,
@@ -165,8 +178,16 @@ final class WhmcsAddonImport
         if ($underSuspended !== []) {
             $this->notes[] = count($underSuspended) . ' WHMCS addon(s) active under a suspended service: suspended with it here (back with it): #' . implode(', #', $underSuspended) . '.';
         }
+        // WHMCS's «Suspend Parent Product» is not this app's: an unpaid addon suspends only itself here (ADV-647-6).
+        foreach ($this->suspendsParent as $addonId => $addonName) {
+            $live = array_keys(array_filter($rows, fn ($row) => (int) $row['addonid'] === $addonId && isset($services[(int) $row['id']])));
+            if ($live !== []) {
+                $this->notes[] = "WHMCS addon product #{$addonId} «{$addonName}» suspends its parent service when unpaid («Suspend Parent Product»); here an unpaid addon"
+                    . ' suspends only itself. Live: addon(s) #' . implode(', #', array_map(fn ($key) => (int) $rows[$key]['id'], $live)) . '.';
+            }
+        }
         foreach ($parentEnded as [$id, $status, $parentId, $parentStatus]) {
-            $this->notes[] = "WHMCS addon #{$id} is {$status} while its service #{$parentId} is {$parentStatus}: imported as it is; check it (it renews on its own).";
+            $this->notes[] = "WHMCS addon #{$id} is {$status} while its service #{$parentId} is {$parentStatus}: imported {$parentStatus} with it, never renewed; check it.";
         }
 
         return ['counts' => $this->counts, 'notes' => $this->notes, 'services' => $services];
@@ -188,7 +209,7 @@ final class WhmcsAddonImport
                 'description' => WhmcsNoteImport::text($row['description'] ?? null),
                 'hidden' => (bool) ($row['hidden'] ?? false),
                 'retired' => (bool) ($row['retired'] ?? false),
-                'taxable' => (bool) ($row['tax'] ?? true),
+                'taxable' => self::on($row['tax'] ?? '1'),
                 'allow_quantity' => match ((int) ($row['allowqty'] ?? 0)) {
                     1 => 'separated',
                     3 => 'combined',
@@ -199,6 +220,9 @@ final class WhmcsAddonImport
                 'whmcs_addon_id' => $id,
             ]);
             $this->catalog[$id] = $product;
+            if (self::on($row['suspendproduct'] ?? '0')) {
+                $this->suspendsParent[$id] = (string) $row['name'];
+            }
             $this->prices($product, $row);
         }
     }
@@ -251,13 +275,14 @@ final class WhmcsAddonImport
      */
     private function productFor(array $row): int
     {
-        $taxable = in_array(strtolower(trim((string) ($row['tax'] ?? ''))), ['1', 'on', 'yes'], true);
+        $taxable = self::on($row['tax'] ?? '');
         $catalog = $this->catalog[(int) $row['addonid']] ?? null;
         if ($catalog === null) {
             $name = (string) (WhmcsNoteImport::text($row['name'] ?? null) ?? '');
             $group = match (true) {
                 preg_match('/dedicated\s*ip/i', $name) === 1 => 'Dedicated IP',
-                preg_match('/\d+\s*gb\b|extra\s+(disk\s+)?space/i', $name) === 1 => 'Extra disk space',
+                // «+10gb …», «10Gb addon …», «… - addon +10gb», «20GB Extra Space»; never any «N GB» (RAM, backup: ADV-647-5).
+                preg_match('/^\+?\d+\s*gb\b|\baddon\s*\+\d+\s*gb\b|\bextra\s+(disk\s+)?space\b/i', $name) === 1 => 'Extra disk space',
                 default => null,
             };
             // A catalog addon by its name (its own, or its group's): «Dedicated IP …» is the catalog's Dedicated IP.
@@ -288,6 +313,30 @@ final class WhmcsAddonImport
         return $this->made[$key] ??= $this->insertProduct(['name' => (string) $product->name, 'taxable' => $taxable, 'retired' => true, 'hidden' => true,
             'description' => $taxable ? 'Imported from WHMCS: addons billed with VAT there, as its catalog addon is not.' : self::untaxedNote(),
             'allow_quantity' => (string) $product->allow_quantity, 'autosetup' => (string) $product->autosetup, 'addon_targets' => $product->addon_targets === null ? null : json_encode($product->addon_targets)]);
+    }
+
+    /** WHMCS's flag (tbladdons.tax, tblhostingaddons.tax): 1, «on» or «yes». */
+    public static function on(mixed $value): bool
+    {
+        return in_array(strtolower(trim((string) $value)), ['1', 'on', 'yes'], true);
+    }
+
+    /**
+     * The first service id above every one WHMCS gave: its counter (tblhosting's AUTO_INCREMENT) and the ids still named by
+     * what refers to a service (a counter reset by a restart, or a copy without it), and this instance's own.
+     */
+    private function firstFreeServiceId(): int
+    {
+        $highest = (int) DB::table('services')->max('id');
+        foreach (['SELECT MAX(id) FROM tblhosting', "SELECT MAX(relid) FROM tblinvoiceitems WHERE type IN ('Hosting', 'Setup', 'PromoHosting')",
+            'SELECT MAX(relid) FROM tblcancelrequests', "SELECT MAX(relid) FROM tblupgrades WHERE type IN ('package', 'configoptions')",
+            'SELECT MAX(relid) FROM tblhostingconfigoptions', "SELECT MAX(v.relid) FROM tblcustomfieldsvalues v JOIN tblcustomfields f ON f.id = v.fieldid WHERE f.type = 'product'",
+            "SELECT AUTO_INCREMENT - 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblhosting'"] as $sql) {
+            $value = $this->rows($sql)[0] ?? [];
+            $highest = max($highest, (int) (reset($value) ?: 0));
+        }
+
+        return $highest + 1;
     }
 
     private static function untaxedNote(): string

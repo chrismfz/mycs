@@ -1983,6 +1983,29 @@ class ImportFromWhmcs extends Command
 
             DB::table('service_cancellations')->insertOrIgnore($data);
         });
+        $this->cancellationsToAddons();
+    }
+
+    /**
+     * A parent's end-of-period request on each of its live addons that has none of its own, as one made here
+     * (AddonCascade::requestWithParent, `with_parent`): never renewed again, ended with it (code review 1 of #647). Rows
+     * written directly, as the requests: no mail to the customer, who asked once.
+     */
+    private function cancellationsToAddons(): void
+    {
+        $copies = [];
+        foreach (DB::table('service_cancellations')->where('type', 'end_of_period')->where('with_parent', false)->get(['service_id', 'reason', 'created_at']) as $request) {
+            $addons = DB::table('services')->where('parent_service_id', $request->service_id)->whereIn('status', Service::PAYING_STATUSES)
+                ->whereNotExists(fn ($own) => $own->from('service_cancellations')->whereColumn('service_cancellations.service_id', 'services.id'))->orderBy('id')->pluck('id');
+            foreach ($addons as $addon) {
+                $copies[] = ['service_id' => (int) $addon, 'reason' => $request->reason, 'type' => 'end_of_period', 'with_parent' => true,
+                    'created_at' => $request->created_at, 'updated_at' => $request->created_at];
+            }
+        }
+        DB::table('service_cancellations')->insertOrIgnore($copies);
+        if ($copies !== []) {
+            $this->info(count($copies) . ' addon(s) of services with an end-of-period cancellation: cancelled with them.');
+        }
     }
 
     private function importInvoices()
@@ -2237,7 +2260,8 @@ class ImportFromWhmcs extends Command
         };
 
         return match (true) {
-            $type === 'Hosting' => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            // Never an addon's service (its id is no WHMCS service's, ADV-647-3); a deleted service's line is WG-27's.
+            $type === 'Hosting' && !in_array($relid, $this->addonsHere(), true) => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
             // An addon imported as a service of its own (WhmcsAddonImport): its renewal, as a service's Hosting line (paid, it
             // renews it; unpaid, it is the renewal billed already).
             $type === 'Addon' && isset($this->addonsHere()[$relid]) => ['reference_type' => Service::class, 'reference_id' => $this->addonsHere()[$relid], 'kind' => null],
@@ -2256,7 +2280,8 @@ class ImportFromWhmcs extends Command
     /** @return array<int, true> */
     private function importedServices(): array
     {
-        return $this->importedServices ??= array_fill_keys(DB::table('services')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+        // WHMCS's services only: an addon's service (WhmcsAddonImport) is no WHMCS service id.
+        return $this->importedServices ??= array_fill_keys(DB::table('services')->whereNull('whmcs_addon_id')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
     }
 
     /** @var array<int, int>|null WHMCS product addon (tblhostingaddons.id) => its service */

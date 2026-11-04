@@ -149,8 +149,14 @@ final class WhmcsForecastParity
 
                 continue;
             }
-            // Its account is its service's (an addon's own `userid` may be 0); suspended with a suspended service.
+            // Its account is its service's (an addon's own `userid` may be 0); suspended with a suspended service, ended with
+            // an ended one: then nothing to forecast, as an ended service.
             $row['userid'] = (int) $row['parent_userid'];
+            if (in_array($row['parent_status'], ['Terminated', 'Cancelled', 'Fraud'], true)) {
+                $this->compare('addon', $id, 'status', $this->statusWord((string) $row['parent_status']), (string) $service->status);
+
+                continue;
+            }
             $row['domainstatus'] = $row['status'] === 'Active' && $row['parent_status'] === 'Suspended' ? 'Suspended' : $row['status'];
             $this->forecast('addon', $id, $row, $service);
         }

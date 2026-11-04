@@ -390,7 +390,7 @@ final class WhmcsRecordParity
         $here = DB::table('services')->whereNotNull('whmcs_addon_id')
             ->get(['id', 'whmcs_addon_id', 'parent_service_id', 'client_id', 'product_id', 'plan_id', 'status', 'price', 'quantity', 'expires_at'])->keyBy('whmcs_addon_id');
         $parents = DB::table('services')->whereNull('parent_service_id')->pluck('client_id', 'id');
-        $addonProducts = DB::table('products')->where('is_addon', true)->pluck('id')->flip();
+        $addonProducts = DB::table('products')->where('is_addon', true)->pluck('taxable', 'id');
         $plans = DB::table('plans')->get(['id', 'type', 'billing_period', 'billing_unit'])->keyBy('id');
         try {
             $groupPercents = $this->pairs('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0');
@@ -413,8 +413,18 @@ final class WhmcsRecordParity
             $this->check('Addons', $id, (int) $service->parent_service_id === $parent, "addon #{$id}: of service #{$parent} in WHMCS, of #" . ($service->parent_service_id ?? 'none') . ' here');
             $this->check('Addons', $id, (int) $service->client_id === (int) ($parents[$parent] ?? 0), "addon #{$id}: on account #{$service->client_id} here, its service on #" . ($parents[$parent] ?? '?'));
             $this->check('Addons', $id, $addonProducts->has((int) $service->product_id), "addon #{$id}: product #{$service->product_id} here is not an addon product");
+            // Taxed as WHMCS billed it: its own flag, here its product's (the reason for WhmcsAddonImport's variants).
+            $taxed = WhmcsAddonImport::on($row['tax'] ?? '');
+            $this->check('Addons', $id, !$addonProducts->has((int) $service->product_id) || (bool) $addonProducts[(int) $service->product_id] === $taxed,
+                "addon #{$id}: " . ($taxed ? 'taxed' : 'not taxed') . ' in WHMCS, ' . ($taxed ? 'not taxed' : 'taxed') . ' here');
+            // Suspended with a suspended parent, ended with an ended one (WhmcsAddonImport).
             $want = ImportFromWhmcs::serviceStatus((string) $row['status']);
-            $want = $want === 'active' && (string) $row['parent_status'] === 'Suspended' ? 'suspended' : $want;
+            $parentWant = ImportFromWhmcs::serviceStatus((string) $row['parent_status']);
+            $want = match (true) {
+                in_array($parentWant, ['terminated', 'cancelled'], true) => $parentWant,
+                $want === 'active' && $parentWant === 'suspended' => 'suspended',
+                default => $want,
+            };
             $this->check('Addons', $id, $want === (string) $service->status, "addon #{$id}: {$want} in WHMCS, {$service->status} here");
             $price = WhmcsMassPay::cents(ClientGroupPricing::discounted(self::cents(max(0, WhmcsMassPay::cents($row['recurring']))),
                 number_format((float) ($groupPercents[(int) ($parents[$parent] ?? 0)] ?? 0), 2, '.', '')));

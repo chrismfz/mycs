@@ -193,11 +193,15 @@ final class WhmcsPayMethodImport
             return;
         }
         $kept = $rows = 0;
-        // A live addon too, by its own service (WhmcsAddonImport: `whmcs_addon_id`); an ended one is not here, and charges nothing.
-        $live = "status IN ('" . implode("', '", WhmcsAddonImport::LIVE) . "')";
-        foreach ([['tblhosting', 'services', 'id', ''], ['tbldomains', 'domains', 'id', ''], ['tblhostingaddons', 'services', 'whmcs_addon_id', " AND {$live}"]] as [$source, $table, $key, $where]) {
+        // A live addon too, by its own service (WhmcsAddonImport: `whmcs_addon_id`), on its parent's account whatever its own
+        // `userid` (code review 4 of #647); an ended one is not here, and charges nothing.
+        $client = (int) $clientId;
+        $live = "a.status IN ('" . implode("', '", WhmcsAddonImport::LIVE) . "')";
+        foreach ([["SELECT id, paymentmethod FROM tblhosting WHERE userid = {$client}", 'services', 'id'],
+            ["SELECT id, paymentmethod FROM tbldomains WHERE userid = {$client}", 'domains', 'id'],
+            ["SELECT a.id, a.paymentmethod FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE h.userid = {$client} AND {$live}", 'services', 'whmcs_addon_id']] as [$sql, $table, $key]) {
             $ids = [];
-            foreach ($this->all("SELECT id, paymentmethod FROM {$source} WHERE userid = " . (int) $clientId . $where) as $row) {
+            foreach ($this->all($sql) as $row) {
                 if (isset($foreign[strtolower(trim((string) ($row['paymentmethod'] ?? '')))])) {
                     $ids[] = (int) $row['id'];
                 }
