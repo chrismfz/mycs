@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ServiceResource\Pages;
 
+use App\Admin\Actions\AddAddonAction;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
@@ -246,6 +247,8 @@ class EditService extends EditRecord
 
         return [
             InvoiceSelectedItemsAction::nextPeriod()->visible(in_array($record->status, ['active', 'suspended'], true)),
+            // An addon fastened to it (docs/addons.md, step 3).
+            AddAddonAction::make(),
             // A machine with no API: its details (the form's «Machine» opens it too).
             OfflineMachine::editAction()->visible(fn (Service $record) => OfflineMachine::fields($record) !== []),
             // Its Proxmox VM's power (one mapped in Proxmox Guests).

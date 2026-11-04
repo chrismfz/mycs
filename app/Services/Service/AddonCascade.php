@@ -165,6 +165,34 @@ final class AddonCascade
     }
 
     /**
+     * The parent moved to another product: its addons stay (docs/addons.md); those that no longer apply to it
+     * (`addon_targets`) are told to staff, who decide (keep, cancel, or move them).
+     */
+    public static function productChanged(Service $parent): void
+    {
+        $parent->unsetRelation('product');
+        $off = Service::query()->where('parent_service_id', $parent->id)->whereIn('status', Service::PAYING_STATUSES)->with('product')->orderBy('id')->get()
+            ->reject(fn (Service $addon) => $addon->product === null || $addon->product->appliesTo($parent));
+        if ($off->isEmpty()) {
+            return;
+        }
+        $list = e($off->map(fn (Service $addon) => "#{$addon->id} " . ($addon->product->name ?? ''))->implode("\n"));
+        $id = $parent->id;
+        $product = e((string) ($parent->product->name ?? ''));
+        DB::afterCommit(function () use ($id, $product, $list) {
+            try {
+                NotificationHelper::sendSystemEmailNotification("Service #{$id}: addons that no longer apply", <<<HTML
+                    Service #{$id} is now on {$product}. These addons of it do not apply to that product (Setup → Product Addons,
+                    «Applies to»): they stay as they are; keep, cancel or change them.<br>
+                    <pre>{$list}</pre>
+                    HTML);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
+    }
+
+    /**
      * The parent's request at the end of its period is its addons' too: they renew no more (RenewalBilling skips a
      * service with a request), their open invoices go now, and each ends on its own due date, or with the parent if that
      * comes first. An immediate request needs none: the parent ending ends them (end()). One with a request of its own

@@ -116,8 +116,21 @@ class RenewServiceService
                 $lines = $locked->livePeriodLines();
             }
 
+            // An addon billed from a later date of its own, paid before then: it starts now, its period with it (the same
+            // length, already paid), never days for free before it (ADV-637-7).
+            if ($locked->status === Service::STATUS_PENDING && $locked->parent_service_id !== null && $current === null
+                && $item->period_start->greaterThan(CarbonImmutable::today())) {
+                $start = CarbonImmutable::today();
+                $end = $locked->periodEnd($start, $lines);
+                $item->forceFill(['period_start' => $start, 'period_end' => $end, 'description' => $locked->describeLine($start, $end)])->save();
+                $lines = $locked->livePeriodLines();
+            }
+
             $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
-            $locked->rememberBillingDay($item->period_start);
+            // An addon started prorated to its parent's date keeps its parent's day, not its first line's (code review 1 of #637).
+            if (!($locked->status === Service::STATUS_PENDING && $locked->parent_service_id !== null && $locked->billing_day !== null)) {
+                $locked->rememberBillingDay($item->period_start);
+            }
             if ($locked->coupon_id && $locked->coupon_started_at === null && $locked->status === Service::STATUS_PENDING) {
                 $locked->coupon_started_at = $item->period_start;
             }
@@ -166,7 +179,10 @@ class RenewServiceService
             DB::afterCommit(fn () => AddonCascade::settle($addonId)); // its parent read without a lock: read again (code review 6)
         }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
-        $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
+        // An addon never waits for an Accept: its setup is staff's task anyway, and a later start would move its date off its
+        // parent's (code review of #637).
+        $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment()
+            && $service->parent_service_id === null;
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
         // only mails then), behind the cron's suspension still queued, so a suspension the worker never did is told
         // nothing either (combined review of #411 and #418). With this transaction: nothing runs on a rollback, and the
@@ -194,8 +210,9 @@ class RenewServiceService
         $service->expires_at = $paidUntil?->toMutable();
         // A pro rata product's first period ends on its day (PR D): paid after it, the service starts already expired, and
         // gets Suspend Days from today rather than being suspended the day it starts (adversarial D-ADV-4).
+        // An addon's prorated first period too (code review 3 of #637).
         if ($service->status === Service::STATUS_PENDING && $paidUntil !== null && $paidUntil->lessThan(CarbonImmutable::today())
-            && $service->product?->proratesPlan($service->plan)) {
+            && ($service->product?->proratesPlan($service->plan) || $service->parent_service_id !== null)) {
             $hold = CarbonImmutable::today()->addDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
             if ($service->suspend_hold_until === null || $hold->greaterThan($service->suspend_hold_until)) {
                 $service->suspend_hold_until = $hold->toMutable();

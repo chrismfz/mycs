@@ -592,7 +592,7 @@ final class RenewalBilling
     }
 
     /** The group discount its price holds (services.group_percent), said on its line (ROADMAP 5: in the price). */
-    private static function groupNote(Service $service): string
+    public static function groupNote(Service $service): string
     {
         if ($service->price_locked || (float) $service->group_percent <= 0) {
             return '';

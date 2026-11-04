@@ -1035,6 +1035,11 @@ class CronJob extends Command
             // only looked at (accepted), waiting for its payment, is cancelled as any other (owner 2026-10-19).
             ->whereNull('started_unpaid_at')
             ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
+            // Not an addon whose invoice is not due $days ago yet (one billed from a later date of its own: ADV-637-6); an
+            // order's invoices count from the order, as ever.
+            ->where(fn (Builder $query) => $query->whereNull('parent_service_id')
+                ->orWhereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
+                    ->where('invoices.due_at', '>=', now()->subDays($days)->startOfDay())))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
     }

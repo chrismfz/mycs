@@ -253,6 +253,10 @@ class ServiceObserver
         if ($service->parent_service_id !== null && $service->wasChanged('parent_service_id')) {
             AddonCascade::fastened($service);
         }
+        // Moved to another product (an upgrade, staff): its addons stay; one that no longer applies to it is staff's call.
+        if ($service->parent_service_id === null && $service->wasChanged('product_id')) {
+            AddonCascade::productChanged($service);
+        }
 
         // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run
         // inside a renewal's row lock, nor roll a committed renewal back by failing.
