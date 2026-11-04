@@ -132,6 +132,25 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
 - [x] ~~ngm (1), Hetzner (1): χειροκίνητα προϊόντα~~ **έγινε (feat/offline-modules):** modules «Offline VM» και «Offline Dedicated Server» χωρίς API· τα στοιχεία της μηχανής (VM ID, πάροχος, MAC, IPv6· rack, U, IPMI IP και MAC, serial, θύρα switch/PDU) στην υπηρεσία, κάθε ενέργεια εργασία του staff στα Pending Module Actions. Επόμενο, αν χρειαστεί: η τρέχουσα IP του IPMI από τα DHCP leases του MikroTik με το MAC του.
 - [x] ~~TheSSLStore (12): χωρίς module~~ **έγινε (feat/offline-ssl):** module «Offline SSL», ίδιο με τα offline modules.
+- [x] ~~Οι υπηρεσίες χωρίς module στο WHMCS~~ **έγινε (#628):** ο importer τις βάζει στο «Manual (offline)» (Offline
+  Dedicated Server). Ένα suspend για απλήρωτο γίνεται εργασία του staff, και φαίνεται τι θέλει suspend και τι όχι
+  (υπεύθυνος, 2026-11-04). Στη myip είναι 17 ζωντανές: dedicated, colocation, managed, backup MX.
+- [ ] **Dedicated servers με BMC: ένα extension Redfish** (ιδέα του υπεύθυνου, 2026-11-04· για αργότερα).
+  - **Ένα module για όλα:** iDRAC (Dell, 8/9), BMC της Supermicro (X11+), αργότερα iLO (HPE) και XCC (Lenovo). Όλα μιλούν
+    το πρότυπο Redfish (DMTF), και οι διαφορές τους είναι ρύθμιση «vendor» του server, όχι ξεχωριστό module.
+  - **Με σειρά:**
+    1. ανάγνωση: τροφοδοσία, υγεία, θερμοκρασίες, serial/μοντέλο, inventory·
+    2. power on/off/reset για το staff, για τον πελάτη αν αποφασιστεί·
+    3. suspend: κλείσιμο της θύρας στο switch (Nexus) ή σβήσιμο από το BMC, απόφαση ανά εταιρεία ή προϊόν. Η θύρα
+       κρατά τα δεδομένα ασφαλή και ο πελάτης βλέπει γιατί κόπηκε·
+    4. console (HTML5 KVM) και reinstall με virtual media.
+  - **Ασφάλεια:**
+    - BMC μόνο σε management VLAN ή VPN, ποτέ δημόσια·
+    - χρήστης BMC με ρόλο Operator, όχι Administrator·
+    - credentials κρυπτογραφημένα ανά υπηρεσία·
+    - η MyCS ενεργεί μόνο σε μηχάνημα ρητά αντιστοιχισμένο στην υπηρεσία, όπως στο Proxmox.
+  - **Μετάβαση:** οι υπηρεσίες του «Manual (offline)» περνούν στο Redfish με αλλαγή του server της υπηρεσίας και τα
+    στοιχεία του BMC (η IP και το MAC του IPMI υπάρχουν ήδη στα πεδία του Offline Dedicated). Δεν χρειάζεται νέο import.
   Τα στοιχεία της παραγγελίας μένουν στην υπηρεσία, και κάθε ενέργεια γίνεται εργασία του staff, η πληρωμένη ανανέωση
   επίσης. Ο importer βάζει εκεί τα πιστοποιητικά του WHMCS και αποσύρει τα 57 προϊόντα (`importer.md`). Στη λήξη περνούν
   στο Openprovider SSL.

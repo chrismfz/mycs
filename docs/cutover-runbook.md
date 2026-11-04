@@ -30,7 +30,9 @@ credentials. Το import της ημέρας τα φέρνει όλα:
       `mycs` και η ρύθμιση Terminate·
     - οι VPS του WHMCS αντιστοιχίζονται με το χέρι από τα Proxmox Guests (`proxmox.md` → Α3), και μετά το «Pool command».
     Μέχρι τότε η MyCS δεν αγγίζει κανένα VM.
-  - **Offline VM (myip: Hetzner Cloud, ngm):** καμία ρύθμιση. Κάθε ενέργεια γίνεται εργασία στα Pending Module Actions.
+  - **Offline VM (myip: Hetzner Cloud, ngm) και «Manual (offline)» (προϊόντα χωρίς module):** καμία ρύθμιση. Κάθε
+    ενέργεια γίνεται εργασία στα Pending Module Actions. Στη λίστα του import, όποια υπηρεσία δεν είναι μηχάνημα (SSL,
+    license) μεταφέρεται όπου ταιριάζει.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Υπενθυμίσεις της ημέρας:** ως σταλμένες μετρούν όσες έστειλε το WHMCS ως το τελευταίο **ολοκληρωμένο** ημερήσιο

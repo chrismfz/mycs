@@ -139,7 +139,8 @@ class Overview extends BaseWidget
         $open = ModuleAction::query()->open()->count();
 
         return Stat::make('Pending Module Actions', (string) $open)
-            ->description($open === 0 ? 'Nothing failed' : 'Failed server actions: retry or resolve')
+            // A failed action, or one staff do by hand (an offline module's suspension, say): both wait here (#628).
+            ->description($open === 0 ? 'Nothing waiting' : 'Server actions for staff: do, retry or resolve')
             ->color($open === 0 ? 'gray' : 'danger')
             ->url(ModuleActionResource::getUrl());
     }
