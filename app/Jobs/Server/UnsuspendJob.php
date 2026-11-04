@@ -46,7 +46,7 @@ class UnsuspendJob implements ShouldQueue
         $neverSuspended = Cache::get(SuspendJob::neverSuspendedKey($this->service->id)) === true;
         // On a machine with no API the mark is proof (its suspension never fails silently: it is a task): no task to
         // unsuspend what nobody suspended (review of #443).
-        if ($neverSuspended && ExtensionHelper::isOffline($this->service)) {
+        if ($neverSuspended && (ExtensionHelper::isOffline($this->service) || $this->service->isAddon())) { // an addon's are tasks too (ADV-634-10)
             Cache::forget(SuspendJob::neverSuspendedKey($this->service->id));
 
             return;

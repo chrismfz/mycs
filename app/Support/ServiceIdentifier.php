@@ -60,8 +60,14 @@ final class ServiceIdentifier
             $parts = [$label, ...self::fromProperties($service, $username)];
         }
         $parts[] = trim((string) $service->dedicated_ip);
+        $parts = array_values(array_unique(array_filter($parts, fn (string $part) => $part !== '')));
 
-        return array_values(array_unique(array_filter($parts, fn (string $part) => $part !== '')));
+        // An addon with nothing of its own (an extra IP, more disk) is told apart by its parent's (docs/addons.md).
+        if ($parts === [] && $service->parent_service_id !== null && ($parent = $service->parent) !== null && $parent->parent_service_id === null) {
+            return self::parts($parent, $username);
+        }
+
+        return $parts;
     }
 
     /** The parts in one line («shop.example.gr · 203.0.113.10»), cut to $limit characters when given; '' for none. */

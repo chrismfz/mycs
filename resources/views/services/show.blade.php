@@ -62,13 +62,20 @@
                     <div class="flex items-center text-base">
                         <span class="mr-2">{{ __('services.suspend_reason') }}:</span>
                         {{-- The cron's (WHMCS's) reason in the customer's language; staff's own as written (review F4). --}}
-                        <span class="text-base/50">{{ $service->suspend_reason === 'Overdue on Payment' ? __('services.suspend_reasons.overdue') : $service->suspend_reason }}</span>
+                        <span class="text-base/50">{{ match ($service->suspend_reason) { 'Overdue on Payment' => __('services.suspend_reasons.overdue'), \App\Models\Service::SUSPEND_REASON_PARENT => __('services.suspend_reasons.parent'), default => $service->suspend_reason } }}</span>
                     </div>
                     @endif
                     <div class="flex items-center text-base">
                         <span class="mr-2">{{ __('services.registration_date') }}:</span>
                         <span class="text-base/50">{{ $service->created_at?->format('M d, Y') }}</span>
                     </div>
+                    {{-- An addon names its main service; a main service lists its addons (docs/addons.md). --}}
+                    @if($service->parent)
+                    <div class="flex items-center text-base">
+                        <span class="mr-2">{{ __('services.addons.of') }}:</span>
+                        <a class="text-base/50 underline underline-offset-2" href="{{ route('services.show', $service->parent) }}">{{ \App\Support\ServiceIdentifier::named($service->parent, (string) ($service->parent->product->name ?? '')) }}</a>
+                    </div>
+                    @endif
                     @include('services.partials.account')
                     @include('services.partials.license')
                     @include('services.partials.contact')
@@ -82,6 +89,18 @@
                         <span class="text-base/50">{{ $field['text'] }}</span>
                     </div>
                     @endforeach
+                    @php($addons = $service->addons()->with(['product', 'plan'])->whereNotIn('status', \App\Models\Service::ENDED_STATUSES)->orderBy('id')->get())
+                    @if($addons->isNotEmpty())
+                    <h4 class="text-lg font-semibold mt-4">{{ __('services.addons.title') }}:</h4>
+                    <ul class="mt-2 flex flex-col gap-1">
+                        @foreach($addons as $addon)
+                        <li class="text-base">
+                            <a class="underline underline-offset-2" href="{{ route('services.show', $addon) }}">{{ $addon->product->name ?? '' }}@if((int) $addon->quantity > 1) ×{{ $addon->quantity }}@endif</a>
+                            <span class="text-base/50">· {{ $addon->formattedPrice }} · {{ __('services.statuses.' . $addon->status) }}@if($addon->expires_at && $addon->plan?->type === 'recurring' && !$addon->cancellation) · {{ __('services.addons.expires', ['date' => $addon->expires_at->format('M d, Y')]) }}@endif</span>
+                        </li>
+                        @endforeach
+                    </ul>
+                    @endif
                 </div>
             </div>
             @if((Gate::allows('update', $service) && ($service->cancellable || $service->upgradable || \App\Services\ServiceUpgrade\ChangeCycle::plans($service)->isNotEmpty())) || count($buttons) > 0)

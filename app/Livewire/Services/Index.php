@@ -38,6 +38,11 @@ class Index extends Component
             $query->where('status', $this->status);
         }
         $search = trim(mb_substr($this->search, 0, 100));
+        // Addons are listed under their main service (docs/addons.md), each on its own when searched for.
+        $query->withCount(['addons as running_addons_count' => fn (Builder $addons) => $addons->whereNotIn('status', Service::ENDED_STATUSES)]);
+        if ($search === '') {
+            $query->notAddons();
+        }
         if ($search !== '') {
             // «!» escapes, the same on SQLite and MariaDB (code review 4: a backslash is MariaDB's only).
             $pattern = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';

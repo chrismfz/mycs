@@ -38,6 +38,9 @@ class SendMailListener implements ShouldQueue
         if ($event instanceof InvoiceFinalized || $event instanceof OrderFinalized) {
             return $event->sendEmail !== false;
         }
+        if ($event instanceof CancellationCreated) {
+            return !$event->cancellation->with_parent; // its parent's request is the one the customer made (ADV-634-4)
+        }
         if ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
             // Once, when it becomes failed (EVT-14): not again on every later save of a failed transaction.
             $transaction = $event->invoiceTransaction;

@@ -6,6 +6,12 @@
         <option value="immediate">{{ __('services.cancel_immediate') }}</option>
     </x-form.select>
 
+    {{-- Its addons end with it (docs/addons.md): said before it is asked. --}}
+    @php($addons = $service->addons()->with('product')->whereNotIn('status', \App\Models\Service::ENDED_STATUSES)->orderBy('id')->get())
+    @if($addons->isNotEmpty())
+    <p class="text-base/70">{{ __('services.addons.cancel_includes', ['addons' => $addons->map(fn ($addon) => ($addon->product->name ?? '') . ((int) $addon->quantity > 1 ? ' ×' . $addon->quantity : ''))->implode(', ')]) }}</p>
+    @endif
+
     <x-form.textarea name="reason" label="{{ __('services.cancel_reason') }}" maxlength="255" required wire:model="reason" />
 
     <!-- Show you'll lose data warning if immediate cancellation is selected -->

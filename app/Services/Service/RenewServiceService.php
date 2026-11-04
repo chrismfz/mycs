@@ -17,6 +17,7 @@ use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
@@ -154,6 +155,16 @@ class RenewServiceService
             )));
             $manualHold = true; // kept as it is, as a hold would be
         }
+        // An addon paid while its parent is suspended stays suspended, from now on with it: back when its parent is
+        // (AddonCascade). Not one staff hold: their hold stays theirs.
+        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && $service->parent_service_id !== null
+            && Service::query()->whereKey($service->parent_service_id)->value('status') === Service::STATUS_SUSPENDED) {
+            $manualHold = true;
+            $service->suspend_reason = Service::SUSPEND_REASON_PARENT;
+            $service->dunning_suspended_at = null;
+            $addonId = $service->id;
+            DB::afterCommit(fn () => AddonCascade::settle($addonId)); // its parent read without a lock: read again (code review 6)
+        }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
@@ -164,7 +175,18 @@ class RenewServiceService
             AfterCommit::job(new UnsuspendJob($service));
         }
         if (!$manualHold && $service->hasServerActions()) {
-            if ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
+            if ($service->status == Service::STATUS_PENDING && !$waitsForStaff && $service->isAddon()) {
+                // An addon's creation is a task for staff on its parent's machine, no module (ADV-634-6): made once this
+                // commits, the addon started now (suspended with a suspended parent: AddonCascade).
+                $id = $service->id;
+                DB::afterCommit(function () use ($id) {
+                    try {
+                        ($addon = Service::query()->find($id)) !== null ? ExtensionHelper::createServer($addon) : null;
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                });
+            } elseif ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
                 AfterCommit::job(new CreateJob($service));
             }
         }
@@ -181,7 +203,7 @@ class RenewServiceService
         }
         // A pending one with a server turns active once its account is made (CreateJob, Σ1): paid now, it may still
         // fail on the server and wait in Pending Module Actions. Without a server there is nothing to make.
-        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions();
+        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions() && !$service->isAddon();
         if (!$manualHold && !$awaitsCreate && !$waitsForStaff) {
             $service->status = Service::STATUS_ACTIVE;
         }

@@ -9,6 +9,7 @@ use App\Models\IpAddress;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Payment\ItemPaymentMethod;
+use App\Services\Service\AddonCascade;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\ServerSelector;
 use App\Support\DunningWindow;
@@ -32,6 +33,9 @@ class ServiceObserver
         if ($service->order_id !== null && in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, ...Service::ENDED_STATUSES], true)) {
             self::refreshOrders($service); // made already started (staff, the API): its order may have nothing waiting
         }
+        if ($service->parent_service_id !== null) {
+            AddonCascade::fastened($service); // fastened to a service ending at the end of its period: with it (ADV-634-9)
+        }
         event(new ServiceEvent\Created($service));
     }
 
@@ -49,10 +53,45 @@ class ServiceObserver
             $service->activated_at = now(); // its first start (Σ1-b1): the only one that moves its dates
         }
         self::keepContactInAccount($service);
+        self::keepAddonWithParent($service);
         // A price saved holds its account's group discount as it is now (reviews of #272): a recalculation, an order, an
         // upgrade, staff's edit. Group repricing sets its own (ClientGroupPricing).
         if ($service->isDirty('price') && !$service->isDirty('group_percent')) {
             $service->group_percent = $service->client?->groupPercent() ?? '0';
+        }
+    }
+
+    /**
+     * An addon is its parent's (docs/addons.md): one level only, the same account and currency. Read when it is set, or
+     * when the addon's account or currency changes (MoveToClient moves the parent first, then its addons).
+     */
+    private static function keepAddonWithParent(Service $service): void
+    {
+        // A parent's currency is its addons' (one invoice for both): not changed under them (ADV-634-5).
+        if ($service->exists && $service->parent_service_id === null && $service->isDirty('currency_code') && $service->addons()->exists()) {
+            throw new DisplayException(__('services.addons.parent_currency'));
+        }
+        if ($service->parent_service_id === null || !$service->isDirty(['parent_service_id', 'client_id', 'currency_code'])) {
+            return;
+        }
+        if ($service->exists && (int) $service->parent_service_id === (int) $service->id) {
+            throw new DisplayException(__('services.addons.parent_self'));
+        }
+        $parent = Service::query()->find($service->parent_service_id);
+        if ($parent === null) {
+            throw new DisplayException(__('services.addons.parent_missing'));
+        }
+        if ($parent->parent_service_id !== null) {
+            throw new DisplayException(__('services.addons.parent_is_addon'));
+        }
+        if ($service->exists && $service->isDirty('parent_service_id') && $service->addons()->exists()) {
+            throw new DisplayException(__('services.addons.has_addons'));
+        }
+        if ((int) $parent->client_id !== (int) $service->client_id) {
+            throw new DisplayException(__('services.addons.parent_other_client'));
+        }
+        if ((string) $parent->currency_code !== (string) $service->currency_code) {
+            throw new DisplayException(__('services.addons.parent_other_currency'));
         }
     }
 
@@ -203,6 +242,16 @@ class ServiceObserver
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
             $service->refreshOpenPeriods();
+        }
+        // Its addons follow it: suspended, back, ended with it (docs/addons.md); an addon never runs under a suspended
+        // parent, and fastened to one that is ending, it ends with it.
+        if ($service->wasChanged('status') && $service->parent_service_id === null) {
+            AddonCascade::followParent($service, $service->getOriginal('status'));
+        } elseif ($service->parent_service_id !== null && $service->wasChanged('status') && $service->status === Service::STATUS_ACTIVE) {
+            AddonCascade::keepUnderParent($service);
+        }
+        if ($service->parent_service_id !== null && $service->wasChanged('parent_service_id')) {
+            AddonCascade::fastened($service);
         }
 
         // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run

@@ -19,6 +19,9 @@
                 @if ($identifier !== '')
                 <span class="block text-sm text-base/60 [overflow-wrap:anywhere]">{{ $identifier }}</span>
                 @endif
+                @if (($service->running_addons_count ?? 0) > 0)
+                <span class="block text-sm text-base/60">{{ trans_choice('services.addons.count', $service->running_addons_count, ['count' => $service->running_addons_count]) }}</span>
+                @endif
             </span>
             </div>
             {{--

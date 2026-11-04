@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\ServiceCancellation as ServiceCancellationEvent;
 use App\Models\ServiceCancellation;
+use App\Services\Service\AddonCascade;
 
 class ServiceCancellationObserver
 {
@@ -12,6 +13,7 @@ class ServiceCancellationObserver
      */
     public function created(ServiceCancellation $serviceCancellation): void
     {
+        AddonCascade::requestWithParent($serviceCancellation); // its addons' too (docs/addons.md)
         event(new ServiceCancellationEvent\Created($serviceCancellation));
     }
 
@@ -28,6 +30,7 @@ class ServiceCancellationObserver
      */
     public function deleted(ServiceCancellation $serviceCancellation): void
     {
+        AddonCascade::withdrawWithParent($serviceCancellation);
         event(new ServiceCancellationEvent\Deleted($serviceCancellation));
     }
 }
