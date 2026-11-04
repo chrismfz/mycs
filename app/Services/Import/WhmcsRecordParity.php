@@ -24,7 +24,7 @@ use Throwable;
  * account, number, status, amount, due and paid days; a payment's invoice and amount; a service's account, product,
  * status, price, cycle and due date, and where it lives (its server and the address that is reached at, its username, its
  * domain: a suspension of the wrong account is the worst a cut-over can do); a domain's account, name, status, expiry,
- * amount and registrar. What the importer leaves out by its own rule (a payment on no invoice here, money out on no payment
+ * amount and registrar; a live addon's parent, account, status, price, cycle and due date. What the importer leaves out by its own rule (a payment on no invoice here, money out on no payment
  * here) is a note, never a difference. Read only on both. Amounts in cents.
  */
 final class WhmcsRecordParity
@@ -62,6 +62,7 @@ final class WhmcsRecordParity
         $this->invoices();
         $this->payments();
         $this->services();
+        $this->addons();
         $this->domains();
 
         return array_map(fn (array $check) => ['checked' => count($check['records']), 'count' => count($check['differ']), 'differ' => $check['examples']],
@@ -370,6 +371,72 @@ final class WhmcsRecordParity
         }
         foreach ($byHand as $what => $ids) {
             $this->note('Servers set by staff', "{$what}, at WHMCS's address: service(s) #" . implode(', #', $ids) . '.');
+        }
+    }
+
+    /**
+     * Each live WHMCS addon against its own service here (WhmcsAddonImport, docs/addons.md step 4): fastened to its parent, on
+     * its account, an addon product, its status (suspended with a suspended parent), price, quantity, cycle and due date.
+     * One whose parent is not here is left out by the importer's rule: a note.
+     */
+    private function addons(): void
+    {
+        try {
+            $rows = $this->whmcs->query("SELECT a.*, h.domainstatus AS parent_status FROM tblhostingaddons a LEFT JOIN tblhosting h ON h.id = a.hostingid
+                WHERE a.status IN ('" . implode("', '", WhmcsAddonImport::LIVE) . "') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable) {
+            return; // a WHMCS without addons
+        }
+        $here = DB::table('services')->whereNotNull('whmcs_addon_id')
+            ->get(['id', 'whmcs_addon_id', 'parent_service_id', 'client_id', 'product_id', 'plan_id', 'status', 'price', 'quantity', 'expires_at'])->keyBy('whmcs_addon_id');
+        $parents = DB::table('services')->whereNull('parent_service_id')->pluck('client_id', 'id');
+        $addonProducts = DB::table('products')->where('is_addon', true)->pluck('id')->flip();
+        $plans = DB::table('plans')->get(['id', 'type', 'billing_period', 'billing_unit'])->keyBy('id');
+        try {
+            $groupPercents = $this->pairs('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0');
+        } catch (Throwable) {
+            $groupPercents = [];
+        }
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $parent = (int) $row['hostingid'];
+            $service = $here->get($id);
+            if ($service === null && !$parents->has($parent)) {
+                $this->note('Addons', "WHMCS addon #{$id}: its service #{$parent} is not here (deleted in WHMCS), not imported by rule.");
+
+                continue;
+            }
+            $this->check('Addons', $id, $service !== null, "addon #{$id}: not here");
+            if ($service === null) {
+                continue;
+            }
+            $this->check('Addons', $id, (int) $service->parent_service_id === $parent, "addon #{$id}: of service #{$parent} in WHMCS, of #" . ($service->parent_service_id ?? 'none') . ' here');
+            $this->check('Addons', $id, (int) $service->client_id === (int) ($parents[$parent] ?? 0), "addon #{$id}: on account #{$service->client_id} here, its service on #" . ($parents[$parent] ?? '?'));
+            $this->check('Addons', $id, $addonProducts->has((int) $service->product_id), "addon #{$id}: product #{$service->product_id} here is not an addon product");
+            $want = ImportFromWhmcs::serviceStatus((string) $row['status']);
+            $want = $want === 'active' && (string) $row['parent_status'] === 'Suspended' ? 'suspended' : $want;
+            $this->check('Addons', $id, $want === (string) $service->status, "addon #{$id}: {$want} in WHMCS, {$service->status} here");
+            $price = WhmcsMassPay::cents(ClientGroupPricing::discounted(self::cents(max(0, WhmcsMassPay::cents($row['recurring']))),
+                number_format((float) ($groupPercents[(int) ($parents[$parent] ?? 0)] ?? 0), 2, '.', '')));
+            $this->check('Addons', $id, $price === WhmcsMassPay::cents($service->price),
+                "addon #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
+            $this->check('Addons', $id, max(1, (int) $row['qty']) === (int) $service->quantity, "addon #{$id}: quantity {$row['qty']} in WHMCS, {$service->quantity} here");
+            $cycle = trim((string) $row['billingcycle']);
+            // An addon's may be «Free» or «One Time» as well as a service's names (WhmcsAddonImport::planFor).
+            $name = match (strtolower(str_replace(['-', ' '], '', $cycle))) {
+                'free', 'freeaccount' => 'Free',
+                'onetime' => 'One-Time',
+                default => ImportFromWhmcs::planName($cycle),
+            };
+            [$type, $period, $unit] = self::CYCLES[$name];
+            $plan = $service->plan_id === null ? null : $plans->get((int) $service->plan_id);
+            $this->check('Addons', $id, $plan !== null && (string) $plan->type === $type
+                && ($type !== 'recurring' || ((int) $plan->billing_period === $period && strtolower((string) $plan->billing_unit) === $unit)),
+                "addon #{$id}: billed «{$cycle}» in WHMCS, here " . ($plan === null ? 'on no plan' : ((string) $plan->type === 'recurring' ? "every {$plan->billing_period} {$plan->billing_unit}" : $plan->type)));
+            if ($type === 'recurring') {
+                $this->check('Addons', $id, self::day($row['nextduedate']) === self::day($service->expires_at),
+                    "addon #{$id}: due " . self::day($row['nextduedate']) . ' in WHMCS, ' . self::day($service->expires_at) . ' here');
+            }
         }
     }
 

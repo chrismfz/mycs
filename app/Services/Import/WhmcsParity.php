@@ -42,8 +42,16 @@ final class WhmcsParity
                 ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
 
         foreach (['Active' => 'active', 'Suspended' => 'suspended', 'Terminated' => 'terminated', 'Cancelled' => 'cancelled', 'Pending' => 'pending'] as $whmcs => $mycs) {
+            // WHMCS's services only: an addon's (WhmcsAddonImport) is counted below.
             $add("Services {$mycs}", $this->count('SELECT COUNT(*) FROM tblhosting WHERE domainstatus = ?', [$whmcs]),
-                DB::table('services')->where('status', $mycs)->count());
+                DB::table('services')->whereNull('whmcs_addon_id')->where('status', $mycs)->count());
+        }
+        // The live addons, each a service here (docs/addons.md, step 4); an ended one is not imported.
+        if ($this->hasColumn('tblhostingaddons', 'status')) {
+            foreach (['Active' => 'active', 'Suspended' => 'suspended', 'Pending' => 'pending'] as $whmcs => $mycs) {
+                $add("Addons {$mycs}", $this->count('SELECT COUNT(*) FROM tblhostingaddons WHERE status = ?', [$whmcs]),
+                    DB::table('services')->whereNotNull('whmcs_addon_id')->where('status', $mycs)->count());
+            }
         }
 
         // Mass Pay parents, by the importer's own rule (WhmcsMassPay::PARENTS_SQL): no invoices here. Each WHMCS status

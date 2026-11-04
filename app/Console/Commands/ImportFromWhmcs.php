@@ -20,6 +20,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Billing\ClientGroupPricing;
+use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
@@ -206,6 +207,8 @@ class ImportFromWhmcs extends Command
             $this->importKnowledgebase();
             $this->importOrders();
             $this->importServices();
+            // After the services (their parents) and the orders, before the notes and the invoice lines (docs/addons.md, step 4).
+            $this->importAddons();
             $this->importOfflineSsl();
             $this->importOfflineDedicated();
             $this->importDomains();
@@ -1486,6 +1489,33 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /** WHMCS's product addons (WhmcsAddonImport): each live one a service fastened to its parent. */
+    private function importAddons(): void
+    {
+        if (!$this->sourceHas('tblhostingaddons')) {
+            return;
+        }
+        $suspendDays = $this->sourceHas('tblconfiguration')
+            ? (int) ($this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'AutoSuspensionDays'")->fetchColumn() ?: 0) : 0;
+        $result = (new WhmcsAddonImport($this->pdo, $suspendDays))->run();
+        $this->addonsHere = $result['services'];
+        $c = $result['counts'];
+        $this->info("Product addons: {$c['services']} live addon(s) as services of their parents, {$c['products']} addon product(s); {$c['skipped']} not imported.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** @var array<int, int>|null WHMCS addon (tblhostingaddons.id) => its own service here (WhmcsAddonImport) */
+    private ?array $addonsHere = null;
+
+    /** @return array<int, int> */
+    private function addonsHere(): array
+    {
+        return $this->addonsHere ??= DB::table('services')->whereNotNull('whmcs_addon_id')->pluck('id', 'whmcs_addon_id')
+            ->mapWithKeys(fn ($id, $addon) => [(int) $addon => (int) $id])->all();
+    }
+
     /** @var array<int, int> WHMCS server id => its server here (a cluster's nodes share one), from importServers */
     private array $whmcsServers = [];
 
@@ -1843,6 +1873,13 @@ class ImportFromWhmcs extends Command
                 }
             }
         }
+        // An addon's own (WhmcsAddonImport): its service here by its WHMCS id.
+        foreach ($this->sourceHas('tblhostingaddons') ? $this->pdo->query('SELECT id, paymentmethod FROM tblhostingaddons')->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+            $module = strtolower(trim((string) ($row['paymentmethod'] ?? '')));
+            if ($module !== '' && isset($this->addonsHere()[(int) $row['id']]) && ($gateway = $this->existingGateway($module)) !== null) {
+                $set += DB::table('services')->where('id', $this->addonsHere()[(int) $row['id']])->update(['payment_gateway_id' => $gateway]);
+            }
+        }
         $this->info("Services' and domains' payment method: {$set} set from WHMCS.");
     }
 
@@ -2163,7 +2200,9 @@ class ImportFromWhmcs extends Command
     /**
      * What a WHMCS invoice line is for (tblinvoiceitems.type, relid), so income goes to its product (#504):
      * - Hosting: the service's renewal (services keep their WHMCS ids), as before: no kind, its period given when paid.
-     * - Setup, PromoHosting (relid = the service), Addon (relid = tblhostingaddons, on its service) and Upgrade (relid =
+     * - Addon (relid = tblhostingaddons): the addon's own service when it was imported (a live one, WhmcsAddonImport), as a
+     *   Hosting line; an ended one's on its parent, as below.
+     * - Setup, PromoHosting (relid = the service), Addon of an ended addon (on its parent) and Upgrade (relid =
      *   tblupgrades of a package or its options, on its service): the service's, `kind = charge`, never a period: a
      *   payment renews nothing with it, and the billing never takes it for a period (docs/importer.md).
      * - AddFunds: a credit purchase, as MyCS's own: never income (the credit is, when it pays; #275).
@@ -2199,6 +2238,9 @@ class ImportFromWhmcs extends Command
 
         return match (true) {
             $type === 'Hosting' => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            // An addon imported as a service of its own (WhmcsAddonImport): its renewal, as a service's Hosting line (paid, it
+            // renews it; unpaid, it is the renewal billed already).
+            $type === 'Addon' && isset($this->addonsHere()[$relid]) => ['reference_type' => Service::class, 'reference_id' => $this->addonsHere()[$relid], 'kind' => null],
             $type === 'AddFunds' => ['reference_type' => Credit::class, 'reference_id' => null, 'kind' => null],
             $service !== null && isset($this->importedServices()[$service]) => ['reference_type' => Service::class, 'reference_id' => $service, 'kind' => InvoiceItem::KIND_CHARGE],
             default => ['reference_type' => null, 'reference_id' => $record['relid'], 'kind' => null],

@@ -178,7 +178,7 @@ final class CatalogImport
         $this->servers();
         $this->serverGroups();
         foreach ($this->rows('SELECT id, name, servertype, servergroup FROM tblproducts ORDER BY id') as $row) {
-            $product = Product::query()->where('whmcs_id', (int) $row['id'])->first() ?? Product::query()->whereNull('whmcs_id')->find((int) $row['id']);
+            $product = Product::query()->where('whmcs_id', (int) $row['id'])->first() ?? Product::query()->whereNull('whmcs_id')->where('is_addon', false)->find((int) $row['id']);
             $module = strtolower((string) ($row['servertype'] ?? ''));
             if ($product === null || !isset(self::SERVER_MODULES[$module])) {
                 continue;

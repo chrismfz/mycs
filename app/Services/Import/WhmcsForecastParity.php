@@ -75,6 +75,7 @@ final class WhmcsForecastParity
         $this->load();
         $this->settings();
         $this->services();
+        $this->addons();
         $this->endedServices();
         $this->domains();
 
@@ -112,6 +113,52 @@ final class WhmcsForecastParity
 
     private function services(): void
     {
+        $statement = $this->hostingRows("domainstatus IN ('Active', 'Suspended', 'Pending')");
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $id = (int) $row['id'];
+            $service = Service::query()->with(['plan', 'client.group'])->whereNull('whmcs_addon_id')->find($id);
+            if ($service === null) {
+                $this->compare('service', $id, 'exists', 'yes', 'no');
+
+                continue;
+            }
+            $this->forecast('service', $id, $row, $service);
+        }
+    }
+
+    /**
+     * Each live WHMCS addon as its own service here (WhmcsAddonImport, docs/addons.md step 4), forecast as a service is:
+     * WHMCS invoices, suspends and terminates an addon on its own dates. One active under a suspended service is suspended
+     * with it here. One whose service is not here is not imported by rule: not compared.
+     */
+    private function addons(): void
+    {
+        if (!$this->tableExists('tblhostingaddons')) {
+            return;
+        }
+        $statement = $this->whmcs->query("SELECT a.id, a.userid, a.hostingid, a.status, a.billingcycle, a.recurring AS amount, a.qty, a.nextduedate, a.nextinvoicedate,
+            a.paymentmethod, a.subscriptionid, 0 AS overideautosuspend, NULL AS overidesuspenduntil, h.domainstatus AS parent_status, h.userid AS parent_userid
+            FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ('Active', 'Suspended', 'Pending') ORDER BY a.id");
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $id = (int) $row['id'];
+            $service = Service::query()->with(['plan', 'client.group'])->where('whmcs_addon_id', $id)->first();
+            if ($service === null) {
+                if (Service::query()->whereKey((int) $row['hostingid'])->exists()) {
+                    $this->compare('addon', $id, 'exists', 'yes', 'no');
+                }
+
+                continue;
+            }
+            // Its account is its service's (an addon's own `userid` may be 0); suspended with a suspended service.
+            $row['userid'] = (int) $row['parent_userid'];
+            $row['domainstatus'] = $row['status'] === 'Active' && $row['parent_status'] === 'Suspended' ? 'Suspended' : $row['status'];
+            $this->forecast('addon', $id, $row, $service);
+        }
+    }
+
+    /** @param  array<string, mixed>  $row  WHMCS's: tblhosting's columns (hostingRows), an addon's as the same names */
+    private function forecast(string $kind, int $id, array $row, Service $service): void
+    {
         $suspendDays = (int) ($this->config['AutoSuspensionDays'] ?? 0);
         $terminateDays = (int) ($this->config['AutoTerminationDays'] ?? 0);
         $suspendOn = $this->on($this->config['AutoSuspension'] ?? '');
@@ -119,51 +166,41 @@ final class WhmcsForecastParity
         $ourSuspend = (int) config('settings.cronjob_order_suspend', 8);
         $ourTerminate = (int) config('settings.cronjob_order_terminate', 60);
         $ourInvoice = (int) config('settings.cronjob_invoice', 7);
-        $statement = $this->hostingRows("domainstatus IN ('Active', 'Suspended', 'Pending')");
-        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
-            $id = (int) $row['id'];
-            $service = Service::query()->with(['plan', 'client.group'])->find($id);
-            if ($service === null) {
-                $this->compare('service', $id, 'exists', 'yes', 'no');
-
-                continue;
-            }
-            $this->compare('service', $id, 'status', $this->statusWord((string) $row['domainstatus']), (string) $service->status);
-            $cycle = self::CYCLES[strtolower(trim((string) $row['billingcycle']))] ?? null;
-            $plan = $service->plan;
-            // A free account has no plan here and no due date: never billed (BIL-6), which is what free means.
-            $ours = $plan === null ? ($service->expires_at === null ? 'free' : 'none') : ($plan->type === 'recurring' ? "recurring {$plan->billing_period} {$plan->billing_unit}" : (string) $plan->type);
-            $theirs = $cycle === null ? 'unknown «' . $row['billingcycle'] . '»' : ($cycle[0] === 'recurring' ? "recurring {$cycle[1]} {$cycle[2]}" : $cycle[0]);
-            $this->compare('service', $id, 'cycle', $theirs, $ours);
-            if ($cycle === null || $cycle[0] !== 'recurring' || strtolower((string) $row['domainstatus']) === 'pending' || $service->expires_at === null) {
-                continue;
-            }
-            $due = $this->date($row['nextduedate']);
-            $expires = CarbonImmutable::parse($service->expires_at);
-            // The line is its price times its quantity, on both sides. WHMCS's amount is without its account's group discount,
-            // which it bills as a `GroupDiscount` line of its own on each renewal (WG-1).
-            $theirQty = max(1, (int) ($row['qty'] ?? 1));
-            $theirs = ClientGroupPricing::discounted(number_format((float) $row['amount'], 2, '.', ''), $this->groupPercents[(int) $row['userid']] ?? '0.00');
-            $this->compare('service', $id, 'renewal amount', number_format((float) $theirs * $theirQty, 2, '.', ''),
-                number_format((float) RenewalPrice::for($service, $expires, true)->price * max(1, (int) $service->quantity), 2, '.', ''));
-            $this->compare('service', $id, 'next due date', $due, $expires->toDateString());
-            // WHMCS invoices a renewal when its nextinvoicedate is within «invoice days» (the cycle's own, else the general): 7 days
-            // before the due date in 7,851 of its invoices.
-            $this->compare('service', $id, 'invoiced on', $this->shift($row['nextinvoicedate'], -$this->invoiceDays((string) $row['billingcycle'])), $expires->subDays($ourInvoice)->toDateString());
-            // Holds: «always» and a date still to come hold; a date past does not.
-            $theirHold = $this->theirHold($row);
-            $ourHold = $this->ourHold($service);
-            $this->compare('service', $id, 'suspension hold', $theirHold, $ourHold);
-            // Suspended on / terminated on: the day the cron acts, «never» where it will not.
-            $theirExempt = isset($this->exempt[(int) $row['userid']]);
-            $theirHeld = $theirHold !== 'none';
-            $this->compare('service', $id, 'suspended on', $suspendOn && !$theirHeld && !$theirExempt && $due !== '' ? $this->plus($due, $suspendDays) : self::NEVER,
-                $this->ourDay($service, (bool) config('settings.cronjob_suspend_enabled', true), $ourHold, $expires->addDays($ourSuspend + 1)->toDateString(), false));
-            $this->compare('service', $id, 'terminated on', $terminateOn && !$theirHeld && !$theirExempt && $due !== '' ? $this->plus($due, $terminateDays) : self::NEVER,
-                $this->ourDay($service, (bool) config('settings.cronjob_terminate_enabled', true), $ourHold, $expires->addDays($ourTerminate + 1)->toDateString(), true));
-            $theirCharge = empty($row['subscriptionid']) && isset($this->methods[(int) $row['userid'] . '|' . strtolower((string) $row['paymentmethod'])]);
-            $this->compare('service', $id, 'charged by a saved method', $theirCharge ? 'yes' : 'no', $this->chargedHere($service) ? 'yes' : 'no');
+        $this->compare($kind, $id, 'status', $this->statusWord((string) $row['domainstatus']), (string) $service->status);
+        $cycle = self::CYCLES[strtolower(trim((string) $row['billingcycle']))] ?? null;
+        $plan = $service->plan;
+        // A free account has no plan here and no due date: never billed (BIL-6), which is what free means.
+        $ours = $plan === null ? ($service->expires_at === null ? 'free' : 'none') : ($plan->type === 'recurring' ? "recurring {$plan->billing_period} {$plan->billing_unit}" : (string) $plan->type);
+        $theirs = $cycle === null ? 'unknown «' . $row['billingcycle'] . '»' : ($cycle[0] === 'recurring' ? "recurring {$cycle[1]} {$cycle[2]}" : $cycle[0]);
+        $this->compare($kind, $id, 'cycle', $theirs, $ours);
+        if ($cycle === null || $cycle[0] !== 'recurring' || strtolower((string) $row['domainstatus']) === 'pending' || $service->expires_at === null) {
+            return;
         }
+        $due = $this->date($row['nextduedate']);
+        $expires = CarbonImmutable::parse($service->expires_at);
+        // The line is its price times its quantity, on both sides. WHMCS's amount is without its account's group discount,
+        // which it bills as a `GroupDiscount` line of its own on each renewal (WG-1).
+        $theirQty = max(1, (int) ($row['qty'] ?? 1));
+        $theirs = ClientGroupPricing::discounted(number_format((float) $row['amount'], 2, '.', ''), $this->groupPercents[(int) $row['userid']] ?? '0.00');
+        $this->compare($kind, $id, 'renewal amount', number_format((float) $theirs * $theirQty, 2, '.', ''),
+            number_format((float) RenewalPrice::for($service, $expires, true)->price * max(1, (int) $service->quantity), 2, '.', ''));
+        $this->compare($kind, $id, 'next due date', $due, $expires->toDateString());
+        // WHMCS invoices a renewal when its nextinvoicedate is within «invoice days» (the cycle's own, else the general): 7 days
+        // before the due date in 7,851 of its invoices.
+        $this->compare($kind, $id, 'invoiced on', $this->shift($row['nextinvoicedate'], -$this->invoiceDays((string) $row['billingcycle'])), $expires->subDays($ourInvoice)->toDateString());
+        // Holds: «always» and a date still to come hold; a date past does not.
+        $theirHold = $this->theirHold($row);
+        $ourHold = $this->ourHold($service);
+        $this->compare($kind, $id, 'suspension hold', $theirHold, $ourHold);
+        // Suspended on / terminated on: the day the cron acts, «never» where it will not.
+        $theirExempt = isset($this->exempt[(int) $row['userid']]);
+        $theirHeld = $theirHold !== 'none';
+        $this->compare($kind, $id, 'suspended on', $suspendOn && !$theirHeld && !$theirExempt && $due !== '' ? $this->plus($due, $suspendDays) : self::NEVER,
+            $this->ourDay($service, (bool) config('settings.cronjob_suspend_enabled', true), $ourHold, $expires->addDays($ourSuspend + 1)->toDateString(), false));
+        $this->compare($kind, $id, 'terminated on', $terminateOn && !$theirHeld && !$theirExempt && $due !== '' ? $this->plus($due, $terminateDays) : self::NEVER,
+            $this->ourDay($service, (bool) config('settings.cronjob_terminate_enabled', true), $ourHold, $expires->addDays($ourTerminate + 1)->toDateString(), true));
+        $theirCharge = empty($row['subscriptionid']) && isset($this->methods[(int) $row['userid'] . '|' . strtolower((string) $row['paymentmethod'])]);
+        $this->compare($kind, $id, 'charged by a saved method', $theirCharge ? 'yes' : 'no', $this->chargedHere($service) ? 'yes' : 'no');
     }
 
     /** What WHMCS has ended must not be live here: nothing to bill or suspend. */
@@ -171,7 +208,7 @@ final class WhmcsForecastParity
     {
         $statement = $this->hostingRows("domainstatus NOT IN ('Active', 'Suspended', 'Pending')");
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
-            $service = Service::query()->find((int) $row['id']);
+            $service = Service::query()->whereNull('whmcs_addon_id')->find((int) $row['id']);
             if ($service !== null) {
                 $this->compare('service', (int) $row['id'], 'status', $this->statusWord((string) $row['domainstatus']), (string) $service->status);
             }
