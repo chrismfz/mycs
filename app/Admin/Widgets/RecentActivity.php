@@ -26,12 +26,12 @@ class RecentActivity extends TableWidget
     // In the right column of the dashboard (`Dashboard::RIGHT`), under Support.
     protected static ?int $sort = 5;
 
-    protected static ?string $pollingInterval = '60s';
-
     public function table(Table $table): Table
     {
         return $table
             ->heading(__('Recent activity'))
+            // A TableWidget does not poll by a $pollingInterval (only charts and stats do): the table itself does.
+            ->poll('60s')
             // Newest first by the primary key, as the log: rows are written in time order.
             ->query(Audit::query()->orderByDesc('id')->limit(self::ROWS))
             ->columns([

@@ -56,12 +56,11 @@ class DashboardLayoutReviewTest extends TestCase
         $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
     }
 
-    /** Payments tracking is in neither column: in either, that column is twice as tall as the other (devbox 2026-11-04). */
-    public function test_payments_tracking_keeps_the_full_width_below_the_columns(): void
+    /** Payments tracking is back on the left with Recent activity on the right (devbox 2026-11-04: 1435 against 1170 px). */
+    public function test_payments_tracking_is_in_the_money_column(): void
     {
-        $this->assertNotContains(PaymentsTracking::class, Dashboard::LEFT);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class], Dashboard::LEFT);
         $this->assertNotContains(PaymentsTracking::class, Dashboard::RIGHT);
-        $this->assertGreaterThan(Revenue::getSort(), PaymentsTracking::getSort(), 'it sorts after the columns start, so it is below them');
     }
 
     /** A column nobody can see is not left empty beside the other: the page does not render a hole. */

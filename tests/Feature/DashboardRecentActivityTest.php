@@ -11,6 +11,7 @@ use App\Models\Staff;
 use App\Support\AuditSummary;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -65,6 +66,37 @@ class DashboardRecentActivityTest extends TestCase
         Livewire::test(RecentActivity::class)
             ->assertSee(__('System'))
             ->assertDontSee('198.51.100.9');
+    }
+
+    /** Who did each and the subjects are loaded with the rows: the same few queries for 8 rows by 4 staff as for 1. */
+    public function test_the_rows_load_their_users_and_subjects_together(): void
+    {
+        $this->actingAs($this->staff(['*']), 'staff');
+        $count = function (): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            Livewire::test(RecentActivity::class);
+            $queries = collect(DB::getQueryLog())->filter(fn (array $q) => preg_match('/from "(audits|staff)"/', $q['query']))->count();
+            DB::disableQueryLog();
+
+            return $queries;
+        };
+        $this->audit($this->staff(['*']), Staff::class);
+        $one = $count();
+        foreach (range(1, 3) as $i) {
+            $by = $this->staff(['*']);
+            $this->audit($by, Staff::class);
+            $this->audit($by, Staff::class);
+        }
+
+        $this->assertSame($one, $count(), 'no query per row');
+    }
+
+    public function test_the_card_polls(): void
+    {
+        $this->actingAs($this->staff(['*']), 'staff');
+
+        $this->assertStringContainsString('wire:poll.60s', Livewire::test(RecentActivity::class)->html());
     }
 
     /** An audit of a class no longer there (an extension removed) does not take the dashboard down. */
