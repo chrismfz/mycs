@@ -147,11 +147,26 @@
             </div>
             @endif
 
+            {{-- As WHMCS's summary: the days left of the cycle, then what is due (a downgrade: 0.00, and credit only where given) --}}
+            @php($quote = $this->quote())
+            @if($quote->daysLeft !== null)
+            <div class="flex items-center text-base" data-days-left>
+                <span class="mr-2">{{ __('services.days_left_in_cycle') }}:</span>
+                <span class="text-base/50">{{ __('services.days_left_value', ['left' => $quote->daysLeft, 'total' => $quote->daysInPeriod]) }}</span>
+            </div>
+            @endif
+
             {{--  Total today --}}
             <div class="flex items-center text-base">
                 <span class="mr-2">{{ __('services.total_today') }}:</span>
                 <span class="text-base/50">{{ $this->totalToday() }}</span>
             </div>
+            @if((float) $quote->credit > 0)
+            <div class="flex items-center text-base" data-credit>
+                <span class="mr-2">{{ __('services.downgrade_credit') }}:</span>
+                <span class="text-base/50">{{ $this->credit() }}</span>
+            </div>
+            @endif
             {{-- What it renews at after the change: it can be more than now (an options-only change from the catalog, #551) --}}
             @php($renewal = $this->renewal())
             @if((string) $renewal['after'] !== (string) $renewal['now'] && $service->plan?->type === 'recurring')
@@ -159,6 +174,16 @@
                 <span class="mr-2">{{ __('services.renews_at') }}:</span>
                 <span class="text-base/50">{{ __('services.renews_at_value', ['after' => $renewal['after'], 'now' => $renewal['now']]) }}</span>
             </div>
+            @endif
+
+            @if($quote->daysLeft !== null && $service->expires_at && ($quote->downgrade || (float) $quote->dueNow > 0))
+            <p class="text-sm text-base/70" data-upgrade-note>
+                @if($quote->downgrade)
+                    {{ __((float) $quote->credit > 0 ? 'services.downgrade_note_credit' : 'services.downgrade_note', ['date' => $service->expires_at->format('d/m/Y')]) }}
+                @else
+                    {{ __('services.upgrade_note', ['days' => $quote->daysLeft]) }}
+                @endif
+            </p>
             @endif
 
             <div class="flex flex-row justify-end gap-2 mt-2">

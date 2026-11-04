@@ -9,6 +9,7 @@ use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\ServiceResource\ChangePackage;
 use App\Admin\Resources\ServiceResource\OfflineMachine;
 use App\Admin\Resources\ServiceResource\PoolAddresses;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
@@ -295,6 +296,8 @@ class EditService extends EditRecord
                         }
                         $this->redirect(ServiceResource::getUrl());
                     }),
+                // WHMCS's «Upgrade/Downgrade»: another product, with the days left and what is due before the order (ChangePackage).
+                ChangePackage::action(),
                 // SVC-14b: another plan of its product (another cycle), now or from the next renewal, with what it does.
                 Action::make('changeCycle')
                     ->label('Change billing cycle')
