@@ -472,6 +472,15 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
 - **Σειρά με τον πλήρη importer:** το `app:import-from-whmcs` ξεκινά με `migrate:fresh`: στο cut-over σβήνει ό,τι έφερε
   αυτός ο κατάλογος και ό,τι πρόσθεσε το staff από πάνω (API keys, servers, συνδέσεις registrar, TLDs). Το
   `app:import-whmcs-licensing` βρίσκει τα products με `whmcs_id` όταν υπάρχει, αλλιώς με το ίδιο id (πλήρης importer).
+- **Ο πλήρης importer φέρνει τον κατάλογο με τον ίδιο κώδικα (WG-2, 2026-11-04):** μετά τους servers,
+  `CatalogImport::productsForFullImport` (groups, config options, products, plans, τιμές, `package`, upgrades,
+  συνδέσεις των options). Ως τότε είχε δικό του, παλιότερο αντίγραφο, που έχανε το `package` των cPanel/ngm, τα κρυφά
+  groups, τα retired, τις τιμές 0.00, τη σειρά και τις συνδέσεις των config options (γράφονταν με τα ids του WHMCS,
+  ενώ τα options έπαιρναν νέα). Products και groups **κρατούν το id του WHMCS** (`keepWhmcsIds`), γιατί σε αυτό
+  δείχνουν οι υπηρεσίες, οι παραγγελίες και τα licenses· ένα id που υπάρχει ήδη εδώ σταματά το import, δεν παίρνει
+  άλλο. Product με group που το WHMCS έσβησε έρχεται κρυφό, σε κρυφό group «Without a group (WHMCS)», με σημείωση: το
+  WHMCS ανανεώνει ακόμα τις υπηρεσίες του (ADV-646-1· myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το `mycs:parity` μετρά
+  όλα τα products, τα listed και όσα έχουν `package`.
 - Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.
 

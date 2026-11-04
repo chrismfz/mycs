@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use PDO;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -122,11 +123,14 @@ final class CatalogImport
     /**
      * @param  ?int  $registrarConnectionId  the connection that takes WHMCS's TLDs with automatic registration at a
      *                                       registrar it has a driver for (by its key: openprovider, …); null: none
+     * @param  bool  $keepWhmcsIds  a new product group or product takes its WHMCS id (the full importer's: its services,
+     *                              orders and licenses point at WHMCS's product ids)
      */
     public function __construct(
         private readonly PDO $whmcs,
         private readonly bool $makeDefaultCurrency = true,
         private readonly ?int $registrarConnectionId = null,
+        private readonly bool $keepWhmcsIds = false,
     ) {}
 
     /** @return array{counts: array<string, int>, notes: list<string>} */
@@ -167,9 +171,10 @@ final class CatalogImport
     }
 
     /**
-     * The full importer's step (app:import-from-whmcs, after its products): WHMCS's servers and server groups, and each
-     * product's group and server as run() gives them, so that every account comes in on its own server (AUD4-1). A
-     * product is found by its `whmcs_id`, else by the same id (the full importer keeps WHMCS's).
+     * The full importer's step (app:import-from-whmcs, before productsForFullImport, which gives each product its group
+     * and server from it): WHMCS's servers and server groups, so that every account comes in on its own server (AUD4-1).
+     * A product here already (found by its `whmcs_id`, else by the same id) is given its group and server too; in the
+     * full import there is none yet.
      *
      * @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} server_ids: WHMCS server id => its server here (a cluster's nodes share one)
      */
@@ -193,6 +198,26 @@ final class CatalogImport
         }
 
         return ['counts' => $this->counts, 'notes' => $this->notes, 'server_ids' => $this->serverIds];
+    }
+
+    /**
+     * The full importer's catalog step (WG-2), after serversForFullImport() on this same instance, whose servers and groups
+     * its products take: the product groups, config options and products, their plans, prices, packages and links, as run()
+     * brings them. Before it the full importer had its own older copy, which lost the cPanel and ngm packages, the hidden
+     * groups, the retired products, the free (0.00) prices, the order and the config options' links. Made with their WHMCS
+     * ids (keepWhmcsIds): the services, orders and licenses the full importer brings point at them.
+     *
+     * @return array{counts: array<string, int>, notes: list<string>}
+     */
+    public function productsForFullImport(): array
+    {
+        $this->notes = []; // the servers' were reported with their step
+        $this->currencies();
+        $this->categories();
+        $this->configOptions();
+        $this->products();
+
+        return ['counts' => $this->counts, 'notes' => $this->notes];
     }
 
     /**
@@ -500,16 +525,22 @@ final class CatalogImport
         $rows = $this->rows('SELECT * FROM tblproducts ORDER BY id');
         foreach ($rows as $row) {
             $categoryId = $this->categoryIds[(int) $row['gid']] ?? null;
-            if ($categoryId === null) {
-                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing, skipped.";
-
-                continue;
+            // Its group deleted in WHMCS, which still renews its services: brought, hidden, in a hidden group of its own, never
+            // skipped (ADV-646-1: a live service on it pointed at no product and no plan, never renewed).
+            $orphan = $categoryId === null;
+            if ($orphan) {
+                $categoryId = $this->groupless();
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing in WHMCS, brought hidden in «" . self::GROUPLESS_NAME . '».';
             }
             $product = $this->byWhmcs(Product::class, 'whmcs_id', (int) $row['id']);
             $slug = (string) ($row['slug'] ?? '') ?: Str::slug((string) $row['name']);
             $retired = (bool) ($row['retired'] ?? false);
             $module = strtolower((string) ($row['servertype'] ?? ''));
             $group = $this->groupIds[(int) ($row['servergroup'] ?? 0)] ?? null;
+            if (($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) > 28) {
+                // Pro rata aligns to a day every month has here (PR D).
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: pro rata day {$row['proratadate']} imported as 28.";
+            }
             $product->forceFill([
                 'category_id' => $categoryId,
                 'name' => (string) $row['name'],
@@ -517,7 +548,7 @@ final class CatalogImport
                 'slug' => $this->uniqueSlug('products', $slug ?: 'product-' . $row['id'], $product->id),
                 // Retired in WHMCS: not ordered any more, its own flag (ADV-1 of #216: a stock of 0 came back with the
                 // first cancellation); a hidden group's products are not listed (reviews 5, F1).
-                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || ($this->hiddenGroups[(int) $row['gid']] ?? false),
+                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || $orphan || ($this->hiddenGroups[(int) $row['gid']] ?? false),
                 'retired' => $retired,
                 'taxable' => (bool) ($row['tax'] ?? true),
                 'prorata_day' => ($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) >= 1 ? min((int) $row['proratadate'], 28) : null,
@@ -571,7 +602,9 @@ final class CatalogImport
                 $licensing ??= Server::query()->firstOrCreate(['extension' => 'NixpalLicensing'], ['name' => 'nixpal Licensing', 'type' => 'server', 'enabled' => true]);
                 (new WhmcsLicensingImport($this->whmcs))->productSettings($product, $row, $licensing);
                 $this->counts['licensing_products']++;
-            } elseif ($module !== '' && !in_array($module, ['cpanel', 'ngm'], true)) {
+            } elseif ($module !== '' && !isset(self::SERVER_MODULES[$module])) {
+                // A server module's product has its server (above): only one of a module with no extension here is told
+                // (review of #646: ~80 notes on myip hid the few that need staff).
                 $this->notes[] = "Product #{$row['id']} «{$row['name']}»: module «{$module}» not mapped (its settings stay to be set).";
             }
         }
@@ -593,6 +626,20 @@ final class CatalogImport
                 }
             }
         }
+    }
+
+    private const GROUPLESS_NAME = 'Without a group (WHMCS)';
+
+    /** The hidden group of the products whose WHMCS group is gone: one, found again on a re-run by its slug. */
+    private function groupless(): int
+    {
+        $category = Category::query()->whereNull('whmcs_id')->where('slug', 'whmcs-without-group')->first() ?? new Category;
+        if (!$category->exists) {
+            $category->forceFill(['name' => self::GROUPLESS_NAME, 'slug' => $this->uniqueSlug('categories', 'whmcs-without-group', null),
+                'show_in_menu' => false, 'sort' => 255])->save();
+        }
+
+        return $category->id;
     }
 
     /** The group's first enabled server of the module, else the module's default one. */
@@ -800,7 +847,9 @@ final class CatalogImport
     }
 
     /**
-     * The record this WHMCS id brought, or a new one carrying it (the key is set explicitly: it is not fillable).
+     * The record this WHMCS id brought, or a new one carrying it (the key is set explicitly: it is not fillable). With
+     * keepWhmcsIds, a new product group or product takes the WHMCS id as its own; one taken here already is an error, never
+     * another id (its services would land on another product).
      *
      * @template T of \Illuminate\Database\Eloquent\Model
      *
@@ -809,7 +858,14 @@ final class CatalogImport
      */
     private function byWhmcs(string $class, string $key, int|string $value): Model
     {
-        $model = $class::query()->where($key, $value)->first() ?? new $class;
+        $model = $class::query()->where($key, $value)->first();
+        if ($model === null && $this->keepWhmcsIds && in_array($class, [Category::class, Product::class], true)) {
+            if ($class::query()->whereKey($value)->exists()) {
+                throw new RuntimeException(class_basename($class) . " #{$value} is here already, not from WHMCS: the full import keeps WHMCS's ids.");
+            }
+            $model = (new $class)->forceFill(['id' => $value]);
+        }
+        $model ??= new $class;
         $model->forceFill([$key => $value]);
 
         return $model;

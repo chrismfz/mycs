@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ClientUser;
-use App\Models\ConfigOption;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
@@ -49,7 +48,6 @@ use App\Support\Locales;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
-use Illuminate\Http\Client\Batch;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
@@ -85,7 +83,7 @@ class ImportFromWhmcs extends Command
         {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
-    private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
+    public const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
 
     /** A WHMCS service never suspended automatically («Override Auto-Suspend» without a date): a hold this far off. */
     public const NEVER_SUSPEND = '9999-12-31';
@@ -197,10 +195,9 @@ class ImportFromWhmcs extends Command
             $this->importAutomationSettings();
             $this->importUsers();
             $this->importAdmins();
-            $this->importCategories();
-            $this->importConfigOptions();
-            $this->importProducts();
             $this->importServers();
+            // After the servers: each product takes its group and server from them (WG-2).
+            $this->importCatalog();
             $this->importPromotions();
             $this->importTickets();
             $this->importKnowledgebase();
@@ -917,330 +914,6 @@ class ImportFromWhmcs extends Command
         return $this->staffRoles[$whmcsRoleId] = $role->id;
     }
 
-    private function importCategories()
-    {
-        $this->info('Importing categories... (' . $this->count('tblproductgroups') . ' records)');
-
-        $this->migrateInBatch('tblproductgroups', 'SELECT * FROM tblproductgroups LIMIT :limit OFFSET :offset', function ($records) {
-            $data = [];
-            foreach ($records as $record) {
-                $data[] = [
-                    'id' => $record['id'],
-                    'name' => $record['name'],
-                    'description' => $record['tagline'],
-                    'sort' => $record['order'],
-                    'slug' => $record['slug'],
-                    'created_at' => $record['created_at'],
-                    'updated_at' => $record['updated_at'],
-                ];
-            }
-
-            DB::table('categories')->insert($data);
-        });
-    }
-
-    private function importConfigOptions()
-    {
-        $this->info('Importing config options... (' . $this->count('tblproductconfigoptions') . ' records)');
-
-        $this->migrateInBatch('tblproductconfigoptions', 'SELECT * FROM tblproductconfigoptions LIMIT :limit OFFSET :offset', function ($records) {
-            $planData = [];
-            $priceData = [];
-
-            // First, insert parent config options and track their new IDs
-            foreach ($records as $record) {
-                if (strpos($record['optionname'], '|') !== false) {
-                    $environmentVariable = explode('|', $record['optionname'])[0];
-                    $name = explode('|', $record['optionname'])[1] ?? $record['optionname'];
-                } else {
-                    $environmentVariable = null;
-                    $name = $record['optionname'];
-                }
-
-                $parentData = [
-                    'name' => $name,
-                    'env_variable' => $environmentVariable,
-                    'type' => match ($record['optiontype']) {
-                        1 => 'select',
-                        2 => 'radio',
-                        3 => 'checkbox',
-                        4 => 'number',
-                        default => 'select',
-                    },
-                    'sort' => $record['order'],
-                    'hidden' => $record['hidden'],
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ];
-
-                // Insert parent and get the new Laravel-generated ID
-                $newParentId = DB::table('config_options')->insertGetId($parentData);
-
-                // Get child options for this parent
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproductconfigoptionssub WHERE configid = :configid');
-                $stmt->bindValue(':configid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $optionRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($optionRecords as $option) {
-                    if (strpos($option['optionname'], '|') !== false) {
-                        $environmentVariable = explode('|', $option['optionname'])[0];
-                        $name = explode('|', $option['optionname'])[1] ?? $option['optionname'];
-                    } else {
-                        $environmentVariable = null;
-                        $name = $option['optionname'];
-                    }
-
-                    $childData = [
-                        'parent_id' => $newParentId, // Use the new Laravel-generated parent ID
-                        'name' => $name,
-                        'env_variable' => $environmentVariable,
-                        'sort' => $option['sortorder'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-
-                    // Insert child and get the new Laravel-generated ID
-                    $newChildId = DB::table('config_options')->insertGetId($childData);
-
-                    // Get pricing for the option
-                    $stmt2 = $this->pdo->prepare('SELECT * FROM tblpricing WHERE type = "configoptions" AND relid = :relid');
-                    $stmt2->bindValue(':relid', $option['id'], PDO::PARAM_INT);
-                    $stmt2->execute();
-                    $prices = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-
-                    $this->priceMagic($prices, $planData, $priceData, ['id' => $newChildId, 'paytype' => 'recurring'], ConfigOption::class);
-                }
-            }
-
-            // Insert plans and then prices
-            foreach ($planData as $planKey => $plan) {
-                $planId = DB::table('plans')->insertGetId($plan);
-                if (isset($priceData[$planKey])) {
-                    foreach ($priceData[$planKey] as &$price) {
-                        $price['plan_id'] = $planId;
-                    }
-                    DB::table('prices')->insert($priceData[$planKey]);
-                }
-            }
-        });
-    }
-
-    private function priceMagic(&$prices, &$planData, &$priceData, $record, $priceableType = Product::class)
-    {
-        foreach ($prices as $pricing) {
-            if ($record['paytype'] === 'onetime') {
-                // One-time payment product, create a one-time plan
-                $setupFee = $pricing['msetupfee'] ?? 0;
-
-                // Create a unique key to link plan and price
-                $planKey = $record['id'] . '_onetime';
-
-                $planData[$planKey] = [
-                    'priceable_id' => $record['id'],
-                    'priceable_type' => $priceableType,
-                    'name' => 'One-Time',
-                    'type' => 'one-time',
-                    'billing_period' => 0,
-                    'billing_unit' => null,
-                ];
-
-                $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                $currency->bindValue(':id', $pricing['currency'], PDO::PARAM_INT);
-                $currency->execute();
-                $currency = $currency->fetch(PDO::FETCH_ASSOC);
-
-                $priceData[$planKey][] = [
-                    'currency_code' => $currency['code'],
-                    'price' => $pricing['monthly'],
-                    'setup_fee' => $setupFee,
-                ];
-
-                continue;
-            }
-
-            foreach (['monthly', 'quarterly', 'semiannually', 'annually', 'biennially', 'triennially'] as $period) {
-                if ($pricing[$period] > 0) {
-                    $setupFee = match ($period) {
-                        'monthly' => $pricing['msetupfee'],
-                        'quarterly' => $pricing['qsetupfee'],
-                        'semiannually' => $pricing['ssetupfee'],
-                        'annually' => $pricing['asetupfee'],
-                        'biennially' => $pricing['bsetupfee'],
-                        'triennially' => $pricing['tsetupfee'],
-                        default => 0,
-                    };
-
-                    // Create a unique key to link plan and price
-                    $planKey = $record['id'] . '_' . $period;
-
-                    $planData[$planKey] = [
-                        'priceable_id' => $record['id'],
-                        'priceable_type' => $priceableType,
-                        'name' => ucfirst($period),
-                        'type' => 'recurring',
-                        'billing_period' => match ($period) {
-                            'monthly' => 1,
-                            'quarterly' => 3,
-                            'semiannually' => 6,
-                            'annually' => 1,
-                            'biennially' => 2,
-                            'triennially' => 3,
-                            default => 1,
-                        },
-                        'billing_unit' => match ($period) {
-                            'monthly', 'quarterly', 'semiannually' => 'month',
-                            'annually', 'biennially', 'triennially' => 'year',
-                            default => 'month',
-                        },
-                    ];
-
-                    $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                    $currency->bindValue(':id', $pricing['currency'], PDO::PARAM_INT);
-                    $currency->execute();
-                    $currency = $currency->fetch(PDO::FETCH_ASSOC);
-
-                    $priceData[$planKey][] = [
-                        'currency_code' => $currency['code'],
-                        'price' => $pricing[$period],
-                        'setup_fee' => $setupFee,
-                    ];
-                }
-
-            }
-        }
-
-    }
-
-    private function importProducts()
-    {
-        $this->info('Importing products... (' . $this->count('tblproducts') . ' records)');
-
-        $this->migrateInBatch('tblproducts', 'SELECT * FROM tblproducts LIMIT :limit OFFSET :offset', function ($records) {
-            $data = [];
-            $planData = [];
-            $priceData = [];
-            $upgrades = [];
-
-            foreach ($records as $record) {
-                if (($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) > 28) {
-                    // MyCS aligns to a day every month has (PR D): the parity check should show it.
-                    $this->warn("Product #{$record['id']}: pro rata day {$record['proratadate']} imported as 28.");
-                }
-                $data[] = [
-                    'id' => $record['id'],
-                    'category_id' => $record['gid'],
-                    'name' => $record['name'],
-                    'description' => $record['description'],
-                    'slug' => !empty($record['slug']) ? $record['slug'] : \Str::slug($record['name']),
-                    'hidden' => $record['hidden'],
-                    // WHMCS «Apply Tax» (Δ1).
-                    'taxable' => (bool) ($record['tax'] ?? true),
-                    // WHMCS «Prorata Billing» (decision 3, PR D): its day, and «charge next month» (over 31: never).
-                    'prorata_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) >= 1
-                        ? min((int) $record['proratadate'], 28) : null,
-                    'prorata_next_after_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratachargenextmonth'] ?? 0) >= 1
-                        && (int) $record['proratachargenextmonth'] <= 31 ? (int) $record['proratachargenextmonth'] : null,
-                    // When its service is set up (Σ1-b): '' (never), on (Accept), order, payment.
-                    'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$record['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
-                    'stock' => $record['stockcontrol'] ? $record['qty'] : null,
-                    'allow_quantity' => match ($record['allowqty']) {
-                        1 => 'separated',
-                        3 => 'combined',
-                        default => 'disabled',
-                    },
-                    'created_at' => $this->validateDate($record['created_at']) ?? now(),
-                    'updated_at' => $this->validateDate($record['updated_at']) ?? now(),
-                ];
-
-                // Upgrades
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproduct_upgrade_products WHERE product_id = :product_id');
-                $stmt->bindValue(':product_id', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $upgradeRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($upgradeRecords as $upgrade) {
-                    $upgrades[] = [
-                        'product_id' => $upgrade['product_id'],
-                        'upgrade_id' => $upgrade['upgrade_product_id'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                }
-
-                // Config options
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproductconfiglinks WHERE pid = :pid');
-                $stmt->bindValue(':pid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $configOptionRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($configOptionRecords as $configOptionGroupId) {
-                    // Get the config option group
-                    $configOptionGroup = $this->pdo->prepare('SELECT * FROM tblproductconfiggroups WHERE id = :id LIMIT 1');
-                    $configOptionGroup->bindValue(':id', $configOptionGroupId['gid'], PDO::PARAM_INT);
-                    $configOptionGroup->execute();
-                    $configOptionGroup = $configOptionGroup->fetch(PDO::FETCH_ASSOC);
-                    if (!$configOptionGroup) {
-                        continue;
-                    }
-                    // Get config options in the group
-                    $configOptions = $this->pdo->prepare('SELECT * FROM tblproductconfigoptions WHERE gid = :gid');
-                    $configOptions->bindValue(':gid', $configOptionGroup['id'], PDO::PARAM_INT);
-                    $configOptions->execute();
-                    $configOptions = $configOptions->fetchAll(PDO::FETCH_ASSOC);
-                    foreach ($configOptions as $configOption) {
-                        // Link config option to product
-                        DB::table('config_option_products')->insert([
-                            'product_id' => $record['id'],
-                            'config_option_id' => $configOption['id'],
-                        ]);
-                    }
-                }
-            }
-
-            // Insert products first
-            DB::table('products')->insert($data);
-
-            // Insert upgrades
-            if (count($upgrades) > 0) {
-                DB::table('product_upgrades')->insert($upgrades);
-            }
-
-            // Now process plans for all products in this batch
-            foreach ($records as $record) {
-                if ($record['paytype'] === 'free') {
-                    // Free product, create a free plan
-                    $planData[$record['id'] . '_free'] = [
-                        'priceable_id' => $record['id'],
-                        'priceable_type' => Product::class,
-                        'name' => 'Free',
-                        'type' => 'free',
-                    ];
-
-                    continue;
-                }
-                $stmt = $this->pdo->prepare('SELECT * FROM tblpricing WHERE type = "product" AND relid = :relid');
-                $stmt->bindValue(':relid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $prices = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                $this->priceMagic($prices, $planData, $priceData, $record);
-            }
-
-            // Insert plans and then prices
-            foreach ($planData as $planKey => $plan) {
-                $planId = DB::table('plans')->insertGetId($plan);
-
-                if (isset($priceData[$planKey])) {
-                    foreach ($priceData[$planKey] as &$price) {
-                        $price['plan_id'] = $planId;
-                    }
-                    DB::table('prices')->insert($priceData[$planKey]);
-                }
-            }
-        });
-    }
-
     /** The tickets (docs/tickets.md §5α, PR Δ); also on its own: app:import-whmcs-tickets. */
     private function importTickets()
     {
@@ -1495,9 +1168,32 @@ class ImportFromWhmcs extends Command
         if (!$this->sourceHas('tblservers')) {
             return;
         }
-        $result = (new CatalogImport($this->pdo))->serversForFullImport();
+        $result = $this->catalog()->serversForFullImport();
         $this->whmcsServers = $result['server_ids'];
         $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** The catalog's importer, one for the servers and the products: a product takes the servers its step brought. */
+    private ?CatalogImport $catalog = null;
+
+    private function catalog(): CatalogImport
+    {
+        return $this->catalog ??= new CatalogImport($this->pdo, makeDefaultCurrency: false, keepWhmcsIds: true);
+    }
+
+    /**
+     * WHMCS's product groups, config options and products, as the catalog's own import brings them (WG-2): the cPanel and
+     * ngm packages, the hidden groups, the retired products, the free prices, the order and the config options' links.
+     * Products and groups keep their WHMCS ids, which the services, orders and licenses point at.
+     */
+    private function importCatalog(): void
+    {
+        $result = $this->catalog()->productsForFullImport();
+        $this->info("Catalog: {$result['counts']['categories']} groups, {$result['counts']['products']} products, {$result['counts']['config_options']} config options, "
+            . "{$result['counts']['plans']} plans, {$result['counts']['prices']} prices.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
