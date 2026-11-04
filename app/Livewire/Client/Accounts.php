@@ -34,7 +34,9 @@ class Accounts extends Component
         $user = Auth::user();
 
         return view('client.account.accounts', [
-            'accounts' => $user->clients()->with(['primaryContact', 'ownerGrant.user'])->orderByDesc('client_user.owner')->orderBy('clients.id')->get(),
+            // A closed one is not offered (review of #651), unless staff in «Login as client» look.
+            'accounts' => $user->clients()->when(!Actor::impersonating(), fn ($open) => $open->whereNull('clients.closed_at'))
+                ->with(['primaryContact', 'ownerGrant.user'])->orderByDesc('client_user.owner')->orderBy('clients.id')->get(),
             'current' => CurrentClient::id(),
             'impersonating' => Actor::impersonating(),
         ])->layoutData([

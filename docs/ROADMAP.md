@@ -124,9 +124,9 @@ adversarial review.
   με σημείωση για ό,τι δεν υπάρχει εδώ.
 - [x] **WG-6** Promotions: να μην κλείνουν όσα εκφράζει πια το MyCS (#274).
 - [x] **WG-7** `TermsOfService` → `tos`.
-- [ ] **WG-8** Κλειστοί πελάτες (Closed) χωρίς login.
-- [ ] **WG-9** Συναίνεση marketing → opt-out του `announcement_news`.
-- [ ] **WG-10** `mail_must_verify` off στο cut-over της nixpal (settings-map).
+- [x] **WG-8** Κλειστοί πελάτες (Closed) χωρίς login (`clients.closed_at`).
+- [x] **WG-9** Συναίνεση marketing → opt-out του `announcement_news`.
+- [x] **WG-10** `mail_must_verify` off στο cut-over της nixpal (settings-map).
 
 **Π1, πριν τη myip:**
 - [ ] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.

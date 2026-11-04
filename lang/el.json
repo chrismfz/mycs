@@ -57,6 +57,8 @@
     "You have not changed anything. Please select a different product or change the configuration options.": "Δεν αλλάξατε κάτι. Επιλέξτε άλλο πακέτο ή αλλάξτε τις ρυθμίσεις.",
     "You must accept the terms of service": "Πρέπει να αποδεχτείτε τους Όρους χρήσης",
     "Your cart is empty": "Το καλάθι σας είναι άδειο",
+    "This account is closed.": "Ο λογαριασμός είναι κλειστός.",
+    "Set: its logins cannot sign in (unless another account of theirs is open) and it takes no new orders. End its open sessions under Sessions. Clear it to reopen.": "Με τιμή: τα logins του δεν μπαίνουν (εκτός αν έχουν κι άλλο ανοιχτό λογαριασμό) και δεν δέχεται νέες παραγγελίες. Τερματίστε τα ανοιχτά sessions του στα Sessions. Αδειάστε το για να ξανανοίξει.",
     "A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.": "Ένα ακυρωμένο τιμολόγιο δεν γίνεται πληρωμένο απευθείας: ξανανοίξτε το (Απλήρωτο) και καταγράψτε την πληρωμή.",
     "Payment not recorded": "Η πληρωμή δεν καταγράφηκε",
     "The amount must be positive (see the log for details).": "Το ποσό πρέπει να είναι θετικό (λεπτομέρειες στο log).",

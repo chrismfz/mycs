@@ -131,6 +131,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 |---|---|---|---|
 | Αυτόματη εφαρμογή πίστωσης | **off** (`NoAutoApplyCredit`) | on | **P:** `credits_auto_use` |
 | Πίστωση σε downgrade | **off** (`CreditOnDowngrade`) | on | **P:** `credits_on_downgrade` (αναλογική πίστωση για ό,τι μένει από την περίοδο, όχι παράταση ή επιστροφή χρημάτων· η προεπιλογή on, γι' αυτό την φέρνει ο importer, 2026-11-03· θέλει και το `credits_enabled` ανοιχτό) |
+| Επιβεβαίωση email (`EnableEmailVerification`) | off | on, αλλά μόνο 8/233 πελάτες επιβεβαιωμένοι | `mail_must_verify` **μένει off στο cut-over** (WG-10, owner 2026-11-04): στο MyCS κλειδώνει τον λογαριασμό ως την επιβεβαίωση, άρα θα έκλεινε έξω όλους σχεδόν τους πελάτες της nixpal. Ο importer δεν το γράφει. |
 | Add funds | on | on (με παραγγελία) | **P:** `credits_enabled`, min/max |
 | Φόρος | 24% exclusive, ένας κανόνας | EU VAT 27 χώρες, VIES, reverse charge | P~ `tax_enabled`, `tax_type`· PR G: `eu_vat_enabled` (nixpal ναι, myip όχι), `eu_vat_home_country` (nixpal EE), `eu_vat_requester`, `eu_vat_rates_check` (εβδομαδιαίος έλεγχος με το TEDB, κλειστός by default) (`eu-vat.md`) |
 

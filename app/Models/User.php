@@ -194,6 +194,15 @@ class User extends Authenticatable implements Auditable, HasAvatar
         return CurrentClient::defaultFor($this);
     }
 
+    /**
+     * Whether its every account is closed (WG-8, WHMCS «Closed»): it cannot sign in then. A login of no account (108 on
+     * myip) or one with an open account still can.
+     */
+    public function closedOut(): bool
+    {
+        return $this->clients()->exists() && !$this->clients()->whereNull('clients.closed_at')->exists();
+    }
+
     /** @return HasMany<Notification, $this> */
     public function notifications(): HasMany
     {

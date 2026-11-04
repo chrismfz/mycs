@@ -47,7 +47,8 @@ final class BulkMailer
     public function recipients(BulkMail $mail): Builder
     {
         $filters = $mail->filters ?? [];
-        $query = Client::query()->whereHas('ownerGrant');
+        // Never a closed account (WG-8, review of #651), as WHMCS mails no Closed client.
+        $query = Client::query()->whereHas('ownerGrant')->whereNull('closed_at');
         if (($groups = array_filter((array) ($filters['client_groups'] ?? []))) !== []) {
             $query->whereIn('client_group_id', $groups);
         }
