@@ -25,6 +25,9 @@ class Servers extends Widget
 
     public const FULL = 0.9;
 
+    /** Rows shown before the list scrolls, the fullest first: a long list keeps the card as short as eight servers. */
+    public const VISIBLE_ROWS = 8;
+
     public function render(): View
     {
         // One count for all the servers, not one per server.

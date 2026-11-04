@@ -152,6 +152,19 @@ class DashboardServersTest extends TestCase
         $this->assertSame([Servers::class, Support::class], array_slice((new Dashboard)->layout()['right'], 0, 2));
     }
 
+    /** Many servers scroll inside the card, about eight rows high, instead of making it as tall as the list. */
+    public function test_many_servers_scroll_inside_the_card(): void
+    {
+        $this->actAs(['*']);
+        foreach (range(1, 22) as $i) {
+            $this->server("S{$i}", 10);
+        }
+
+        Livewire::test(Servers::class)
+            ->assertSee('max-height: ' . (Servers::VISIBLE_ROWS * 2.125) . 'rem; overflow-y: auto', false)
+            ->assertSee('S22');
+    }
+
     public function test_no_servers_says_so(): void
     {
         $this->actAs(['*']);

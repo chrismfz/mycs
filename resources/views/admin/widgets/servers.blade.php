@@ -6,7 +6,8 @@
         @if ($rows === [])
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('No servers yet') }}</p>
         @else
-        <ul class="divide-y divide-gray-100 dark:divide-white/5">
+        {{-- About eight rows, then it scrolls (owner 2026-11-04: ~22 servers would make it huge, and pages would be silly). --}}
+        <ul class="-me-2 divide-y divide-gray-100 overflow-y-auto pe-2 dark:divide-white/5" style="max-height: {{ \App\Admin\Widgets\Servers::VISIBLE_ROWS * 2.125 }}rem; overflow-y: auto">
             @foreach ($rows as $row)
             <li class="flex items-center gap-3 py-1.5 text-sm">
                 <span class="min-w-0 flex-1 truncate">
