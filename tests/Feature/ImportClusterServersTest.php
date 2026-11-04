@@ -32,7 +32,7 @@ use Tests\TestCase;
 /**
  * The myip rehearsal (2026-11-04): WHMCS's Proxmox servers (pvewhmcs: Pegasus and Vega, one cluster), its Hetzner Cloud
  * one and ngm's were skipped as «no MyCS extension», and their live services came with no server. The Proxmox nodes are
- * one server here, the extension's (staff's own when there is one); Hetzner Cloud and ngm are Offline VM.
+ * one server here, the extension's (staff's own when there is one); Hetzner Cloud is Offline VM, ngm its own extension.
  */
 class ImportClusterServersTest extends TestCase
 {
@@ -59,7 +59,7 @@ class ImportClusterServersTest extends TestCase
             (54, 'Vega', 'pvewhmcs', 'vega.example.test', '192.0.2.54', 0, 'root@pam', 0, 0, 1),
             (57, 'None', 'HetznerCloud', '', '', 0, '', 0, 1, 0),
             (61, 'Pegasus', 'pvewhmcs', 'pegasus.example.test', '192.0.2.61', 0, 'root@pam', 0, 1, 0),
-            (64, 'NGM-test', 'ngm', 'ngm.example.test', '', 0, 'admin', 0, 1, 0)");
+            (64, 'NGM-test', 'ngm', 'ngm.example.test', '', 443, 'admin', 0, 1, 0)");
     }
 
     /** @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} */
@@ -236,14 +236,28 @@ class ImportClusterServersTest extends TestCase
         $this->assertTrue(ModuleAction::query()->open()->whereKey($task->id)->exists(), 'on the dashboard\'s Pending Module Actions');
     }
 
-    public function test_hetzner_cloud_and_ngm_come_as_offline_vm_servers(): void
+    public function test_hetzner_cloud_comes_as_an_offline_vm_server(): void
     {
         $result = $this->servers();
 
         $offline = Server::query()->where('extension', 'OfflineVm')->orderBy('whmcs_id')->get();
-        $this->assertSame([57 => 'None (Hetzner Cloud, offline)', 64 => 'NGM-test (ngm, offline)'], $offline->pluck('name', 'whmcs_id')->all());
+        $this->assertSame([57 => 'None (Hetzner Cloud, offline)'], $offline->pluck('name', 'whmcs_id')->all());
         $this->assertSame(0, $offline->sum(fn (Server $server) => $server->settings()->count()), 'no address or login: nothing is called');
         $this->assertEmpty(array_filter($result['notes'], fn ($note) => str_contains($note, 'has no MyCS extension')));
+    }
+
+    /**
+     * ngm is its own extension now: its host bare, so the extension adds its API's port (9601), never WHMCS's 443 where
+     * ngm serves the customers' sites; no login (its token is staff's to enter).
+     */
+    public function test_ngm_comes_as_its_own_extension_with_its_host_only(): void
+    {
+        $this->servers();
+
+        $ngm = Server::query()->where('whmcs_id', 64)->sole();
+        $this->assertSame(['Ngm', 'NGM-test', true], [$ngm->extension, $ngm->name, (bool) $ngm->enabled]);
+        $this->assertSame(['host' => 'ngm.example.test'], $ngm->settings()->pluck('value', 'key')->all());
+        $this->assertSame('https://ngm.example.test:9601/api/v1', ExtensionHelper::getExtension('server', 'Ngm', $ngm->settings)->api()->baseUrl());
     }
 
     /** tblhosting and its account's currency, for importServices. */

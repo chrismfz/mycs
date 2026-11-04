@@ -1162,11 +1162,21 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
     παραγγελία. Τα κενά της συμπληρώνει το `tblsslorders`, μόνο όταν είναι η ίδια παραγγελία (και ποτέ γραμμή άλλου
     module ή addon). Ποτέ το CSR, τα κλειδιά ή το `authdata`. Στο myip υπάρχουν στοιχεία για 4 από τις 12· στις άλλες τα
     συμπληρώνει το staff. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
-  - Hetzner Cloud: 1 υπηρεσία. ngm: 1 υπηρεσία· είναι δικό μας panel και θα αποκτήσει δικό του extension.
-    - Ως τις 2026-11-04 ο importer **παρέλειπε** τους servers τους («no MyCS extension»), και οι υπηρεσίες έρχονταν χωρίς
+  - Hetzner Cloud: 1 υπηρεσία.
+    - Ως τις 2026-11-04 ο importer **παρέλειπε** τον server του («no MyCS extension»), και η υπηρεσία ερχόταν χωρίς
       server (βρέθηκε στην πρόβα του myip).
     - Τώρα ο server του WHMCS γίνεται server **Offline VM** («<όνομα> (Hetzner Cloud, offline)»), χωρίς διεύθυνση και
-      login. Κάθε ενέργεια πάνω τους γίνεται εργασία του staff.
+      login. Κάθε ενέργεια πάνω του γίνεται εργασία του staff.
+- **ngm** (δικό μας panel, 1 υπηρεσία στο myip): server του extension **ngm** (`extensions/Servers/Ngm`, από το δικό
+  μας WHMCS module του).
+  - Ο server έρχεται με το όνομά του και `host` **μόνο το hostname**, χωρίς το port του WHMCS. Το API του ngm ακούει
+    στο δικό του port (9601), ενώ στο 443 το nginx σερβίρει τα sites των πελατών. Το extension βάζει μόνο του https και
+    9601, όπως και το WHMCS module, που αγνοούσε το port του server (`OWN_PORT_MODULES`).
+  - Δεν έρχεται login. Το API token (admin, scopes `read` και `accounts`) το βάζει το staff· το βήμα των credentials
+    λέει «enter it by hand».
+  - Τα προϊόντα: `configoption1` → `package` (το όνομα του πακέτου στο ngm), `configoption2` → `php`. Κενό = κανένα.
+  - Οι υπηρεσίες έρχονται με το `username` του WHMCS, και με αυτό τις χειρίζεται το extension. Το suspend δεν θέλει
+    σημάδι: το ngm το κάνει idempotent.
 - **Προϊόντα χωρίς module στο WHMCS** (myip: 14 με ζωντανή υπηρεσία, 17 υπηρεσίες: dedicated, colocation, managed, backup
   MX, ένα SSL, ένα Imunify360):
   - το προϊόν και οι ζωντανές υπηρεσίες του μπαίνουν στο «Manual (offline)» (Offline Dedicated Server), με εξαίρεση όσες
