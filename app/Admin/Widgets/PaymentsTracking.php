@@ -30,9 +30,6 @@ class PaymentsTracking extends TableWidget
 
     protected static ?string $heading = 'Payments tracking';
 
-    /** A reference longer than this may be cut on its row: it gets a tooltip with the whole of it. */
-    public const REFERENCE_TOOLTIP_CHARS = 30;
-
     public function table(Table $table): Table
     {
         return $table
@@ -70,7 +67,8 @@ class PaymentsTracking extends TableWidget
                 // movement is a row of its own height, and the actions stay in view (B2, owner 2026-11-04).
                 TextColumn::make('reason')->label('Reference')->searchable()
                     ->extraCellAttributes(['class' => 'mycs-cut-cell'])
-                    ->tooltip(fn (BankMovement $record) => mb_strlen((string) $record->reason) > self::REFERENCE_TOOLTIP_CHARS ? $record->reason : null)
+                    // Always: how much is cut depends on the width, ten characters on a phone (review of #642).
+                    ->tooltip(fn (BankMovement $record) => filled($record->reason) ? $record->reason : null)
                     ->description(fn (BankMovement $record) => $record->authentic ? null
                         : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
                             : '⚠ Not vouched for by our mail server: check it at the bank')),

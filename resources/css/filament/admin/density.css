@@ -241,9 +241,13 @@
     width: 100%;
     max-width: 0;
 
-    & .fi-ta-text-item,
-    & .fi-ta-text-item-label {
+    & .fi-ta-text-item {
         @apply block truncate;
+    }
+
+    /* The ⚠ of an unverified credit is not in the tooltip: it wraps, whole, under the cut reference (review of #642). */
+    & .fi-ta-text-description {
+        @apply whitespace-normal;
     }
 }
 
