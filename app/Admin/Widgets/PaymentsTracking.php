@@ -30,10 +30,15 @@ class PaymentsTracking extends TableWidget
 
     protected static ?string $heading = 'Payments tracking';
 
+    /** A reference longer than this is cut on its row; the whole of it is in the tooltip. */
+    public const REFERENCE_CHARS = 48;
+
     public function table(Table $table): Table
     {
         return $table
             ->query(BankMovement::query()->credits()->with(['acknowledgedBy', 'invoice']))
+            // What the yellow rows are, under the heading (B2, owner 2026-11-04).
+            ->description(__('Yellow: not seen to yet'))
             ->defaultSort('executed_at', 'desc')
             // A widget pages «simply» (no count): here the page and the total show, with thousands of movements (owner 2026-10-28).
             ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)->paginationMode(PaginationMode::Default)
@@ -61,7 +66,9 @@ class PaymentsTracking extends TableWidget
                 // A column of its own, not a second line under the amount: a row is one line (owner 2026-11-03, dashboard direction B).
                 TextColumn::make('bank')->label('Bank')->color('gray')
                     ->formatStateUsing(fn (BankMovement $record) => $record->bankName()),
-                TextColumn::make('reason')->label('Reference')->wrap()->searchable()
+                // One line, the whole reference in its tooltip: a movement is a row of its own height (B2, owner 2026-11-04).
+                TextColumn::make('reason')->label('Reference')->searchable()
+                    ->limit(self::REFERENCE_CHARS)->tooltip(fn (BankMovement $record) => mb_strlen((string) $record->reason) > self::REFERENCE_CHARS ? $record->reason : null)
                     ->description(fn (BankMovement $record) => $record->authentic ? null
                         : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
                             : '⚠ Not vouched for by our mail server: check it at the bank')),

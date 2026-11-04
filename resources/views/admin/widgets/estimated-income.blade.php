@@ -25,18 +25,19 @@
                     <span class="font-semibold {{ $tone($month['change']) }}">{{ $signed($month['change']) }}</span>
                 </div>
             </div>
-            <div class="grid grid-cols-3 gap-3">
-                <div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ __('Received') }}</div>
-                    <div class="text-xl font-semibold text-primary-600 dark:text-primary-400">{{ $money($month['received']) }}</div>
+            {{-- Each figure on one line with its label beside it, as the mockup's (B2, owner 2026-11-04): a row less. --}}
+            <div class="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ __('Received') }}</span>
+                    <span class="text-lg font-semibold text-primary-600 dark:text-primary-400">{{ $money($month['received']) }}</span>
                 </div>
-                <div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ __('Expected') }}</div>
-                    <div class="text-xl font-semibold text-gray-600 dark:text-gray-300">{{ $money($month['expected']) }}</div>
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ __('Expected') }}</span>
+                    <span class="text-lg font-semibold text-gray-600 dark:text-gray-300">{{ $money($month['expected']) }}</span>
                 </div>
-                <div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ __('Month total') }}</div>
-                    <div class="text-xl font-semibold text-gray-950 dark:text-white">{{ $money($month['total']) }}</div>
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ __('Month total') }}</span>
+                    <span class="text-lg font-semibold text-gray-950 dark:text-white">{{ $money($month['total']) }}</span>
                 </div>
             </div>
             <div class="h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden" role="img"
