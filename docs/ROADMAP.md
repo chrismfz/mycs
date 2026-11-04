@@ -131,7 +131,7 @@ adversarial review.
 **Π1, πριν τη myip:**
 - [x] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.
 - [x] **WG-12** Domains: `recurring_amount` μόνο στις πραγματικές εξαιρέσεις (τα ακριβότερα στον κατάλογο, εκτός ID protection).
-- [ ] **WG-13** GA4/Ads `purchase` στην ολοκλήρωση της παραγγελίας.
+- [x] **WG-13** GA4/Ads `purchase` στην ολοκλήρωση της παραγγελίας (ρύθμιση «Order complete code», `OrderConversion`).
 - [ ] **WG-14** Ημέρες τιμολόγησης ανά κύκλο (= η γραμμή στη Χρέωση).
 - [ ] **WG-15** Quantity options με τιμή (CART-9).
 - [ ] **WG-16** Ρυθμίσεις module πέρα από το package (= 9 (ζ), και το theme του cPanel).

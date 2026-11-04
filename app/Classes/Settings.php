@@ -1058,6 +1058,18 @@ class Settings
                     'section' => 'Custom code',
                 ],
                 [
+                    // WG-13: GA4/Google Ads `purchase` (OrderConversion), as myip's WHMCS hook sent it on «order complete».
+                    'name' => 'theme_order_complete_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
+                    'validation' => 'max:65000',
+                    'label' => 'Order complete code',
+                    'type' => 'textarea',
+                    'rows' => 8,
+                    'default' => '',
+                    'description' => 'Raw HTML on the first page after a customer places an order, once per order (never a free one, nor for staff logged in as the customer). Placeholders, each a JSON value safe in a script: {purchase} (GA4\'s purchase event: transaction_id, value net, tax, currency, coupon, items), {order_id}, {value}, {tax}, {currency}, {coupon}, {items}. E.g. <script>gtag(\'event\', \'purchase\', {purchase});</script>, with gtag and consent in the custom <head>.',
+                    'section' => 'Custom code',
+                ],
+                [
                     'name' => 'theme_assets',
                     'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'label' => 'Files',

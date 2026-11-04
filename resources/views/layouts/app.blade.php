@@ -94,6 +94,8 @@
     @livewireScriptConfig
     @unless ($privateLink)
         {!! hook('footer') !!}
+        {{-- A placed order's conversion, once (WG-13, OrderConversion): never on a page whose URL is a secret. --}}
+        {!! \App\Support\OrderConversion::render() !!}
     @endunless
 </body>
 
