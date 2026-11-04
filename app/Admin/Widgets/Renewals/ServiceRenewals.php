@@ -36,6 +36,9 @@ class ServiceRenewals extends TableWidget
     {
         return $table
             ->heading(__('Upcoming service renewals'))
+            // Denser (B2, owner 2026-11-04): the window under the heading instead of a row of «Active filters».
+            ->description(fn () => __('Within :days days', ['days' => DomainRenewals::windowDays($this->tableFilters['within']['value'] ?? null)]))
+            ->hiddenFilterIndicators()
             ->query(Service::query()->with(['client.primaryContact', 'client.ownerGrant.user', 'product', 'plan'])
                 ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
                 ->whereNotNull('expires_at')->whereDate('expires_at', '>=', today()->subDays(DomainRenewals::PAST_DAYS))
@@ -45,7 +48,7 @@ class ServiceRenewals extends TableWidget
             ->filters([
                 SelectFilter::make('within')->label(__('Within'))->default('30')->selectablePlaceholder(false)
                     ->options(['7' => __('7 days'), '30' => __('30 days'), '60' => __('60 days'), '90' => __('90 days')])
-                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays((int) ($data['value'] ?: 30)))),
+                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays(DomainRenewals::windowDays($data['value'] ?? null)))),
             ])
             ->columns([
                 TextColumn::make('label')->label(__('Service')),
