@@ -12,6 +12,7 @@ use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Renewals\ServicesToCheck;
 use App\Admin\Widgets\Revenue;
 use App\Admin\Widgets\Servers;
+use App\Admin\Widgets\StaffAndSessions;
 use App\Admin\Widgets\Support;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Schemas\Components\Component;
@@ -26,14 +27,15 @@ class Dashboard extends BaseDashboard
     /**
      * Two columns that stack on their own (owner 2026-11-04, direction B2): the money on the left, the work on the
      * right. In one grid a row is as tall as its tallest card, so Support sat beside Revenue with a hole under it.
-     * The widgets in neither list (the cards, the credit and bank bars above, staff online and active users below) keep
-     * the full width, in their `$sort` order: above the columns when they sort before the first of them. Payments
+     * The widgets in neither list (the cards, the credit and bank bars above) keep the full width, in their `$sort`
+     * order: above the columns when they sort before the first of them. Staff and sessions sits under Payments
+     * tracking, compact and scrolling (owner 2026-11-04: «small like Servers»), where the left column had room. Payments
      * tracking is on the left since Recent activity (devbox 2026-11-04: left 1435 px, right 1170 px; without it on the
      * right, before Recent activity, the left was 774 px against 685 px and it sat below, full width).
      *
      * @var array<int, class-string>
      */
-    public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class];
+    public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class, StaffAndSessions::class];
 
     /** @var array<int, class-string> */
     public const RIGHT = [NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];

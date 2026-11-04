@@ -1608,5 +1608,13 @@
     "New orders": "Νέες παραγγελίες",
     "Revenue": "Έσοδα",
     "Net revenue": "Καθαρά έσοδα",
-    "New orders :orders · Revenue :revenue · Net revenue :net": "Νέες παραγγελίες :orders · Έσοδα :revenue · Καθαρά έσοδα :net"
+    "New orders :orders · Revenue :revenue · Net revenue :net": "Νέες παραγγελίες :orders · Έσοδα :revenue · Καθαρά έσοδα :net",
+    "Staff and sessions": "Staff και συνδέσεις",
+    ":count online": ":count συνδεδεμένος|:count συνδεδεμένοι",
+    "Offline": "Εκτός",
+    "Copy": "Αντιγραφή",
+    "Copied!": "Αντιγράφηκε!",
+    "No customer is signed in.": "Κανένας πελάτης δεν είναι συνδεδεμένος.",
+    ":count customer session|:count customer sessions": ":count σύνδεση πελάτη|:count συνδέσεις πελατών",
+    "Customer sessions, last :count minute|Customer sessions, last :count minutes": "Συνδέσεις πελατών, τελευταίο :count λεπτό|Συνδέσεις πελατών, τελευταία :count λεπτά"
 }
