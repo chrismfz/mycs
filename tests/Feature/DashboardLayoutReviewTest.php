@@ -7,6 +7,10 @@ use App\Admin\Widgets\ActiveUsers;
 use App\Admin\Widgets\EstimatedIncome;
 use App\Admin\Widgets\Overview;
 use App\Admin\Widgets\Renewals\DomainRenewals;
+use App\Admin\Widgets\Renewals\ServiceRenewals;
+use App\Admin\Widgets\Revenue;
+use App\Admin\Widgets\StaffOnline;
+use App\Admin\Widgets\Support;
 use App\Models\Currency;
 use App\Models\Role;
 use App\Models\Staff;
@@ -15,7 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
 
-/** Independent review of #279 (the dashboard as WHMCS's: five cards, a shorter chart, the four lists two by two). */
+/** Independent review of #279 (the dashboard as WHMCS's: five cards, a shorter chart), and its layout in two columns (2026-11-04). */
 class DashboardLayoutReviewTest extends TestCase
 {
     use RefreshDatabase;
@@ -34,20 +38,52 @@ class DashboardLayoutReviewTest extends TestCase
     }
 
     /**
-     * R1. The lists are half width only from lg, where the dashboard's grid has 2 columns; without the income widget
-     * they start a row because Revenue | Support fill the one before (#283: no forced column starts, and a staff member
-     * with one of those two gets its list beside it, which is the intent: no hole). With all permissions, EstimatedIncome (full width, sort 12) starts one. Staff without
-     * admin.reports.view do not see it, so Revenue | Support, then ActiveUsers alone: Domain renewals sits beside
-     * Active users, Service renewals drops to the next row (with a «to check» list, or alone).
+     * R1. Two columns that stack on their own (2026-11-04): the money on the left, the work on the right, the cards and
+     * bars above and staff online / active users below. Staff without admin.reports.view have no income: Revenue
+     * alone, and the work beside it.
      */
-    public function test_the_renewal_lists_start_a_row_for_staff_without_reports(): void
+    public function test_the_money_is_one_column_and_the_work_the_other(): void
     {
-        $this->actAs(['admin.widgets.revenue', 'admin.widgets.overview', 'admin.widgets.support', 'admin.widgets.active_users',
-            'admin.widgets.renewals', 'admin.domains.viewAny', 'admin.services.viewAny']);
+        $this->actAs(['*']);
 
-        $placed = $this->placed();
+        $layout = (new Dashboard)->layout();
 
-        $this->assertSame(0, $placed[DomainRenewals::class], 'Domain renewals starts its row, not beside the widget before it: ' . json_encode($placed));
+        $this->assertSame([Overview::class], $layout['above']);
+        $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
+        $this->assertSame([Support::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
+    }
+
+    /** A column nobody can see is not left empty beside the other: the page does not render a hole. */
+    public function test_a_staff_member_with_only_the_work_gets_one_column(): void
+    {
+        $this->actAs(['admin.widgets.support', 'admin.widgets.renewals', 'admin.domains.viewAny', 'admin.services.viewAny']);
+
+        $layout = (new Dashboard)->layout();
+
+        $this->assertSame([], $layout['left']);
+        $this->assertNotContains(Support::class, $layout['above']);
+        $this->assertContains(DomainRenewals::class, $layout['right']);
+        $html = $this->get('/sysadmin')->assertOk()->getContent();
+        $this->assertStringContainsString('--cols-lg: repeat(1, minmax(0, 1fr))', $html);
+        $this->assertStringNotContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(2', $html, 'no half-width column beside nothing');
+    }
+
+    /** The page renders the two columns: the left one's widgets come before the right one's in the document. */
+    public function test_the_page_renders_the_columns_in_order(): void
+    {
+        $this->actAs(['*']);
+
+        $html = $this->get('/sysadmin')->assertOk()->getContent();
+        $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
+
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Support::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
+        $offsets = array_map($at, $order);
+        $this->assertNotContains(0, $offsets, 'every widget is on the page');
+        $sorted = $offsets;
+        sort($sorted);
+        $this->assertSame($sorted, $offsets, 'left column, then right column, then the full width below');
+        $this->assertStringContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(2', $html, 'two columns from lg');
     }
 
     /**
@@ -63,53 +99,5 @@ class DashboardLayoutReviewTest extends TestCase
 
         $this->assertCount(3, $stats);
         $this->assertLessThanOrEqual(count($stats), is_array($columns) ? max($columns) : $columns, 'as many columns as cards');
-    }
-
-    /** @return array<class-string, int> each visible widget's column at lg, as CSS grid places them (row by row). */
-    private function placed(): array
-    {
-        // CSS grid auto-placement at lg, as Filament's Grid::make(2) lays the widgets out.
-        $columns = (new Dashboard)->getColumns();
-        $this->assertSame(2, $columns);
-        $column = 0;
-        $placed = [];
-        foreach (Filament::getWidgets() as $widget) {
-            if (!$widget::canView()) {
-                continue;
-            }
-            $span = (fn () => $this->columnSpan)->call(new $widget);
-            $span = is_array($span) ? ($span['lg'] ?? $span['md'] ?? $span['sm'] ?? $span['default'] ?? 1) : $span;
-            if ($span === 'full' || $span >= $columns) {
-                $placed[$widget] = 0;
-                $column = 0;
-
-                continue;
-            }
-            // A widget told to start at column 1 (columnStart, the fix) goes to the next row when the cursor is past it,
-            // as CSS grid's auto-placement does.
-            $start = (fn () => $this->columnStart)->call(new $widget);
-            $start = is_array($start) ? ($start['lg'] ?? $start['md'] ?? $start['default'] ?? null) : $start;
-            if ($start === 1 && $column !== 0) {
-                $column = 0;
-            }
-            $placed[$widget] = $column;
-            $column = ($column + 1) % $columns;
-        }
-
-        return $placed;
-    }
-
-    /** Everything seen (income too): domain renewals fill the room beside Income (owner 2026-10-21). */
-    public function test_domain_renewals_sit_beside_income(): void
-    {
-        $this->actAs(['*']);
-        if (!EstimatedIncome::canView()) {
-            $this->markTestSkipped('no income widget for this role');
-        }
-        $placed = $this->placed();
-
-        $this->assertSame(0, $placed[EstimatedIncome::class], json_encode($placed));
-        $this->assertSame(1, $placed[DomainRenewals::class], json_encode($placed));
-        $this->assertSame(array_key_last($placed), ActiveUsers::class, 'Active users last, the width of the page');
     }
 }

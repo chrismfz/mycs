@@ -29,7 +29,7 @@ use Livewire\Attributes\On;
 
 class Overview extends BaseWidget
 {
-    // The dashboard's order (owner 2026-10-21): cards, registrar credit, revenue | support, income | renewals.
+    // The dashboard's order: cards and bars on top, then two columns (the lists in `Dashboard::LEFT` and `RIGHT`, owner 2026-11-04).
     protected static ?int $sort = 0;
 
     // Poll every 5 minutes (5m doesn't work somehow)
