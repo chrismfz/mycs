@@ -135,6 +135,25 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
   Τα στοιχεία της παραγγελίας μένουν στην υπηρεσία, και κάθε ενέργεια γίνεται εργασία του staff, η πληρωμένη ανανέωση
   επίσης. Ο importer βάζει εκεί τα πιστοποιητικά του WHMCS και αποσύρει τα 57 προϊόντα (`importer.md`). Στη λήξη περνούν
   στο Openprovider SSL.
+- [x] ~~Οι υπηρεσίες χωρίς module στο WHMCS~~ **έγινε (#628):** ο importer τις βάζει στο «Manual (offline)» (Offline
+  Dedicated Server). Ένα suspend για απλήρωτο γίνεται εργασία του staff, και φαίνεται τι θέλει suspend και τι όχι
+  (υπεύθυνος, 2026-11-04). Στη myip είναι 17 ζωντανές: dedicated, colocation, managed, backup MX.
+- [ ] **Dedicated servers με BMC: ένα extension Redfish** (ιδέα του υπεύθυνου, 2026-11-04· για αργότερα).
+  - **Ένα module για όλα:** iDRAC (Dell, 8/9), BMC της Supermicro (X11+), αργότερα iLO (HPE) και XCC (Lenovo). Όλα μιλούν
+    το πρότυπο Redfish (DMTF), και οι διαφορές τους είναι ρύθμιση «vendor» του server, όχι ξεχωριστό module.
+  - **Με σειρά:**
+    1. ανάγνωση: τροφοδοσία, υγεία, θερμοκρασίες, serial/μοντέλο, inventory·
+    2. power on/off/reset για το staff, για τον πελάτη αν αποφασιστεί·
+    3. suspend: κλείσιμο της θύρας στο switch (Nexus) ή σβήσιμο από το BMC, απόφαση ανά εταιρεία ή προϊόν. Η θύρα
+       κρατά τα δεδομένα ασφαλή και ο πελάτης βλέπει γιατί κόπηκε·
+    4. console (HTML5 KVM) και reinstall με virtual media.
+  - **Ασφάλεια:**
+    - BMC μόνο σε management VLAN ή VPN, ποτέ δημόσια·
+    - χρήστης BMC με ρόλο Operator, όχι Administrator·
+    - credentials κρυπτογραφημένα ανά υπηρεσία·
+    - η MyCS ενεργεί μόνο σε μηχάνημα ρητά αντιστοιχισμένο στην υπηρεσία, όπως στο Proxmox.
+  - **Μετάβαση:** οι υπηρεσίες του «Manual (offline)» περνούν στο Redfish με αλλαγή του server της υπηρεσίας και τα
+    στοιχεία του BMC (η IP και το MAC του IPMI υπάρχουν ήδη στα πεδία του Offline Dedicated). Δεν χρειάζεται νέο import.
 - [x] ~~Συμφιλίωση κατάστασης cPanel~~ **έγινε:** «Differs» στο Hosting Accounts (φίλτρο) και στη σελίδα της υπηρεσίας:
       active εδώ/suspended εκεί, suspended εδώ/active εκεί, ended εδώ/υπάρχει ακόμα εκεί (μόνο αφού ο server διαβαστεί
       μετά την αλλαγή της υπηρεσίας).

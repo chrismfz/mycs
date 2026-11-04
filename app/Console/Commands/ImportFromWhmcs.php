@@ -206,6 +206,7 @@ class ImportFromWhmcs extends Command
             $this->importOrders();
             $this->importServices();
             $this->importOfflineSsl();
+            $this->importOfflineDedicated();
             $this->importDomains();
             $this->importEkdosiContacts();
             $this->importContacts();
@@ -1493,6 +1494,39 @@ class ImportFromWhmcs extends Command
         $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
+        }
+    }
+
+    /**
+     * The products with no module in WHMCS that a live service is on (myip: dedicated servers, colocation, managed ones, a
+     * backup MX, a few by hand), and those services: on one Offline Dedicated server, so every action on them (a suspension
+     * for non-payment too) is a task for staff to see, never a status changed and nothing done (owner 2026-11-04). Only one
+     * with no server in WHMCS: one on its own WHMCS server keeps it, and one whose WHMCS server is not here (deleted, a module
+     * with no extension) stays listed for staff to set (review of #628). An ended service keeps none of its own; staff
+     * acting on it by hand from its page get a task too. Listed for staff, who move one that is not a machine (a
+     * certificate, a license) where it belongs. Redfish (iDRAC, BMC) is the roadmap's, later (ROADMAP).
+     */
+    private function importOfflineDedicated(): void
+    {
+        if (!$this->sourceHas('tblproducts') || !$this->sourceHas('tblhosting')) {
+            return;
+        }
+        $live = "('Active', 'Suspended', 'Pending')";
+        $ids = array_map('intval', $this->pdo->query("SELECT p.id FROM tblproducts p WHERE COALESCE(p.servertype, '') = ''
+            AND EXISTS (SELECT 1 FROM tblhosting h WHERE h.packageid = p.id AND h.domainstatus IN {$live}) ORDER BY p.id")->fetchAll(PDO::FETCH_COLUMN));
+        if ($ids === []) {
+            return;
+        }
+        $server = Server::query()->firstOrCreate(['extension' => 'OfflineDedicated', 'name' => 'Manual (offline)'], ['type' => 'server', 'enabled' => true]);
+        DB::table('products')->whereIn('id', $ids)->whereNull('server_id')->update(['server_id' => $server->id]);
+        $services = DB::table('services')->whereIn('product_id', $ids)->whereNull('server_id')
+            ->where(fn ($none) => $none->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0))
+            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->orderBy('id')->get(['id', 'product_id', 'domain']);
+        DB::table('services')->whereIn('id', $services->pluck('id'))->update(['server_id' => $server->id]);
+        $this->info(count($services) . ' live service(s) of ' . count($ids) . " product(s) with no module in WHMCS on «{$server->name}» (Offline Dedicated): every action on them is a task for staff.");
+        if ($services->isNotEmpty()) {
+            $names = DB::table('products')->whereIn('id', $ids)->pluck('name', 'id');
+            $this->table(['Service', 'Product', 'Domain'], $services->map(fn ($service) => [$service->id, $names[$service->product_id] ?? '', $service->domain])->all());
         }
     }
 

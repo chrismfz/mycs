@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Helpers\ExtensionHelper;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Server;
@@ -191,6 +192,48 @@ class ImportClusterServersTest extends TestCase
 
         $this->assertSame(0, ClientGroupPricing::reconcile());
         $this->assertSame(['1.80', '5.00'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+    }
+
+    /**
+     * Owner 2026-11-04: myip's 17 live services on products with no module in WHMCS (dedicated servers, colocation) came
+     * with no server, and a suspension for non-payment changed only their status. On «Manual (offline)» (Offline
+     * Dedicated) every action on them is a task for staff. One on a WHMCS server keeps it; an ended one keeps none.
+     */
+    public function test_services_of_a_product_with_no_module_come_on_an_offline_dedicated_server(): void
+    {
+        $this->hosting();
+        $product = $this->createProduct();
+        $this->whmcs->exec("INSERT INTO tblproducts VALUES ({$product->product->id}, 'Dedicated', '', 0)");
+        $client = User::factory()->create()->client();
+        $this->whmcs->exec("INSERT INTO tblclients VALUES ({$client->id}, 1)");
+        // 57: Hetzner's, imported; 59: a server WHMCS deleted (review of #628: listed for staff, never moved to Manual).
+        foreach ([[921, 0, 'Active'], [922, 0, 'Terminated'], [923, 57, 'Active'], [924, 59, 'Active']] as [$id, $server, $status]) {
+            $this->whmcs->prepare("INSERT INTO tblhosting VALUES (?, ?, NULL, ?, ?, '2024-01-01', 'box.example.test', 1, 100, 'Monthly', '2026-12-01', ?, '',
+                '', '', '', '', '', 0, '0000-00-00')")->execute([$id, $client->id, $product->product->id, $server, $status]);
+        }
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        foreach (['importServers', 'importServices', 'importOfflineDedicated'] as $step) {
+            (new ReflectionMethod($command, $step))->invoke($command);
+        }
+
+        $manual = Server::query()->where('extension', 'OfflineDedicated')->sole();
+        $this->assertSame('Manual (offline)', $manual->name);
+        $this->assertSame([921 => $manual->id, 922 => null, 923 => Server::query()->where('whmcs_id', 57)->value('id'), 924 => null],
+            Service::query()->orderBy('id')->pluck('server_id', 'id')->all());
+        $this->assertSame($manual->id, (int) $product->product->fresh()->server_id, 'a new order of it is a task too');
+        $text = $output->fetch();
+        $this->assertStringContainsString('1 live service(s) of 1 product(s) with no module in WHMCS', $text);
+        $this->assertStringContainsString('1 live service(s) whose WHMCS server is not here', $text, '924 stays staff\'s to set');
+
+        // The point of it: a suspension for non-payment is a task for staff, not a status changed and nothing done.
+        ExtensionHelper::suspendServer(Service::query()->findOrFail(921));
+        $task = ModuleAction::query()->where('service_id', 921)->sole();
+        $this->assertSame([ModuleAction::SUBJECT_BY_HAND, 'OfflineDedicated'], [$task->subject, $task->module]);
+        $this->assertTrue(ModuleAction::query()->open()->whereKey($task->id)->exists(), 'on the dashboard\'s Pending Module Actions');
     }
 
     public function test_hetzner_cloud_comes_as_an_offline_vm_server(): void

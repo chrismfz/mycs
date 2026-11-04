@@ -1177,6 +1177,15 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - Τα προϊόντα: `configoption1` → `package` (το όνομα του πακέτου στο ngm), `configoption2` → `php`. Κενό = κανένα.
   - Οι υπηρεσίες έρχονται με το `username` του WHMCS, και με αυτό τις χειρίζεται το extension. Το suspend δεν θέλει
     σημάδι: το ngm το κάνει idempotent.
+- **Προϊόντα χωρίς module στο WHMCS** (myip: 14 με ζωντανή υπηρεσία, 17 υπηρεσίες: dedicated, colocation, managed, backup
+  MX, ένα SSL, ένα Imunify360):
+  - το προϊόν και οι ζωντανές υπηρεσίες του μπαίνουν στο «Manual (offline)» (Offline Dedicated Server), με εξαίρεση όσες
+    είχαν δικό τους server στο WHMCS·
+  - ένα suspend για απλήρωτο ή ένα terminate γίνεται εργασία στα Pending Module Actions (πλακίδιο στο dashboard και mail
+    στο staff), ώστε να γίνει με το χέρι, π.χ. να ακυρωθεί το license (υπεύθυνος, 2026-11-04)·
+  - ως τότε έμεναν χωρίς server, και ένα suspend άλλαζε μόνο την κατάσταση·
+  - το import τις βγάζει σε λίστα· ό,τι δεν είναι μηχάνημα (SSL, license) το μεταφέρει το staff όπου ταιριάζει.
+  Το Redfish (iDRAC, BMC) είναι στο ROADMAP.
 - **Proxmox (pvewhmcs):** οι servers του WHMCS (Pegasus, Vega) είναι κόμβοι **ενός cluster** (υπεύθυνος, 2026-11-04).
   - Γίνονται **ένας** server Proxmox, και σε νέα εκτέλεση βρίσκεται με το id οποιουδήποτε κόμβου.
   - **Νέος server:**
