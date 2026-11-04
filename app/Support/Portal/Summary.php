@@ -88,7 +88,8 @@ final class Summary
     /** @return HasMany<Service, Client> */
     private function running()
     {
-        return $this->client->services()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]);
+        // Addons with their parent, as the services list shows them (docs/addons.md).
+        return $this->client->services()->notAddons()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]);
     }
 
     /** @return array{key: string, count: int, label: string, detail: string, url: string, tone: string} */

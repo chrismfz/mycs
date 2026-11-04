@@ -2,6 +2,7 @@
 
 namespace App\Services\Service;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\UnsuspendJob;
@@ -13,6 +14,7 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -59,22 +61,44 @@ final class AddonCascade
     private static function unsuspend(Service $parent): void
     {
         foreach (self::locked($parent, [Service::STATUS_SUSPENDED]) as $addon) {
-            if ($addon->suspend_reason !== Service::SUSPEND_REASON_PARENT) {
-                continue;
-            }
-            // Overdue on its own past Suspend Days (its own invoice unpaid): it stays suspended, now for that, as the cron
-            // would have suspended it, and its server is asked for it (a task: the parent's suspension covered it).
-            if ($addon->expires_at !== null && $addon->stillOverdue(CarbonImmutable::parse($addon->expires_at))) {
-                $addon->forceFill(['suspend_reason' => 'Overdue on Payment', 'dunning_suspended_at' => now()])->save();
-                AfterCommit::job(new SuspendJob($addon));
-
-                continue;
-            }
-            $addon->forceFill(['status' => Service::STATUS_ACTIVE])->save();
-            if (self::suspendedByHand($addon)) {
-                AfterCommit::job(new UnsuspendJob($addon));
-            }
+            self::bringBack($addon);
         }
+    }
+
+    /** One suspended with its parent, its parent running again (locked by the caller, parent first). */
+    private static function bringBack(Service $addon): void
+    {
+        if ($addon->status !== Service::STATUS_SUSPENDED || $addon->suspend_reason !== Service::SUSPEND_REASON_PARENT) {
+            return;
+        }
+        // Overdue on its own past Suspend Days (its own invoice unpaid): it stays suspended, now for that, as the cron
+        // would have suspended it, and its server is asked for it (a task: the parent's suspension covered it).
+        if ($addon->expires_at !== null && $addon->stillOverdue(CarbonImmutable::parse($addon->expires_at))) {
+            $addon->forceFill(['suspend_reason' => 'Overdue on Payment', 'dunning_suspended_at' => now()])->save();
+            AfterCommit::job(new SuspendJob($addon));
+
+            return;
+        }
+        $addon->forceFill(['status' => Service::STATUS_ACTIVE])->save();
+        if (self::suspendedByHand($addon)) {
+            AfterCommit::job(new UnsuspendJob($addon));
+        }
+    }
+
+    /**
+     * Its payment saw its parent suspended and left it suspended with it; read again once it committed, parent locked
+     * first: a parent that came back meanwhile (its own payment, staff) brings it back too (code review 6 of #634).
+     */
+    public static function settle(int $addonId): void
+    {
+        DB::transaction(function () use ($addonId) {
+            $parentId = Service::query()->whereKey($addonId)->value('parent_service_id');
+            $parent = $parentId === null ? null : Service::query()->whereKey($parentId)->lockForUpdate()->first();
+            $addon = Service::query()->whereKey($addonId)->lockForUpdate()->first();
+            if ($parent?->status === Service::STATUS_ACTIVE && $addon !== null) {
+                self::bringBack($addon);
+            }
+        });
     }
 
     /**
@@ -86,9 +110,20 @@ final class AddonCascade
         $reason = __('invoices.cancellation_reasons.parent_ended');
         $left = [];
         foreach (self::locked($parent, Service::PAYING_STATUSES) as $addon) {
+            // Paid past today: that time ends with its parent, its money kept; staff told, to refund or credit it (code
+            // review 4 of #634), as the cron leaves a parent paid ahead to them.
+            $paidAhead = $addon->expires_at !== null && $addon->status !== Service::STATUS_PENDING
+                && CarbonImmutable::parse($addon->expires_at)->startOfDay()->greaterThan(CarbonImmutable::today());
             $addon->forceFill(['status' => $parent->status])->save();
-            $left += CancelPendingUpgrades::forService($addon, $reason);
-            $left += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()), $reason, $addon);
+            $own = CancelPendingUpgrades::forService($addon, $reason);
+            $own += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()), $reason, $addon);
+            if ($paidAhead) {
+                $own['paid_ahead'] = new DisplayException("Addon #{$addon->id} was paid until {$addon->expires_at->toDateString()}: refund or credit the unused time if due.");
+            }
+            // Keyed by addon: two addons on one invoice each keep their reason (code review 12 of #634).
+            foreach ($own as $key => $why) {
+                $left["addon #{$addon->id} {$key}"] = $why;
+            }
             if ($addon->product?->stock !== null) {
                 $addon->product->increment('stock', $addon->quantity);
             }
@@ -125,8 +160,7 @@ final class AddonCascade
         }
         $request = ServiceCancellation::query()->where('service_id', $addon->parent_service_id)->where('type', 'end_of_period')->first();
         if ($request !== null) {
-            (new ServiceCancellation(['service_id' => $addon->id, 'type' => 'end_of_period', 'reason' => (string) $request->reason]))
-                ->forceFill(['with_parent' => true])->save();
+            self::copyRequest($addon->id, (string) $request->reason);
         }
     }
 
@@ -144,8 +178,21 @@ final class AddonCascade
         $addons = Service::query()->where('parent_service_id', $request->service_id)->whereIn('status', Service::PAYING_STATUSES)
             ->whereDoesntHave('cancellation')->orderBy('id')->pluck('id');
         foreach ($addons as $id) {
-            (new ServiceCancellation(['service_id' => $id, 'type' => 'end_of_period', 'reason' => (string) $request->reason]))
-                ->forceFill(['with_parent' => true])->save();
+            self::copyRequest((int) $id, (string) $request->reason);
+        }
+    }
+
+    /**
+     * Its copy of the parent's request. One the addon got meanwhile (its own, a double submit) is kept: never a failure that
+     * would leave the parent's request without its events (code review 7 of #634), in a savepoint of its own.
+     */
+    private static function copyRequest(int $addonId, string $reason): void
+    {
+        try {
+            DB::transaction(fn () => (new ServiceCancellation(['service_id' => $addonId, 'type' => 'end_of_period', 'reason' => $reason]))
+                ->forceFill(['with_parent' => true])->save());
+        } catch (UniqueConstraintViolationException) {
+            // it has its own request already
         }
     }
 

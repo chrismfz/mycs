@@ -400,7 +400,8 @@ class ServiceResource extends Resource
                             ->label($label)->size('sm')->color($command === 'terminate' ? 'danger' : 'gray')->outlined()
                             ->alpineClickHandler("\$wire.mountAction('changeStatus', { action: '{$command}' })"))->values()->all())
                             ->label('Module')
-                            ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record?->provisioningServer() !== null),
+                            // An addon's: tasks for staff on its parent's machine (docs/addons.md).
+                            ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && ($record?->provisioningServer() !== null || $record?->isAddon())),
                     ]),
                 // A machine or certificate with no API (OfflineVm, OfflineDedicated, OfflineSsl, owner 2026-10-24): what
                 // staff keep about it, edited in one window. Its hostname and IPv4 are the account's domain and IPs above.

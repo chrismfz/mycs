@@ -62,8 +62,11 @@ final class MoveToClient
             if ($service->parent_service_id !== null) {
                 throw new DisplayException(__('services.addons.move_addon'));
             }
-            $addons = Service::query()->where('parent_service_id', $service->id)->orderBy('id')->lockForUpdate()->get();
-            foreach ($addons->reject(fn (Service $addon) => $addon->isEnded()) as $addon) {
+            // Only those still running: an ended one is the first client's history, its debt too (code review 1 of #634);
+            // it stays with them, no longer fastened to a service that is not theirs.
+            $all = Service::query()->where('parent_service_id', $service->id)->orderBy('id')->lockForUpdate()->get();
+            $addons = $all->reject(fn (Service $addon) => $addon->isEnded())->values();
+            foreach ($addons as $addon) {
                 if (filled($addon->subscription_id)) {
                     throw new DisplayException(__('clients.move.subscription'));
                 }
@@ -85,6 +88,9 @@ final class MoveToClient
             foreach ($addons as $addon) {
                 $addon->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
                 SubscriptionEnded::forget($addon);
+            }
+            foreach ($all->filter(fn (Service $addon) => $addon->isEnded()) as $ended) {
+                $ended->forceFill(['parent_service_id' => null])->save();
             }
             $result = $this->moveInvoices($plan, $to);
             $label = '#' . $service->id . ' ' . (string) $service->product?->name;

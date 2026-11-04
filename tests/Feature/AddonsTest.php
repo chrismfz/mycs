@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\CategoryResource\Pages\EditCategory;
+use App\Admin\Resources\CategoryResource\RelationManagers\ProductsRelationManager;
 use App\Admin\Resources\ProductAddonResource\Pages\CreateProductAddon;
 use App\Admin\Resources\ProductAddonResource\Pages\ListProductAddons;
 use App\Admin\Resources\ProductResource\Pages\ListProducts;
@@ -15,6 +17,7 @@ use App\Jobs\Server\UnsuspendJob;
 use App\Livewire\Services\Index;
 use App\Livewire\Services\Show;
 use App\Models\Client;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\Product;
@@ -25,6 +28,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Clients\MoveToClient;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Service\AddonCascade;
 use App\Services\Service\DeleteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -401,5 +405,57 @@ class AddonsTest extends TestCase
             ->assertViewHas('services', fn ($services) => collect($services->items())->pluck('id')->all() === [$parent->id])
             ->set('search', 'Extra')
             ->assertViewHas('services', fn ($services) => in_array($addon->id, collect($services->items())->pluck('id')->all(), true));
+    }
+
+    /** Code review 4 of #634: an addon paid ahead ends with its parent, and staff are told to refund or credit it. */
+    public function test_an_addon_paid_ahead_ended_with_its_parent_is_told_to_staff(): void
+    {
+        $parent = $this->parent();
+        $addon = $this->addon($parent, '2027-03-01');
+
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+
+        $parent->markTerminated();
+
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
+        $this->assertTrue(EmailLog::query()->where('subject', 'like', '%Addons ended with their service%')
+            ->where('body', 'like', "%Addon #{$addon->id} was paid until 2027-03-01%")->exists());
+    }
+
+    /** Code review 6 of #634: a payment that saw its parent suspended, the parent back meanwhile: it comes back too. */
+    public function test_an_addon_left_with_a_parent_that_came_back_meanwhile_comes_back(): void
+    {
+        $parent = $this->parent();
+        $addon = $this->addon($parent, status: 'suspended');
+        $addon->forceFill(['suspend_reason' => Service::SUSPEND_REASON_PARENT])->save();
+
+        AddonCascade::settle($addon->id);
+
+        $this->assertSame(Service::STATUS_ACTIVE, $addon->fresh()->status);
+    }
+
+    /** Code review 7 of #634: an addon with its own request already: the parent's request goes through, its own is kept. */
+    public function test_an_addon_with_its_own_request_keeps_it_and_the_parents_goes_through(): void
+    {
+        $parent = $this->parent();
+        $addon = $this->addon($parent);
+        ServiceCancellation::query()->create(['service_id' => $addon->id, 'type' => 'immediate', 'reason' => 'Only the IP']);
+
+        ServiceCancellation::query()->create(['service_id' => $parent->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
+
+        $this->assertSame('immediate', ServiceCancellation::query()->where('service_id', $addon->id)->sole()->type);
+        $this->assertTrue(ServiceCancellation::query()->where('service_id', $parent->id)->exists());
+    }
+
+    /** Code review 11 of #634: Product Groups → Products lists products, not addons (theirs is another page). */
+    public function test_product_groups_list_no_addons(): void
+    {
+        $plain = $this->createProduct()->product;
+        $addon = $this->addon($this->parent());
+        $addon->product->update(['category_id' => $plain->category_id]);
+        $this->livewireAs($this->staff());
+
+        Livewire::test(ProductsRelationManager::class, ['ownerRecord' => $plain->category, 'pageClass' => EditCategory::class])
+            ->assertCanSeeTableRecords([$plain])->assertCanNotSeeTableRecords([$addon->product]);
     }
 }

@@ -162,6 +162,8 @@ class RenewServiceService
             $manualHold = true;
             $service->suspend_reason = Service::SUSPEND_REASON_PARENT;
             $service->dunning_suspended_at = null;
+            $addonId = $service->id;
+            DB::afterCommit(fn () => AddonCascade::settle($addonId)); // its parent read without a lock: read again (code review 6)
         }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
