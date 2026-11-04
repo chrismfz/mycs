@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
-use App\Admin\Widgets\ActiveUsers;
 use App\Admin\Widgets\EstimatedIncome;
 use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\Overview;
@@ -13,7 +12,7 @@ use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Revenue;
 use App\Admin\Widgets\Servers;
-use App\Admin\Widgets\StaffOnline;
+use App\Admin\Widgets\StaffAndSessions;
 use App\Admin\Widgets\Support;
 use App\Models\Currency;
 use App\Models\Role;
@@ -55,7 +54,7 @@ class DashboardLayoutReviewTest extends TestCase
         $this->assertSame([Overview::class], $layout['above']);
         $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
         $this->assertSame([NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
-        $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
+        $this->assertSame([StaffAndSessions::class], $layout['below']);
     }
 
     /** Payments tracking is back on the left with Recent activity on the right (devbox 2026-11-04: 1435 against 1170 px). */
@@ -99,7 +98,7 @@ class DashboardLayoutReviewTest extends TestCase
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
 
-        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffAndSessions::class];
         $offsets = array_map($at, $order);
         $this->assertNotContains(0, $offsets, 'every widget is on the page');
         $sorted = $offsets;
