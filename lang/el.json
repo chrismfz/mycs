@@ -1600,5 +1600,9 @@
     "Charges": "Χρεώσεις",
     "Server actions": "Ενέργειες server",
     "Automation": "Αυτοματισμοί",
-    "Gateway events": "Συμβάντα πυλών πληρωμής"
+    "Gateway events": "Συμβάντα πυλών πληρωμής",
+    "Modules": "Modules",
+    "Any service": "Οποιαδήποτε υπηρεσία",
+    "Open the main service": "Άνοιγμα της κύριας υπηρεσίας",
+    "In use": "Σε χρήση"
 }

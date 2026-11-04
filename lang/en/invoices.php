@@ -132,6 +132,7 @@ return [
         'unpaid_order' => 'Cancelled: the order was not paid in time.',
         'service_terminated' => 'Cancelled: the service was terminated.',
         'service_deleted' => 'Cancelled: the service was deleted.',
+        'parent_ended' => 'Cancelled: the main service of this addon has ended.',
         'domain_lost' => 'Cancelled: the domain has ended and is no longer renewed with us.',
         'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
         'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',

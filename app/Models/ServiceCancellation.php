@@ -20,6 +20,10 @@ class ServiceCancellation extends Model implements Auditable
         'type',
     ];
 
+    protected $casts = [
+        'with_parent' => 'boolean', // made with its parent's request (docs/addons.md): withdrawn with it
+    ];
+
     /** @return BelongsTo<Service, $this> */
     public function service(): BelongsTo
     {

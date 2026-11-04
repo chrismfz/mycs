@@ -36,6 +36,11 @@ class DeleteService
         if ($left === null) {
             return; // already deleted (a double click, two calls): nothing outside the database is touched
         }
+        // Its addons still running would be left with nothing to follow (docs/addons.md): ended or deleted first. Ended
+        // ones stay as services of their own (the foreign key clears their parent).
+        if (Service::query()->where('parent_service_id', $service->id)->whereIn('status', Service::PAYING_STATUSES)->exists()) {
+            throw new DisplayException(__('services.addons.delete_parent'));
+        }
         if ($left !== []) {
             throw new DisplayException(__('This service cannot be deleted yet: :reasons', [
                 'reasons' => implode(' ', array_map(fn (\Throwable $reason) => $reason->getMessage(), $left)),

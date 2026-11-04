@@ -104,6 +104,7 @@ class Service extends Model implements Auditable
 
     protected $fillable = [
         'order_id',
+        'parent_service_id',
         'product_id',
         'plan_id',
         'quantity',
@@ -215,6 +216,37 @@ class Service extends Model implements Auditable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /** Why an addon is suspended when its parent was, not for its own invoice: back with its parent (docs/addons.md). */
+    public const SUSPEND_REASON_PARENT = 'Parent service suspended';
+
+    /** @return BelongsTo<Service, $this> the service it is an addon of (docs/addons.md), if it is one */
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_service_id');
+    }
+
+    /** @return HasMany<Service, $this> its addons, ended ones too */
+    public function addons(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_service_id');
+    }
+
+    /** An addon of another service: it follows its parent, and its server actions are staff's tasks (docs/addons.md). */
+    public function isAddon(): bool
+    {
+        return $this->parent_service_id !== null;
+    }
+
+    /**
+     * Not an addon: the services a list shows on their own, their addons under them.
+     *
+     * @param  Builder<Service>  $query
+     */
+    public function scopeNotAddons(Builder $query): void
+    {
+        $query->whereNull('parent_service_id');
     }
 
     /**
@@ -332,17 +364,33 @@ class Service extends Model implements Auditable
         return trim($this->describePeriod($start, $end) . "\n" . $this->describeOptions());
     }
 
+    /**
+     * Its product's name on an invoice line; an addon's with its parent's («Extra IPv4 (vm104.example.gr)», docs/addons.md),
+     * never a username (a line is mailed).
+     */
+    public function lineName(): string
+    {
+        $name = (string) ($this->product->name ?? '');
+        if ($this->parent_service_id === null || ($parent = $this->parent) === null) {
+            return $name;
+        }
+        $of = ServiceIdentifier::line($parent, 60, username: false);
+        $of = $of !== '' ? $of : (string) ($parent->product->name ?? '');
+
+        return $of === '' ? $name : "{$name} ({$of})";
+    }
+
     /** Invoice line text for one billing period. */
     public function describePeriod(CarbonInterface $start, ?CarbonInterface $end): string
     {
         if ($end === null) {
-            return $this->product->name ?? '';
+            return $this->lineName();
         }
 
         $format = __('services.invoice_period_date_format');
 
         return __('services.invoice_period', [
-            'product' => $this->product->name ?? '',
+            'product' => $this->lineName(),
             'start' => $start->format($format),
             'end' => $end->format($format),
         ]);
@@ -935,6 +983,10 @@ class Service extends Model implements Auditable
      */
     public function provisioningServer(): ?Server
     {
+        // An addon is on its parent's machine, never a module's account of its own (docs/addons.md): no module is asked.
+        if ($this->parent_service_id !== null) {
+            return null;
+        }
         if ($this->server_id !== null) {
             return $this->server;
         }
@@ -969,7 +1021,7 @@ class Service extends Model implements Auditable
      */
     public function scopeOnServers(Builder $query, array $servers): void
     {
-        $query->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
+        $query->whereNull('parent_service_id')->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
             ->orWhere(fn (Builder $product) => $product->whereNull('server_id')
                 ->where(fn (Builder $whmcs) => $whmcs->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0)->orWhere('status', self::STATUS_PENDING))
                 ->whereHas('product', fn (Builder $p) => $p->whereIn('server_id', $servers))));

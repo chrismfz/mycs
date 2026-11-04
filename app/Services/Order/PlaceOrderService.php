@@ -265,7 +265,7 @@ final class PlaceOrderService
             // The latest product row, locked: two orders cannot both take the last unit.
             $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
             // Retired (WHMCS «Retired»): not ordered any more, whatever its stock says (ADV-1 of #216).
-            if ($product->retired) {
+            if ($product->retired || $product->is_addon) { // an addon is staff's to fasten, never ordered alone (docs/addons.md)
                 throw new DisplayException(__('product.retired', ['product' => $product->name]));
             }
 

@@ -154,6 +154,14 @@ class RenewServiceService
             )));
             $manualHold = true; // kept as it is, as a hold would be
         }
+        // An addon paid while its parent is suspended stays suspended, from now on with it: back when its parent is
+        // (AddonCascade). Not one staff hold: their hold stays theirs.
+        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && $service->parent_service_id !== null
+            && Service::query()->whereKey($service->parent_service_id)->value('status') === Service::STATUS_SUSPENDED) {
+            $manualHold = true;
+            $service->suspend_reason = Service::SUSPEND_REASON_PARENT;
+            $service->dunning_suspended_at = null;
+        }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job

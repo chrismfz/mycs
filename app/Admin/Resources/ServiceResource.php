@@ -12,6 +12,7 @@ use App\Admin\Resources\ServiceResource\Pages\CreateService;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\PoolAddresses;
+use App\Admin\Resources\ServiceResource\RelationManagers\AddonsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
@@ -241,6 +242,15 @@ class ServiceResource extends Resource
                         // Chosen when the service is made; afterwards it moves with «Move to another client» (its invoices with it),
                         // never by editing the field (owner 2026-10-23).
                         ClientComponent::make('client_id')->disabledOn('edit'),
+                        // An addon of another service of the same account (docs/addons.md): it follows it, on its invoice
+                        // when due the same day. Shown for an addon product, or a service that is one.
+                        Select::make('parent_service_id')->label('Addon of')->nullable()->searchable()
+                            ->options(fn (Get $get, ?Service $record) => self::parentOptions((int) ($get('client_id') ?? $record?->client_id), $record))
+                            ->visible(fn (Get $get, ?Service $record) => $record?->parent_service_id !== null
+                                || (bool) Product::query()->whereKey($get('product_id'))->value('is_addon'))
+                            ->helperText(fn (?Service $record) => $record?->parent_service_id !== null
+                                ? new HtmlString('<a class="underline" href="' . e(self::getUrl('edit', ['record' => $record->parent_service_id])) . '">' . e(__('Open the main service')) . '</a>')
+                                : null),
                         Select::make('status')
                             ->label('Status')
                             ->required()
@@ -585,9 +595,29 @@ class ServiceResource extends Resource
         return sprintf('%d ok, %d failed, on %d days', (int) (clone $days)->sum('ok'), (int) (clone $days)->sum('failed'), (clone $days)->count());
     }
 
+    /**
+     * The services of the account an addon can be fastened to: not addons themselves, still running, not itself.
+     *
+     * @return array<int, string>
+     */
+    public static function parentOptions(int $clientId, ?Service $record): array
+    {
+        if ($clientId <= 0) {
+            return [];
+        }
+
+        return Service::query()->where('client_id', $clientId)->whereNull('parent_service_id')
+            ->when($record?->exists, fn (Builder $query) => $query->whereKeyNot($record->id))
+            ->where(fn (Builder $query) => $query->whereIn('status', Service::PAYING_STATUSES)
+                ->when($record?->parent_service_id, fn (Builder $kept) => $kept->orWhere('id', $record->parent_service_id)))
+            ->with(['product', 'license', 'properties'])->orderBy('id')->get()
+            ->mapWithKeys(fn (Service $service) => [$service->id => trim("#{$service->id} " . ($service->product->name ?? '') . ' ' . $service->domain)])->all();
+    }
+
     public static function getRelations(): array
     {
         return [
+            AddonsRelationManager::class,
             InvoicesRelationManager::class,
             LicenseAccessLogsRelationManager::class,
             SslVersionsRelationManager::class,
