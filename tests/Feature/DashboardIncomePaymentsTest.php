@@ -36,15 +36,14 @@ class DashboardIncomePaymentsTest extends TestCase
         $this->movement($long);
         $this->movement('SHORT 32459');
 
-        $component = $this->livewireAs($this->staff())->test(PaymentsTracking::class)
-            ->assertSee(mb_substr($long, 0, PaymentsTracking::REFERENCE_CHARS))
+        $html = $this->livewireAs($this->staff())->test(PaymentsTracking::class)
             ->assertSee('SHORT 32459')
-            ->assertSee(__('Yellow: not seen to yet'));
-        $html = $component->html();
+            ->assertSee(__('Yellow: not seen to yet'))->html();
 
-        // Cut on its row: the end of it only in the tooltip.
-        $this->assertStringNotContainsString('>' . e($long) . '<', $html);
-        $this->assertStringContainsString(e($long), $html, 'the whole reference in the tooltip');
+        // Cut by the cell's CSS to the room the card has, and the whole of it in a tooltip for the long one only.
+        $this->assertSame(2, substr_count($html, 'mycs-cut-cell'));
+        $this->assertSame(1, substr_count($html, 'SHORT 32459'), 'a short reference has no tooltip');
+        $this->assertGreaterThanOrEqual(2, substr_count($html, '32637'), 'the long one is in its cell and its tooltip');
     }
 
     public function test_the_search_still_finds_a_reference_by_its_end(): void

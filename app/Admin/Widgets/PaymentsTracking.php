@@ -30,8 +30,8 @@ class PaymentsTracking extends TableWidget
 
     protected static ?string $heading = 'Payments tracking';
 
-    /** A reference longer than this is cut on its row; the whole of it is in the tooltip. */
-    public const REFERENCE_CHARS = 48;
+    /** A reference longer than this may be cut on its row: it gets a tooltip with the whole of it. */
+    public const REFERENCE_TOOLTIP_CHARS = 30;
 
     public function table(Table $table): Table
     {
@@ -66,9 +66,11 @@ class PaymentsTracking extends TableWidget
                 // A column of its own, not a second line under the amount: a row is one line (owner 2026-11-03, dashboard direction B).
                 TextColumn::make('bank')->label('Bank')->color('gray')
                     ->formatStateUsing(fn (BankMovement $record) => $record->bankName()),
-                // One line, the whole reference in its tooltip: a movement is a row of its own height (B2, owner 2026-11-04).
+                // One line, cut to the room the card has (density.css, `.mycs-cut-cell`), the whole of it in its tooltip: a
+                // movement is a row of its own height, and the actions stay in view (B2, owner 2026-11-04).
                 TextColumn::make('reason')->label('Reference')->searchable()
-                    ->limit(self::REFERENCE_CHARS)->tooltip(fn (BankMovement $record) => mb_strlen((string) $record->reason) > self::REFERENCE_CHARS ? $record->reason : null)
+                    ->extraCellAttributes(['class' => 'mycs-cut-cell'])
+                    ->tooltip(fn (BankMovement $record) => mb_strlen((string) $record->reason) > self::REFERENCE_TOOLTIP_CHARS ? $record->reason : null)
                     ->description(fn (BankMovement $record) => $record->authentic ? null
                         : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
                             : '⚠ Not vouched for by our mail server: check it at the bank')),

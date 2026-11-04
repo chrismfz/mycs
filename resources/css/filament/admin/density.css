@@ -232,3 +232,18 @@
         @apply col-span-2 row-start-2 flex max-w-full justify-self-center overflow-x-auto;
     }
 }
+
+/*
+ * A table cell cut to one line at the width the table has left (PaymentsTracking's reference, B2, owner 2026-11-04):
+ * the cell takes the room and gives none back, so the table never grows past its card; the text ends in «…».
+ */
+.fi-ta-cell.mycs-cut-cell {
+    width: 100%;
+    max-width: 0;
+
+    & .fi-ta-text-item,
+    & .fi-ta-text-item-label {
+        @apply block truncate;
+    }
+}
+
