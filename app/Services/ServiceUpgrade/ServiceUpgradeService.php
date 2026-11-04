@@ -89,6 +89,9 @@ class ServiceUpgradeService
             $staffOptions = OptionTasks::on($service);
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
             $from = $productChanged ? $service->product?->name : null;
+            // The service's history (owner 2026-11-04): what it was before, read before it changes.
+            $before = ['from_product_id' => $service->product_id, 'from_plan_id' => $service->plan_id,
+                'from_price' => number_format((float) $service->price, 2, '.', '')];
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
             if ($productChanged) {
@@ -133,6 +136,8 @@ class ServiceUpgradeService
                 $service->price_locked = false; // the catalog's now, not staff's (code review 3 of #551)
             }
             $service->save();
+            $serviceUpgrade->forceFill($before + ['to_price' => number_format((float) $service->price, 2, '.', ''), 'applied_at' => Carbon::now()])->save();
+            $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product
             // their tax follows it too (Δ1: a product sold without tax, F8 of the Σ7b review).

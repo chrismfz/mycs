@@ -17,6 +17,7 @@ use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationMa
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\SslVersionsRelationManager;
+use App\Admin\Resources\ServiceResource\RelationManagers\UpgradesRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
@@ -620,6 +621,7 @@ class ServiceResource extends Resource
         return [
             AddonsRelationManager::class,
             InvoicesRelationManager::class,
+            UpgradesRelationManager::class,
             LicenseAccessLogsRelationManager::class,
             SslVersionsRelationManager::class,
             PropertiesRelationManager::class,
