@@ -79,7 +79,7 @@ final class WhmcsDomainImport
         'YYYY/MM/DD' => 'Y/m/d', 'YYYY-MM-DD' => 'Y-m-d'];
 
     /** @var array<string, int> */
-    private array $counts = ['connections' => 0, 'tlds' => 0, 'domains' => 0, 'skipped' => 0, 'handles' => 0, 'handles_kept' => 0, 'reminders' => 0];
+    private array $counts = ['connections' => 0, 'tlds' => 0, 'domains' => 0, 'at_tld_price' => 0, 'skipped' => 0, 'handles' => 0, 'handles_kept' => 0, 'reminders' => 0];
 
     /** @var list<string> */
     private array $notes = [];
@@ -139,6 +139,7 @@ final class WhmcsDomainImport
         $this->counts['tlds'] = $catalog['counts']['tlds'];
         array_push($this->notes, ...$catalog['notes']);
         $this->domains();
+        $this->followCatalog();
         $this->reminders();
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
@@ -422,6 +423,70 @@ final class WhmcsDomainImport
             DB::table('domains')->insert($chunk);
         }
         $this->imported = null;
+    }
+
+    /**
+     * Whether a domain renews at its TLD's price rather than its own (WG-12, owner 2026-11-04): WHMCS keeps an amount on
+     * every domain, and as one here it would never follow the catalog. At its TLD's renew price (for its years, in its
+     * currency): the catalog's. Dearer: the catalog's too, the customer pays less (an old price), unless ID protection is
+     * in it (no price for it here). Cheaper (a deal, as trouvas's .gr at 14.51 from a promotion): its own, kept. No TLD
+     * price: its own.
+     */
+    public static function followsCatalog(string $amount, ?string $tldRenew, bool $idProtection): bool
+    {
+        if ($tldRenew === null || !is_numeric($amount) || !is_numeric($tldRenew)) {
+            return false;
+        }
+        $compare = bccomp($amount, $tldRenew, 2);
+
+        return $compare === 0 || ($compare > 0 && !$idProtection);
+    }
+
+    /**
+     * What a domain imported should renew at, given WHMCS's amount (the parities): that amount, or its TLD's price where it
+     * follows the catalog (followsCatalog). A name only staff price keeps WHMCS's.
+     */
+    public static function expectedRenewal(Domain $domain, string $whmcsAmount): string
+    {
+        $amount = number_format((float) $whmcsAmount, 2, '.', '');
+        $tld = $domain->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $domain->years), (string) $domain->currency_code);
+
+        return self::followsCatalog($amount, $tld, (bool) $domain->id_protection) && !$domain->staffPriced() ? (string) $tld : $amount;
+    }
+
+    /**
+     * The domains that follow their TLD's price lose their own (followsCatalog); never a name only staff price (a .gr of
+     * two characters: Domain::staffPriced), which renews at its own or not at all. The dearer ones and those kept are said.
+     */
+    private function followCatalog(): void
+    {
+        $follow = [];
+        $dearer = [];
+        $kept = [];
+        foreach (Domain::query()->whereNotNull('recurring_amount')->with('domainTld.prices')->lazyById() as $domain) {
+            $amount = (string) $domain->recurring_amount;
+            $tld = $domain->domainTld?->priceFor('renew', max(1, (int) $domain->years), (string) $domain->currency_code);
+            $live = !in_array($domain->status, [DomainStatus::TransferredAway, DomainStatus::Cancelled, DomainStatus::Deleted, DomainStatus::Expired], true);
+            if (self::followsCatalog($amount, $tld, (bool) $domain->id_protection) && !$domain->staffPriced()) {
+                $follow[] = $domain->id;
+                if ($live && bccomp($amount, (string) $tld, 2) > 0) {
+                    $dearer[] = "#{$domain->id} {$domain->fqdn} {$amount} → {$tld}";
+                }
+            } elseif ($live && $tld !== null && bccomp($amount, $tld, 2) !== 0) {
+                $kept[] = "#{$domain->id} {$domain->fqdn} {$amount} (TLD {$tld}" . ($domain->id_protection ? ', ID protection' : '') . ')';
+            }
+        }
+        foreach (array_chunk($follow, 500) as $chunk) {
+            DB::table('domains')->whereIn('id', $chunk)->update(['recurring_amount' => null]);
+        }
+        $this->counts['at_tld_price'] = count($follow);
+        if ($dearer !== []) {
+            $this->notes[] = count($dearer) . ' domain(s) dearer in WHMCS now renew at their TLD\'s price (WG-12): ' . implode('; ', $dearer) . '.';
+        }
+        if ($kept !== []) {
+            $this->notes[] = count($kept) . ' domain(s) keep their own renewal price, not their TLD\'s (a deal, or ID protection in it): '
+                . implode('; ', $kept) . '. «Recalculate» on a domain\'s renewal price makes it follow the catalog.';
+        }
     }
 
     /**

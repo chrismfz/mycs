@@ -245,7 +245,8 @@ final class WhmcsForecastParity
                 continue;
             }
             $this->compare('domain', $id, 'expires on', $this->date($row['expirydate']), $domain->expires_at?->toDateString() ?? '');
-            $this->compare('domain', $id, 'renewal amount', number_format((float) $row['recurringamount'], 2, '.', ''), $this->domainLine($domain));
+            // WHMCS's amount, or its TLD's where the domain follows the catalog (WG-12: a dearer one renews cheaper here).
+            $this->compare('domain', $id, 'renewal amount', number_format((float) WhmcsDomainImport::expectedRenewal($domain, (string) $row['recurringamount']), 2, '.', ''), $this->domainLine($domain));
             $this->compare('domain', $id, 'renews automatically', (int) $row['donotrenew'] === 1 ? 'no' : 'yes', $domain->auto_renew ? 'yes' : 'no');
             if ((int) $row['donotrenew'] !== 1 && $domain->expires_at !== null) {
                 $this->compare('domain', $id, 'invoiced on', $this->shift($row['nextinvoicedate'], -$this->invoiceDays('', true)),

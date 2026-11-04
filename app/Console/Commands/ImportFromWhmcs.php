@@ -1541,7 +1541,7 @@ class ImportFromWhmcs extends Command
         $this->domains = new WhmcsDomainImport($this->pdo);
         $result = $this->domains->run();
         $c = $result['counts'];
-        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
+        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped, {$c['at_tld_price']} at their TLD's price), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
             . "{$c['handles']} handle(s) linked, {$c['handles_kept']} kept for staff; {$c['reminders']} notice(s) already sent.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);

@@ -225,7 +225,9 @@ class ImportDomainsTest extends TestCase
         (new ReflectionMethod($command, 'importDomains'))->invoke($command);
 
         $this->assertSame(1, Domain::query()->count());
-        $this->assertStringContainsString('Domains: 1 (0 skipped), 3 TLDs, 2 registrar connection(s)', $output->fetch());
+        $out = $output->fetch();
+        $this->assertStringContainsString('Domains: 1 (0 skipped, ', $out);
+        $this->assertStringContainsString('at their TLD\'s price), 3 TLDs, 2 registrar connection(s)', $out);
     }
 
     /**
@@ -299,5 +301,53 @@ class ImportDomainsTest extends TestCase
         (new ReflectionMethod($command, 'importInvoiceItems'))->invoke($command);
         $this->assertNull(InvoiceItem::query()->findOrFail(11)->applied_at, 'the registrar read first when it runs: adopted, or only the years it lacks');
         $this->assertStringContainsString('Domain #71: invoice #1 paid its renewal to 2027-03-01', $output->fetch());
+    }
+
+    /**
+     * WG-12 (owner 2026-11-04): a domain at its TLD's renew price follows the catalog (no amount of its own); a dearer one
+     * too, unless ID protection is in it; a cheaper one (a deal, as trouvas's .gr at 14.51) keeps its own; a name only
+     * staff price (a .gr of two characters) keeps its own; one with no TLD price keeps its own. The parities read the same.
+     */
+    public function test_a_domain_at_or_above_its_tld_price_follows_the_catalog(): void
+    {
+        // .com renew: 1 year 10.00, 2 years 19.00; .gr: 2 years 19.00 (EUR, WHMCS's msetupfee/qsetupfee for 1/2 years).
+        foreach ([[3, 'domainrenew'], [3, 'domainregister'], [1, 'domainrenew'], [1, 'domainregister']] as $i => [$tld, $type]) {
+            $this->whmcs->exec('INSERT INTO tblpricing (id, type, relid, currency, tsetupfee, msetupfee, qsetupfee, ssetupfee, asetupfee, bsetupfee,
+                monthly, quarterly, semiannually, annually, biennially, triennially) VALUES (' . (100 + $i) . ", '{$type}', {$tld}, 1, 0, 10, 19, -1, -1, -1, -1, -1, -1, -1, -1, -1)");
+        }
+        $this->domain(61, 'same.com', 'Active', 'openprovider', ['recurringamount' => 10.00]);
+        $this->domain(62, 'two.com', 'Active', 'openprovider', ['recurringamount' => 19.00, 'registrationperiod' => 2]);
+        $this->domain(63, 'dearer.com', 'Active', 'openprovider', ['recurringamount' => 10.30]);
+        $this->domain(64, 'idp.com', 'Active', 'openprovider', ['recurringamount' => 12.50, 'idprotection' => 1]);
+        $this->domain(65, 'deal.com', 'Active', 'openprovider', ['recurringamount' => 5.51]);
+        $this->domain(66, 'ab.gr', 'Active', 'grepp', ['recurringamount' => 19.00, 'registrationperiod' => 2]);
+        $this->domain(67, 'free.com', 'Active', 'openprovider', ['recurringamount' => 0]);
+        $this->domain(68, 'ten.com', 'Active', 'openprovider', ['recurringamount' => 40.00, 'registrationperiod' => 4]);
+
+        $result = $this->run_();
+
+        $own = fn (int $id) => Domain::query()->findOrFail($id)->recurring_amount;
+        $this->assertNull($own(61), 'at its TLD\'s price: the catalog\'s');
+        $this->assertNull($own(62), 'for its years');
+        $this->assertNull($own(63), 'dearer: the catalog\'s, cheaper for the customer');
+        $this->assertSame('10.00', Domain::query()->findOrFail(63)->renewalPrice());
+        $this->assertSame('12.50', $own(64), 'ID protection is in its amount: kept');
+        $this->assertSame('5.51', $own(65), 'a deal: kept');
+        $this->assertSame('19.00', $own(66), 'a .gr of two characters: only staff price it');
+        $this->assertSame('0.00', $own(67), 'free: kept');
+        $this->assertSame('40.00', $own(68), 'no TLD price for 4 years: kept');
+        $this->assertSame(3, $result['counts']['at_tld_price']);
+        $notes = implode("\n", $result['notes']);
+        $this->assertStringContainsString('1 domain(s) dearer in WHMCS now renew at their TLD\'s price (WG-12): #63 dearer.com 10.30 → 10.00', $notes);
+        $this->assertStringContainsString('#64 idp.com 12.50 (TLD 10.00, ID protection)', $notes);
+        $this->assertStringContainsString('#65 deal.com 5.51 (TLD 10.00)', $notes);
+
+        // What each renews at, by WHMCS's amount and the rule, is what it renews at here.
+        foreach ([61 => '10.00', 63 => '10.00', 64 => '12.50', 65 => '5.51', 66 => '19.00'] as $id => $expected) {
+            $domain = Domain::query()->with('domainTld.prices')->findOrFail($id);
+            $whmcs = (string) $this->whmcs->query("SELECT recurringamount FROM tbldomains WHERE id = {$id}")->fetchColumn();
+            $this->assertSame($expected, WhmcsDomainImport::expectedRenewal($domain, $whmcs), "#{$id}");
+            $this->assertSame($expected, $domain->renewalPrice(), "#{$id} here");
+        }
     }
 }

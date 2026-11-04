@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Console\Commands\ImportFromWhmcs;
+use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Product;
@@ -163,8 +164,19 @@ final class WhmcsParity
         // D6: the live ones by status, and the invoice lines of a domain now on it (a domain's line whose domain is here).
         if (Schema::hasTable('domains') && $this->hasColumn('tbldomains', 'status') && $this->hasColumn('tbldomains', 'recurringamount')) {
             $add('Domains active', $this->count("SELECT COUNT(*) FROM tbldomains WHERE status = 'Active'"), DB::table('domains')->where('status', 'active')->count());
-            $add('Domains, recurring amount', $this->count("SELECT COALESCE(SUM(ROUND(recurringamount * 100)), 0) FROM tbldomains WHERE status = 'Active'"),
-                (int) DB::table('domains')->where('status', 'active')->selectRaw('COALESCE(SUM(ROUND(recurring_amount * 100)), 0) a')->value('a'));
+            // What the active ones renew at: WHMCS's amount, or its TLD's where a domain follows the catalog (WG-12), beside
+            // what each renews at here (its own, or its TLD's).
+            $expected = 0;
+            $renews = 0;
+            $here = Domain::query()->with('domainTld.prices')->get()->keyBy('id');
+            foreach ($this->whmcs->query("SELECT id, recurringamount FROM tbldomains WHERE status = 'Active'")->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $amount) {
+                $domain = $here->get((int) $id);
+                $expected += WhmcsMassPay::cents($domain === null ? (string) $amount : WhmcsDomainImport::expectedRenewal($domain, (string) $amount));
+            }
+            foreach ($here->where('status', DomainStatus::Active) as $domain) {
+                $renews += WhmcsMassPay::cents($domain->renewalPrice() ?? '0');
+            }
+            $add('Domains, renewal amount', $expected, $renews);
             $add('Domain invoice lines', $this->count("SELECT COUNT(*) FROM tblinvoiceitems ii JOIN tbldomains d ON d.id = ii.relid JOIN tblinvoices i ON i.id = ii.invoiceid
                 WHERE ii.type LIKE 'Domain%' AND {$notParent}"),
                 DB::table('invoice_items')->where('reference_type', Domain::class)->count());

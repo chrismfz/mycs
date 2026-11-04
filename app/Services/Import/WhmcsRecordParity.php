@@ -486,9 +486,13 @@ final class WhmcsRecordParity
                 "domain #{$id}: «{$row['domain']}» in WHMCS, «{$domain->fqdn}» here");
             $this->check('Domains', $id, self::day($row['expirydate']) === self::day($domain->expires_at),
                 "domain #{$id} ({$domain->fqdn}): expires " . self::day($row['expirydate']) . ' in WHMCS, ' . self::day($domain->expires_at) . ' here');
-            $this->check('Domains', $id, WhmcsMassPay::cents($row['recurringamount']) === WhmcsMassPay::cents($domain->recurring_amount),
-                "domain #{$id} ({$domain->fqdn}): " . self::cents(WhmcsMassPay::cents($row['recurringamount'])) . ' in WHMCS, '
-                . self::cents(WhmcsMassPay::cents($domain->recurring_amount)) . ' here');
+            // What it renews at: WHMCS's amount, or its TLD's where it follows the catalog (WG-12, WhmcsDomainImport).
+            $model = Domain::query()->with('domainTld.prices')->find($id);
+            $expected = $model === null ? (string) $row['recurringamount'] : WhmcsDomainImport::expectedRenewal($model, (string) $row['recurringamount']);
+            $renews = $model?->renewalPrice();
+            $this->check('Domains', $id, WhmcsMassPay::cents($expected) === WhmcsMassPay::cents($renews),
+                "domain #{$id} ({$domain->fqdn}): renews at " . self::cents(WhmcsMassPay::cents($expected)) . ' by WHMCS\'s amount '
+                . self::cents(WhmcsMassPay::cents($row['recurringamount'])) . ', ' . ($renews === null ? 'none' : self::cents(WhmcsMassPay::cents($renews))) . ' here');
             // Its status as the importer maps it: an ended one is renewed nowhere, a live one is.
             $want = WhmcsDomainImport::status((string) $row['status'], (string) ($row['type'] ?? ''));
             if ($want !== null && WhmcsDomainImport::registeredWhilePending($want, $row, isset($paidRenewals[$id]))) {
