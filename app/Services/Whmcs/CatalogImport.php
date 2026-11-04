@@ -359,12 +359,9 @@ final class CatalogImport
 
             return;
         }
-        // Staff's own of the extension: at any node's address, else the only one (owner 2026-11-04).
-        foreach ($server === null ? $nodes : [] as $node) {
-            if (($server = $this->sameServer($extension, $hostOf($node))) !== null) {
-                break;
-            }
-        }
+        // Staff's own, or the one made before whose node has left WHMCS: of the extension, at any node's hostname or IP in
+        // any of its addresses (ADV-628-3, ADV-628-4); else the extension's only one staff set up (owner 2026-11-04).
+        $server ??= $this->clusterAt($extension, $nodes);
         $server ??= $this->onlyServer($extension);
         $made = $server === null;
         if ($server === null) {
@@ -379,8 +376,9 @@ final class CatalogImport
                         'key' => ['host', 'node2_host', 'node3_host'][$i], 'value' => "https://{$host}:{$port}", 'type' => 'string', 'encrypted' => false]);
                 }
             }
-        } elseif ($server->whmcs_id === null) {
-            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id']])->save(); // adopted: only found again on a re-run
+        } elseif (!in_array((int) $server->whmcs_id, $ids, true)) {
+            // Adopted, or its node gone from WHMCS: a node of now, so a re-run finds it by id.
+            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id']])->save();
         }
         foreach ($ids as $id) {
             $this->serverIds[$id] = $server->id;
@@ -389,6 +387,38 @@ final class CatalogImport
         $this->counts['servers']++;
         $this->notes[] = "Servers {$names} («{$module}»): one cluster here, server «{$server->name}» (" . ($made ? 'made' : 'kept as it is') . ', '
             . ($server->enabled ? 'enabled' : 'disabled') . '). Its API token is staff\'s to enter, and its VMs are mapped by hand (Proxmox Guests).';
+    }
+
+    /**
+     * A server of this extension reached at one of the nodes: any node's hostname or IP in its host, its failover nodes'
+     * hosts or its IPs (a URL or a bare name). The first by id when more than one.
+     *
+     * @param  list<array<string, mixed>>  $nodes
+     */
+    private function clusterAt(string $extension, array $nodes): ?Server
+    {
+        $addresses = [];
+        foreach ($nodes as $node) {
+            foreach (['hostname', 'ipaddress'] as $key) {
+                $address = strtolower(trim((string) ($node[$key] ?? '')));
+                if ($address !== '') {
+                    $addresses[$address] = true;
+                }
+            }
+        }
+        foreach (Server::query()->where('extension', $extension)->orderBy('id')->get() as $server) {
+            $values = Setting::query()->where(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id])
+                ->whereIn('key', ['host', 'node2_host', 'node3_host', 'ip', 'node2_ip', 'node3_ip'])->pluck('value');
+            foreach ($values as $value) {
+                $value = strtolower(trim((string) $value));
+                $host = parse_url(str_contains($value, '://') ? $value : "https://{$value}", PHP_URL_HOST);
+                if (is_string($host) && isset($addresses[trim($host, '[]')])) {
+                    return $server;
+                }
+            }
+        }
+
+        return null;
     }
 
     /** The one server of this extension staff set up (not from WHMCS), or none when there is none or more than one. */

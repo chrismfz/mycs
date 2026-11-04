@@ -1215,6 +1215,12 @@ class Service extends Model implements Auditable
         if ($this->plan === null) {
             return number_format((float) $this->price, 2, '.', '');
         }
+        // A plan with no price in its currency (a cycle no longer sold, one the import made for a service on a cycle its
+        // product does not price: #628): nothing to compute from either. Its own price, never 0.00, which would renew it
+        // free for good after a «Recalculate» or a coupon ending (ADV-628-1, ADV-628-2).
+        if (!$this->plan->hasPriceIn($this->currency_code)) {
+            return number_format((float) $this->price, 2, '.', '');
+        }
         $price = BigDecimal::of(number_format((float) $this->plan->price($this->currency_code)->price, 2, '.', ''));
         $options = BigDecimal::zero();
         foreach ($this->configs as $config) {
