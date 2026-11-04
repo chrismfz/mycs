@@ -431,8 +431,8 @@ disabled ή locked στον server. Αν τον είχε κλείσει το sta
     σημειώσεων. Ενός ακυρωμένου τιμολογίου γίνεται **και** `cancellation_reason` (ως 255 χαρακτήρες), που το βλέπει το staff
     στο τιμολόγιο: της nixpal είναι όλες «Automatic Cancellation after N days overdue», της myip οι περισσότερες «Transferred
     Away».
-  - `tblhostingaddons.notes` → στις σημειώσεις της υπηρεσίας του addon, με το όνομά του. Αν το WHMCS έχει σβήσει την
-    υπηρεσία, πάει στον λογαριασμό του.
+  - `tblhostingaddons.notes` → ενός ζωντανού addon, στη δική του υπηρεσία (`WhmcsAddonImport`)· ενός τελειωμένου, στις
+    σημειώσεις της γονικής, με το όνομά του. Αν το WHMCS έχει σβήσει τη γονική, πάει στον λογαριασμό του.
   - Μια σημείωση admin που δεν υπάρχει πια κρατά το όνομά του στην αρχή («WHMCS admin #N»).
   - Σε MariaDB οι σημειώσεις λογαριασμού και υπηρεσίας είναι `MEDIUMTEXT`, ώστε μια σημείωση κοντά στα 64 KB, μαζί με ό,τι
     προσθέτει το import, να μη σταματά το import.
@@ -531,7 +531,8 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 |---|---|---|
 | Hosting | `Service`, relid (οι υπηρεσίες κρατούν τα WHMCS ids) | κενό: ανανέωση, η περίοδος δίνεται όταν πληρωθεί |
 | Setup, PromoHosting | `Service`, relid | `charge` |
-| Addon | `Service`, η υπηρεσία του addon (`tblhostingaddons.hostingid`) | `charge` |
+| Addon ζωντανού addon | `Service`, η δική του υπηρεσία (`whmcs_addon_id`, [`addons.md`](addons.md) βήμα 4) | κενό: ανανέωση, όπως Hosting |
+| Addon τελειωμένου addon | `Service`, η γονική (`tblhostingaddons.hostingid`) | `charge` |
 | Upgrade | `Service`, η υπηρεσία του upgrade (`tblupgrades.relid`, μόνο `package`/`configoptions`) | `charge` |
 | AddFunds | `Credit`, κενό | κενό |
 | οτιδήποτε άλλο (Domain*, PromoDomain, LateFee, GroupDiscount, Item, …) | κενό, το relid όπως ήταν | κενό |
@@ -540,9 +541,9 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   (`ProcessPaidInvoiceService`), η ακύρωση του τιμολογίου δεν της δίνει περίοδο ως «forgone» (`InvoiceObserver`), το
   upgrade δεν της αλλάζει την τιμή (`ServiceUpgradeService`), δεν μετρά ως τιμολογημένη περίοδος (`IncomePlan`), δεν
   γίνεται συνδρομή Stripe. Μετρά όμως ως γραμμή της υπηρεσίας (ακύρωση τιμολογίων της, affiliates, έσοδα ανά προϊόν).
-- **Addon/Upgrade → η υπηρεσία (απόφαση):** στη MyCS τα addons γίνονται επιλογές της υπηρεσίας (`service_configs`,
-  παρακάτω) και ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά τους είναι του προϊόντος της υπηρεσίας. Το
-  «System Maintenance», που θα γίνει ξεχωριστή υπηρεσία όταν εισαχθούν τα addons, μένει ως τότε στη γονική.
+- **Addon/Upgrade → η υπηρεσία (απόφαση):** ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά του είναι του
+  προϊόντος της. Ένα ζωντανό addon είναι πια δική του υπηρεσία (2026-11-04, `addons.md` βήμα 4), με τις γραμμές του· ενός
+  τελειωμένου μένουν στη γονική.
 - **Υπηρεσία που δεν υπάρχει** (σβήστηκε στο WHMCS, ή addon/upgrade χωρίς γραμμή): χωρίς τύπο, ποτέ με «μάντεμα».
 - **Domains:** οι γραμμές τους πάνε στο domain τους (D6, επόμενη ενότητα). Μια γραμμή domain που δεν υπάρχει εδώ μένει
   χωρίς τύπο, όπως πριν.

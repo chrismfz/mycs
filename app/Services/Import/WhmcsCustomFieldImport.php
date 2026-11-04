@@ -17,7 +17,8 @@ use PDOException;
  *   as the plugin sent them: Ekdosi reads the number as it did); «Θα ήθελα να εκδοθεί τιμολόγιο» → document_type
  *   (ticked: invoice, unticked: receipt, never set: none chosen), as Ekdosi's MycsPayload reads it back; «Γκρινιάρης» →
  *   immediate_invoicing; «Σημειώσεις» → a note on the account for staff. A value the account already has stays.
- * - A service's: an IP («IP Address», «IP», «ipaddress», an addon's «Dedicated IP») → dedicated_ip when it has none;
+ * - A service's: an IP («IP Address», «IP», «ipaddress», an addon's «Dedicated IP», on the addon's own service when it was
+ *   imported, else its parent's) → dedicated_ip when it has none;
  *   Centova's (username, port, servertype, sourcetype) → the properties its module reads; a licensing product's are its
  *   import's (left as they are); any other one filled → the service's notes, for staff. Never a password: listed only.
  */
@@ -169,6 +170,9 @@ final class WhmcsCustomFieldImport
     private function services(array $byService): void
     {
         $addons = array_column($this->rows('SELECT id, hostingid FROM tblhostingaddons') ?? [], 'hostingid', 'id');
+        // An addon imported as a service of its own (WhmcsAddonImport): its fields are its own (ADV-647-7); an ended one's
+        // go to its parent, as before.
+        $own = DB::table('services')->whereNotNull('whmcs_addon_id')->pluck('id', 'whmcs_addon_id')->all();
         $modules = array_column($this->rows('SELECT id, servertype FROM tblproducts') ?? [], 'servertype', 'id');
         $services = Service::query()->get(['id', 'dedicated_ip', 'notes'])->keyBy('id');
         $packages = array_column($this->rows('SELECT id, packageid FROM tblhosting') ?? [], 'packageid', 'id');
@@ -180,7 +184,7 @@ final class WhmcsCustomFieldImport
         $kept = DB::table('properties')->where('model_type', Service::class)->get(['model_id', 'key'])
             ->groupBy('model_id')->map(fn ($rows) => $rows->pluck('key')->flip()->all())->all();
         foreach ($byService as $key => $fields) {
-            $id = $key < 0 ? (int) ($addons[-$key] ?? 0) : $key;
+            $id = $key < 0 ? (int) ($own[-$key] ?? $addons[-$key] ?? 0) : $key;
             $model = $services[$id] ?? null;
             if ($model === null) {
                 continue; // a service not imported, an addon of none

@@ -193,22 +193,28 @@ final class WhmcsPayMethodImport
             return;
         }
         $kept = $rows = 0;
-        foreach (['tblhosting' => 'services', 'tbldomains' => 'domains'] as $source => $table) {
+        // A live addon too, by its own service (WhmcsAddonImport: `whmcs_addon_id`), on its parent's account whatever its own
+        // `userid` (code review 4 of #647); an ended one is not here, and charges nothing.
+        $client = (int) $clientId;
+        $live = "a.status IN ('" . implode("', '", WhmcsAddonImport::LIVE) . "')";
+        foreach ([["SELECT id, paymentmethod FROM tblhosting WHERE userid = {$client}", 'services', 'id'],
+            ["SELECT id, paymentmethod FROM tbldomains WHERE userid = {$client}", 'domains', 'id'],
+            ["SELECT a.id, a.paymentmethod FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE h.userid = {$client} AND {$live}", 'services', 'whmcs_addon_id']] as [$sql, $table, $key]) {
             $ids = [];
-            foreach ($this->all("SELECT id, paymentmethod FROM {$source} WHERE userid = " . (int) $clientId) as $row) {
+            foreach ($this->all($sql) as $row) {
                 if (isset($foreign[strtolower(trim((string) ($row['paymentmethod'] ?? '')))])) {
                     $ids[] = (int) $row['id'];
                 }
             }
             $rows += count($ids);
             foreach (array_chunk($ids, 1000) as $chunk) {
-                $kept += DB::table($table)->whereIn('id', $chunk)->where('client_id', $clientId)->count();
-                DB::table($table)->whereIn('id', $chunk)->where('client_id', $clientId)->update(['no_auto_charge' => true]);
+                $kept += DB::table($table)->whereIn($key, $chunk)->where('client_id', $clientId)->count();
+                DB::table($table)->whereIn($key, $chunk)->where('client_id', $clientId)->update(['no_auto_charge' => true]);
             }
         }
         $this->counts['items_kept'] += $kept;
         $modules = '«' . implode('», «', array_keys($foreign)) . '»';
-        // One not here by its WHMCS id (an addon, a row the import did not bring as it was) could still be charged: the
+        // One not here by its WHMCS id (an addon of a deleted service, a row the import did not bring as it was) could still be charged: the
         // account off, as R3-1, rather than charge what WHMCS never did.
         if ($kept < $rows || $rows === 0) {
             DB::table('clients')->where('id', $clientId)->update(['auto_charge' => false]);
