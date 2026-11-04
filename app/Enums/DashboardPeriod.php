@@ -30,7 +30,7 @@ enum DashboardPeriod: string
     public static function options(): array
     {
         return collect(self::cases())
-            ->mapWithKeys(fn (self $period) => [$period->value => $period->label()])
+            ->mapWithKeys(fn (self $period) => [$period->value => __($period->label())])
             ->all();
     }
 
