@@ -37,7 +37,8 @@
 
 ## Parity: τι πρέπει να συμφωνεί 1:1 μετά το import
 - **Πελάτες:** πλήθος ανά status· επαφές/sub-users· custom fields· credit balance ανά πελάτη (άθροισμα).
-- **Υπηρεσίες:** πλήθος ανά status, κύκλο χρέωσης και προϊόν· next due date / λήξη· τιμή ανά υπηρεσία· config options·
+- **Υπηρεσίες:** πλήθος ανά status, κύκλο χρέωσης και προϊόν· next due date / λήξη· τιμή ανά υπηρεσία· config options (**δεν ελέγχονται ακόμα, ούτε εισάγονται**:
+  WG-11 στο `sweeps/whmcs-gaps.md`)·
   addons· server και username (τα credentials κρυπτογραφημένα).
 - **Domains:** πλήθος ανά registrar/status· ημερομηνίες λήξης και next due· auto-renew, ID protection, DNS management·
   σύγκριση με το μητρώο μετά το import (sync).
@@ -253,7 +254,7 @@
 | Paid | `paid` |
 | Cancelled | `cancelled` |
 | Refunded | `refunded` (PR 2c) |
-| Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `unpaid` με σημείωση) |
+| Collections | σήμερα `unpaid`· **θέλει απόφαση** (WG-18): το myip έχει 15 (813,99), από το `AfterModuleTerminate` του `auto-cancellation.php`· πρόταση: `unpaid` με σημείωση, χωρίς αυτόματη χρέωση |
 
 Ο importer του upstream (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
 χρησιμοποιείται· ο νέος importer ακολουθεί τον πίνακα.
@@ -1105,8 +1106,9 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   `ExpiredDomains.php.bak-20261025`. Από τότε δεν χάνονται άλλα.
   - 20 διαγραφές από 19/09 ως 21/10.
   - 6.615 γραμμές τιμολογίων δείχνουν σε domains που δεν υπάρχουν πια. Μόνο τα 809 βρίσκονται στο `tbldomains_backup`.
-- **Νεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών στις
-  31 και των τιμολογίων στο terminate **δεν γίνονται σήμερα**. Πρόταση για το myip: `cronjob_add_funds_cancel = 0`, εκτός
+- **Μισονεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών
+  στις 31 και των τιμολογίων στο terminate **δεν γίνονται σήμερα**. Ζει μόνο το `AfterModuleTerminate` (Capsule), που
+  γράφει τα Collections (2 στο 2026, WG-18). Πρόταση για το myip: `cronjob_add_funds_cancel = 0`, εκτός
   αν ο υπεύθυνος το θέλει ενεργό.
 - **Το Ekdosi του devbox (84.54.49.31) διαβάζει το WHMCS της παραγωγής** μέσω `ekdosi_bridge/resolve.php`: 21.034 κλήσεις
   σε 25 ημέρες.
