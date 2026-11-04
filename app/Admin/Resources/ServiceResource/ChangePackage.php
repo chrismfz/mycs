@@ -3,8 +3,10 @@
 namespace App\Admin\Resources\ServiceResource;
 
 use App\Admin\Resources\InvoiceResource;
+use App\Models\ConfigOption;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\ServiceConfig;
 use App\Models\ServiceUpgrade;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
 use App\Services\ServiceUpgrade\UpgradeQuote;
@@ -59,7 +61,8 @@ final class ChangePackage
 
                     return;
                 }
-                $placed = PlaceUpgrade::handle($record, $product, [], ServiceUpgrade::SOURCE_STAFF, Auth::guard('staff')->id());
+                $placed = PlaceUpgrade::handle($record, $product, PlaceUpgrade::defaultChoices($record, $product), ServiceUpgrade::SOURCE_STAFF,
+                    Auth::guard('staff')->id());
                 $why = match ($placed->outcome) {
                     PlaceUpgrade::NOT_UPGRADABLE => 'Another change of this service is waiting for payment.',
                     PlaceUpgrade::INVALID => 'The new product has no plan for this billing cycle in this currency.',
@@ -108,6 +111,11 @@ final class ChangePackage
         }
         if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->exists()) {
             return 'A change is waiting for payment.';
+        }
+        // A cancellation asked for: an upgrade of a service about to end would only be refunded (CR-10, as the customer's
+        // page; CR-2 of #638). Staff take the cancellation back first.
+        if ($service->cancellation !== null) {
+            return 'A cancellation is requested.';
         }
         // Set up before its order was paid: an upgrade would reprice the order's line (adversarial A5).
         if ($service->orderUnpaid()) {
@@ -166,7 +174,10 @@ final class ChangePackage
             'plan_id' => PlaceUpgrade::targetPlan($service, $product)?->id]);
         $upgrade->setRelation('service', $service);
         $upgrade->setRelation('product', $product);
-        $upgrade->setRelation('configs', collect());
+        $choices = PlaceUpgrade::defaultChoices($service, $product);
+        $upgrade->setRelation('configs', collect($choices)->map(fn ($value, $option) => new ServiceConfig([
+            'config_option_id' => $option, 'config_value_id' => $value,
+        ]))->values());
         if ($upgrade->needsStaff()) {
             return 'The catalog has no price for it in the service\'s currency: change it by hand.';
         }
@@ -176,14 +187,22 @@ final class ChangePackage
         if ($quote->daysLeft !== null) {
             $lines[] = "Days left on current cycle: {$quote->daysLeft} / {$quote->daysInPeriod}";
         }
+        // The options it sets, as the customer's page would (the value the service has, else the first).
+        $values = ConfigOption::query()->whereIn('id', array_values($choices))->pluck('name', 'id');
+        foreach ($product->upgradableConfigOptions->whereIn('id', array_keys($choices)) as $option) {
+            $lines[] = "{$option->name}: " . ($values[$choices[$option->id]] ?? '—');
+        }
         if ($quote->downgrade) {
             $lines[] = "Downgrade total due: 0.00 {$currency}";
             $lines[] = (float) $quote->credit > 0
                 ? "Credit to the account: {$quote->credit} {$currency} (Credit on downgrade is on)"
                 : 'No credit; the new price applies from the next renewal'
                     . ($service->expires_at ? ' on ' . $service->expires_at->format('d/m/Y') : '') . '.';
-        } else {
+        } elseif ((float) $quote->dueNow > 0) {
             $lines[] = "Upgrade total due: {$quote->dueNow} {$currency} (with tax; an invoice, applied once paid)";
+        } else {
+            // Nothing to charge (its period ended, or the same price): applied at once, as PlaceUpgrade does (CR-3 of #638).
+            $lines[] = "Total due: 0.00 {$currency}; applied at once, the new price from the next renewal";
         }
         $lines[] = "Renews at: {$quote->renewsAfter} {$currency} per period with tax (now {$quote->renewsNow})";
 

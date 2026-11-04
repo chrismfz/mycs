@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\RelationManagers\UpgradesRelationManager;
 use App\Livewire\Services\Upgrade;
+use App\Models\ConfigOption;
 use App\Models\Credit;
 use App\Models\EmailLog;
 use App\Models\Invoice;
@@ -13,6 +14,7 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
 use App\Models\Staff;
 use App\Models\User;
@@ -290,5 +292,71 @@ class ServiceUpgradeHistoryTest extends TestCase
             ->assertCanSeeTableRecords([$done->upgrade])
             ->assertSee('Business20 → Business10')
             ->assertSee('30.00 → 10.00');
+    }
+
+    // ------------------------------------------------------------------ code review of #638
+
+    /** An upgradable select on the large product, its first value «10 GB» at 4.00 a month. */
+    private function diskOption(): array
+    {
+        $option = ConfigOption::query()->create(['name' => 'Disk', 'env_variable' => 'disk', 'type' => 'select', 'upgradable' => true]);
+        $first = ConfigOption::query()->create(['name' => '10 GB', 'env_variable' => '10', 'type' => 'select', 'parent_id' => $option->id]);
+        ConfigOption::query()->create(['name' => '20 GB', 'env_variable' => '20', 'type' => 'select', 'parent_id' => $option->id]);
+        $plan = Plan::factory()->create(['priceable_id' => $first->id, 'priceable_type' => ConfigOption::class, 'name' => '10 GB',
+            'billing_unit' => 'month', 'billing_period' => 1, 'type' => 'recurring']);
+        Price::factory()->create(['plan_id' => $plan->id, 'price' => 4.00, 'currency_code' => 'USD']);
+        DB::table('config_option_products')->insert(['config_option_id' => $option->id, 'product_id' => $this->large->id]);
+
+        return [$option, $first];
+    }
+
+    /** CR-1: staff charge the option values the customer's page would, not none. */
+    public function test_staff_charge_the_options_the_customer_would(): void
+    {
+        [$option, $first] = $this->diskOption();
+        $customer = $this->service($this->small, 10.00);
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $customer])
+            ->set('upgrade', $this->large->id)->call('nextStep')->call('doUpgrade');
+        $customerCharge = ServiceUpgrade::query()->sole()->invoice->items()->sole()->price;
+
+        $service = $this->service($this->small, 10.00);
+        $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->mountAction('changePackage')
+            ->fillForm(['product_id' => $this->large->id])
+            ->assertMountedActionModalSee(['Disk: 10 GB', 'Upgrade total due: 12.39 USD'])
+            ->callMountedAction();
+
+        $staff = ServiceUpgrade::query()->where('service_id', $service->id)->sole();
+        $this->assertSame('12.39', number_format((float) $customerCharge, 2, '.', ''), '(34 − 10) × 16 / 31');
+        $this->assertSame(number_format((float) $customerCharge, 2, '.', ''), number_format((float) $staff->invoice->items()->sole()->price, 2, '.', ''));
+        $this->assertSame([$option->id => $first->id], $staff->configs->pluck('config_value_id', 'config_option_id')->all());
+    }
+
+    /** CR-2: not for a service whose cancellation is asked for (CR-10, as the customer's page). */
+    public function test_staff_cannot_change_a_service_about_to_end(): void
+    {
+        $service = $this->service($this->small, 10.00);
+        ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'leaving']);
+
+        $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->assertActionHidden('changePackage');
+    }
+
+    /** CR-3: nothing due (its period ended) is shown as applied at once, which it is. */
+    public function test_staff_see_nothing_due_once_the_period_ended(): void
+    {
+        $service = $this->service($this->small, 10.00);
+        $service->update(['expires_at' => '2026-07-10']);
+
+        $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->mountAction('changePackage')
+            ->fillForm(['product_id' => $this->large->id])
+            ->assertMountedActionModalSee('Total due: 0.00 USD; applied at once, the new price from the next renewal')
+            ->assertMountedActionModalDontSee('an invoice, applied once paid')
+            ->callMountedAction()
+            ->assertNotified('Package changed');
+
+        $this->assertSame(0, Invoice::query()->count());
+        $this->assertSame($this->large->id, (int) $service->fresh()->product_id);
     }
 }

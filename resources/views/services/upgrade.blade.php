@@ -148,7 +148,7 @@
             @endif
 
             {{-- As WHMCS's summary: the days left of the cycle, then what is due (a downgrade: 0.00, and credit only where given) --}}
-            @php($quote = $this->quote())
+            @php($quote = $this->quote)
             @if($quote->daysLeft !== null)
             <div class="flex items-center text-base" data-days-left>
                 <span class="mr-2">{{ __('services.days_left_in_cycle') }}:</span>
@@ -159,12 +159,12 @@
             {{--  Total today --}}
             <div class="flex items-center text-base">
                 <span class="mr-2">{{ __('services.total_today') }}:</span>
-                <span class="text-base/50">{{ $this->totalToday() }}</span>
+                <span class="text-base/50">{{ $this->totalToday }}</span>
             </div>
             @if((float) $quote->credit > 0)
             <div class="flex items-center text-base" data-credit>
                 <span class="mr-2">{{ __('services.downgrade_credit') }}:</span>
-                <span class="text-base/50">{{ $this->credit() }}</span>
+                <span class="text-base/50">{{ $this->credit }}</span>
             </div>
             @endif
             {{-- What it renews at after the change: it can be more than now (an options-only change from the catalog, #551) --}}

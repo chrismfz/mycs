@@ -179,6 +179,8 @@ class Product extends Model implements Auditable
 
     /**
      * Gets all upgradable config options for the product.
+     *
+     * @return HasManyThrough<ConfigOption, ConfigOptionProduct, $this>
      */
     public function upgradableConfigOptions(): HasManyThrough
     {

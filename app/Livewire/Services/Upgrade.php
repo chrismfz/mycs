@@ -19,6 +19,11 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use MyCS\Pricing\LinePricer;
 
+/**
+ * @property-read UpgradeQuote $quote
+ * @property-read Price $totalToday
+ * @property-read Price $credit
+ */
 class Upgrade extends Component
 {
     public Service $service;
@@ -57,7 +62,7 @@ class Upgrade extends Component
     #[Computed]
     public function totalToday(): Price
     {
-        return new Price(['price' => (float) $this->quote()->dueNow, 'currency' => $this->service->currency]);
+        return new Price(['price' => (float) $this->quote->dueNow, 'currency' => $this->service->currency]);
     }
 
     /** The days left of the period, what is due or credited now, as staff see it (UpgradeQuote). */
@@ -71,7 +76,7 @@ class Upgrade extends Component
     #[Computed]
     public function credit(): Price
     {
-        return new Price(['price' => (float) $this->quote()->credit, 'currency' => $this->service->currency]);
+        return new Price(['price' => (float) $this->quote->credit, 'currency' => $this->service->currency]);
     }
 
     /**

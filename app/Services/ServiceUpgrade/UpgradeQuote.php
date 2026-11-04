@@ -18,7 +18,7 @@ use MyCS\Pricing\LinePricer;
 final class UpgradeQuote
 {
     private function __construct(
-        /** Days from today to its expiry, or null for a service without a period (one-time, free). */
+        /** Days from today to its expiry (all of them, a renewal paid ahead too), or null without a period (one-time, free). */
         public readonly ?int $daysLeft,
         /** Days of the period it is in (more than one cycle when a renewal was paid ahead). */
         public readonly ?int $daysInPeriod,
@@ -43,7 +43,9 @@ final class UpgradeQuote
         $daysLeft = $daysInPeriod = null;
         if ($start !== null && $end !== null) {
             $daysInPeriod = (int) $start->diffInDays($end);
-            $daysLeft = max(0, min($daysInPeriod, (int) $today->diffInDays($end, false)));
+            // Every day to the expiry, as BillingPeriod::remaining charges them: more than the period's when a renewal
+            // was paid ahead (ADV-UPG-3 of #638: «31 / 31» was shown for 47 days charged).
+            $daysLeft = max(0, (int) $today->diffInDays($end, false));
         }
 
         $net = (float) $upgrade->calculatePrice()->price;

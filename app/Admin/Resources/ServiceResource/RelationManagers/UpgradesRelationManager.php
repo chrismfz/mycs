@@ -33,7 +33,7 @@ class UpgradesRelationManager extends RelationManager
     {
         return $table
             ->recordTitleAttribute('id')
-            ->modifyQueryUsing(fn ($query) => $query->with(['product', 'plan', 'fromProduct', 'fromPlan', 'invoice', 'staff']))
+            ->modifyQueryUsing(fn ($query) => $query->with(['product', 'plan', 'fromProduct', 'invoice.items', 'invoice.adjustmentNotes', 'invoice.currency', 'staff']))
             ->columns([
                 TextColumn::make('created_at')->label('Placed')->dateTime('d/m/Y H:i')->sortable(),
                 TextColumn::make('change')->label('Change')

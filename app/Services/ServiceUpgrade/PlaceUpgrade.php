@@ -77,6 +77,37 @@ final class PlaceUpgrade
     }
 
     /**
+     * The option values a change to $product sets when nobody chooses them, as the customer's page starts them
+     * (`Livewire\Services\Upgrade::nextStep`): the value the service has, else the option's first one; a checkbox only
+     * when the service has it. Staff's «Upgrade/Downgrade» charges these, as the customer would be (CR-1 of #638).
+     *
+     * @return array<int, int> option id => value id
+     */
+    public static function defaultChoices(Service $service, Product $product): array
+    {
+        $has = $service->configs->pluck('config_value_id', 'config_option_id');
+        $chosen = [];
+        foreach ($product->upgradableConfigOptions as $option) {
+            if (in_array($option->type, ['text', 'number'], true)) {
+                continue;
+            }
+            if ($option->type === 'checkbox') {
+                $value = $has->has($option->id) ? $option->children->first()?->id : null;
+            } elseif ($has->has($option->id)) {
+                // One of its own values only (AUTH-5), as optionValue takes it.
+                $value = $option->children->contains('id', (int) $has->get($option->id)) ? (int) $has->get($option->id) : null;
+            } else {
+                $value = $option->children->first()?->id;
+            }
+            if ($value !== null) {
+                $chosen[(int) $option->id] = (int) $value;
+            }
+        }
+
+        return $chosen;
+    }
+
+    /**
      * Place the change of $service to $product with the option values it sets ($chosen: option id => value id, of the
      * product's upgradable options).
      *
