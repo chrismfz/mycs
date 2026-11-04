@@ -486,14 +486,27 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
 
 ## Admins (`app:import-whmcs-admins`, 2026-10-16)
 Οι admins μιας εγκατάστασης WHMCS ως staff σε ένα MyCS που **ήδη τρέχει** (ο πλήρης importer τους φέρνει μόνο με
-`migrate:fresh`). Οι ίδιοι κανόνες ρόλων: Full Administrator → `admin` (`*`), άλλος ρόλος → ρόλος με το όνομά του χωρίς
-permissions (τα δίνει το staff), οι disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
+`migrate:fresh`). Οι ίδιοι κανόνες ρόλων: Full Administrator → `admin` (`*`), άλλος ρόλος → ρόλος με το όνομά του και
+τα δικαιώματά του (βλ. «Ρόλοι staff» πιο κάτω) όταν το αρχείο έχει `permids`, αλλιώς χωρίς (τα δίνει το staff), οι
+disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
 μένει όπως είναι (κωδικός, ρόλος, status). Το bcrypt hash του WHMCS κρατιέται όπως είναι (μπαίνουν με τον κωδικό του
 WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction, `--dry-run`.
 - **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
   από κανάλι που καταγράφεται: στον server του WHMCS κρυπτογραφούνται (`openssl cms`, AES-256) με δημόσιο κλειδί που
   φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με
   το κλειδί. Ούτε η εντολή ούτε το audit τυπώνουν hash.
+
+### Ρόλοι staff (WG-5, 2026-11-04)
+Κάθε ρόλος εκτός του Full Administrator παίρνει τα `tbladminperms` του ως δικαιώματα του MyCS
+(`App\Services\Whmcs\RolePermissions`), και τα προεπιλεγμένα του MyCS (online staff, staff chat, chats). Κάθε
+δικαίωμα του WHMCS δίνει τα πλησιέστερα του MyCS και ποτέ περισσότερα· ένα delete δίνει και το bulk delete. Τα
+«Configure General/Automation Settings» δίνουν το `settings.update`, δηλαδή όλες τις ρυθμίσεις (απόφαση του owner,
+2026-11-04: όπως στο WHMCS). Από τα 163 αντιστοιχούν 104· τα 59 που μένουν (affiliates, downloads, calendar, to-do,
+banned IPs, MarketConnect, disputes, scheduled ticket actions, update του WHMCS κ.ά.) τα γράφει ο importer με το όνομά
+τους ανά ρόλο. Ρόλος με όνομα «Admin» γίνεται «Admin (WHMCS)», ώστε να μην πάρει ποτέ το `*` του `admin`. Ζωντανοί ρόλοι
+(2026-11-04): Sales Operator της nixpal 70 → 66 δικαιώματα του MyCS (χάνει 15), Support Operator της myip 99 → 95
+(χάνει 25). Για το `app:import-whmcs-admins` το JSON φέρνει τα permids του ρόλου στο πεδίο `permids`:
+`(SELECT GROUP_CONCAT(permid) FROM tbladminperms p WHERE p.roleid = a.roleid) AS permids`.
 
 ## Πύλες πληρωμών και promotions (2026-10-20)
 - **Πύλη κάθε πληρωμής** (`tblaccounts.gateway` → `invoice_transactions.gateway_id`, για το «Payment Method» της

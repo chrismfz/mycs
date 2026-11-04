@@ -120,7 +120,8 @@ adversarial review.
 - [x] ~~**WG-3** Όρια του Add Funds από το WHMCS (σήμερα 5/100/300).~~ Από τον importer (feat/import-funds-order-grace).
 - [x] ~~**WG-4** Ρύθμιση προθεσμίας του πρώτου τιμολογίου (`OrderDaysGrace`: myip 8, nixpal 0· σήμερα 7).~~ Ρύθμιση
       `order_days_grace` (default 7), από τον importer (feat/import-funds-order-grace).
-- [ ] **WG-5** Δικαιώματα των ρόλων staff εκτός Full Administrator (runbook ή αντιστοίχιση).
+- [x] **WG-5** Δικαιώματα των ρόλων staff εκτός Full Administrator: αντιστοίχιση των `tbladminperms` (`RolePermissions`),
+  με σημείωση για ό,τι δεν υπάρχει εδώ.
 - [ ] **WG-6** Promotions: να μην κλείνουν όσα εκφράζει πια το MyCS (#274).
 - [ ] **WG-7** `TermsOfService` → `tos`.
 - [ ] **WG-8** Κλειστοί πελάτες (Closed) χωρίς login.
