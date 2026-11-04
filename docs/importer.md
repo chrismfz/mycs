@@ -911,7 +911,7 @@ dunning τρεις ώρες μετά), με ρολόι που προχωρά κ�
   κατάλογο. Τα parity (`Domains, renewal amount`, ανά domain, forecast) συγκρίνουν με τον ίδιο κανόνα την τιμή που θα
   χρεωθεί. Myip (2026-11-04, ζωντανά, κατά προσέγγιση): ~1.810 στην τιμή του TLD, ~12 ακριβότερα χωρίς addon, 6 με ID
   protection, 24 φθηνότερα, 3–5 χωρίς τιμή TLD, 7 σε grace· nixpal: τα ακριβότερα (.ch 27.77 → 16.55, .in 17.27 → 12.25)
-  ακολουθούν τον κατάλογο. Οι εκπτώσεις group του MyCS δεν αγγίζουν domains.
+  ακολουθούν τον κατάλογο. Η έκπτωση group αγγίζει domains μόνο με το «Also on domains» του group (off στο import).
 - **Κάθε domain:**
   - με το WHMCS id του, το νόμισμα του πελάτη του, ημερομηνίες εγγραφής και λήξης, έτη, recurring amount, addons (DNS,
     email forwarding, ID protection), DNSSEC (`tbldomains_extra`), IDN script·

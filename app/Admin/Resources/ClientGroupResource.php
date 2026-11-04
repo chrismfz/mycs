@@ -50,7 +50,10 @@ class ClientGroupResource extends Resource
                 ColorPicker::make('colour')->label(__('Colour'))->regex(ClientGroup::COLOUR),
                 TextInput::make('discount_percent')->label(__('Discount (%)'))
                     ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)->required()
-                    ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on domains, nor on a price kept by hand.')),
+                    ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on a price kept by hand.')),
+                // Owner 2026-11-05: a deal on domains that follows the catalog (their TLD's price less this), never one kept by hand.
+                Toggle::make('applies_to_domains')->label(__('Also on domains'))
+                    ->helperText(__('Off its members\' domain renewals at their TLD\'s price, from their next renewal invoice. Never on a domain\'s own renewal price, nor on grace or redemption fees.')),
                 // WHMCS's group settings (sweep of myip, 2026-10-25): each holds for every member, whatever the member's own.
                 Toggle::make('separate_invoices')->label(__('Separate invoices'))
                     ->helperText(__('One invoice per service renewal, instead of one per due date.')),
