@@ -142,6 +142,22 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertStringContainsString('5000', $output);
     }
 
+    /** WG-7: the terms the cart and the sign-up ask to accept, as WHMCS asks for them (both companies: on, with a URL). */
+    public function test_the_terms_of_service_come_when_whmcs_asks_for_them(): void
+    {
+        $tos = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'tos')->first()?->getRawOriginal('value');
+        $this->import(['EnableTOSAccept' => 'on', 'TermsOfService' => 'https://example.test/tos/']);
+        $this->assertSame('https://example.test/tos/', $tos());
+
+        $this->import(['EnableTOSAccept' => '', 'TermsOfService' => 'https://example.test/tos/']);
+        $this->assertSame('', $tos(), 'not asked in WHMCS: not here');
+
+        $this->storeSettings(['tos' => 'https://mine.test/terms']);
+        $this->import(['EnableTOSAccept' => 'on', 'TermsOfService' => 'javascript:alert(1)']);
+        $this->assertSame('https://mine.test/terms', $tos(), 'never a link that is no web page');
+        $this->assertStringContainsString('set the tos setting by hand', $this->output->fetch());
+    }
+
     /**
      * «Credit on Downgrade» comes as WHMCS has it (2026-11-03): nixpal on, myip off (an empty value), MyCS's default on: myip's
      * downgrades would have given credit WHMCS never gave.

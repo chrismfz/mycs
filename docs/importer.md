@@ -522,12 +522,20 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   το ενεργοποιεί. Έμβασμα (`banktransfer`) και ό,τι άλλο: χωρίς πύλη (χειροκίνητη πληρωμή), με πλήθος ανά module στην
   έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS, Stripe SEPA
   (`whmcs-usage.md`)· **να επιβεβαιωθεί το όνομα του module της Eurobank** στο `tblaccounts` της myip πριν το cut-over.
-- **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`): Percentage → percentage,
-  Fixed Amount → fixed, Free Setup → 100% στο setup fee· `recurring` 0 → μόνο η πρώτη πληρωμή, 1 με `recurfor` 0 → κάθε
-  κύκλος· `maxuses`, `onceperclient` → ανά πελάτη 1, ημερομηνίες. Όποιο το MyCS θα εφάρμοζε **αλλιώς** από το WHMCS
-  (Price Override, ορισμένοι κύκλοι μόνο, νέοι/υπάρχοντες πελάτες, «requires», once per order, upgrades, lifetime,
-  `recurfor` > 0, addons/domains) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import) και
-  αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: και τα 4 (FREETRIAL, 25OffAgentNode, MOBIAN10/25).
+- **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`), με τους κανόνες που έχει το
+  MyCS από το #274 (WG-6, 2026-11-04): Percentage → percentage, Fixed Amount → fixed, Free Setup → 100% στο setup fee,
+  Price Override → override (μόνο για τα προϊόντα που ονομάζει, στο κύριο νόμισμα). `recurring` 0 → μόνο η πρώτη
+  πληρωμή, 1 με `recurfor` 0 → κάθε κύκλος, 1 με `recurfor` N → η πρώτη πληρωμή και N ανανεώσεις (`recurring` = N + 1).
+  `cycles` → `billing_cycles` (Monthly → `month:1` … Triennially → `year:3`, One Time/Free Account → `one_time`· όλοι
+  ή κανένας → κάθε κύκλος). New Signups → `customers` new, Existing Client → existing, `onceperclient` →
+  `once_per_client`, `requires` → `coupon_required_products` και `requiresexisting` → `requires_existing`, `maxuses`,
+  ημερομηνίες. Όποιο το MyCS θα εφάρμοζε **ακόμα αλλιώς** από το WHMCS (once per order, upgrades, lifetime, νέοι και
+  υπάρχοντες μαζί, κύκλοι μόνο domains ή άγνωστοι, Fixed Amount με πολλά νομίσματα, addons/domains στο `appliesto` ή
+  στο `requires`, εξαντλημένο) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import) και
+  αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: ανοιχτά τα FREETRIAL και 25OffAgentNode, κλειστά
+  τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα STREAM50 και
+  CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), optimum20 (lifetime), FALL2020 (κύκλοι domains),
+  30-OFF (εξαντλημένο) και το Gr-Domain-Discount (domains).
 - **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
   του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
   ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`
