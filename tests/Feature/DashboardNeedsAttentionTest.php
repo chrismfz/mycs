@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
+use App\Admin\Resources\CpanelAccountResource\Pages\ListCpanelAccounts;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
@@ -12,16 +13,19 @@ use App\Admin\Widgets\Servers;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\CpanelAccount;
 use App\Models\Domain;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
+use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Cpanel\AccountCheck;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -105,7 +109,7 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertSame([], $this->rows());
         Livewire::test(NeedsAttention::class)
             ->assertSee(__('Nothing needs attention.'))
-            ->assertSee(__('Checked just now: :what.', ['what' => mb_strtolower(implode(', ', [__('Charges'), __('Server actions'), __('Invoices'), __('Tickets'), __('Automation'), __('Gateway events')]))]));
+            ->assertSee(__('Checked just now: :what.', ['what' => mb_strtolower(implode(', ', [__('Charges'), __('Server actions'), __('Invoices'), __('Tickets'), __('Hosting accounts'), __('Automation'), __('Gateway events')]))]));
     }
 
     /** Unknown, started with no answer past HOLD_MINUTES, taken an hour ago and not recorded: per invoice, not per attempt. */
@@ -219,6 +223,32 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertStringStartsWith(InvoiceResource::getUrl('index'), $rows[0]['url']);
         $this->assertSame([__('Charges'), __('Invoices')], NeedsAttention::report()['checked']);
+    }
+
+    /** Hosting accounts (owner 2026-11-04): an extra not billed, and a temporary extra whose date passed; never an approved one, nor one gone. */
+    public function test_hosting_accounts_with_an_extra_not_billed_or_one_to_take_back_and_the_filter_lists_the_same(): void
+    {
+        $this->actAs(['admin.servers.viewAny']);
+        $server = Server::query()->create(['name' => 'Rigel', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $account = fn (string $user, ?string $check, array $more = []) => CpanelAccount::query()->create($more + ['server_id' => $server->id, 'user' => $user,
+            'domain' => $user . '.test', 'limits_check' => $check, 'last_seen_at' => now()]);
+        $extra = $account('extra1', AccountCheck::EXTRA_NOT_BILLED);
+        $account('extra2', AccountCheck::EXTRA_NOT_BILLED);
+        $back = $account('back1', AccountCheck::EXTRA_TO_TAKE_BACK, ['temporary_extra_mb' => 10240, 'temporary_extra_until' => today()->subDays(4)]);
+        $account('gone', AccountCheck::EXTRA_NOT_BILLED, ['gone_at' => now()]);
+        $account('approved', AccountCheck::APPROVED);
+        $account('temporary', AccountCheck::TEMPORARY_EXTRA);
+
+        $rows = $this->rows();
+
+        $this->assertSame([trans_choice(':count hosting account with an extra not billed|:count hosting accounts with an extra not billed', 2),
+            trans_choice(':count temporary extra to take back|:count temporary extras to take back', 1)], array_column($rows, 'title'));
+        $this->assertSame(['warning', 'warning'], array_column($rows, 'color'));
+        $this->assertTrue($rows[1]['since']->isSameDay(today()->subDays(4)), 'the oldest date passed');
+        $this->assertSame(['filters' => ['limits_check' => ['value' => AccountCheck::EXTRA_NOT_BILLED]]], $this->queryOf($rows[0]['url']));
+        $this->assertSame([__('Hosting accounts')], NeedsAttention::report()['checked']);
+        Livewire::test(ListCpanelAccounts::class)->filterTable('limits_check', AccountCheck::EXTRA_NOT_BILLED)->assertCountTableRecords(2)->assertCanSeeTableRecords([$extra]);
+        Livewire::test(ListCpanelAccounts::class)->filterTable('limits_check', AccountCheck::EXTRA_TO_TAKE_BACK)->assertCountTableRecords(1)->assertCanSeeTableRecords([$back]);
     }
 
     public function test_tickets_awaiting_reply_link_to_the_awaiting_tab(): void

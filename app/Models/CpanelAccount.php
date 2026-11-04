@@ -14,6 +14,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $lve_read_at
  * @property Carbon|null $last_seen_at
  * @property Carbon|null $gone_at
+ * @property Carbon|null $temporary_extra_until
+ * @property Carbon|null $approved_at
  *
  * An account of a WHM server, as cpanel:sync last read it, and what it is to us: a customer's service, internal, or not
  * mapped yet.
@@ -27,7 +29,9 @@ class CpanelAccount extends Model
         'inodes_limit', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'suspended', 'suspend_reason', 'suspended_at', 'mail_held', 'mail_suspended',
         'max_email_per_hour', 'backup', 'created_on_server_at', 'last_seen_at', 'gone_at', 'service_id', 'internal', 'note',
         'lve_memory_limit_mb', 'lve_entry_processes_limit', 'lve_processes_limit', 'lve_io_limit_kbs', 'lve_iops_limit', 'lve_read_at',
-        'plan_disk_mb', 'plan_bandwidth_mb', 'limits_check', 'limits_check_mb', 'limits_checked_at'];
+        'plan_disk_mb', 'plan_bandwidth_mb', 'limits_check', 'limits_check_mb', 'limits_checked_at',
+        'temporary_extra_mb', 'temporary_extra_until', 'temporary_extra_note', 'temporary_extra_by',
+        'approved_check', 'approved_state', 'approved_note', 'approved_by', 'approved_at'];
 
     /**
      * CloudLinux's limits (cpanel:lve): each one's column in a sample and its limit's on the account (CPU is a percent of
@@ -46,7 +50,7 @@ class CpanelAccount extends Model
     {
         return ['reseller' => 'boolean', 'suspended' => 'boolean', 'mail_held' => 'boolean', 'mail_suspended' => 'boolean', 'backup' => 'boolean',
             'internal' => 'boolean', 'plan_disk_mb' => 'integer', 'plan_bandwidth_mb' => 'integer', 'limits_check_mb' => 'integer',
-            'limits_checked_at' => 'datetime', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
+            'limits_checked_at' => 'datetime', 'temporary_extra_mb' => 'integer', 'temporary_extra_until' => 'date', 'approved_at' => 'datetime', 'lve_read_at' => 'datetime', 'suspended_at' => 'datetime', 'created_on_server_at' => 'datetime', 'last_seen_at' => 'datetime', 'gone_at' => 'datetime'];
     }
 
     /** @return BelongsTo<Server, $this> */
@@ -59,6 +63,18 @@ class CpanelAccount extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'approved_by');
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function temporaryExtraBy(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'temporary_extra_by');
     }
 
     /** What the server says against what MyCS says (owner 2026-10-28: the mistakes a move from WHMCS leaves). */

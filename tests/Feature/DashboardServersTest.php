@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
 use App\Admin\Resources\ServerResource;
+use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\Servers;
 use App\Admin\Widgets\Support;
 use App\Models\Role;
@@ -145,12 +146,12 @@ class DashboardServersTest extends TestCase
         $this->assertNotContains(Servers::class, (new Dashboard)->layout()['right']);
     }
 
-    /** Under Needs attention (its own test), above Support. */
+    /** Under Needs attention (which the same permission sees, for the hosting accounts), above Support. */
     public function test_it_tops_the_right_column(): void
     {
         $this->actAs(['admin.servers.viewAny', 'admin.widgets.support']);
 
-        $this->assertSame([Servers::class, Support::class], array_slice((new Dashboard)->layout()['right'], 0, 2));
+        $this->assertSame([NeedsAttention::class, Servers::class, Support::class], array_slice((new Dashboard)->layout()['right'], 0, 3));
     }
 
     /** Many servers scroll inside the card, about eight rows high, instead of making it as tall as the list. */
