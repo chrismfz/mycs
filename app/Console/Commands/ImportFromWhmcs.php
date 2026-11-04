@@ -19,6 +19,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
@@ -1400,6 +1401,8 @@ class ImportFromWhmcs extends Command
                     $marked[] = [(int) $record['id'], $mark[0] === Mailcow::LOCKED ? 'mailcow' : 'Centova', (string) ($record['username'] ?: $record['domain'])];
                 }
 
+                // WHMCS's amount, without its account's group discount; none for a «Free Account» (below).
+                $amount = $freeAccount ? null : $this->recurringAmount($record);
                 $data[] = [
                     'id' => $record['id'],
                     'order_id' => $record['orderid'],
@@ -1408,8 +1411,10 @@ class ImportFromWhmcs extends Command
                     'product_id' => $record['packageid'],
                     'status' => self::serviceStatus((string) $record['domainstatus']),
                     // Never below zero (ADV-551-3): it would renew free; staff are told. A «Free Account» is free whatever
-                    // amount WHMCS left on it: WHMCS never invoiced it.
-                    'price' => $freeAccount ? '0.00' : $this->recurringAmount($record),
+                    // amount WHMCS left on it: WHMCS never invoiced it. WHMCS keeps the amount without its account's group
+                    // discount and bills the discount on each renewal, a `GroupDiscount` line per service (nixpal: 46.40,
+                    // −4.64, 41.76 each month); here the price holds it (WG-1).
+                    'price' => $amount === null ? '0.00' : ClientGroupPricing::discounted($amount, $groupPercents[(int) $record['userid']] ?? '0.00'),
                     'quantity' => $record['qty'],
                     'client_id' => $record['userid'],
                     'plan_id' => $planId,
@@ -1420,10 +1425,11 @@ class ImportFromWhmcs extends Command
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,
-                    // WHMCS's amount is what its account's group gave it: WHMCS applies a group's discount when ordering,
-                    // never again on a renewal. Held at the group's percent, the cron's reconcile of group prices leaves it
-                    // as it is (nixpal: a 10% group's 24 services would have lost 10% more on the first run: review of #628).
+                    // The discount its price now holds: the cron's reconcile of group prices leaves it as it is.
                     'group_percent' => $groupPercents[(int) $record['userid']] ?? '0.00',
+                    // WHMCS's amount itself: a later change of group reprices from it as WHMCS would bill it, never by
+                    // ratio (ADV-641-1: a 100% group's 0.00; ADV-641-2: 1.66 back to 1.85, not 1.84).
+                    'undiscounted_price' => $amount,
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason

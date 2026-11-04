@@ -145,6 +145,7 @@ class Service extends Model implements Auditable
 
     protected $casts = [
         'group_percent' => 'decimal:2',
+        'undiscounted_price' => 'decimal:2',
         'price_locked' => 'boolean',
         'no_auto_charge' => 'boolean',
         'expires_at' => 'date',

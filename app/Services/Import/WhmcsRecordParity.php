@@ -9,6 +9,7 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\Extension;
 use App\Models\Server;
 use App\Models\Setting;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Money\MoneyTrail;
 use App\Services\Whmcs\CatalogImport;
 use Illuminate\Support\Collection;
@@ -258,6 +259,12 @@ final class WhmcsRecordParity
             }
         }
         $byHand = [];
+        // Each account's group discount: WHMCS bills it as a line of its own on each renewal, the import takes it off (WG-1).
+        try {
+            $groupPercents = $this->pairs('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0');
+        } catch (Throwable) {
+            $groupPercents = [];
+        }
         foreach ($this->whmcs->query('SELECT * FROM tblhosting ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $id = (int) $row['id'];
             $service = $here->get($id);
@@ -271,8 +278,9 @@ final class WhmcsRecordParity
             $this->check('Services', $id, (int) $service->client_id === (int) $row['userid'], "service #{$id}: account #{$row['userid']} in WHMCS, #{$service->client_id} here");
             $this->check('Services', $id, (int) $service->product_id === (int) $row['packageid'], "service #{$id}: product #{$row['packageid']} in WHMCS, #{$service->product_id} here");
             $this->check('Services', $id, $want === (string) $service->status, "service #{$id}: {$want} in WHMCS, {$service->status} here");
-            // Never below zero here (ADV-551-3): a negative WHMCS amount is 0.
-            $price = max(0, WhmcsMassPay::cents($row['amount']));
+            // Never below zero here (ADV-551-3): a negative WHMCS amount is 0. Less its account's group discount (WG-1).
+            $price = WhmcsMassPay::cents(ClientGroupPricing::discounted(self::cents(max(0, WhmcsMassPay::cents($row['amount']))),
+                number_format((float) ($groupPercents[(int) $row['userid']] ?? 0), 2, '.', '')));
             $this->check('Services', $id, $price === WhmcsMassPay::cents($service->price),
                 "service #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
             // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1).

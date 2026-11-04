@@ -1150,6 +1150,16 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
 - **Flag ανά πελάτη «χωρίς υπενθυμίσεις overdue»** (`overideduenotices`): 18 πελάτες → `clients.no_overdue_reminders`.
   Τα flags αυτά υπάρχουν πλέον και στις ομάδες (`client_groups.separate_invoices`, `dunning_exempt`,
   `no_overdue_reminders`), και ο importer τα παίρνει από το `tblclientgroups`.
+- **Έκπτωση ομάδας** (WG-1, 2026-11-04): το WHMCS κρατά στο `tblhosting.amount` την τιμή **χωρίς** την έκπτωση και τη
+  χρεώνει σε κάθε ανανέωση ως γραμμή `GroupDiscount` ανά υπηρεσία, στρογγυλεμένη μόνη της (nixpal, ομάδα 10%, 24
+  υπηρεσίες: Hosting 46,40, `GroupDiscount` −4,64, σύνολο 41,76 κάθε μήνα). Εδώ η έκπτωση είναι μέσα στην τιμή: ο
+  importer γράφει `price = amount − round(amount × %, 2)` και `group_percent` = της ομάδας, οπότε το reconcile του cron
+  δεν την ξαναβγάζει. Το `mycs:forecast-parity` και το `mycs:parity --records` συγκρίνουν με το ίδιο ποσό. (Το review του
+  #628 είχε διαβάσει το amount ως ήδη μειωμένο: η nixpal θα χρέωνε 10% παραπάνω.) Οι παλιές γραμμές `GroupDiscount`
+  έρχονται όπως ήταν, χωρίς αναφορά. Το ίδιο το ποσό του WHMCS μένει στο `services.undiscounted_price` (ADV-641-1/2):
+  μια αλλαγή ομάδας αργότερα ξαναϋπολογίζει από αυτό, όπως θα χρέωνε το WHMCS, όχι με αναλογία. Έτσι το 1,66 γυρίζει
+  1,85 και όχι 1,84, και μια ομάδα 100% δεν αφήνει την υπηρεσία δωρεάν για πάντα. Μόλις το staff ή ένας νέος υπολογισμός
+  αλλάξει την τιμή, το ποσό σβήνεται, και από εκεί και πέρα ισχύει ο κανόνας του `ClientGroupPricing`.
 - **Ekdosi:**
   - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα
     (`ekdosi-bridge.md` → «Importer»): οι επαφές γίνονται κανονικές `contacts`, το routing η σχετική επαφή της υπηρεσίας

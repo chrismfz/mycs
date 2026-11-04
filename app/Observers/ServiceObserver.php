@@ -55,9 +55,13 @@ class ServiceObserver
         self::keepContactInAccount($service);
         self::keepAddonWithParent($service);
         // A price saved holds its account's group discount as it is now (reviews of #272): a recalculation, an order, an
-        // upgrade, staff's edit. Group repricing sets its own (ClientGroupPricing).
+        // upgrade, staff's edit. Group repricing sets its own (ClientGroupPricing). The price without the discount an import
+        // kept (ADV-641-1/2) is no longer this one's.
         if ($service->isDirty('price') && !$service->isDirty('group_percent')) {
             $service->group_percent = $service->client?->groupPercent() ?? '0';
+            if (!$service->isDirty('undiscounted_price')) {
+                $service->undiscounted_price = null;
+            }
         }
     }
 

@@ -170,11 +170,13 @@ class ImportClusterServersTest extends TestCase
     }
 
     /**
-     * Review of #628: an account in a client group with a discount (nixpal: 10%, 24 live services). WHMCS gave it when
-     * ordering and bills the amount it left; the cron's reconcile of group prices took the imported prices for ones without
-     * the discount and took 10% more off on its first run (1.80 → 1.62, a custom 5.00 → 4.50).
+     * WG-1 (docs/sweeps/whmcs-gaps.md): an account in a client group with a discount (nixpal: 10%, 24 live services). WHMCS
+     * keeps the full amount on the service and bills the discount on every renewal, a `GroupDiscount` line per service,
+     * rounded on its own (nixpal: 46.40 of Hosting, −4.64, 41.76 each month). Here the discount is in the price: the import
+     * takes it off once, at the group's percent, and the cron's reconcile of group prices leaves it (the review of #628 had
+     * read WHMCS's amount as already discounted: 10% more each month).
      */
-    public function test_a_groups_discount_is_not_taken_again_from_whmcss_amounts(): void
+    public function test_a_groups_discount_comes_off_whmcss_amounts_once(): void
     {
         $this->hosting();
         $product = $this->createProduct();
@@ -182,16 +184,26 @@ class ImportClusterServersTest extends TestCase
         $group = DB::table('client_groups')->insertGetId(['name' => 'Ten off', 'discount_percent' => 10, 'created_at' => now(), 'updated_at' => now()]);
         $client->forceFill(['client_group_id' => $group])->save();
         $this->whmcs->exec("INSERT INTO tblclients VALUES ({$client->id}, 1)");
-        foreach ([[911, 1.8], [912, 5.0]] as [$id, $amount]) {
+        foreach ([[911, 1.8], [912, 5.0], [913, 1.85]] as [$id, $amount]) {
             $this->whmcs->prepare("INSERT INTO tblhosting VALUES (?, ?, NULL, ?, 0, '2024-01-01', 'site.example.test', 1, ?, 'Monthly', '2026-12-01', 'Active', '',
                 '', '', '', '', '', 0, '0000-00-00')")->execute([$id, $client->id, $product->product->id, $amount]);
         }
 
         $this->importServices();
-        $this->assertSame(['10.00', '10.00'], Service::query()->orderBy('id')->pluck('group_percent')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+        $this->assertSame(['10.00', '10.00', '10.00'], Service::query()->orderBy('id')->pluck('group_percent')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+        // WHMCS's line: 1.85 − round(0.185) = 1.66.
+        $this->assertSame(['1.62', '4.50', '1.66'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
 
         $this->assertSame(0, ClientGroupPricing::reconcile());
-        $this->assertSame(['1.80', '5.00'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+        $this->assertSame(['1.62', '4.50', '1.66'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
+
+        // ADV-641-2: WHMCS's amount is kept; staff's own price is no longer that one, and a change of group scales theirs.
+        $this->assertSame('1.85', number_format((float) Service::query()->findOrFail(913)->undiscounted_price, 2, '.', ''));
+        Service::query()->findOrFail(912)->update(['price' => 3.00]);
+        $this->assertNull(Service::query()->findOrFail(912)->undiscounted_price);
+        $client->forceFill(['client_group_id' => null])->save();
+        ClientGroupPricing::reconcile();
+        $this->assertSame(['1.80', '3.33', '1.85'], Service::query()->orderBy('id')->pluck('price')->map(fn ($p) => number_format((float) $p, 2, '.', ''))->all());
     }
 
     /**

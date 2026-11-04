@@ -291,6 +291,23 @@ class WhmcsRecordParityTest extends TestCase
         $this->assertStringContainsString("domain #{$other->id} (dave.test): Active in WHMCS, also live as #{$kept->id}", implode("\n", $parity->notes()));
     }
 
+    /**
+     * WG-1, code review of #641: WHMCS's amount is without its account's group discount, billed as a line of its own;
+     * the import takes it off (10.00 at 10%: 9.00), which is no difference. The full amount kept here is one.
+     */
+    public function test_a_services_price_is_compared_less_its_groups_discount(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblclients ADD COLUMN groupid INTEGER DEFAULT 0');
+        $this->whmcs->exec('CREATE TABLE tblclientgroups (id INTEGER PRIMARY KEY, discountpercent REAL)');
+        $this->whmcs->exec('INSERT INTO tblclientgroups VALUES (3, 10.00)');
+        $this->whmcs->exec("UPDATE tblclients SET groupid = 3 WHERE id = {$this->clients[0]}");
+        $this->service->forceFill(['price' => 9])->save();
+        $this->assertSame([], $this->records()['Services']['differ']);
+
+        $this->service->forceFill(['price' => 10])->save();
+        $this->assertSame(["service #{$this->service->id}: 9.00 in WHMCS, 10.00 here"], $this->records()['Services']['differ']);
+    }
+
     /** M6: a WHMCS status the importer's map does not know (imported pending) is a difference. */
     public function test_an_unknown_service_status_is_a_difference(): void
     {
