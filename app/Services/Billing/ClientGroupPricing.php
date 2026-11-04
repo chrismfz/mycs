@@ -71,7 +71,9 @@ final class ClientGroupPricing
             return 0;
         }
         $price = number_format((float) $service->price, 2, '.', '');
-        if ($service->plan !== null && bccomp($price, $service->calculatePrice(groupPercent: $then), 2) === 0) {
+        // A price computed from its plan; one with no price in its currency computes to its own (ADV-628-1): scaled below.
+        if ($service->plan !== null && $service->plan->hasPriceIn($service->currency_code)
+            && bccomp($price, $service->calculatePrice(groupPercent: $then), 2) === 0) {
             $new = $service->calculatePrice(groupPercent: $now);
         } elseif (bccomp($then, '100', 2) === 0) {
             // A whole discount leaves nothing to scale: the computed price, or staff decide.

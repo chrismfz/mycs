@@ -53,6 +53,12 @@ class Plan extends Model implements Auditable
         return $this->morphTo();
     }
 
+    /** Whether it has a price in this currency: free always; a recurring or one-time plan with its price row. */
+    public function hasPriceIn(?string $currency): bool
+    {
+        return $this->type === 'free' || $this->prices->contains(fn (Price $price) => $price->currency_code === $currency);
+    }
+
     /**
      * Get the price of the plan.
      *

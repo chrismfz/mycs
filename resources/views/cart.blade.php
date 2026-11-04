@@ -89,7 +89,7 @@
                             </x-button.secondary>
                         </div>
                         @endif
-                        @if (!$item->isDomain() && ($item->product->plans->count() > 1 || $item->product->configOptions->isNotEmpty() || !empty($item->checkout_config)))
+                        @if (!$item->isDomain() && ($item->product->availablePlans()->count() > 1 || $item->product->configOptions->isNotEmpty() || !empty($item->checkout_config)))
                         <a href="{{ route('products.checkout', [$item->product->category, $item->product, 'edit' => $item->id]) }}"
                             wire:navigate>
                             <x-button.primary class="h-fit w-fit">

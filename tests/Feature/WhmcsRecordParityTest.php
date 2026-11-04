@@ -134,6 +134,25 @@ class WhmcsRecordParityTest extends TestCase
         $this->assertSame(["service #{$this->service->id}: username «alice» in WHMCS, «bob» here"], $records['Service accounts']['differ']);
     }
 
+    /** A cluster's nodes (pvewhmcs: Pegasus and Vega) are one server here: a service on either node, on it, is no difference. */
+    public function test_a_service_on_another_node_of_a_cluster_is_on_its_one_server(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblservers ADD COLUMN type TEXT');
+        $this->whmcs->exec("INSERT INTO tblservers (id, name, hostname, ipaddress, type) VALUES (54, 'Vega', 'vega.example.test', '192.0.2.54', 'pvewhmcs'),
+            (61, 'Pegasus', 'pegasus.example.test', '192.0.2.61', 'pvewhmcs')");
+        $cluster = Extension::query()->create(['name' => 'Vega', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $cluster->forceFill(['whmcs_id' => 54])->save();
+        $cluster->settings()->create(['key' => 'host', 'value' => 'https://vega.example.test:8006']); // Vega's address, for Pegasus's service too
+        $this->whmcs->exec("UPDATE tblhosting SET server = 61 WHERE id = {$this->service->id}");
+        $this->service->forceFill(['server_id' => $cluster->id, 'whmcs_server_id' => 61])->save();
+
+        $this->assertSame(0, $this->records()['Service servers']['count']);
+
+        // On any other server it still differs.
+        $this->service->forceFill(['server_id' => Extension::query()->where('whmcs_id', 3)->value('id')])->save();
+        $this->assertSame(1, $this->records()['Service servers']['count']);
+    }
+
     /** A server here pointing elsewhere than WHMCS's of the same id. */
     public function test_a_server_pointing_elsewhere_is_seen(): void
     {

@@ -206,6 +206,7 @@ class ImportFromWhmcs extends Command
             $this->importOrders();
             $this->importServices();
             $this->importOfflineSsl();
+            $this->importOfflineDedicated();
             $this->importDomains();
             $this->importEkdosiContacts();
             $this->importContacts();
@@ -1322,11 +1323,23 @@ class ImportFromWhmcs extends Command
         // Each account's own server (tblhosting.server), by the catalog's WHMCS ids; one not here (deleted, or a module
         // with no extension) stays none, never the product's (AUD4-1).
         $servers = Server::query()->whereNotNull('whmcs_id')->get(['id', 'whmcs_id', 'extension'])->keyBy('whmcs_id');
+        // A cluster's other nodes (myip's Pegasus beside Vega): one server here, its WHMCS id the first node's (CatalogImport).
+        $byId = Server::query()->whereKey(array_values($this->whmcsServers))->get(['id', 'whmcs_id', 'extension'])->keyBy('id');
+        foreach ($this->whmcsServers as $whmcsId => $serverId) {
+            if (!$servers->has($whmcsId) && $byId->has($serverId)) {
+                $servers->put($whmcsId, $byId->get($serverId));
+            }
+        }
         $productServers = DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')->pluck('extensions.extension', 'products.id');
         $withoutServer = [];
         $freeOnPlan = [];
+        $offCycle = [];
+        $unpriced = []; // plan id => it has no prices
         $marked = [];
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan) {
+        // Each account's group discount, as its services' prices hold it (ClientGroupPricing).
+        $groupPercents = DB::table('clients')->join('client_groups', 'client_groups.id', '=', 'clients.client_group_id')
+            ->pluck('client_groups.discount_percent', 'clients.id')->map(fn ($percent) => number_format((float) $percent, 2, '.', ''))->all();
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced, $groupPercents) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
@@ -1353,6 +1366,20 @@ class ImportFromWhmcs extends Command
                     if ($planId !== null) {
                         $freeOnPlan[] = (int) $record['id'];
                     }
+                }
+                // Billed on a cycle its product does not offer (WHMCS bills the service's own amount): a plan of that cycle
+                // without prices, never sold, so it renews here at its price (myip rehearsal 2026-11-04: 13 live ones). A
+                // live one only: an ended one renews no more, and its plan would only crowd its product's (review of #628).
+                $live = in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true);
+                if ($planId === null && !$freeAccount && $live && ($product = Product::query()->find((int) $record['packageid'])) !== null) {
+                    $planId = CatalogImport::unpricedPlan($product, (string) $record['billingcycle']);
+                }
+                // Listed for staff: each live one on a plan with no price in its currency (made here, a cycle WHMCS no longer
+                // sells, or one priced in another currency only): «Recalculate price» would make it 0.00 (review of #628).
+                $currency = (string) ($user['code'] ?? '');
+                if ($planId !== null && !$freeAccount && $live
+                    && ($unpriced["{$planId}|{$currency}"] ??= !DB::table('prices')->where('plan_id', $planId)->where('currency_code', $currency)->exists())) {
+                    $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
                 }
 
                 $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
@@ -1393,6 +1420,10 @@ class ImportFromWhmcs extends Command
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,
+                    // WHMCS's amount is what its account's group gave it: WHMCS applies a group's discount when ordering,
+                    // never again on a renewal. Held at the group's percent, the cron's reconcile of group prices leaves it
+                    // as it is (nixpal: a 10% group's 24 services would have lost 10% more on the first run: review of #628).
+                    'group_percent' => $groupPercents[(int) $record['userid']] ?? '0.00',
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason
@@ -1438,12 +1469,19 @@ class ImportFromWhmcs extends Command
             $this->warn(count($withoutServer) . ' live service(s) whose WHMCS server is not here: no server action until staff set one.');
             $this->table(['Service', 'WHMCS server'], $withoutServer);
         }
+        if ($offCycle !== []) {
+            $this->warn(count($offCycle) . ' live service(s) billed on a cycle their product does not offer: on a plan of that cycle without prices (not sold), renewed at their own price. Check each one\'s price.');
+            $this->table(['Service', 'Cycle', 'Product'], $offCycle);
+        }
         if ($marked !== []) {
             // Before the cut-over: each one checked disabled (Centova) or locked (mailcow) there, as WHMCS left it.
             $this->info(count($marked) . ' suspended service(s) marked as suspended by us: a payment enables them again.');
             $this->table(['Service', 'Module', 'Account'], $marked);
         }
     }
+
+    /** @var array<int, int> WHMCS server id => its server here (a cluster's nodes share one), from importServers */
+    private array $whmcsServers = [];
 
     /** WHMCS's servers and groups, and its products' (the catalog's step): before the services, which come on theirs. */
     private function importServers()
@@ -1452,9 +1490,43 @@ class ImportFromWhmcs extends Command
             return;
         }
         $result = (new CatalogImport($this->pdo))->serversForFullImport();
+        $this->whmcsServers = $result['server_ids'];
         $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
+        }
+    }
+
+    /**
+     * The products with no module in WHMCS that a live service is on (myip: dedicated servers, colocation, managed ones, a
+     * backup MX, a few by hand), and those services: on one Offline Dedicated server, so every action on them (a suspension
+     * for non-payment too) is a task for staff to see, never a status changed and nothing done (owner 2026-11-04). Only one
+     * with no server in WHMCS: one on its own WHMCS server keeps it, and one whose WHMCS server is not here (deleted, a module
+     * with no extension) stays listed for staff to set (review of #628). An ended service keeps none of its own; staff
+     * acting on it by hand from its page get a task too. Listed for staff, who move one that is not a machine (a
+     * certificate, a license) where it belongs. Redfish (iDRAC, BMC) is the roadmap's, later (ROADMAP).
+     */
+    private function importOfflineDedicated(): void
+    {
+        if (!$this->sourceHas('tblproducts') || !$this->sourceHas('tblhosting')) {
+            return;
+        }
+        $live = "('Active', 'Suspended', 'Pending')";
+        $ids = array_map('intval', $this->pdo->query("SELECT p.id FROM tblproducts p WHERE COALESCE(p.servertype, '') = ''
+            AND EXISTS (SELECT 1 FROM tblhosting h WHERE h.packageid = p.id AND h.domainstatus IN {$live}) ORDER BY p.id")->fetchAll(PDO::FETCH_COLUMN));
+        if ($ids === []) {
+            return;
+        }
+        $server = Server::query()->firstOrCreate(['extension' => 'OfflineDedicated', 'name' => 'Manual (offline)'], ['type' => 'server', 'enabled' => true]);
+        DB::table('products')->whereIn('id', $ids)->whereNull('server_id')->update(['server_id' => $server->id]);
+        $services = DB::table('services')->whereIn('product_id', $ids)->whereNull('server_id')
+            ->where(fn ($none) => $none->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0))
+            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->orderBy('id')->get(['id', 'product_id', 'domain']);
+        DB::table('services')->whereIn('id', $services->pluck('id'))->update(['server_id' => $server->id]);
+        $this->info(count($services) . ' live service(s) of ' . count($ids) . " product(s) with no module in WHMCS on «{$server->name}» (Offline Dedicated): every action on them is a task for staff.");
+        if ($services->isNotEmpty()) {
+            $names = DB::table('products')->whereIn('id', $ids)->pluck('name', 'id');
+            $this->table(['Service', 'Product', 'Domain'], $services->map(fn ($service) => [$service->id, $names[$service->product_id] ?? '', $service->domain])->all());
         }
     }
 

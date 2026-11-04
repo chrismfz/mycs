@@ -1162,8 +1162,35 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
     παραγγελία. Τα κενά της συμπληρώνει το `tblsslorders`, μόνο όταν είναι η ίδια παραγγελία (και ποτέ γραμμή άλλου
     module ή addon). Ποτέ το CSR, τα κλειδιά ή το `authdata`. Στο myip υπάρχουν στοιχεία για 4 από τις 12· στις άλλες τα
     συμπληρώνει το staff. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
-  - Hetzner Cloud: 1 υπηρεσία. Γίνεται Offline VM.
-  - ngm: 1 υπηρεσία. Γίνεται Offline VM.
+  - Hetzner Cloud: 1 υπηρεσία. ngm: 1 υπηρεσία· είναι δικό μας panel και θα αποκτήσει δικό του extension.
+    - Ως τις 2026-11-04 ο importer **παρέλειπε** τους servers τους («no MyCS extension»), και οι υπηρεσίες έρχονταν χωρίς
+      server (βρέθηκε στην πρόβα του myip).
+    - Τώρα ο server του WHMCS γίνεται server **Offline VM** («<όνομα> (Hetzner Cloud, offline)»), χωρίς διεύθυνση και
+      login. Κάθε ενέργεια πάνω τους γίνεται εργασία του staff.
+- **Προϊόντα χωρίς module στο WHMCS** (myip: 14 με ζωντανή υπηρεσία, 17 υπηρεσίες: dedicated, colocation, managed, backup
+  MX, ένα SSL, ένα Imunify360):
+  - το προϊόν και οι ζωντανές υπηρεσίες του μπαίνουν στο «Manual (offline)» (Offline Dedicated Server), με εξαίρεση όσες
+    είχαν δικό τους server στο WHMCS·
+  - ένα suspend για απλήρωτο ή ένα terminate γίνεται εργασία στα Pending Module Actions (πλακίδιο στο dashboard και mail
+    στο staff), ώστε να γίνει με το χέρι, π.χ. να ακυρωθεί το license (υπεύθυνος, 2026-11-04)·
+  - ως τότε έμεναν χωρίς server, και ένα suspend άλλαζε μόνο την κατάσταση·
+  - το import τις βγάζει σε λίστα· ό,τι δεν είναι μηχάνημα (SSL, license) το μεταφέρει το staff όπου ταιριάζει.
+  Το Redfish (iDRAC, BMC) είναι στο ROADMAP.
+- **Proxmox (pvewhmcs):** οι servers του WHMCS (Pegasus, Vega) είναι κόμβοι **ενός cluster** (υπεύθυνος, 2026-11-04).
+  - Γίνονται **ένας** server Proxmox, και σε νέα εκτέλεση βρίσκεται με το id οποιουδήποτε κόμβου.
+  - **Νέος server:**
+    - είναι ενεργός αν είναι ενεργός κάποιος κόμβος·
+    - host είναι ένας ενεργός κόμβος (`:8006`) και οι άλλοι γίνονται `node2_host` / `node3_host`, για failover·
+    - δεν έχει login.
+  - **Server που υπάρχει ήδη** (από προηγούμενο import, ή του staff που υιοθετείται: σε διεύθυνση κάποιου κόμβου, ή ο
+    μόνος του extension): μένει όπως είναι, με όνομα, κατάσταση, διευθύνσεις και token. Αν το staff τον έχει σβήσει,
+    μένει σβησμένος.
+  - **Στο cut-over** το πλήρες import αδειάζει πρώτα τη βάση (`migrate:fresh`), άρα ο server φτιάχνεται από το import. Μετά
+    το staff βάζει ξανά το token, τα IP/self-signed των κόμβων, το pool, τη ρύθμιση Terminate και τις αντιστοιχίσεις των
+    Proxmox Guests. Υιοθεσία κάνει μόνο το `app:import-whmcs-catalog` πάνω σε υπάρχουσα βάση.
+  - Οι υπηρεσίες κάθε κόμβου πάνε σε αυτόν. Οι VM αντιστοιχίζονται με το χέρι (`proxmox.md` → Α3).
+  - Κάθε server `pvewhmcs` θεωρείται κόμβος του ίδιου cluster: η myip έχει ένα. Η γραμμή του import λέει ποιους ένωσε.
+  - Ως τις 2026-11-04 κι αυτοί παραλείπονταν.
 - **Centova:** custom fields `port`, `username`, `sourcepassword` (μυστικό, κρυπτογραφείται), `servertype`, `sourcetype`,
   `transferlimit`. Ο mailcow έχει 10 ενεργές.
 - **Domains, για το D6:**

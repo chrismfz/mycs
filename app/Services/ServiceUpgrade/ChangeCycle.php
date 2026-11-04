@@ -9,6 +9,7 @@ use App\Models\ChargeAttempt;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
+use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\CancelOpenInvoices;
@@ -62,11 +63,20 @@ final class ChangeCycle
             return collect();
         }
 
-        return $service->product->availablePlans($service->currency_code)
+        $plans = $service->product->availablePlans($service->currency_code)
             ->filter(fn (Plan $plan) => $plan->type === 'recurring' && in_array($plan->billing_unit, BillingPeriod::UNITS, true)
                 && (int) $plan->billing_period >= 1
                 && ((int) $plan->id !== (int) $service->plan_id || $service->next_plan_id !== null))
             ->values();
+        // Its own plan with no price in its currency (a cycle no longer sold, an imported one: #628) is still the one to go
+        // back to: a change set from it can be taken back, never stuck on the catalog's other cycle (review of #628).
+        $own = $service->plan;
+        if ($service->next_plan_id !== null && $own !== null && !$plans->contains('id', $own->id) && $own->priceable_type === Product::class
+            && (int) $own->priceable_id === (int) $service->product_id) {
+            $plans->prepend($own);
+        }
+
+        return $plans;
     }
 
     /** An invoice that also bills other services and holds only credit (no gateway or transfer payment). */
