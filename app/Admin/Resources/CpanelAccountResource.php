@@ -9,6 +9,7 @@ use App\Models\Service;
 use App\Services\Cpanel\AccountCheck;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -44,7 +45,7 @@ class CpanelAccountResource extends Resource
         return $table
             ->defaultSort('user')
             ->modifyQueryUsing(function (Builder $query) {
-                $query->whereHas('server')->with(['server', 'service.product', 'service.client']);
+                $query->whereHas('server')->with(['server', 'service.product', 'service.client', 'approvedBy']);
                 CpanelAccount::withLvePeaks($query);
             })
             ->columns([
@@ -100,10 +101,16 @@ class CpanelAccountResource extends Resource
                         AccountCheck::OK => 'success',
                         AccountCheck::NOT_CHECKED, null => 'gray',
                         AccountCheck::BILLED_NOT_APPLIED => 'danger',
+                        AccountCheck::TEMPORARY_EXTRA => 'info',
+                        AccountCheck::APPROVED => 'success',
                         default => 'warning',
                     })
-                    ->description(fn (CpanelAccount $record) => in_array($record->limits_check, [AccountCheck::EXTRA_NOT_BILLED, AccountCheck::BILLED_NOT_APPLIED, AccountCheck::BELOW_PACKAGE], true) && $record->limits_check_mb !== null
-                        ? ($record->limits_check_mb > 0 ? '+' : '−') . round(abs($record->limits_check_mb) / 1024, 1) . ' GB' : null)
+                    ->description(fn (CpanelAccount $record) => match (true) {
+                        $record->limits_check === AccountCheck::TEMPORARY_EXTRA => 'until ' . $record->temporary_extra_until?->format('d/m'),
+                        in_array($record->limits_check, [AccountCheck::EXTRA_NOT_BILLED, AccountCheck::EXTRA_TO_TAKE_BACK, AccountCheck::BILLED_NOT_APPLIED,
+                            AccountCheck::BELOW_PACKAGE, AccountCheck::APPROVED], true) && $record->limits_check_mb !== null => ($record->limits_check_mb > 0 ? '+' : '−') . round(abs($record->limits_check_mb) / 1024, 1) . ' GB',
+                        default => null,
+                    })
                     ->tooltip(fn (CpanelAccount $record) => AccountCheck::explain($record)),
                 // Cut short, whole on hover (as the package).
                 TextColumn::make('mapping')->label('Is')->badge()
@@ -185,6 +192,53 @@ class CpanelAccountResource extends Resource
                         self::remap($record, ['service_id' => null, 'internal' => true, 'note' => $data['note'] ?? null]);
                         Notification::make()->success()->title('Marked internal')->send();
                     }),
+                // «A little more space for a while» (owner 2026-11-04): expected until its date, then «Extra to take back». MyCS
+                // changes nothing on the server: staff give it and take it back in WHM.
+                Action::make('temporary_extra')->label('Temporary extra')->icon('ri-timer-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (CpanelAccount $record) => $record->service_id !== null)
+                    ->fillForm(fn (CpanelAccount $record) => ['gb' => $record->temporary_extra_mb === null ? null : round($record->temporary_extra_mb / 1024, 1),
+                        'until' => $record->temporary_extra_until, 'note' => $record->temporary_extra_note])
+                    ->schema([
+                        TextInput::make('gb')->label('Extra disk (GB)')->numeric()->required()->minValue(0.1)->maxValue(10000),
+                        DatePicker::make('until')->label('Until')->required()->native(false)->displayFormat('d/m/Y')->minDate(today()),
+                        TextInput::make('note')->label('Note')->maxLength(255)->placeholder('e.g. until the site is moved'),
+                    ])
+                    ->action(function (CpanelAccount $record, array $data) {
+                        $record->forceFill(['temporary_extra_mb' => (int) round((float) $data['gb'] * 1024), 'temporary_extra_until' => $data['until'],
+                            'temporary_extra_note' => $data['note'] ?? null, 'temporary_extra_by' => auth()->id()]);
+                        AccountCheck::apply($record);
+                        $record->save();
+                        Notification::make()->success()->title('Temporary extra kept')->send();
+                    }),
+                Action::make('clear_temporary_extra')->label('Clear temporary extra')->icon('ri-timer-flash-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (CpanelAccount $record) => $record->temporary_extra_mb !== null)
+                    ->requiresConfirmation()
+                    ->action(function (CpanelAccount $record) {
+                        AccountCheck::forget($record, approval: false);
+                        AccountCheck::apply($record);
+                        $record->save();
+                    }),
+                // An exception staff mean (a free extra for a good client): quiet until the limits, the package or what we bill change.
+                Action::make('approve')->label('Approve')->icon('ri-checkbox-circle-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (CpanelAccount $record) => in_array($record->limits_check, AccountCheck::APPROVABLE, true))
+                    ->schema([TextInput::make('note')->label('Why')->required()->maxLength(255)->placeholder('e.g. free extra, a good client')])
+                    ->action(function (CpanelAccount $record, array $data) {
+                        AccountCheck::approve($record, $data['note'], auth()->id());
+                        $record->save();
+                        Notification::make()->success()->title('Approved')->send();
+                    }),
+                Action::make('unapprove')->label('Withdraw approval')->icon('ri-close-circle-line')->color('gray')
+                    ->authorize('update')
+                    ->visible(fn (CpanelAccount $record) => $record->approved_check !== null)
+                    ->requiresConfirmation()
+                    ->action(function (CpanelAccount $record) {
+                        AccountCheck::forget($record, temporary: false);
+                        AccountCheck::apply($record);
+                        $record->save();
+                    }),
                 Action::make('unmap')->label('Clear')->icon('ri-link-unlink')->color('gray')
                     ->authorize('update')
                     ->visible(fn (CpanelAccount $record) => $record->service_id !== null || $record->internal)
@@ -197,6 +251,7 @@ class CpanelAccountResource extends Resource
     /** A mapping staff changed: the check follows it at once, not at the next read (the account is then compared with another service, or none). */
     private static function remap(CpanelAccount $record, array $values): void
     {
+        // What staff said about it was said of that service's client: apply() forgets it when the service changes.
         $record->fill($values);
         AccountCheck::apply($record);
         $record->save();

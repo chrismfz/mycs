@@ -307,4 +307,128 @@ class CpanelAccountCheckTest extends TestCase
         $this->livewireAs($this->staff())->test(ListCpanelAccounts::class)->callTableAction('internal', $floating, data: ['note' => 'our site'])->assertHasNoTableActionErrors();
         $this->assertNull($floating->fresh()->limits_check, 'internal: not ours to bill');
     }
+
+    private function account(string $user): CpanelAccount
+    {
+        return CpanelAccount::query()->where('user', $user)->sole();
+    }
+
+    /** «A little more space for a while» (owner 2026-11-04): expected until its date, then a reminder, forgotten once taken back. */
+    public function test_a_temporary_extra_is_expected_until_its_date_then_is_to_take_back_and_is_forgotten_once_taken_back(): void
+    {
+        $this->accounts = [$this->acct('lent', 'Starter', '30720M')];
+        $this->service('lent');
+        AccountSync::sync($this->server);
+        $this->account('lent')->forceFill(['temporary_extra_mb' => 10240, 'temporary_extra_until' => today()->addDays(7), 'temporary_extra_note' => 'moving a site'])->save();
+        AccountSync::sync($this->server);
+
+        $a = $this->account('lent');
+        $this->assertSame([AccountCheck::TEMPORARY_EXTRA, null], [$a->limits_check, $a->limits_check_mb]);
+        $this->assertSame('+10 GB until ' . today()->addDays(7)->format('d/m/Y') . ' · moving a site', AccountCheck::explain($a));
+
+        $this->travel(7)->days();
+        AccountSync::sync($this->server);
+        $this->assertSame(AccountCheck::TEMPORARY_EXTRA, $this->check('lent'), 'its last day still counts');
+
+        $this->travel(1)->days();
+        AccountSync::sync($this->server);
+        $a = $this->account('lent');
+        $this->assertSame([AccountCheck::EXTRA_TO_TAKE_BACK, 10240], [$a->limits_check, $a->limits_check_mb]);
+        $this->assertSame('10 GB of a temporary extra still there: it ended ' . today()->format('d/m/Y') . ' · moving a site', AccountCheck::explain($a));
+
+        $this->accounts = [$this->acct('lent', 'Starter', '20480M')];
+        AccountSync::sync($this->server);
+        $a = $this->account('lent');
+        $this->assertSame([AccountCheck::OK, null, null], [$a->limits_check, $a->temporary_extra_mb, $a->temporary_extra_until], 'taken back: nothing left to remind');
+    }
+
+    public function test_more_than_the_temporary_extra_is_still_an_extra_not_billed_and_one_not_given_yet_is_ok(): void
+    {
+        $this->accounts = [$this->acct('greedy', 'Starter', '40960M'), $this->acct('notyet', 'Starter', '20480M')];
+        $this->service('greedy');
+        $this->service('notyet');
+        AccountSync::sync($this->server);
+        CpanelAccount::query()->update(['temporary_extra_mb' => 10240, 'temporary_extra_until' => today()->addMonth()]);
+        AccountSync::sync($this->server);
+
+        $greedy = $this->account('greedy');
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 10240], [$greedy->limits_check, $greedy->limits_check_mb], '30 GB more, 10 of them lent');
+        $this->assertSame(AccountCheck::OK, $this->check('notyet'));
+    }
+
+    /** Approved with a note (owner 2026-11-04): quiet while nothing it was given on changes, then back and the approval dropped. */
+    public function test_an_approved_finding_is_quiet_until_the_account_changes(): void
+    {
+        $this->accounts = [$this->acct('friend', 'Starter', '30720M')];
+        $this->service('friend');
+        AccountSync::sync($this->server);
+        $staff = $this->staff();
+
+        $this->livewireAs($staff)->test(ListCpanelAccounts::class)->callTableAction('approve', $this->account('friend'), data: ['note' => 'free extra, a good client'])
+            ->assertHasNoTableActionErrors();
+        $a = $this->account('friend');
+        $this->assertSame([AccountCheck::APPROVED, 10240, AccountCheck::EXTRA_NOT_BILLED, $staff->id], [$a->limits_check, $a->limits_check_mb, $a->approved_check, $a->approved_by]);
+        $this->assertStringContainsString('Extra not billed 10 GB · free extra, a good client', (string) AccountCheck::explain($a));
+
+        AccountSync::sync($this->server);
+        $this->assertSame(AccountCheck::APPROVED, $this->check('friend'), 'the next read, the same account');
+
+        $this->accounts = [$this->acct('friend', 'Starter', '40960M')];
+        AccountSync::sync($this->server);
+        $a = $this->account('friend');
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 10240, AccountCheck::EXTRA_NOT_BILLED], [$a->limits_check, $a->limits_check_mb, $a->approved_check],
+            'more again: the 10 GB more is new, the free 10 GB still approved');
+
+        $this->accounts = [$this->acct('friend', 'Starter', '25600M')];
+        AccountSync::sync($this->server);
+        $a = $this->account('friend');
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, 5120, null, null], [$a->limits_check, $a->limits_check_mb, $a->approved_check, $a->approved_state],
+            'the free extra partly taken back: what is left is something new to look at');
+    }
+
+    public function test_an_approval_does_not_hide_another_finding_and_what_we_bill_changing_drops_it(): void
+    {
+        $this->accounts = [$this->acct('both', 'Starter-20GB', '20480M', ['bw' => 200])];
+        $service = $this->service('both');
+        AccountSync::sync($this->server);
+        $this->assertSame(AccountCheck::PLAN_DIFFERS, $this->check('both'));
+        AccountCheck::approve($a = $this->account('both'), 'on purpose', null);
+        $a->save();
+
+        $this->assertSame(AccountCheck::BANDWIDTH_DIFFERS, $this->check('both'), 'the package approved, the bandwidth still found');
+
+        $service->properties()->create(['key' => 'extra_disk_gb', 'name' => 'Extra disk space (GB)', 'value' => '10']);
+        AccountSync::sync($this->server);
+        $this->assertNull($this->account('both')->approved_check, 'we bill something else now');
+        $this->assertSame(AccountCheck::BILLED_NOT_APPLIED, $this->check('both'));
+    }
+
+    public function test_staff_give_and_clear_a_temporary_extra_and_withdraw_an_approval_from_the_list_and_another_mapping_forgets_them(): void
+    {
+        $this->accounts = [$this->acct('lent', 'Starter', '30720M')];
+        $this->service('lent');
+        AccountSync::sync($this->server);
+        $staff = $this->staff();
+        $list = fn () => $this->livewireAs($staff)->test(ListCpanelAccounts::class);
+
+        $list()->callTableAction('temporary_extra', $this->account('lent'), data: ['gb' => 10, 'until' => today()->addWeek()->toDateString(), 'note' => 'a move'])
+            ->assertHasNoTableActionErrors();
+        $a = $this->account('lent');
+        $this->assertSame([AccountCheck::TEMPORARY_EXTRA, 10240, $staff->id], [$a->limits_check, $a->temporary_extra_mb, $a->temporary_extra_by]);
+        $list()->callTableAction('temporary_extra', $a, data: ['gb' => 10, 'until' => today()->subDay()->toDateString()])->assertHasTableActionErrors(['until']);
+
+        $list()->callTableAction('clear_temporary_extra', $a)->assertHasNoTableActionErrors();
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, null], [$this->check('lent'), $this->account('lent')->temporary_extra_mb]);
+
+        $list()->callTableAction('approve', $this->account('lent'), data: ['note' => 'ok'])->assertHasNoTableActionErrors();
+        $list()->callTableAction('unapprove', $this->account('lent'))->assertHasNoTableActionErrors();
+        $this->assertSame([AccountCheck::EXTRA_NOT_BILLED, null], [$this->check('lent'), $this->account('lent')->approved_check]);
+
+        $list()->callTableAction('approve', $this->account('lent'), data: ['note' => 'ok'])->assertHasNoTableActionErrors();
+        $this->account('lent')->forceFill(['temporary_extra_mb' => 1024, 'temporary_extra_until' => today()->addWeek()])->save();
+        $other = $this->service('lent2');
+        $list()->callTableAction('assign', $this->account('lent'), data: ['service_id' => $other->id])->assertHasNoTableActionErrors();
+        $a = $this->account('lent');
+        $this->assertSame([null, null, AccountCheck::EXTRA_NOT_BILLED], [$a->approved_check, $a->temporary_extra_mb, $a->limits_check], 'said of the other client');
+    }
 }
