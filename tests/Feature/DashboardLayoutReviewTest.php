@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Widgets\ActiveUsers;
 use App\Admin\Widgets\EstimatedIncome;
+use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\Overview;
 use App\Admin\Widgets\PaymentsTracking;
 use App\Admin\Widgets\RecentActivity;
@@ -53,7 +54,7 @@ class DashboardLayoutReviewTest extends TestCase
 
         $this->assertSame([Overview::class], $layout['above']);
         $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
-        $this->assertSame([Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
         $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
     }
 

@@ -18,6 +18,7 @@ use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Collection;
@@ -95,6 +96,8 @@ class ModuleActionResource extends Resource
                 ])->default(ModuleAction::STATUS_OPEN),
                 SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION],
                     array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION]))),
+                // Given up, or a domain's (ModuleAction::scopeNeedsStaff): the dashboard's «Needs attention» opens it.
+                Filter::make('needs_staff')->label('Needs staff')->query(fn ($query) => $query->needsStaff()),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).

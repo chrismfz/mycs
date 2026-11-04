@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Payment\SavedMethodCharge;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
@@ -94,5 +96,20 @@ class ChargeAttempt extends Model
     public function billingAgreement(): BelongsTo
     {
         return $this->belongsTo(BillingAgreement::class)->withTrashed();
+    }
+
+    /**
+     * Waiting on staff however old (held until settled): taken an hour ago and no payment of it recorded, or an unknown
+     * outcome (no answer past HOLD_MINUTES too). Ops\Charges::attentionOf's reading in SQL: the dashboard's «Needs
+     * attention» and the invoices' «Charge to settle» filter count the same.
+     *
+     * @param  Builder<ChargeAttempt>  $query
+     * @return Builder<ChargeAttempt>
+     */
+    public function scopeNeedsStaff(Builder $query): Builder
+    {
+        return SavedMethodCharge::notRecorded($query->where(fn (Builder $query) => $query->where('status', self::STATUS_UNKNOWN)
+            ->orWhere(fn (Builder $stale) => $stale->where('status', self::STATUS_STARTED)->where('sent_at', '<=', now()->subMinutes(self::HOLD_MINUTES)))
+            ->orWhere(fn (Builder $taken) => $taken->where('status', self::STATUS_SUCCEEDED)->where('sent_at', '<=', now()->subHour()))));
     }
 }
