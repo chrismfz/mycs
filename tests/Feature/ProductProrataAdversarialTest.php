@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Cart;
 use App\Models\CartItem;
-use App\Models\Category;
 use App\Models\Coupon;
 use App\Models\Invoice;
 use App\Models\Plan;
@@ -28,7 +27,7 @@ use PDO;
 use ReflectionMethod;
 use ReflectionProperty;
 use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\NullOutput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
@@ -305,12 +304,18 @@ class ProductProrataAdversarialTest extends TestCase
     public function test_holds_importer_maps_the_edge_values(): void
     {
         $whmcs = new PDO('sqlite::memory:');
+        $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT, "default" INT)');
+        $whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD', 1)");
+        $whmcs->exec('CREATE TABLE tblproductgroups (id INTEGER PRIMARY KEY, name TEXT, slug TEXT, tagline TEXT, "order" INT, hidden INT)');
+        $whmcs->exec("INSERT INTO tblproductgroups VALUES (1, 'Hosting', 'hosting', '', 0, 0)");
+        $whmcs->exec('CREATE TABLE tblproductconfigoptions (id INTEGER PRIMARY KEY, gid INT, optionname TEXT, optiontype INT, "order" INT, hidden INT)');
+        $whmcs->exec('CREATE TABLE tblpricing (id INTEGER PRIMARY KEY, type TEXT, relid INT, currency INT)');
         $whmcs->exec('CREATE TABLE tblproducts (id INTEGER PRIMARY KEY, gid INT, name TEXT, description TEXT, slug TEXT, hidden INT, tax INT,
             proratabilling INT, proratadate INT, proratachargenextmonth INT, autosetup TEXT, stockcontrol INT, qty INT, allowqty INT,
             paytype TEXT, created_at TEXT, updated_at TEXT)');
         $whmcs->exec('CREATE TABLE tblproduct_upgrade_products (product_id INT, upgrade_product_id INT)');
         $whmcs->exec('CREATE TABLE tblproductconfiglinks (pid INT, gid INT)');
-        $category = Category::factory()->create();
         // [id, proratabilling, proratadate, chargenextmonth] => [prorata_day, prorata_next_after_day]
         $cases = [
             9001 => [[1, 1, 20], [1, 20]],
@@ -322,13 +327,15 @@ class ProductProrataAdversarialTest extends TestCase
             9007 => [[1, 1, 32], [1, null]],
         ];
         foreach ($cases as $id => [[$on, $date, $next]]) {
-            $whmcs->exec("INSERT INTO tblproducts VALUES ({$id}, {$category->id}, 'P{$id}', '', 'p{$id}', 0, 1, {$on}, {$date}, {$next}, 'payment', 0, 0, 0, 'free', '2024-01-02 10:00:00', '2024-01-02 10:00:00')");
+            $whmcs->exec("INSERT INTO tblproducts VALUES ({$id}, 1, 'P{$id}', '', 'p{$id}', 0, 1, {$on}, {$date}, {$next}, 'payment', 0, 0, 0, 'free', '2024-01-02 10:00:00', '2024-01-02 10:00:00')");
         }
 
         $command = app(ImportFromWhmcs::class);
         (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
-        $command->setOutput(new OutputStyle(new ArrayInput([]), new NullOutput));
-        (new ReflectionMethod($command, 'importProducts'))->invoke($command);
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        (new ReflectionMethod($command, 'importCatalog'))->invoke($command);
+        $this->assertStringContainsString('pro rata day 31 imported as 28', $output->fetch());
 
         foreach ($cases as $id => [, $expected]) {
             $product = Product::query()->findOrFail($id);
