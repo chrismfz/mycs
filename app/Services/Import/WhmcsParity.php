@@ -42,13 +42,14 @@ final class WhmcsParity
             DB::table('clients')->whereNotExists(fn ($contact) => $contact->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id')
                 ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
 
-        // WG-2: the catalog as the catalog's import brings it, a product of a group not there skipped. Listed: neither hidden
-        // nor retired, in a group not hidden, and of no SSL module retired here (importOfflineSsl). A package: cPanel's, ngm's.
+        // WG-2: the catalog as the catalog's import brings it, every product (one of a group WHMCS deleted too, hidden:
+        // ADV-646-2). Listed: neither hidden nor retired, in a group there and not hidden, and of no SSL module retired here
+        // (importOfflineSsl). A package: cPanel's, ngm's.
         if ($this->hasColumn('tblproducts', 'retired') && $this->hasColumn('tblproductgroups', 'hidden')) {
-            $products = 'FROM tblproducts p JOIN tblproductgroups g ON g.id = p.gid';
+            $products = 'FROM tblproducts p LEFT JOIN tblproductgroups g ON g.id = p.gid';
             $ssl = "'" . implode("', '", array_keys(ImportFromWhmcs::OFFLINE_SSL_MODULES)) . "'";
             $add('Products', $this->count("SELECT COUNT(*) {$products}"), DB::table('products')->whereNotNull('whmcs_id')->count());
-            $add('Products listed', $this->count("SELECT COUNT(*) {$products} WHERE p.hidden = 0 AND p.retired = 0 AND g.hidden = 0
+            $add('Products listed', $this->count("SELECT COUNT(*) {$products} WHERE p.hidden = 0 AND p.retired = 0 AND g.id IS NOT NULL AND g.hidden = 0
                 AND LOWER(COALESCE(p.servertype, '')) NOT IN ({$ssl})"),
                 DB::table('products')->whereNotNull('whmcs_id')->where('hidden', false)->count());
             $add('Products with a package', $this->count("SELECT COUNT(*) {$products} WHERE (LOWER(p.servertype) = 'cpanel' AND p.configoption1 <> '')

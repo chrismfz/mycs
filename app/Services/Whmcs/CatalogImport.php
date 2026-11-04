@@ -171,9 +171,10 @@ final class CatalogImport
     }
 
     /**
-     * The full importer's step (app:import-from-whmcs, after its products): WHMCS's servers and server groups, and each
-     * product's group and server as run() gives them, so that every account comes in on its own server (AUD4-1). A
-     * product is found by its `whmcs_id`, else by the same id (the full importer keeps WHMCS's).
+     * The full importer's step (app:import-from-whmcs, before productsForFullImport, which gives each product its group
+     * and server from it): WHMCS's servers and server groups, so that every account comes in on its own server (AUD4-1).
+     * A product here already (found by its `whmcs_id`, else by the same id) is given its group and server too; in the
+     * full import there is none yet.
      *
      * @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} server_ids: WHMCS server id => its server here (a cluster's nodes share one)
      */
@@ -524,10 +525,12 @@ final class CatalogImport
         $rows = $this->rows('SELECT * FROM tblproducts ORDER BY id');
         foreach ($rows as $row) {
             $categoryId = $this->categoryIds[(int) $row['gid']] ?? null;
-            if ($categoryId === null) {
-                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing, skipped.";
-
-                continue;
+            // Its group deleted in WHMCS, which still renews its services: brought, hidden, in a hidden group of its own, never
+            // skipped (ADV-646-1: a live service on it pointed at no product and no plan, never renewed).
+            $orphan = $categoryId === null;
+            if ($orphan) {
+                $categoryId = $this->groupless();
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing in WHMCS, brought hidden in «" . self::GROUPLESS_NAME . '».';
             }
             $product = $this->byWhmcs(Product::class, 'whmcs_id', (int) $row['id']);
             $slug = (string) ($row['slug'] ?? '') ?: Str::slug((string) $row['name']);
@@ -545,7 +548,7 @@ final class CatalogImport
                 'slug' => $this->uniqueSlug('products', $slug ?: 'product-' . $row['id'], $product->id),
                 // Retired in WHMCS: not ordered any more, its own flag (ADV-1 of #216: a stock of 0 came back with the
                 // first cancellation); a hidden group's products are not listed (reviews 5, F1).
-                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || ($this->hiddenGroups[(int) $row['gid']] ?? false),
+                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || $orphan || ($this->hiddenGroups[(int) $row['gid']] ?? false),
                 'retired' => $retired,
                 'taxable' => (bool) ($row['tax'] ?? true),
                 'prorata_day' => ($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) >= 1 ? min((int) $row['proratadate'], 28) : null,
@@ -599,7 +602,9 @@ final class CatalogImport
                 $licensing ??= Server::query()->firstOrCreate(['extension' => 'NixpalLicensing'], ['name' => 'nixpal Licensing', 'type' => 'server', 'enabled' => true]);
                 (new WhmcsLicensingImport($this->whmcs))->productSettings($product, $row, $licensing);
                 $this->counts['licensing_products']++;
-            } elseif ($module !== '' && !in_array($module, ['cpanel', 'ngm'], true)) {
+            } elseif ($module !== '' && !isset(self::SERVER_MODULES[$module])) {
+                // A server module's product has its server (above): only one of a module with no extension here is told
+                // (review of #646: ~80 notes on myip hid the few that need staff).
                 $this->notes[] = "Product #{$row['id']} «{$row['name']}»: module «{$module}» not mapped (its settings stay to be set).";
             }
         }
@@ -621,6 +626,20 @@ final class CatalogImport
                 }
             }
         }
+    }
+
+    private const GROUPLESS_NAME = 'Without a group (WHMCS)';
+
+    /** The hidden group of the products whose WHMCS group is gone: one, found again on a re-run by its slug. */
+    private function groupless(): int
+    {
+        $category = Category::query()->whereNull('whmcs_id')->where('slug', 'whmcs-without-group')->first() ?? new Category;
+        if (!$category->exists) {
+            $category->forceFill(['name' => self::GROUPLESS_NAME, 'slug' => $this->uniqueSlug('categories', 'whmcs-without-group', null),
+                'show_in_menu' => false, 'sort' => 255])->save();
+        }
+
+        return $category->id;
     }
 
     /** The group's first enabled server of the module, else the module's default one. */

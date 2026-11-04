@@ -478,8 +478,9 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
   groups, τα retired, τις τιμές 0.00, τη σειρά και τις συνδέσεις των config options (γράφονταν με τα ids του WHMCS,
   ενώ τα options έπαιρναν νέα). Products και groups **κρατούν το id του WHMCS** (`keepWhmcsIds`), γιατί σε αυτό
   δείχνουν οι υπηρεσίες, οι παραγγελίες και τα licenses· ένα id που υπάρχει ήδη εδώ σταματά το import, δεν παίρνει
-  άλλο. Product με group που δεν υπάρχει παραλείπεται με σημείωση (myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το
-  `mycs:parity` μετρά products, listed products και products με `package`.
+  άλλο. Product με group που το WHMCS έσβησε έρχεται κρυφό, σε κρυφό group «Without a group (WHMCS)», με σημείωση: το
+  WHMCS ανανεώνει ακόμα τις υπηρεσίες του (ADV-646-1· myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το `mycs:parity` μετρά
+  όλα τα products, τα listed και όσα έχουν `package`.
 - Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.
 

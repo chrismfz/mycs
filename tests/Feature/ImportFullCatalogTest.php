@@ -110,10 +110,14 @@ class ImportFullCatalogTest extends TestCase
     {
         $output = $this->import();
 
-        $this->assertSame([21, 22, 23], Product::query()->orderBy('id')->pluck('id')->all());
-        $this->assertSame([21, 22, 23], Product::query()->orderBy('id')->pluck('whmcs_id')->all());
-        $this->assertSame([3, 8], Category::query()->orderBy('id')->pluck('id')->all());
-        $this->assertStringContainsString('Product #24 «Lost»: its group #99 is missing, skipped.', $output);
+        $this->assertSame([21, 22, 23, 24], Product::query()->orderBy('id')->pluck('id')->all());
+        $this->assertSame([21, 22, 23, 24], Product::query()->orderBy('id')->pluck('whmcs_id')->all());
+        $this->assertSame([3, 8], Category::query()->whereNotNull('whmcs_id')->orderBy('id')->pluck('id')->all());
+        // Its group deleted in WHMCS (ADV-646-1): brought, hidden, in a hidden group of its own.
+        $this->assertStringContainsString('Product #24 «Lost»: its group #99 is missing in WHMCS, brought hidden', $output);
+        $lost = Product::query()->findOrFail(24);
+        $this->assertTrue((bool) $lost->hidden);
+        $this->assertFalse((bool) Category::query()->findOrFail($lost->category_id)->show_in_menu);
 
         $hosting = Product::query()->findOrFail(21);
         $this->assertSame('nix_small', $this->setting($hosting, 'package'));
@@ -130,7 +134,7 @@ class ImportFullCatalogTest extends TestCase
 
         $partners = Category::query()->findOrFail(8);
         $this->assertFalse((bool) $partners->show_in_menu);
-        $this->assertSame([2, 5], Category::query()->orderBy('id')->pluck('sort')->all());
+        $this->assertSame([2, 5], Category::query()->whereNotNull('whmcs_id')->orderBy('id')->pluck('sort')->all());
         $this->assertTrue((bool) Product::query()->findOrFail(22)->hidden, 'a hidden group\'s product is not listed');
         $old = Product::query()->findOrFail(23);
         $this->assertTrue((bool) $old->retired);
@@ -184,8 +188,8 @@ class ImportFullCatalogTest extends TestCase
         $catalog = fn () => collect((new WhmcsParity($this->whmcs))->rows())->filter(fn (array $row) => str_starts_with($row['metric'], 'Products'))
             ->mapWithKeys(fn (array $row) => [$row['metric'] => [$row['whmcs'], $row['mycs'], $row['same']]])->all();
 
-        // Lost's group is not there (skipped on both sides); only Hosting S is listed; all three have a package.
-        $this->assertSame(['Products' => [3, 3, true], 'Products listed' => [1, 1, true], 'Products with a package' => [3, 3, true]], $catalog());
+        // Lost (its group gone) counts, not listed; only Hosting S is listed; three have a package.
+        $this->assertSame(['Products' => [4, 4, true], 'Products listed' => [1, 1, true], 'Products with a package' => [3, 3, true]], $catalog());
 
         Setting::query()->where('key', 'package')->where('settingable_id', 23)->delete();
         $this->assertSame([3, 2, false], $catalog()['Products with a package']);
