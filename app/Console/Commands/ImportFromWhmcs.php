@@ -510,7 +510,8 @@ class ImportFromWhmcs extends Command
             . " 'SendReminder', 'SendInvoiceReminderDays', 'SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder',"
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
-            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade', 'AddFundsMinimum', 'AddFundsMaximum',"
+            . " 'AddFundsMaximumBalance', 'OrderDaysGrace')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -527,6 +528,25 @@ class ImportFromWhmcs extends Command
 
             return ctype_digit($value) && strlen($value) <= 4 && (int) $value <= 3650 ? (string) (int) $value : null;
         };
+        // An amount as WHMCS keeps it («5000.00»), to two decimals, without float; a maximum of 0 is none (it would refuse
+        // every deposit), kept as MyCS's own.
+        $money = function (string $key, bool $positive) use ($config): ?string {
+            $value = trim((string) ($config[$key] ?? ''));
+            if (!preg_match('/^\d{1,9}(\.\d+)?$/', $value)) {
+                return null;
+            }
+            $value = bcadd($value, '0', 2);
+
+            return $positive && bccomp($value, '0', 2) <= 0 ? null : $value;
+        };
+        $deposits = ['credits_minimum_deposit' => $money('AddFundsMinimum', false), 'credits_maximum_deposit' => $money('AddFundsMaximum', true),
+            'credits_maximum_credit' => $money('AddFundsMaximumBalance', true)];
+        // WHMCS's limits only as a whole that makes sense: a minimum above the maximum would refuse every deposit (WG-3).
+        if ($deposits['credits_minimum_deposit'] !== null && $deposits['credits_maximum_deposit'] !== null
+            && bccomp($deposits['credits_minimum_deposit'], $deposits['credits_maximum_deposit'], 2) > 0) {
+            $this->warn("WHMCS's minimum deposit {$deposits['credits_minimum_deposit']} is above its maximum {$deposits['credits_maximum_deposit']}: both kept as MyCS's own.");
+            $deposits['credits_minimum_deposit'] = $deposits['credits_maximum_deposit'] = null;
+        }
         $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
             ? (int) $config['DailyCronExecutionHour'] : null;
         // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 or empty is never, on both sides.
@@ -576,6 +596,11 @@ class ImportFromWhmcs extends Command
             // «Credit on Downgrade»: the rest of the period's difference as account credit, or nothing (2026-11-03: nixpal on,
             // myip off, MyCS's default on: myip's downgrades would have given credit WHMCS never gave).
             'credits_on_downgrade' => $has('CreditOnDowngrade') ? ['boolean', $on('CreditOnDowngrade') ? '1' : '0'] : null,
+            // «Add Funds» limits (WG-3: myip 1 / 5,000 / 10,000, nixpal 2 / 1,000 / 1,000; MyCS's defaults 5 / 100 / 300
+            // refused 13 of myip's last year's deposits).
+            ...array_map(fn (?string $value) => $value !== null ? ['string', $value] : null, $deposits),
+            // «Order Days Grace»: a new order's invoice is due after it (WG-4: myip 8, nixpal 0, the same day).
+            'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {

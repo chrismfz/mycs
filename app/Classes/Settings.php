@@ -707,6 +707,16 @@ class Settings
                     'description' => 'The email(s) or merchant id(s) of our PayPal account(s), comma-separated. A PayPal notice still sent to WHMCS\'s old address is told to staff only when it is for one of them (PR H2b).',
                 ],
                 [
+                    'name' => 'order_days_grace',
+                    'section' => 'Billing Settings',
+                    'label' => 'New order invoice due in',
+                    'type' => 'number',
+                    'default' => 7,
+                    'required' => true,
+                    'min_value' => 0,
+                    'description' => 'Days from the order to the due date of its invoice (WHMCS «Order Days Grace»). 0: due the same day.',
+                ],
+                [
                     'name' => 'cronjob_order_cancel',
                     'section' => 'Billing Settings',
                     'label' => 'Cancel unpaid orders after',

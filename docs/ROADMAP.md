@@ -117,8 +117,9 @@ adversarial review.
 - [x] ~~**WG-2** Το πλήρες import να φτιάχνει τον κατάλογο με το `CatalogImport` (package cPanel/ngm, κρυφές ομάδες,
       retired, δωρεάν τιμές, σειρά, συνδέσεις των config options).~~ Το καλεί μετά τους servers, με τα ids του WHMCS·
       parity για products, listed και package (feat/import-catalog-full).
-- [ ] **WG-3** Όρια του Add Funds από το WHMCS (σήμερα 5/100/300).
-- [ ] **WG-4** Ρύθμιση προθεσμίας του πρώτου τιμολογίου (`OrderDaysGrace`: myip 8, nixpal 0· σήμερα 7).
+- [x] ~~**WG-3** Όρια του Add Funds από το WHMCS (σήμερα 5/100/300).~~ Από τον importer (feat/import-funds-order-grace).
+- [x] ~~**WG-4** Ρύθμιση προθεσμίας του πρώτου τιμολογίου (`OrderDaysGrace`: myip 8, nixpal 0· σήμερα 7).~~ Ρύθμιση
+      `order_days_grace` (default 7), από τον importer (feat/import-funds-order-grace).
 - [ ] **WG-5** Δικαιώματα των ρόλων staff εκτός Full Administrator (runbook ή αντιστοίχιση).
 - [ ] **WG-6** Promotions: να μην κλείνουν όσα εκφράζει πια το MyCS (#274).
 - [ ] **WG-7** `TermsOfService` → `tos`.

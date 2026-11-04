@@ -115,7 +115,7 @@ final class PlaceOrderService
                     // Made only when something is due (CART-7), with the lines priced in this transaction.
                     $invoice ??= Invoice::query()->create([
                         'client_id' => $client->id,
-                        'due_at' => $dueAt ?? now()->addDays(7),
+                        'due_at' => $dueAt ?? self::orderDueAt(),
                         'currency_code' => $currency,
                         'status' => $invoiceStatus,
                     ]);
@@ -188,6 +188,12 @@ final class PlaceOrderService
      * code the customer gave. Its line (kind register / transfer, never a renewal) bills it at the catalog price, net of
      * VAT (D-19); one at no price (a free transfer, D-6) has none and waits for its registrar like the others (D8b-2).
      */
+    /** A new order's invoice: due after the Order Days Grace (WHMCS's, WG-4: myip 8, nixpal 0, the same day). */
+    public static function orderDueAt(): CarbonInterface
+    {
+        return now()->addDays(max(0, (int) config('settings.order_days_grace', 7)));
+    }
+
     private function placeDomain(Order $order, Client $client, string $currency, DomainOrderLine $line, ?Invoice $invoice, ?CarbonInterface $dueAt, string $invoiceStatus): ?Invoice
     {
         if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {
@@ -236,7 +242,7 @@ final class PlaceOrderService
         }
         $invoice ??= Invoice::query()->create([
             'client_id' => $client->id,
-            'due_at' => $dueAt ?? now()->addDays(7),
+            'due_at' => $dueAt ?? self::orderDueAt(),
             'currency_code' => $currency,
             'status' => $invoiceStatus,
         ]);
