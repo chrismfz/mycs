@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Payment\ItemPaymentMethod;
@@ -325,7 +326,27 @@ class Domain extends Model implements Auditable
             return $this->renewalPrice();
         }
 
-        return $this->staffPriced() ? null : $this->domainTld?->loadMissing('prices')->priceFor('renew', $years, $this->currency_code);
+        return $this->staffPriced() ? null : $this->catalogRenewalPrice($years);
+    }
+
+    /**
+     * Its TLD's renew price for $years, in its currency, less its account's group discount when the group gives it on
+     * domains too (owner 2026-11-05: a deal that follows the catalog); null when not priced. Never on a price of its own
+     * (recurring_amount, a deal kept or staff's) nor on a grace or redemption fee. Never 100% or more: a free renewal the
+     * registrar still charges for (ADV-656-1); the form refuses it, and one set otherwise renews at the catalog's.
+     */
+    public function catalogRenewalPrice(int $years): ?string
+    {
+        $price = $this->domainTld?->loadMissing('prices')->priceFor('renew', max(1, $years), (string) $this->currency_code);
+        if ($price === null) {
+            return null;
+        }
+        $group = $this->client->group;
+        if ($group === null || !$group->applies_to_domains || (float) $group->discount_percent <= 0 || (float) $group->discount_percent >= 100) {
+            return $price;
+        }
+
+        return ClientGroupPricing::discounted((string) $price, (string) $group->discount_percent);
     }
 
     /**
@@ -429,7 +450,7 @@ class Domain extends Model implements Auditable
             return null; // never at its TLD's price
         }
 
-        return $this->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $this->years), $this->currency_code);
+        return $this->catalogRenewalPrice(max(1, (int) $this->years));
     }
 
     /**
