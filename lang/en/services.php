@@ -471,6 +471,7 @@ return [
             'plan_unpriced' => 'This cycle has no price in the service\'s currency.',
             'quantity' => 'This addon is added one at a time.',
             'price_negative' => 'The price cannot be negative.',
+            'stock' => 'Only :stock left in stock.',
             'action' => 'Add addon',
             'product' => 'Addon',
             'plan' => 'Cycle',

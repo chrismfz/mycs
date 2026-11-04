@@ -57,9 +57,9 @@ class AddAddonAction extends Action
                 Select::make('plan_id')->label(__('services.addons.add.plan'))->required()->live()
                     ->options(fn (Get $get) => self::planOptions($record, $get('product_id')))
                     ->disabled(fn (Get $get) => blank($get('product_id'))),
-                TextInput::make('quantity')->label(__('services.addons.add.quantity_label'))->integer()->minValue(1)->default(1)->required()->live(onBlur: true)
+                TextInput::make('quantity')->label(__('services.addons.add.quantity_label'))->integer()->minValue(1)->maxValue(1000)->default(1)->required()->live(onBlur: true)
                     ->visible(fn (Get $get) => (Product::query()->whereKey($get('product_id'))->value('allow_quantity') ?? 'disabled') !== 'disabled'),
-                TextInput::make('price')->label(__('services.addons.add.price'))->numeric()->minValue(0)->live(onBlur: true)
+                TextInput::make('price')->label(__('services.addons.add.price'))->numeric()->minValue(0)->maxValue(999999)->step(0.01)->live(onBlur: true)
                     ->prefix($record->currency?->prefix)->suffix($record->currency?->suffix)
                     ->placeholder(fn (Get $get) => self::catalog($record, $get('product_id'), $get('plan_id')))
                     ->helperText(fn (Get $get) => ($price = self::catalog($record, $get('product_id'), $get('plan_id'))) !== null
@@ -76,7 +76,8 @@ class AddAddonAction extends Action
                     ->state(fn (Get $get) => self::summary($record, $get('product_id'), $get('plan_id'), $get('quantity'), $get('price'), $get('start'), $get('date'))),
             ])
             ->action(function (array $data, Service $record, Action $action) {
-                if (($data['start'] ?? null) !== AddAddon::NO_INVOICE && !Gate::allows('has-permission', 'admin.invoices.create')) {
+                $invoiced = ($data['start'] ?? null) !== AddAddon::NO_INVOICE && Plan::query()->whereKey($data['plan_id'] ?? 0)->value('type') === 'recurring';
+                if ($invoiced && !Gate::allows('has-permission', 'admin.invoices.create')) {
                     Notification::make()->danger()->title(__('services.addons.add.no_rights'))->send();
                     $action->halt();
                 }

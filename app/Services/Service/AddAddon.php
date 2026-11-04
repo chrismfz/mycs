@@ -11,6 +11,7 @@ use App\Models\Service;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Payment\ItemPaymentMethod;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -75,12 +76,15 @@ final class AddAddon
         if ($parent->expires_at === null || $plan->type !== 'recurring') {
             return null;
         }
-        $end = CarbonImmutable::parse($parent->expires_at)->startOfDay();
-        if (!$end->greaterThan($today)) {
+        $due = CarbonImmutable::parse($parent->expires_at)->startOfDay();
+        if (!$due->greaterThan($today)) {
             return null;
         }
         $count = max(1, (int) $plan->billing_period);
-        for ($back = BillingPeriod::start($end, $plan->billing_unit, $count); $back->greaterThan($today); $back = BillingPeriod::start($end, $plan->billing_unit, $count)) {
+        // Counted back from the parent's date itself, k cycles at once: a 31st stays the 31st where the month has one, never
+        // drifting to the 28th step by step (code review 2 of #637).
+        $end = $due;
+        for ($k = 1; ($back = BillingPeriod::start($due, $plan->billing_unit, $count * $k))->greaterThan($today); $k++) {
             $end = $back;
         }
 
@@ -103,14 +107,22 @@ final class AddAddon
             $end = self::alignedEnd($parent, $plan) ?? throw new DisplayException(__('services.addons.add.no_due_date'));
             $full = BillingPeriod::start($end, $plan->billing_unit, $count);
 
-            return [$today, $end, BillingPeriod::remaining($price, $full, $end, $today)];
+            return [$today, $end, self::plusSetupFee(BillingPeriod::remaining($price, $full, $end, $today), $plan, $parent->currency_code)];
         }
         $from = CarbonImmutable::instance($date ?? $today)->startOfDay();
         if ($from->lessThan($today)) {
             throw new DisplayException(__('services.addons.add.date_past'));
         }
 
-        return [$from, BillingPeriod::end($from, $plan->billing_unit, $count), (string) BigDecimal::of($price)->toScale(2)];
+        return [$from, BillingPeriod::end($from, $plan->billing_unit, $count), self::plusSetupFee($price, $plan, $parent->currency_code)];
+    }
+
+    /** Its first invoice charges the plan's setup fee too, on the same line, as an order's first invoice does (code review 5). */
+    private static function plusSetupFee(string $amount, Plan $plan, ?string $currency): string
+    {
+        $fee = $plan->prices->firstWhere('currency_code', $currency)->setup_fee ?? null;
+
+        return (string) BigDecimal::of($amount)->plus(BigDecimal::of(blank($fee) ? '0' : (string) $fee))->toScale(2, RoundingMode::HalfUp);
     }
 
     /** Its price per unit for one cycle as the catalog and the account have it (group discount), for the form. */
@@ -139,7 +151,8 @@ final class AddAddon
             if (($refused = self::refusal($parent)) !== null) {
                 throw new DisplayException($refused);
             }
-            $product = Product::query()->whereKey($product->id)->with('plans.prices')->firstOrFail();
+            // Locked: two staff cannot both take the last unit (as an order, PlaceOrderService).
+            $product = Product::query()->whereKey($product->id)->with('plans.prices')->lockForUpdate()->firstOrFail();
             if (!$product->is_addon || $product->retired || !$product->appliesTo($parent)) {
                 throw new DisplayException(__('services.addons.add.not_for_this', ['addon' => $product->name]));
             }
@@ -147,8 +160,16 @@ final class AddAddon
             if ($quantity < 1 || ($quantity > 1 && ($product->allow_quantity ?? 'disabled') === 'disabled')) {
                 throw new DisplayException(__('services.addons.add.quantity'));
             }
+            // Its stock as an order takes it, given back when it ends (ADV-637-3).
+            if ($product->stock !== null) {
+                if ((int) $product->stock < $quantity) {
+                    throw new DisplayException(__('services.addons.add.stock', ['stock' => (int) $product->stock]));
+                }
+                $product->decrement('stock', $quantity);
+            }
             $catalog = self::catalogPrice($parent, $product, $plan);
-            $unit = $price === null || trim($price) === '' ? $catalog : (string) BigDecimal::of(trim($price))->toScale(2);
+            // Cents, rounded half up: a price typed with more decimals is not an error page (code review 4 of #637).
+            $unit = $price === null || trim($price) === '' ? $catalog : (string) BigDecimal::of(trim($price))->toScale(2, RoundingMode::HalfUp);
             if (BigDecimal::of($unit)->isNegative()) {
                 throw new DisplayException(__('services.addons.add.price_negative'));
             }
@@ -170,8 +191,10 @@ final class AddAddon
                 'expires_at' => $noInvoice && $plan->type === 'recurring' ? $due : null,
             ]);
             // Prorated to its parent's date: it renews on its parent's day (a 31st stays a 31st through short months).
+            // Its effective day, not only a stored one (a 31st with none stored: code review 1 of #637); its payment keeps it
+            // (RenewServiceService).
             if ($start === self::PRORATED) {
-                $addon->forceFill(['billing_day' => $parent->billing_day]);
+                $addon->forceFill(['billing_day' => $parent->billingDay(CarbonImmutable::parse($parent->expires_at))]);
             }
             $addon->save();
 
@@ -190,7 +213,7 @@ final class AddAddon
             }
 
             [$from, $until, $amount] = $quote;
-            $own = ItemPaymentMethod::live($addon);
+            $own = ItemPaymentMethod::apart($addon); // as its renewals will be (RenewalBilling::ownGateway; code review 6)
             $invoice = new Invoice(['client_id' => $addon->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $from,
                 'currency_code' => $addon->currency_code] + ($own !== null ? ['preferred_gateway_id' => $own] : []));
             // Finished (numbered, mailed, paid by credit) once its line is on it, as a renewal's (RenewalBilling).
@@ -202,10 +225,10 @@ final class AddAddon
                 'reference_type' => Service::class,
                 'price' => $amount,
                 'quantity' => $quantity,
-                'description' => $addon->describeLine($from, $until),
+                'description' => $addon->describeLine($from, $until) . RenewalBilling::groupNote($addon->fresh() ?? $addon),
                 'period_start' => $from,
                 'period_end' => $until,
-                'payment_gateway_id' => $own,
+                'payment_gateway_id' => ItemPaymentMethod::live($addon),
             ]);
 
             return ['service' => $addon, 'invoice' => $invoice];
