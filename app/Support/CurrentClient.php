@@ -47,7 +47,8 @@ class CurrentClient
 
         $client = null;
         if ($wanted !== null) {
-            $client = $user->clients()->whereKey((int) $wanted)->first();
+            // A closed account is not worked on (review of #651: pay, add funds, upgrade): staff in «Login as client» may.
+            $client = $user->clients()->whereKey((int) $wanted)->when(!$impersonating, fn ($open) => $open->whereNull('clients.closed_at'))->first();
         }
         $client ??= self::defaultFor($user);
         if ($client !== null && !$impersonating) {
@@ -105,8 +106,9 @@ class CurrentClient
     public function switchTo(int $clientId): bool
     {
         $user = Auth::guard('web')->user();
-        if (!$user instanceof User || !$user->clients()->whereKey($clientId)->exists()) {
-            return false;
+        if (!$user instanceof User || !$user->clients()->whereKey($clientId)
+            ->when(!Actor::impersonating(), fn ($open) => $open->whereNull('clients.closed_at'))->exists()) {
+            return false; // not theirs, or closed (review of #651)
         }
         $this->session()?->put(self::SESSION_KEY, $clientId);
         $this->forget();

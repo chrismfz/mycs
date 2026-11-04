@@ -185,15 +185,6 @@ class User extends Authenticatable implements Auditable, HasAvatar
      * The account this login works on (docs/accounts.md, PR 2a): in the client area the current one (CurrentClient),
      * otherwise the first it sees, its own first. Null for a login without any account.
      */
-    /**
-     * Whether its every account is closed (WG-8, WHMCS «Closed»): it cannot sign in then. A login of no account (108 on
-     * myip) or one with an open account still can.
-     */
-    public function closedOut(): bool
-    {
-        return $this->clients()->exists() && !$this->clients()->whereNull('clients.closed_at')->exists();
-    }
-
     public function client(): ?Client
     {
         if (Auth::guard('web')->id() === $this->id) {
@@ -201,6 +192,15 @@ class User extends Authenticatable implements Auditable, HasAvatar
         }
 
         return CurrentClient::defaultFor($this);
+    }
+
+    /**
+     * Whether its every account is closed (WG-8, WHMCS «Closed»): it cannot sign in then. A login of no account (108 on
+     * myip) or one with an open account still can.
+     */
+    public function closedOut(): bool
+    {
+        return $this->clients()->exists() && !$this->clients()->whereNull('clients.closed_at')->exists();
     }
 
     /** @return HasMany<Notification, $this> */

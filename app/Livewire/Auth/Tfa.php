@@ -103,10 +103,11 @@ class Tfa extends Component
     /** @param  array{user_id: int, remember: bool, expires: mixed}  $session */
     private function finish(Login $loginAction, User $user, array $session)
     {
-        if ($user->closedOut()) { // closed meanwhile (WG-8)
+        if ($user->closedOut()) { // closed meanwhile (WG-8): told why, a full page load as the rest (review of #651)
             Session::forget('2fa');
+            session()->put('notification', ['type' => 'error', 'message' => __('auth.closed')]);
 
-            return $this->redirect(route('login'));
+            return $this->redirect(route('login'), true);
         }
         $loginAction->execute($user, $session['remember']);
 

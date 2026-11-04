@@ -123,7 +123,8 @@ class ImportClientStatusConsentTest extends TestCase
         $this->import();
         $session = UserSession::create(['user_id' => 801, 'ip_address' => '127.0.0.1', 'user_agent' => 'x',
             'last_activity' => now(), 'expires_at' => now()->addDays(30)]);
-        Client::query()->findOrFail(801)->update(['closed_at' => now()]);
+        // Past the model (its observer ends the sessions, review of #651): the cookie's own check, a second line.
+        DB::table('clients')->where('id', 801)->update(['closed_at' => now()]);
 
         $this->withCookie(AuthCookies::remember(), $session->ulid)->get('/dashboard')->assertRedirect(url('/'));
         $this->assertGuest('web');
