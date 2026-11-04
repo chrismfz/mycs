@@ -11,6 +11,7 @@ use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\ColorColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -53,6 +54,12 @@ class ClientGroupResource extends Resource
                     ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on a price kept by hand.')),
                 // Owner 2026-11-05: a deal on domains that follows the catalog (their TLD's price less this), never one kept by hand.
                 Toggle::make('applies_to_domains')->label(__('Also on domains'))
+                    // Never at 100%: free renewals the registrar still charges for (ADV-656-1).
+                    ->rule(fn (Get $get) => function (string $attribute, mixed $value, \Closure $fail) use ($get) {
+                        if ($value && (float) $get('discount_percent') >= 100) {
+                            $fail(__('A group at 100% cannot discount domains: they would renew free.'));
+                        }
+                    })
                     ->helperText(__('Off its members\' domain renewals at their TLD\'s price, from their next renewal invoice. Never on a domain\'s own renewal price, nor on grace or redemption fees.')),
                 // WHMCS's group settings (sweep of myip, 2026-10-25): each holds for every member, whatever the member's own.
                 Toggle::make('separate_invoices')->label(__('Separate invoices'))

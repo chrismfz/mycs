@@ -658,7 +658,7 @@ class ViewDomain extends ViewRecord
                         ->rule('regex:/^\d{1,8}(\.\d{1,2})?$/')
                         ->prefix(fn (Domain $record) => $record->currency_code)
                         ->placeholder(fn (Domain $record) => $record->catalogRenewalPrice(max(1, (int) $record->years)) ?? '—')
-                        ->helperText(__('Empty: the TLD\'s renew price (shown). From its next renewal invoice; one already made keeps its price.'))
+                        ->helperText(__('Empty: the TLD\'s renew price, less its group\'s discount on domains (shown). From its next renewal invoice; one already made keeps its price.'))
                         ->hintAction(Action::make('recalculate')->label(__('Recalculate'))->icon('heroicon-o-arrow-path')
                             ->action(fn (Set $set) => $set('recurring_amount', null))),
                     // Its own payment method (owner 2026-10-29, as WHMCS's): its renewals invoiced apart with it.

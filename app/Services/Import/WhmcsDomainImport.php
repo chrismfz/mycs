@@ -469,7 +469,8 @@ final class WhmcsDomainImport
     public static function expectedRenewal(Domain $domain, string $whmcsAmount): string
     {
         $amount = number_format((float) $whmcsAmount, 2, '.', '');
-        $tld = $domain->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $domain->years), (string) $domain->currency_code);
+        // Its catalog price as it renews: its group's discount on domains in it (D-23; R656-1, ADV-656-2).
+        $tld = $domain->catalogRenewalPrice(max(1, (int) $domain->years));
 
         return self::followsCatalog($amount, $tld, self::addonsInIt($domain)) && !self::keepsOwn($domain) ? (string) $tld : $amount;
     }
@@ -483,9 +484,10 @@ final class WhmcsDomainImport
         $follow = [];
         $dearer = [];
         $kept = [];
-        foreach (Domain::query()->whereNotNull('recurring_amount')->with('domainTld.prices')->lazyById() as $domain) {
+        foreach (Domain::query()->whereNotNull('recurring_amount')->with(['domainTld.prices', 'client.group'])->lazyById() as $domain) {
             $amount = (string) $domain->recurring_amount;
-            $tld = $domain->domainTld?->priceFor('renew', max(1, (int) $domain->years), (string) $domain->currency_code);
+            // As it would renew: a group's discount on domains in it, so a deal that is exactly that follows (R656-2).
+            $tld = $domain->catalogRenewalPrice(max(1, (int) $domain->years));
             $live = !in_array($domain->status, [DomainStatus::TransferredAway, DomainStatus::Cancelled, DomainStatus::Deleted, DomainStatus::Expired], true);
             if (self::followsCatalog($amount, $tld, self::addonsInIt($domain)) && !self::keepsOwn($domain)) {
                 $follow[] = $domain->id;

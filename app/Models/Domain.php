@@ -332,13 +332,17 @@ class Domain extends Model implements Auditable
     /**
      * Its TLD's renew price for $years, in its currency, less its account's group discount when the group gives it on
      * domains too (owner 2026-11-05: a deal that follows the catalog); null when not priced. Never on a price of its own
-     * (recurring_amount, a deal kept or staff's) nor on a grace or redemption fee.
+     * (recurring_amount, a deal kept or staff's) nor on a grace or redemption fee. Never 100% or more: a free renewal the
+     * registrar still charges for (ADV-656-1); the form refuses it, and one set otherwise renews at the catalog's.
      */
     public function catalogRenewalPrice(int $years): ?string
     {
         $price = $this->domainTld?->loadMissing('prices')->priceFor('renew', max(1, $years), (string) $this->currency_code);
+        if ($price === null) {
+            return null;
+        }
         $group = $this->client->group;
-        if ($price === null || $group === null || !$group->applies_to_domains || (float) $group->discount_percent <= 0) {
+        if ($group === null || !$group->applies_to_domains || (float) $group->discount_percent <= 0 || (float) $group->discount_percent >= 100) {
             return $price;
         }
 

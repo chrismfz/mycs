@@ -12,7 +12,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A customer group (ROADMAP 5, as WHMCS's): a name and colour for staff, and a percentage off its members' services,
- * taken in their price after a coupon (OrderPricing::line). Never on domains.
+ * taken in their price after a coupon (OrderPricing::line). On domains only with «Also on domains» (Domain::catalogRenewalPrice, D-23).
  *
  * @property int $id
  * @property string $name
