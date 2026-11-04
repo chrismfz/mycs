@@ -178,16 +178,19 @@
         @apply text-xs;
     }
 
-    /* The sparkline at the value's height on the right, 3.5rem by 1rem, as the mockup's. */
+    /*
+     * The sparkline small, 3.5rem by 1rem, on the right of the label's line: the label is short, and the value keeps
+     * the whole width, so a revenue in thousands does not break inside its number (review of #640).
+     */
     & .fi-wi-stats-overview-stat-chart {
-        @apply start-auto end-3 top-6 bottom-auto w-14 rounded-none;
+        @apply start-auto end-3 top-2 bottom-auto w-14 rounded-none;
 
         & > canvas {
             @apply h-4;
         }
     }
 
-    &:has(.fi-wi-stats-overview-stat-chart) .fi-wi-stats-overview-stat-value {
+    &:has(.fi-wi-stats-overview-stat-chart) .fi-wi-stats-overview-stat-label-ctn {
         @apply pe-16;
     }
 }

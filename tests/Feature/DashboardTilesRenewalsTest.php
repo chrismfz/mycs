@@ -6,6 +6,7 @@ use App\Admin\Widgets\Overview;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Models\Currency;
+use App\Models\Order;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -87,5 +88,48 @@ class DashboardTilesRenewalsTest extends TestCase
             Livewire::test($widget)->assertSee('Within 30 days')->assertDontSee('Active filters')
                 ->set('tableFilters.within.value', '7')->assertSee('Within 7 days');
         }
+    }
+
+    /** Review of #640: a card with a number is not dimmed, nor one that dropped to nothing (that is news). */
+    public function test_a_waiting_order_and_a_drop_to_nothing_are_not_dimmed(): void
+    {
+        $this->travelTo('2026-11-04 12:00:00');
+        $client = User::factory()->create()->client();
+        Order::query()->create(['client_id' => $client->id, 'currency_code' => 'EUR', 'status' => Order::STATUS_PENDING]);
+        $this->travelTo('2026-09-20 12:00:00');
+        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before', 'status' => 'open', 'priority' => 'low']);
+        $this->travelTo('2026-11-04 12:00:00');
+
+        $stats = $this->stats();
+
+        $this->assertFalse($this->quiet($stats['Pending Orders']));
+        $this->assertSame('0', (string) $stats['Tickets']->getValue());
+        $this->assertSame('Decreased by 100.0% (last 30 days)', $stats['Tickets']->getDescription());
+        $this->assertFalse($this->quiet($stats['Tickets']), 'a drop to nothing');
+    }
+
+    /** Review of #640: the percentage as Greek writes it. */
+    public function test_the_percentage_has_a_greek_decimal_comma(): void
+    {
+        $this->travelTo('2026-11-04 12:00:00');
+        $client = User::factory()->create()->client();
+        $this->travelTo('2026-09-20 12:00:00');
+        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before', 'status' => 'open', 'priority' => 'low']);
+        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before 2', 'status' => 'open', 'priority' => 'low']);
+        $this->travelTo('2026-11-04 12:00:00');
+        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Now', 'status' => 'open', 'priority' => 'low']);
+        app()->setLocale('el');
+
+        $this->assertSame('Μείωση 50,0% (τελευταίες 30 ημέρες)', $this->stats()['Tickets']->getDescription());
+    }
+
+    /** Review of #640: the heading and the query read the window the same way, an odd value as 30 days. */
+    public function test_an_odd_window_is_thirty_days_in_the_heading_and_the_query_alike(): void
+    {
+        $this->assertSame(7, DomainRenewals::windowDays('7'));
+        foreach (['abc', '', null, '0', '45'] as $odd) {
+            $this->assertSame(30, DomainRenewals::windowDays($odd), var_export($odd, true));
+        }
+        Livewire::test(ServiceRenewals::class)->set('tableFilters.within.value', 'abc')->assertSee('Within 30 days');
     }
 }

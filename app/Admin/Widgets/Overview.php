@@ -23,6 +23,7 @@ use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Number;
 use Livewire\Attributes\On;
 
 class Overview extends BaseWidget
@@ -205,13 +206,14 @@ class Overview extends BaseWidget
         $description = match (true) {
             $change == 0 => __('No change') . " ({$period})",
             $previous == 0 => __('New in this period') . " ({$period})",
-            default => __($change > 0 ? 'Increased by :percent% (:period)' : 'Decreased by :percent% (:period)', ['percent' => number_format($percentage, 1), 'period' => $period]),
+            default => __($change > 0 ? 'Increased by :percent% (:period)' : 'Decreased by :percent% (:period)', ['percent' => Number::format($percentage, 1, locale: app()->getLocale()), 'period' => $period]),
         };
 
         // Revenue in the default currency, as the invoices write it.
         $value = $money ? (new Price(['price' => $current, 'currency' => Currency::query()->find(config('settings.default_currency'))]))->formatted->price : $current;
 
-        return $this->quiet(Stat::make(__($label), $value), $current == 0)
+        // Dimmed only when both periods are empty: a drop to nothing is news (review of #640).
+        return $this->quiet(Stat::make(__($label), $value), $current == 0 && $previous == 0)
             // The sparkline only reads its color when Alpine initializes it, so key the stat on the
             // color to make Livewire replace the element when it changes (filamentphp/filament#13518)
             ->key("{$label}-{$color}")
