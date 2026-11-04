@@ -78,7 +78,12 @@ class ImportFundsAndOrderGraceTest extends TestCase
         $this->import(['AddFundsMinimum' => '50', 'AddFundsMaximum' => '20', 'AddFundsMaximumBalance' => '300']);
         $this->assertSame(['credits_minimum_deposit' => $before['credits_minimum_deposit'], 'credits_maximum_deposit' => $before['credits_maximum_deposit'],
             'credits_maximum_credit' => '300.00', 'order_days_grace' => $before['order_days_grace']], $this->settings());
-        $this->assertStringContainsString('minimum deposit 50.00 is above its maximum 20.00', $this->output->fetch());
+        $this->assertStringContainsString('minimum deposit 50.00 would be above the maximum 20.00', $this->output->fetch());
+
+        // Review of #648: WHMCS's minimum beside MyCS's own maximum (WHMCS's 0.00 is none) is the pair that counts.
+        $this->storeSettings(['credits_minimum_deposit' => '5', 'credits_maximum_deposit' => '100']);
+        $this->import(['AddFundsMinimum' => '200.00', 'AddFundsMaximum' => '0.00']);
+        $this->assertSame(['5', '100'], [$this->settings()['credits_minimum_deposit'], $this->settings()['credits_maximum_deposit']]);
     }
 
     public function test_a_new_orders_invoice_is_due_after_the_grace(): void
@@ -96,5 +101,9 @@ class ImportFundsAndOrderGraceTest extends TestCase
 
         $this->storeSettings(['order_days_grace' => '0']);
         $this->assertSame('2026-11-04', $place()->due_at->toDateString(), 'nixpal: the same day');
+
+        // Review of #648: never past ten years, which a date column holds.
+        $this->storeSettings(['order_days_grace' => '99999999']);
+        $this->assertSame('2036-11-01', $place()->due_at->toDateString());
     }
 }

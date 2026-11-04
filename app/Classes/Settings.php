@@ -714,7 +714,9 @@ class Settings
                     'default' => 7,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Days from the order to the due date of its invoice (WHMCS «Order Days Grace»). 0: due the same day.',
+                    'max_value' => 3650,
+                    'validation' => 'integer',
+                    'description' => 'Days from the order to the due date of its invoice (WHMCS «Order Days Grace»). 0: due the same day. «Cancel unpaid orders after» below this cancels an order before its invoice is due.',
                 ],
                 [
                     'name' => 'cronjob_order_cancel',

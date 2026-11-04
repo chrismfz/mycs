@@ -181,6 +181,12 @@ final class PlaceOrderService
         });
     }
 
+    /** A new order's invoice: due after the Order Days Grace (WHMCS's, WG-4: myip 8, nixpal 0, the same day). */
+    public static function orderDueAt(): CarbonInterface
+    {
+        return now()->addDays(min(3650, max(0, (int) config('settings.order_days_grace', 7))));
+    }
+
     /**
      * A domain of the order (D8b): checked again as when it was added (the TLD sold, its price for the years, the name
      * not ours already: a register free, a transfer taken), then pending (pending_register / pending_transfer) with its
@@ -188,12 +194,6 @@ final class PlaceOrderService
      * code the customer gave. Its line (kind register / transfer, never a renewal) bills it at the catalog price, net of
      * VAT (D-19); one at no price (a free transfer, D-6) has none and waits for its registrar like the others (D8b-2).
      */
-    /** A new order's invoice: due after the Order Days Grace (WHMCS's, WG-4: myip 8, nixpal 0, the same day). */
-    public static function orderDueAt(): CarbonInterface
-    {
-        return now()->addDays(max(0, (int) config('settings.order_days_grace', 7)));
-    }
-
     private function placeDomain(Order $order, Client $client, string $currency, DomainOrderLine $line, ?Invoice $invoice, ?CarbonInterface $dueAt, string $invoiceStatus): ?Invoice
     {
         if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {

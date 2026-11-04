@@ -528,23 +528,26 @@ class ImportFromWhmcs extends Command
 
             return ctype_digit($value) && strlen($value) <= 4 && (int) $value <= 3650 ? (string) (int) $value : null;
         };
-        // An amount as WHMCS keeps it («5000.00»), to two decimals, without float; a maximum of 0 is none (it would refuse
-        // every deposit), kept as MyCS's own.
-        $money = function (string $key, bool $positive) use ($config): ?string {
+        // An amount as WHMCS keeps it («5000.00»), to two decimals, without float. 0 is none, kept as MyCS's own: a maximum
+        // of 0 would refuse every deposit, a minimum of 0 let one of nothing through (ADV-648-3).
+        $money = function (string $key) use ($config): ?string {
             $value = trim((string) ($config[$key] ?? ''));
             if (!preg_match('/^\d{1,9}(\.\d+)?$/', $value)) {
                 return null;
             }
             $value = bcadd($value, '0', 2);
 
-            return $positive && bccomp($value, '0', 2) <= 0 ? null : $value;
+            return bccomp($value, '0', 2) <= 0 ? null : $value;
         };
-        $deposits = ['credits_minimum_deposit' => $money('AddFundsMinimum', false), 'credits_maximum_deposit' => $money('AddFundsMaximum', true),
-            'credits_maximum_credit' => $money('AddFundsMaximumBalance', true)];
-        // WHMCS's limits only as a whole that makes sense: a minimum above the maximum would refuse every deposit (WG-3).
-        if ($deposits['credits_minimum_deposit'] !== null && $deposits['credits_maximum_deposit'] !== null
-            && bccomp($deposits['credits_minimum_deposit'], $deposits['credits_maximum_deposit'], 2) > 0) {
-            $this->warn("WHMCS's minimum deposit {$deposits['credits_minimum_deposit']} is above its maximum {$deposits['credits_maximum_deposit']}: both kept as MyCS's own.");
+        $deposits = ['credits_minimum_deposit' => $money('AddFundsMinimum'), 'credits_maximum_deposit' => $money('AddFundsMaximum'),
+            'credits_maximum_credit' => $money('AddFundsMaximumBalance')];
+        // Only as a whole that makes sense: a minimum above the maximum would refuse every deposit (WG-3). The pair as it
+        // would be, one not imported being MyCS's own (review of #648: WHMCS's minimum 200 beside MyCS's maximum 100).
+        $minimum = $deposits['credits_minimum_deposit'] ?? (string) config('settings.credits_minimum_deposit', 5);
+        $maximum = $deposits['credits_maximum_deposit'] ?? (string) config('settings.credits_maximum_deposit', 100);
+        if (($deposits['credits_minimum_deposit'] !== null || $deposits['credits_maximum_deposit'] !== null)
+            && is_numeric($minimum) && is_numeric($maximum) && bccomp($minimum, $maximum, 2) > 0) {
+            $this->warn("The minimum deposit {$minimum} would be above the maximum {$maximum}: both kept as MyCS's own.");
             $deposits['credits_minimum_deposit'] = $deposits['credits_maximum_deposit'] = null;
         }
         $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
