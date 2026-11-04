@@ -108,7 +108,7 @@ class CronWaitAdversarialR3Test extends TestCase
         $this->assertSame('framework/schedule-' . sha1('Tells staff when the daily run fell in maintenance'), $notice->mutexName());
 
         $cron = collect(app(Schedule::class)->events())->filter(fn (Event $e) => str_contains((string) $e->command, 'app:cron-job'));
-        $this->assertCount(2, $cron);
+        $this->assertCount(3, $cron); // the daily run, the hourly one, the hourly catch-up
         foreach ($cron as $e) {
             $this->assertNotSame($notice->mutexName(), $e->mutexName());
         }
