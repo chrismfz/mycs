@@ -542,6 +542,14 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   κλειστά τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα
   STREAM50 και CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), FALL2020 (κύκλοι domains), 30-OFF
   (εξαντλημένο) και το Gr-Domain-Discount (domains, αρνητική τιμή).
+- **Επιλογές υπηρεσιών** (WG-11, 2026-11-04, `importServiceOptions`): `tblhostingconfigoptions` → `service_configs` μέσω
+  του `whmcs_ref` του καταλόγου (`option:N`, `value:N`). Dropdown και radio → η τιμή τους, checkbox → η τιμή του μόνο αν
+  είναι τσεκαρισμένο (`qty` > 0), quantity → το πλήθος ως property της υπηρεσίας (όπως το γράφει μια παραγγελία), μόνο
+  αν `qty` > 0. Η τιμή της υπηρεσίας δεν αλλάζει: μένει το ποσό του WHMCS, με τις επιλογές μέσα (`undiscounted_price`).
+  Μια τιμή υπολογισμένη από τον κατάλογο (upgrade, αναφορά τιμών) τις μετρά πλέον, π.χ. το Dedicated IP. Μια quantity
+  δεν έχει ακόμα τιμή εδώ (CART-9, WG-15). Επιλογή ή τιμή που το WHMCS έσβησε αναφέρεται και παραλείπεται. Parity:
+  «Service options» και «Service quantity options». Myip: 26 και 1 (ζωντανά: 3 Dedicated IP, 1 Extra Addon domain ×2,
+  OS/location/backup σε VPS), 1 γραμμή με επιλογή που δεν υπάρχει πια· nixpal: καμία.
 - **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
   του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
   ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`

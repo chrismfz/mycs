@@ -6,6 +6,7 @@ use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Product;
+use App\Models\Service;
 use App\Services\Money\MoneyTrail;
 use App\Services\Tax\EuVat;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,19 @@ final class WhmcsParity
                 . " JOIN tblclients c ON c.id = uc.client_id WHERE uc.owner = 1 AND ({$no})"),
                 DB::table('notification_preferences')->where('mail_enabled', false)
                     ->whereIn('notification_template_id', DB::table('notification_templates')->where('key', 'announcement_news')->select('id'))->count());
+        }
+
+        // WG-11: the services' options, one per service and option: a dropdown or radio, a ticked checkbox, a quantity above 0.
+        if ($this->hasColumn('tblhostingconfigoptions', 'qty') && $this->hasColumn('tblproductconfigoptions', 'optiontype')) {
+            $options = 'FROM tblhostingconfigoptions hc JOIN tblproductconfigoptions o ON o.id = hc.configid JOIN tblhosting h ON h.id = hc.relid';
+            $add('Service options', $this->count("SELECT COUNT(*) FROM (SELECT DISTINCT hc.relid, hc.configid {$options}
+                WHERE o.optiontype IN (1, 2) OR (o.optiontype = 3 AND hc.qty > 0)) t"),
+                DB::table('service_configs')->where('configurable_type', (new Service)->getMorphClass())->count());
+            $numbers = DB::table('config_options')->whereNull('parent_id')->where('type', 'number')->whereNotNull('whmcs_ref')
+                ->get(['name', 'env_variable'])->map(fn ($option) => $option->env_variable ?: $option->name)->unique()->values()->all();
+            $add('Service quantity options', $this->count("SELECT COUNT(*) FROM (SELECT DISTINCT hc.relid, hc.configid {$options}
+                WHERE o.optiontype = 4 AND hc.qty > 0) t"),
+                DB::table('properties')->where('model_type', Service::class)->whereIn('key', $numbers)->count());
         }
 
         // WG-2: the catalog as the catalog's import brings it, every product (one of a group WHMCS deleted too, hidden:

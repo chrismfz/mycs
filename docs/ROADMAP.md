@@ -129,7 +129,7 @@ adversarial review.
 - [x] **WG-10** `mail_must_verify` off στο cut-over της nixpal (settings-map).
 
 **Π1, πριν τη myip:**
-- [ ] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.
+- [x] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.
 - [ ] **WG-12** Domains: `recurring_amount` μόνο στις πραγματικές εξαιρέσεις.
 - [ ] **WG-13** GA4/Ads `purchase` στην ολοκλήρωση της παραγγελίας.
 - [ ] **WG-14** Ημέρες τιμολόγησης ανά κύκλο (= η γραμμή στη Χρέωση).

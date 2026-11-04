@@ -207,6 +207,8 @@ class ImportFromWhmcs extends Command
             $this->importKnowledgebase();
             $this->importOrders();
             $this->importServices();
+            // After the services and the catalog's options (WG-11).
+            $this->importServiceOptions();
             // After the services (their parents) and the orders, before the notes and the invoice lines (docs/addons.md, step 4).
             $this->importAddons();
             $this->importOfflineSsl();
@@ -1077,6 +1079,70 @@ class ImportFromWhmcs extends Command
         $value = trim((string) $value);
 
         return $value === '' ? null : ($max === null ? $value : mb_substr($value, 0, $max));
+    }
+
+    /**
+     * A service's options as WHMCS keeps them (tblhostingconfigoptions, WG-11), by the catalog's `whmcs_ref`: a dropdown
+     * or radio its value, a checkbox its value when ticked (qty > 0), a quantity its number as a property (as an order
+     * writes one; PlaceOrderService). Its price is not touched: WHMCS's amount, with the options in it, stays the
+     * service's (undiscounted_price); a price computed from the catalog (an upgrade, the price report) now counts them.
+     * A quantity option still has no price here (CART-9, WG-15). One not brought (an option or value WHMCS deleted) is said.
+     */
+    private function importServiceOptions(): void
+    {
+        $this->info('Importing service options... (' . $this->count('tblhostingconfigoptions') . ' records)');
+        $refs = DB::table('config_options')->whereNotNull('whmcs_ref')->get(['id', 'parent_id', 'type', 'name', 'env_variable', 'whmcs_ref'])->keyBy('whmcs_ref');
+        $services = DB::table('services')->whereNull('whmcs_addon_id')->pluck('id')->flip();
+        $morph = (new Service)->getMorphClass();
+        $configs = [];
+        $properties = [];
+        $missing = [];
+        $now = now();
+        foreach ($this->pdo->query('SELECT relid, configid, optionid, qty FROM tblhostingconfigoptions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $service = (int) $row['relid'];
+            if (!$services->has($service)) {
+                continue; // a service not brought
+            }
+            $option = $refs->get('option:' . (int) $row['configid']);
+            if ($option === null) {
+                $missing[] = "service #{$service}, option #{$row['configid']}";
+
+                continue;
+            }
+            $quantity = (int) $row['qty'];
+            if ($option->type === 'number') {
+                if ($quantity > 0) {
+                    // One row per service and key: a second (a duplicate in WHMCS) replaces the first.
+                    $properties[$service . '|' . ($option->env_variable ?: $option->name)] = ['model_type' => Service::class, 'model_id' => $service,
+                        'key' => $option->env_variable ?: $option->name, 'name' => $option->name, 'value' => (string) $quantity,
+                        'created_at' => $now, 'updated_at' => $now];
+                }
+
+                continue;
+            }
+            if ($option->type === 'checkbox' && $quantity <= 0) {
+                continue; // not ticked
+            }
+            $value = $refs->get('value:' . (int) $row['optionid']);
+            if ($value === null || (int) $value->parent_id !== (int) $option->id) {
+                $missing[] = "service #{$service}, option «{$option->name}» value #{$row['optionid']}";
+
+                continue;
+            }
+            $configs[$service . '|' . $option->id] = ['configurable_type' => $morph, 'configurable_id' => $service, 'config_option_id' => $option->id,
+                'config_value_id' => $value->id, 'created_at' => $now, 'updated_at' => $now];
+        }
+        foreach (array_chunk(array_values($configs), 500) as $chunk) {
+            DB::table('service_configs')->insert($chunk);
+        }
+        foreach (array_chunk(array_values($properties), 500) as $chunk) {
+            DB::table('properties')->insertOrIgnore($chunk); // one another step wrote under the same key stays
+        }
+        $this->info('Service options: ' . count($configs) . ' chosen, ' . count($properties) . ' quantities.');
+        if ($missing !== []) {
+            $this->warn(count($missing) . ' service option(s) whose option or value WHMCS no longer has, left out: ' . implode('; ', array_slice($missing, 0, 20))
+                . (count($missing) > 20 ? '; …' : '') . '.');
+        }
     }
 
     private function importServices()
