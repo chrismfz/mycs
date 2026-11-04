@@ -213,13 +213,24 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
 - **Create:** `POST /accounts` με username, κωδικό, πακέτο, domain (κύρια σελίδα) και php. Το username είναι της
   υπηρεσίας (καθαρισμένο όπως στο WHMCS: `^[a-z][a-z0-9_]{0,31}$`), αλλιώς από το domain, με ψηφίο όταν είναι πιασμένο
   στο ngm ή σε άλλη υπηρεσία. Το όνομα και ο κωδικός φυλάγονται πριν από την κλήση. Ένα 409 μετά από χαμένη απάντηση
-  είναι δικό μας account μόνο αν το είχαμε ζητήσει, αν δεν το έχει άλλη υπηρεσία και αν το ngm το έχει με αυτό ακριβώς
-  το όνομα (ο έλεγχος «own retry» του WHMCS). Τότε υιοθετείται, με αναφορά για το staff: το ngm απαντά 409 και σε
-  account που έμεινε μισό. Υπηρεσία suspended πριν από το create παίρνει `enabled: false`. Μια pending παίρνει `true`,
-  γιατί στη MyCS το create γίνεται πάντα πριν η υπηρεσία γίνει active.
-- **Suspend** (με το `suspend_reason`), **unsuspend**, **change package**, **password**, **SSO** (`POST …/sso`, το
-  κουμπί «Log in to the panel»), **usage** (`GET /usage`, ένα αίτημα ανά server). Πρώτα ελέγχεται ότι το account
-  υπάρχει με αυτό το όνομα και ότι δεν το έχει άλλη ζωντανή υπηρεσία.
+  είναι δικό μας account μόνο αν ισχύουν όλα:
+  - το είχαμε ζητήσει·
+  - δεν το έχει άλλη υπηρεσία·
+  - το ngm το έχει με αυτό ακριβώς το όνομα (ο έλεγχος «own retry» του WHMCS)·
+  - το `created_at` του δεν είναι πριν από το αίτημά μας (με 5 λεπτά ανοχή για τα ρολόγια). Έτσι δεν υιοθετείται ποτέ
+    account που έγινε με το χέρι στο μεσοδιάστημα (review του #630).
+
+  Τότε υιοθετείται, με αναφορά για το staff, γιατί το ngm απαντά 409 και σε account που έμεινε μισό. Σε κάθε άλλο 409 το
+  όνομα εγκαταλείπεται για το επόμενο ελεύθερο: τα ονόματα βάσεων του ngm μπορεί να συγκρούονται ενώ το όνομα του account
+  είναι ελεύθερο. Υπηρεσία suspended πριν από το create παίρνει `enabled: false`. Μια pending παίρνει `true`, γιατί στη
+  MyCS το create γίνεται πάντα πριν η υπηρεσία γίνει active.
+- **Suspend** (με το `suspend_reason`), **unsuspend**, **change package**, **password**, **SSO** (`POST …/sso`),
+  **usage** (`GET /usage`, ένα αίτημα ανά server). Πρώτα ελέγχεται ότι το account υπάρχει με αυτό το όνομα και ότι δεν
+  το έχει άλλη ζωντανή υπηρεσία. Σε create με χαμένη απάντηση (όνομα ζητήθηκε, κανένα δεν κρατήθηκε) κάθε ενέργεια
+  αποτυγχάνει ονομάζοντας το account, για να το ελέγξει το staff στο ngm.
+- **SSO:** ο πελάτης παίρνει το εισιτήριο του πελάτη, και ένα suspended account δεν ανοίγει. Το «Log in to panel» του
+  staff στέλνει `{"admin": true}` (όπως το AdminSingleSignOn του WHMCS): impersonation με banner και audit στο ngm, και
+  ανοίγει και suspended account. Το panel είναι στο ίδιο host:port με το API (`https://host:9601/ui/`).
 - **Terminate:** `DELETE /accounts/{user}`. Το ngm κρατά τα backups και το username μένει στην υπηρεσία. Αν το account
   λείπει ήδη, η ενέργεια θεωρείται έγινε μόνο για account που έφτιαξε η MyCS. Για ένα εισαγόμενο είναι εργασία του staff.
 - **Αποτυχίες:** μένουν ανοιχτές στα Pending Module Actions με τον λόγο του ngm. Τα 400/409/422 είναι `ServerRefused`
@@ -227,7 +238,7 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
   μόνο για το staff, χωρίς ποτέ το token. Τα `warning`/`warnings` του ngm (π.χ. η κύρια σελίδα δεν στήθηκε) πάνε στο
   `report()`, και η ενέργεια μετρά ως έγινε.
 - **Δεν πέρασαν ακόμα** (τα έχει το WHMCS module, ή η νεότερη έκδοσή του στο `chrismfz/ngm`): οι καρτέλες του
-  πελάτη (domains, mailboxes, βάσεις), το admin SSO (impersonation), η λίστα πακέτων από το `GET /packages` στη
+  πελάτη (domains, mailboxes, βάσεις), η λίστα πακέτων από το `GET /packages` στη
   ρύθμιση του προϊόντος, τα όρια ανά account (`/limits`), η μεταφορά του token από το WHMCS (`accesshash`).
 
 ## Provisioning fixes (sweep §2, §4, §7)

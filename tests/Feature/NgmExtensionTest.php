@@ -8,8 +8,10 @@ use App\Livewire\Services\Show;
 use App\Models\ModuleAction;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
+use App\Support\StaffLink;
 use Exception;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -55,6 +57,9 @@ class NgmExtensionTest extends TestCase
     private ?string $lost = null;
 
     private bool $down = false;
+
+    /** Names ngm refuses with 409 though it has no account by them (its database names clash). */
+    private array $collide = [];
 
     protected function setUp(): void
     {
@@ -102,9 +107,10 @@ class NgmExtensionTest extends TestCase
                 ['username' => 'shop', 'disk_used_mb' => 120, 'disk_limit_mb' => 1000, 'bandwidth_used_mb' => 4500, 'bandwidth_limit_mb' => -1],
                 ['username' => 'other', 'disk_used_mb' => 1, 'disk_limit_mb' => 1, 'bandwidth_used_mb' => 1, 'bandwidth_limit_mb' => 1],
             ]]),
-            $key === 'POST accounts' => isset($this->accounts[$body['username']])
-                ? Http::response(['error' => 'username taken'], 409)
-                : tap(Http::response(['ok' => true, 'account' => ['username' => $body['username']]], 201), fn () => $this->accounts[$body['username']] = $body + ['suspended' => false]),
+            $key === 'POST accounts' => isset($this->accounts[$body['username']]) || in_array($body['username'], $this->collide, true)
+                ? Http::response(['error' => isset($this->accounts[$body['username']]) ? 'account already exists' : 'username collides with an existing database namespace'], 409)
+                : tap(Http::response(['ok' => true, 'account' => ['username' => $body['username']]], 201),
+                    fn () => $this->accounts[$body['username']] = $body + ['suspended' => false, 'created_at' => now()->toIso8601String()]),
             !$known => $missing,
             $request->method() === 'GET' => Http::response($this->accounts[$user]),
             $request->method() === 'DELETE' => tap(Http::response(['terminated' => true, 'backups_kept' => true]), function () use ($user) {
@@ -154,7 +160,7 @@ class NgmExtensionTest extends TestCase
         $this->assertSame('https://ngm.test:8443/api/v1', (new NgmApi('https://ngm.test:8443/', 't'))->baseUrl());
         $this->assertSame('http://lab.test:9601/api/v1', (new NgmApi('http://lab.test', 't'))->baseUrl());
         $this->assertSame('https://[2001:db8::1]:9601/api/v1', (new NgmApi('[2001:db8::1]', 't'))->baseUrl());
-        $this->assertSame('https://ngm.test/ui/', (new NgmApi('ngm.test:9601', 't'))->panelUrl(), 'the panel on its web port');
+        $this->assertSame('https://ngm.test:9601/ui/', (new NgmApi('ngm.test', 't'))->panelUrl(), 'the panel on the API\'s own port');
     }
 
     public function test_the_connection_test_and_a_failure_never_tells_the_token(): void
@@ -233,13 +239,26 @@ class NgmExtensionTest extends TestCase
         Exceptions::assertReported(fn (Exception $e) => str_contains($e->getMessage(), 'adopted «exampleshop», made by an earlier attempt'));
     }
 
+    public function test_a_name_ngm_refuses_as_taken_is_given_up_for_the_next(): void
+    {
+        // ngm's DB-namespace collision: the exact name absent, yet 409 (review of #630: never the same name for ever).
+        $this->collide = ['exampleshop'];
+
+        ExtensionHelper::createServer($this->service->fresh());
+
+        $this->assertSame(['exampleshop', 'exampleshop1'], array_column($this->sent('POST accounts'), 'username'));
+        $this->assertSame(['exampleshop1', 'active'], [$this->service->fresh()->username, $this->service->fresh()->status]);
+        $this->assertSame(['exampleshop1'], array_keys($this->accounts), 'never adopted');
+    }
+
     public function test_a_taken_name_never_asked_for_is_never_adopted(): void
     {
-        // ngm's DB-namespace collision: the exact name absent, yet 409.
+        // Every name refused as taken: told, nothing kept.
         $this->answer['POST accounts'] = [409, ['error' => 'username collides with an existing database namespace']];
 
         $this->assertFalse(rescue(fn () => ExtensionHelper::createServer($this->service->fresh()), false, false));
 
+        $this->assertCount(10, $this->sent('POST accounts'), 'each free name tried once');
         $this->assertNull($this->service->fresh()->username);
         $this->assertNull($this->service->properties()->where('key', Ngm::PENDING)->value('value'), 'refused: its name taken off');
         $this->assertStringContainsString('ngm: username collides', (string) $this->failed('create')?->last_error);
@@ -424,9 +443,29 @@ class NgmExtensionTest extends TestCase
         $this->assertSame('https://ngm.test/ui/sso?ticket=t1', $this->extension()->getLoginUrl($this->service->fresh(), [], $properties));
         $this->assertSame([[]], array_map(fn ($b) => (array) $b, $this->sent('POST accounts/shop/sso')));
 
-        $this->answer['POST accounts/shop/sso'] = [403, ['error' => 'sso disabled']];
+        // Staff's (a fourth argument, as Admin\ServicePanelLoginController calls it): ngm's admin ticket.
+        $this->extension()->getLoginUrl($this->service->fresh(), [], $properties, null);
+        $this->assertSame(['admin' => true], $this->sent('POST accounts/shop/sso')[1]);
+
+        // A 403 for another reason (the token's scope) is not called «SSO off».
+        $this->answer['POST accounts/shop/sso'] = [403, ['error' => 'token lacks required scope: accounts']];
+        $this->assertStringContainsString('token lacks required scope', (string) rescue(fn () => $this->extension()->getLoginUrl($this->service->fresh(), [], $properties), fn ($e) => $e->getMessage(), false));
+
+        $this->answer['POST accounts/shop/sso'] = [403, ['error' => 'account SSO API is disabled (set api.allow_sso: true)']];
         $this->expectExceptionMessage('ngm: single sign-on is not enabled on this host');
         $this->extension()->getLoginUrl($this->service->fresh(), [], $properties);
+    }
+
+    public function test_staff_sign_in_to_a_suspended_account_with_the_admin_ticket(): void
+    {
+        $this->made();
+        $this->service->forceFill(['status' => 'suspended'])->save();
+        $this->actingAs(Staff::factory()->withPermissions(['*'])->create(), 'staff');
+
+        $this->get(StaffLink::to('filament.admin.sso.service', ['service' => $this->service->id]))
+            ->assertRedirect('https://ngm.test/ui/sso?ticket=t1');
+
+        $this->assertSame([['admin' => true]], $this->sent('POST accounts/shop/sso'));
     }
 
     public function test_the_page_shows_the_account_and_signs_in_through_a_new_tab(): void
@@ -435,7 +474,7 @@ class NgmExtensionTest extends TestCase
         $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
 
         $page = Livewire::test(Show::class, ['service' => $this->service]);
-        $page->assertSee('shop')->assertSee('https://ngm.test/ui/')->assertSee(__('services.ngm.login'));
+        $page->assertSee('shop')->assertSee('https://ngm.test:9601/ui/')->assertSee(__('services.ngm.login'));
         $page->assertSee(route('services.panel-login', $this->service), false);
         $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect('https://ngm.test/ui/sso?ticket=t1');
     }

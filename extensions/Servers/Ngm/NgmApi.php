@@ -53,12 +53,13 @@ final class NgmApi
         return "{$scheme}://{$host}:" . ($port ?? self::DEFAULT_PORT) . '/api/v1';
     }
 
-    /** The panel's sign-in page: the host itself (its web port), as the WHMCS module links it. */
+    /**
+     * The panel's sign-in page: on the API's own host and port (ngm serves its UI there; its 443 is the customers' sites),
+     * as the WHMCS module now links it (review of #630).
+     */
     public function panelUrl(): string
     {
-        [$scheme, $host] = $this->parts();
-
-        return "{$scheme}://{$host}/ui/";
+        return (string) preg_replace('#/api/v1$#', '/ui/', $this->baseUrl());
     }
 
     /**

@@ -174,7 +174,7 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 - [ ] **DirectAdmin: αλλαγή κωδικού στον server** (σημειώσεις στο `provisioning.md`): με `CMD_API_USER_PASSWD` μετά
       από live δοκιμή. Ως τότε «Save a password set elsewhere». (Το ngm την έχει από το extension `Ngm`, 2026-11-04.)
 - [ ] **ngm, μετά το πρώτο extension** (`provisioning.md` → «ngm»): live δοκιμή σε ngm-debian με άδεια του υπεύθυνου·
-      ό,τι κάνει το WHMCS module και δεν πέρασε ακόμα (καρτέλες του πελάτη, admin SSO, πακέτα σε λίστα, όρια ανά account).
+      ό,τι κάνει το WHMCS module και δεν πέρασε ακόμα (καρτέλες του πελάτη, πακέτα σε λίστα, όρια ανά account).
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip, PaymentsTrackingMatch.
 
 ### Χρέωση και τιμολόγια

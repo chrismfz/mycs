@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Rules\Domain;
 use App\Support\Services\ServiceUsageRead;
 use Exception;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -145,10 +146,16 @@ class Ngm extends Server implements ReadsServiceUsage
         return $username;
     }
 
-    /** The service's account name, when no other live service here claims it. */
+    /**
+     * The service's account name, when no other live service here claims it. A create whose answer was lost (a name asked
+     * for, none kept) is named for staff, never «not created»: ngm may have the account (review of #630).
+     */
     private static function named(Service $service, array $properties): string
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
+        $pending = trim((string) ($properties[self::PENDING] ?? ''));
+        $username = self::username($service, $properties)
+            ?? throw new Exception($pending !== '' ? "ngm: the account «{$pending}» was asked for and its answer was lost: check ngm for it (retry the create) before anything is done"
+                : 'Service has not been created');
         if (self::claimedByAnotherLive($service, $username)) {
             throw new Exception("ngm: another service here has the account «{$username}»: check them before anything is done");
         }
@@ -156,49 +163,66 @@ class Ngm extends Server implements ReadsServiceUsage
         return $username;
     }
 
-    /** ngm has no account by this name (404), or has one (200); anything else is not known. */
-    private static function exists(NgmApi $api, string $username): bool
+    /**
+     * ngm's record of the account (200), or null when it has none by this name (404); anything else is not known.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function account(NgmApi $api, string $username): ?array
     {
         [$status, $data] = $api->request('GET', self::path($username));
 
         return match ($status) {
-            200 => true,
-            404 => false,
+            200 => $data,
+            404 => null,
             default => throw NgmApi::failure('GET', self::path($username), $status, $data),
         };
     }
 
+    private static function exists(NgmApi $api, string $username): bool
+    {
+        return self::account($api, $username) !== null;
+    }
+
     /**
-     * The name for a new account: the service's own (an imported or typed one, cleaned as WHMCS did), else one from its
-     * domain with a digit when taken; free both on ngm and among the services here.
+     * The names a new account may take: the service's own (an imported or typed one, cleaned as WHMCS did), else one from
+     * its domain, then with a digit.
+     *
+     * @return list<string>
      */
-    private static function freeUsername(NgmApi $api, Service $service, array $properties): string
+    private static function candidates(Service $service, array $properties): array
     {
         $given = trim((string) $service->username);
         if ($given !== '') {
-            $username = self::sanitize($given);
-            if (self::claimants($service, $username) !== [] || self::exists($api, $username)) {
-                throw new Exception("ngm: the service's username «{$username}» is taken on this server: change it, or create the account by hand");
-            }
-
-            return $username;
+            return [self::sanitize($given)];
         }
         $domain = strtolower(trim((string) ($properties['domain'] ?? $service->domain ?? '')));
         $stub = substr(self::sanitize(Str::before(Str::ascii($domain), '.') ?: 'user'), 0, 12);
-        foreach (array_merge([$stub], array_map(fn (int $i) => $stub . $i, range(1, 9))) as $candidate) {
-            if (self::claimants($service, $candidate) === [] && !self::exists($api, $candidate)) {
-                return $candidate;
-            }
-        }
 
-        throw new Exception("ngm: no free username found from «{$stub}»: create the account by hand");
+        return array_merge([$stub], array_map(fn (int $i) => $stub . $i, range(1, 9)));
+    }
+
+    /**
+     * An account by this name that this service's earlier attempt made (its answer lost, or its provisioning failed after
+     * the record, which ngm leaves half made): no other service here has the name, ngm has it by that exact name, and ngm
+     * made it after this service asked for it (review of #630: never one made by hand meanwhile, days later). Clocks
+     * may differ by a few minutes.
+     */
+    private static function ownRetry(NgmApi $api, Service $service, string $username): bool
+    {
+        $asked = $service->properties()->where('key', self::PENDING)->value('created_at');
+        $account = self::claimants($service, $username) === [] ? self::account($api, $username) : null;
+        $made = is_string($account['created_at'] ?? null) ? rescue(fn () => Carbon::parse($account['created_at']), null, false) : null;
+
+        return $asked !== null && $made !== null && $made->gte(Carbon::parse($asked)->subMinutes(5));
     }
 
     /**
      * The account (POST /accounts), with the product's package and PHP version and the service's domain as its primary
      * site. Idempotent and never someone else's: the name and password are kept before they are asked for; ngm's «taken»
-     * (409) after a lost answer is this service's own account only when it asked for that name, no other service here has
-     * it and ngm has it by that exact name (the WHMCS module's own-retry check). ngm's refusal takes the kept name off.
+     * (409) is this service's own account only after its own earlier attempt (ownRetry, the WHMCS module's check and
+     * ngm's creation time), else that name is given up for the next free one (ngm's database names can clash while the
+     * account name is free: review of #630). ngm's refusal takes the kept name off; no answer keeps it.
      */
     public function createServer(Service $service, $settings, $properties)
     {
@@ -206,11 +230,6 @@ class Ngm extends Server implements ReadsServiceUsage
             throw new Exception('ngm: the service already has an account');
         }
         $api = $this->api(120);
-        $pending = trim((string) ($properties[self::PENDING] ?? ''));
-        $username = $pending !== '' ? $pending : self::freeUsername($api, $service, $properties);
-        if ($pending === '') {
-            $service->properties()->updateOrCreate(['key' => self::PENDING], ['name' => 'ngm account (being created)', 'value' => $username]);
-        }
         // Kept (encrypted) before it is asked for: a lost answer still knows the password it was made with.
         $password = (string) $service->password;
         if ($password === '') {
@@ -218,25 +237,59 @@ class Ngm extends Server implements ReadsServiceUsage
             $service->forceFill(['password' => $password])->save();
         }
         // A service suspended before its account was made gets it dark (ngm's create-disabled), as WHMCS does.
-        $body = ['username' => $username, 'password' => $password, 'enabled' => $service->status !== Service::STATUS_SUSPENDED];
+        $body = ['password' => $password, 'enabled' => $service->status !== Service::STATUS_SUSPENDED];
         foreach (['package' => $settings['package'] ?? '', 'domain' => $properties['domain'] ?? $service->domain ?? '', 'php' => $settings['php'] ?? ''] as $key => $value) {
             if (trim((string) $value) !== '') {
                 $body[$key] = $key === 'domain' ? strtolower(trim((string) $value)) : trim((string) $value);
             }
         }
+        $ask = fn (string $username) => $api->request('POST', 'accounts', ['username' => $username] + $body);
 
-        [$status, $data] = $api->request('POST', 'accounts', $body);
-        if ($status === 201) {
-            return $this->made($service, $username, $data);
+        $pending = trim((string) ($properties[self::PENDING] ?? ''));
+        if ($pending !== '') {
+            [$status, $data] = $ask($pending);
+            if ($status === 201) {
+                return $this->made($service, $pending, $data);
+            }
+            if ($status === 409 && self::ownRetry($api, $service, $pending)) {
+                return $this->made($service, $pending, ['warning' => "adopted «{$pending}», made by an earlier attempt: check in the panel that it is complete"]);
+            }
+            self::refused($service, $status, $data);
         }
-        if ($status === 409 && $pending !== '' && self::claimants($service, $username) === [] && self::exists($api, $username)) {
-            // Made by an earlier attempt (its answer lost, or its provisioning failed after the record: ngm then leaves
-            // the account half made, to be completed in the panel): adopted, and told so staff look at it.
-            return $this->made($service, $username, ['warning' => "adopted «{$username}», made by an earlier attempt: check in the panel that it is complete"]);
+
+        $taken = null;
+        foreach (self::candidates($service, $properties) as $candidate) {
+            if (self::claimants($service, $candidate) !== [] || self::exists($api, $candidate)) {
+                continue;
+            }
+            $service->properties()->where('key', self::PENDING)->delete();
+            $service->properties()->create(['key' => self::PENDING, 'name' => 'ngm account (being created)', 'value' => $candidate]);
+            [$status, $data] = $ask($candidate);
+            if ($status === 201) {
+                return $this->made($service, $candidate, $data);
+            }
+            if ($status !== 409) {
+                self::refused($service, $status, $data);
+            }
+            $service->properties()->where('key', self::PENDING)->delete();
+            $taken = NgmApi::failure('POST', 'accounts', $status, $data);
         }
+
+        throw $taken ?? new Exception(filled($service->username)
+            ? 'ngm: the service\'s username «' . self::sanitize((string) $service->username) . '» is taken on this server: change it, or create the account by hand'
+            : 'ngm: no free username found from the service\'s domain: create the account by hand');
+    }
+
+    /**
+     * Not made, nor taken by name (409 is the caller's): ngm's refusal takes the kept name off (nothing was made under it,
+     * and a refusal tied to it must not repeat for ever); no answer, or an error of ngm's own, keeps it.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private static function refused(Service $service, int $status, array $data): never
+    {
         $failure = NgmApi::failure('POST', 'accounts', $status, $data);
         if ($failure instanceof ServerRefused) {
-            // Refused (not lost): nothing was made under that name, and a refusal tied to it must not repeat for ever.
             $service->properties()->where('key', self::PENDING)->delete();
         }
 
@@ -331,19 +384,26 @@ class Ngm extends Server implements ReadsServiceUsage
     {
         $api = $this->api();
         $username = self::owned($api, $service, $properties);
-        $api->expect('POST', self::path($username, 'password'), ['password' => $password], [200]);
+        $answer = $api->expect('POST', self::path($username, 'password'), ['password' => $password], [200]);
         $service->forceFill(['password' => $password])->save();
+        self::warnings($service, 'password change', $answer);
 
         return true;
     }
 
-    /** Into the panel, signed in: ngm's single-use ticket (POST /accounts/{user}/sso), as WHMCS's «Log in to panel». */
-    public function getLoginUrl(Service $service, $settings, $properties): string
+    /**
+     * Into the panel, signed in: ngm's single-use ticket (POST /accounts/{user}/sso), as WHMCS's «Log in to panel». Staff's
+     * «Log in to panel» (Admin\ServicePanelLoginController, the only caller that passes a fourth argument) gets ngm's
+     * admin ticket, as WHMCS's AdminSingleSignOn: staff land impersonating the account (ngm's banner and audit), and a
+     * suspended one opens too, where a customer's ticket is refused (review of #630).
+     */
+    public function getLoginUrl(Service $service, $settings, $properties, ?string $app = null): string
     {
+        $staff = func_num_args() > 3;
         $api = $this->api(15);
         $username = self::owned($api, $service, $properties);
-        [$status, $data] = $api->request('POST', self::path($username, 'sso'), []);
-        if ($status === 403) {
+        [$status, $data] = $api->request('POST', self::path($username, 'sso'), $staff ? ['admin' => true] : []);
+        if ($status === 403 && str_contains(strtolower((string) ($data['error'] ?? '')), 'sso api is disabled')) {
             throw new Exception('ngm: single sign-on is not enabled on this host (api.allow_sso)');
         }
         $url = $data['url'] ?? null;
