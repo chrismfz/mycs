@@ -819,6 +819,8 @@
     "Existing customers only (with an active service)": "Μόνο υπάρχοντες πελάτες (με ενεργή υπηρεσία)",
     "Once per customer": "Μία φορά ανά πελάτη",
     "A customer who used it once, in any order, cannot use it again.": "Ένας πελάτης που το χρησιμοποίησε μία φορά, σε οποιαδήποτε παραγγελία, δεν μπορεί να το ξαναχρησιμοποιήσει.",
+    "Kept on upgrades": "Μένει στα upgrades",
+    "Off: an upgrade to another product renews at its full price (WHMCS «Lifetime Promotion» off).": "Off: ένα upgrade σε άλλο προϊόν ανανεώνεται στην πλήρη τιμή του (το «Lifetime Promotion» του WHMCS off).",
     "Requires": "Απαιτεί",
     "One of these in the order": "Ένα από αυτά στην παραγγελία",
     "Or held already": "Ή να το έχει ήδη",

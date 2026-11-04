@@ -148,7 +148,7 @@ class ImportGatewaysPromotionsTest extends TestCase
 
     /**
      * WG-6: nixpal's promotions as MyCS has their rules since #274, open; only what MyCS cannot express (once per order)
-     * stays closed. FREETRIAL is the first payment and two renewals, for new clients, once each.
+     * stays closed. FREETRIAL is two discounted invoices, for new clients, once each.
      */
     public function test_a_promotion_with_whmcs_rules_mycs_has_is_imported_open(): void
     {
@@ -162,8 +162,9 @@ class ImportGatewaysPromotionsTest extends TestCase
         $this->import('importPromotions');
 
         $coupon = fn (int $id) => Coupon::query()->findOrFail($id);
-        $this->assertSame(['override', 0.0, 3, 'new', true, null, null], [$coupon(1)->type, $coupon(1)->value, $coupon(1)->recurring, $coupon(1)->customers,
-            $coupon(1)->once_per_client, $coupon(1)->billing_cycles, $coupon(1)->expires_at], 'the first payment and 2 renewals');
+        $this->assertSame(['override', 0.0, 2, 'new', true, false, null, null], [$coupon(1)->type, $coupon(1)->value, $coupon(1)->recurring, $coupon(1)->customers,
+            $coupon(1)->once_per_client, $coupon(1)->kept_on_product_change, $coupon(1)->billing_cycles, $coupon(1)->expires_at],
+            'two discounted invoices, the order\'s among them (review of #650); not lifetime: dropped on an upgrade');
         $this->assertSame([0, ['month:1', 'month:3', 'month:6', 'year:1', 'year:2', 'year:3'], false, null],
             [$coupon(2)->recurring, $coupon(2)->billing_cycles, $coupon(2)->requires_existing, $coupon(2)->expires_at],
             'its recurring cycles, not one-time; «Requires Existing» without «Requires» is nothing');
@@ -185,7 +186,7 @@ class ImportGatewaysPromotionsTest extends TestCase
         $this->promotion(12, 'DOMAINS', ['cycles' => '1Years,2Years']);
         $this->promotion(13, 'ODD', ['cycles' => 'Monthly,Fortnightly']);
         $this->promotion(14, 'UPGRADES', ['upgrades' => 1]);
-        $this->promotion(15, 'LIFETIME', ['lifetimepromo' => 1]);
+        $this->promotion(15, 'LIFETIME', ['lifetimepromo' => 1, 'value' => -4.5, 'type' => 'Fixed Amount']);
         $this->promotion(16, 'ADDON', ['requires' => 'A3']);
         $this->promotion(17, 'ONETIME', ['cycles' => 'One Time,Free Account,Monthly']);
 
@@ -194,14 +195,44 @@ class ImportGatewaysPromotionsTest extends TestCase
         $upsell = Coupon::query()->findOrFail(10);
         $this->assertSame(['existing', true, [$other], null], [$upsell->customers, $upsell->requires_existing, $upsell->requiredProducts->pluck('id')->all(), $upsell->expires_at]);
         $this->assertSame(['one_time', 'month:1'], Coupon::query()->findOrFail(17)->billing_cycles);
+        $this->assertTrue(Coupon::query()->findOrFail(15)->kept_on_product_change, 'lifetime: kept on an upgrade, as MyCS does');
         foreach ([11, 12, 13, 14, 15, 16] as $id) {
             $this->assertSame('2026-10-20 09:59:59', Coupon::query()->findOrFail($id)->expires_at?->toDateTimeString(), "#{$id} closed");
         }
         $out = $this->output->fetch();
-        foreach (['new and existing clients only', 'billing cycles of domains only (1Years, 2Years)', 'billing cycles unknown here (Fortnightly)',
-            'for upgrades', 'kept on upgrades', 'requires addons, domains or products not imported'] as $why) {
+        foreach (['new and existing clients only', 'billing cycles of domains or free accounts only (1Years, 2Years)', 'billing cycles unknown here (Fortnightly)',
+            'for upgrades', 'value -4.5', 'requires addons, domains or products not imported'] as $why) {
             $this->assertStringContainsString($why, $out);
         }
+    }
+
+    /**
+     * R650-1: WHMCS's «Recur For» N is N discounted invoices in all, the order's first one included (tblhosting.promocount
+     * is 1 after the order; promotionStillRunning reads it so). nixpal FREETRIAL (recurfor 2): every service has at most 2
+     * PromoHosting lines, 159 of them with 3+ invoices; myip divramis50 (recurfor 1): the first renewal at full price
+     * (service 2546). So Coupon::cycles() must be N, not N + 1.
+     */
+    public function test_recur_for_n_is_n_discounted_cycles_in_all_as_whmcs_gave_them(): void
+    {
+        $this->promotion(1, 'FREETRIAL', ['type' => 'Price Override', 'value' => 0, 'recurring' => 1, 'recurfor' => 2, 'newsignups' => 1, 'onceperclient' => 1]);
+        $this->promotion(38, 'divramis50', ['value' => 50, 'recurring' => 1, 'recurfor' => 1, 'newsignups' => 1, 'onceperclient' => 1]);
+
+        $this->import('importPromotions');
+
+        $this->assertSame(2, Coupon::query()->findOrFail(1)->cycles(), 'FREETRIAL: the order and one renewal, as WHMCS billed it');
+        $this->assertSame(1, Coupon::query()->findOrFail(38)->cycles(), 'divramis50: the first payment only, as WHMCS billed it');
+    }
+
+    /** R650-2: a promotion for «Free Account» only never discounted a One Time product in WHMCS. */
+    public function test_free_account_only_is_not_every_one_time_plan(): void
+    {
+        $this->promotion(20, 'FREEONLY', ['cycles' => 'Free Account']);
+
+        $this->import('importPromotions');
+
+        $coupon = Coupon::query()->findOrFail(20);
+        $this->assertFalse($coupon->expires_at === null && in_array('one_time', (array) $coupon->billing_cycles, true),
+            'open and covering one-time plans: a discount WHMCS never gave on a One Time product');
     }
 
     public function test_a_service_keeps_its_whmcs_price_and_its_promotion_used_up(): void

@@ -524,18 +524,24 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   (`whmcs-usage.md`)· **να επιβεβαιωθεί το όνομα του module της Eurobank** στο `tblaccounts` της myip πριν το cut-over.
 - **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`), με τους κανόνες που έχει το
   MyCS από το #274 (WG-6, 2026-11-04): Percentage → percentage, Fixed Amount → fixed, Free Setup → 100% στο setup fee,
-  Price Override → override (μόνο για τα προϊόντα που ονομάζει, στο κύριο νόμισμα). `recurring` 0 → μόνο η πρώτη
-  πληρωμή, 1 με `recurfor` 0 → κάθε κύκλος, 1 με `recurfor` N → η πρώτη πληρωμή και N ανανεώσεις (`recurring` = N + 1).
-  `cycles` → `billing_cycles` (Monthly → `month:1` … Triennially → `year:3`, One Time/Free Account → `one_time`· όλοι
-  ή κανένας → κάθε κύκλος). New Signups → `customers` new, Existing Client → existing, `onceperclient` →
-  `once_per_client`, `requires` → `coupon_required_products` και `requiresexisting` → `requires_existing`, `maxuses`,
-  ημερομηνίες. Όποιο το MyCS θα εφάρμοζε **ακόμα αλλιώς** από το WHMCS (once per order, upgrades, lifetime, νέοι και
-  υπάρχοντες μαζί, κύκλοι μόνο domains ή άγνωστοι, Fixed Amount με πολλά νομίσματα, addons/domains στο `appliesto` ή
-  στο `requires`, εξαντλημένο) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import) και
-  αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: ανοιχτά τα FREETRIAL και 25OffAgentNode, κλειστά
-  τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα STREAM50 και
-  CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), optimum20 (lifetime), FALL2020 (κύκλοι domains),
-  30-OFF (εξαντλημένο) και το Gr-Domain-Discount (domains).
+  Price Override → override (μόνο για τα προϊόντα που ονομάζει, στο κύριο νόμισμα· όχι στο setup ή στις επιλογές, που
+  στη nixpal δεν υπάρχουν). `recurring` 0 → μόνο η πρώτη πληρωμή, 1 με `recurfor` 0 → κάθε κύκλος, 1 με `recurfor` N →
+  **N τιμολόγια συνολικά, μαζί με της παραγγελίας** (review του #650: στα δεδομένα το FREETRIAL, N = 2, δεν έχει ποτέ
+  πάνω από 2 εκπτωτικές γραμμές ανά υπηρεσία). `cycles` → `billing_cycles` (Monthly → `month:1` … Triennially →
+  `year:3`, One Time → `one_time`· όλοι ή κανένας → κάθε κύκλος). New Signups → `customers` new, Existing Client →
+  existing, `onceperclient` → `once_per_client`, `requires` → `coupon_required_products` και `requiresexisting` →
+  `requires_existing`, `lifetimepromo` → `kept_on_product_change` (νέα ρύθμιση του κουπονιού, «Kept on upgrades»,
+  default on: όταν είναι off, ένα upgrade σε άλλο προϊόν τελειώνει το κουπόνι, όπως το WHMCS με promotion που δεν
+  είναι lifetime· ADV-650-1), `maxuses`, ημερομηνίες. Μια υπηρεσία που το WHMCS δεν δείχνει πια με το promotion
+  (`promoid` 0 όταν τελειώσει), αλλά η παραγγελία της έχει τον κωδικό (`tblorders.promocode`), έρχεται κι αυτή με το
+  κουπόνι used up, ώστε το «once per client» να ξέρει ότι ο πελάτης το χρησιμοποίησε (ADV-650-2). Όποιο το MyCS θα
+  εφάρμοζε **ακόμα αλλιώς** από το WHMCS (once per order, upgrades, νέοι και υπάρχοντες μαζί, κύκλοι μόνο domains ή
+  Free Account ή άγνωστοι, αρνητική τιμή ή ποσοστό πάνω από 100, Fixed Amount με πολλά νομίσματα, addons/domains στο
+  `appliesto` ή στο `requires`, εξαντλημένο) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import)
+  και αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: ανοιχτά τα FREETRIAL και 25OffAgentNode,
+  κλειστά τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα
+  STREAM50 και CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), FALL2020 (κύκλοι domains), 30-OFF
+  (εξαντλημένο) και το Gr-Domain-Discount (domains, αρνητική τιμή).
 - **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
   του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
   ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`
