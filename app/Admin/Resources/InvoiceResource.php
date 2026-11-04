@@ -19,6 +19,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationMana
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
+use App\Models\ChargeAttempt;
 use App\Models\EkdosiDocument;
 use App\Models\EmailLog;
 use App\Models\Invoice;
@@ -450,6 +451,10 @@ class InvoiceResource extends Resource
                 Filter::make('overdue')
                     ->label(__('Overdue'))
                     ->query(fn (Builder $query) => Invoice::whereOverdue($query)),
+                // A saved method's charge staff must settle (ChargeAttempt::scopeNeedsStaff): «Resolve charge» on its page.
+                Filter::make('charge_to_settle')
+                    ->label(__('Charge to settle'))
+                    ->query(fn (Builder $query) => $query->whereIn($query->qualifyColumn('id'), ChargeAttempt::query()->needsStaff()->select('invoice_id'))),
                 // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
                 // reports one still waiting after a day (MT-3).
                 // Its latest mail failed (the mail audit): to resend.

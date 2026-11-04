@@ -145,6 +145,7 @@ class DashboardServersTest extends TestCase
         $this->assertNotContains(Servers::class, (new Dashboard)->layout()['right']);
     }
 
+    /** Under Needs attention (its own test), above Support. */
     public function test_it_tops_the_right_column(): void
     {
         $this->actAs(['admin.servers.viewAny', 'admin.widgets.support']);

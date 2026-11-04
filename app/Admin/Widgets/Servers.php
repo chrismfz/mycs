@@ -15,7 +15,7 @@ use Illuminate\View\View;
  */
 class Servers extends Widget
 {
-    // At the top of the right column of the dashboard (`Dashboard::RIGHT`), above Support.
+    // In the right column of the dashboard (`Dashboard::RIGHT`), under Needs attention and above Support.
     protected static ?int $sort = 4;
 
     protected string $view = 'admin.widgets.servers';

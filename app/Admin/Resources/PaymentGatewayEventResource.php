@@ -7,14 +7,19 @@ use App\Models\PaymentGatewayEvent;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * «Gateway log» (docs/money-trail.md §4, MT-2a): every request to a gateway's routes and what came of it. Read only.
  */
 class PaymentGatewayEventResource extends Resource
 {
+    /** The «Last days» filter: how far back the dashboard looks for events from another company. */
+    public const RECENT_DAYS = 7;
+
     protected static ?string $model = PaymentGatewayEvent::class;
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-exchange-funds-line';
@@ -77,6 +82,9 @@ class PaymentGatewayEventResource extends Resource
                 ])->mapWithKeys(fn (string $outcome) => [$outcome => __('money.outcomes.' . $outcome)])->all()),
                 SelectFilter::make('gateway')->label(__('Gateway'))
                     ->options(fn () => PaymentGatewayEvent::query()->distinct()->orderBy('gateway')->pluck('gateway', 'gateway')),
+                // The dashboard's «Needs attention» counts the foreign events of these days (nobody marks one checked).
+                Filter::make('recent')->label(__('Last :days days', ['days' => self::RECENT_DAYS]))
+                    ->query(fn (Builder $query) => $query->where('created_at', '>=', now()->subDays(self::RECENT_DAYS))),
             ])
             ->recordActions([])
             ->toolbarActions([]);

@@ -3,6 +3,7 @@
 namespace App\Admin\Pages;
 
 use App\Admin\Widgets\EstimatedIncome;
+use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\PaymentsTracking;
 use App\Admin\Widgets\RecentActivity;
 use App\Admin\Widgets\Renewals\DomainRenewals;
@@ -35,7 +36,7 @@ class Dashboard extends BaseDashboard
     public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class];
 
     /** @var array<int, class-string> */
-    public const RIGHT = [Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
+    public const RIGHT = [NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
 
     /**
      * What the viewer sees, in four groups: the full width above, the two columns, the full width below.
