@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\Domain;
 use App\Models\Service;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Billing\RenewalPrice;
 use App\Services\Order\OrderPricing;
@@ -58,6 +59,9 @@ final class WhmcsForecastParity
     /** @var array<int, true> clients whose group WHMCS never suspends nor terminates */
     private array $exempt = [];
 
+    /** @var array<int, string> client id => its group's discount, which WHMCS bills as a line of its own on each renewal */
+    private array $groupPercents = [];
+
     private CarbonImmutable $today;
 
     public function __construct(private readonly PDO $whmcs)
@@ -91,6 +95,9 @@ final class WhmcsForecastParity
             if (in_array(strtolower(trim((string) $row['susptermexempt'])), ['on', '1', 'yes'], true)) {
                 $this->exempt[(int) $row['id']] = true;
             }
+        }
+        foreach ($this->rows('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0') as $row) {
+            $this->groupPercents[(int) $row['id']] = number_format((float) $row['discountpercent'], 2, '.', '');
         }
     }
 
@@ -133,9 +140,11 @@ final class WhmcsForecastParity
             }
             $due = $this->date($row['nextduedate']);
             $expires = CarbonImmutable::parse($service->expires_at);
-            // The line is its price times its quantity, on both sides.
+            // The line is its price times its quantity, on both sides. WHMCS's amount is without its account's group discount,
+            // which it bills as a `GroupDiscount` line of its own on each renewal (WG-1).
             $theirQty = max(1, (int) ($row['qty'] ?? 1));
-            $this->compare('service', $id, 'renewal amount', number_format((float) $row['amount'] * $theirQty, 2, '.', ''),
+            $theirs = ClientGroupPricing::discounted(number_format((float) $row['amount'], 2, '.', ''), $this->groupPercents[(int) $row['userid']] ?? '0.00');
+            $this->compare('service', $id, 'renewal amount', number_format((float) $theirs * $theirQty, 2, '.', ''),
                 number_format((float) RenewalPrice::for($service, $expires, true)->price * max(1, (int) $service->quantity), 2, '.', ''));
             $this->compare('service', $id, 'next due date', $due, $expires->toDateString());
             // WHMCS invoices a renewal when its nextinvoicedate is within «invoice days» (the cycle's own, else the general): 7 days

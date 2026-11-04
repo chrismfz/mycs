@@ -35,6 +35,17 @@ final class ClientGroupPricing
         return $repriced;
     }
 
+    /**
+     * A price without the group's discount, with it: the discount rounded on its own and taken off, as WHMCS's
+     * `GroupDiscount` line per service and the pricing package's (LinePricer) do (1.85 at 10%: 1.85 − 0.19 = 1.66).
+     */
+    public static function discounted(string $price, string $percent): string
+    {
+        $price = BigDecimal::of($price);
+
+        return (string) $price->minus($price->multipliedBy($percent)->dividedBy(100, 2, RoundingMode::HalfUp))->toScale(2);
+    }
+
     /** The cron's: the accounts with a live service whose price holds another group discount than theirs. */
     public static function reconcile(): int
     {

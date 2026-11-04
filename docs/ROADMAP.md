@@ -112,7 +112,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 adversarial review.
 
 **Π0, πριν τη nixpal:**
-- [ ] **WG-1** Η έκπτωση ομάδας χάνεται στο import: η nixpal θα χρεώνει 10% παραπάνω σε 24 υπηρεσίες. **Χρήματα.**
+- [x] ~~**WG-1** Η έκπτωση ομάδας χάνεται στο import: η nixpal θα χρεώνει 10% παραπάνω σε 24 υπηρεσίες.~~ Ο importer
+      γράφει την τιμή μείον την έκπτωση, όπως τη χρεώνει το WHMCS· το forecast parity το ίδιο (fix/import-group-discount).
 - [ ] **WG-2** Το πλήρες import να φτιάχνει τον κατάλογο με το `CatalogImport` (package cPanel/ngm, κρυφές ομάδες,
       retired, δωρεάν τιμές, σειρά, συνδέσεις των config options).
 - [ ] **WG-3** Όρια του Add Funds από το WHMCS (σήμερα 5/100/300).
