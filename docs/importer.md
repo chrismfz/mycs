@@ -542,6 +542,19 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   κλειστά τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα
   STREAM50 και CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), FALL2020 (κύκλοι domains), 30-OFF
   (εξαντλημένο) και το Gr-Domain-Discount (domains, αρνητική τιμή).
+- **Επιλογές υπηρεσιών** (WG-11, 2026-11-04, `importServiceOptions`): `tblhostingconfigoptions` → `service_configs` μέσω
+  του `whmcs_ref` του καταλόγου (`option:N`, `value:N`). Dropdown και radio → η τιμή τους, checkbox → η τιμή του μόνο αν
+  είναι τσεκαρισμένο (`qty` > 0), quantity → το πλήθος ως property της υπηρεσίας (όπως το γράφει μια παραγγελία), μόνο
+  αν `qty` > 0. Η τιμή της υπηρεσίας δεν αλλάζει: μένει το ποσό του WHMCS, με τις επιλογές μέσα (`undiscounted_price`).
+  Μια τιμή υπολογισμένη από τον κατάλογο (upgrade, αναφορά τιμών) τις μετρά πλέον, π.χ. το Dedicated IP. Μια quantity
+  δεν έχει ακόμα τιμή εδώ (CART-9, WG-15· ένα Recalculate ή μια αλλαγή κύκλου του #2618 βγάζει 21.00 αντί για 31.00,
+  όπως και πριν: ADV-653-3, test incomplete ως το WG-15). Επιλογή ή τιμή που το WHMCS έσβησε αναφέρεται και
+  παραλείπεται. **Μόνο επιλογές που προσφέρει το προϊόν της υπηρεσίας** (`config_option_products`, από το
+  `tblproductconfiglinks`): μια επιλογή άλλου group δεν ήταν ούτε στο ποσό ούτε στον επανυπολογισμό του WHMCS, και θα
+  χρεωνόταν εδώ σε αλλαγή κύκλου ή Recalculate (review του #653, ADV-653-1: τα 4 Dedicated IP του myip, 7.00 → 9.00 και
+  62.00 → 86.00)· παραλείπεται και αναφέρεται. Parity: «Service options» και «Service quantity options», με τον ίδιο
+  κανόνα. Myip: ζωντανά OS/location/backup σε VPS και 1 Extra Addon domain ×2· 8 γραμμές άλλου group (τα 4 IP, 4
+  dropdowns) και 1 με επιλογή που δεν υπάρχει πια παραλείπονται· nixpal: καμία.
 - **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
   του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
   ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`
