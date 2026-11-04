@@ -1600,5 +1600,9 @@
     "Charges": "Χρεώσεις",
     "Server actions": "Ενέργειες server",
     "Automation": "Αυτοματισμοί",
-    "Gateway events": "Συμβάντα πυλών πληρωμής"
+    "Gateway events": "Συμβάντα πυλών πληρωμής",
+    "New orders": "Νέες παραγγελίες",
+    "Revenue": "Έσοδα",
+    "Net revenue": "Καθαρά έσοδα",
+    "New orders :orders · Revenue :revenue · Net revenue :net": "Νέες παραγγελίες :orders · Έσοδα :revenue · Καθαρά έσοδα :net"
 }

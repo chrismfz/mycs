@@ -2,8 +2,11 @@
 
 namespace App\Admin\Widgets;
 
+use App\Classes\Price;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
+use App\Models\Currency;
+use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Order;
 use Carbon\Carbon;
@@ -11,6 +14,7 @@ use Filament\Support\RawJs;
 use Filament\Widgets\ChartWidget;
 use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
+use Illuminate\Database\Eloquent\Builder;
 
 class Revenue extends ChartWidget
 {
@@ -20,11 +24,17 @@ class Revenue extends ChartWidget
     // About half the height it had (owner 2026-10-21).
     protected ?string $maxHeight = '160px';
 
-    protected ?string $heading = 'Revenue';
+    public function getHeading(): string
+    {
+        return __('Revenue');
+    }
 
     public ?string $filter = 'month';
 
     protected ?string $pollingInterval = null;
+
+    /** @var array{orders: int, revenue: float, net: float}|null */
+    private ?array $totals = null;
 
     protected function getFilters(): ?array
     {
@@ -39,6 +49,20 @@ class Revenue extends ChartWidget
         $this->dispatch('dashboard-period-updated', period: $this->filter);
     }
 
+    /**
+     * The payments the chart and the Revenue card add up: in the default currency only, since a sum of euros and
+     * dollars is no amount.
+     *
+     * @return Builder<InvoiceTransaction>
+     */
+    public static function payments(): Builder
+    {
+        return InvoiceTransaction::query()
+            ->where('status', InvoiceTransactionStatus::Succeeded)
+            ->where('is_credit_transaction', false)
+            ->whereIn('invoice_id', Invoice::query()->where('currency_code', (string) config('settings.default_currency'))->select('id'));
+    }
+
     protected function getData(): array
     {
         $period = DashboardPeriod::fromValue($this->filter);
@@ -49,7 +73,7 @@ class Revenue extends ChartWidget
 
         $interval = $period->interval();
 
-        $revenue = Trend::query(InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false))
+        $revenue = Trend::query(self::payments())
             ->between(
                 start: $start,
                 end: $end,
@@ -57,7 +81,7 @@ class Revenue extends ChartWidget
             ->interval($interval)
             ->sum('amount');
 
-        $netRevenue = Trend::query(InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false))
+        $netRevenue = Trend::query(self::payments())
             ->between(
                 start: $start,
                 end: $end,
@@ -73,45 +97,78 @@ class Revenue extends ChartWidget
             ->interval($interval)
             ->count();
 
+        $this->totals = [
+            'orders' => (int) $newOrders->sum('aggregate'),
+            'revenue' => (float) $revenue->sum('aggregate'),
+            'net' => (float) $netRevenue->sum('aggregate'),
+        ];
+
+        // B2's chart (owner 2026-11-04): the orders as bars on the left, a count; the two amounts as lines on the right.
         return [
             'datasets' => [
                 [
-                    'label' => 'Revenue',
-                    'data' => $revenue->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
-                    'backgroundColor' => '#3490dc',
-                    'borderColor' => '#3490dc',
-                ],
-                [
-                    'label' => 'Net Revenue',
-                    'data' => $netRevenue->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
-                    'backgroundColor' => '#38c172',
-                    'borderColor' => '#38c172',
-                ],
-                [
-                    'label' => 'New Orders',
-                    // A count, not money: its own axis on the right (owner 2026-10-21).
-                    'yAxisID' => 'orders',
+                    'type' => 'bar',
+                    'label' => __('New orders'),
                     'data' => $newOrders->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
-                    'backgroundColor' => '#e3342f',
-                    'borderColor' => '#e3342f',
+                    'backgroundColor' => '#a9c1ff',
+                    'borderColor' => '#a9c1ff',
+                ],
+                [
+                    'label' => __('Revenue'),
+                    'data' => $revenue->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
+                    'backgroundColor' => '#d97706',
+                    'borderColor' => '#d97706',
+                    // Named: a line without its axis goes on the first one, the orders' (seen on the devbox).
+                    'yAxisID' => 'money',
+                    'fill' => false,
+                    'pointRadius' => 0,
+                ],
+                [
+                    'label' => __('Net revenue'),
+                    'data' => $netRevenue->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
+                    'backgroundColor' => '#059669',
+                    'borderColor' => '#059669',
+                    // Named: a line without its axis goes on the first one, the orders' (seen on the devbox).
+                    'yAxisID' => 'money',
+                    'fill' => false,
+                    'pointRadius' => 0,
                 ],
             ],
             'labels' => $revenue->map(fn (TrendValue $value) => Carbon::parse($value->date)->format($period->dateFormat()))->toArray(),
         ];
     }
 
+    /** The period's totals under the chart, as the mockup's last line. */
+    public function getDescription(): ?string
+    {
+        if ($this->totals === null) {
+            $this->getCachedData();
+        }
+        $currency = Currency::query()->find((string) config('settings.default_currency'));
+        $money = fn (float $amount) => (new Price(['price' => $amount, 'currency' => $currency], tax: 0))->formatted->price;
+
+        return __('New orders :orders · Revenue :revenue · Net revenue :net', [
+            'orders' => $this->totals['orders'],
+            'revenue' => $money($this->totals['revenue']),
+            'net' => $money($this->totals['net']),
+        ]);
+    }
+
     protected function getOptions(): array|RawJs|null
     {
         return [
+            // The orders' axis is `y`, the one with the chart area's grid lines, which Filament gives the theme's colour.
             'scales' => [
                 'y' => [
-                    'beginAtZero' => true,
-                ],
-                'orders' => [
-                    'position' => 'right',
+                    'position' => 'left',
                     'beginAtZero' => true,
                     'ticks' => ['precision' => 0],
+                ],
+                'money' => [
+                    'position' => 'right',
+                    'beginAtZero' => true,
                     'grid' => ['drawOnChartArea' => false],
+                    'border' => ['display' => false],
                 ],
             ],
         ];
