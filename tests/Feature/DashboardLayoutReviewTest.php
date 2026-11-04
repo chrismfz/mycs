@@ -11,6 +11,7 @@ use App\Admin\Widgets\RecentActivity;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Revenue;
+use App\Admin\Widgets\Servers;
 use App\Admin\Widgets\StaffOnline;
 use App\Admin\Widgets\Support;
 use App\Models\Currency;
@@ -52,7 +53,7 @@ class DashboardLayoutReviewTest extends TestCase
 
         $this->assertSame([Overview::class], $layout['above']);
         $this->assertSame([Revenue::class, EstimatedIncome::class], $layout['left']);
-        $this->assertSame([Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
         $this->assertSame([StaffOnline::class, ActiveUsers::class], $layout['below']);
     }
 
@@ -97,7 +98,7 @@ class DashboardLayoutReviewTest extends TestCase
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
 
-        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, StaffOnline::class, ActiveUsers::class];
         $offsets = array_map($at, $order);
         $this->assertNotContains(0, $offsets, 'every widget is on the page');
         $sorted = $offsets;

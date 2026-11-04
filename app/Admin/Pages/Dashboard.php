@@ -10,6 +10,7 @@ use App\Admin\Widgets\Renewals\RecordsToCheck;
 use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Renewals\ServicesToCheck;
 use App\Admin\Widgets\Revenue;
+use App\Admin\Widgets\Servers;
 use App\Admin\Widgets\Support;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Schemas\Components\Component;
@@ -34,7 +35,7 @@ class Dashboard extends BaseDashboard
     public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class];
 
     /** @var array<int, class-string> */
-    public const RIGHT = [Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
+    public const RIGHT = [Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
 
     /**
      * What the viewer sees, in four groups: the full width above, the two columns, the full width below.
