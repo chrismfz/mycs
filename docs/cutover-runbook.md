@@ -25,7 +25,9 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   - **PayPal:** το `webhook_id` του app της εταιρείας.
   - **Cardlink:** τα URLs return/notify στο vPOS της Eurobank.
   - **Proxmox (myip):**
-    - ο server του cluster: το API token του, αν δεν είναι ο ήδη στημένος·
+    - ο server του cluster: το import τον φτιάχνει από την αρχή, γιατί αδειάζει τη βάση. Ό,τι είχε στηθεί πριν (π.χ. ο
+      «vega-proxmox» του mycs.myip.gr) δεν περνά. Συμπληρώνονται: το API token, τα IP/self-signed των κόμβων, το pool
+      `mycs` και η ρύθμιση Terminate·
     - οι VPS του WHMCS αντιστοιχίζονται με το χέρι από τα Proxmox Guests (`proxmox.md` → Α3), και μετά το «Pool command».
     Μέχρι τότε η MyCS δεν αγγίζει κανένα VM.
   - **Offline VM (myip: Hetzner Cloud, ngm):** καμία ρύθμιση. Κάθε ενέργεια γίνεται εργασία στα Pending Module Actions.

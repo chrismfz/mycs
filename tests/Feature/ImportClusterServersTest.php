@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
+use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\Whmcs\CatalogImport;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -74,9 +75,10 @@ class ImportClusterServersTest extends TestCase
         $result = $this->servers();
 
         $proxmox = Server::query()->where('extension', 'Proxmox')->sole();
-        $this->assertSame(54, (int) $proxmox->whmcs_id, 'the first node\'s id');
+        $this->assertSame(61, (int) $proxmox->whmcs_id, 'its live node\'s id');
         $this->assertTrue((bool) $proxmox->enabled, 'Pegasus is live, though Vega is disabled');
-        $this->assertSame('https://vega.example.test:8006', $this->setting($proxmox, 'host'));
+        $this->assertSame('https://pegasus.example.test:8006', $this->setting($proxmox, 'host'), 'a live node first');
+        $this->assertSame('https://vega.example.test:8006', $this->setting($proxmox, 'node2_host'), 'the other for failover');
         $this->assertNull($this->setting($proxmox, 'username'), 'WHMCS\'s root@pam is no API token');
         $this->assertSame([54 => $proxmox->id, 61 => $proxmox->id], array_intersect_key($result['server_ids'], [54 => 0, 61 => 0]));
         $this->assertNotEmpty(array_filter($result['notes'], fn ($note) => str_contains($note, '«Vega»') && str_contains($note, '«Pegasus»') && str_contains($note, 'one cluster')));
@@ -99,6 +101,69 @@ class ImportClusterServersTest extends TestCase
         $this->assertTrue((bool) $own->enabled);
         $this->assertSame('https://node3.example.test:8006', $this->setting($own, 'host'), 'its address is staff\'s');
         $this->assertSame($own->id, $result['server_ids'][61]);
+    }
+
+    /** Review of #628 (M1): a re-run keeps the cluster as it is: enabled by its live node, staff's name and state. */
+    public function test_a_rerun_keeps_the_cluster_as_it_is(): void
+    {
+        $this->servers();
+        $this->servers();
+        $this->assertTrue((bool) Server::query()->where('extension', 'Proxmox')->sole()->enabled, 'still enabled on the second run');
+
+        Server::query()->where('extension', 'Proxmox')->delete();
+        Server::query()->withTrashed()->where('extension', 'Proxmox')->forceDelete();
+        $own = Server::query()->create(['name' => 'vega-proxmox', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => false]);
+        $this->servers();
+        $this->servers();
+        $own->refresh();
+        $this->assertSame(['vega-proxmox', false], [$own->name, (bool) $own->enabled], 'staff\'s, on every run');
+        $this->assertSame(1, Server::query()->where('extension', 'Proxmox')->count());
+    }
+
+    /** Review of #628 (M2): a cluster's server staff deleted here stays deleted: no node makes another. */
+    public function test_a_deleted_cluster_server_stays_deleted(): void
+    {
+        $this->servers();
+        Server::query()->where('extension', 'Proxmox')->sole()->delete();
+
+        $result = $this->servers();
+
+        $this->assertSame(0, Server::query()->where('extension', 'Proxmox')->count());
+        $this->assertNotEmpty(array_filter($result['notes'], fn ($note) => str_contains($note, 'deleted here, left deleted')));
+    }
+
+    /** Review of #628 (L1): staff's server at any node's address is the one, though another of the extension exists. */
+    public function test_staffs_server_at_another_nodes_address_is_adopted(): void
+    {
+        $own = Server::query()->create(['name' => 'vega-proxmox', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $own->settings()->create(['key' => 'host', 'value' => 'https://vega.example.test:8006']);
+        Server::query()->create(['name' => 'lab', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+
+        $result = $this->servers();
+
+        $this->assertSame(2, Server::query()->where('extension', 'Proxmox')->count(), 'no third one');
+        $this->assertSame($own->id, $result['server_ids'][61]);
+    }
+
+    /** Review of #628 (M3): from its own plan without prices, a change of cycle set for the next renewal can be taken back. */
+    public function test_a_cycle_change_from_a_plan_without_prices_can_be_taken_back(): void
+    {
+        $product = $this->createProduct(); // Monthly, priced
+        $quarterly = Plan::query()->findOrFail(CatalogImport::unpricedPlan($product->product, 'Quarterly'));
+        $client = User::factory()->create()->client();
+        $service = Service::query()->forceCreate(['client_id' => $client->id, 'product_id' => $product->product->id, 'plan_id' => $quarterly->id,
+            'status' => 'active', 'price' => 62.90, 'quantity' => 1, 'currency_code' => 'USD', 'expires_at' => now()->addMonth()]);
+        $this->assertFalse(ChangeCycle::plans($service)->contains('id', $quarterly->id), 'not offered while nothing is set');
+
+        ChangeCycle::apply($service, ChangeCycle::plans($service)->sole(), ChangeCycle::NEXT_RENEWAL, 'client');
+        $service->refresh();
+        $this->assertNotNull($service->next_plan_id);
+        $this->assertTrue(ChangeCycle::plans($service)->contains('id', $quarterly->id), 'its own plan, to take it back');
+
+        ChangeCycle::apply($service, $quarterly, ChangeCycle::NEXT_RENEWAL, 'client');
+        $service->refresh();
+        $this->assertNull($service->next_plan_id);
+        $this->assertSame('62.90', number_format((float) $service->price, 2, '.', ''), 'its own price kept');
     }
 
     public function test_hetzner_cloud_and_ngm_come_as_offline_vm_servers(): void

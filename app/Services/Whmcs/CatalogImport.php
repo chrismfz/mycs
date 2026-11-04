@@ -104,12 +104,6 @@ final class CatalogImport
     /** @var array<string, int> WHMCS module => the MyCS server of its default (active) WHMCS server */
     private array $defaultServers = [];
 
-    /** @var array<string, Server> a cluster module (CLUSTER_MODULES) => its one server here */
-    private array $clusters = [];
-
-    /** @var array<string, list<string>> a cluster module => its WHMCS servers, for the note */
-    private array $clusterNodes = [];
-
     /** @var array<int, int> */
     private array $groupIds = [];
 
@@ -269,6 +263,7 @@ final class CatalogImport
 
     private function servers(): void
     {
+        $clusters = [];
         foreach ($this->rows('SELECT * FROM tblservers ORDER BY id') as $row) {
             $module = strtolower((string) $row['type']);
             $extension = self::SERVER_MODULES[$module] ?? null;
@@ -277,22 +272,12 @@ final class CatalogImport
 
                 continue;
             }
-            $hostname = strtolower(trim((string) ($row['hostname'] ?: $row['ipaddress'])));
-            $enabled = !(int) ($row['disabled'] ?? 0);
-            // Another node of a cluster already here: its services are that server's.
-            $cluster = in_array($module, self::CLUSTER_MODULES, true) ? ($this->clusters[$module] ?? null) : null;
-            if ($cluster !== null) {
-                $this->serverIds[(int) $row['id']] = $cluster->id;
-                $this->clusterNodes[$module][] = "#{$row['id']} «{$row['name']}»";
-                if ($enabled && !$cluster->enabled && $cluster->wasRecentlyCreated) {
-                    $cluster->forceFill(['enabled' => true])->save(); // one live node: the cluster is
-                }
-                if (($row['active'] ?? 0) && $enabled) {
-                    $this->defaultServers[$module] = $cluster->id;
-                }
+            if (in_array($module, self::CLUSTER_MODULES, true)) {
+                $clusters[$module][] = $row; // all its nodes together, below
 
                 continue;
             }
+            $hostname = strtolower(trim((string) ($row['hostname'] ?: $row['ipaddress'])));
             $server = Server::withTrashed()->where('whmcs_id', (int) $row['id'])->first();
             if ($server?->trashed()) {
                 // Deleted here on purpose: not brought back (review 6).
@@ -300,31 +285,23 @@ final class CatalogImport
 
                 continue;
             }
-            // One staff already set up (same module and host) is adopted, not copied without its password (review F10). A
-            // cluster's: the extension's only one staff set up, whatever node its address is (owner 2026-11-04).
-            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)
-                ?? (in_array($module, self::CLUSTER_MODULES, true) ? $this->onlyServer($extension) : null)) !== null;
+            // One staff already set up (same module and host) is adopted, not copied without its password (review F10).
+            $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)) !== null;
             $server ??= new Server;
             $offline = self::OFFLINE_MODULES[$module] ?? null;
             $server->forceFill([
                 'whmcs_id' => (int) $row['id'],
-                'name' => $adopted ? $server->name : ($offline !== null ? "{$row['name']} ({$offline}, offline)" : (string) $row['name']),
+                'name' => $offline !== null ? "{$row['name']} ({$offline}, offline)" : (string) $row['name'],
                 'extension' => $extension,
                 'type' => 'server',
-                'enabled' => $adopted ? $server->enabled : $enabled,
+                'enabled' => !(int) ($row['disabled'] ?? 0),
                 'max_accounts' => (int) ($row['maxaccounts'] ?? 0) > 0 ? (int) $row['maxaccounts'] : null,
             ])->save();
-            if (in_array($module, self::CLUSTER_MODULES, true)) {
-                $this->clusters[$module] = $server;
-                $this->clusterNodes[$module] = ["#{$row['id']} «{$row['name']}»"];
-            }
             // Its address (a URL, as the extension takes it: review 3) and login, only where none is set yet: a URL or
             // login staff corrected stays, and a stored API key is never sent to a host they did not type (R6). Never
-            // its password (the API token comes with the credentials step). An offline one has neither; Proxmox's login
-            // is an API token staff make (its username is not WHMCS's root@pam).
+            // its password (the API token comes with the credentials step). An offline one has neither.
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
-            $settings = $offline !== null ? [] : ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '',
-                'username' => $module === 'pvewhmcs' ? '' : (string) ($row['username'] ?? '')];
+            $settings = $offline !== null ? [] : ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
             // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
             // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
             // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
@@ -345,10 +322,63 @@ final class CatalogImport
             $this->defaultServers[$module] ??= $server->id;
             $this->counts['servers']++;
         }
-        foreach ($this->clusters as $module => $cluster) {
-            $this->notes[] = 'Servers ' . implode(', ', $this->clusterNodes[$module]) . " («{$module}»): one cluster here, server «{$cluster->name}»"
-                . ' (' . ($cluster->enabled ? 'enabled' : 'disabled') . '). Its API token is staff\'s to enter, and its VMs are mapped by hand (Proxmox Guests).';
+        foreach ($clusters as $module => $rows) {
+            $this->cluster($module, $rows);
         }
+    }
+
+    /**
+     * A cluster's WHMCS servers (its nodes) as its one server here (CLUSTER_MODULES), found by any node's id on a re-run.
+     * Kept as it is once here, made by the import or adopted from staff (its name, state, addresses and token are staff's
+     * then: review of #628); deleted here, left deleted. A new one is enabled when a node is, its live nodes' addresses
+     * first: the host, then the extension's failover nodes.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function cluster(string $module, array $rows): void
+    {
+        $extension = self::SERVER_MODULES[$module];
+        $ids = array_map(fn (array $row) => (int) $row['id'], $rows);
+        $names = implode(', ', array_map(fn (array $row) => "#{$row['id']} «{$row['name']}»", $rows));
+        $live = array_values(array_filter($rows, fn (array $row) => !(int) ($row['disabled'] ?? 0)));
+        $nodes = [...$live, ...array_values(array_filter($rows, fn (array $row) => (bool) (int) ($row['disabled'] ?? 0)))];
+        $hostOf = fn (array $row): string => strtolower(trim((string) ($row['hostname'] ?: $row['ipaddress'])));
+        $server = Server::withTrashed()->whereIn('whmcs_id', $ids)->orderBy('id')->first();
+        if ($server?->trashed()) {
+            $this->notes[] = "Servers {$names} («{$module}»): their cluster's server was deleted here, left deleted.";
+
+            return;
+        }
+        // Staff's own of the extension: at any node's address, else the only one (owner 2026-11-04).
+        foreach ($server === null ? $nodes : [] as $node) {
+            if (($server = $this->sameServer($extension, $hostOf($node))) !== null) {
+                break;
+            }
+        }
+        $server ??= $this->onlyServer($extension);
+        $made = $server === null;
+        if ($server === null) {
+            $server = new Server;
+            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id'], 'name' => (string) $nodes[0]['name'], 'extension' => $extension, 'type' => 'server',
+                'enabled' => $live !== []])->save();
+            foreach (array_slice($nodes, 0, 3) as $i => $node) {
+                $host = $hostOf($node);
+                if ($host !== '') {
+                    $port = (int) ($node['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
+                    Setting::query()->create(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id,
+                        'key' => ['host', 'node2_host', 'node3_host'][$i], 'value' => "https://{$host}:{$port}", 'type' => 'string', 'encrypted' => false]);
+                }
+            }
+        } elseif ($server->whmcs_id === null) {
+            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id']])->save(); // adopted: only found again on a re-run
+        }
+        foreach ($ids as $id) {
+            $this->serverIds[$id] = $server->id;
+        }
+        $this->defaultServers[$module] = $server->id;
+        $this->counts['servers']++;
+        $this->notes[] = "Servers {$names} («{$module}»): one cluster here, server «{$server->name}» (" . ($made ? 'made' : 'kept as it is') . ', '
+            . ($server->enabled ? 'enabled' : 'disabled') . '). Its API token is staff\'s to enter, and its VMs are mapped by hand (Proxmox Guests).';
     }
 
     /** The one server of this extension staff set up (not from WHMCS), or none when there is none or more than one. */

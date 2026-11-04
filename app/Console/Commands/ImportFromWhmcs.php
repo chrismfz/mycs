@@ -1364,13 +1364,17 @@ class ImportFromWhmcs extends Command
                     }
                 }
                 // Billed on a cycle its product does not offer (WHMCS bills the service's own amount): a plan of that cycle
-                // without prices, never sold, so it renews here at its price (myip rehearsal 2026-11-04: 13 live ones).
-                if ($planId === null && !$freeAccount && ($product = Product::query()->find((int) $record['packageid'])) !== null) {
+                // without prices, never sold, so it renews here at its price (myip rehearsal 2026-11-04: 13 live ones). A
+                // live one only: an ended one renews no more, and its plan would only crowd its product's (review of #628).
+                $live = in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true);
+                if ($planId === null && !$freeAccount && $live && ($product = Product::query()->find((int) $record['packageid'])) !== null) {
                     $planId = CatalogImport::unpricedPlan($product, (string) $record['billingcycle']);
                 }
-                // Listed for staff: each live one on a plan without prices (made here, or a cycle WHMCS no longer sells).
-                if ($planId !== null && !$freeAccount && in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true)
-                    && ($unpriced[$planId] ??= !DB::table('prices')->where('plan_id', $planId)->exists())) {
+                // Listed for staff: each live one on a plan with no price in its currency (made here, a cycle WHMCS no longer
+                // sells, or one priced in another currency only): «Recalculate price» would make it 0.00 (review of #628).
+                $currency = (string) ($user['code'] ?? '');
+                if ($planId !== null && !$freeAccount && $live
+                    && ($unpriced["{$planId}|{$currency}"] ??= !DB::table('prices')->where('plan_id', $planId)->where('currency_code', $currency)->exists())) {
                     $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
                 }
 
