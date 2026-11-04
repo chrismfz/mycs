@@ -1086,13 +1086,20 @@ class ImportFromWhmcs extends Command
      * or radio its value, a checkbox its value when ticked (qty > 0), a quantity its number as a property (as an order
      * writes one; PlaceOrderService). Its price is not touched: WHMCS's amount, with the options in it, stays the
      * service's (undiscounted_price); a price computed from the catalog (an upgrade, the price report) now counts them.
-     * A quantity option still has no price here (CART-9, WG-15). One not brought (an option or value WHMCS deleted) is said.
+     * A quantity option still has no price here (CART-9, WG-15). One not brought (an option or value WHMCS deleted, an
+     * option of a group its product does not offer) is said.
      */
     private function importServiceOptions(): void
     {
         $this->info('Importing service options... (' . $this->count('tblhostingconfigoptions') . ' records)');
         $refs = DB::table('config_options')->whereNotNull('whmcs_ref')->get(['id', 'parent_id', 'type', 'name', 'env_variable', 'whmcs_ref'])->keyBy('whmcs_ref');
-        $services = DB::table('services')->whereNull('whmcs_addon_id')->pluck('id')->flip();
+        $services = DB::table('services')->whereNull('whmcs_addon_id')->pluck('product_id', 'id');
+        // Only an option its product offers: WHMCS prices a service by its product's option groups (tblproductconfiglinks),
+        // and an option of another group is in neither its amount nor its recalculation (review of #653: myip's 4 Dedicated
+        // IPs, 7.00 and 62.00 with none in them, would have priced at 9.00 and 86.00 on a change of cycle).
+        $linked = DB::table('config_option_products')->get(['product_id', 'config_option_id'])
+            ->mapWithKeys(fn ($link) => [$link->product_id . '|' . $link->config_option_id => true]);
+        $unlinked = [];
         $morph = (new Service)->getMorphClass();
         $configs = [];
         $properties = [];
@@ -1106,6 +1113,13 @@ class ImportFromWhmcs extends Command
             $option = $refs->get('option:' . (int) $row['configid']);
             if ($option === null) {
                 $missing[] = "service #{$service}, option #{$row['configid']}";
+
+                continue;
+            }
+            if (!isset($linked[$services[$service] . '|' . $option->id])) {
+                if ($option->type === 'select' || $option->type === 'radio' || (int) $row['qty'] > 0) {
+                    $unlinked[] = "service #{$service}, «{$option->name}»";
+                }
 
                 continue;
             }
@@ -1142,6 +1156,10 @@ class ImportFromWhmcs extends Command
         if ($missing !== []) {
             $this->warn(count($missing) . ' service option(s) whose option or value WHMCS no longer has, left out: ' . implode('; ', array_slice($missing, 0, 20))
                 . (count($missing) > 20 ? '; …' : '') . '.');
+        }
+        if ($unlinked !== []) {
+            $this->warn(count($unlinked) . ' service option(s) of a group its product does not offer, left out (WHMCS never charged them): '
+                . implode('; ', array_slice($unlinked, 0, 20)) . (count($unlinked) > 20 ? '; …' : '') . '.');
         }
     }
 

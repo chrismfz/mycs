@@ -59,7 +59,9 @@ final class WhmcsParity
 
         // WG-11: the services' options, one per service and option: a dropdown or radio, a ticked checkbox, a quantity above 0.
         if ($this->hasColumn('tblhostingconfigoptions', 'qty') && $this->hasColumn('tblproductconfigoptions', 'optiontype')) {
-            $options = 'FROM tblhostingconfigoptions hc JOIN tblproductconfigoptions o ON o.id = hc.configid JOIN tblhosting h ON h.id = hc.relid';
+            // Of a group its product offers only, as the importer brings them (review of #653).
+            $options = 'FROM tblhostingconfigoptions hc JOIN tblproductconfigoptions o ON o.id = hc.configid JOIN tblhosting h ON h.id = hc.relid'
+                . ($this->hasColumn('tblproductconfiglinks', 'pid') ? ' AND EXISTS (SELECT 1 FROM tblproductconfiglinks l WHERE l.gid = o.gid AND l.pid = h.packageid)' : '');
             $add('Service options', $this->count("SELECT COUNT(*) FROM (SELECT DISTINCT hc.relid, hc.configid {$options}
                 WHERE o.optiontype IN (1, 2) OR (o.optiontype = 3 AND hc.qty > 0)) t"),
                 DB::table('service_configs')->where('configurable_type', (new Service)->getMorphClass())->count());

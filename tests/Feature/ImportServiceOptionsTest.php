@@ -51,10 +51,13 @@ class ImportServiceOptionsTest extends TestCase
     }
 
     /** A catalog option as CatalogImport brings it: whmcs_ref «option:N», its values «value:N». */
-    private function option(int $whmcsId, string $type, int $whmcsType, string $name, array $values, ?string $env = null): ConfigOption
+    private function option(int $whmcsId, string $type, int $whmcsType, string $name, array $values, ?string $env = null, bool $linked = true): ConfigOption
     {
         $option = new ConfigOption;
         $option->forceFill(['name' => $name, 'env_variable' => $env, 'type' => $type, 'sort' => 0, 'hidden' => false, 'whmcs_ref' => "option:{$whmcsId}"])->save();
+        if ($linked) {
+            $option->products()->attach($this->product->id); // its group linked to the product, as CatalogImport links it
+        }
         $this->whmcs->prepare('INSERT INTO tblproductconfigoptions VALUES (?, ?, ?)')->execute([$whmcsId, $name, $whmcsType]);
         foreach ($values as $valueId => [$valueName, $price]) {
             $value = new ConfigOption;
@@ -113,8 +116,25 @@ class ImportServiceOptionsTest extends TestCase
         $this->assertSame('2', $withIp->properties()->where('key', 'Extra Addon domain')->value('value'));
         $this->assertSame(0, $without->properties()->count());
         $this->assertSame('24.00', number_format((float) $withIp->fresh()->price, 2, '.', ''), 'WHMCS\'s amount stays');
-        $this->assertSame('24.00', (string) $withIp->fresh()->calculatePrice(), 'the catalog now counts its Dedicated IP');
+        $this->assertSame('24.00', (string) $withIp->fresh()->calculatePrice(), 'the catalog now counts an option its product offers');
         $this->assertStringContainsString('Service options: 2 chosen, 1 quantities.', $out);
+    }
+
+    /**
+     * Review of #653: an option of a group the service's product does not offer was never charged by WHMCS (myip's 4
+     * Dedicated IPs: 7.00 and 62.00, the product's own prices): left out and said, never priced here on a recalculation.
+     */
+    public function test_an_option_its_product_does_not_offer_is_left_out(): void
+    {
+        $this->option(17, 'checkbox', 3, 'Dedicated IP', [170 => ['IP', 2.00]], linked: false);
+        $service = $this->service(1237, 20.00);
+        $this->chose(1237, 17, 170, 1);
+
+        $out = $this->import();
+
+        $this->assertSame(0, $service->configs()->count());
+        $this->assertSame('20.00', (string) $service->fresh()->calculatePrice(), 'never the IP WHMCS did not charge');
+        $this->assertStringContainsString('1 service option(s) of a group its product does not offer, left out (WHMCS never charged them): service #1237, «Dedicated IP»', $out);
     }
 
     public function test_an_option_or_value_whmcs_no_longer_has_is_said_and_parity_counts_them(): void
