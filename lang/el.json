@@ -1616,5 +1616,16 @@
     "Copied!": "Αντιγράφηκε!",
     "No customer is signed in.": "Κανένας πελάτης δεν είναι συνδεδεμένος.",
     ":count customer session|:count customer sessions": ":count σύνδεση πελάτη|:count συνδέσεις πελατών",
-    "Customer sessions, last :count minute|Customer sessions, last :count minutes": "Συνδέσεις πελατών, τελευταίο :count λεπτό|Συνδέσεις πελατών, τελευταία :count λεπτά"
+    "Customer sessions, last :count minute|Customer sessions, last :count minutes": "Συνδέσεις πελατών, τελευταίο :count λεπτό|Συνδέσεις πελατών, τελευταία :count λεπτά",
+    "Pending Orders": "Παραγγελίες σε αναμονή",
+    "Pending Module Actions": "Εκκρεμείς ενέργειες modules",
+    "Waiting to be accepted or set up": "Περιμένουν αποδοχή ή εγκατάσταση",
+    "Server actions for staff: do, retry or resolve": "Ενέργειες server για το staff: κάν' τες, ξαναδοκίμασε ή κλείσ' τες",
+    "Increased by :percent% (:period)": "Αύξηση :percent% (:period)",
+    "Decreased by :percent% (:period)": "Μείωση :percent% (:period)",
+    "Within :days days": "Μέσα σε :days ημέρες",
+    "Last 24 hours": "Τελευταίες 24 ώρες",
+    "Last 7 days": "Τελευταίες 7 ημέρες",
+    "Last 30 days": "Τελευταίες 30 ημέρες",
+    "Last 365 days": "Τελευταίες 365 ημέρες"
 }

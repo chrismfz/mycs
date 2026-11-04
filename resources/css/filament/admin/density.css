@@ -151,18 +151,19 @@
 
 /*
  * The dashboard's cards (Overview): smaller, so seven fit in one row on a desktop screen (owner 2026-10-24). A long
- * value (a revenue in thousands) wraps rather than spill out of its card.
+ * value (a revenue in thousands) wraps rather than spill out of its card. Shorter still in B2 (owner 2026-11-04): the
+ * sparkline small beside the value instead of a band along the bottom, and a card with nothing in it dimmed.
  */
 /* The cards' grid is a schema: beats the forms' gap above. */
 .fi-wi-stats-overview .fi-sc.fi-sc-has-gap:not(.fi-sc-dense) {
-    @apply gap-3;
+    @apply gap-2;
 }
 
 .fi-wi-stats-overview-stat {
-    @apply min-w-0 px-4 pt-3 pb-4;
+    @apply min-w-0 px-3 py-2;
 
     & .fi-wi-stats-overview-stat-content {
-        @apply gap-y-1;
+        @apply gap-y-0.5;
     }
 
     & .fi-wi-stats-overview-stat-label {
@@ -170,18 +171,39 @@
     }
 
     & .fi-wi-stats-overview-stat-value {
-        @apply text-2xl break-words;
+        @apply text-xl break-words;
     }
 
     & .fi-wi-stats-overview-stat-description {
         @apply text-xs;
     }
+
+    /*
+     * The sparkline small, 3.5rem by 1rem, on the right of the label's line: the label is short, and the value keeps
+     * the whole width, so a revenue in thousands does not break inside its number (review of #640).
+     */
+    & .fi-wi-stats-overview-stat-chart {
+        @apply start-auto end-3 top-2 bottom-auto w-14 rounded-none;
+
+        & > canvas {
+            @apply h-4;
+        }
+    }
+
+    &:has(.fi-wi-stats-overview-stat-chart) .fi-wi-stats-overview-stat-label-ctn {
+        @apply pe-16;
+    }
+}
+
+/* Nothing in it (Overview::quiet): dimmed, so what has a number stands out. */
+.fi-wi-stats-overview-stat.mycs-stat-quiet {
+    @apply opacity-70;
 }
 
 /* Seven in a row on a laptop (the dashboard 1024–1279px wide): the values a step smaller, «€0,00 EUR» on one line. */
 @container (width >= 64rem) and (width < 80rem) {
     .fi-wi-stats-overview-stat .fi-wi-stats-overview-stat-value {
-        @apply text-xl;
+        @apply text-lg;
     }
 }
 
