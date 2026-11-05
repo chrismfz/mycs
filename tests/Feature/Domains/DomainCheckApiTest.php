@@ -3,21 +3,22 @@
 namespace Tests\Feature\Domains;
 
 use App\Http\Controllers\Api\DomainCheckController;
-use App\Models\Cart;
 use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Services\Domains\Lookup\LaravelTransport;
+use App\Services\Domains\Lookup\PublicLookups;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
 /**
- * WG-20: one name's availability for the company site's live search, in the shape its WHMCS proxy gave, and the link
- * that puts a name from it into the cart.
+ * WG-20: one name's availability for the company site's live search, in the shape its WHMCS proxy gave, only for the
+ * site's server with its key.
  */
 class DomainCheckApiTest extends TestCase
 {
@@ -83,7 +84,7 @@ class DomainCheckApiTest extends TestCase
 
         $this->check('Fresh-Name.com')->assertOk()
             ->assertExactJson(['domain' => 'fresh-name.com', 'available' => true, 'premium' => false, 'status' => 'free'])
-            ->assertHeader('Cache-Control', 'max-age=300, public');
+            ->assertHeader('Cache-Control', 'max-age=300, private');
         $this->check('nixpal.com')->assertOk()->assertJson(['available' => false, 'premium' => false]);
         $this->check('gold.com')->assertOk()->assertJson(['available' => false, 'premium' => true]);
     }
@@ -134,14 +135,29 @@ class DomainCheckApiTest extends TestCase
         $this->check('nixpal', null)->assertStatus(429);
     }
 
-    public function test_the_cart_link_adds_a_free_name_and_sends_the_rest_to_the_search(): void
+    /** Review of #667: two-character .gr names (staff priced) are not sold at the catalog's price, as the cart says. */
+    public function test_a_staff_priced_name_is_premium(): void
     {
         $this->fake();
+        $gr = DomainTld::query()->create(['tld' => 'gr', 'is_active' => true, 'sort' => 4, 'registrar_connection_id' => DomainRegistrarConnection::query()->value('id')]);
+        DomainTldPrice::query()->create(['domain_tld_id' => $gr->id, 'operation' => 'register', 'years' => 2, 'currency_code' => 'EUR', 'price' => '24.00']);
 
-        $this->get(route('cart.domain', ['domain' => 'fresh-name.com']))->assertRedirect(route('cart'));
-        $this->assertSame(['fresh-name.com'], Cart::query()->sole()->items->map(fn ($item) => $item->domain['fqdn'] ?? null)->all());
+        $this->check('ab.gr')->assertOk()->assertJson(['available' => false, 'premium' => true]);
+    }
 
-        $this->get(route('cart.domain', ['domain' => 'nixpal.com']))->assertRedirect(route('domain.search', ['domain' => 'nixpal.com']));
-        $this->get(route('cart.domain'))->assertRedirect(route('domain.search'));
+    /** Review of #667: the site's checks spend the public pool, a cached answer does not, and an empty pool says busy. */
+    public function test_the_public_pool_is_spent_only_by_lookups_and_an_empty_one_is_busy(): void
+    {
+        $this->fake();
+        $this->check('fresh-name.com')->assertOk();
+        $this->assertSame(1, RateLimiter::attempts('domain-lookups:public'));
+        $this->check('fresh-name.com')->assertOk()->assertJson(['available' => true]);
+        $this->assertSame(1, RateLimiter::attempts('domain-lookups:public'), 'from the cache: nothing spent');
+        $this->check('fresh-name.com', null)->assertNotFound();
+        $this->assertSame(1, RateLimiter::attempts('domain-lookups:public'), 'a keyless caller spends nothing');
+
+        RateLimiter::increment('domain-lookups:public', 600, PublicLookups::GLOBAL);
+        $this->check('other-name.com')->assertStatus(429)->assertJson(['error' => 'busy']);
+        $this->check('fresh-name.com')->assertOk()->assertJson(['available' => true]);
     }
 }

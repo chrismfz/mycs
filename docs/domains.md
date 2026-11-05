@@ -444,9 +444,11 @@
      `GET /api/v1/domain-check?domain=x.gr` → `{domain, available, premium, status}` (true μόνο αν είναι ελεύθερο· premium →
      false· «δεν ελέγχθηκε» → null, χωρίς cache), μόνο TLDs που πουλάμε. **Μόνο για τον server του site**, με το
      `X-Site-Key` (ρύθμιση `domain_check_site_key`)· χωρίς αυτό 404, χωρίς lookup (ιδιοκτήτης 2026-11-05: ποτέ δωρεάν whois
-     για όποιον το βρει). 600/λεπτό για το site, μέσα στο κοινό `PublicLookups` και στο όριο του registrar του
-     `DomainSearch`· το site κρατά μπροστά το δικό του όριο ανά επισκέπτη· και `GET /cart/domain?domain=`
-     που βάζει το όνομα στο καλάθι (αλλιώς στην αναζήτηση, που λέει γιατί). Όρια ανά IP: 30 αναζητήσεις και 10 whois
+     για όποιον το βρει). 100/λεπτό για το site (κάτω από τον ρυθμό του `PublicLookups`, για να μη μένει «busy» η
+     αναζήτηση του shop), μέσα στο κοινό `PublicLookups` (όχι όσα απαντά η cache) και στο όριο του registrar του
+     `DomainSearch`· το site κρατά μπροστά το δικό του όριο ανά επισκέπτη. Τα δύο γράμματα .gr (τιμή από το staff) →
+     premium, όπως στο καλάθι. Το «Προσθήκη» του site ανοίγει `/domain-search?domain=` (όχι GET κατευθείαν στο καλάθι:
+     θα ήταν whois χωρίς κλειδί, review του #667). Όρια ανά IP: 30 αναζητήσεις και 10 whois
      ανά 10′. Μενού «Αναζήτηση domain» όταν υπάρχουν ενεργά TLDs. Οι τιμές σε νόμισμα του επισκέπτη· χωρίς τιμές σε αυτό,
      μήνυμα. Επόμενα: **προτάσεις ονομάτων** (Openprovider `suggest-name`, `history/blesta-modules/domain-tools.md`) και το
      κουμπί «Προσθήκη» (D8b).
