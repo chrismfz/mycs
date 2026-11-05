@@ -66,9 +66,9 @@ class CronWaitAdversarialR2Test extends TestCase
         $p = proc_open([PHP_BINARY, '-r', $code], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes);
         $this->assertIsResource($p);
         $this->procs[] = $p;
-        // Wait for the title to show.
+        // Wait for the title to show, on this process's own child: another process's fake of the same title is not it.
         for ($i = 0; $i < 40; $i++) {
-            exec('pgrep -f ' . escapeshellarg(preg_quote($title, null)), $o, $c);
+            exec('pgrep -P ' . getmypid() . ' -f ' . escapeshellarg(preg_quote($title, null)), $o, $c);
             if ($c === 0) {
                 return;
             }
@@ -167,7 +167,7 @@ class CronWaitAdversarialR2Test extends TestCase
     }
 
     /** The flake above, on purpose: a fake cron that is not this process's child (another parallel process's) is not seen. */
-    public function test_holds_release_stale_ignores_another_test_processs_fake_cron(): void
+    public function test_holds_release_stale_ignores_another_test_process_fake_cron(): void
     {
         $title = 'php artisan app:cron-job ' . uniqid('elsewhere-');
         // Through a shell that exits at once: the fake's parent is gone, as for a sibling process's.

@@ -153,7 +153,7 @@ class CronWaitAdversarialR3Test extends TestCase
         $p = proc_open([PHP_BINARY, '-r', $code], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes);
         $this->procs[] = $p;
         for ($i = 0; $i < 40; $i++) {
-            exec('pgrep -f ' . escapeshellarg('cron-jobs\.log'), $o, $c);
+            exec('pgrep -P ' . getmypid() . ' -f ' . escapeshellarg('cron-jobs\.log'), $o, $c);
             if ($c === 0) {
                 break;
             }

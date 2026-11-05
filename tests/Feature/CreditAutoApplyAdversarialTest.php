@@ -515,9 +515,15 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->assertJournalHolds();
     }
 
-    /** Held: with proforma numbering ({YEAR}-{NUMBER}), a partial credit payment gives no number; paying it in full does. */
+    /**
+     * Held: with proforma numbering ({YEAR}-{NUMBER}), a partial credit payment gives no number; paying it in full does.
+     *
+     * Frozen clock: the year is read when the number is given and again when it is checked, two different years on a
+     * run across midnight of 31 December (UTC).
+     */
     public function test_proforma_numbering_only_on_full_payment(): void
     {
+        $this->freezeTime();
         config(['settings.invoice_proforma' => true, 'settings.invoice_number_format' => '{year}-{number}']);
         $invoice = $this->invoice(100);
         $this->assertNull($invoice->number);
