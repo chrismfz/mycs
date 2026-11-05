@@ -1182,8 +1182,10 @@ class ImportFromWhmcs extends Command
 
     /**
      * A cPanel reseller product's services are WHM resellers (WG-16): marked as the extension marks one it made
-     * (CPanel::RESELLER, «cpanel_reseller»), so a suspension or termination takes their customers' accounts with them
-     * (suspendreseller), as WHMCS did, whatever the product becomes later.
+     * (CPanel::RESELLER, «cpanel_reseller»), so a suspension takes their customers' accounts with it (suspendreseller, when
+     * WHM lists the user as a reseller), as WHMCS did, and WHM SSO and a downgrade's unmake know it, whatever the product
+     * becomes later. A termination is not changed by it: it always reads the owned accounts from WHM and needs staff's
+     * typed confirmation (review of #663).
      */
     private function markCpanelResellers(): void
     {

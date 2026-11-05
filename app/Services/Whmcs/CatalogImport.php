@@ -681,8 +681,11 @@ final class CatalogImport
         $option = fn (int $n) => trim((string) ($row['configoption' . $n] ?? ''));
         $on = fn (int $n) => in_array(strtolower($option($n)), ['on', 'yes', '1', 'true'], true);
         $number = fn (int $n) => ctype_digit($option($n)) && strlen($option($n)) <= 9 ? (string) (int) $option($n) : null;
+        $resellerKeys = ['reseller', 'reseller_acl', 'reseller_max_accounts', 'reseller_disk_mb', 'reseller_bandwidth_mb',
+            'reseller_overselling_disk', 'reseller_overselling_bandwidth', 'reseller_owns_itself'];
         $settings = match ($module) {
-            'cpanel' => ($row['type'] ?? '') !== 'reselleraccount' ? [] : [
+            // A product no longer a reseller one in WHMCS drops them all on a re-run (R663-2).
+            'cpanel' => ($row['type'] ?? '') !== 'reselleraccount' ? array_fill_keys($resellerKeys, null) : [
                 'reseller' => '1',
                 'reseller_acl' => $option(21) !== '' ? $option(21) : null,
                 'reseller_max_accounts' => $number(15),
@@ -704,9 +707,11 @@ final class CatalogImport
             'centovacast' => ['template' => $option(1) !== '' ? $option(1) : null, 'autostart' => $on(6) ? '1' : '0'],
             default => [],
         };
-        foreach (array_filter($settings, fn ($value) => $value !== null) as $key => $value) {
-            Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key],
-                ['value' => $value, 'type' => 'string', 'encrypted' => false]);
+        foreach ($settings as $key => $value) {
+            $where = ['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key];
+            // One WHMCS no longer sets is gone on a re-run, never an older run's left behind (R663-2).
+            $value === null ? Setting::query()->where($where)->delete()
+                : Setting::query()->updateOrCreate($where, ['value' => $value, 'type' => 'string', 'encrypted' => false]);
         }
     }
 

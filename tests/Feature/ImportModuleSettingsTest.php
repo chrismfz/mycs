@@ -108,6 +108,19 @@ class ImportModuleSettingsTest extends TestCase
         $this->assertSame(['package' => 'Personal2'], $this->settings(34), 'a plain product: its package only, never its theme');
     }
 
+    /** Review of #663 (R663-2): a re-run drops what WHMCS no longer sets, never an older run's left behind. */
+    public function test_a_rerun_drops_settings_whmcs_no_longer_sets(): void
+    {
+        $this->import();
+        $this->whmcs->exec("UPDATE tblproducts SET type = 'hostingaccount' WHERE id = 30");
+        $this->whmcs->exec("UPDATE tblproducts SET configoption16 = '' WHERE id = 31");
+
+        $this->import();
+
+        $this->assertSame(['package' => 'Business10'], $this->settings(30), 'no longer a reseller product: its reseller settings gone');
+        $this->assertArrayNotHasKey('reseller_disk_mb', $this->settings(31));
+    }
+
     public function test_a_reseller_products_services_are_marked_whm_resellers(): void
     {
         $this->import();
