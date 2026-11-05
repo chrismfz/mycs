@@ -107,6 +107,9 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame(['0', 'boolean'], $settings['credits_auto_use'], 'WHMCS does not apply credit on its own: neither does MyCS');
         $output = $this->output->fetch();
         $this->assertStringContainsString('Monthly 10, Annually 20', $output);
+        // WG-14 (owner 2026-11-05): one value for every cycle, WHMCS's monthly when it has one (14 days into a month is half of it).
+        $this->assertSame(['10', 'string'], $settings['cronjob_invoice']);
+        $this->assertStringContainsString('cronjob_invoice = 10 (WHMCS\'s monthly, WG-14)', $output);
     }
 
     /** Review of #518 (M3, L1–L3, L5): switches and values in their odd forms. */

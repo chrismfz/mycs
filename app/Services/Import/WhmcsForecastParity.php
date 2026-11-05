@@ -317,7 +317,8 @@ final class WhmcsForecastParity
         $names = ['monthly' => 'Monthly', 'quarterly' => 'Quarterly', 'semi-annually' => 'SemiAnnually', 'annually' => 'Annually', 'biennially' => 'Biennially', 'triennially' => 'Triennially'];
         $own = $domain ? ($this->config['CreateDomainInvoiceDaysBefore'] ?? '') : (isset($names[strtolower(trim($cycle))]) ? ($this->config['CreateInvoiceDaysBefore' . $names[strtolower(trim($cycle))]] ?? '') : '');
 
-        return ctype_digit($own) ? (int) $own : (int) ($this->config['CreateInvoiceDaysBefore'] ?? 0);
+        // A cycle's own of 0 (or blank) is the general one, as the importer reads it (WG-14; review of #658).
+        return ctype_digit($own) && (int) $own > 0 ? (int) $own : (int) ($this->config['CreateInvoiceDaysBefore'] ?? 0);
     }
 
     /** WHMCS's status word as this app writes it (a fraud order is cancelled here). */
