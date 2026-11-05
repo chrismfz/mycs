@@ -144,9 +144,13 @@ class CreditAutoApplyAdversarialTest extends TestCase
      * FINDING (J3/J5). The cron bills a renewal and spends the credit on that NEW invoice (CronJob::billRenewal →
      * CreditAutoApply::toInvoice) before the daily step pays what is already overdue, oldest first. A customer whose
      * credit covers the overdue invoice is then suspended: the case decision 5 is written for.
+     *
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
      */
     public function test_a_renewal_invoice_does_not_take_the_credit_an_older_overdue_invoice_needs(): void
     {
+        $this->freezeTime();
         $overdueService = $this->service(['expires_at' => now()->subDays(5)]);
         $overdue = $this->invoice(10, '-5 days', Service::class, $overdueService->id);
         $overdue->items()->sole()->update(['period_start' => now()->subDays(5)->toDateString(), 'period_end' => now()->addDays(25)->toDateString()]);
@@ -511,9 +515,15 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->assertJournalHolds();
     }
 
-    /** Held: with proforma numbering ({YEAR}-{NUMBER}), a partial credit payment gives no number; paying it in full does. */
+    /**
+     * Held: with proforma numbering ({YEAR}-{NUMBER}), a partial credit payment gives no number; paying it in full does.
+     *
+     * Frozen clock: the year is read when the number is given and again when it is checked, two different years on a
+     * run across midnight of 31 December (UTC).
+     */
     public function test_proforma_numbering_only_on_full_payment(): void
     {
+        $this->freezeTime();
         config(['settings.invoice_proforma' => true, 'settings.invoice_number_format' => '{year}-{number}']);
         $invoice = $this->invoice(100);
         $this->assertNull($invoice->number);
