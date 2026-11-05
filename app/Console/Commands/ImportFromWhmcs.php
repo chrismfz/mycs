@@ -591,12 +591,16 @@ class ImportFromWhmcs extends Command
         if ($on('EnableTOSAccept') && !$tosValid) {
             $this->warn("Terms of Service: WHMCS asks for them, but «{$tosUrl}» is no web address: set the tos setting by hand.");
         }
+        $monthly = $days('CreateInvoiceDaysBeforeMonthly');
+        $invoiceDays = $monthly !== null && (int) $monthly > 0 ? $monthly : $days('CreateInvoiceDaysBefore');
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
             'cronjob_terminate_enabled' => $has('AutoTermination') ? ['boolean', $on('AutoTermination') ? '1' : '0'] : null,
             'cronjob_order_terminate' => ($v = $days('AutoTerminationDays')) !== null ? ['string', $v] : null,
-            'cronjob_invoice' => ($v = $days('CreateInvoiceDaysBefore')) !== null ? ['string', $v] : null,
+            // One value here for every cycle (WG-14, owner 2026-11-05): WHMCS's monthly one when it has one (myip: 10 of a
+            // general 14; 14 days before a month's renewal is half the month), else its general (nixpal: 7).
+            'cronjob_invoice' => ($v = $invoiceDays) !== null ? ['string', $v] : null,
             // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
             'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
             'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,
@@ -643,7 +647,8 @@ class ImportFromWhmcs extends Command
             fn (string $cycle) => $days('CreateInvoiceDaysBefore' . $cycle) !== null && (int) $days('CreateInvoiceDaysBefore' . $cycle) > 0);
         if ($perCycle !== []) {
             $this->warn('WHMCS invoices per billing cycle (' . implode(', ', array_map(fn (string $c) => $c . ' ' . $days('CreateInvoiceDaysBefore' . $c), $perCycle))
-                . '); MyCS has one value, cronjob_invoice = ' . ($days('CreateInvoiceDaysBefore') ?? 'unchanged') . ': check it before the first cron run.');
+                . '); MyCS has one value for every cycle, cronjob_invoice = ' . ($invoiceDays ?? 'unchanged')
+                . ($invoiceDays !== null && $invoiceDays === $monthly ? ' (WHMCS\'s monthly, WG-14)' : '') . ': longer cycles are invoiced as close to their due date.');
         }
     }
 
