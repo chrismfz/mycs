@@ -295,6 +295,12 @@ class DomainSearch
         }
     }
 
+    /** Whether a definite answer for $fqdn is still in the cache: one asks no registrar (DomainCheckController). */
+    public static function cached(string $fqdn): bool
+    {
+        return Cache::has(self::cacheKey($fqdn));
+    }
+
     private static function cacheKey(string $fqdn): string
     {
         return 'domain-available:' . sha1(mb_strtolower($fqdn));

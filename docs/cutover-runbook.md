@@ -128,6 +128,17 @@ credentials. Το import της ημέρας τα φέρνει όλα:
 - **Registrars:** hard cut (υπεύθυνος, 2026-11-03). Την ημέρα που μπαίνει live το MyCS κλείνουν τα crons του WHMCS,
   οπότε ανανεώνει μόνο το MyCS.
 - **Mail:** το piping/POP του WHMCS για τα tickets, ώστε να τα διαβάζει μόνο το MyCS.
+- **Live αναζήτηση domain του site (myip, WG-20):** το `/api/domain-check.php` του site φορτώνει το WHMCS. Στο
+  `_config.php` του rigel (`public_html/api/`, όχι στο repo), στο κλειδί `domain`:
+  `'backend' => 'mycs', 'mycs_url' => 'https://<το MyCS>', 'mycs_key' => '<ίδιο με το domain_check_site_key>'`.
+  Πριν: «Site key» στο MyCS (Settings → Domains → Site search API, 32+ χαρακτήρες). Έλεγχος:
+  `curl -s 'https://myip.gr/api/domain-check.php?list=tlds' | jq '.tlds | length'` > 0 και ένα `?domain=` ελεύθερο
+  (`true`). Επιστροφή: `'backend' => 'whmcs'`. Τα links του καλαθιού του site (`DOMAINS_CART_URL`, `/clients/store/…`
+  στο `links.ts`) αλλάζουν με τον χάρτη 301. Το «Στο καλάθι» της αναζήτησης: στο `.env` του site
+  `PUBLIC_DOMAIN_ADD_URL=https://<το MyCS>/domain-search?domain={domain}` και deploy (η αναζήτηση του MyCS με το
+  «Προσθήκη»· όχι κατευθείαν στο καλάθι: ένα δημόσιο GET που ελέγχει διαθεσιμότητα θα ήταν whois χωρίς κλειδί, review
+  του #667). Πριν: σύγκριση μερικών τιμών του `?list=tlds` με του WHMCS (ΦΠΑ). Η cache του site είναι ξεχωριστή ανά
+  backend, οπότε ο έλεγχος βλέπει αμέσως το MyCS.
 - **Token του ZoneCloud controller (myip, WG-22):** το hook `_searchDomainZcloud.php` του WHMCS το έχει σε απλό κείμενο·
   ανακαλείται στον controller και βγαίνει νέο, αν το χρειάζεται κάτι άλλο.
 
