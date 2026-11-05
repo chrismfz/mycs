@@ -613,7 +613,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $oversellDisk = self::isReseller(['reseller' => $settings['reseller_overselling_disk'] ?? null]);
         $oversellBandwidth = self::isReseller(['reseller' => $settings['reseller_overselling_bandwidth'] ?? null]);
         // A limit left empty is not sent (never «0 MB»: code review 4 of #315), nor is it turned off: only what the product
-        // sets is set, as WHMCS does, so limits staff set by hand in WHM stay (review of #663: 25 of myip's 29 resellers,
+        // sets is set, so limits staff set by hand in WHM stay (review of #663: 25 of myip's 29 resellers,
         // on products that set none). Resources and their overselling go together, the account limit on its own.
         $limits = [];
         if ($disk !== null || $bandwidth !== null) {
