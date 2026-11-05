@@ -106,9 +106,11 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame(['1,3,5', 'string'], $settings['cronjob_overdue_reminders']);
         $this->assertSame(['0', 'boolean'], $settings['credits_auto_use'], 'WHMCS does not apply credit on its own: neither does MyCS');
         $output = $this->output->fetch();
-        $this->assertStringContainsString('Monthly 10, Annually 20', $output);
-        // WG-14 (owner 2026-11-05): one value for every cycle, WHMCS's general, its per-cycle ones not kept.
+        // WG-14 (owner 2026-11-05): a monthly plan's own (WHMCS's «Monthly»), the general for every other cycle.
         $this->assertSame(['14', 'string'], $settings['cronjob_invoice']);
+        $this->assertSame(['10', 'string'], $settings['cronjob_invoice_monthly']);
+        $this->assertStringContainsString('(Annually 20)', $output);
+        $this->assertStringNotContainsString('Monthly 10', $output, 'the monthly one is kept, never said as lost');
         $this->assertStringContainsString('cronjob_invoice = 14 (WHMCS\'s general, WG-14)', $output);
     }
 

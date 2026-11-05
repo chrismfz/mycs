@@ -487,10 +487,14 @@ class CronJob extends Command
                 $billing = new RenewalBilling;
                 // What it tells staff is mailed also when a step of it fails (review F7).
                 try {
-                    $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
+                    // As far as the longest of the invoice days looks, then each service's own: a monthly plan's
+                    // (cronjob_invoice_monthly, WG-14) or Invoice Generation's (RenewalBilling::serviceInvoiceDays).
+                    $lookAhead = now()->addDays(RenewalBilling::longestServiceInvoiceDays());
                     // In id order, never the index's: the renewals are invoiced in the same order whatever the plan.
-                    $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->orderBy('id')->pluck('id');
-                    foreach ($ids as $id) {
+                    $plans = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $lookAhead)->orderBy('id')
+                        ->with('plan')->get(['id', 'plan_id'])->mapWithKeys(fn (Service $service) => [$service->id => $service->plan]);
+                    foreach ($plans as $id => $plan) {
+                        $billUntil = now()->addDays(RenewalBilling::serviceInvoiceDays($plan));
                         try {
                             // One short transaction per service, on a fresh locked row: a payment committed
                             // while the cron runs is seen, and nothing stays locked for the whole run.

@@ -248,7 +248,7 @@ class InvoiceObserver
             $start = $service->nextPeriodStart($billed);
             $end = $service->periodEnd($start, $billed);
             // A period the cron has not reached yet stays billable (ADV-4, review A4-5): nothing to mark.
-            if ($onlyDue && $start->toDateString() >= Invoice::billedFrom(Service::class)) {
+            if ($onlyDue && $start->toDateString() >= Invoice::billedFrom(Service::class, $service->plan)) {
                 continue;
             }
             if ($end !== null) {
@@ -257,11 +257,23 @@ class InvoiceObserver
             }
         }
         // A domain's too (D5b): its next period is billed again unless given up (DomainRenewalService::billedLine).
-        self::renewalLines($invoice, domains: true)->whereNull('forgone_at')
-            ->when($onlyDue, fn ($lines) => $lines->where(fn ($due) => $due
-                ->where(fn ($q) => $q->where('reference_type', Service::class)->whereDate('period_start', '<', Invoice::billedFrom(Service::class)))
-                ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereDate('period_start', '<', Invoice::billedFrom(Domain::class)))))
-            ->update(['forgone_at' => now()]);
+        if (!$onlyDue) {
+            self::renewalLines($invoice, domains: true)->whereNull('forgone_at')->update(['forgone_at' => now()]);
+
+            return;
+        }
+        // Only the periods the cron has reached, each by its own days: a domain's, a service's plan's (a monthly plan's
+        // own, WG-14), so a line one plan would not bill yet stays billable.
+        $due = [];
+        foreach (self::renewalLines($invoice, domains: true)->whereNull('forgone_at')->get(['id', 'reference_type', 'reference_id', 'period_start']) as $line) {
+            $plan = $line->reference_type === Service::class ? Service::query()->with('plan')->find($line->reference_id)?->plan : null;
+            if ($line->period_start !== null && $line->period_start->toDateString() < Invoice::billedFrom((string) $line->reference_type, $plan)) {
+                $due[] = $line->id;
+            }
+        }
+        if ($due !== []) {
+            InvoiceItem::query()->whereKey($due)->update(['forgone_at' => now()]);
+        }
     }
 
     /** Another live invoice billing one of its periods (the same service, overlapping), if any: its id. */

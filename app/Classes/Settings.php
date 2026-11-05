@@ -656,6 +656,18 @@ class Settings
                     'min_value' => 0,
                     'description' => 'The number of days before the due date to generate the renewal invoice.',
                 ],
+                [
+                    // WG-14 (owner 2026-11-05): a month's renewal 14 days ahead is half of the month, and one paid late
+                    // gets the next invoice the following day; WHMCS's «Monthly» days (myip 10).
+                    'name' => 'cronjob_invoice_monthly',
+                    'section' => 'Billing Settings',
+                    'label' => 'Invoice Generation, monthly',
+                    'type' => 'number',
+                    'default' => null,
+                    'required' => false,
+                    'min_value' => 0,
+                    'description' => 'Days before the due date for a monthly plan\'s renewal invoice. Empty: as Invoice Generation.',
+                ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [
                     'name' => 'autocharge_days_before',
