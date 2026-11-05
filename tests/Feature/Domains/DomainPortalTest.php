@@ -153,6 +153,21 @@ class DomainPortalTest extends TestCase
             ->set('nameservers', [['host' => 'only-one.example.net']])->call('saveNameservers')->assertHasErrors('nameservers');
     }
 
+    /** Review of #670: ID protection that is on can be turned off even after its TLD stopped offering it; not turned on there. */
+    public function test_id_protection_on_can_be_turned_off_after_its_tld_stopped_offering_it(): void
+    {
+        DomainTld::query()->update(['id_protection' => false]);
+        $off = $this->domain();
+        $this->assertFalse(Livewire::actingAs($this->user)->test(Show::class, ['domain' => $off])->instance()->privacyOffered(), 'off: not turned on where the TLD does not offer it');
+
+        $off->forceFill(['id_protection' => true])->save();
+        $this->fakeOp();
+        Livewire::actingAs($this->user)->test(Show::class, ['domain' => $off->fresh()])->call('toggleIdProtection');
+
+        // Asked of the registrar (what it then answers is kept here, as for every change).
+        Http::assertSent(fn (Request $request) => $request->method() === 'PUT' && ($request['is_private_whois_enabled'] ?? null) === false);
+    }
+
     public function test_the_epp_code_is_read_when_asked_never_kept_and_limited(): void
     {
         $domain = $this->domain();

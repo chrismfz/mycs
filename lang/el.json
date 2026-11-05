@@ -430,6 +430,7 @@
     "Grace fee": "Τέλος grace",
     "Grace period (days)": "Περίοδος grace (μέρες)",
     "ID protection": "Προστασία στοιχείων (ID protection)",
+    "Free. Follows the registrar where it says whether the registry allows it (Openprovider: on each import and the weekly cost sync).": "Δωρεάν. Ακολουθεί τον registrar, όπου λέει αν το επιτρέπει το μητρώο (Openprovider: σε κάθε import και στον εβδομαδιαίο συγχρονισμό κόστους).",
     "IDN (non-Latin names)": "IDN (μη λατινικά ονόματα)",
     "Import selected": "Εισαγωγή επιλεγμένων",
     "Import the redemption fee": "Εισαγωγή του τέλους redemption",

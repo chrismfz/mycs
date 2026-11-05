@@ -457,6 +457,11 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
                 'autorenew' => 'off',
                 'name_servers' => $nameservers,
             ], $extra);
+            // ID protection, free for us here (WG-32): a domain that has it keeps it, a CNIC one renewed as a transfer
+            // too; only where its TLD offers it (Openprovider refuses it where the registry does not allow it).
+            if ($domain->id_protection && $domain->domainTld?->id_protection) {
+                $payload['is_private_whois_enabled'] = true;
+            }
         } catch (RegistrarRefused|RegistrarNotAsked $e) {
             throw $e;
         } catch (Throwable $e) {
