@@ -137,10 +137,10 @@ adversarial review.
 - [x] **WG-16** Ρυθμίσεις module πέρα από το package: resellers του cPanel (με το σημάδι «WHM reseller» στις υπηρεσίες), mailcow, Centova· όχι θέματα cPanel ούτε πλάνα Proxmox.
 - [x] **WG-17** Runbook του myip: παράθυρο αναστολών και auto-match του Bank transfer στο runbook· το `InvoicePayTo` το φέρνει το import (`bill_to_text`)· το PDF επισυνάπτεται πάντα (απόφαση ιδιοκτήτη 2026-11-05).
 - [x] **WG-18** Collections: ακυρώνονται στο WHMCS πριν από το τελικό import (runbook)· ο importer ονομάζει όσα μείνουν (απόφαση ιδιοκτήτη 2026-11-05).
-- [ ] **WG-19** Ανανέωση πολλών domains μαζί (= Domains).
+- [x] **WG-19** Ανανέωση πολλών domains μαζί: υπήρχε ήδη (portal: `feat/domain-bulk`, ένα τιμολόγιο ανά νόμισμα· staff: «Invoice selected items»).
 - [ ] **WG-20** Endpoint αναζήτησης domain για το site.
 - [ ] **WG-21** Πρόβα των συνημμένων tickets.
-- [ ] **WG-22** DNS ζώνη (ZoneCloud) στο admin· ανάκληση του token του hook στο cut-over.
+- [x] **WG-22** Κλείνει (ιδιοκτήτης 2026-11-05): το global search βρίσκει πελάτη, λογαριασμό και server ενός domain (main, addon, parked, sub, και των λογαριασμών ενός reseller)· μένει η ανάκληση του token του hook στο cut-over (runbook §2).
 - [ ] **WG-23** Μεταγραφή ελληνικών προς CNIC/Openprovider (= Domains).
 
 **Π2, μικρά ή απόφαση του υπευθύνου:** WG-24 ως WG-34 (σύνδεση ticket → υπηρεσία, auto-close, rar/7z, γραμμές σε
