@@ -120,7 +120,8 @@ class ProxmoxPanel extends Component
         }
         // One at a time, whatever asks: the pending mark is taken atomically, the rate after it (a double click, two tabs).
         if (!Cache::add(self::pendingKeyOf($this->service), 'snapshot.' . $action, self::SNAPSHOT_PENDING)) {
-            $this->notify(__('services.proxmox.snapshot.busy'), 'error');
+            $busy = str_starts_with((string) Cache::get(self::pendingKeyOf($this->service)), 'snapshot.');
+            $this->notify(__($busy ? 'services.proxmox.snapshot.busy' : 'services.proxmox.too_soon'), 'error');
 
             return;
         }
@@ -140,14 +141,23 @@ class ProxmoxPanel extends Component
         $this->notify(__('services.proxmox.snapshot.sent.' . $action), 'success');
     }
 
-    /** A snapshot's job ended: the panel reads the VM afresh and tells the customer once how it went. */
-    public static function snapshotSettled(Service $service, string $action, bool $done): void
+    /**
+     * The customer's snapshot job ended ($outcome: done, failed, or changed: refused, the VM's settings changed since the
+     * snapshot): the panel reads the VM afresh and tells the customer once how it went.
+     */
+    public static function snapshotSettled(Service $service, string $action, string $outcome): void
+    {
+        self::refresh($service);
+        Cache::put(self::snapshotResultKey($service), $outcome === 'done' ? 'done.' . $action : $outcome, 600);
+        Cache::forget(self::pendingKeyOf($service));
+    }
+
+    /** The VM read afresh on the panel's next render (staff acted on it). */
+    public static function refresh(Service $service): void
     {
         if (($guest = ProxmoxPower::guest($service)) !== null) {
             self::forgetReads($service, $guest);
         }
-        Cache::put(self::snapshotResultKey($service), $done ? 'done.' . $action : 'failed', 600);
-        Cache::forget(self::pendingKeyOf($service));
     }
 
     public function placeholder(): string

@@ -190,6 +190,12 @@ final class GuestLifecycle
             $own = "{$path}/snapshot/" . self::SNAPSHOT;
             if ($action === 'rollback') {
                 $taken ?? throw new RuntimeException("VM {$row->vmid} has no snapshot to roll back to.");
+                // Proxmox puts the snapshot's config back with its disks: never memory, cores or a network limit taken off
+                // since (a downgrade), nor anything staff changed after it (ADV-SNAP-1).
+                $changed = $this->changedSince((array) $this->client->get("{$own}/config"), (array) $this->client->get("{$path}/config"));
+                if ($changed !== []) {
+                    throw new SnapshotOutdated("VM {$row->vmid}'s settings changed since its snapshot (" . implode(', ', $changed) . '): not rolled back.');
+                }
                 // Proxmox stops a running VM for the rollback; it is started again only if it ran.
                 $this->wait($this->client->write('POST', "{$own}/rollback", $status === 'running' ? ['start' => 1] : []), 70, 'rolling back');
 
@@ -206,6 +212,29 @@ final class GuestLifecycle
                 $this->wait($this->client->write('POST', "{$path}/snapshot", $form), 40, 'taking its snapshot');
             }
         });
+    }
+
+    /** What a snapshot's own keys say of the snapshot, not of the VM: never a reason to refuse its rollback. */
+    private const SNAPSHOT_KEYS = ['digest', 'parent', 'snaptime', 'snapstate', 'vmstate', 'runningmachine', 'runningcpu', 'description', 'lock', 'meta', 'vmgenid'];
+
+    /**
+     * The settings of the VM that differ between its snapshot's config and its config now (their names, sorted).
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $now
+     * @return list<string>
+     */
+    private function changedSince(array $snapshot, array $now): array
+    {
+        $changed = [];
+        foreach (array_unique([...array_keys($snapshot), ...array_keys($now)]) as $key) {
+            if (!in_array($key, self::SNAPSHOT_KEYS, true) && (string) ($snapshot[$key] ?? '') !== (string) ($now[$key] ?? '')) {
+                $changed[] = (string) $key;
+            }
+        }
+        sort($changed);
+
+        return $changed;
     }
 
     /** When the customer's snapshot was taken (a Unix time), or null: none. Only SNAPSHOT, never staff's own. */
@@ -265,7 +294,7 @@ final class GuestLifecycle
      * pool, the same machine): a VM MyCS may not act on is not shown either. Null state: no longer on the cluster.
      *
      * @return array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int, memory: int,
-     *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, snapshot: int|null}
+     *     max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, snapshot: int|null, snapshot_read: bool}
      */
     public function state(Service $service): array
     {
@@ -278,10 +307,11 @@ final class GuestLifecycle
      * cannot be read is told apart (its error), never a refusal of the VM: its state and power stay (ADV-502-R2-3).
      *
      * @return array{0: array{vmid: int, name: string|null, status: string|null, uptime: int, cpu: float, cpus: int,
-     *     memory: int, max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, snapshot: int|null},
+     *     memory: int, max_memory: int, max_disk: int, ips: list<string>, macs: list<string>, snapshot: int|null, snapshot_read: bool},
      *     1: list<array<string, mixed>>|null, 2: \Throwable|null}
      *
-     * With $snapshot, the state says when the customer's snapshot was taken («snapshot»: a Unix time, null for none).
+     * With $snapshot, the state says when the customer's snapshot was taken («snapshot»: a Unix time, null for none) and
+     * whether its list could be read («snapshot_read»).
      */
     public function read(Service $service, ?string $timeframe = null, bool $snapshot = false): array
     {
@@ -301,8 +331,18 @@ final class GuestLifecycle
             'max_disk' => $size('maxdisk', $row->max_disk),
             'ips' => (array) $row->ips,
             'macs' => (array) $row->macs,
-            'snapshot' => $snapshot && $resource !== null ? $this->snapshotTaken(ProxmoxClient::guestPath($resource)) : null,
+            'snapshot' => null,
+            'snapshot_read' => false,
         ];
+        if ($snapshot && $resource !== null) {
+            // Its own line only: a list that cannot be read never hides the VM, its state and power (ADV-SNAP-2).
+            try {
+                $state['snapshot'] = $this->snapshotTaken(ProxmoxClient::guestPath($resource));
+                $state['snapshot_read'] = true;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
         $graph = null;
         $failed = null;
         if ($timeframe !== null) {

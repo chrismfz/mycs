@@ -5,6 +5,7 @@ namespace App\Jobs\Server;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\ProxmoxPanel;
 use App\Models\Service;
+use App\Services\Proxmox\SnapshotOutdated;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -31,7 +32,7 @@ class ProxmoxSnapshotJob implements ShouldQueue
 
     public function handle(): void
     {
-        $done = false;
+        $outcome = 'failed';
         try {
             $server = $this->service->provisioningServer();
             $extension = $server === null ? null : ExtensionHelper::getExtension('server', $server->extension, $server->settings);
@@ -39,11 +40,29 @@ class ProxmoxSnapshotJob implements ShouldQueue
                 throw new RuntimeException("Service #{$this->service->id} is not on a Proxmox server any more.");
             }
             $extension->lifecycle($this->service)->snapshot($this->service, $this->action, $this->byCustomer);
-            $done = true;
+            $outcome = 'done';
+        } catch (SnapshotOutdated) {
+            $outcome = 'changed'; // the customer's to know, not a fault
         } catch (Throwable $e) {
             report($e);
         } finally {
-            ProxmoxPanel::snapshotSettled($this->service, $this->action, $done);
+            $this->settle($outcome);
+        }
+    }
+
+    /** Ended by the worker (its timeout, a restart): the panel is told, never left waiting on it (ADV-SNAP-5). */
+    public function failed(?Throwable $e = null): void
+    {
+        $this->settle('failed');
+    }
+
+    /** Only the customer's own job tells their panel: staff's never ends a customer's job still running (ADV-SNAP-3). */
+    private function settle(string $outcome): void
+    {
+        if ($this->byCustomer) {
+            ProxmoxPanel::snapshotSettled($this->service, $this->action, $outcome);
+        } else {
+            ProxmoxPanel::refresh($this->service);
         }
     }
 }

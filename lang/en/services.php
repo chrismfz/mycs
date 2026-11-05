@@ -348,6 +348,7 @@ return [
         ],
         'snapshot' => [
             'title' => 'Snapshot',
+            'unknown' => 'The snapshot cannot be read right now.',
             'none' => 'No snapshot.',
             'taken' => 'Taken :date.',
             'hint' => 'One snapshot of the disks (not the memory). A rollback returns the disks to it: whatever changed since is lost. It takes space until deleted.',
@@ -369,6 +370,7 @@ return [
                     'rollback' => 'The server was rolled back to the snapshot.',
                     'delete' => 'The snapshot was deleted.',
                 ],
+                'changed' => 'Not rolled back: the server\'s settings (memory, CPU, disks or network) changed since the snapshot was taken. Take a new snapshot, or open a ticket.',
                 'failed' => 'The snapshot action could not be done. Please try again in a few minutes, or open a ticket.',
             ],
             'busy' => 'A snapshot action is still running: please wait for it to finish.',

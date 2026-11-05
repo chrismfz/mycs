@@ -62,7 +62,11 @@ class ProxmoxSnapshotTest extends TestCase
 
             return match (true) {
                 $path === 'cluster/resources' => Http::response(['data' => [$this->vm]]),
-                $path === "{$guest}/config" => Http::response(['data' => ['net0' => 'virtio=BC:24:11:00:00:01,bridge=vmbr0']]),
+                $path === "{$guest}/config" => Http::response(['data' => ['net0' => 'virtio=BC:24:11:00:00:01,bridge=vmbr0', 'parent' => 'client-snap',
+                    'digest' => 'a1']]),
+                // The snapshot's own keys differ from the VM's now; its settings are the same.
+                $path === "{$guest}/snapshot/client-snap/config" => Http::response(['data' => ['net0' => 'virtio=BC:24:11:00:00:01,bridge=vmbr0',
+                    'snaptime' => 1762430400, 'vmstate' => 'local-zfs:vm-101-state-client-snap', 'description' => 'Taken from MyCS']]),
                 $path === "{$guest}/status/current" => Http::response(['data' => ['status' => $this->vm['status'], 'cpus' => 2, 'maxmem' => 4294967296]]),
                 $path === "{$guest}/snapshot" => Http::response(['data' => [
                     ...array_map(fn (string $name, int $time) => ['name' => $name, 'snaptime' => $time, 'description' => ''], array_keys($this->snapshots), $this->snapshots),
