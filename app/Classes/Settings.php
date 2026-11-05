@@ -1066,7 +1066,7 @@ class Settings
                     'type' => 'textarea',
                     'rows' => 8,
                     'default' => '',
-                    'description' => 'Raw HTML on the first page after a customer places an order, once per order (never a free one, nor for staff logged in as the customer). Placeholders, each a JSON value safe in a script: {purchase} (GA4\'s purchase event: transaction_id, value net, tax, currency, coupon, items), {order_id}, {value}, {tax}, {currency}, {coupon}, {items}. E.g. <script>gtag(\'event\', \'purchase\', {purchase});</script>, with gtag and consent in the custom <head>.',
+                    'description' => 'Raw HTML on the first page after a customer places an order, once per order (never a free one, nor for staff logged in as the customer). Placeholders, each a JSON value (strings with their quotes): use them bare inside a <script>, never inside quotes or an HTML attribute. {purchase} (GA4\'s purchase event: transaction_id, value net, tax, currency, coupon, items), {order_id}, {value}, {tax}, {currency}, {coupon}, {items}; written literally elsewhere in the code they are replaced too. E.g. <script>(function(){var p={purchase};try{if(sessionStorage.getItem(\'purchase-\'+p.transaction_id))return;sessionStorage.setItem(\'purchase-\'+p.transaction_id,\'1\')}catch(e){}gtag(\'event\',\'purchase\',p)})();</script> (sent once even after Back), with gtag and consent in the custom <head>.',
                     'section' => 'Custom code',
                 ],
                 [

@@ -16,7 +16,8 @@ use Throwable;
  * the lines as GA4 items. Never for a free order (nothing to pay: not a sale, as the hook), never for staff in «Login as
  * client», never on a private link's page. Each placeholder is a JSON value, safe inside a <script> (quotes, <, > and &
  * escaped): `{purchase}` the whole GA4 event, `{order_id}`, `{value}`, `{tax}`, `{currency}`, `{coupon}` (null when
- * none), `{items}`. Consent is the snippet's own (the gtag of the custom <head>): nothing is sent from the server.
+ * none), `{items}`, each bare where a script expects an expression, never inside quotes or an attribute (its own quotes come
+ * with it: review of #657). Consent is the snippet's own (the gtag of the custom <head>): nothing is sent from the server.
  */
 final class OrderConversion
 {
@@ -24,7 +25,8 @@ final class OrderConversion
 
     private const PLACEHOLDERS = ['purchase', 'order_id', 'value', 'tax', 'currency', 'coupon', 'items'];
 
-    private const JSON = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_PRESERVE_ZERO_FRACTION;
+    private const JSON = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_PRESERVE_ZERO_FRACTION
+        | JSON_INVALID_UTF8_SUBSTITUTE; // never false, so never `var p = ;` (review of #657)
 
     /** The cart's: this order's conversion goes out on the next page (not for staff acting as the customer). */
     public static function queue(Order $order): void
@@ -70,7 +72,10 @@ final class OrderConversion
      */
     public static function payload(Order $order): ?array
     {
-        $invoice = $order->invoice()->with('items.reference')->first();
+        // Its lines' products, categories, plans and coupons at once (review of #657).
+        $invoice = $order->invoice()->with(['items.reference' => fn ($reference) => $reference->morphWith([
+            Service::class => ['product.category', 'plan', 'coupon'],
+        ])])->first();
         if ($invoice === null || (float) $invoice->subtotal <= 0) {
             return null;
         }
