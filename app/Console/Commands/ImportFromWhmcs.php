@@ -81,7 +81,7 @@ class ImportFromWhmcs extends Command
         {--source-socket= : the WHMCS database\'s unix socket, instead of host and port}
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
-        {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
+        {--ticket-attachments=* : A copy of a WHMCS folder with ticket files, once per folder (its storage folder and attachments/)}
         {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}
         {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
 
@@ -1032,11 +1032,11 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing tickets... (' . $this->count('tbltickets') . ' records)');
         try {
-            $folder = $this->option('ticket-attachments');
+            $folders = array_values(array_filter((array) $this->option('ticket-attachments'), fn ($folder) => is_string($folder) && $folder !== ''));
         } catch (Throwable) {
-            $folder = null; // called without the command's input (the tests' reflection)
+            $folders = []; // called without the command's input (the tests' reflection)
         }
-        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run()) !== self::SUCCESS) {
+        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, $folders))->run()) !== self::SUCCESS) {
             $this->warn('Tickets: see above; app:import-whmcs-tickets can be run again on its own.');
         }
     }

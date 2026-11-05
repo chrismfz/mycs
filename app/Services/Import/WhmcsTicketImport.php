@@ -27,8 +27,10 @@ use Throwable;
  * account's (an id alone proves nothing: a MyCS signup may hold it); anything else is a guest's, with the client's or
  * ticket's name and address, never an account found by its email, never vouched for.
  * Messages in the order WHMCS wrote them: the opening, replies, staff's notes (internal), and those of the tickets WHMCS
- * merged into it (to the end of a chain), internal when another requester wrote them. Files from a copy of WHMCS's
- * attachments folder under §3 ΣΤ, every one counted. No event fires (no mail, no status moved, no notice). One ticket that
+ * merged into it (to the end of a chain), internal when another requester wrote them. Files from copies of WHMCS's
+ * folders under §3 ΣΤ, every one counted: a WHMCS whose Storage Settings moved its ticket files has them in two (myip:
+ * attachments/ before 11/2023, the storage folder since, WG-21), so each name is looked for in each; where WHMCS keeps
+ * them now is reported (whmcs_storage). No event fires (no mail, no status moved, no notice). One ticket that
  * fails is counted and skipped; the others go on. --dry-run: the same numbers, nothing kept.
  * WHMCS's CC of a ticket not closed as staff's copied addresses, when the ticket is first brought (§6λ).
  * Predefined replies and their categories (§6ι): brought once and followed while not edited here; WHMCS's merge fields
@@ -56,7 +58,7 @@ final class WhmcsTicketImport
     /** @var array<string, mixed> */
     private array $counts = ['departments' => 0, 'tickets' => 0, 'unchanged' => 0, 'guests' => 0, 'no_account' => 0, 'messages' => 0, 'notes' => 0,
         'merged' => 0, 'canned_replies' => 0, 'ccs' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
-        'deleted_here' => 0, 'failed' => 0, 'errors' => [], 'other_status' => []];
+        'deleted_here' => 0, 'failed' => 0, 'errors' => [], 'other_status' => [], 'whmcs_storage' => null];
 
     /** @var array<int, int> WHMCS department id => ours */
     private array $departments = [];
@@ -79,7 +81,30 @@ final class WhmcsTicketImport
 
     private ?bool $clients = null;
 
-    public function __construct(private readonly PDO $whmcs, private readonly ?string $attachments = null, private readonly bool $dryRun = false) {}
+    /** @var list<string> the copies of WHMCS's file folders, each name looked for in each, in this order */
+    private readonly array $folders;
+
+    /** @param  string|list<string>|null  $attachments  one folder or several */
+    public function __construct(private readonly PDO $whmcs, string|array|null $attachments = null, private readonly bool $dryRun = false)
+    {
+        $folders = is_array($attachments) ? $attachments : ($attachments === null ? [] : [$attachments]);
+        $this->folders = array_values(array_filter(array_map(fn ($folder) => rtrim(trim((string) $folder), '/'), $folders), fn (string $folder) => $folder !== ''));
+    }
+
+    /**
+     * Where WHMCS keeps ticket files now (Setup → Storage Settings: «Local Storage: /home/…»), or null when its tables are
+     * not there: the folder to copy for the import (WG-21).
+     */
+    private function storage(): ?string
+    {
+        if (!$this->hasTable('tblfileassetsettings') || !$this->hasTable('tblstorageconfigurations')) {
+            return null;
+        }
+        $row = $this->rows("SELECT c.name FROM tblfileassetsettings s JOIN tblstorageconfigurations c ON c.id = s.storageconfiguration_id
+            WHERE s.asset_type = 'ticket_attachments' LIMIT 1")[0] ?? null;
+
+        return $row !== null ? (string) $row['name'] : null;
+    }
 
     /** @return array<string, mixed> what was brought, and the parity (WHMCS and MyCS, per department and status) */
     public function run(): array
@@ -87,6 +112,7 @@ final class WhmcsTicketImport
         if (!$this->hasTable('tbltickets')) {
             return $this->counts;
         }
+        $this->counts['whmcs_storage'] = $this->storage();
         if ($this->dryRun) {
             DB::beginTransaction();
         }
@@ -421,14 +447,22 @@ final class WhmcsTicketImport
 
                 continue;
             }
-            $path = $this->attachments !== null ? rtrim($this->attachments, '/') . '/' . basename($stored) : null;
-            if ($path === null || (!is_file($path) && !is_link($path))) {
+            // The first folder that has it (WHMCS may keep a name in either: WG-21).
+            $folder = null;
+            foreach ($this->folders as $candidate) {
+                if (is_file($candidate . '/' . basename($stored)) || is_link($candidate . '/' . basename($stored))) {
+                    $folder = $candidate;
+                    break;
+                }
+            }
+            if ($folder === null) {
                 $this->counts['files_missing']++;
 
                 continue;
             }
-            // Never a file outside the folder: no link is followed, no size over the limit is read.
-            $root = realpath((string) $this->attachments);
+            $path = $folder . '/' . basename($stored);
+            // Never a file outside its folder: no link is followed, no size over the limit is read.
+            $root = realpath($folder);
             $real = realpath($path);
             if (is_link($path) || $real === false || $root === false || !str_starts_with($real, rtrim($root, '/') . '/') || filesize($real) > Attachments::MAX_BYTES) {
                 $this->counts['files_refused']++;
