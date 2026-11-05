@@ -136,7 +136,7 @@ adversarial review.
 - [x] **WG-15** Quantity options με τιμή: όσα δεν πήρε ποτέ υπηρεσία δεν έρχονται, τα υπόλοιπα κρυφά· η #2618 του myip γίνεται addon στο cut-over (runbook). Η πλήρης τιμή ανά ποσότητα (CART-9) μένει για όταν ξαναπουληθούν.
 - [x] **WG-16** Ρυθμίσεις module πέρα από το package: resellers του cPanel (με το σημάδι «WHM reseller» στις υπηρεσίες), mailcow, Centova· όχι θέματα cPanel ούτε πλάνα Proxmox.
 - [x] **WG-17** Runbook του myip: παράθυρο αναστολών και auto-match του Bank transfer στο runbook· το `InvoicePayTo` το φέρνει το import (`bill_to_text`)· το PDF επισυνάπτεται πάντα (απόφαση ιδιοκτήτη 2026-11-05).
-- [ ] **WG-18** Collections: απόφαση.
+- [x] **WG-18** Collections: ακυρώνονται στο WHMCS πριν από το τελικό import (runbook)· ο importer ονομάζει όσα μείνουν (απόφαση ιδιοκτήτη 2026-11-05).
 - [ ] **WG-19** Ανανέωση πολλών domains μαζί (= Domains).
 - [ ] **WG-20** Endpoint αναζήτησης domain για το site.
 - [ ] **WG-21** Πρόβα των συνημμένων tickets.

@@ -197,6 +197,40 @@ class ImportMoneyJournalTest extends TestCase
         $this->assertChecksPass();
     }
 
+    /** WG-18: the owner cancels them in WHMCS before the final import; one left over is named, not silently chased. */
+    public function test_an_invoice_left_in_collections_is_named(): void
+    {
+        $this->invoice(110, 'Collections', 15);
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringContainsString('1 WHMCS invoice(s) in Collections (#110)', $this->output->fetch());
+        $this->assertSame('unpaid', Invoice::query()->findOrFail(110)->status);
+        $this->assertChecksPass();
+    }
+
+    public function test_a_collections_invoice_the_import_skips_is_not_named(): void
+    {
+        // Its customer has no currency here: importInvoices leaves it out, so it is not «imported as unpaid».
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (112, 999999, '', '2026-09-01', '2026-09-10', '', 'Collections', 5, 0, 0)");
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringNotContainsString('Collections', $this->output->fetch());
+        $this->assertNull(Invoice::query()->find(112));
+    }
+
+    public function test_no_collections_no_warning(): void
+    {
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringNotContainsString('Collections', $this->output->fetch());
+    }
+
     public function test_an_invoice_whmcs_marked_refunded_with_no_money_owes_nothing(): void
     {
         $this->invoice(106, 'Refunded', 15);

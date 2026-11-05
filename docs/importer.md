@@ -254,7 +254,7 @@
 | Paid | `paid` |
 | Cancelled | `cancelled` |
 | Refunded | `refunded` (PR 2c) |
-| Collections | σήμερα `unpaid`· **θέλει απόφαση** (WG-18): το myip έχει 15 (813,99), από το `AfterModuleTerminate` του `auto-cancellation.php`· πρόταση: `unpaid` με σημείωση, χωρίς αυτόματη χρέωση |
+| Collections | `unpaid`. Απόφαση ιδιοκτήτη 2026-11-05 (WG-18): ακυρώνονται στο WHMCS πριν από το τελικό import (`cutover-runbook.md` §1). Το myip έχει 15 (813,99, κανένα με πληρωμή), από το `AfterModuleTerminate` του `auto-cancellation.php`. Όσα μείνουν, ο importer τα ονομάζει σε προειδοποίηση |
 
 Ο importer του upstream (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
 χρησιμοποιείται· ο νέος importer ακολουθεί τον πίνακα.
