@@ -647,7 +647,7 @@ class ImportFromWhmcs extends Command
         if ($perCycle !== []) {
             $this->warn('WHMCS invoices per billing cycle (' . implode(', ', array_map(fn (string $c) => $c . ' ' . $days('CreateInvoiceDaysBefore' . $c), $perCycle))
                 . '); MyCS has one value for every cycle, cronjob_invoice = ' . ($invoiceDays ?? 'unchanged')
-                . ' (WHMCS\'s general, WG-14): every cycle is invoiced that many days before its due date.');
+                . ($invoiceDays !== null ? ' (WHMCS\'s general, WG-14): every cycle is invoiced that many days before its due date.' : '.'));
         }
     }
 
