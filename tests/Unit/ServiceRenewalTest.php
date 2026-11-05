@@ -102,8 +102,13 @@ class ServiceRenewalTest extends TestCase
         $this->assertTrue($service->expires_at <= now()->addDays(21));
     }
 
+    /**
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
+     */
     public function test_service_duedate_continues_from_expiry_when_suspended(): void
     {
+        $this->freezeTime();
         // Create a user
         $user = User::factory()->create();
         $product = $this->createProduct();

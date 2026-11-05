@@ -48,6 +48,9 @@ class DashboardNeedsAttentionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A frozen clock: the rows are made from «today» and checked against it again, and a run across midnight (UTC) saw
+        // two different days (overdue invoices, charges to settle, hosting accounts; 2026-11-05).
+        $this->freezeTime();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         config(['app.admin_badge_cache_seconds' => 0]);
         // No automation check of its own here: the report a minute old, all ok (Health::cached()).

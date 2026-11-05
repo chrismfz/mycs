@@ -144,9 +144,13 @@ class CreditAutoApplyAdversarialTest extends TestCase
      * FINDING (J3/J5). The cron bills a renewal and spends the credit on that NEW invoice (CronJob::billRenewal →
      * CreditAutoApply::toInvoice) before the daily step pays what is already overdue, oldest first. A customer whose
      * credit covers the overdue invoice is then suspended: the case decision 5 is written for.
+     *
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
      */
     public function test_a_renewal_invoice_does_not_take_the_credit_an_older_overdue_invoice_needs(): void
     {
+        $this->freezeTime();
         $overdueService = $this->service(['expires_at' => now()->subDays(5)]);
         $overdue = $this->invoice(10, '-5 days', Service::class, $overdueService->id);
         $overdue->items()->sole()->update(['period_start' => now()->subDays(5)->toDateString(), 'period_end' => now()->addDays(25)->toDateString()]);
