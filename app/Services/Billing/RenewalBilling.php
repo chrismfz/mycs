@@ -311,6 +311,18 @@ final class RenewalBilling
         return max(0, (int) config('settings.cronjob_invoice', 7));
     }
 
+    /**
+     * The plan a service's next renewal bills: the one set «from the next renewal» (SVC-14b) while it is of its product,
+     * as billRenewal applies it, else its own. The cron reads its days from it (ADV-660-1a/b, R660-1).
+     */
+    public static function billedPlan(Service $service): ?Plan
+    {
+        $next = $service->next_plan_id !== null ? $service->nextPlan : null;
+
+        return $next !== null && $next->priceable_type === Product::class && (int) $next->priceable_id === (int) $service->product_id
+            ? $next : $service->plan;
+    }
+
     /** The farthest of the services' invoice days: what the cron looks ahead to before each service's own (serviceInvoiceDays). */
     public static function longestServiceInvoiceDays(): int
     {

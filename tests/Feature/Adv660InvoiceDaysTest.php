@@ -110,15 +110,20 @@ class Adv660InvoiceDaysTest extends TestCase
         $this->storeSettings(['cronjob_invoice' => '14', 'cronjob_invoice_monthly' => '10']);
         [$service, $monthly] = $this->service('2026-12-13', on: 'year');
         $service->forceFill(['next_plan_id' => $monthly->id])->save();
+        // Author's note (fix of #660): with 1a fixed the cron bills it by the monthly 10 days, on 12-03, not on 12-01; the
+        // scenario then: that renewal cancelled, and the cron runs again.
+        $this->cron();
+        $this->assertCount(0, $this->lines($service), '12-01: its monthly 10 days not reached (1a)');
+        Carbon::setTestNow('2026-12-03 10:00:00');
         $this->cron();
         $line = $this->lines($service)->first();
-        $this->assertNotNull($line, 'precondition (1a): the cron billed it today');
+        $this->assertNotNull($line, 'precondition: the cron billed it by the monthly days');
         $invoice = $line->invoice;
 
         $toCome = $invoice->billsOnlyPeriodsToCome();
 
         $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'customer not renewing']);
-        Carbon::setTestNow('2026-12-03 10:00:00');
+        Carbon::setTestNow('2026-12-05 10:00:00');
         $this->cron();
 
         $this->assertCount(1, $this->lines($service), 'the cancelled cron renewal is given up (Δ3a), never billed again');

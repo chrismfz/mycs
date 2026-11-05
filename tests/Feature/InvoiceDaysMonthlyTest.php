@@ -84,8 +84,11 @@ class InvoiceDaysMonthlyTest extends TestCase
         $this->assertTrue($this->billed($monthly), 'empty: as Invoice Generation, 14 days before');
     }
 
-    /** An invoice cancelled ahead of the cron: a monthly line its own days have not reached stays billable (Δ3, ADV-4). */
-    public function test_a_monthly_line_the_cron_has_not_reached_is_a_period_to_come(): void
+    /**
+     * «A period to come» (a cancelled invoice's line kept billable, Δ3, ADV-4) is judged by the farthest of the invoice
+     * days, whatever the plan now (review of #660, ADV-660-1c/2: a renewal the cron billed is never billed again): 14 here.
+     */
+    public function test_a_period_to_come_is_one_no_invoice_days_have_reached(): void
     {
         $monthly = $this->service('month');
         $annual = $this->service('year');
@@ -93,7 +96,9 @@ class InvoiceDaysMonthlyTest extends TestCase
             fn (Invoice $invoice) => $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
                 'quantity' => 1, 'price' => $service->price, 'period_start' => '2026-12-15', 'period_end' => '2027-01-15']));
 
-        $this->assertTrue($invoice($monthly)->billsOnlyPeriodsToCome(), 'a month\'s, 14 days ahead: its own 10 not reached');
+        $this->assertFalse($invoice($monthly)->billsOnlyPeriodsToCome(), 'a month\'s, 14 days ahead: within the farthest days');
         $this->assertFalse($invoice($annual)->billsOnlyPeriodsToCome(), 'an annual one, 14 days ahead: reached');
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        $this->assertTrue($invoice($monthly)->billsOnlyPeriodsToCome(), '20 days ahead: no invoice days reach it');
     }
 }

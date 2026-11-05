@@ -603,7 +603,8 @@ class ImportFromWhmcs extends Command
             // WHMCS's general one for every cycle but a monthly plan's (WG-14, owner 2026-11-05: myip 14, its quarterly 15
             // and longer cycles' 20 not kept; nixpal 7).
             'cronjob_invoice' => ($v = $invoiceDays) !== null ? ['string', $v] : null,
-            'cronjob_invoice_monthly' => $monthlyDays !== null ? ['string', $monthlyDays] : null,
+            // None in WHMCS (0 or empty) clears it, so a re-run never keeps an older value (R660-4).
+            'cronjob_invoice_monthly' => $monthlyDays !== null ? ['string', $monthlyDays] : ($has('CreateInvoiceDaysBeforeMonthly') ? ['string', ''] : null),
             // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
             'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
             'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,

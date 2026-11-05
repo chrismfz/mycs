@@ -241,10 +241,12 @@ class Invoice extends Model implements Auditable
      *
      * @param  class-string  $type
      */
-    public static function billedFrom(string $type, ?Plan $plan = null): string
+    public static function billedFrom(string $type): string
     {
-        // A service's: its plan's own days (a monthly plan's, WG-14), else Invoice Generation's.
-        $days = $type === Domain::class ? RenewalBilling::domainInvoiceDays() : RenewalBilling::serviceInvoiceDays($plan);
+        // A service's: the farthest of its invoice days (a monthly plan's own, WG-14), whatever plan it is on now, so a
+        // renewal the cron billed is never read as one to come and billed again (ADV-660-1c/2: a change of cycle, or of
+        // the setting, since).
+        $days = $type === Domain::class ? RenewalBilling::domainInvoiceDays() : RenewalBilling::longestServiceInvoiceDays();
 
         return today()->addDays($days + 1)->toDateString();
     }
@@ -252,13 +254,10 @@ class Invoice extends Model implements Auditable
     /** Its renewal lines all bill periods the cron would not bill yet: cancelled, kept billable (Δ3, ADV-4). */
     public function billsOnlyPeriodsToCome(): bool
     {
-        $lines = $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNull('kind')
-            ->get(['reference_type', 'reference_id', 'period_start']);
+        $lines = $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNull('kind')->get(['reference_type', 'period_start']);
 
-        // A service's line by its plan's days (WG-14: a monthly plan's own).
         return $lines->isNotEmpty() && $lines->every(fn (InvoiceItem $line) => $line->period_start !== null
-            && $line->period_start->toDateString() >= self::billedFrom($line->reference_type,
-                $line->reference_type === Service::class ? Service::query()->with('plan')->find($line->reference_id)?->plan : null));
+            && $line->period_start->toDateString() >= self::billedFrom($line->reference_type));
     }
 
     /**
