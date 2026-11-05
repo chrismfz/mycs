@@ -12,23 +12,26 @@ use function Laravel\Prompts\password;
 
 /**
  * WHMCS's tickets on their own (docs/tickets.md §5α, PR Δ), over the accounts app:import-from-whmcs brought (same ids).
- * Re-runnable; read-only on WHMCS; no mail, no staff notice. --attachments: WHMCS's attachments folder (a copy).
+ * Re-runnable; read-only on WHMCS; no mail, no staff notice. --attachments: copies of WHMCS's folders with ticket files,
+ * as many as it has used (Storage Settings: myip has attachments/ and its storage folder, WG-21).
  */
 class ImportWhmcsTickets extends Command
 {
     protected $signature = 'app:import-whmcs-tickets {dbname} {username=mycs} {host=localhost} {port=3306}
-        {--attachments= : A copy of WHMCS\'s attachments folder (its files are copied under the ticket file rules)}
+        {--attachments=* : A copy of a WHMCS folder with ticket files, once per folder (its files are copied under the ticket file rules)}
         {--dry-run : The same numbers, nothing kept}';
 
     protected $description = 'Import the support tickets (departments, tickets, replies, notes, files) from a WHMCS database';
 
     public function handle(): int
     {
-        $attachments = $this->option('attachments');
-        if ($attachments !== null && !is_dir((string) $attachments)) {
-            $this->error("No folder {$attachments}.");
+        $attachments = array_values(array_filter((array) $this->option('attachments'), fn ($folder) => is_string($folder) && $folder !== ''));
+        foreach ($attachments as $folder) {
+            if (!is_dir($folder)) {
+                $this->error("No folder {$folder}.");
 
-            return self::FAILURE;
+                return self::FAILURE;
+            }
         }
         $password = password("Enter the password for user '{$this->argument('username')}':", required: true);
         try {
@@ -41,7 +44,7 @@ class ImportWhmcsTickets extends Command
         }
         Config::set('audit.console', false);
 
-        return self::report($this, (new WhmcsTicketImport($pdo, $attachments !== null ? (string) $attachments : null, (bool) $this->option('dry-run')))->run());
+        return self::report($this, (new WhmcsTicketImport($pdo, $attachments, (bool) $this->option('dry-run')))->run());
     }
 
     /** What the import did, and its parity; FAILURE when WHMCS and MyCS disagree. @param  array<string, mixed>  $counts */
@@ -52,6 +55,13 @@ class ImportWhmcsTickets extends Command
                 $counts['merged'], $counts['deleted_here'], $counts['canned_replies'] ?? 0, $counts['ccs'] ?? 0]]);
         $command->table(['Files', 'Missing', 'Refused', 'Removed in WHMCS', 'Texts cut', 'Number taken', 'Failed'],
             [[$counts['files'], $counts['files_missing'], $counts['files_refused'], $counts['files_removed'], $counts['truncated'], $counts['reference_taken'], $counts['failed']]]);
+        // Where WHMCS keeps them now: the folder to copy, with any it used before (WG-21: a missing file is most likely there).
+        if (is_string($counts['whmcs_storage'] ?? null)) {
+            $command->line("WHMCS keeps ticket files in «{$counts['whmcs_storage']}» (Storage Settings).");
+            if ($counts['files_missing'] > 0) {
+                $command->warn("{$counts['files_missing']} file(s) missing: copy where it keeps them (and attachments/, where it kept them before a Storage change) and give each folder with --attachments.");
+            }
+        }
         foreach ($counts['errors'] as $error) {
             $command->error($error);
         }

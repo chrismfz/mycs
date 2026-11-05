@@ -139,7 +139,7 @@ adversarial review.
 - [x] **WG-18** Collections: ακυρώνονται στο WHMCS πριν από το τελικό import (runbook)· ο importer ονομάζει όσα μείνουν (απόφαση ιδιοκτήτη 2026-11-05).
 - [x] **WG-19** Ανανέωση πολλών domains μαζί: υπήρχε ήδη (portal: `feat/domain-bulk`, ένα τιμολόγιο ανά νόμισμα· staff: «Invoice selected items»).
 - [x] **WG-20** Endpoint αναζήτησης domain για το site: `/api/v1/domain-check` εδώ (μόνο με το κλειδί του site), το «Προσθήκη» στο `/domain-search?domain=`· στο site, `backend => 'mycs'` στο `_config.php` του `domain-check.php` (runbook §2).
-- [ ] **WG-21** Πρόβα των συνημμένων tickets.
+- [x] **WG-21** Πρόβα των συνημμένων tickets (2026-11-05): το myip έχει δύο φακέλους (Storage από 11/2023)· ο importer δέχεται πολλούς· 4.110 ήρθαν, 4 λείπουν (`tickets.md`).
 - [x] **WG-22** Κλείνει (ιδιοκτήτης 2026-11-05): το global search βρίσκει πελάτη, λογαριασμό και server ενός domain (main, addon, parked, sub, και των λογαριασμών ενός reseller)· μένει η ανάκληση του token του hook στο cut-over (runbook §2).
 - [ ] **WG-23** Μεταγραφή ελληνικών προς CNIC/Openprovider (= Domains).
 
