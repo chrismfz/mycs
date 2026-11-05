@@ -95,7 +95,8 @@ class ImportModuleSettingsTest extends TestCase
                 'reseller_bandwidth_mb', 'reseller_overselling_disk', 'reseller_overselling_bandwidth', 'reseller_owns_itself']));
         $r70 = $this->settings(31);
         $this->assertSame('1', $r70['reseller']);
-        $this->assertArrayNotHasKey('reseller_disk_mb', $r70, 'no «Limit Reseller by Usage»: WHMCS applied no disk limit, nor here');
+        $this->assertSame(['70000', '4000000'], [$r70['reseller_disk_mb'], $r70['reseller_bandwidth_mb']],
+            'the product\'s limits even without «Limit Reseller by Usage» (owner 2026-11-05: MyCS\'s products set them)');
         $this->assertSame('0', $r70['reseller_owns_itself']);
 
         $mail = $this->settings(32);
@@ -113,7 +114,7 @@ class ImportModuleSettingsTest extends TestCase
     {
         $this->import();
         $this->whmcs->exec("UPDATE tblproducts SET type = 'hostingaccount' WHERE id = 30");
-        $this->whmcs->exec("UPDATE tblproducts SET configoption16 = '' WHERE id = 31");
+        $this->whmcs->exec("UPDATE tblproducts SET configoption17 = '' WHERE id = 31");
 
         $this->import();
 

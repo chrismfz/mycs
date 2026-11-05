@@ -482,9 +482,12 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
   WHMCS ανανεώνει ακόμα τις υπηρεσίες του (ADV-646-1· myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το `mycs:parity` μετρά
   όλα τα products, τα listed και όσα έχουν `package`.
 - **Ρυθμίσεις module πέρα από το `package`** (WG-16, απόφαση ιδιοκτήτη 2026-11-05, `CatalogImport::moduleSettings`):
-  - **cPanel, προϊόντα «Reseller Account»** (myip: 6, 23 ζωντανοί): `configoption15` όριο λογαριασμών, `16` «Limit by
-    Usage» (μόνο τότε `17` χώρος και `18` bandwidth σε MB, όπως τα εφαρμόζει το WHMCS· οι Reseller 70/120/30 δεν το έχουν,
-    άρα χωρίς όριο), `19`/`20` overselling, `21` ACL, `24` ιδιοκτησία του λογαριασμού. Οι υπηρεσίες τους σημαδεύονται
+  - **cPanel, προϊόντα «Reseller Account»** (myip: 6, 23 ζωντανοί): `configoption15` όριο λογαριασμών, `17` χώρος και
+    `18` bandwidth σε MB **ό,τι κι αν λέει το `16` «Limit by Usage»** (απόφαση ιδιοκτήτη 2026-11-05: τα όρια τα ορίζουν τα
+    προϊόντα του MyCS, όχι πια το χέρι στο WHM· οι Reseller 30/70/120 είχαν το `16` κλειστό και τα όρια μπήκαν με το χέρι:
+    έλεγχος 2026-11-05, 25 από 29 resellers στους έξι servers), `19`/`20` overselling, `21` ACL, `24` ιδιοκτησία του
+    λογαριασμού. Σε αλλαγή πακέτου το cPanel extension στέλνει **μόνο** τα όρια που ορίζει το προϊόν· ό,τι αφήνει κενό δεν
+    το αγγίζει (review του #663). Οι υπηρεσίες τους σημαδεύονται
     «WHM reseller» (`cpanel_reseller`, `markCpanelResellers`): μια αναστολή για απλήρωτο παίρνει μαζί και τους λογαριασμούς
     των πελατών τους (`suspendreseller`), όπως στο WHMCS.
   - **mailcow (MyMail)**: τα `configoption1`–`14` με την ίδια σειρά και στα δύο modules (aliases, mailboxes, quotas, rate

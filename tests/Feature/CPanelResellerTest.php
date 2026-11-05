@@ -102,8 +102,9 @@ class CPanelResellerTest extends TestCase
         [$acl] = $this->sent('setacls');
         $this->assertSame('resellers', $acl['acllist']);
         [$limits] = $this->sent('setresellerlimits');
-        $this->assertSame(['1', '70000', '4000000', '0'], [(string) $limits['enable_resource_limits'], (string) $limits['diskspace_limit'],
-            (string) $limits['bandwidth_limit'], (string) $limits['enable_account_limit']]);
+        $this->assertSame(['1', '70000', '4000000'], [(string) $limits['enable_resource_limits'], (string) $limits['diskspace_limit'],
+            (string) $limits['bandwidth_limit']]);
+        $this->assertArrayNotHasKey('enable_account_limit', $limits, 'no account limit set: left as WHM has it, never turned off (review of #663)');
         $this->assertSame('1', $this->service->properties()->where('key', CPanel::RESELLER)->value('value'));
     }
 
@@ -198,6 +199,17 @@ class CPanelResellerTest extends TestCase
         $this->assertSame([], $this->sent('setupreseller'));
         [$limits] = $this->sent('setresellerlimits');
         $this->assertSame('120000', (string) $limits['diskspace_limit']);
+    }
+
+    /** Review of #663: a product that sets no limits never turns off those staff set by hand in WHM (25 of myip's 29). */
+    public function test_an_upgrade_to_a_product_with_no_limits_leaves_whms_own(): void
+    {
+        $this->made();
+        $this->product->settings()->whereIn('key', ['reseller_disk_mb', 'reseller_bandwidth_mb', 'reseller_max_accounts'])->delete();
+
+        ExtensionHelper::upgradeServer($this->service->fresh());
+
+        $this->assertSame([], $this->sent('setresellerlimits'), 'nothing to set: WHM\'s limits stay');
     }
 
     public function test_a_product_no_longer_a_reseller_is_unmade_only_without_accounts(): void

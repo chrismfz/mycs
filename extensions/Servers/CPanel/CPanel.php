@@ -612,18 +612,21 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $accounts = self::megabytes($settings['reseller_max_accounts'] ?? null);
         $oversellDisk = self::isReseller(['reseller' => $settings['reseller_overselling_disk'] ?? null]);
         $oversellBandwidth = self::isReseller(['reseller' => $settings['reseller_overselling_bandwidth'] ?? null]);
-        // A limit left empty is not sent (never «0 MB»: code review 4 of #315).
-        $this->whm('/setresellerlimits', array_filter([
-            'user' => $username,
-            'enable_resource_limits' => $disk !== null || $bandwidth !== null ? 1 : 0,
-            'diskspace_limit' => $disk,
-            'bandwidth_limit' => $bandwidth,
-            'enable_overselling' => $oversellDisk || $oversellBandwidth ? 1 : 0,
-            'enable_overselling_diskspace' => $oversellDisk ? 1 : 0,
-            'enable_overselling_bandwidth' => $oversellBandwidth ? 1 : 0,
-            'enable_account_limit' => $accounts !== null ? 1 : 0,
-            'account_limit' => $accounts,
-        ], fn ($value) => $value !== null));
+        // A limit left empty is not sent (never «0 MB»: code review 4 of #315), nor is it turned off: only what the product
+        // sets is set, as WHMCS does, so limits staff set by hand in WHM stay (review of #663: 25 of myip's 29 resellers,
+        // on products that set none). Resources and their overselling go together, the account limit on its own.
+        $limits = [];
+        if ($disk !== null || $bandwidth !== null) {
+            $limits += array_filter(['enable_resource_limits' => 1, 'diskspace_limit' => $disk, 'bandwidth_limit' => $bandwidth,
+                'enable_overselling' => $oversellDisk || $oversellBandwidth ? 1 : 0, 'enable_overselling_diskspace' => $oversellDisk ? 1 : 0,
+                'enable_overselling_bandwidth' => $oversellBandwidth ? 1 : 0], fn ($value) => $value !== null);
+        }
+        if ($accounts !== null) {
+            $limits += ['enable_account_limit' => 1, 'account_limit' => $accounts];
+        }
+        if ($limits !== []) {
+            $this->whm('/setresellerlimits', ['user' => $username] + $limits);
+        }
     }
 
     /** @return list<string> WHM's resellers */

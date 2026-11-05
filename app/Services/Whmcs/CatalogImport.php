@@ -664,9 +664,9 @@ final class CatalogImport
     /**
      * A product's module settings beyond the package (WG-16, owner 2026-11-05), as the extension here reads them, from
      * WHMCS's configoptionN of the module:
-     * - cPanel, a «Reseller Account» product (myip: 6, 23 live resellers): 15 limit by number (the accounts), 16 limit by
-     *   usage (only then 17 disk and 18 bandwidth, MB, as WHMCS applies them), 19/20 overselling, 21 the ACL list, 24 the
-     *   reseller owns its account. Without it a create or upgrade made a plain account, and a suspension for non-payment
+     * - cPanel, a «Reseller Account» product (myip: 6, 23 live resellers): 15 limit by number (the accounts), 17 disk and
+     *   18 bandwidth (MB, whatever 16 «limit by usage» says: owner 2026-11-05, MyCS's products set the limits), 19/20
+     *   overselling, 21 the ACL list, 24 the reseller owns its account. Without it a create or upgrade made a plain account, and a suspension for non-payment
      *   suspended the reseller alone, its customers' accounts running (WHM's suspendreseller).
      * - mailcow (myip's MyMail): 1 aliases, 2 mailboxes, 3 default and 4 max mailbox quota, 5 domain quota (MB), 6/7 the
      *   rate limit and its frame, 8 DKIM, 9 its selector, 10 its key size, 11 restart SOGo, 12 terminate mode, 13 lock on
@@ -689,8 +689,10 @@ final class CatalogImport
                 'reseller' => '1',
                 'reseller_acl' => $option(21) !== '' ? $option(21) : null,
                 'reseller_max_accounts' => $number(15),
-                'reseller_disk_mb' => $on(16) ? $number(17) : null,
-                'reseller_bandwidth_mb' => $on(16) ? $number(18) : null,
+                // The product's limits whether WHMCS applied them or not (owner 2026-11-05: limits are MyCS's products',
+                // never set by hand in WHM again; Reseller 30/70/120 left «by usage» off and staff set them in WHM).
+                'reseller_disk_mb' => $number(17),
+                'reseller_bandwidth_mb' => $number(18),
                 'reseller_overselling_disk' => $on(19) ? '1' : '0',
                 'reseller_overselling_bandwidth' => $on(20) ? '1' : '0',
                 'reseller_owns_itself' => $on(24) ? '1' : '0',
