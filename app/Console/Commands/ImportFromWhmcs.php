@@ -209,6 +209,8 @@ class ImportFromWhmcs extends Command
             $this->importServices();
             // After the services and the catalog's options (WG-11).
             $this->importServiceOptions();
+            // After the services and the catalog's reseller products (WG-16).
+            $this->markCpanelResellers();
             // After the services (their parents) and the orders, before the notes and the invoice lines (docs/addons.md, step 4).
             $this->importAddons();
             $this->importOfflineSsl();
@@ -1175,6 +1177,27 @@ class ImportFromWhmcs extends Command
         if ($unlinked !== []) {
             $this->warn(count($unlinked) . ' service option(s) of a group its product does not offer, left out (WHMCS never charged them): '
                 . implode('; ', array_slice($unlinked, 0, 20)) . (count($unlinked) > 20 ? '; …' : '') . '.');
+        }
+    }
+
+    /**
+     * A cPanel reseller product's services are WHM resellers (WG-16): marked as the extension marks one it made
+     * (CPanel::RESELLER, «cpanel_reseller»), so a suspension takes their customers' accounts with it (suspendreseller, when
+     * WHM lists the user as a reseller), as WHMCS did, and WHM SSO and a downgrade's unmake know it, whatever the product
+     * becomes later. A termination is not changed by it: it always reads the owned accounts from WHM and needs staff's
+     * typed confirmation (review of #663).
+     */
+    private function markCpanelResellers(): void
+    {
+        $products = Setting::query()->where('settingable_type', (new Product)->getMorphClass())->where('key', 'reseller')->where('value', '1')->pluck('settingable_id');
+        $services = DB::table('services')->whereIn('product_id', $products)->whereNull('whmcs_addon_id')->pluck('id');
+        $now = now();
+        foreach ($services->chunk(500) as $chunk) {
+            DB::table('properties')->insertOrIgnore($chunk->map(fn ($id) => ['model_type' => Service::class, 'model_id' => $id, 'key' => 'cpanel_reseller',
+                'name' => 'WHM reseller', 'value' => '1', 'created_at' => $now, 'updated_at' => $now])->values()->all());
+        }
+        if ($services->isNotEmpty()) {
+            $this->info('cPanel resellers: ' . $services->count() . ' service(s) of ' . $products->count() . ' reseller product(s) marked (WG-16).');
         }
     }
 

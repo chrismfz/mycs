@@ -619,6 +619,9 @@ final class CatalogImport
                 Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => 'package'],
                     ['value' => (string) $row['configoption1'], 'type' => 'string', 'encrypted' => false]);
             }
+            if (in_array($module, ['cpanel', 'mailcow', 'centovacast'], true)) {
+                $this->moduleSettings($product, $module, $row);
+            }
             if ($module === 'ngm') {
                 // As our WHMCS module's options: configoption1 the ngm package (by name), configoption2 the PHP version.
                 foreach (['package' => 'configoption1', 'php' => 'configoption2'] as $key => $option) {
@@ -655,6 +658,62 @@ final class CatalogImport
                     DB::table('config_option_products')->insert($link);
                 }
             }
+        }
+    }
+
+    /**
+     * A product's module settings beyond the package (WG-16, owner 2026-11-05), as the extension here reads them, from
+     * WHMCS's configoptionN of the module:
+     * - cPanel, a «Reseller Account» product (myip: 6, 23 live resellers): 15 limit by number (the accounts), 17 disk and
+     *   18 bandwidth (MB, whatever 16 «limit by usage» says: owner 2026-11-05, MyCS's products set the limits), 19/20
+     *   overselling, 21 the ACL list, 24 the reseller owns its account. Without it a create or upgrade made a plain account, and a suspension for non-payment
+     *   suspended the reseller alone, its customers' accounts running (WHM's suspendreseller).
+     * - mailcow (myip's MyMail): 1 aliases, 2 mailboxes, 3 default and 4 max mailbox quota, 5 domain quota (MB), 6/7 the
+     *   rate limit and its frame, 8 DKIM, 9 its selector, 10 its key size, 11 restart SOGo, 12 terminate mode, 13 lock on
+     *   suspend, 14 lock even a multi-domain admin: the order of both modules.
+     * - Centova Cast: 1 the account template, 6 «start server» (the limits are the template's).
+     * Not brought: cPanel themes (paper_lantern, x3mail, gone from cPanel) and the old custom limits a package overrides.
+     *
+     * @param  array<string, mixed>  $row  a tblproducts row
+     */
+    private function moduleSettings(Product $product, string $module, array $row): void
+    {
+        $option = fn (int $n) => trim((string) ($row['configoption' . $n] ?? ''));
+        $on = fn (int $n) => in_array(strtolower($option($n)), ['on', 'yes', '1', 'true'], true);
+        $number = fn (int $n) => ctype_digit($option($n)) && strlen($option($n)) <= 9 ? (string) (int) $option($n) : null;
+        $resellerKeys = ['reseller', 'reseller_acl', 'reseller_max_accounts', 'reseller_disk_mb', 'reseller_bandwidth_mb',
+            'reseller_overselling_disk', 'reseller_overselling_bandwidth', 'reseller_owns_itself'];
+        $settings = match ($module) {
+            // A product no longer a reseller one in WHMCS drops them all on a re-run (R663-2).
+            'cpanel' => ($row['type'] ?? '') !== 'reselleraccount' ? array_fill_keys($resellerKeys, null) : [
+                'reseller' => '1',
+                'reseller_acl' => $option(21) !== '' ? $option(21) : null,
+                'reseller_max_accounts' => $number(15),
+                // The product's limits whether WHMCS applied them or not (owner 2026-11-05: limits are MyCS's products',
+                // never set by hand in WHM again; Reseller 30/70/120 left «by usage» off and staff set them in WHM).
+                'reseller_disk_mb' => $number(17),
+                'reseller_bandwidth_mb' => $number(18),
+                'reseller_overselling_disk' => $on(19) ? '1' : '0',
+                'reseller_overselling_bandwidth' => $on(20) ? '1' : '0',
+                'reseller_owns_itself' => $on(24) ? '1' : '0',
+            ],
+            'mailcow' => [
+                'aliases' => $number(1), 'mailboxes' => $number(2), 'defquota' => $number(3), 'maxquota' => $number(4), 'quota' => $number(5),
+                'rl_value' => $number(6), 'rl_frame' => in_array($option(7), ['s', 'm', 'h', 'd'], true) ? $option(7) : null,
+                'create_dkim' => $on(8) ? '1' : '0', 'dkim_selector' => $option(9) !== '' ? $option(9) : null,
+                'dkim_keysize' => in_array($option(10), ['1024', '2048', '4096'], true) ? $option(10) : null,
+                'restart_sogo' => $option(11) === '0' ? '0' : '1',
+                'terminate_mode' => in_array($option(12), ['lock_only', 'delete_all'], true) ? $option(12) : null,
+                'lock_on_suspend' => $on(13) ? '1' : '0', 'force_lock_multi' => $on(14) ? '1' : '0',
+            ],
+            'centovacast' => ['template' => $option(1) !== '' ? $option(1) : null, 'autostart' => $on(6) ? '1' : '0'],
+            default => [],
+        };
+        foreach ($settings as $key => $value) {
+            $where = ['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key];
+            // One WHMCS no longer sets is gone on a re-run, never an older run's left behind (R663-2).
+            $value === null ? Setting::query()->where($where)->delete()
+                : Setting::query()->updateOrCreate($where, ['value' => $value, 'type' => 'string', 'encrypted' => false]);
         }
     }
 
