@@ -210,6 +210,18 @@ class ImportMoneyJournalTest extends TestCase
         $this->assertChecksPass();
     }
 
+    public function test_a_collections_invoice_the_import_skips_is_not_named(): void
+    {
+        // Its customer has no currency here: importInvoices leaves it out, so it is not «imported as unpaid».
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (112, 999999, '', '2026-09-01', '2026-09-10', '', 'Collections', 5, 0, 0)");
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringNotContainsString('Collections', $this->output->fetch());
+        $this->assertNull(Invoice::query()->find(112));
+    }
+
     public function test_no_collections_no_warning(): void
     {
         $this->invoice(111, 'Unpaid', 10);

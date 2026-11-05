@@ -1926,7 +1926,10 @@ class ImportFromWhmcs extends Command
         $this->info('Importing invoices... (' . $this->count('tblinvoices') . ' records)');
         // WHMCS's «Collections» (myip's auto-cancellation hook writes them on terminate) come unpaid: reminders and
         // auto-charge would chase them. The owner's call (WG-18): they are cancelled in WHMCS before the final import.
-        $collections = array_map('intval', $this->pdo->query("SELECT id FROM tblinvoices WHERE status = 'Collections' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+        // Only those imported below: not a Mass Pay parent, nor one whose customer has no currency (review of #665).
+        $collections = array_values(array_filter(array_map('intval', $this->pdo->query("SELECT i.id FROM tblinvoices i
+            JOIN tblclients c ON c.id = i.userid JOIN tblcurrencies cu ON cu.id = c.currency WHERE i.status = 'Collections' ORDER BY i.id")
+            ->fetchAll(PDO::FETCH_COLUMN)), fn (int $id) => !isset($this->massPayParents()[$id])));
         if ($collections !== []) {
             $this->warn(count($collections) . ' WHMCS invoice(s) in Collections (#' . implode(', #', $collections) . '): imported as unpaid, so reminders and'
                 . ' auto-charge apply to them. Cancel them in WHMCS before the final import (cutover-runbook, WG-18).');

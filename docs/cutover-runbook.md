@@ -40,11 +40,13 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   γράφει το `AfterModuleTerminate` του `auto-cancellation.php` όταν τερματίζεται υπηρεσία. Ο importer τα κάνει `unpaid`,
   οπότε θα έπαιρναν υπενθυμίσεις και αυτόματη χρέωση. Έλεγχος 2026-11-05: 15 τιμολόγια, 813,99, 7 πελάτες (2015–2026),
   **κανένα** με πληρωμή ή πίστωση, άρα η ακύρωση δεν αφήνει υπόλοιπο. Η nixpal δεν έχει κανένα.
-  1. Αφού κλείσει το cron του WHMCS (§2), αλλιώς ένας τερματισμός της ημέρας γράφει καινούργιο: Billing → Invoices,
-     φίλτρο Status = Collections, επιλογή όλων, «Mark Cancelled».
-  2. Έλεγχος: `SELECT COUNT(*) FROM tblinvoices WHERE status = 'Collections'` = 0.
-  3. Στο import, η γραμμή «… invoice(s) in Collections (#…)» δεν πρέπει να εμφανιστεί. Αν εμφανιστεί, όσα λέει έμειναν
-     ως απλήρωτα: ακυρώνονται στο MyCS πριν τρέξει το πρώτο cron του.
+  1. Αφού κλείσει το cron του WHMCS (§2) **και** σταματήσουν οι τερματισμοί με το χέρι στο admin: το hook τρέχει σε
+     κάθε terminate, όχι μόνο του cron. Billing → Invoices, φίλτρο Status = Collections, επιλογή όλων, «Mark
+     Cancelled». Δεν στέλνει mail και δεν τρέχει κανένα ενεργό hook (έλεγχος του review, 2026-11-05).
+  2. Έλεγχος, ξανά **ακριβώς πριν από το dump**: `SELECT COUNT(*) FROM tblinvoices WHERE status = 'Collections'` = 0.
+  3. Μετά το import: `grep 'in Collections' <log του import>` δεν πρέπει να βρει τίποτα (η γραμμή βγαίνει νωρίς και
+     χάνεται στο scroll). Αν βρει, όσα τιμολόγια λέει έμειναν ως απλήρωτα και ακυρώνονται στο MyCS πριν τρέξει το πρώτο
+     cron του.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**
