@@ -144,8 +144,9 @@ adversarial review.
 - [x] **WG-23** Μεταγραφή ελληνικών προς CNIC/Openprovider: ΕΛΟΤ 743 (`Nixpal\DomainTools\Elot743`) σε όνομα, εταιρεία και διεύθυνση ό,τι πάει στον registrar· στο MyCS μένουν ελληνικά (ιδιοκτήτης 2026-11-06).
 
 **Π2, μικρά ή απόφαση του υπευθύνου:** WG-24 ως WG-34 (σύνδεση ticket → υπηρεσία, auto-close, rar/7z, γραμμές σε
-σβησμένες υπηρεσίες, `termination_date`, `billingcid`, αρχεία/downloads/to-do, `AddFundsRequireOrder`, τιμή ID
-protection, custom fields παραγγελίας, live chat/unblockip).
+σβησμένες υπηρεσίες, `termination_date`, `billingcid`, αρχεία/downloads/to-do, `AddFundsRequireOrder`, custom fields
+παραγγελίας). Έγιναν/έκλεισαν: **WG-32** ID protection δωρεάν, ο διακόπτης ανά TLD από το Openprovider (`domains.md` D-24)·
+**WG-34** δεν γίνεται, δικό μας chat στο MyCS (ιδιοκτήτης 2026-11-06).
 
 ### Cut-over (myip, και ό,τι ισχύει για τη nixpal)
 - [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301

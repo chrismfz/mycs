@@ -431,7 +431,8 @@ final class WhmcsDomainImport
      * Whether a domain renews at its TLD's price rather than its own (WG-12, owner 2026-11-04): WHMCS keeps an amount on
      * every domain, and as one here it would never follow the catalog. At its TLD's renew price (for its years, in its
      * currency): the catalog's. Dearer: the catalog's too, the customer pays less (an old price), unless an addon is on
-     * (ID protection, DNS management, email forwarding: WHMCS prices them in the amount, they have no price here; ADV-655-3).
+     * (DNS management, email forwarding: WHMCS prices them in the amount, they have no price here; ADV-655-3). ID
+     * protection is not one: free here (WG-32, owner 2026-11-06), its WHMCS price goes.
      * Cheaper (a deal, as trouvas's .gr at 14.51 from a promotion): its own, kept. No TLD price, or one of 0.00 (a year
      * WHMCS left at 0 and never sold: never a free renewal, ADV-655-1): its own.
      */
@@ -456,10 +457,10 @@ final class WhmcsDomainImport
             || (bool) ($domain->meta['whmcs']['premium'] ?? false) || $domain->staffPriced();
     }
 
-    /** Whether its WHMCS amount holds an addon WHMCS prices (followsCatalog). */
+    /** Whether its WHMCS amount holds an addon WHMCS prices and we still would (followsCatalog): not ID protection, free here (WG-32). */
     private static function addonsInIt(Domain $domain): bool
     {
-        return (bool) $domain->id_protection || (bool) $domain->dns_management || (bool) $domain->email_forwarding;
+        return (bool) $domain->dns_management || (bool) $domain->email_forwarding;
     }
 
     /**
@@ -495,7 +496,7 @@ final class WhmcsDomainImport
                     $dearer[] = "#{$domain->id} {$domain->fqdn} {$amount} → {$tld}";
                 }
             } elseif ($live && $tld !== null && bccomp($amount, $tld, 2) !== 0) {
-                $why = array_filter([$domain->id_protection ? 'ID protection' : null, $domain->dns_management ? 'DNS management' : null,
+                $why = array_filter([$domain->dns_management ? 'DNS management' : null,
                     $domain->email_forwarding ? 'email forwarding' : null, ($domain->meta['whmcs']['premium'] ?? false) ? 'premium' : null,
                     in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status->value : null]);
                 $kept[] = "#{$domain->id} {$domain->fqdn} {$amount} (TLD {$tld}" . ($why !== [] ? ', ' . implode(', ', $why) : '') . ')';

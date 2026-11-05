@@ -229,7 +229,7 @@ class ImportTlds extends Page implements HasForms
         foreach ($tlds as $tld) {
             $answer = $answers[$tld] ?? null;
             $fetched[$tld] = match (true) {
-                $answer instanceof TldPricing => ['costs' => $answer->costs, 'min_years' => $answer->minYears],
+                $answer instanceof TldPricing => ['costs' => $answer->costs, 'min_years' => $answer->minYears, 'privacy' => $answer->privacyAllowed],
                 is_string($answer) => ['error' => $answer],
                 default => ['not_offered' => true],
             };
@@ -254,7 +254,7 @@ class ImportTlds extends Page implements HasForms
         TimeLimit::atLeast(180);
         $fetched = [];
         foreach (app(TldImport::class)->fetchAll($connection) as $tld => $pricing) {
-            $fetched[$tld] = ['costs' => $pricing->costs, 'min_years' => $pricing->minYears];
+            $fetched[$tld] = ['costs' => $pricing->costs, 'min_years' => $pricing->minYears, 'privacy' => $pricing->privacyAllowed];
         }
         $this->keep($connection, $fetched, in_array($filter, self::FILTERS, true) ? $filter : 'all');
     }
@@ -504,7 +504,10 @@ class ImportTlds extends Page implements HasForms
         $costs = $answer['costs'] ?? null;
         $min = $answer['min_years'] ?? null; // none: kept before #424 (a list price, no period): fetch again (adversarial F4)
 
-        return is_array($costs) && is_int($min) && $min >= 1 && $min <= 10 ? new TldPricing(tld: $tld, costs: $costs, minYears: $min) : null;
+        $privacy = $answer['privacy'] ?? null; // WG-32: kept through the page's state, as the costs
+
+        return is_array($costs) && is_int($min) && $min >= 1 && $min <= 10
+            ? new TldPricing(tld: $tld, costs: $costs, minYears: $min, privacyAllowed: is_bool($privacy) ? $privacy : null) : null;
     }
 
     /** Import the ticked TLDs, all or nothing. */

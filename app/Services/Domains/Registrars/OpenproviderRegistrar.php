@@ -958,7 +958,8 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
             }
         }
 
-        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears);
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears,
+            privacyAllowed: is_bool($data['is_private_whois_allowed'] ?? null) ? $data['is_private_whois_allowed'] : null);
     }
 
     /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */

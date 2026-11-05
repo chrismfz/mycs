@@ -67,9 +67,9 @@
 - **WG-29** `billingcid` και `overrideautoclose`: από 1 πελάτη στο myip. Με το χέρι στο cut-over.
 - **WG-30** Αρχεία πελατών (`tblclientsfiles`: myip 18, nixpal 1), downloads (4), `tblannouncementsEN` (7), to-do list (640 ανοιχτά, όλα του συστήματος): όλα γραμμένα στο `importer.md`, θέλουν τελική απόφαση. Για το to-do: να επιβεβαιωθεί ότι το D-20 βγάζει τις χειροκίνητες ανανεώσεις και μεταφορές στα Pending Module Actions.
 - **WG-31** `AddFundsRequireOrder` (nixpal on): δεν υπάρχει ρύθμιση. Απόφαση.
-- **WG-32** Τιμή ID protection (myip 5,50 τον χρόνο, 6 ενεργά): στο MyCS ανοίγει δωρεάν. Απόφαση: δωρεάν ή τιμή ανά TLD.
+- **WG-32 ✔** Τιμή ID protection (myip 5,50 τον χρόνο, 6 ενεργά): **δωρεάν** (ιδιοκτήτης 2026-11-06: το Openprovider το δίνει δωρεάν στα μέλη)· ο διακόπτης ανά TLD από το `is_private_whois_allowed` του Openprovider· στο import τα 6 χάνουν τα 5,50 (`domains.md` D-24).
 - **WG-33** Custom fields προϊόντος στη φόρμα παραγγελίας: μόνο 1 σε ορατό προϊόν (myip «IP»). Να επιβεβαιωθεί ότι είναι αποδεκτό.
-- **WG-34** Live chat: ως το `livechat.md`, το snippet του LHC στο `theme_custom_footer` (runbook). unblockip: στην ανακοίνωση του cut-over, «με ticket».
+- **WG-34 ✘** Live chat: **δεν γίνεται** (ιδιοκτήτης 2026-11-06): φτιάχνουμε δικό μας chat μέσα στο MyCS (`livechat.md`), όχι το snippet του LHC. unblockip: στην ανακοίνωση του cut-over, «με ticket».
 
 ## Γραμμένα ήδη ως συνειδητές παραλείψεις (δεν είναι κενά)
 Ιστορικό activity log (μένει στο old-clients), προμήθειες gateway (`tblaccounts.fees`), αξιολογήσεις tickets, DNS
