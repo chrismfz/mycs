@@ -1116,12 +1116,16 @@ class ImportFromWhmcs extends Command
         $properties = [];
         $missing = [];
         $now = now();
-        foreach ($this->pdo->query('SELECT relid, configid, optionid, qty FROM tblhostingconfigoptions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->pdo->query('SELECT hc.relid, hc.configid, hc.optionid, hc.qty, o.optiontype FROM tblhostingconfigoptions hc
+            LEFT JOIN tblproductconfigoptions o ON o.id = hc.configid ORDER BY hc.id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $service = (int) $row['relid'];
             if (!$services->has($service)) {
                 continue; // a service not brought
             }
             $option = $refs->get('option:' . (int) $row['configid']);
+            if ($option === null && (int) ($row['optiontype'] ?? 0) === 4 && (int) $row['qty'] <= 0) {
+                continue; // a quantity of 0 of an option no service took: not brought (WG-15), nothing chosen
+            }
             if ($option === null) {
                 $missing[] = "service #{$service}, option #{$row['configid']}";
 

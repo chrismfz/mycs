@@ -542,6 +542,11 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   κλειστά τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα
   STREAM50 και CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), FALL2020 (κύκλοι domains), 30-OFF
   (εξαντλημένο) και το Gr-Domain-Discount (domains, αρνητική τιμή).
+- **Quantity options** (WG-15, απόφαση ιδιοκτήτη 2026-11-05, `CatalogImport::configOptions`): όσα δεν πήρε ποτέ καμία
+  υπηρεσία (`tblhostingconfigoptions.qty` > 0) **δεν έρχονται**. Στο myip είναι 133 από τα 134: τα extra SAN και servers
+  των SSL, που τα έφτιαξε το module και δεν πουλήθηκαν ποτέ, και μεγέθη VPS (dediserve, onApp, Hetzner). Όσα πήρε
+  υπηρεσία έρχονται **κρυφά**, γιατί το MyCS δεν χρεώνει ποσότητα ακόμα (CART-9). Στο myip είναι μόνο το «Extra Addon
+  domain» της #2618, που γίνεται addon στο cut-over (`cutover-runbook.md`). Η nixpal δεν έχει κανένα.
 - **Επιλογές υπηρεσιών** (WG-11, 2026-11-04, `importServiceOptions`): `tblhostingconfigoptions` → `service_configs` μέσω
   του `whmcs_ref` του καταλόγου (`option:N`, `value:N`). Dropdown και radio → η τιμή τους, checkbox → η τιμή του μόνο αν
   είναι τσεκαρισμένο (`qty` > 0), quantity → το πλήθος ως property της υπηρεσίας (όπως το γράφει μια παραγγελία), μόνο

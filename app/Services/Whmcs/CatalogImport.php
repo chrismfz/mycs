@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use PDO;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -495,11 +496,30 @@ final class CatalogImport
 
     private function configOptions(): void
     {
+        // WHMCS's «Quantity» options a service ever took (WG-15): the others are not brought (myip: 133 of 134, SSL SANs
+        // and servers, dediserve, onApp and Hetzner VPS sizes the modules made and nobody bought); the ones taken come
+        // hidden, as MyCS does not charge a quantity yet (CART-9). Unknown (no tblhostingconfigoptions): all brought.
+        try {
+            $used = array_flip(array_map('intval', array_column($this->rows('SELECT DISTINCT configid FROM tblhostingconfigoptions WHERE qty > 0'), 'configid')));
+        } catch (PDOException) {
+            $used = null;
+        }
+        $skipped = 0;
         foreach ($this->rows('SELECT * FROM tblproductconfigoptions ORDER BY id') as $row) {
+            $quantity = (int) ($row['optiontype'] ?? 1) === 4;
+            if ($quantity && $used !== null && !isset($used[(int) $row['id']])) {
+                $skipped++;
+
+                continue;
+            }
             [$env, $name] = $this->envName((string) $row['optionname']);
             $option = $this->byWhmcs(ConfigOption::class, 'whmcs_ref', 'option:' . $row['id']);
+            if ($quantity) {
+                $this->notes[] = "Quantity option #{$row['id']} «{$name}»: brought hidden, MyCS does not charge a quantity yet (WG-15, CART-9): "
+                    . 'the services that took it keep WHMCS\'s price; an addon product does it here (importer.md).';
+            }
             $option->forceFill([
-                'name' => $name, 'env_variable' => $env, 'sort' => (int) ($row['order'] ?? 0), 'hidden' => (bool) ($row['hidden'] ?? false),
+                'name' => $name, 'env_variable' => $env, 'sort' => (int) ($row['order'] ?? 0), 'hidden' => $quantity || (bool) ($row['hidden'] ?? false),
                 'type' => match ((int) ($row['optiontype'] ?? 1)) {
                     2 => 'radio',
                     3 => 'checkbox',
@@ -516,6 +536,9 @@ final class CatalogImport
                 $value->forceFill(['parent_id' => $option->id, 'name' => $name, 'env_variable' => $env, 'sort' => (int) ($sub['sortorder'] ?? 0)])->save();
                 $this->prices($value, $this->rows("SELECT * FROM tblpricing WHERE type = 'configoptions' AND relid = ?", [$sub['id']]), 'recurring');
             }
+        }
+        if ($skipped > 0) {
+            $this->notes[] = "{$skipped} «Quantity» option(s) no service ever took in WHMCS: not brought (WG-15).";
         }
     }
 
