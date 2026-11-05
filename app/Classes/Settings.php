@@ -1251,6 +1251,18 @@ class Settings
                     'min_value' => 1,
                     'description' => 'The EPP code a client gave for a transfer is kept (encrypted, shown to staff) until the transfer is no longer pending and this many days have passed since the order.',
                 ],
+                // The company site's live search (WG-20): its server asks /api/v1/domain-check for all its visitors from one
+                // address, so with this key it has a bucket of its own (DomainCheckController::SITE_PER_MINUTE).
+                [
+                    'name' => 'domain_check_site_key',
+                    'section' => 'Site search API',
+                    'permission' => '*',
+                    'label' => 'Site key',
+                    'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
+                    'validation' => 'nullable|min:32|max:255',
+                    'description' => 'The key the company site sends (X-Site-Key) when its server checks domains on /api/v1/domain-check for its visitors. It then has its own limit instead of one address\'s. At least 32 characters. Empty: the site is limited like any address.',
+                ],
                 // The sync in batches (owner 2026-10-18): one cron, every few hours, so many domains per registrar connection,
                 // the longest unsynced first; a registry is never asked for all at once (1,400 .gr at myip).
                 [

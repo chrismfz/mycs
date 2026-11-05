@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\IncomeExportController;
 use App\Http\Controllers\AnnouncementUnsubscribeController;
+use App\Http\Controllers\CartDomainController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\KnowledgebaseRedirectController;
@@ -153,6 +154,8 @@ Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept'
 Route::get('/invite', Client\AcceptInvite::class)->name('invites.continue')->middleware(['web', 'throttle:30,1']);
 
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
+// A name from the company site's search into the cart (WG-20, as WHMCS's cart.php?a=add&domain=register&query=).
+Route::get('cart/domain', CartDomainController::class)->name('cart.domain')->middleware(['checkout', 'throttle:20,1']);
 // An offer's link (ROADMAP 6α): its products in the cart, its coupon applied.
 Route::get('offer/{offer}', OfferController::class)->name('offers.show')->middleware(['checkout', 'throttle:20,1']);
 Route::get('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeController::class, 'show'])->name('announcements.unsubscribe')->middleware(['signed', 'throttle:20,1']);
