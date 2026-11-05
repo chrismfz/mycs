@@ -1058,6 +1058,18 @@ class Settings
                     'section' => 'Custom code',
                 ],
                 [
+                    // WG-13: GA4/Google Ads `purchase` (OrderConversion), as myip's WHMCS hook sent it on «order complete».
+                    'name' => 'theme_order_complete_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
+                    'validation' => 'max:65000',
+                    'label' => 'Order complete code',
+                    'type' => 'textarea',
+                    'rows' => 8,
+                    'default' => '',
+                    'description' => 'Raw HTML on the first page after a customer places an order, once per order (never a free one, nor for staff logged in as the customer). Placeholders, each a JSON value (strings with their quotes): use them bare inside a <script>, never inside quotes or an HTML attribute. {purchase} (GA4\'s purchase event: transaction_id, value net, tax, currency, coupon, items), {order_id}, {value}, {tax}, {currency}, {coupon}, {items}; written literally elsewhere in the code they are replaced too. E.g. <script>(function(){var p={purchase};try{if(sessionStorage.getItem(\'purchase-\'+p.transaction_id))return;sessionStorage.setItem(\'purchase-\'+p.transaction_id,\'1\')}catch(e){}gtag(\'event\',\'purchase\',p)})();</script> (sent once even after Back), with gtag and consent in the custom <head>.',
+                    'section' => 'Custom code',
+                ],
+                [
                     'name' => 'theme_assets',
                     'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'label' => 'Files',

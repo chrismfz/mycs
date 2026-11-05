@@ -40,6 +40,7 @@
 | Random usernames | off | P~ ανά server extension |
 | Signup Anniversary Prorata | off | — |
 | Cross-selling | off | — |
+| Conversion παραγγελίας (hook `myip_branding.php`, GA4 `purchase`) | on (myip, με Consent Mode) | ✓ `theme_order_complete_code` (WG-13): HTML στην πρώτη σελίδα μετά την παραγγελία, μία φορά, με placeholders (`{purchase}` κ.ά.), το καθένα τιμή JSON με τα εισαγωγικά του: γυμνά μέσα σε `<script>`, ποτέ μέσα σε εισαγωγικά ή σε attribute (review του #657)· το gtag και το consent στο «Custom <head> HTML». Το sessionStorage του snippet το στέλνει μία φορά και μετά από «Back» (το Livewire navigate ξανατρέχει τα scripts). Στο cut-over του myip: `<script>(function(){var p={purchase};function s(){if(typeof gtag!=='function')return;try{var k='myip-purchase-'+p.transaction_id;if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1');}catch(e){}gtag('event','purchase',p);if(typeof myipLoadGtag==='function')myipLoadGtag();}document.readyState==='loading'?document.addEventListener('DOMContentLoaded',s,{once:true}):s();})();</script>` |
 
 ## Domains (myip)
 | WHMCS | Τιμή | MyCS |
