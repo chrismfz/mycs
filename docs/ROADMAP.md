@@ -141,7 +141,7 @@ adversarial review.
 - [x] **WG-20** Endpoint αναζήτησης domain για το site: `/api/v1/domain-check` εδώ (μόνο με το κλειδί του site), το «Προσθήκη» στο `/domain-search?domain=`· στο site, `backend => 'mycs'` στο `_config.php` του `domain-check.php` (runbook §2).
 - [x] **WG-21** Πρόβα των συνημμένων tickets (2026-11-05): το myip έχει δύο φακέλους (Storage από 11/2023)· ο importer δέχεται πολλούς· 4.110 ήρθαν, 4 λείπουν (`tickets.md`).
 - [x] **WG-22** Κλείνει (ιδιοκτήτης 2026-11-05): το global search βρίσκει πελάτη, λογαριασμό και server ενός domain (main, addon, parked, sub, και των λογαριασμών ενός reseller)· μένει η ανάκληση του token του hook στο cut-over (runbook §2).
-- [ ] **WG-23** Μεταγραφή ελληνικών προς CNIC/Openprovider (= Domains).
+- [x] **WG-23** Μεταγραφή ελληνικών προς CNIC/Openprovider: ΕΛΟΤ 743 (`Nixpal\DomainTools\Elot743`) σε όνομα, εταιρεία και διεύθυνση ό,τι πάει στον registrar· στο MyCS μένουν ελληνικά (ιδιοκτήτης 2026-11-06).
 
 **Π2, μικρά ή απόφαση του υπευθύνου:** WG-24 ως WG-34 (σύνδεση ticket → υπηρεσία, auto-close, rar/7z, γραμμές σε
 σβησμένες υπηρεσίες, `termination_date`, `billingcid`, αρχεία/downloads/to-do, `AddFundsRequireOrder`, τιμή ID
@@ -434,7 +434,7 @@ protection, custom fields παραγγελίας, live chat/unblockip).
 - [ ] Αλλαγή κατόχου .gr: **G8-5c** (από τον πελάτη), **G8-5d** (trade στο Openprovider). Τα G8-5a (#215) και
       **G8-5b** (ροή του staff με τιμολόγιο και δήλωση, `domains/grepp.md`) υπάρχουν.
 - [ ] ~~**G8-6** διαγραφή στο Μητρώο~~: όχι (ιδιοκτήτης 2026-10-23: επικίνδυνη, δεν τη χρησιμοποιήσαμε ποτέ· γίνεται στο grweb).
-- [ ] Έλεγχος μεταγραφής ελληνικών στοιχείων επαφής προς τους registrars.
+- [x] ~~Έλεγχος μεταγραφής ελληνικών στοιχείων επαφής προς τους registrars~~: WG-23.
 - [ ] Τα 8 ερωτήματα του sweep των domains για τον υπεύθυνο (`domains.md`, «Sweep 2026-10-22»).
 
 ### Support (`tickets.md`)
