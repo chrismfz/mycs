@@ -132,7 +132,7 @@ adversarial review.
 - [x] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.
 - [x] **WG-12** Domains: `recurring_amount` μόνο στις πραγματικές εξαιρέσεις (τα ακριβότερα στον κατάλογο, εκτός ID protection).
 - [x] **WG-13** GA4/Ads `purchase` στην ολοκλήρωση της παραγγελίας (ρύθμιση «Order complete code», `OrderConversion`).
-- [x] **WG-14** Ημέρες τιμολόγησης ανά κύκλο: **μία τιμή** (απόφαση ιδιοκτήτη 2026-11-05), η μηνιαία του WHMCS όταν υπάρχει (myip 10, nixpal 7)· ανά κύκλο μόνο αν ζητηθεί.
+- [x] **WG-14** Ημέρες τιμολόγησης ανά κύκλο: **μία τιμή**, η γενική του WHMCS (απόφαση ιδιοκτήτη 2026-11-05: myip 14, nixpal 7)· ανά κύκλο μόνο αν ζητηθεί.
 - [ ] **WG-15** Quantity options με τιμή (CART-9).
 - [ ] **WG-16** Ρυθμίσεις module πέρα από το package (= 9 (ζ), και το theme του cPanel).
 - [ ] **WG-17** Runbook του myip: παράθυρο αναστολών, auto-match Bank transfer, `InvoicePayTo`, συνημμένο PDF (ρύθμιση).
