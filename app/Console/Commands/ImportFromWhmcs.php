@@ -635,8 +635,10 @@ class ImportFromWhmcs extends Command
             'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
             'tos' => $tos,
             // WHMCS's «Pay To Text» (WG-17): the company's block on every invoice, Bill To Text here (shown escaped, its lines
-            // kept). Its tags are dropped, never taken as HTML; empty keeps MyCS's own.
-            'bill_to_text' => ($payTo = mb_substr(trim(strip_tags((string) preg_replace(['/\r\n?/', '/<br\s*\/?>/i'], "\n", (string) ($config['InvoicePayTo'] ?? '')))), 0, 2000)) !== ''
+            // kept). Decoded first, as WHMCS keeps its texts escaped (review of #664: «&amp;» would show as such); a <br> and
+            // the newline after it are one line break; its tags are dropped, never taken as HTML; empty keeps MyCS's own.
+            'bill_to_text' => ($payTo = mb_substr(trim(strip_tags((string) preg_replace(['/\r\n?/', '/<br\s*\/?>\n?/i'], "\n",
+                html_entity_decode((string) ($config['InvoicePayTo'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')))), 0, 2000)) !== ''
                 ? ['string', $payTo] : null,
         ];
         $rows = [];

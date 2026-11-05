@@ -154,6 +154,10 @@ class ImportAutomationSettingsTest extends TestCase
         $this->import(['InvoicePayTo' => "Example Networks<br />Main St. 1 - 10000 Town\r\n+30 210 000 0000 <b>support@example.test</b>"]);
         $this->assertSame("Example Networks\nMain St. 1 - 10000 Town\n+30 210 000 0000 support@example.test", $billTo());
 
+        // As WHMCS stores its texts, escaped (review of #664), and a <br> with its own newline: one line break.
+        $this->import(['InvoicePayTo' => "Smith &amp; Co&lt;br /&gt;\r\nMain St. 1"]);
+        $this->assertSame("Smith & Co\nMain St. 1", $billTo());
+
         $this->storeSettings(['bill_to_text' => 'Ours']);
         $this->import(['InvoicePayTo' => '  ']);
         $this->assertSame('Ours', $billTo(), 'empty in WHMCS: MyCS\'s own kept');
