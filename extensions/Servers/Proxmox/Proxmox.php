@@ -40,16 +40,27 @@ class Proxmox extends Server
         <p class="text-gray-500">The second command prints the token's secret once: paste it below, nowhere else. PVEAuditor only reads.</p></div>
         <div><p class="font-medium">2. Suspend, start, terminate: only the VMs in the pool</p>
         <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
-        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"
+        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console VM.Snapshot VM.Snapshot.Rollback"
         pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
         pvesh set /pools --poolid mycs --vms 101,102</pre>
         <p class="text-gray-500">PowerMgmt stops and starts, Config.Options turns «start at boot» off while suspended, Allocate destroys
-        (only with «Terminate: Destroy»), Console opens the customer's console (on a role made before: <code>pveum role modify
+        (only with «Terminate: Destroy»), Console opens the customer's console, Snapshot and Snapshot.Rollback its one
+        snapshot (on products that offer it; on a role made before: <code>pveum role modify
         MyCSLifecycle -privs "…"</code> with the whole list above). A customer's VM goes in the pool once mapped (Utilities → Proxmox Guests → «Pool
         command» lists them); our own VMs stay out, and MyCS never touches them.</p></div>
         </div>
         </details>
         HTML;
+
+    /** What a product offers the customer on its VPS, beyond power and console. */
+    public function getProductConfig($values = []): array
+    {
+        return [
+            ['name' => 'snapshots', 'type' => 'checkbox', 'label' => 'Customer snapshot', 'default' => false, 'database_type' => 'boolean', 'required' => false,
+                'description' => 'One snapshot of the VM\'s disks (not its RAM) that the customer takes, rolls back to and deletes from the client area. '
+                    . 'It grows with every change on the disk until deleted. Needs VM.Snapshot and VM.Snapshot.Rollback in the MyCS role (Setup → Servers).'],
+        ];
+    }
 
     public function getConfig($values = []): array
     {

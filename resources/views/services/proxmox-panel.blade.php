@@ -83,6 +83,42 @@
     @endforeach
     @endif
 
+    @if ($snapshots)
+    {{-- The customer's one snapshot of its disks (owner 2026-11-06), in the queue: the panel follows it while pending. --}}
+    @php($snapshotPending = str_starts_with((string) $pending, 'snapshot.'))
+    <div class="flex flex-wrap items-center justify-between gap-2 mt-5">
+        <div>
+            <h5 class="text-sm font-semibold">{{ __('services.proxmox.snapshot.title') }}</h5>
+            <p class="text-xs text-base/60">
+                @if ($vm['snapshot'] !== null)
+                {{ __('services.proxmox.snapshot.taken', ['date' => $vm['snapshot'] > 0 ? \Carbon\Carbon::createFromTimestamp($vm['snapshot'])->timezone(config('app.timezone'))->format('d/m/Y H:i') : '—']) }}
+                @else
+                {{ __('services.proxmox.snapshot.none') }}
+                @endif
+            </p>
+        </div>
+        @if ($canPower && $known && !$snapshotPending)
+        <div class="flex flex-wrap gap-2">
+            <button type="button" wire:click="snapshot('take')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.' . ($vm['snapshot'] !== null ? 'replace' : 'take')) }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.snapshot.action.take') }}</button>
+            @if ($vm['snapshot'] !== null)
+            <button type="button" wire:click="snapshot('rollback')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.rollback') }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral text-error">{{ __('services.proxmox.snapshot.action.rollback') }}</button>
+            <button type="button" wire:click="snapshot('delete')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.delete') }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.snapshot.action.delete') }}</button>
+            @endif
+        </div>
+        @endif
+    </div>
+    <p class="text-xs text-base/50 mt-1">{{ __('services.proxmox.snapshot.hint') }}</p>
+    @if ($snapshotResult)
+    <p class="text-sm mt-1 {{ $snapshotResult === 'failed' ? 'text-error' : 'text-success' }}">{{ __('services.proxmox.snapshot.result.' . $snapshotResult) }}</p>
+    @endif
+    @endif
+
     <div class="flex items-center justify-between mt-5">
         <h5 class="text-sm font-semibold">{{ __('services.proxmox.graphs') }}</h5>
         <div class="flex gap-1 text-xs">
