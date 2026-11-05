@@ -199,12 +199,15 @@ class WhmcsTicketImportTest extends TestCase
             file_put_contents("{$this->folder}/111111_old.pdf", Eml::pdf());
             file_put_contents("{$storage}/222222_new.pdf", Eml::pdf());
             file_put_contents("{$storage}/111111_old.pdf", '<html>not this one</html>');
-            $this->ticket(9, ['attachment' => '111111_old.pdf|222222_new.pdf|333333_gone.pdf']);
+            // A copy refused in the first folder does not hide a good one in the next (review of #668).
+            file_put_contents("{$this->folder}/555555_fixed.pdf", '<html><script>x</script></html>');
+            file_put_contents("{$storage}/555555_fixed.pdf", Eml::pdf());
+            $this->ticket(9, ['attachment' => '111111_old.pdf|222222_new.pdf|333333_gone.pdf|555555_fixed.pdf']);
 
             $counts = (new WhmcsTicketImport($this->whmcs, [$this->folder, $storage . '/']))->run();
 
-            $this->assertSame(['new.pdf', 'old.pdf'], Ticket::query()->findOrFail(9)->messages()->sole()->attachments()->pluck('filename')->sort()->values()->all());
-            $this->assertSame([2, 0, 1], [$counts['files'], $counts['files_refused'], $counts['files_missing']], 'the first folder that has a name wins');
+            $this->assertSame(['fixed.pdf', 'new.pdf', 'old.pdf'], Ticket::query()->findOrFail(9)->messages()->sole()->attachments()->pluck('filename')->sort()->values()->all());
+            $this->assertSame([3, 0, 1], [$counts['files'], $counts['files_refused'], $counts['files_missing']], 'the first folder whose copy passes wins');
         } finally {
             File::deleteDirectory($storage);
         }

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use MyCS\TicketMail\Attachments;
 use PDO;
+use PDOException;
 use Throwable;
 
 /**
@@ -88,7 +89,9 @@ final class WhmcsTicketImport
     public function __construct(private readonly PDO $whmcs, string|array|null $attachments = null, private readonly bool $dryRun = false)
     {
         $folders = is_array($attachments) ? $attachments : ($attachments === null ? [] : [$attachments]);
-        $this->folders = array_values(array_filter(array_map(fn ($folder) => rtrim(trim((string) $folder), '/'), $folders), fn (string $folder) => $folder !== ''));
+        // Without its trailing slash, «/» itself kept (review of #668).
+        $this->folders = array_values(array_filter(array_map(fn ($folder) => trim((string) $folder) === '' ? '' : (rtrim(trim((string) $folder), '/') ?: '/'), $folders),
+            fn (string $folder) => $folder !== ''));
     }
 
     /**
@@ -100,8 +103,12 @@ final class WhmcsTicketImport
         if (!$this->hasTable('tblfileassetsettings') || !$this->hasTable('tblstorageconfigurations')) {
             return null;
         }
-        $row = $this->rows("SELECT c.name FROM tblfileassetsettings s JOIN tblstorageconfigurations c ON c.id = s.storageconfiguration_id
-            WHERE s.asset_type = 'ticket_attachments' LIMIT 1")[0] ?? null;
+        try {
+            $row = $this->rows("SELECT c.name FROM tblfileassetsettings s JOIN tblstorageconfigurations c ON c.id = s.storageconfiguration_id
+                WHERE s.asset_type = 'ticket_attachments' LIMIT 1")[0] ?? null;
+        } catch (PDOException) {
+            return null; // another WHMCS's columns: only the report's line is left out (review of #668)
+        }
 
         return $row !== null ? (string) $row['name'] : null;
     }
@@ -447,31 +454,30 @@ final class WhmcsTicketImport
 
                 continue;
             }
-            // The first folder that has it (WHMCS may keep a name in either: WG-21).
-            $folder = null;
-            foreach ($this->folders as $candidate) {
-                if (is_file($candidate . '/' . basename($stored)) || is_link($candidate . '/' . basename($stored))) {
-                    $folder = $candidate;
+            // The first folder whose copy passes the rules (WHMCS may keep a name in either: WG-21); a copy refused in one
+            // does not hide a good one in the next (review of #668).
+            $content = null;
+            $found = false;
+            foreach ($this->folders as $folder) {
+                $path = $folder . '/' . basename($stored);
+                if (!is_file($path) && !is_link($path)) {
+                    continue;
+                }
+                $found = true;
+                // Never a file outside its folder: no link is followed, no size over the limit is read.
+                $root = realpath($folder);
+                $real = realpath($path);
+                if (is_link($path) || $real === false || $root === false || !str_starts_with($real, rtrim($root, '/') . '/') || filesize($real) > Attachments::MAX_BYTES) {
+                    continue;
+                }
+                $read = (string) file_get_contents($real);
+                if (Attachments::refusal($name, $read) === null) {
+                    $content = $read;
                     break;
                 }
             }
-            if ($folder === null) {
-                $this->counts['files_missing']++;
-
-                continue;
-            }
-            $path = $folder . '/' . basename($stored);
-            // Never a file outside its folder: no link is followed, no size over the limit is read.
-            $root = realpath($folder);
-            $real = realpath($path);
-            if (is_link($path) || $real === false || $root === false || !str_starts_with($real, rtrim($root, '/') . '/') || filesize($real) > Attachments::MAX_BYTES) {
-                $this->counts['files_refused']++;
-
-                continue;
-            }
-            $content = (string) file_get_contents($real);
-            if (Attachments::refusal($name, $content) !== null) {
-                $this->counts['files_refused']++;
+            if ($content === null) {
+                $this->counts[$found ? 'files_refused' : 'files_missing']++;
 
                 continue;
             }

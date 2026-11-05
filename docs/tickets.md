@@ -368,7 +368,7 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
     προσθέτει τον σύνδεσμο. Το staff πρέπει να βάλει μόνο του το `{{ ticket_url }}`.
 
 ## 6ζ. Δ: τι έγινε (2026-10-20)
-- **`WhmcsTicketImport`** (`app:import-whmcs-tickets {dbname} … --attachments=φάκελος`). Το ίδιο τρέχει και μέσα στο
+- **`WhmcsTicketImport`** (`app:import-whmcs-tickets {dbname} … --attachments=φάκελος`, μία φορά ανά φάκελο). Το ίδιο τρέχει και μέσα στο
   `app:import-from-whmcs`, με `--ticket-attachments`. Διαβάζει μόνο από το WHMCS και ξανατρέχει χωρίς διπλά: το ticket
   βρίσκεται με το `whmcs_id` του και το μήνυμα με το `whmcs_ref` (`ticket:ID`, `reply:ID`, `note:ID`, `merged:ID`).
   Ό,τι φτιάχτηκε στο MyCS δεν το αγγίζει.

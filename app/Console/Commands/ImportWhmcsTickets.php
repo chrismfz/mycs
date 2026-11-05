@@ -59,7 +59,7 @@ class ImportWhmcsTickets extends Command
         if (is_string($counts['whmcs_storage'] ?? null)) {
             $command->line("WHMCS keeps ticket files in «{$counts['whmcs_storage']}» (Storage Settings).");
             if ($counts['files_missing'] > 0) {
-                $command->warn("{$counts['files_missing']} file(s) missing: copy that folder (and attachments/, where it kept them before a Storage change) and give each with --attachments.");
+                $command->warn("{$counts['files_missing']} file(s) missing: copy where it keeps them (and attachments/, where it kept them before a Storage change) and give each folder with --attachments.");
             }
         }
         foreach ($counts['errors'] as $error) {

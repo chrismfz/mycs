@@ -177,6 +177,14 @@ class ImportFromWhmcs extends Command
 
             return self::SUCCESS;
         }
+        // A folder of ticket files that is not there would leave every file of it «missing» (review of #668).
+        foreach ((array) $this->option('ticket-attachments') as $folder) {
+            if (is_string($folder) && $folder !== '' && !is_dir($folder)) {
+                $this->error("No folder {$folder} (--ticket-attachments).");
+
+                return self::FAILURE;
+            }
+        }
         // The import empties this instance's database (migrate:fresh): only one named here, by its name.
         if ($this->option('confirm-database') !== $target) {
             $this->error("The import empties this instance's database «{$target}» first. Run it again with --confirm-database={$target} if that is meant"
