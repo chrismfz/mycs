@@ -163,7 +163,7 @@ class CnicManagementTest extends TestCase
         foreach (['FIRSTNAME=Evangelos', 'LASTNAME=Bakogiannis', 'ORGANIZATION=Thessaliki A.E.', 'STREET0=Odos Ermou 12', 'STREET1=Grafeio 3', 'CITY=Thessaloniki', 'STATE=Makedonia'] as $line) {
             $this->assertStringContainsString($line, $add);
         }
-        $this->assertDoesNotMatchRegularExpression('/\p{Greek}/u', $add);
+        $this->assertDoesNotMatchRegularExpression('/[^\n\x20-\x7E]/', $add, 'ASCII only (review of #669)');
         $this->assertSame('Θεσσαλονίκη', $admin->fresh()->city, 'Greek here, as the customer wrote it');
 
         $this->sent = [];

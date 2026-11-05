@@ -169,10 +169,17 @@ class DomainRegistrarsTest extends TestCase
             $this->assertSame('EVROPAIKI O.E.', $request['company_name']);
             $this->assertSame(['street' => 'Egnatias', 'number' => '12', 'suffix' => 'Orofos 2', 'city' => 'Thessaloniki', 'state' => 'Kentriki Makedonia'],
                 array_intersect_key($request['address'], array_flip(['street', 'number', 'suffix', 'city', 'state'])));
-            $this->assertDoesNotMatchRegularExpression('/\p{Greek}/u', json_encode($request->data(), JSON_UNESCAPED_UNICODE));
+            $this->assertDoesNotMatchRegularExpression('/[^\x20-\x7E]/', json_encode($request->data(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'ASCII only (review of #669)');
 
             return true;
         });
         $this->assertSame('Θεσσαλονίκη', $owner->fresh()->city, 'Greek here, as the customer wrote it');
+
+        // An update of the customer there (review of #669): its address in Latin letters, its email and postcode as they are.
+        $owner->update(['email' => 'μαρία@example.test', 'city' => 'Ηράκλειο', 'postcode' => '71202']);
+        Http::fake([self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]), self::SANDBOX . '/v1/customers/NEW1-GR' => Http::response(['code' => 0])]);
+        (new OpenproviderRegistrar)->updateContact('NEW1-GR', $owner->fresh(), new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
+        Http::assertSent(fn ($request) => $request->method() === 'PUT' && str_ends_with($request->url(), '/v1/customers/NEW1-GR')
+            && $request['address']['city'] === 'Irakleio' && $request['address']['zipcode'] === '71202' && $request['email'] === 'μαρία@example.test');
     }
 }
