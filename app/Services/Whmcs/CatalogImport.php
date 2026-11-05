@@ -509,6 +509,13 @@ final class CatalogImport
             $quantity = (int) ($row['optiontype'] ?? 1) === 4;
             if ($quantity && $used !== null && !isset($used[(int) $row['id']])) {
                 $skipped++;
+                // One an earlier run brought (the catalog's own command on a live MyCS) is hidden, never left on sale for
+                // nothing (R662-1).
+                $earlier = ConfigOption::query()->where('whmcs_ref', 'option:' . $row['id'])->first();
+                if ($earlier !== null && !$earlier->hidden) {
+                    $earlier->forceFill(['hidden' => true])->save();
+                    $this->notes[] = "Quantity option #{$row['id']} «{$earlier->name}»: brought by an earlier run, no service ever took it: hidden now.";
+                }
 
                 continue;
             }
