@@ -592,14 +592,21 @@ class ImportFromWhmcs extends Command
             $this->warn("Terms of Service: WHMCS asks for them, but «{$tosUrl}» is no web address: set the tos setting by hand.");
         }
         $invoiceDays = $days('CreateInvoiceDaysBefore');
+        // A monthly plan's own (WG-14, owner 2026-11-05): WHMCS's «Monthly» when it has one above 0 (myip 10), else none
+        // (as Invoice Generation; nixpal).
+        $monthlyDays = ($m = $days('CreateInvoiceDaysBeforeMonthly')) !== null && (int) $m > 0 ? $m : null;
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
             'cronjob_terminate_enabled' => $has('AutoTermination') ? ['boolean', $on('AutoTermination') ? '1' : '0'] : null,
             'cronjob_order_terminate' => ($v = $days('AutoTerminationDays')) !== null ? ['string', $v] : null,
-            // One value here for every cycle, WHMCS's general one (WG-14, owner 2026-11-05: myip 14, its monthly 10 and longer
-            // cycles' 15–20 not kept; nixpal 7).
+            // WHMCS's general one for every cycle but a monthly plan's (WG-14, owner 2026-11-05: myip 14, its quarterly 15
+            // and longer cycles' 20 not kept; nixpal 7).
             'cronjob_invoice' => ($v = $invoiceDays) !== null ? ['string', $v] : null,
+            // None in WHMCS (0 or empty) clears it, so a re-run never keeps an older value (R660-4).
+            // An unreadable one keeps MyCS's own, as the general does (review of #660).
+            'cronjob_invoice_monthly' => $monthlyDays !== null ? ['string', $monthlyDays]
+                : (in_array(trim((string) ($config['CreateInvoiceDaysBeforeMonthly'] ?? 'x')), ['', '0'], true) ? ['string', ''] : null),
             // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
             'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
             'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,
@@ -642,12 +649,12 @@ class ImportFromWhmcs extends Command
             $this->warn('Overdue reminders after ' . PaymentReminders::MAX_DAYS . ' days are not sent by MyCS: left out (' . implode(', ', $dropped) . ').');
         }
         // Invoice days per billing cycle: MyCS holds one value (ROADMAP: per cycle, «Ν»): said, for staff to choose.
-        $perCycle = array_filter(['Monthly', 'Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
+        $perCycle = array_filter(['Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
             fn (string $cycle) => $days('CreateInvoiceDaysBefore' . $cycle) !== null && (int) $days('CreateInvoiceDaysBefore' . $cycle) > 0);
         if ($perCycle !== []) {
             $this->warn('WHMCS invoices per billing cycle (' . implode(', ', array_map(fn (string $c) => $c . ' ' . $days('CreateInvoiceDaysBefore' . $c), $perCycle))
-                . '); MyCS has one value for every cycle, cronjob_invoice = ' . ($invoiceDays ?? 'unchanged')
-                . ($invoiceDays !== null ? ' (WHMCS\'s general, WG-14): every cycle is invoiced that many days before its due date.' : '.'));
+                . '); MyCS has a monthly plan\'s own and one for every other cycle, cronjob_invoice = ' . ($invoiceDays ?? 'unchanged')
+                . ($invoiceDays !== null ? ' (WHMCS\'s general, WG-14): those cycles are invoiced that many days before their due date.' : '.'));
         }
     }
 

@@ -9,6 +9,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
+use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Setting;
@@ -294,6 +295,41 @@ final class RenewalBilling
 
     /** The domains billed for their next period (D5b): alive, the customer's still (expired, grace, redemption). */
     public const BILLED_DOMAINS = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
+    /**
+     * Days before expiry a service's renewal is invoiced: a monthly plan's own (cronjob_invoice_monthly, WG-14, owner
+     * 2026-11-05) when set, else Invoice Generation (cronjob_invoice) for every cycle.
+     */
+    public static function serviceInvoiceDays(?Plan $plan): int
+    {
+        $monthly = config('settings.cronjob_invoice_monthly');
+        if ($plan !== null && $plan->type === 'recurring' && $plan->billing_unit === 'month' && (int) $plan->billing_period === 1
+            && $monthly !== null && $monthly !== '' && is_numeric($monthly)) {
+            return max(0, (int) $monthly);
+        }
+
+        return max(0, (int) config('settings.cronjob_invoice', 7));
+    }
+
+    /**
+     * The plan a service's next renewal bills: the one set «from the next renewal» (SVC-14b) while it is of its product,
+     * as billRenewal applies it, else its own. The cron reads its days from it (ADV-660-1a/b, R660-1).
+     */
+    public static function billedPlan(Service $service): ?Plan
+    {
+        $next = $service->next_plan_id !== null ? $service->nextPlan : null;
+
+        return $next !== null && $next->priceable_type === Product::class && (int) $next->priceable_id === (int) $service->product_id
+            ? $next : $service->plan;
+    }
+
+    /** The farthest of the services' invoice days: what the cron looks ahead to before each service's own (serviceInvoiceDays). */
+    public static function longestServiceInvoiceDays(): int
+    {
+        $monthly = config('settings.cronjob_invoice_monthly');
+
+        return max(max(0, (int) config('settings.cronjob_invoice', 7)), $monthly !== null && $monthly !== '' && is_numeric($monthly) ? max(0, (int) $monthly) : 0);
+    }
 
     /** Days before expiry a domain's renewal is invoiced (D-14): its own setting (default 15), empty the services'. */
     public static function domainInvoiceDays(): int

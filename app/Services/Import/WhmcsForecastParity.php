@@ -171,7 +171,6 @@ final class WhmcsForecastParity
         $terminateOn = $this->on($this->config['AutoTermination'] ?? '');
         $ourSuspend = (int) config('settings.cronjob_order_suspend', 8);
         $ourTerminate = (int) config('settings.cronjob_order_terminate', 60);
-        $ourInvoice = (int) config('settings.cronjob_invoice', 7);
         $this->compare($kind, $id, 'status', $this->statusWord((string) $row['domainstatus']), (string) $service->status);
         $cycle = self::CYCLES[strtolower(trim((string) $row['billingcycle']))] ?? null;
         $plan = $service->plan;
@@ -193,7 +192,7 @@ final class WhmcsForecastParity
         $this->compare($kind, $id, 'next due date', $due, $expires->toDateString());
         // WHMCS invoices a renewal when its nextinvoicedate is within «invoice days» (the cycle's own, else the general): 7 days
         // before the due date in 7,851 of its invoices.
-        $this->compare($kind, $id, 'invoiced on', $this->shift($row['nextinvoicedate'], -$this->invoiceDays((string) $row['billingcycle'])), $expires->subDays($ourInvoice)->toDateString());
+        $this->compare($kind, $id, 'invoiced on', $this->shift($row['nextinvoicedate'], -$this->invoiceDays((string) $row['billingcycle'])), $expires->subDays(RenewalBilling::serviceInvoiceDays($service->next_plan_id !== null ? RenewalBilling::billedPlan($service) : $plan))->toDateString()); // its plan's days (WG-14)
         // Holds: «always» and a date still to come hold; a date past does not.
         $theirHold = $this->theirHold($row);
         $ourHold = $this->ourHold($service);

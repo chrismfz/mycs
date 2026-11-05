@@ -132,7 +132,7 @@ adversarial review.
 - [x] **WG-11** Config options των υπηρεσιών (`tblhostingconfigoptions` → `service_configs`) και στο parity.
 - [x] **WG-12** Domains: `recurring_amount` μόνο στις πραγματικές εξαιρέσεις (τα ακριβότερα στον κατάλογο, εκτός ID protection).
 - [x] **WG-13** GA4/Ads `purchase` στην ολοκλήρωση της παραγγελίας (ρύθμιση «Order complete code», `OrderConversion`).
-- [x] **WG-14** Ημέρες τιμολόγησης ανά κύκλο: **μία τιμή**, η γενική του WHMCS (απόφαση ιδιοκτήτη 2026-11-05: myip 14, nixpal 7)· ανά κύκλο μόνο αν ζητηθεί.
+- [x] **WG-14** Ημέρες τιμολόγησης: η γενική για κάθε κύκλο εκτός του μηνιαίου, που έχει δική του (`cronjob_invoice_monthly`, απόφαση ιδιοκτήτη 2026-11-05): myip 14 και 10, nixpal 7.
 - [ ] **WG-15** Quantity options με τιμή (CART-9).
 - [ ] **WG-16** Ρυθμίσεις module πέρα από το package (= 9 (ζ), και το theme του cPanel).
 - [ ] **WG-17** Runbook του myip: παράθυρο αναστολών, auto-match Bank transfer, `InvoicePayTo`, συνημμένο PDF (ρύθμιση).
@@ -251,7 +251,7 @@ protection, custom fields παραγγελίας, live chat/unblockip).
       και η λήξη ποτέ πριν από αυτό· μόνο από τη φόρμα, ποτέ με fill. (INV-8, INV-10 έγιναν· «Group Similar Line Items»
       απορρίφθηκε, `billing-cursor.md`.)
 - [x] ~~Πακέτο που γίνεται free ή one-time~~ **έγινε (fix/plan-becomes-free):** κλειδώνει, ή «Never bill it again»
-      (`billing-cursor.md` §5). Οι ημέρες πριν τη λήξη: μία τιμή για όλους τους κύκλους (WG-14, 2026-11-05).
+      (`billing-cursor.md` §5). Οι ημέρες πριν τη λήξη: η γενική, και δική του για τον μηνιαίο (WG-14, 2026-11-05).
 - [x] ~~Οι 30 ημέρες του «paid not applied»~~ **έγινε:** ρύθμιση `cronjob_paid_not_applied_days` (Settings → Cron, «Paid but
       not applied: protected days», 30, από 1 έως 365).
 - [ ] Πληρωμές: fallback του Stripe (#1260 του
