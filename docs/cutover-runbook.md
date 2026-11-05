@@ -36,6 +36,15 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   - **ngm (myip):** το API token του server (admin, scopes `read` και `accounts`, στο ngm `/ui/tokens`, καλύτερα με
     `AllowedCIDRs` την IP της MyCS). Στο ngm: `api.account_writes` ανοιχτό, και `api.allow_sso` για το «Log in to the
     panel». Μετά «Test connection».
+- **Collections του myip (WG-18, απόφαση ιδιοκτήτη 2026-11-05): ακυρώνονται στο WHMCS πριν από το τελικό dump.** Τα
+  γράφει το `AfterModuleTerminate` του `auto-cancellation.php` όταν τερματίζεται υπηρεσία. Ο importer τα κάνει `unpaid`,
+  οπότε θα έπαιρναν υπενθυμίσεις και αυτόματη χρέωση. Έλεγχος 2026-11-05: 15 τιμολόγια, 813,99, 7 πελάτες (2015–2026),
+  **κανένα** με πληρωμή ή πίστωση, άρα η ακύρωση δεν αφήνει υπόλοιπο. Η nixpal δεν έχει κανένα.
+  1. Αφού κλείσει το cron του WHMCS (§2), αλλιώς ένας τερματισμός της ημέρας γράφει καινούργιο: Billing → Invoices,
+     φίλτρο Status = Collections, επιλογή όλων, «Mark Cancelled».
+  2. Έλεγχος: `SELECT COUNT(*) FROM tblinvoices WHERE status = 'Collections'` = 0.
+  3. Στο import, η γραμμή «… invoice(s) in Collections (#…)» δεν πρέπει να εμφανιστεί. Αν εμφανιστεί, όσα λέει έμειναν
+     ως απλήρωτα: ακυρώνονται στο MyCS πριν τρέξει το πρώτο cron του.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**

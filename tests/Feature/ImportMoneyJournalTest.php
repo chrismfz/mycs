@@ -197,6 +197,28 @@ class ImportMoneyJournalTest extends TestCase
         $this->assertChecksPass();
     }
 
+    /** WG-18: the owner cancels them in WHMCS before the final import; one left over is named, not silently chased. */
+    public function test_an_invoice_left_in_collections_is_named(): void
+    {
+        $this->invoice(110, 'Collections', 15);
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringContainsString('1 WHMCS invoice(s) in Collections (#110)', $this->output->fetch());
+        $this->assertSame('unpaid', Invoice::query()->findOrFail(110)->status);
+        $this->assertChecksPass();
+    }
+
+    public function test_no_collections_no_warning(): void
+    {
+        $this->invoice(111, 'Unpaid', 10);
+
+        $this->import();
+
+        $this->assertStringNotContainsString('Collections', $this->output->fetch());
+    }
+
     public function test_an_invoice_whmcs_marked_refunded_with_no_money_owes_nothing(): void
     {
         $this->invoice(106, 'Refunded', 15);

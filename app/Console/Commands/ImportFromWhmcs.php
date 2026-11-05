@@ -1924,6 +1924,13 @@ class ImportFromWhmcs extends Command
     private function importInvoices()
     {
         $this->info('Importing invoices... (' . $this->count('tblinvoices') . ' records)');
+        // WHMCS's «Collections» (myip's auto-cancellation hook writes them on terminate) come unpaid: reminders and
+        // auto-charge would chase them. The owner's call (WG-18): they are cancelled in WHMCS before the final import.
+        $collections = array_map('intval', $this->pdo->query("SELECT id FROM tblinvoices WHERE status = 'Collections' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+        if ($collections !== []) {
+            $this->warn(count($collections) . ' WHMCS invoice(s) in Collections (#' . implode(', #', $collections) . '): imported as unpaid, so reminders and'
+                . ' auto-charge apply to them. Cancel them in WHMCS before the final import (cutover-runbook, WG-18).');
+        }
 
         $this->migrateInBatch('tblinvoices', 'SELECT * FROM tblinvoices LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
