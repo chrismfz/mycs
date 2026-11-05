@@ -481,6 +481,17 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
   άλλο. Product με group που το WHMCS έσβησε έρχεται κρυφό, σε κρυφό group «Without a group (WHMCS)», με σημείωση: το
   WHMCS ανανεώνει ακόμα τις υπηρεσίες του (ADV-646-1· myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το `mycs:parity` μετρά
   όλα τα products, τα listed και όσα έχουν `package`.
+- **Ρυθμίσεις module πέρα από το `package`** (WG-16, απόφαση ιδιοκτήτη 2026-11-05, `CatalogImport::moduleSettings`):
+  - **cPanel, προϊόντα «Reseller Account»** (myip: 6, 23 ζωντανοί): `configoption15` όριο λογαριασμών, `16` «Limit by
+    Usage» (μόνο τότε `17` χώρος και `18` bandwidth σε MB, όπως τα εφαρμόζει το WHMCS· οι Reseller 70/120/30 δεν το έχουν,
+    άρα χωρίς όριο), `19`/`20` overselling, `21` ACL, `24` ιδιοκτησία του λογαριασμού. Οι υπηρεσίες τους σημαδεύονται
+    «WHM reseller» (`cpanel_reseller`, `markCpanelResellers`): μια αναστολή για απλήρωτο παίρνει μαζί και τους λογαριασμούς
+    των πελατών τους (`suspendreseller`), όπως στο WHMCS.
+  - **mailcow (MyMail)**: τα `configoption1`–`14` με την ίδια σειρά και στα δύο modules (aliases, mailboxes, quotas, rate
+    limit, DKIM, SOGo, terminate mode, κλείδωμα στην αναστολή).
+  - **Centova Cast**: `configoption1` το template και `6` το «start server» (τα όρια είναι του template).
+  - Δεν έρχονται: τα θέματα του cPanel (`paper_lantern`, `x3mail`, δεν υπάρχουν πια) και τα παλιά όρια ενός προϊόντος με
+    package (τα αγνοεί και το WHMCS)· τα πλάνα του Proxmox (`pvewhmcs`), γιατί οι VM αντιστοιχίζονται με το χέρι (A3).
 - Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.
 
