@@ -135,7 +135,7 @@ adversarial review.
 - [x] **WG-14** Ημέρες τιμολόγησης: η γενική για κάθε κύκλο εκτός του μηνιαίου, που έχει δική του (`cronjob_invoice_monthly`, απόφαση ιδιοκτήτη 2026-11-05): myip 14 και 10, nixpal 7.
 - [x] **WG-15** Quantity options με τιμή: όσα δεν πήρε ποτέ υπηρεσία δεν έρχονται, τα υπόλοιπα κρυφά· η #2618 του myip γίνεται addon στο cut-over (runbook). Η πλήρης τιμή ανά ποσότητα (CART-9) μένει για όταν ξαναπουληθούν.
 - [x] **WG-16** Ρυθμίσεις module πέρα από το package: resellers του cPanel (με το σημάδι «WHM reseller» στις υπηρεσίες), mailcow, Centova· όχι θέματα cPanel ούτε πλάνα Proxmox.
-- [ ] **WG-17** Runbook του myip: παράθυρο αναστολών, auto-match Bank transfer, `InvoicePayTo`, συνημμένο PDF (ρύθμιση).
+- [x] **WG-17** Runbook του myip: παράθυρο αναστολών και auto-match του Bank transfer στο runbook· το `InvoicePayTo` το φέρνει το import (`bill_to_text`)· το PDF επισυνάπτεται πάντα (απόφαση ιδιοκτήτη 2026-11-05).
 - [ ] **WG-18** Collections: απόφαση.
 - [ ] **WG-19** Ανανέωση πολλών domains μαζί (= Domains).
 - [ ] **WG-20** Endpoint αναζήτησης domain για το site.

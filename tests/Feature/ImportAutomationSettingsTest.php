@@ -147,6 +147,18 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertStringContainsString('5000', $output);
     }
 
+    /** WG-17: WHMCS's «Pay To Text» is the invoices' Bill To Text, its lines kept, never HTML. */
+    public function test_the_pay_to_text_comes_as_bill_to_text(): void
+    {
+        $billTo = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'bill_to_text')->first()?->getRawOriginal('value');
+        $this->import(['InvoicePayTo' => "Example Networks<br />Main St. 1 - 10000 Town\r\n+30 210 000 0000 <b>support@example.test</b>"]);
+        $this->assertSame("Example Networks\nMain St. 1 - 10000 Town\n+30 210 000 0000 support@example.test", $billTo());
+
+        $this->storeSettings(['bill_to_text' => 'Ours']);
+        $this->import(['InvoicePayTo' => '  ']);
+        $this->assertSame('Ours', $billTo(), 'empty in WHMCS: MyCS\'s own kept');
+    }
+
     /** WG-7: the terms the cart and the sign-up ask to accept, as WHMCS asks for them (both companies: on, with a URL). */
     public function test_the_terms_of_service_come_when_whmcs_asks_for_them(): void
     {

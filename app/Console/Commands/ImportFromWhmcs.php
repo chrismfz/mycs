@@ -521,7 +521,7 @@ class ImportFromWhmcs extends Command
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
             . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade', 'AddFundsMinimum', 'AddFundsMaximum',"
-            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService', 'InvoicePayTo')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -634,6 +634,10 @@ class ImportFromWhmcs extends Command
             // «Order Days Grace»: a new order's invoice is due after it (WG-4: myip 8, nixpal 0, the same day).
             'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
             'tos' => $tos,
+            // WHMCS's «Pay To Text» (WG-17): the company's block on every invoice, Bill To Text here (shown escaped, its lines
+            // kept). Its tags are dropped, never taken as HTML; empty keeps MyCS's own.
+            'bill_to_text' => ($payTo = mb_substr(trim(strip_tags((string) preg_replace(['/\r\n?/', '/<br\s*\/?>/i'], "\n", (string) ($config['InvoicePayTo'] ?? '')))), 0, 2000)) !== ''
+                ? ['string', $payTo] : null,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
