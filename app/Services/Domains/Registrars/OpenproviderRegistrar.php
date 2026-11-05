@@ -38,6 +38,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use Nixpal\DomainTools\Elot743;
 use RuntimeException;
 use Throwable;
 
@@ -537,13 +538,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
                 continue;
             }
 
-            $payload = array_filter([
-                'name' => [
-                    'first_name' => (string) $contact->first_name,
-                    'last_name' => (string) ($contact->last_name ?: $contact->first_name),
-                ],
-                'company_name' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
-            ], fn ($v) => $v !== null) + self::customerDetails($contact);
+            $payload = self::who($contact) + self::customerDetails($contact);
 
             $handle = $this->request($credentials, 'POST', '/v1/customers', $payload)->json('data.handle');
             if (!is_string($handle) || $handle === '') {
@@ -562,11 +557,31 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
      *
      * @return array<string, mixed>
      */
+    /**
+     * Its name and company in Latin letters (WG-23: ELOT 743, as myip's WHMCS sent them through CentralNic's
+     * transliteration): kept in Greek here, as the customer wrote them.
+     *
+     * @return array<string, mixed>
+     */
+    private static function who(Contact $contact): array
+    {
+        $company = trim((string) $contact->company_name);
+
+        return array_filter([
+            'name' => [
+                'first_name' => Elot743::transliterate((string) $contact->first_name),
+                'last_name' => Elot743::transliterate((string) ($contact->last_name ?: $contact->first_name)),
+            ],
+            'company_name' => $company !== '' ? Elot743::transliterate($company) : null,
+        ], fn ($v) => $v !== null);
+    }
+
+    /** Its email, phone and address; the address in Latin letters (ELOT 743, WG-23). */
     private static function customerDetails(Contact $contact): array
     {
         // Best-effort split of «Οδός 12» into the street and number OP requires; OP's own validation errors (400 +
         // desc) surface verbatim.
-        $street = trim((string) $contact->address1);
+        $street = Elot743::transliterate(trim((string) $contact->address1));
         $number = '';
         if (preg_match('/^(.*?)\s+(\S*\d\S*)$/u', $street, $m) === 1) {
             [, $street, $number] = $m;
@@ -595,10 +610,10 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
             'address' => array_filter([
                 'street' => $street,
                 'number' => $number,
-                'suffix' => trim((string) $contact->address2) !== '' ? trim((string) $contact->address2) : null,
+                'suffix' => trim((string) $contact->address2) !== '' ? Elot743::transliterate(trim((string) $contact->address2)) : null,
                 'zipcode' => (string) $contact->postcode,
-                'city' => (string) $contact->city,
-                'state' => trim((string) $contact->state) !== '' ? trim((string) $contact->state) : null,
+                'city' => Elot743::transliterate((string) $contact->city),
+                'state' => trim((string) $contact->state) !== '' ? Elot743::transliterate(trim((string) $contact->state)) : null,
                 'country' => strtoupper((string) $contact->country),
             ], fn ($v) => $v !== null),
         ], fn ($v) => $v !== null);
@@ -613,10 +628,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         if (trim((string) $contact->country) === '') {
             throw new RegistrarNotAsked('The contact has no country: Openprovider needs one.');
         }
-        $payload = array_filter([
-            'name' => ['first_name' => (string) $contact->first_name, 'last_name' => (string) ($contact->last_name ?: $contact->first_name)],
-            'company_name' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
-        ], fn ($v) => $v !== null) + self::customerDetails($contact);
+        $payload = self::who($contact) + self::customerDetails($contact);
         $handle = $this->request($credentials, 'POST', '/v1/customers', $payload)->json('data.handle');
         if (!is_string($handle) || $handle === '') {
             throw new RuntimeException('Openprovider returned no handle for the contact.');

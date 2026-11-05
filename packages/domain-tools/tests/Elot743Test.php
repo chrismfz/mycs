@@ -1,0 +1,52 @@
+<?php
+
+namespace Nixpal\DomainTools\Tests;
+
+use Nixpal\DomainTools\Elot743;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+/** ELOT 743, as Greek passports write names (WG-23). */
+class Elot743Test extends TestCase
+{
+    /** @return array<string, array{string, string}> */
+    public static function names()
+    {
+        return [
+            'θ, σσ, accent' => ['Θεσσαλονίκη', 'Thessaloniki'],
+            'capitals stay capitals' => ['ΘΕΣΣΑΛΟΝΙΚΗ', 'THESSALONIKI'],
+            'ευ before a vowel, γγ' => ['Ευάγγελος', 'Evangelos'],
+            'ευ in capitals' => ['ΕΥΑΓΓΕΛΟΣ', 'EVANGELOS'],
+            'αυ before an unvoiced' => ['Αυτοκίνητο', 'Aftokinito'],
+            'ευ at the end' => ['Ζευ', 'Zef'],
+            'ευ before a voiced' => ['Ευγενία', 'Evgenia'],
+            'ηυ' => ['ηύρα', 'ivra'],
+            'μπ at the start and inside' => ['Μπάμπης', 'Bampis'],
+            'μπ inside' => ['Λαμπράκης', 'Lamprakis'],
+            'μπ at the end' => ['λαμπ', 'lab'],
+            'ντ' => ['Αντώνης', 'Antonis'],
+            'ου' => ['Γεωργίου', 'Georgiou'],
+            'χ, ψ' => ['Χαράλαμπος Ψαρράς', 'Charalampos Psarras'],
+            'γκ' => ['Αγκάθι', 'Agkathi'],
+            'γξ' => ['σφίγξ', 'sfinx'],
+            'γχ' => ['Αγχίαλος', 'Anchialos'],
+            'ξ, ω, ς' => ['Ξενοφών Παπαδόπουλος', 'Xenofon Papadopoulos'],
+            'diaeresis breaks a digraph' => ['Ευρωπαϊκή', 'Evropaiki'],
+            'diaeresis on υ' => ['Μωυσής', 'Moysis'],
+            'an accent on the first breaks it' => ['άυλος', 'aylos'],
+            'an accent on υ keeps it' => ['αύριο', 'avrio'],
+            'υ alone' => ['Κύπρος', 'Kypros'],
+            'one capital letter' => ['Θ.', 'Th.'],
+            'Latin and digits left as they are' => ['Οδός Ερμού 12, Athens', 'Odos Ermou 12, Athens'],
+            'company' => ['ΜΑΪ ΙΠ ΝΕΤΓΟΥΟΡΚΣ Ο.Ε.', 'MAI IP NETGOUORKS O.E.'],
+            'nothing Greek' => ['John Smith', 'John Smith'],
+            'empty' => ['', ''],
+        ];
+    }
+
+    #[DataProvider('names')]
+    public function test_elot_743($greek, $latin)
+    {
+        $this->assertSame($latin, Elot743::transliterate($greek));
+    }
+}

@@ -147,6 +147,30 @@ class CnicManagementTest extends TestCase
         }
     }
 
+    /** WG-23: Greek contact data goes in Latin letters (ELOT 743), and stays Greek here. */
+    public function test_greek_contact_data_goes_in_latin_letters(): void
+    {
+        $owner = $this->contact('Maria');
+        $admin = $this->contact('Ευάγγελος', ['last_name' => 'Μπακογιάννης', 'company_name' => 'Θεσσαλική Α.Ε.', 'address1' => 'Οδός Ερμού 12',
+            'address2' => 'Γραφείο 3', 'city' => 'Θεσσαλονίκη', 'state' => 'Μακεδονία', 'email' => 'evangelos@example.test']);
+        $domain = $this->domain(['registrant_contact_id' => $owner->id, 'registrant_handle' => 'P-OWN1', 'admin_contact_id' => $admin->id]);
+        $this->answers['AddContact'] = "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[CONTACT][0] = P-NEW9\nEOF\n";
+        $this->answers['StatusDomainAfter'] = self::statusAnswer(['OWNER CONTACT' => 'P-OWN1', 'ADMIN CONTACT' => 'P-NEW9', 'TECH CONTACT' => 'P-OWN1', 'BILLING CONTACT' => 'P-OWN1']);
+
+        (new CnicRegistrar)->updateDomain($domain->fresh(), new DomainChanges(applyContacts: true), $this->credentials());
+
+        $add = (string) collect($this->sent)->first(fn ($c) => str_starts_with($c, 'COMMAND=AddContact'));
+        foreach (['FIRSTNAME=Evangelos', 'LASTNAME=Bakogiannis', 'ORGANIZATION=Thessaliki A.E.', 'STREET0=Odos Ermou 12', 'STREET1=Grafeio 3', 'CITY=Thessaloniki', 'STATE=Makedonia'] as $line) {
+            $this->assertStringContainsString($line, $add);
+        }
+        $this->assertDoesNotMatchRegularExpression('/\p{Greek}/u', $add);
+        $this->assertSame('Θεσσαλονίκη', $admin->fresh()->city, 'Greek here, as the customer wrote it');
+
+        $this->sent = [];
+        (new CnicRegistrar)->updateContact('P-NEW9', $admin->fresh(), $this->credentials());
+        $this->assertStringContainsString("STREET0=Odos Ermou 12\nSTREET1=Grafeio 3\nCITY=Thessaloniki", $this->sent[0]);
+    }
+
     public function test_a_contacts_details_are_updated_never_who_it_is(): void
     {
         $this->domain(['meta' => ['contact_handles' => [1 => 'P-OWN1']]]); // a contact MyCS made (the shared account: #300)
