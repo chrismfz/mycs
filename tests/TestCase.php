@@ -28,8 +28,19 @@ abstract class TestCase extends BaseTestCase
 {
     protected bool $seed = true;
 
+    /** Seconds before midnight (UTC) in which no test starts: it waits for the next day instead. */
+    private const MIDNIGHT_MARGIN = 10;
+
     protected function setUp(): void
     {
+        // Many tests read today when they build their data and again when they check: a run across midnight (UTC) failed
+        // one of them now and then (2026-11-05; a clock started just before midnight found more than a dozen). Too many to freeze one by
+        // one, so a test that would start in the day's last seconds waits for the next day, once per process a night.
+        $left = 86400 - fmod(microtime(true), 86400);
+        if ($left < self::MIDNIGHT_MARGIN) {
+            usleep((int) ceil($left * 1_000_000) + 10_000);
+        }
+
         parent::setUp();
 
         // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
