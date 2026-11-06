@@ -123,6 +123,17 @@ class LoginCaptchaModeTest extends TestCase
         Livewire::test(Register::class)->assertSee('<altcha-widget', false);
     }
 
+    /** Re-review of #684: a provider's captcha runs and is checked while hidden, so with one sign-in always asks. */
+    public function test_with_a_provider_captcha_sign_in_always_asks(): void
+    {
+        $user = $this->user();
+        $this->storeSettings(['captcha' => 'turnstile', 'captcha_site_key' => 'site', 'captcha_secret' => 'secret']);
+
+        Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')
+            ->call('submit')->assertHasErrors('captcha');
+        $this->assertGuest();
+    }
+
     public function test_the_widget_is_emptied_before_livewire_keeps_the_page_for_back(): void
     {
         // Ilias 2026-11-06: one more widget on each «back» (it draws in its own element, kept drawn in the page's HTML).

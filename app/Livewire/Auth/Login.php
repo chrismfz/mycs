@@ -49,8 +49,13 @@ class Login extends Component
     private static function captchaMode(): string
     {
         $mode = (string) config('settings.captcha_login', 'after_failure');
+        if (in_array($mode, ['always', 'never'], true)) {
+            return $mode;
+        }
 
-        return in_array($mode, ['always', 'never'], true) ? $mode : 'after_failure';
+        // Only ours waits hidden without doing anything: a provider's (reCAPTCHA, Turnstile, hCaptcha) runs and is
+        // checked at its provider while hidden, so sign-in would hang on it anyway: asked always (re-review of #684).
+        return config('settings.captcha') === 'altcha' ? 'after_failure' : 'always';
     }
 
     /**
@@ -128,6 +133,9 @@ class Login extends Component
             return;
         }
 
+        // The password was right: the next sign-in from here is free again (with 2FA, or closed, too).
+        Cache::forget(self::freeTryKey());
+
         // Its every account closed (WG-8): told so, after the password, as WHMCS does.
         if ($user->closedOut()) {
             LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, LoginAttempt::FAILED);
@@ -135,9 +143,6 @@ class Login extends Component
 
             return;
         }
-
-        // The password was right: the next sign-in from here is free again (with 2FA too).
-        Cache::forget(self::freeTryKey());
 
         // Check 2FA
         if ($user->tfa_secret) {
