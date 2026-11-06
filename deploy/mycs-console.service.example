@@ -1,5 +1,6 @@
 # The customers' VPS consoles on a server that runs MyCS and the relay together (the devbox; docs/proxmox.md, B6).
-# Next to the cluster, apart from MyCS, deploy/console-relay/ instead. /etc/systemd/system/mycs-console.service, then
+# Next to the cluster, apart from MyCS, deploy/console-relay/ instead. Both: docs/proxmox.md, «Οδηγός εγκατάστασης του
+# relay». /etc/systemd/system/mycs-console.service, then
 #   systemctl daemon-reload && systemctl enable --now mycs-console
 # Its config, /etc/mycs-console-relay/config.php (0600, owned by mycs; deploy/console-relay/config.php.example), has
 # 'listen' => '127.0.0.1:8091', 'path' => '/console/ws' (nginx's location) and

@@ -1,18 +1,21 @@
-# The console relay's site (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): one server block per company's hostname,
-# all to the same relay. TLS from Let's Encrypt (certbot --nginx), port 80 only for its challenge and the redirect.
+# The console relay's site (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): one server block, every company's hostname
+# on it, all to the same relay. TLS from Let's Encrypt (certbot --webroot, docs/proxmox.md «Οδηγός εγκατάστασης»), port 80
+# only for its challenge and the redirect. In /etc/nginx/sites-available/console-relay (the http context).
+
+# The ticket is in the query string: the access log keeps the path only ($uri). The error log still writes a failed
+# request's line whole; a ticket is used once and lives 30 seconds, so it is left as it is.
+log_format console_relay '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent';
+
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 off;
-    server_name console.example.com;
+    server_name console.example.com; # a second company's name too, on the same certificate
 
     ssl_certificate     /etc/letsencrypt/live/console.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/console.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    # The ticket is in the query string: the access log keeps the path only. The error log still writes a failed
-    # request's line whole; a ticket is used once and lives 30 seconds, so it is left as it is.
-    log_format console_relay '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent';
     access_log /var/log/nginx/console-relay.log console_relay;
 
     location = /ws {

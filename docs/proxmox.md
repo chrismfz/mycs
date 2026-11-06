@@ -451,16 +451,172 @@ relay.
 - Οι εξαρτήσεις από το site είναι callbacks: εισιτήριο, `vncproxy`, σύνδεση στον κόμβο, έλεγχος.
 - Το Go θα ήταν δεύτερη υλοποίηση όλων των ορίων του #506, και άλλη γλώσσα στο CI και στα reviews.
 
-**Τι μένει για τον υπεύθυνο (μετά το merge):**
-1. Στον devbox:
-   - το νέο unit και το config, με token `mycs-console@pve!relay` και key·
-   - τα πεδία της κονσόλας στον server της MyCS·
-   - δοκιμή: κονσόλα, «όχι» από τον έλεγχο, off → κλείσιμο σε 30''.
-2. Στη vega:
-   - το LXC και το DNS (`console.nixpal.gr`)·
-   - ο ρόλος `MyCSConsole` και το token·
-   - η αφαίρεση του `VM.Console` από το `MyCSLifecycle`, αφού δουλέψει ο devbox με το νέο token.
-3. Στη MyCS του orion μόνο ρυθμίσεις: on, URL, key. Δεν αλλάζει τίποτα άλλο στον orion.
+**Τι μένει για τον υπεύθυνο (μετά το merge):** ο «Οδηγός εγκατάστασης του relay» που ακολουθεί, με τη σειρά του.
+Στον orion αλλάζουν μόνο ρυθμίσεις της MyCS.
+
+#### Οδηγός εγκατάστασης του relay (2026-11-06)
+Τα βήματα με τη σειρά. Στα παραδείγματα, `console.nixpal.gr` είναι το hostname του relay και `my.nixpal.gr` η MyCS
+της nixpal: βάλε τα πραγματικά. Τα αρχεία που αναφέρονται είναι στο `deploy/console-relay/` του repo.
+
+**Ποιο σύστημα.** Ένα **Debian 13 minimal** σε unprivileged LXC, «στον αυτόματο».
+- Debian, γιατί τα αρχεία (systemd unit, nginx, certbot) είναι έτοιμα γι' αυτό. Το Debian 13 έχει PHP 8.4, ενώ το
+  Debian 12 έχει 8.2, που είναι παλιά για το package.
+- Alpine δουλεύει κι αυτό (`php84`, `php84-curl`, `php84-pcntl`, `php84-openssl`, nginx, certbot). Δεν έχει όμως
+  systemd, άρα θέλει δικό του OpenRC script, που δεν υπάρχει στο repo.
+- Ο kernel σε LXC είναι του κόμβου: τον αναβαθμίζει και τον επανεκκινεί ο Proxmox, όχι το container. Με `onboot 1` το
+  container ξεκινά μόνο του μετά από reboot του κόμβου, και το relay μαζί του. Τις ενημερώσεις των πακέτων τις κάνει το
+  `unattended-upgrades` (βήμα 3), και το `needrestart` ξεκινά ξανά όσα services αγγίζουν (PHP, OpenSSL, nginx).
+- Όσο ο κόμβος του container είναι κάτω, κονσόλα δεν ανοίγει. Αν το rootfs του είναι σε κοινό storage, μπορεί να μπει
+  και στο HA (`ha-manager add ct:<id>`). Δεν είναι απαραίτητο.
+
+**1. Token στη vega** (σε έναν κόμβο, ως root). Οι ίδιες εντολές είναι στη φόρμα του server, «How to set it up», 3.
+```
+pveum user add mycs-console@pve --comment "MyCS console relay"
+pveum user token add mycs-console@pve relay --privsep 1
+pveum role add MyCSConsole -privs "VM.Console"
+pveum acl modify /pool/mycs --roles MyCSConsole --users mycs-console@pve --tokens 'mycs-console@pve!relay'
+```
+Η δεύτερη εντολή δείχνει το secret μία φορά. Πάει μόνο στο config του relay (βήμα 6), πουθενά αλλού.
+
+**2. Το container** (σε έναν κόμβο, ως root). **Όχι** στο pool `mycs`: η MyCS δεν πρέπει να μπορεί να το πειράξει.
+```
+pveam update
+pveam available --section system | grep debian-13      # το ακριβές όνομα του template
+pveam download local debian-13-standard_<έκδοση>_amd64.tar.zst
+pct create <id> local:vztmpl/debian-13-standard_<έκδοση>_amd64.tar.zst --hostname console --unprivileged 1 \
+  --features nesting=1 --cores 1 --memory 512 --swap 256 --rootfs <storage>:4 --onboot 1 \
+  --net0 name=eth0,bridge=<bridge>,ip=<IP>/<prefix>,gw=<gateway>,firewall=1 --ssh-public-keys /root/.ssh/authorized_keys
+pct start <id>
+```
+- Το `nesting=1` το θέλει το systemd του Debian 13 σε unprivileged container.
+- Το DNS: A (και AAAA, αν υπάρχει) `console.nixpal.gr` → η IP του container. Αργότερα και `console.myip.gr`, στο ίδιο
+  container.
+- Firewall του container (`/etc/pve/firewall/<id>.fw`, ή από το GUI). Μέσα μόνο 80 (ACME) και 443, και το 22 μόνο από
+  το δίκτυο διαχείρισης. Έξω ανοιχτό: χρειάζονται οι κόμβοι στο 8006, η MyCS στο 443, και τα apt/ACME στο 80/443.
+  ```
+  [OPTIONS]
+  enable: 1
+  policy_in: DROP
+  policy_out: ACCEPT
+
+  [RULES]
+  IN ACCEPT -p tcp -dport 80,443
+  IN ACCEPT -source <δίκτυο διαχείρισης> -p tcp -dport 22
+  ```
+
+**3. Πακέτα και ενημερώσεις** (μέσα στο container: `pct enter <id>`).
+```
+apt update && apt full-upgrade -y
+apt install -y --no-install-recommends php8.4-cli php8.4-curl nginx certbot unattended-upgrades needrestart rsync
+php -m | grep -E '^(curl|pcntl|openssl)$'                # και τα τρία
+echo 'unattended-upgrades unattended-upgrades/enable_auto_updates boolean true' | debconf-set-selections
+dpkg-reconfigure -f noninteractive unattended-upgrades
+printf '%s\n' '$nrconf{restart} = '"'"'a'"'"';' > /etc/needrestart/conf.d/auto.conf
+```
+Το `unattended-upgrades` περνά μόνο τις ενημερώσεις ασφαλείας του Debian. Το `needrestart` σε `a` ξεκινά ξανά, χωρίς
+ερώτηση, όσα services τις χρειάζονται: οι ανοιχτές κονσόλες πέφτουν, και ο πελάτης ξανασυνδέεται.
+
+**4. Ο χρήστης και ο κώδικας.**
+```
+useradd --system --home /opt/mycs-console-relay --shell /usr/sbin/nologin mycs-relay
+install -d -m 755 /opt/mycs-console-relay
+install -d -m 750 -o root -g mycs-relay /etc/mycs-console-relay
+```
+Ο κώδικας είναι ένα αντίγραφο του `packages/proxmox` από ένα checkout του repo (π.χ. τον devbox), μαζί με τα
+παραδείγματα:
+```
+rsync -a --delete --exclude tests packages/proxmox/ root@console.nixpal.gr:/opt/mycs-console-relay/
+rsync -a deploy/console-relay/ root@console.nixpal.gr:/root/console-relay/
+```
+
+**5. TLS.** Πρώτα μόνο το 80, για το certbot. Μετά το 443.
+```
+install -d /var/www/letsencrypt
+rm -f /etc/nginx/sites-enabled/default
+cp /root/console-relay/nginx.conf.example /etc/nginx/sites-available/console-relay
+# στο αρχείο: console.example.com → console.nixpal.gr, και το block του 443 σε σχόλια για λίγο
+ln -s /etc/nginx/sites-available/console-relay /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+certbot certonly --webroot -w /var/www/letsencrypt -d console.nixpal.gr --deploy-hook 'systemctl reload nginx' \
+  --agree-tos -m <email> --no-eff-email
+# το block του 443 ξανά ενεργό
+nginx -t && systemctl reload nginx
+```
+Η ανανέωση γίνεται μόνη της από το `certbot.timer`, με το ίδιο webroot, και το hook κάνει reload το nginx. Για δεύτερη
+εταιρεία: `certbot certonly --webroot … --expand -d console.nixpal.gr -d console.myip.gr`, και το δεύτερο όνομα στα
+`server_name` και των δύο blocks.
+
+**6. Το κλειδί και το config.** Ένα κλειδί ανά cluster ανά MyCS:
+```
+openssl rand -base64 48
+```
+Το ίδιο κλειδί μπαίνει σε δύο σημεία: στο config του relay και στη φόρμα του server στη MyCS (βήμα 8).
+```
+cp /root/console-relay/config.php.example /etc/mycs-console-relay/config.php
+chown mycs-relay:mycs-relay /etc/mycs-console-relay/config.php && chmod 600 /etc/mycs-console-relay/config.php
+```
+Στο config:
+- `origin`: η MyCS ακριβώς όπως τη γράφει ο browser (`https://my.nixpal.gr`).
+- Το κλειδί του `clusters` είναι το id του server Proxmox στη MyCS (Setup → Servers: ο αριθμός στο URL της φόρμας).
+- `keys`: το κλειδί από πάνω.
+- `nodes`, `self_signed`: τα ίδια με τη φόρμα του server στη MyCS (address και IP κάθε κόμβου).
+- `token_id`, `token_secret`: το token του βήματος 1.
+- `path` μένει `/ws`. Δεν χρειάζεται `restart_file` (αυτό είναι μόνο για τον devbox).
+
+**7. Το relay.**
+```
+cp /root/console-relay/console-relay.service.example /etc/systemd/system/mycs-console-relay.service
+systemctl daemon-reload && systemctl enable --now mycs-console-relay
+journalctl -u mycs-console-relay -n 20                   # «Listening on 127.0.0.1:8091»
+curl -s -o /dev/null -w '%{http_code}\n' https://console.nixpal.gr/ws   # 400: όχι websocket, άρα το relay απαντά
+curl -s -o /dev/null -w '%{http_code}\n' https://console.nixpal.gr/     # 404
+```
+Αν το config έχει λάθος, το relay δεν ξεκινά και γράφει στο journal τι λείπει.
+
+**8. Η MyCS.** Setup → Servers → ο server Proxmox:
+- «Customer console»: on·
+- «Console relay URL»: `wss://console.nixpal.gr/ws`·
+- «Console relay key»: το κλειδί του βήματος 6.
+
+Στον orion δεν αλλάζει τίποτε άλλο.
+
+**9. Δοκιμή**, σε έναν VPS δοκιμής του pool, όχι πελάτη:
+- το κουμπί «Κονσόλα» φαίνεται, η κονσόλα ανοίγει, το πληκτρολόγιο δουλεύει·
+- στο journal του relay φαίνονται `Console opened` και `Console closed`, με service, vmid και user, ποτέ εισιτήριο ή token·
+- «Customer console» off, με την κονσόλα ανοιχτή: κλείνει μέσα σε 30'', και το κουμπί φεύγει. Μετά πάλι on·
+- `systemctl restart mycs-console-relay`: η κονσόλα πέφτει, και η «Επανασύνδεση» την ανοίγει ξανά μετά από 5''.
+
+**10. Το `VM.Console` φεύγει από τη MyCS**, αφού η δοκιμή περάσει. Το `role modify` χωρίς `--append` αντικαθιστά όλη τη
+λίστα:
+```
+pveum role modify MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Snapshot VM.Snapshot.Rollback"
+```
+
+**Νέα έκδοση του relay.** Ένα merge που αλλάζει το `packages/proxmox/src/Console` (ή το `WebSocket.php`) δεν φτάνει μόνο του
+στο container. Χρειάζεται το `rsync` του βήματος 4 και `systemctl restart mycs-console-relay`. Οι ενημερώσεις του Debian
+δεν το αγγίζουν.
+
+**Αλλαγή κλειδιού.**
+1. Νέο κλειδί με `openssl rand -base64 48`.
+2. Στο config: `keys => [παλιό, νέο]`, και restart. Το πρώτο είναι αυτό που έχει τώρα η MyCS, γιατί με αυτό υπογράφει
+   το relay τους ελέγχους.
+3. Το νέο στη φόρμα της MyCS, και **αμέσως** `keys => [νέο]` και restart. Όσο υπογράφει με κλειδί που η MyCS δεν έχει,
+   οι κονσόλες κλείνουν μετά από 3 ελέγχους (90'').
+
+**Ο devbox** τρέχει MyCS και relay στον ίδιο server, πίσω από το `location = /console/ws` του nginx του.
+- **Πριν από το deploy του main με το #675:** `systemctl disable --now mycs-console`. Το τωρινό unit τρέχει το
+  `artisan proxmox:console-relay`, που δεν υπάρχει πια, και θα έμενε σε βρόχο restart.
+- **Μετά**, όταν υπάρχει το token του βήματος 1:
+  1. `install -d -m 750 -o root -g mycs /etc/mycs-console-relay`·
+  2. το config από το `config.php.example`, owner `mycs`, 0600, με:
+     - `'path' => '/console/ws'`·
+     - `'restart_file' => '/var/www/mycs/storage/framework/console-relay.restart'`·
+     - `origin`, το id του server του devbox, nodes, token·
+  3. το unit από το `deploy/mycs-console.service.example` στο `/etc/systemd/system/mycs-console.service`, και
+     `systemctl daemon-reload && systemctl enable --now mycs-console`·
+  4. η φόρμα του server: «Customer console» on, `wss://<devbox>/console/ws`, το κλειδί·
+  5. η δοκιμή του βήματος 9.
+- Κάθε deploy αγγίζει το `restart_file`, και το relay ξεκινά μόνο του με τον νέο κώδικα.
 
 **Ως τότε:** στον orion δεν μπαίνει unit ούτε proxy. Η ρύθμιση «console on/off» υπάρχει πια, και είναι αρχικά off: χωρίς
 relay, το κουμπί δεν φαίνεται.

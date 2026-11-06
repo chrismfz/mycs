@@ -168,7 +168,7 @@ adversarial review.
     PHP streaming, relay στο cluster ή SPICE (`proxmox.md` → «Η κονσόλα σε cPanel»). Πριν από την παραγωγή χρειάζεται
     ρύθμιση console on/off. **2026-11-06:** relay σε LXC της vega με δικό του token μόνο για κονσόλα, υπογεγραμμένα
     εισιτήρια 30'' και on/off ανά server (αρχικά off), σε PHP (`packages/proxmox`). Μένουν το LXC, το token και η δοκιμή
-    στον devbox (`proxmox.md` → «Σχέδιο: το relay στο cluster»).
+    στον devbox, βήμα βήμα στο `proxmox.md` → «Οδηγός εγκατάστασης του relay».
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`, και το pool τους με
     `app:import-whmcs-ip-pools`.
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
