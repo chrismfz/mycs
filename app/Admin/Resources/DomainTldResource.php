@@ -72,7 +72,8 @@ class DomainTldResource extends Resource
                 Toggle::make('epp_code_required')->label(__('EPP code for transfers'))->default(true),
                 Toggle::make('dns_management')->label(__('DNS management')),
                 Toggle::make('email_forwarding')->label(__('Email forwarding')),
-                Toggle::make('id_protection')->label(__('ID protection')),
+                Toggle::make('id_protection')->label(__('ID protection'))
+                    ->helperText(__('Free. Follows the registrar where it says whether the registry allows it (Openprovider: on each import and the weekly cost sync).')),
                 Toggle::make('allow_idn')->label(__('IDN (non-Latin names)')),
                 TextInput::make('sort')->label(__('Order'))->numeric()->minValue(0)->default(0),
             ]),

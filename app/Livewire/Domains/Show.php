@@ -681,13 +681,18 @@ class Show extends Component
     }
 
     /**
-     * ID protection, offered only where its TLD offers it (D-7) and the registrar allows it (R7): whether Openprovider
-     * charges for it is not settled (docs/domains.md), so not where the company does not sell it.
+     * ID protection, free (WG-32, docs/domains.md D-24): turned on only where its TLD offers it (D-7, Openprovider's
+     * is_private_whois_allowed) and the registrar allows it (R7); one that is on can always be turned off, even after its
+     * TLD stopped offering it (review of #670).
      */
     public function privacyOffered(): bool
     {
-        return (bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false
-            && $this->management()->registrarSupports($this->domain, 'supportsPrivacy');
+        if (!$this->management()->registrarSupports($this->domain, 'supportsPrivacy')) {
+            return false;
+        }
+
+        return (bool) $this->domain->id_protection
+            || ((bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false);
     }
 
     public function toggleTransferLock(): void

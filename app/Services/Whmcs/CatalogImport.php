@@ -866,7 +866,9 @@ final class CatalogImport
                 'epp_code_required' => (bool) ($row['eppcode'] ?? true),
                 'dns_management' => (bool) ($row['dnsmanagement'] ?? false),
                 'email_forwarding' => (bool) ($row['emailforwarding'] ?? false),
-                'id_protection' => (bool) ($row['idprotection'] ?? false),
+                // WHMCS's on a new TLD only: on a re-run its registrar's word stays (Openprovider's is_private_whois_allowed,
+                // WG-32, ADV-670-2).
+                'id_protection' => $tld->exists ? $tld->id_protection : (bool) ($row['idprotection'] ?? false),
                 // WHMCS -1: the registrar's / not offered.
                 'grace_days' => (int) ($row['grace_period'] ?? -1) >= 0 ? (int) $row['grace_period'] : null,
                 'redemption_days' => (int) ($row['redemption_grace_period'] ?? -1) >= 0 ? (int) $row['redemption_grace_period'] : null,

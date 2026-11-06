@@ -310,6 +310,7 @@ final class WhmcsDomainImport
         $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'email'])->keyBy('primary_of_client_id');
         $currencies = $this->pairs('SELECT c.id, cur.code FROM tblclients c JOIN tblcurrencies cur ON cur.id = c.currency');
         $default = (string) config('settings.default_currency', 'USD');
+        $idProtection = $this->idProtectionPrices();
         $fields = $this->grouped('tbldomainsadditionalfields', 'SELECT domainid AS domain, name, value FROM tbldomainsadditionalfields ORDER BY id');
         $extra = $this->grouped('tbldomains_extra', 'SELECT domain_id AS domain, name, value FROM tbldomains_extra ORDER BY id');
         $handles = $this->handles();
@@ -370,6 +371,15 @@ final class WhmcsDomainImport
             if ($migration !== null) {
                 $meta['whmcs_migration'] = $migration;
             }
+            $currency = $currencies[(int) $row['userid']] ?? $default;
+            $amount = number_format((float) ($row['recurringamount'] ?? 0), 2, '.', '');
+            // ID protection is free here (WG-32): its WHMCS price (a year's, times its years) comes off the amount, whatever
+            // happens to it next (a deal, DNS management, grace: ADV-670-1); kept for the parities (expectedRenewal).
+            $idp = (int) ($row['idprotection'] ?? 0) === 1 ? self::idProtectionPart($idProtection[$currency] ?? null, $years, $amount) : null;
+            if ($idp !== null) {
+                $amount = bcsub($amount, $idp, 2);
+                $meta['whmcs']['id_protection_price'] = $idp;
+            }
             $rows[] = [
                 'id' => $id,
                 'client_id' => (int) $row['userid'],
@@ -385,8 +395,8 @@ final class WhmcsDomainImport
                 'registered_at' => $this->date($row['registrationdate'] ?? null, dateOnly: true),
                 'expires_at' => $this->date($row['expirydate'] ?? null, dateOnly: true),
                 'years' => $years,
-                'currency_code' => $currencies[(int) $row['userid']] ?? $default,
-                'recurring_amount' => number_format((float) ($row['recurringamount'] ?? 0), 2, '.', ''),
+                'currency_code' => $currency,
+                'recurring_amount' => $amount,
                 'auto_renew' => !(int) ($row['donotrenew'] ?? 0),
                 'id_protection' => (bool) (int) ($row['idprotection'] ?? 0),
                 'dns_management' => (bool) (int) ($row['dnsmanagement'] ?? 0),
@@ -431,7 +441,8 @@ final class WhmcsDomainImport
      * Whether a domain renews at its TLD's price rather than its own (WG-12, owner 2026-11-04): WHMCS keeps an amount on
      * every domain, and as one here it would never follow the catalog. At its TLD's renew price (for its years, in its
      * currency): the catalog's. Dearer: the catalog's too, the customer pays less (an old price), unless an addon is on
-     * (ID protection, DNS management, email forwarding: WHMCS prices them in the amount, they have no price here; ADV-655-3).
+     * (DNS management, email forwarding: WHMCS prices them in the amount, they have no price here; ADV-655-3). ID
+     * protection is not one: free here (WG-32, owner 2026-11-06), its WHMCS price goes.
      * Cheaper (a deal, as trouvas's .gr at 14.51 from a promotion): its own, kept. No TLD price, or one of 0.00 (a year
      * WHMCS left at 0 and never sold: never a free renewal, ADV-655-1): its own.
      */
@@ -456,10 +467,42 @@ final class WhmcsDomainImport
             || (bool) ($domain->meta['whmcs']['premium'] ?? false) || $domain->staffPriced();
     }
 
-    /** Whether its WHMCS amount holds an addon WHMCS prices (followsCatalog). */
+    /**
+     * WHMCS's ID protection price a year, per currency code (tblpricing «domainaddons», ssetupfee; WG-32).
+     *
+     * @return array<string, string>
+     */
+    private function idProtectionPrices(): array
+    {
+        if (!$this->has('tblpricing') || !$this->has('tblcurrencies')) {
+            return [];
+        }
+        $prices = [];
+        foreach ($this->rows("SELECT cur.code, p.ssetupfee FROM tblpricing p JOIN tblcurrencies cur ON cur.id = p.currency WHERE p.type = 'domainaddons'") as $row) {
+            $prices[(string) $row['code']] = number_format((float) $row['ssetupfee'], 2, '.', '');
+        }
+
+        return $prices;
+    }
+
+    /**
+     * The part of a domain's WHMCS amount that is its ID protection (its price a year times its years), or null: none, or
+     * more than the amount (a deal that never charged it: nothing comes off).
+     */
+    public static function idProtectionPart(?string $perYear, int $years, string $amount): ?string
+    {
+        if ($perYear === null || !is_numeric($perYear) || bccomp($perYear, '0', 2) <= 0) {
+            return null;
+        }
+        $part = bcmul($perYear, (string) $years, 2);
+
+        return bccomp($part, $amount, 2) <= 0 ? $part : null;
+    }
+
+    /** Whether its WHMCS amount holds an addon WHMCS prices and we still would (followsCatalog): not ID protection, free here (WG-32). */
     private static function addonsInIt(Domain $domain): bool
     {
-        return (bool) $domain->id_protection || (bool) $domain->dns_management || (bool) $domain->email_forwarding;
+        return (bool) $domain->dns_management || (bool) $domain->email_forwarding;
     }
 
     /**
@@ -469,6 +512,11 @@ final class WhmcsDomainImport
     public static function expectedRenewal(Domain $domain, string $whmcsAmount): string
     {
         $amount = number_format((float) $whmcsAmount, 2, '.', '');
+        // Without the ID protection WHMCS priced in it, as the import took it off (WG-32, ADV-670-1).
+        $idp = $domain->meta['whmcs']['id_protection_price'] ?? null;
+        if (is_string($idp) && is_numeric($idp) && bccomp($idp, $amount, 2) <= 0) {
+            $amount = bcsub($amount, $idp, 2);
+        }
         // Its catalog price as it renews: its group's discount on domains in it (D-23; R656-1, ADV-656-2).
         $tld = $domain->catalogRenewalPrice(max(1, (int) $domain->years));
 
@@ -495,7 +543,7 @@ final class WhmcsDomainImport
                     $dearer[] = "#{$domain->id} {$domain->fqdn} {$amount} → {$tld}";
                 }
             } elseif ($live && $tld !== null && bccomp($amount, $tld, 2) !== 0) {
-                $why = array_filter([$domain->id_protection ? 'ID protection' : null, $domain->dns_management ? 'DNS management' : null,
+                $why = array_filter([$domain->dns_management ? 'DNS management' : null,
                     $domain->email_forwarding ? 'email forwarding' : null, ($domain->meta['whmcs']['premium'] ?? false) ? 'premium' : null,
                     in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status->value : null]);
                 $kept[] = "#{$domain->id} {$domain->fqdn} {$amount} (TLD {$tld}" . ($why !== [] ? ', ' . implode(', ', $why) : '') . ')';

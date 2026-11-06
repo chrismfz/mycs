@@ -457,6 +457,11 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
                 'autorenew' => 'off',
                 'name_servers' => $nameservers,
             ], $extra);
+            // ID protection, free for us here (WG-32): a domain that has it keeps it, a CNIC one renewed as a transfer
+            // too; only where its TLD offers it (Openprovider refuses it where the registry does not allow it).
+            if ($domain->id_protection && $domain->domainTld?->id_protection) {
+                $payload['is_private_whois_enabled'] = true;
+            }
         } catch (RegistrarRefused|RegistrarNotAsked $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -958,7 +963,8 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
             }
         }
 
-        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears);
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays, minYears: $minYears,
+            privacyAllowed: is_bool($data['is_private_whois_allowed'] ?? null) ? $data['is_private_whois_allowed'] : null);
     }
 
     /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */

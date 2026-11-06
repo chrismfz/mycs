@@ -305,7 +305,7 @@ class ImportDomainsTest extends TestCase
 
     /**
      * WG-12 (owner 2026-11-04): a domain at its TLD's renew price follows the catalog (no amount of its own); a dearer one
-     * too, unless ID protection is in it; a cheaper one (a deal, as trouvas's .gr at 14.51) keeps its own; a name only
+     * too, unless DNS management or email forwarding is in it (ID protection is free here: WG-32); a cheaper one (a deal, as trouvas's .gr at 14.51) keeps its own; a name only
      * staff price (a .gr of two characters) keeps its own; one with no TLD price keeps its own. The parities read the same.
      */
     public function test_a_domain_at_or_above_its_tld_price_follows_the_catalog(): void
@@ -323,6 +323,7 @@ class ImportDomainsTest extends TestCase
         $this->domain(66, 'ab.gr', 'Active', 'grepp', ['recurringamount' => 19.00, 'registrationperiod' => 2]);
         $this->domain(67, 'free.com', 'Active', 'openprovider', ['recurringamount' => 0]);
         $this->domain(68, 'ten.com', 'Active', 'openprovider', ['recurringamount' => 40.00, 'registrationperiod' => 4]);
+        $this->domain(69, 'dns.com', 'Active', 'openprovider', ['recurringamount' => 12.50, 'dnsmanagement' => 1]);
 
         $result = $this->run_();
 
@@ -331,19 +332,21 @@ class ImportDomainsTest extends TestCase
         $this->assertNull($own(62), 'for its years');
         $this->assertNull($own(63), 'dearer: the catalog\'s, cheaper for the customer');
         $this->assertSame('10.00', Domain::query()->findOrFail(63)->renewalPrice());
-        $this->assertSame('12.50', $own(64), 'ID protection is in its amount: kept');
+        $this->assertNull($own(64), 'ID protection is free here (WG-32): its WHMCS price goes, the catalog\'s');
+        $this->assertTrue(Domain::query()->findOrFail(64)->id_protection, 'and it stays on');
+        $this->assertSame('12.50', $own(69), 'DNS management is in its amount: kept');
         $this->assertSame('5.51', $own(65), 'a deal: kept');
         $this->assertSame('19.00', $own(66), 'a .gr of two characters: only staff price it');
         $this->assertSame('0.00', $own(67), 'free: kept');
         $this->assertSame('40.00', $own(68), 'no TLD price for 4 years: kept');
-        $this->assertSame(3, $result['counts']['at_tld_price']);
+        $this->assertSame(4, $result['counts']['at_tld_price']);
         $notes = implode("\n", $result['notes']);
-        $this->assertStringContainsString('1 domain(s) dearer in WHMCS now renew at their TLD\'s price (WG-12): #63 dearer.com 10.30 → 10.00', $notes);
-        $this->assertStringContainsString('#64 idp.com 12.50 (TLD 10.00, ID protection)', $notes);
+        $this->assertStringContainsString('2 domain(s) dearer in WHMCS now renew at their TLD\'s price (WG-12): #63 dearer.com 10.30 → 10.00; #64 idp.com 12.50 → 10.00', $notes);
+        $this->assertStringContainsString('#69 dns.com 12.50 (TLD 10.00, DNS management)', $notes);
         $this->assertStringContainsString('#65 deal.com 5.51 (TLD 10.00)', $notes);
 
         // What each renews at, by WHMCS's amount and the rule, is what it renews at here.
-        foreach ([61 => '10.00', 63 => '10.00', 64 => '12.50', 65 => '5.51', 66 => '19.00'] as $id => $expected) {
+        foreach ([61 => '10.00', 63 => '10.00', 64 => '10.00', 65 => '5.51', 66 => '19.00', 69 => '12.50'] as $id => $expected) {
             $domain = Domain::query()->with('domainTld.prices')->findOrFail($id);
             $whmcs = (string) $this->whmcs->query("SELECT recurringamount FROM tbldomains WHERE id = {$id}")->fetchColumn();
             $this->assertSame($expected, WhmcsDomainImport::expectedRenewal($domain, $whmcs), "#{$id}");

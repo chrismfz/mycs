@@ -156,6 +156,10 @@ class TldImport
                 // registrar (review 6).
                 if ($row->registrar_connection_id === $connection->id) {
                     $row->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
+                    // ID protection where its registry allows it (WG-32: free, as Openprovider gives it to its members).
+                    if ($pricing->privacyAllowed !== null) {
+                        $row->id_protection = $pricing->privacyAllowed;
+                    }
                 }
                 $row->save();
 

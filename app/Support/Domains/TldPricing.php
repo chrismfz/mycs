@@ -38,6 +38,11 @@ final class TldPricing
          * that many years, never for one (owner 2026-10-24).
          */
         public readonly int $minYears = 1,
+        /**
+         * Whether the registry lets its WHOIS be private (ID protection, Openprovider's is_private_whois_allowed): free for
+         * us as Openprovider members, so offered where allowed (WG-32, owner 2026-11-06); null = not reported.
+         */
+        public readonly ?bool $privacyAllowed = null,
     ) {}
 
     /** What an operation costs for $years: register and renew in proportion to minYears, the others as quoted. */
