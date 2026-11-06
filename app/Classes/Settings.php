@@ -163,6 +163,21 @@ class Settings
                     'live' => true,
                 ],
                 [
+                    'name' => 'captcha_login',
+                    'label' => 'Captcha on sign-in',
+                    'type' => 'select',
+                    'options' => [
+                        'after_failure' => 'After a failed sign-in from the same address',
+                        'always' => 'Always',
+                        'never' => 'Never',
+                    ],
+                    'default' => 'after_failure',
+                    // Owner 2026-11-06: wanted on sign-up above all; on sign-in it is in the way. A failure from the
+                    // address (15 minutes) brings it back; the sign-in limits apply either way.
+                    'description' => 'Sign-up, password reset and contact always ask for it. On sign-in, «After a failed sign-in» shows it only once that address has failed in the last 15 minutes; the limits on sign-in attempts apply either way. Only with ALTCHA: a provider\'s captcha is always asked on sign-in.',
+                    'hidden' => fn (Get $get) => in_array($get('captcha'), [null, '', 'disabled'], true),
+                ],
+                [
                     'name' => 'altcha_difficulty',
                     'label' => 'ALTCHA difficulty',
                     'type' => 'select',

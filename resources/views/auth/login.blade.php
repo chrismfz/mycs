@@ -17,7 +17,13 @@
         </a>
     </div>
 
-    <x-captcha :form="'login'" />
+    {{-- On the page from the start, hidden until needed: a captcha added by a later render never works (its scripts run
+         before the morph puts it on the page; a provider's script never loads), review of #684. --}}
+    @if (config('settings.captcha_login', 'after_failure') !== 'never')
+        <div @class(['hidden' => !$this->captchaNeeded()]) data-login-captcha>
+            <x-captcha :form="'login'" />
+        </div>
+    @endif
 
     <x-button.primary class="w-full" type="submit">{{ __('auth.sign_in') }}</x-button.primary>
 

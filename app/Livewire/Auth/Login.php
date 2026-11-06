@@ -32,9 +32,56 @@ class Login extends Component
         return Cache::rememberForever('login-unknown-hash:' . config('hashing.driver'), fn () => Hash::make(Str::random(40)));
     }
 
+    /**
+     * The captcha on sign-in (setting «Captcha on sign-in», owner 2026-11-06): always, never, or by default only once the
+     * address has failed to sign in (its failures, 15 minutes) or has a try under way: a customer typing the right
+     * password never sees it.
+     */
+    public function captchaNeeded(): bool
+    {
+        return match (self::captchaMode()) {
+            'always' => true,
+            'never' => false,
+            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0 || Cache::has(self::freeTryKey()),
+        };
+    }
+
+    private static function captchaMode(): string
+    {
+        $mode = (string) config('settings.captcha_login', 'after_failure');
+        if (in_array($mode, ['always', 'never'], true)) {
+            return $mode;
+        }
+
+        // Only ours waits hidden without doing anything: a provider's (reCAPTCHA, Turnstile, hCaptcha) runs and is
+        // checked at its provider while hidden, so sign-in would hang on it anyway: asked always (re-review of #684).
+        return config('settings.captcha') === 'altcha' ? 'after_failure' : 'always';
+    }
+
+    /**
+     * The address's one try without the captcha: taken atomically (a file lock), so many requests sent at once get one
+     * between them, never one each (review of #684: the failures are counted only after the password is checked).
+     */
+    private static function freeTryKey(): string
+    {
+        return 'login-free-try:' . CallerIp::key();
+    }
+
+    /** Whether this sign-in must have its captcha solved: the free try taken here, if it is this one's. */
+    private function captchaRequiredForThisTry(): bool
+    {
+        return match (self::captchaMode()) {
+            'always' => true,
+            'never' => false,
+            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0 || !Cache::add(self::freeTryKey(), 1, 900),
+        };
+    }
+
     public function submit(\App\Actions\Auth\Login $loginAction)
     {
-        $this->captcha();
+        if ($this->captchaRequiredForThisTry()) {
+            $this->captcha();
+        }
         $this->validate();
 
         // By the address as it reaches us (an IPv6 one by its /64), never one it names in X-Forwarded-For; and the login
@@ -85,6 +132,9 @@ class Login extends Component
 
             return;
         }
+
+        // The password was right: the next sign-in from here is free again (with 2FA, or closed, too).
+        Cache::forget(self::freeTryKey());
 
         // Its every account closed (WG-8): told so, after the password, as WHMCS does.
         if ($user->closedOut()) {
