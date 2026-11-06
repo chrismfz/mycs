@@ -92,6 +92,12 @@ class CronCalendar extends Widget
             'selected' => $day->toDateString(),
             'selectedLabel' => $day->translatedFormat('l j F Y'),
             'isFuture' => $isFuture,
+            // Past the forecast's days: not «nothing» (ADV-681-8).
+            'pastForecast' => $isFuture && $day->greaterThan($today->copy()->addDays(DunningForecast::DAYS)),
+            'forecastDays' => DunningForecast::DAYS,
+            // Names and money only for staff who may see clients and invoices (ADV-681-6), as Needs attention does.
+            'showClients' => ClientResource::canViewAny(),
+            'showInvoices' => InvoiceResource::canViewAny(),
             'isToday' => $day->isSameDay($today),
             'detail' => $isFuture ? null : CronDay::detail($day),
             'upcoming' => $ids === null ? null : ['suspend' => self::services($ids['suspend']), 'terminate' => self::services($ids['terminate'])],

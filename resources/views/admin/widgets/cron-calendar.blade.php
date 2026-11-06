@@ -62,7 +62,9 @@
         @endif
         @endif
 
-        @if ($isFuture)
+        @if ($pastForecast)
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Past the :days days the forecast looks ahead: pick a closer day.', ['days' => $forecastDays]) }}</p>
+        @elseif ($isFuture)
         <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">{{ __('If nothing is paid, and no hold or date is set before then.') }}</p>
         <h4 class="mb-1 text-sm font-medium" style="color:var(--warning-600)">{{ __(':count to suspend', ['count' => $upcoming['suspend']->count()]) }}</h4>
         @include('admin.widgets.partials.cron-services', ['services' => $upcoming['suspend']])
@@ -74,6 +76,7 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('The cron did not run this day.') }}</p>
         @endif
 
+        @if ($showInvoices)
         <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Invoices issued') }} · {{ $detail['invoices']['count'] }}</h4>
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
             @foreach ($detail['invoices']['rows'] as $invoice)
@@ -105,6 +108,9 @@
             @endforeach
         </ul>
 
+        @else
+        <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices :i · charges :c · payments :p', ['i' => $detail['invoices']['count'], 'c' => $detail['charges']['count'], 'p' => $detail['payments']['count']]) }}</p>
+        @endif
         <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Suspended') }} · {{ $detail['suspended']['count'] }}</h4>
         @include('admin.widgets.partials.cron-services', ['services' => $detail['suspended']['rows']])
         <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Terminated') }} · {{ $detail['terminated']['count'] }}</h4>

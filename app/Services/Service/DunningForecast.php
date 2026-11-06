@@ -2,7 +2,9 @@
 
 namespace App\Services\Service;
 
+use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Billing\RenewalBilling;
 use App\Support\DunningWindow;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -12,7 +14,8 @@ use Illuminate\Support\Facades\Cache;
  * «what is suspended tomorrow or the day after, so we can tell them first when it is urgent»). Asked of the cron's own
  * rules (DunningRules) day by day, so it never drifts from them; a service is listed on the first day it qualifies, moved
  * to the dunning window's next open day. «Now»: those that qualify today, which the cron suspends at its next run, or
- * holds back while suspensions are off (the cut-over's safety net, ROADMAP 9β-4). Addons on their parent's day, as they
+ * holds back while suspensions are off (the cut-over's safety net, ROADMAP 9β-4). With «only with an overdue invoice», a
+ * renewal the cron bills before then counts as billed. Addons on their parent's day, as they
  * follow it (AddonCascade). What it cannot know: a payment, a hold
  * or a date staff set before then, and a card charge on its way at that moment (the cron looks again then).
  */
@@ -38,7 +41,9 @@ final class DunningForecast
         // once); two minutes, so a service paid or suspended since drops out soon. The switches are read fresh.
         $settings = collect(['cronjob_order_suspend', 'cronjob_order_terminate', 'cronjob_terminate_min_suspended_days', 'cronjob_suspend_requires_invoice',
             'cronjob_suspend_enabled', 'cronjob_terminate_enabled', 'cronjob_dunning_days', 'cronjob_dunning_from'])->map(fn (string $key) => config("settings.{$key}"))->all();
-        $forecast = Cache::remember('dunning-forecast:' . $today->toDateString() . ':' . $days . ':' . md5((string) json_encode($settings)), 120,
+        // And by the last change of a service or an invoice (ADV-681-5): one suspended, paid or held since is a new answer.
+        $changed = [Service::query()->max('updated_at'), Invoice::query()->max('updated_at')];
+        $forecast = Cache::remember('dunning-forecast:' . $today->toDateString() . ':' . $days . ':' . md5((string) json_encode([$settings, $changed])), 120,
             fn () => self::compute($today, $days));
 
         return ['suspend_on' => (bool) config('settings.cronjob_suspend_enabled', true), 'terminate_on' => (bool) config('settings.cronjob_terminate_enabled', true)] + $forecast;
@@ -59,6 +64,18 @@ final class DunningForecast
             $day = $today->copy()->addDays($d);
             foreach (DunningRules::suspendable($day, $requiresInvoice)->pluck('id') as $id) {
                 $suspendFrom[(int) $id] ??= $day;
+            }
+            // «Only with an overdue invoice»: a renewal the cron bills before then counts too (ADV-681-3). Its invoice is
+            // due on the due date and issued «invoice days» before it, so it is overdue as soon as the service is.
+            if ($requiresInvoice) {
+                $unbilled = DunningRules::suspendable($day)->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID))
+                    ->whereKeyNot(array_keys($suspendFrom))->with(['plan', 'nextPlan'])->get();
+                foreach ($unbilled as $service) {
+                    $billedOn = Carbon::parse($service->expires_at)->startOfDay()->subDays(RenewalBilling::serviceInvoiceDays(RenewalBilling::billedPlan($service) ?? $service->plan));
+                    if ($billedOn->greaterThan($today)) {
+                        $suspendFrom[(int) $service->id] ??= $day;
+                    }
+                }
             }
             foreach (DunningRules::terminable($day)->pluck('id') as $id) {
                 $terminateFrom[(int) $id] ??= $day;
