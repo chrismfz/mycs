@@ -55,16 +55,22 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   3. Μετά το import: `grep 'in Collections' <log του import>` δεν πρέπει να βρει τίποτα (η γραμμή βγαίνει νωρίς και
      χάνεται στο scroll). Αν βρει, όσα τιμολόγια λέει έμειναν ως απλήρωτα και ακυρώνονται στο MyCS πριν τρέξει το πρώτο
      cron του.
-- **Upgrades του WHMCS που δεν πληρώθηκαν (ADV-A1-1, 2026-11-07):** ένα upgrade **πακέτου** (`tblupgrades` Pending,
-  paid N, σε ανοιχτό τιμολόγιο) έρχεται ως pending upgrade και, αν πληρωθεί εδώ, εφαρμόζεται. Όσα **δεν** μπορεί (αλλαγή
-  options, ή προϊόν/κύκλος που δεν υπάρχει εδώ) έρχονται ως απλή χρέωση της υπηρεσίας: η πληρωμή τους εδώ **δεν** κάνει
-  upgrade. Πριν από το τελικό dump: `SELECT id, relid, type FROM tblupgrades WHERE status = 'Pending' AND paid <> 'Y'
-  AND type = 'configoptions'`, και όσα βγουν τακτοποιούνται ή ακυρώνονται στο WHMCS (με το τιμολόγιό τους). Μετά το
-  import: `grep 'imported as a charge' <log του import>` δεν πρέπει να βρει τίποτα· αν βρει, τα ονομάζει.
+- **Upgrades του WHMCS που δεν πληρώθηκαν (ADV-A1-1, απόφαση ιδιοκτήτη 2026-11-07): τακτοποιούνται ή ακυρώνονται στο
+  WHMCS πριν από το τελικό dump.** Εδώ έρχονται ως απλή χρέωση της υπηρεσίας: η πληρωμή τους **δεν** κάνει upgrade, και
+  το τιμολόγιό τους έρχεται με `no_auto_charge` (η MyCS δεν το χρεώνει μόνη της). Έλεγχος 2026-11-06: κανένα σε καμία
+  εταιρεία.
+  1. Ακριβώς πριν από το dump: `SELECT u.id, u.relid, u.type, ii.invoiceid FROM tblupgrades u JOIN tblinvoiceitems ii
+     ON ii.type = 'Upgrade' AND ii.relid = u.id JOIN tblinvoices i ON i.id = ii.invoiceid WHERE u.status = 'Pending'
+     AND u.paid <> 'Y' AND u.type IN ('package', 'configoptions') AND i.status NOT IN ('Paid', 'Cancelled', 'Refunded')`
+     = καμία γραμμή. Όσα βγουν: να πληρωθούν (και να εφαρμοστούν) ή να ακυρωθούν στο WHMCS, με το τιμολόγιό τους.
+  2. Μετά το import: `grep 'unpaid WHMCS upgrade' <log του import>` δεν πρέπει να βρει τίποτα· αν βρει, ονομάζει
+     τιμολόγιο, υπηρεσία και upgrade, και το staff τα χειρίζεται με το χέρι (Upgrade/Downgrade της υπηρεσίας).
 - **«Payment Pending» (ADV-A1-3):** έρχονται `unpaid` με πληρωμή `processing` του υπολοίπου (transaction id
-  `whmcs-pending-<τιμολόγιο>`): ούτε χρέωση της αποθηκευμένης μεθόδου ούτε υπενθυμίσεις. Ο importer τα ονομάζει
-  (`grep 'Payment Pending' <log>`). Όταν περάσει η χρέωση (το webhook της θα είναι «ξένο»), το staff καταγράφει την πληρωμή
-  με αυτό το transaction id· αν απέτυχε, σβήνει την πληρωμή `processing`.
+  `whmcs-pending-<τιμολόγιο>`, με την ημέρα του τιμολογίου): ούτε χρέωση της αποθηκευμένης μεθόδου ούτε υπενθυμίσεις.
+  Ενός γονικού Mass Pay, κάθε ανοιχτό παιδί του παίρνει τη δική του. Ο importer τα ονομάζει (`grep 'Payment Pending'
+  <log>`). Όταν περάσει η χρέωση (το webhook της θα είναι «ξένο»), το staff καταγράφει την πληρωμή με αυτό το
+  transaction id, **με το ίδιο gateway ή χωρίς gateway**· αν απέτυχε, σβήνει την πληρωμή `processing`. Όσες μείνουν
+  πάνω από 7 μέρες τις θυμίζει το cron («needs staff attention»).
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**

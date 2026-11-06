@@ -146,7 +146,7 @@
 | `tblinvoices.credit` | πληρωμή από πίστωση στο τιμολόγιο (`credit_out` + `payment`), με ημερομηνία το «Credit Applied» του `tblcredit` (μόνο μέρα: η ώρα της πληρωμής του τιμολογίου αν είναι η ίδια μέρα) |
 | υπερπληρωμή | `credited_amount` στις νεότερες πληρωμές + `credit_in` (`overpayment`), πριν από τις επιστροφές: όσο λέει το «Invoice #N Overpayment» του `tblcredit`, αλλιώς ό,τι δεν πήραν πίσω οι επιστροφές |
 | Mass Pay | η πληρωμή, το `credited_amount` της και τα allocations, ομαδοποιημένα `transaction:<id>` όπως το `spendCredit` |
-| Mass Pay που δεν πληρώθηκε, με πίστωση πάνω του (`tblinvoices.credit` > 0, κανένα χρήμα) | το γονικό δεν έρχεται, άρα η πίστωση γυρνά στο υπόλοιπο του πελάτη: `credit_out` (`credit_payment`, «Credit Applied») + `credit_in` (`cancellation`) και το υπόλοιπο που εισάγεται ανεβαίνει όσο αυτή (`unfinishedMassPay`, ADV-A1-2). Το parity μετρά στο υπόλοιπο του WHMCS και αυτή την πίστωση (`WhmcsParity::creditBalances`, και ανά πελάτη) |
+| Mass Pay που δεν πληρώθηκε (όχι Paid ούτε Payment Pending), με πίστωση πάνω του (`tblinvoices.credit` > 0, κανένα χρήμα) | το γονικό δεν έρχεται, άρα η πίστωση γυρνά στο υπόλοιπο του πελάτη: `credit_out` (`credit_payment`, «Credit Applied») + `credit_in` (`cancellation`) και το υπόλοιπο που εισάγεται ανεβαίνει όσο αυτή (`unfinishedMassPay`, ADV-A1-2). Το parity μετρά στο υπόλοιπο του WHMCS και αυτή την πίστωση (`WhmcsParity::creditBalances`, και ανά πελάτη) |
 | Add Funds πληρωμένο | `credit_in` (`purchase`) ανά γραμμή, και `applied_at` στη γραμμή |
 | αρνητικό τιμολόγιο | `credit_in` (`invoice_reduced`) |
 | `tblcredit` χωρίς τιμολόγιο (staff, refund σε πίστωση, downgrade) | `credit_in`/`credit_out` (`staff_adjustment`, `refund_to_credit`, `downgrade`), η περιγραφή στο `money_event_notes` |
@@ -251,7 +251,7 @@
 | WHMCS | MyCS |
 |---|---|
 | Draft | `draft` |
-| Unpaid, Payment Pending | `unpaid`. Το «Payment Pending» (SEPA/ACH ή PayPal σε εξέλιξη) παίρνει και συναλλαγή `processing` του υπολοίπου του στο WHMCS (`total` μείον ό,τι μπήκε), με transaction id `whmcs-pending-<id>` και το gateway του `paymentmethod` (`importPendingPayments`, ADV-A1-3/ADV-A4-1): το `SavedMethodCharge::onItsWay` το κρατά, οπότε το cron δεν το ξαναχρεώνει, δεν στέλνει υπενθυμίσεις και δεν αναστέλλει. Δεν μπαίνει στο ημερολόγιο ούτε στο parity (μόνο τα `succeeded`). Ο importer τα ονομάζει· το staff τα ολοκληρώνει καταγράφοντας την πληρωμή με αυτό το transaction id, ή σβήνει την πληρωμή αν η χρέωση απέτυχε (`cutover-runbook.md`) |
+| Unpaid, Payment Pending | `unpaid`. Το «Payment Pending» (SEPA/ACH ή PayPal σε εξέλιξη) παίρνει και συναλλαγή `processing` του υπολοίπου του στο WHMCS (`total` μείον ό,τι μπήκε), με transaction id `whmcs-pending-<id>` και το gateway του `paymentmethod` (`importPendingPayments`, ADV-A1-3/ADV-A4-1): το `SavedMethodCharge::onItsWay` το κρατά, οπότε το cron δεν το ξαναχρεώνει, δεν στέλνει υπενθυμίσεις και δεν αναστέλλει. Δεν μπαίνει στο ημερολόγιο ούτε στο parity (μόνο τα `succeeded`). Με ημερομηνία την ημέρα του τιμολογίου (`date`), πριν από το cut-over, ώστε το rollback report να μην την πάρει ποτέ για δική της (R1-6). Ένα γονικό Mass Pay σε Payment Pending δεν έρχεται: κάθε ανοιχτό παιδί του παίρνει τη δική του `processing` για ό,τι του μένει (R1-3), και η πίστωσή του δεν γυρνά στο υπόλοιπο (δεν είναι «ημιτελές»). Ο importer τα ονομάζει· το staff τα ολοκληρώνει καταγράφοντας την πληρωμή με αυτό το transaction id, **με το ίδιο gateway ή χωρίς gateway** (R1-7), ή σβήνει την πληρωμή αν η χρέωση απέτυχε. Όσες μένουν `processing` πάνω από 7 μέρες, το καθημερινό cron τις λέει στο staff μία φορά την εβδομάδα («needs staff attention», `imported_pending_payments`, R1-5) (`cutover-runbook.md`) |
 | Paid | `paid` |
 | Cancelled | `cancelled` |
 | Refunded | `refunded` (PR 2c) |
@@ -611,7 +611,6 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
 | Addon ζωντανού addon | `Service`, η δική του υπηρεσία (`whmcs_addon_id`, [`addons.md`](addons.md) βήμα 4) | κενό: ανανέωση, όπως Hosting |
 | Addon τελειωμένου addon | `Service`, η γονική (`tblhostingaddons.hostingid`) | `charge` |
 | Upgrade | `Service`, η υπηρεσία του upgrade (`tblupgrades.relid`, μόνο `package`/`configoptions`) | `charge` |
-| Upgrade που δεν πληρώθηκε (`tblupgrades` Pending, paid N, πακέτου, σε τιμολόγιο `unpaid`) | `ServiceUpgrade`: pending upgrade της υπηρεσίας στο προϊόν και τον κύκλο του `newvalue` («product id,cycle»), με αυτό το τιμολόγιο (ADV-A1-1) | κενό |
 | AddFunds | `Credit`, κενό | κενό |
 | οτιδήποτε άλλο (Domain*, PromoDomain, LateFee, GroupDiscount, Item, …) | κενό, το relid όπως ήταν | κενό |
 
@@ -622,13 +621,13 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
 - **Addon/Upgrade → η υπηρεσία (απόφαση):** ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά του είναι του
   προϊόντος της. Ένα ζωντανό addon είναι πια δική του υπηρεσία (2026-11-04, `addons.md` βήμα 4), με τις γραμμές του· ενός
   τελειωμένου μένουν στη γονική.
-- **Upgrade που δεν πληρώθηκε (ADV-A1-1, 2026-11-07):** το WHMCS το εφαρμόζει όταν πληρωθεί το τιμολόγιό του. Ως απλή
-  χρέωση, η πληρωμή του εδώ δεν άλλαζε το πακέτο. Γίνεται λοιπόν pending `ServiceUpgrade` (`pendingUpgrade`), και η
-  πληρωμή το εφαρμόζει (`ProcessPaidInvoiceService` → `ServiceUpgradeService`: νέο προϊόν, plan, τιμή του καταλόγου). Η
-  γραμμή κρατά το ποσό του WHMCS. Από εκεί και πέρα είναι upgrade όπως όσα γίνονται εδώ: το cron τιμολογεί τη γραμμή
-  για τις μέρες που μένουν και το εγκαταλείπει στη λήξη της υπηρεσίας. Ένα upgrade options (`configoptions`), ή προϊόν
-  ή κύκλος που δεν υπάρχει εδώ, μένει χρέωση και ο importer το ονομάζει· τακτοποιείται στο WHMCS πριν από το τελικό
-  dump (`cutover-runbook.md`).
+- **Upgrade που δεν πληρώθηκε (ADV-A1-1, απόφαση ιδιοκτήτη 2026-11-07 μετά το review 1):** το WHMCS το εφαρμόζει όταν
+  πληρωθεί το τιμολόγιό του· εδώ η πληρωμή μιας χρέωσης δεν αλλάζει το πακέτο. Ως pending `ServiceUpgrade` όμως το cron
+  θα άλλαζε το ποσό του WHMCS (τιμή για τις μέρες που μένουν, μηδέν σε downgrade), θα χρέωνε δεύτερο τιμολόγιο ή θα το
+  εγκατέλειπε (R1-1/2/4). Άρα κάθε γραμμή upgrade `tblupgrades` Pending, όχι πληρωμένο (`package` και `configoptions`),
+  σε τιμολόγιο `unpaid` μένει χρέωση όπως πριν, ο importer την ονομάζει (τιμολόγιο, υπηρεσία, id του upgrade στο WHMCS)
+  και το τιμολόγιο παίρνει `no_auto_charge`: η MyCS δεν το χρεώνει ποτέ μόνη της. Τακτοποιούνται ή ακυρώνονται στο WHMCS
+  πριν από το τελικό dump (`cutover-runbook.md`).
 - **Υπηρεσία που δεν υπάρχει** (σβήστηκε στο WHMCS, ή addon/upgrade χωρίς γραμμή): χωρίς τύπο, ποτέ με «μάντεμα».
 - **Domains:** οι γραμμές τους πάνε στο domain τους (D6, επόμενη ενότητα). Μια γραμμή domain που δεν υπάρχει εδώ μένει
   χωρίς τύπο, όπως πριν.

@@ -11,6 +11,7 @@ return [
         'card_expiry_notices' => 'Ειδοποιήσεις λήξης αποθηκευμένων μεθόδων πληρωμής',
         'add_funds_cancelled' => 'Απλήρωτα «Add Funds» που ακυρώθηκαν',
         'orders_cancelled' => 'Παραγγελίες που ακυρώθηκαν',
+        'imported_pending_payments' => 'Πληρωμές του WHMCS σε εκκρεμότητα από το import (ενημέρωση staff)',
         'upgrade_invoices_updated' => 'Τιμολόγια αλλαγής πακέτου που ενημερώθηκαν',
         'credit_applied' => 'Πίστωση σε ανοιχτά τιμολόγια',
         'cancellations_processed' => 'Αιτήματα ακύρωσης που εκτελέστηκαν',

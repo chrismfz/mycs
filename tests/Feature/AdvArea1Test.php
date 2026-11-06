@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Models\BillingAgreement;
 use App\Models\Category;
+use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -150,11 +151,11 @@ class AdvArea1Test extends TestCase
         $this->item(700, 'Upgrade', 41, 4);
         $this->import();
 
-        $invoice = Invoice::query()->findOrFail(700);
-        (new RecordPaymentService)->recordByStaff($invoice, null, '4.00', 'bank-1');
-
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'the customer paid the upgrade');
-        $this->assertSame($bigger->id, (int) $service->fresh()->product_id, 'paid in WHMCS, it would be on the product it paid the upgrade to');
+        // Owner's decision after review 1 (2026-11-07, «never bill wrongly»): not applied on payment here (a pending upgrade
+        // brought R1-1/2/4), but named for staff to settle in WHMCS before the final dump, and never charged automatically.
+        $this->assertStringContainsString('invoice #700 service #101 WHMCS upgrade #41 (package)', $this->output->fetch(), 'told to staff');
+        $this->assertTrue((bool) Invoice::query()->findOrFail(700)->no_auto_charge, 'MyCS never charges it by itself');
+        $this->assertSame(10.0, (float) $service->fresh()->price, 'unchanged until staff settle it in WHMCS');
     }
 
     /**
@@ -259,28 +260,31 @@ class AdvArea1Test extends TestCase
         $this->assertSame([], AdvA4Pay::$charges, 'the invoice WHMCS is already collecting (Payment Pending) is debited a second time');
     }
 
-    /** The fix of ADV-A1-1 (fixer): the upgrade it made is pending, to the new product's plan, with WHMCS's amount on its line. */
-    public function test_fix_a1_1_an_unpaid_package_upgrade_comes_as_a_pending_upgrade_and_an_options_one_is_named(): void
+    /** The fix of ADV-A1-1 (fixer): every unpaid upgrade line stays a charge, is named, and its invoice is not auto-charged. */
+    public function test_fix_a1_1_unpaid_upgrades_stay_charges_named_and_not_auto_charged(): void
     {
         $this->service(101);
         $this->service(102);
         $bigger = Product::factory()->create(['name' => 'Business 20', 'category_id' => $this->product->category_id]);
-        $plan = $this->plan($bigger, 20);
+        $this->plan($bigger, 20);
         $this->whmcs->exec("INSERT INTO tblupgrades VALUES (41, {$this->clientId}, 9, 'package', '2026-10-15', 101, '{$this->product->id},monthly',
-            '{$bigger->id},monthly', 4.00, 10.00, 'Pending', 'N'), (42, {$this->clientId}, 10, 'configoptions', '2026-10-15', 102, '7=>1', '7=>2', 3.00, 3.00, 'Pending', 'N')");
+            '{$bigger->id},monthly', 4.00, 10.00, 'Pending', 'N'), (42, {$this->clientId}, 10, 'configoptions', '2026-10-15', 102, '7=>1', '7=>2', 3.00, 3.00, 'Pending', 'N'),
+            (43, {$this->clientId}, 11, 'package', '2026-09-15', 102, '1,monthly', '2,monthly', 2.00, 2.00, 'Completed', 'Y')");
         $this->invoice(700, 'Unpaid', 7);
         $this->item(700, 'Upgrade', 41, 4);
         $this->item(700, 'Upgrade', 42, 3);
+        $this->invoice(701, 'Paid', 2);
+        $this->item(701, 'Upgrade', 43, 2);
         $this->import();
 
-        $upgrade = ServiceUpgrade::query()->sole();
-        $this->assertSame([101, $bigger->id, $plan->id, 700, ServiceUpgrade::STATUS_PENDING],
-            [(int) $upgrade->service_id, (int) $upgrade->product_id, (int) $upgrade->plan_id, (int) $upgrade->invoice_id, $upgrade->status]);
-        $lines = InvoiceItem::query()->where('invoice_id', 700)->orderBy('id')->get();
-        $this->assertSame([ServiceUpgrade::class, $upgrade->id, null, '4.00'],
-            [$lines[0]->reference_type, (int) $lines[0]->reference_id, $lines[0]->kind, number_format((float) $lines[0]->price, 2, '.', '')]);
-        $this->assertSame([Service::class, 102, InvoiceItem::KIND_CHARGE], [$lines[1]->reference_type, (int) $lines[1]->reference_id, $lines[1]->kind]);
-        $this->assertStringContainsString('#42 (configoptions, service #102, invoice #700)', $this->output->fetch());
+        $this->assertSame(0, ServiceUpgrade::query()->count());
+        $this->assertSame([[Service::class, 101, InvoiceItem::KIND_CHARGE, '4.00'], [Service::class, 102, InvoiceItem::KIND_CHARGE, '3.00']],
+            InvoiceItem::query()->where('invoice_id', 700)->orderBy('id')->get()->map(fn (InvoiceItem $line) => [$line->reference_type,
+                (int) $line->reference_id, $line->kind, number_format((float) $line->price, 2, '.', '')])->all());
+        $output = $this->output->fetch();
+        $this->assertStringContainsString('2 unpaid WHMCS upgrade(s)', $output);
+        $this->assertStringContainsString('invoice #700 service #102 WHMCS upgrade #42 (configoptions)', $output);
+        $this->assertSame([true, false], [(bool) Invoice::query()->findOrFail(700)->no_auto_charge, (bool) Invoice::query()->findOrFail(701)->no_auto_charge]);
     }
 
     /** The fix of ADV-A1-2 (fixer): the credit goes back with its moves, no «opening balance» for it, and parity agrees. */
@@ -317,5 +321,57 @@ class AdvArea1Test extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertSame([['10.00', 'succeeded']], InvoiceTransaction::query()->where('invoice_id', 700)->get()
             ->map(fn (InvoiceTransaction $t) => [number_format((float) $t->amount, 2, '.', ''), $t->status->value])->all());
+    }
+
+    /** R1-6 (fixer): the imported pending payment is dated by its invoice's day, before the cut-over. */
+    public function test_fix_r1_6_the_pending_payment_is_dated_by_the_invoice_date(): void
+    {
+        $this->service(101);
+        $this->invoice(700, 'Payment Pending', 10, due: '2026-10-25');
+        $this->item(700, 'Hosting', 101, 10);
+        $this->import();
+
+        $this->assertSame('2026-10-15', InvoiceTransaction::query()->where('invoice_id', 700)->sole()->created_at->toDateString());
+    }
+
+    /** R1-5 (fixer): one still processing a week on is told to staff by the daily cron, with its invoice and client. */
+    public function test_fix_r1_5_the_cron_tells_staff_of_an_imported_payment_still_processing_after_a_week(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->service(101);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 101, 10);
+        $this->import();
+        $told = fn () => EmailLog::query()->where('subject', 'like', '%needs staff attention%')
+            ->where('body', 'like', "%Invoice #700 (client #{$this->clientId}): the payment WHMCS had on its way%")->count();
+
+        Carbon::setTestNow('2026-10-21 10:00:00'); // 6 days after its invoice's day
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(0, $told());
+
+        Carbon::setTestNow('2026-10-23 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(1, $told());
+        $this->assertSame('processing', InvoiceTransaction::query()->where('invoice_id', 700)->sole()->status->value, 'nothing changes by itself');
+    }
+
+    /** R1-3 (fixer): each open child of a Payment Pending Mass Pay is held for its own remaining, and the parent is named. */
+    public function test_fix_r1_3_a_payment_pending_mass_pay_holds_each_child_for_its_remaining(): void
+    {
+        foreach ([[801, 10], [802, 15]] as [$id, $amount]) {
+            $this->invoice($id, 'Unpaid', $amount);
+            $this->item($id, 'Hosting', 0, $amount);
+        }
+        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, invoicenum, date, duedate, datepaid, status, total, credit, taxrate, subtotal)
+            VALUES (900, {$this->clientId}, '', '2026-10-16', '2026-10-16', '0000-00-00 00:00:00', 'Payment Pending', 20, 5, 0, 25)");
+        $this->item(900, 'Invoice', 801, 10);
+        $this->item(900, 'Invoice', 802, 15);
+        $this->import();
+
+        $this->assertSame([[801, '10.00', 'whmcs-pending-801', '2026-10-16'], [802, '15.00', 'whmcs-pending-802', '2026-10-16']],
+            InvoiceTransaction::query()->orderBy('invoice_id')->get()->map(fn (InvoiceTransaction $t) => [(int) $t->invoice_id,
+                number_format((float) $t->amount, 2, '.', ''), $t->transaction_id, $t->created_at->toDateString()])->all());
+        $this->assertStringContainsString('Mass Pay #900 on #801, #802', $this->output->fetch());
+        $this->assertFalse(DB::table('money_events')->where('cause', MoneyTrail::CAUSE_CANCELLATION)->exists(), 'its credit is not «unfinished»');
     }
 }

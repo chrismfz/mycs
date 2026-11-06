@@ -28,9 +28,10 @@ final class WhmcsMassPay
 
     /**
      * Mass Pay parents never finished (not Paid: no money came) that hold credit WHMCS applied to them: dropped here, so
-     * that credit goes back to the customer's balance (ADV-A1-2). The importer's journal and parity's rule alike.
+     * that credit goes back to the customer's balance (ADV-A1-2). Not one in Payment Pending: its debit is on its way, with
+     * that credit part of it (R1-3). The importer's journal and parity's rule alike.
      */
-    public const UNFINISHED_CREDIT_SQL = "SELECT u.id, u.userid, u.credit FROM tblinvoices u WHERE u.status <> 'Paid' AND u.credit > 0
+    public const UNFINISHED_CREDIT_SQL = "SELECT u.id, u.userid, u.credit FROM tblinvoices u WHERE u.status NOT IN ('Paid', 'Payment Pending') AND u.credit > 0
             AND u.id IN (" . self::PARENTS_SQL . ') ORDER BY u.id';
 
     /**
