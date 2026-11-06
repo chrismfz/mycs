@@ -106,6 +106,19 @@ final class DifferenceDiscountTest extends TestCase
         $this->assertSame(['0.32', '0.32', '10.00'], [$discount->discountNet, $discount->discountTotal, $discount->dueTotal]);
     }
 
+    public function test_a_repriced_charge_keeps_the_discounts_share(): void
+    {
+        // A percentage stays it: 10% of 3.87 = 0.387 → 0.39.
+        $this->assertSame('0.39', DifferenceDiscount::follow('10.32', '1.03', '3.87', '10.00'));
+        // An amount keeps the share it was: 0.24 of 10.32, of 3.87 = 0.09.
+        $this->assertSame('0.09', DifferenceDiscount::follow('10.32', '0.24', '3.87'));
+        // Waived in all but name (all of it): all of the new one, never more.
+        $this->assertSame('3.87', DifferenceDiscount::follow('10.32', '10.32', '3.87'));
+        // Nothing left to charge, or nothing charged before: nothing off.
+        $this->assertSame('0.00', DifferenceDiscount::follow('10.32', '1.03', '0', '10'));
+        $this->assertSame('0.00', DifferenceDiscount::follow('0.00', '1.03', '3.87'));
+    }
+
     /** @return array<string, array{string, string, string, string}> */
     public static function refused(): array
     {

@@ -9,6 +9,7 @@ use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\LineTax;
@@ -131,6 +132,10 @@ class InvoiceItemObserver
      */
     public function deleted(InvoiceItem $invoice): void
     {
+        // Staff took the discount off an upgrade's invoice: the upgrade no longer has one (ADV-685-3).
+        if ($invoice->kind === InvoiceItem::KIND_DISCOUNT && $invoice->reference_type === ServiceUpgrade::class) {
+            ServiceUpgrade::query()->whereKey($invoice->reference_id)->first()?->forceFill(['discount' => null, 'discount_percent' => null])->save();
+        }
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Deleted($invoice));
     }

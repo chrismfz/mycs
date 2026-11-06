@@ -91,6 +91,29 @@ final class DifferenceDiscount
         return !BigDecimal::of($this->dueTotal)->isPositive();
     }
 
+    /**
+     * The net discount once the charge it is on is repriced (MyCS: the cron's, as the days left run out): the same share
+     * of it, so a discount never costs more than none. A percentage stays that percentage; an amount the share it was of
+     * the old charge (half-up to cents), never more than the new charge.
+     */
+    public static function follow(string $oldFullNet, string $oldDiscountNet, string $newFullNet, ?string $percent = null): string
+    {
+        $new = BigDecimal::of($newFullNet)->toScale(2, RoundingMode::HalfUp);
+        if (!$new->isPositive()) {
+            return '0.00';
+        }
+        if ($percent !== null) {
+            return (string) self::fromPercent($new, self::amount($percent));
+        }
+        $old = BigDecimal::of($oldFullNet);
+        if (!$old->isPositive()) {
+            return '0.00';
+        }
+        $share = BigDecimal::of($oldDiscountNet)->multipliedBy($new)->dividedBy($old, 2, RoundingMode::HalfUp);
+
+        return (string) BigDecimal::min(BigDecimal::max($share, BigDecimal::zero()), $new);
+    }
+
     private static function fromPercent(BigDecimal $full, BigDecimal $percent): BigDecimal
     {
         if ($percent->isGreaterThan(100)) {

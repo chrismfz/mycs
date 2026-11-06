@@ -53,6 +53,7 @@ use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
 use App\Support\DunningWindow;
 use App\Support\Retention;
+use Brick\Math\BigDecimal;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,6 +61,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use MyCS\Pricing\DifferenceDiscount;
 use Throwable;
 
 class CronJob extends Command
@@ -1196,22 +1198,29 @@ class CronJob extends Command
         if ($invoice === null || $service->plan === null) {
             return 0;
         }
-        // Staff priced it by hand (a discount on the difference, owner 2026-11-06): its invoice keeps what they agreed,
-        // as an invoice staff edit; a repriced line under a fixed discount would charge what nobody chose.
-        if ($upgrade->discount !== null) {
-            return 0;
-        }
-
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
         // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
         // Never below zero: a downgrade's difference is credit at order time (Livewire Upgrade), not a negative line
         // that leaves the invoice owing the customer (adversarial review of 2b, S6).
         $price = max(0, $upgrade->calculatePrice()->price);
         $changed = 0;
-        $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get()
-            ->each(function (InvoiceItem $line) use ($price, &$changed) {
-                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
-            });
+        $lines = $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->orderBy('id')->get();
+        [$discounts, $charges] = $lines->partition(fn (InvoiceItem $line) => $line->kind === InvoiceItem::KIND_DISCOUNT);
+        $oldCharge = (string) $charges->reduce(fn (BigDecimal $sum, InvoiceItem $line) => $sum->plus((string) $line->price), BigDecimal::zero());
+        $charges->each(function (InvoiceItem $line) use ($price, &$changed) {
+            $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
+        });
+        // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge: the same percentage, or the
+        // share an amount was (adversarial ADV-685-2: frozen, a discount came to cost more than none). Under the invoice's
+        // lock ChangeOpenLine took for the charge (this transaction): both change, or neither (a paid one keeps both).
+        foreach ($discounts as $line) {
+            $net = DifferenceDiscount::follow($oldCharge, (string) BigDecimal::of((string) $line->price)->negated(),
+                number_format($price, 2, '.', ''), $upgrade->discount_percent === null ? null : (string) $upgrade->discount_percent);
+            if (ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = '-' . $net)) {
+                $changed++;
+                $upgrade->forceFill(['discount' => $net])->save();
+            }
+        }
 
         return $changed > 0 ? 1 : 0;
     }

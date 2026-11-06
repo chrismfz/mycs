@@ -368,18 +368,40 @@ class UpgradeDiscountTest extends TestCase
             'the days more, not the discount billed back');
     }
 
-    public function test_the_cron_leaves_the_amount_staff_agreed(): void
+    /** @return array<string, array{array<string, string>, list<string>, string}> */
+    public static function repriced(): array
+    {
+        // On 07-25 six of the 31 days are left: (30 − 10) × 6 / 31 = 3.87 net, 4.80 with tax.
+        return [
+            // 10% stays 10%: 0.387 → 0.39 net, 0.48 with tax.
+            'a percentage' => [['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10'], ['3.87', '-0.39'], '0.39'],
+            // 12.50 of 12.80 was 0.24 net off 10.32; the same share of 3.87 is 0.09.
+            'an amount' => [['discount_mode' => DifferenceDiscount::AMOUNT, 'discount_value' => '12.50'], ['3.87', '-0.09'], '0.09'],
+        ];
+    }
+
+    /**
+     * The cron reprices the charge as the days run out, and the discount keeps its share (ADV-685-2: frozen, a discount
+     * came to cost more than none).
+     *
+     * @param  array<string, string>  $discount
+     * @param  list<string>  $nets
+     */
+    #[DataProvider('repriced')]
+    public function test_the_cron_reprices_the_charge_and_the_discount_keeps_its_share(array $discount, array $nets, string $recorded): void
     {
         $service = $this->service($this->small, 10.00);
-        $this->staffUpgrade($service, ['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10']);
-        $invoice = ServiceUpgrade::query()->sole()->invoice;
-        $before = $this->lines($invoice);
+        $this->staffUpgrade($service, $discount);
+        $upgrade = ServiceUpgrade::query()->sole();
 
-        Carbon::setTestNow('2026-07-20 03:00:00');
+        Carbon::setTestNow('2026-07-25 03:00:00');
         $this->artisan('app:cron-job');
 
-        $this->assertSame($before, $this->lines($invoice->fresh()));
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $lines = $this->lines($upgrade->invoice->fresh());
+        $this->assertSame($nets, array_column($lines, 1));
+        $this->assertSame($recorded, $upgrade->fresh()->discount, 'the record follows the line');
+        $this->assertLessThanOrEqual(480, (int) round((float) $this->totalOf($upgrade->invoice->fresh()) * 100), 'never above no discount');
+        $this->assertSame(Invoice::STATUS_UNPAID, $upgrade->invoice->fresh()->status);
     }
 
     public function test_a_later_downgrade_gives_back_only_what_the_discounted_upgrade_paid(): void
