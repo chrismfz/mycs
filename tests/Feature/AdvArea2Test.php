@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Plan;
@@ -18,9 +18,9 @@ use App\Models\User;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use MyCS\Extensions\Gateways\AcPay\AcPay;
 use Tests\TestCase;
@@ -155,12 +155,15 @@ class AdvArea2Test extends TestCase
         ExtensionHelper::addPayment($placed->invoice->id, null, $placed->invoice->fresh()->remaining, null, 'bank-up', currency: 'USD');
         $this->assertSame('20.00', number_format((float) $service->fresh()->price, 2), 'precondition: the upgrade is applied');
 
-        // Fix-agnostic (UpgradeLifecycleTest pins that the part-paid line itself keeps its price, R9): what is still owed
-        // over all the customer's open invoices.
+        // Fixed as decided (owner, after review 2 of the fix): the part-paid line keeps its price (R9, UpgradeLifecycleTest)
+        // and nothing is billed apart (never bill wrongly: an invoice of its own outlived a cancellation or a downgrade);
+        // staff are told the exact difference to settle, instead of only a PaymentsLog warning.
         $owed = Invoice::query()->where('client_id', $this->client->id)->where('status', Invoice::STATUS_UNPAID)->get()
             ->sum(fn (Invoice $invoice) => (float) $invoice->remaining);
-        $this->assertSame('16.00', number_format($owed, 2),
-            'the month 11-17 → 12-17 of the 20.00 package is owed at 20.00 (4.00 paid by credit), not 10.00');
+        $this->assertSame('6.00', number_format($owed, 2), 'nothing billed on top of the part-paid renewal');
+        $notice = EmailLog::query()->where('to', 'staff@example.test')->where('subject', 'like', '%kept its old price%')->sole();
+        $this->assertStringContainsString("invoice #{$renewal->id}, period 17/11/2026 - 17/12/2026: 10.00 USD", $notice->body,
+            'the month 11-17 → 12-17 of the 20.00 package is 10.00 short: staff are told, with the invoice and the period');
     }
 
     private function product(float $price): Product

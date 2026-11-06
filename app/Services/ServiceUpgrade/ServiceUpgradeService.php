@@ -4,6 +4,7 @@ namespace App\Services\ServiceUpgrade;
 
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\UpgradeJob;
+use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
@@ -76,7 +77,7 @@ class ServiceUpgradeService
             $newPrice = $serviceUpgrade->newRecurringPrice();
             $fromCatalog = $serviceUpgrade->repricesFromCatalog();
             $shortfall = $this->shortfall($serviceUpgrade);
-            $partPaid = $this->partPaidPeriods($service);
+            $kept = $this->keptPeriods($service);
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
             $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
@@ -170,7 +171,7 @@ class ServiceUpgradeService
             if ($shortfall !== null) {
                 $this->billShortfall($serviceUpgrade, $service, $shortfall);
             }
-            $this->billPartPaidPeriods($serviceUpgrade, $service, $partPaid);
+            $this->tellOfKeptPeriods($serviceUpgrade, $service, $kept);
 
             // Its customer told, once it is committed (an upgrade, a downgrade or options; WHMCS confirms one).
             $id = (int) $service->id;
@@ -213,17 +214,17 @@ class ServiceUpgradeService
     }
 
     /**
-     * The open renewal lines of the service on an invoice with a payment on it (credit auto-apply part paid it, say),
-     * each with the price of its period before the upgrade (ADV-A2-2): ChangeOpenLine keeps such a line (R9), so the
-     * difference is billed apart once the service has its new price (billPartPaidPeriods).
+     * The open renewal lines of the service ChangeOpenLine will keep at their price (R9: a payment on the invoice, credit
+     * auto-apply's part say; or an active Ekdosi document), each with the price of its period before the upgrade
+     * (ADV-A2-2). Read before the service changes, for tellOfKeptPeriods.
      *
      * @return list<array{line: InvoiceItem, before: string}>
      */
-    private function partPaidPeriods(Service $service): array
+    private function keptPeriods(Service $service): array
     {
         $periods = [];
         foreach ($service->livePeriodLines() as $line) {
-            if (in_array($line->invoice?->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && $line->invoice->hasPayments()) {
+            if (in_array($line->invoice?->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && self::keepsItsLine($line->invoice)) {
                 $periods[] = ['line' => $line, 'before' => $service->priceForPeriod($line->period_start, $line->period_end)];
             }
         }
@@ -231,51 +232,46 @@ class ServiceUpgradeService
         return $periods;
     }
 
+    /** As ChangeOpenLine decides it: a payment on it (R9), or a fiscal document from Ekdosi (R2-2 of #459). */
+    private static function keepsItsLine(Invoice $invoice): bool
+    {
+        return $invoice->hasPayments() || EkdosiDocument::activeOn($invoice->id);
+    }
+
     /**
-     * The difference the upgrade makes to a period whose line kept its price (ADV-A2-2), on an invoice of its own as
-     * billShortfall does: what this upgrade adds (new price of the period less its price before), so a second upgrade
-     * bills only its own part. A line repriced after all (its payment gone meanwhile), or one paid, bills nothing; a
-     * downgrade's period stays as it is (R9: staff decide).
+     * A period whose line kept the old price (ADV-A2-2) is staff's to settle, never billed apart (owner: never bill wrongly;
+     * an invoice of its own outlived a cancellation or a downgrade, review 2): they are told, once it commits, the service,
+     * the invoice, the period and the exact difference (its new price less its price before this upgrade, × quantity).
      *
      * @param  list<array{line: InvoiceItem, before: string}>  $periods
      */
-    private function billPartPaidPeriods(ServiceUpgrade $upgrade, Service $service, array $periods): void
+    private function tellOfKeptPeriods(ServiceUpgrade $upgrade, Service $service, array $periods): void
     {
         $lines = [];
         foreach ($periods as ['line' => $line, 'before' => $before]) {
             $kept = InvoiceItem::query()->with('invoice')->find($line->id);
             if ($kept === null || $kept->invoice === null || !in_array($kept->invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)
-                || !$kept->invoice->hasPayments() || (string) $kept->price !== (string) $line->price) {
-                continue;
+                || (string) $kept->price !== (string) $line->price) {
+                continue; // paid or given up meanwhile, or repriced after all
             }
             $difference = BigDecimal::of($service->priceForPeriod($kept->period_start, $kept->period_end))->minus(BigDecimal::of($before))
                 ->multipliedBy(max(1, (int) $kept->quantity))->toScale(2, RoundingMode::HalfUp);
-            if ($difference->isGreaterThan(0)) {
-                $lines[] = ['line' => $kept, 'amount' => (string) $difference];
+            if ($difference->isZero()) {
+                continue;
             }
+            $period = $kept->period_start->format('d/m/Y') . ' - ' . $kept->period_end->format('d/m/Y');
+            PaymentsLog::warning('Upgrade of a service whose open renewal keeps its price (a payment or an Ekdosi document on it): staff settle the difference.',
+                ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $kept->invoice_id,
+                    'invoice_item_id' => $kept->id, 'period' => $period, 'difference' => (string) $difference]);
+            $lines[] = "invoice #{$kept->invoice_id}, period {$period}: {$difference} {$service->currency_code}";
         }
         if ($lines === []) {
             return;
         }
-        $invoice = Invoice::query()->create([
-            'currency_code' => $service->currency_code,
-            'status' => Invoice::STATUS_UNPAID,
-            'due_at' => Carbon::now()->addDays(7),
-            'client_id' => $service->client_id,
-        ]);
-        foreach ($lines as ['line' => $line, 'amount' => $amount]) {
-            $invoice->items()->create([
-                'description' => 'Upgrade ' . $service->product->name . ': the difference for ' . $line->period_start->format('d/m/Y')
-                    . ' - ' . $line->period_end->format('d/m/Y') . ', billed before the upgrade',
-                'price' => $amount,
-                'quantity' => 1,
-                'reference_id' => $upgrade->id,
-                'reference_type' => ServiceUpgrade::class,
-            ]);
-            PaymentsLog::warning('Upgrade of a service whose open renewal has a payment on it: billed the difference apart.',
-                ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $invoice->id,
-                    'renewal_invoice_id' => $line->invoice_id, 'amount' => $amount]);
-        }
+        $body = "Upgrade #{$upgrade->id} of service #{$service->id} changed its price, but its open renewal invoice keeps the old "
+            . 'price (a payment or an Ekdosi document is on it). Settle the difference by hand (bill it, or credit it if negative): '
+            . implode('; ', $lines) . '.';
+        DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Upgraded service\'s renewal kept its old price: needs staff attention', e($body)));
     }
 
     /** The rest of an upgrade on an invoice of its own, as the upgrade's (`Livewire\Services\Upgrade`). */
