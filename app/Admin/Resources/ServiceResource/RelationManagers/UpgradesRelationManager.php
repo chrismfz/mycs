@@ -51,7 +51,7 @@ class UpgradesRelationManager extends RelationManager
                     ->formatStateUsing(fn ($state) => number_format(((int) $state) / 100, 2, '.', ''))
                     ->placeholder('—'),
                 // Staff's discount on the difference (owner 2026-11-06): net, its percentage, and «waived» with no invoice.
-                TextColumn::make('discount')->label('Discount (net)')
+                TextColumn::make('discount')->label('Discount given (net)')
                     ->formatStateUsing(fn ($state, ServiceUpgrade $record) => number_format((float) $state, 2, '.', '')
                         . ($record->discount_percent !== null ? ' (' . rtrim(rtrim((string) $record->discount_percent, '0'), '.') . '%)' : '')
                         . ($record->invoice_id === null ? ', waived' : ''))
