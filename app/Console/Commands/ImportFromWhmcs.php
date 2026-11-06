@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\NotificationTemplate;
@@ -243,6 +244,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->importPaymentWays();
             $this->importInvoicePreferences();
             $this->importItemPaymentMethods();
             $this->journalMoney();
@@ -1631,6 +1633,90 @@ class ImportFromWhmcs extends Command
             }
         }
         $this->info("Invoices' preferred payment method: {$set} set from WHMCS.");
+    }
+
+    /**
+     * WHMCS's ways of paying that it shows customers (tblpaymentgateways «visible»), each a gateway here, installed
+     * DISABLED (staff set it up and enable it) before the invoices', items' and saved methods' ways are set: on the
+     * cut-over's empty database a bank transfer or Eurobank one was no way at all, and a customer paying some items so
+     * and others by card stopped being charged (owner 2026-11-06; myip's rehearsal: 31 customers, 101 items). A disabled
+     * gateway is offered to no one (the concern of #539). One it installs gets the name WHMCS shows (bank transfer, the
+     * Eurobank vPOS); bank transfer's accounts come from its «Invoice Created» template (bankAccounts): WHMCS keeps its
+     * own text encrypted in a scheme nothing outside it reads.
+     */
+    private function importPaymentWays(): void
+    {
+        try {
+            $rows = $this->pdo->query("SELECT gateway, setting, value FROM tblpaymentgateways WHERE setting IN ('visible', 'name')")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return;
+        }
+        $ways = [];
+        foreach ($rows as $row) {
+            $ways[strtolower(trim((string) $row['gateway']))][(string) $row['setting']] = trim((string) $row['value']);
+        }
+        foreach ($ways as $module => $settings) {
+            if (($settings['visible'] ?? '') !== 'on') {
+                continue;
+            }
+            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            if ($extension === null) {
+                $this->warn("Payment way «{$module}» («" . ($settings['name'] ?? '') . '»): MyCS has no gateway for it; its invoices and items keep none.');
+
+                continue;
+            }
+            $existed = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->exists();
+            $id = $this->installedGateway($extension);
+            unset($this->itemGateways[$module]); // read again by the steps after
+            $name = mb_substr($settings['name'] ?? '', 0, 255);
+            // Its own name only on one it installed, and only for a way of its own (paypal and paypal_ppcpv share PayPal).
+            if (!$existed && $name !== '' && isset(self::PREFERRED_GATEWAYS[$module])) {
+                DB::table('extensions')->where('id', $id)->update(['name' => $name]);
+            }
+            if ($extension === 'BankTransfer' && !$existed) {
+                $this->bankAccounts($id, $name);
+            }
+        }
+    }
+
+    /**
+     * Bank transfer's accounts (its required «Bank accounts»), from WHMCS's «Invoice Created» template: the block it shows
+     * for this way ({if $invoice_payment_method eq "<its name>"} … the next {elseif}/{else}/{/if}), as text, without the
+     * lines that are Smarty («deposit {$invoice_total} …»). None found: said, staff write them.
+     */
+    private function bankAccounts(int $gatewayId, string $name): void
+    {
+        $templates = $name === '' ? [] : $this->pdo->query("SELECT message FROM tblemailtemplates WHERE name = 'Invoice Created' ORDER BY language = '' DESC, id")
+            ->fetchAll(PDO::FETCH_COLUMN);
+        $text = null;
+        foreach ($templates as $message) {
+            $start = mb_strpos((string) $message, '{if $invoice_payment_method eq "' . $name . '"}');
+            if ($start === false) {
+                continue;
+            }
+            $block = mb_substr((string) $message, $start + mb_strlen('{if $invoice_payment_method eq "' . $name . '"}'));
+            $block = (string) preg_split('/\{(?:elseif|else|\/if)\b[^}]*\}/', $block, 2)[0];
+            // A paragraph, heading, row or box ends with a blank line, a <br> with a new line.
+            $block = (string) preg_replace('#<\s*(/p|/div|/tr|/table|/h[1-6])\b[^>]*>#i', "\n\n", $block);
+            $block = (string) preg_replace('#<\s*(br|/li)\b[^>]*>#i', "\n", $block);
+            // A non-breaking space (&nbsp;) as a plain one: the text is shown as written.
+            $lines = array_map(fn (string $line) => trim(str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($line), ENT_QUOTES | ENT_HTML5, 'UTF-8'))), explode("\n", $block));
+            // Without the Smarty lines; one blank line between its parts (the field's «a blank line between them»).
+            $text = trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", array_filter($lines, fn (string $line) => !str_contains($line, '{')))));
+            if ($text !== '' && preg_match('/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){10,30}\b/', $text) === 1) {
+                $text = mb_substr($text, 0, 5000);
+                break;
+            }
+            $text = null;
+        }
+        if ($text === null) {
+            $this->warn('Gateway «Bank transfer»: its accounts were not found in WHMCS\'s «Invoice Created» template: write them in its settings before enabling it.');
+
+            return;
+        }
+        Gateway::query()->findOrFail($gatewayId)->settings()->updateOrCreate(['key' => 'accounts'], ['value' => $text, 'type' => 'string', 'encrypted' => false]);
+        $this->info('Gateway «Bank transfer»: its accounts brought from WHMCS\'s «Invoice Created» template (' . count(explode("\n", $text)) . ' lines): check them before enabling it'
+            . ' (WHMCS\'s own bank transfer text is encrypted: paste it instead if it should be that one).');
     }
 
     /**

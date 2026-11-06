@@ -534,8 +534,19 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   Mollie, `cardlink*`/`eurobank` → Cardlink (`ImportFromWhmcs::GATEWAYS`). Αν η βάση (μετά το `migrate:fresh`) δεν έχει
   το extension, ο importer το εγκαθιστά όπως το «Install» του admin, **απενεργοποιημένο**: το staff βάζει τα κλειδιά και
   το ενεργοποιεί. Έμβασμα (`banktransfer`) και ό,τι άλλο: χωρίς πύλη (χειροκίνητη πληρωμή), με πλήθος ανά module στην
-  έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS, Stripe SEPA
-  (`whmcs-usage.md`)· **να επιβεβαιωθεί το όνομα του module της Eurobank** στο `tblaccounts` της myip πριν το cut-over.
+  έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS (`eurobanklib`), Stripe SEPA.
+- **Οι τρόποι πληρωμής του WHMCS** (`importPaymentWays`, ιδιοκτήτης 2026-11-06, πρόβα της myip με το API): κάθε gateway που
+  δείχνει το WHMCS (`tblpaymentgateways` «visible») γίνεται gateway εδώ, **απενεργοποιημένο**, πριν από τους τρόπους των
+  τιμολογίων, των items και τις μεθόδους πληρωμής. Πριν, στην άδεια βάση του cut-over, το έμβασμα και η Eurobank (μόνο ως
+  «υπάρχον» gateway, review του #539) δεν ήταν κανένας τρόπος: τα τιμολόγια και τα items τους έμεναν χωρίς, και 31 πελάτες
+  με κάρτα δίπλα τους έμεναν χωρίς αυτόματη χρέωση (101 items που το WHMCS χρεώνει). Ένα απενεργοποιημένο gateway δεν
+  προσφέρεται σε κανέναν. Όσα εγκαθιστά παίρνουν το όνομα του WHMCS (έμβασμα, Eurobank: «Κατάθεση σε τραπεζικό
+  λογαριασμό», «Κάρτες ή IRIS»). Οι πληρωμές του εμβάσματος και της Eurobank μένουν χειροκίνητες (απόφαση 2026-10-29).
+  - **Λογαριασμοί του εμβάσματος:** το κείμενο του gateway στο WHMCS είναι κρυπτογραφημένο σε σχήμα που δεν ανοίγει έξω από
+    αυτό (ούτε το `DecryptPassword` του API). Έρχονται από το μπλοκ του «Invoice Created» για αυτόν τον τρόπο
+    (`{if $invoice_payment_method eq "<όνομα>"}`), ως κείμενο, χωρίς τις γραμμές του Smarty· να ελεγχθεί πριν ενεργοποιηθεί.
+  - **Το ίδιο gateway κάτω από άλλο module** (το παλιό PayPal δίπλα στο PayPal vault, myip 15 πελάτες): μόνο εκείνα τα
+    items «Do not charge automatically», ο λογαριασμός χρεώνεται όπως στο WHMCS (πριν: όλος off).
 - **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`), με τους κανόνες που έχει το
   MyCS από το #274 (WG-6, 2026-11-04): Percentage → percentage, Fixed Amount → fixed, Free Setup → 100% στο setup fee,
   Price Override → override (μόνο για τα προϊόντα που ονομάζει, στο κύριο νόμισμα· όχι στο setup ή στις επιλογές, που
