@@ -43,6 +43,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Routing\Router;
@@ -739,14 +740,31 @@ class ExtensionHelper
         return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Failed, currency: $currency);
     }
 
-    public static function addPaymentFee($transactionId, $fee)
+    /**
+     * The gateway's fee on its payment, by the payment's id there. Never on a payment with no id (a lookup by an empty one
+     * finds a payment staff entered with none) and, with $gateway, only on that gateway's succeeded payment (ADV-A4-3).
+     */
+    public static function addPaymentFee($transactionId, $fee, ?string $gateway = null)
     {
-        $transaction = InvoiceTransaction::where('transaction_id', $transactionId)->firstOrFail();
+        $transaction = self::feePayment((string) $transactionId, $gateway) ?? throw (new ModelNotFoundException)->setModel(InvoiceTransaction::class);
 
         $transaction->fee = $fee;
         $transaction->save();
 
         return $transaction;
+    }
+
+    /** The payment a gateway's fee is for (addPaymentFee): none for an empty id (ADV-A4-3). */
+    public static function feePayment(string $transactionId, ?string $gateway = null): ?InvoiceTransaction
+    {
+        if (trim($transactionId) === '') {
+            return null;
+        }
+
+        return InvoiceTransaction::query()->where('transaction_id', $transactionId)
+            ->when($gateway !== null, fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded)
+                ->whereHas('gateway', fn ($gw) => $gw->where('extension', $gateway)))
+            ->orderBy('id')->first();
     }
 
     /**
@@ -843,7 +861,7 @@ class ExtensionHelper
                 // The gateway answered with a refund its webhook recorded already (a retry after a lost answer, whose
                 // idempotency key gave the first refund back): nothing more to record.
                 if ($reference !== null && GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', $reference)
-                    ->whereIn('origin', [GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_HAND])->lockForUpdate()->exists()) {
+                    ->whereIn('origin', [GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_HAND, GatewayRefund::ORIGIN_IMPORT])->lockForUpdate()->exists()) {
                     return true;
                 }
                 GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', (string) $reference)
