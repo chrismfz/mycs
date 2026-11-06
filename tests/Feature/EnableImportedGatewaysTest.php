@@ -6,6 +6,7 @@ use App\Models\Gateway;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 /**
@@ -15,6 +16,13 @@ use Tests\TestCase;
 class EnableImportedGatewaysTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        URL::forceRootUrl('https://clients.example.test'); // the company's host, after the switch
+        URL::forceScheme('https');
+    }
 
     /** @param  array<string, array{0: string, 1: bool}>  $settings */
     private function gateway(string $extension, array $settings = []): Gateway
@@ -81,7 +89,8 @@ class EnableImportedGatewaysTest extends TestCase
             'https://api-m.sandbox.paypal.com/v1/notifications/webhooks/WH-Ours' => Http::response(['id' => 'WH-Ours']),
         ]);
 
-        $this->artisan('app:enable-imported-gateways', ['--yes' => true])
+        $this->artisan('app:enable-imported-gateways', ['--yes' => true, '--allow-test' => true])
+            ->expectsOutputToContain('Gateway «Stripe (imported)» (Stripe) left disabled: its webhook was not made')
             ->expectsOutputToContain('Gateway «Stripe (imported)» (Stripe) left disabled: its keys did not come.')
             ->assertFailed();
 
@@ -91,13 +100,31 @@ class EnableImportedGatewaysTest extends TestCase
         $this->assertSame('WH-Ours', $this->value($paypal, 'webhook_id'), 'its own, events brought up to date, no second one');
         Http::assertSent(fn (Request $request) => $request->method() === 'PATCH' && $request[0]['path'] === '/event_types');
         Http::assertNotSent(fn (Request $request) => $request->method() === 'POST' && str_ends_with($request->url(), '/v1/notifications/webhooks'));
+        Http::assertNotSent(fn (Request $request) => $request->method() === 'POST' && str_contains($request->url(), 'api.stripe.com'));
+    }
+
+    /** Code review of #680: test keys and the sandbox on the real site let a test card pay a real invoice. */
+    public function test_test_keys_and_the_sandbox_stay_off_and_fail_the_run_unless_allowed(): void
+    {
+        $stripe = $this->gateway('Stripe', ['stripe_secret_key' => ['sk_test_Example1', true], 'stripe_publishable_key' => ['pk_test_Example1', false]]);
+        $paypal = $this->gateway('PayPal', ['client_id' => ['ExampleClient', false], 'client_secret' => ['ExampleSecret', true], 'test_mode' => ['1', false]]);
+        $bank = $this->gateway('BankTransfer', ['accounts' => ['Example Bank', false]]);
+        Http::fake();
+
+        $this->artisan('app:enable-imported-gateways', ['--yes' => true])
+            ->expectsOutputToContain('left disabled: its keys are TEST keys')
+            ->expectsOutputToContain('left disabled: it runs in the SANDBOX')
+            ->assertFailed();
+
+        $this->assertSame([false, false, true], [(bool) $stripe->fresh()->enabled, (bool) $paypal->fresh()->enabled, (bool) $bank->fresh()->enabled]);
+        Http::assertNothingSent();
     }
 
     public function test_without_yes_it_asks_and_a_no_changes_nothing(): void
     {
         $bank = $this->gateway('BankTransfer', ['accounts' => ['Example Bank', false]]);
 
-        $this->artisan('app:enable-imported-gateways')->expectsConfirmation('Turn on the disabled gateways that are whole and answer, with live charging from this database?', 'no')
+        $this->artisan('app:enable-imported-gateways')->expectsConfirmation('Turn on the disabled gateways that are whole and answer? This database then charges customers for real.', 'no')
             ->assertFailed();
 
         $this->assertFalse((bool) $bank->fresh()->enabled);

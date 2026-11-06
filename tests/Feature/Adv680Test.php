@@ -21,6 +21,7 @@ class Adv680Test extends TestCase
     {
         parent::setUp();
         URL::forceRootUrl('https://clients.example.test');
+        URL::forceScheme('https'); // a forced root keeps the request's scheme otherwise (fixture, review of #680)
     }
 
     /** @param  array<string, array{0: string, 1: bool}>  $settings */
@@ -159,6 +160,7 @@ class Adv680Test extends TestCase
     public function test_adv_680_7_no_webhook_is_made_for_an_address_that_is_not_https(): void
     {
         URL::forceRootUrl('http://localhost');
+        URL::forceScheme('http');
         $paypal = $this->gateway('PayPal', ['client_id' => ['ExampleClient', false], 'client_secret' => ['ExampleSecret', true], 'test_mode' => ['0', false]]);
         $this->fakePayPalOk('api-m.paypal.com');
 
