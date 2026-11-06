@@ -350,7 +350,9 @@ relay.
   `{url: "<Console relay URL>?t=<εισιτήριο>"}`.
 - Ο browser ανοίγει το websocket. Το relay (`packages/proxmox`, `MyCS\Proxmox\Console\Relay`):
   - ελέγχει το εισιτήριο·
-  - ζητά `vncproxy` από τους κόμβους του cluster με τη σειρά, χωρίς να σταματά ο βρόχος (`AsyncHttp`, curl_multi)·
+  - ζητά `vncproxy` από τους κόμβους του cluster με τη σειρά, χωρίς να σταματά ο βρόχος (`AsyncHttp`, curl_multi).
+    Δίνει έως 4'' σε κάθε κόμβο, ώστε δύο κόμβοι και το websocket να χωρούν στα 10'' του handshake. Δεν ρωτά
+    επόμενο κόμβο αν η κονσόλα έχει ήδη κλείσει, γιατί κάθε απάντηση ανοίγει ένα proxy στο cluster·
   - ανοίγει το `vncwebsocket` στον κόμβο που απάντησε και περνά τα frames, όπως το #506.
 - Ο κωδικός VNC δεν περνά πια από τη MyCS. Το relay στέλνει το vncticket ως το πρώτο του frame, ένα text frame. Η
   σελίδα το διαβάζει και, στο ίδιο event, δίνει το ανοιχτό WebSocket στο noVNC (το `RFB` δέχεται έτοιμο WebSocket).
@@ -358,24 +360,31 @@ relay.
 
 **Το εισιτήριο (MyCS → browser → relay).**
 - `v1.<payload>.<υπογραφή>`, base64url. Το payload έχει:
-  - origin της MyCS, id του server (cluster), service, user, κόμβο, vmid, τύπο (qemu/lxc);
+  - origin της MyCS, id του server (cluster), service, user, κόμβο, vmid, τύπο (qemu/lxc)·
   - `iat`, `exp` (`iat` + 30'') και `jti` (16 τυχαία bytes).
 - Υπογραφή HMAC-SHA256 με το «Console relay key» του server, πάνω στο `console-ticket|` + payload. Το πρόθεμα κρατά
   χωριστές τις υπογραφές των δύο κατευθύνσεων.
 - Το relay δέχεται ένα εισιτήριο:
-  - μόνο με κλειδί του site που γράφει το ίδιο το εισιτήριο, και για cluster εκείνου του site·
+  - μόνο με κλειδί του cluster που γράφει το ίδιο το εισιτήριο, του site που γράφει·
   - μόνο από σελίδα με αυτό το Origin·
   - μία φορά: κρατά τα `jti` στη μνήμη ως το `exp`·
-  - όχι αν είναι πριν από την ώρα που ξεκίνησε το relay, ώστε ένα restart να μην ξανανοίγει τα παλιά·
+  - όχι αν βγήκε πριν από την ώρα που ξεκίνησε το relay συν 5'' (η ανοχή του ρολογιού), ώστε ένα restart να μην
+    ξανανοίγει τα παλιά ακόμη κι αν το ρολόι της MyCS πάει μπροστά. Τα πρώτα 5'' μετά από ένα restart η σελίδα απλώς
+    ζητά νέο εισιτήριο·
   - με σύγκριση σταθερού χρόνου και ±5'' ανοχή στο ρολόι.
 - Κόμβος, τύπος, vmid και origin ελέγχονται και όταν η υπογραφή είναι σωστή: ένα path δεν φτιάχνεται από το εισιτήριο.
 - Δεν περιέχει κανένα μυστικό: αν διαρρεύσει, ανοίγει μία κονσόλα για 30'', στο VM που η MyCS ήδη ενέκρινε. Τα logs
   του nginx δεν γράφουν το query string (`deploy/console-relay/nginx.conf.example`, `access_log off` στον devbox).
+  Μόνο το error log του nginx γράφει ολόκληρη τη γραμμή ενός request που απέτυχε. Το αφήνουμε έτσι, αφού το εισιτήριο
+  χρησιμοποιείται μία φορά και ζει 30''.
 
 **Ο έλεγχος των 30'' (relay → MyCS).**
-- Κάθε 30'' το relay στέλνει σε κάθε site **μία** κλήση για όλες τις κονσόλες του, χωρίς να σταματά ο βρόχος:
+- Κάθε 30'' το relay στέλνει **μία** κλήση ανά cluster κάθε site, για όλες τις κονσόλες του, χωρίς να σταματά ο βρόχος:
   `POST <origin>/api/proxmox/console/check`, με `{ts, consoles: [{id, jti, server_id, service_id, user_id, vmid}]}`.
-- Η υπογραφή είναι με το ίδιο κλειδί, πάνω στο `console-check|<body>`, στο header `X-Console-Signature: sha256=…`.
+- Η υπογραφή είναι με το κλειδί εκείνου του cluster, πάνω στο `console-check|<body>`, στο header
+  `X-Console-Signature: sha256=…`.
+- Η απάντηση δεν υπογράφεται: μόνο το TLS την προστατεύει. Γι' αυτό το relay δέχεται μόνο `https://` για το site και
+  για το URL του check.
 - Η MyCS:
   - δέχεται μόνο υπογραφή με το κλειδί ενός server Proxmox, και `ts` έως 60'' παλιό·
   - απαντά μόνο για τις κονσόλες εκείνου του server: `{allowed: {"<id>": bool}}`·
@@ -415,12 +424,15 @@ relay.
   `/opt/mycs-console-relay`. Δεν χρειάζεται Composer ούτε η MyCS: το `bin/console-relay` φορτώνει μόνο του το package.
 - Το config, `/etc/mycs-console-relay/config.php`, είναι 0600 (το relay αρνείται να ξεκινήσει αλλιώς). Έχει μία εγγραφή
   ανά site:
-  - το origin·
-  - τα κλειδιά: πρώτο αυτό που έχει τώρα η MyCS, γιατί με αυτό υπογράφει το relay τους ελέγχους· δεύτερο το παλιό, όσο
-    γίνεται rotation·
-  - το URL του check, αν δεν είναι το προεπιλεγμένο·
-  - τα clusters, με κλειδί το id του server στη MyCS: κόμβοι (base, IP), `self_signed`, και το token του relay.
-- Με εγγραφή ανά site, ένα κλειδί της nixpal δεν ανοίγει VM της myip: κάθε site έχει τα δικά του clusters και token.
+  - το origin (`https://`, μία φορά το καθένα)·
+  - το URL του check, αν δεν είναι το προεπιλεγμένο (`https://`)·
+  - τα clusters, με κλειδί το id του server στη MyCS. Το καθένα έχει:
+    - τα κλειδιά του: πρώτο αυτό που έχει τώρα ο server στη MyCS, γιατί με αυτό υπογράφει το relay τους ελέγχους·
+      δεύτερο το παλιό, όσο γίνεται rotation·
+    - κόμβους (base, IP· ένας κόμβος γραμμένος με την IP του τη χρησιμοποιεί κιόλας), `self_signed`, και το token του
+      relay.
+- Ένα κλειδί ανήκει σε **ένα** cluster, όπως και στη MyCS (ανά server). Το relay αρνείται να ξεκινήσει με το ίδιο
+  κλειδί σε δύο clusters ή sites. Έτσι ένα κλειδί της nixpal δεν ανοίγει VM της myip, ούτε άλλου cluster.
 - Νέα έκδοση: αντιγράφεται ξανά το `packages/proxmox` και γίνεται `systemctl restart mycs-console-relay`. Οι κονσόλες
   πέφτουν, και ο πελάτης ξανασυνδέεται.
 

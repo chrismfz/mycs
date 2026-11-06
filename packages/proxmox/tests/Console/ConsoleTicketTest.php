@@ -20,7 +20,7 @@ class ConsoleTicketTest extends TestCase
         $ticket = ConsoleTicket::verify($token, ['another-key-of-at-least-32-characters!!', self::KEY], 1010);
         $this->assertSame(self::CONSOLE + ['iat' => 1000, 'exp' => 1000 + ConsoleTicket::TTL], array_diff_key($ticket, ['jti' => 0]));
         $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{22}$/', $ticket['jti']);
-        $this->assertSame('https://my.example.com', ConsoleTicket::origin($token));
+        $this->assertSame(['origin' => 'https://my.example.com', 'server_id' => 7], ConsoleTicket::peek($token));
         $this->assertNotNull(ConsoleTicket::verify($token, [self::KEY], 1000 + ConsoleTicket::TTL + ConsoleTicket::SKEW), 'within the skew');
         $this->assertNull(ConsoleTicket::verify($token, [self::KEY], 1000 + ConsoleTicket::TTL + ConsoleTicket::SKEW + 1), 'too late');
         $this->assertNull(ConsoleTicket::verify($token, [self::KEY], 1000 - ConsoleTicket::SKEW - 1), 'from the future');

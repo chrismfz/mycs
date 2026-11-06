@@ -84,8 +84,8 @@ final class Relay
     /**
      * @param  list<string>  $origins  the sites whose pages may open a console (each ticket's own must be the browser's Origin)
      * @param  Closure(string): (array<string, mixed>|null)  $tickets  a token's console (origin, service_id, user_id, vmid, …), once; null when not
-     * @param  Closure(array<string, mixed>, Closure(array{port: int, ticket: string, base: string}|null, string|null): void): void  $prepare
-     *                                                                                                                                         the guest's VNC proxy asked of its cluster; `done` called later, from `poll`
+     * @param  Closure(array<string, mixed>, Closure(array{port: int, ticket: string, base: string}|null, string|null): void, Closure(): bool): void  $prepare
+     *                                                                                                                                                          the guest's VNC proxy asked of its cluster; `done` called later, from `poll`; the last, whether the console still waits for it
      * @param  Closure(array<string, mixed>, array{port: int, ticket: string, base: string}): array{stream: resource, host: string, port: int, authorization: string, tls?: bool}  $connect
      *                                                                                                                                                                                       the proxy's node, its connection begun (TLS spoken here when `tls`)
      * @param  (Closure(array<int, array<string, mixed>>, Closure(array<int, bool|null>): void): void)|null  $check
@@ -418,12 +418,13 @@ final class Relay
         $c['state'] = 'proxy';
         $serial = $c['serial'];
         // Asked, not waited for: the answer comes from `poll`, a later turn (or this one, from a test's).
-        ($this->prepare)($ticket, function (?array $proxy, ?string $error) use ($id, $serial) {
-            if (($this->consoles[$id]['serial'] ?? null) !== $serial || $this->consoles[$id]['state'] !== 'proxy') {
+        $waiting = fn () => ($this->consoles[$id]['serial'] ?? null) === $serial && $this->consoles[$id]['state'] === 'proxy';
+        ($this->prepare)($ticket, function (?array $proxy, ?string $error) use ($id, $waiting) {
+            if (!$waiting()) {
                 return; // closed meanwhile (HANDSHAKE over, the browser gone)
             }
             $this->guarded($id, fn () => $this->proxied($id, $proxy, $error));
-        });
+        }, $waiting);
     }
 
     /** A site and its service: two sites' service numbers are not the same VPS. */

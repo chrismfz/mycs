@@ -79,7 +79,7 @@ class RelayAdversarialTest extends TestCase
     {
         $silent = stream_socket_server('tcp://127.0.0.1:0');
         $port = (int) substr((string) stream_socket_get_name($silent, false), strrpos((string) stream_socket_get_name($silent, false), ':') + 1);
-        $standalone = new StandaloneRelay(['sites' => [['origin' => self::ORIGIN, 'keys' => [str_repeat('k', 32)], 'clusters' => [1 => [
+        $standalone = new StandaloneRelay(['sites' => [['origin' => self::ORIGIN, 'clusters' => [1 => ['keys' => [str_repeat('k', 32)],
             'nodes' => [['base' => "https://vega.example.test:{$port}", 'ip' => '127.0.0.1']], 'self_signed' => true,
             'token_id' => 'mycs-console@pve!relay', 'token_secret' => 's3cret']]]]], new AsyncHttp);
         $this->relay();

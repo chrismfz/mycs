@@ -32,15 +32,16 @@ class AsyncHttp
      * @param  array<int, string>  $headers  «Name: value» lines
      * @param  array{ip?: string|null, self_signed?: bool}  $tls  the host's own IP (its name kept for TLS), and a self-signed certificate accepted only with it
      * @param  Closure(int, string, string|null): void  $done  status (0 when none), body, error
+     * @param  int  $timeout  seconds in all (the connection at most half of it, up to 5)
      */
-    public function request(string $method, string $url, array $headers, string $body, array $tls, Closure $done): void
+    public function request(string $method, string $url, array $headers, string $body, array $tls, Closure $done, int $timeout = self::TIMEOUT): void
     {
         $handle = curl_init();
         $id = spl_object_id($handle);
         $this->running[$id] = ['handle' => $handle, 'done' => $done, 'body' => ''];
         $options = [
             CURLOPT_URL => $url, CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_TIMEOUT => self::TIMEOUT, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => max(1, min(5, intdiv($timeout, 2))), CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP,
             CURLOPT_WRITEFUNCTION => function (CurlHandle $h, string $chunk) use ($id): int {
                 $this->running[$id]['body'] .= $chunk;

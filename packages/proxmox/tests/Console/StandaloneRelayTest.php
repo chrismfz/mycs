@@ -27,10 +27,10 @@ class StandaloneRelayTest extends TestCase
     private function config(): array
     {
         return ['sites' => [
-            ['origin' => 'https://my.nixpal.test', 'keys' => [self::KEY], 'clusters' => [7 => [
+            ['origin' => 'https://my.nixpal.test', 'clusters' => [7 => ['keys' => [self::KEY],
                 'nodes' => [['base' => 'https://pve1.example.test:8006', 'ip' => '10.0.0.11'], ['base' => 'https://pve2.example.test:8006', 'ip' => '10.0.0.12']],
                 'self_signed' => true, 'token_id' => 'mycs-console@pve!relay', 'token_secret' => 's3cret']]],
-            ['origin' => 'https://my.myip.test', 'keys' => [self::OTHER_KEY], 'check_url' => 'https://my.myip.test/check', 'clusters' => [3 => [
+            ['origin' => 'https://my.myip.test', 'check_url' => 'https://my.myip.test/check', 'clusters' => [3 => ['keys' => [self::OTHER_KEY],
                 'nodes' => [['base' => 'https://pve9.example.test:8006']], 'token_id' => 'myip-console@pve!relay', 'token_secret' => 'other']]],
         ]];
     }
@@ -44,9 +44,9 @@ class StandaloneRelayTest extends TestCase
                 parent::__construct();
             }
 
-            public function request(string $method, string $url, array $headers, string $body, array $tls, Closure $done): void
+            public function request(string $method, string $url, array $headers, string $body, array $tls, Closure $done, int $timeout = self::TIMEOUT): void
             {
-                $this->requests[] = compact('method', 'url', 'headers', 'body', 'tls', 'done');
+                $this->requests[] = compact('method', 'url', 'headers', 'body', 'tls', 'done', 'timeout');
             }
 
             public function poll(): bool
@@ -55,7 +55,10 @@ class StandaloneRelayTest extends TestCase
             }
         };
 
-        return new StandaloneRelay($config ?? $this->config(), $http, fn () => $this->now);
+        $relay = new StandaloneRelay($config ?? $this->config(), $http, fn () => $this->now);
+        $this->now += ConsoleTicket::SKEW + 1; // past the start: tickets of the first seconds are refused (a restart's)
+
+        return $relay;
     }
 
     private function sign(string $origin, int $server, string $key, ?int $at = null): string
@@ -86,6 +89,22 @@ class StandaloneRelayTest extends TestCase
         $this->assertNull($relay->ticket($old));
     }
 
+    /**
+     * Review of #675 (3): MyCS's clock up to SKEW ahead, a ticket used just before a restart says it was issued after
+     * it. The first SKEW seconds' tickets are refused: the customer's page asks another.
+     */
+    public function test_a_ticket_used_before_a_restart_is_refused_after_it_with_the_clocks_skewed(): void
+    {
+        $first = $this->relay();
+        $token = $this->sign('https://my.nixpal.test', 7, self::KEY, $this->now + ConsoleTicket::SKEW - 1); // MyCS's clock ahead
+        $this->assertNotNull($first->ticket($token));
+        $this->now -= ConsoleTicket::SKEW + 1; // the restart, a moment later
+        $restarted = new StandaloneRelay($this->config(), new AsyncHttp, fn () => $this->now);
+        $this->now += 2;
+
+        $this->assertNull($restarted->ticket($token));
+    }
+
     public function test_the_proxy_is_asked_with_the_relays_token_node_after_node(): void
     {
         $relay = $this->relay();
@@ -99,6 +118,7 @@ class StandaloneRelayTest extends TestCase
         $this->assertSame(['POST', 'https://pve1.example.test:8006/api2/json/nodes/vega/qemu/101/vncproxy', 'websocket=1'], [$first['method'], $first['url'], $first['body']]);
         $this->assertContains('Authorization: PVEAPIToken=mycs-console@pve!relay=s3cret', $first['headers']);
         $this->assertSame(['ip' => '10.0.0.11', 'self_signed' => true], $first['tls']);
+        $this->assertSame(StandaloneRelay::PROXY_TIMEOUT, $first['timeout'], 'two nodes and the websocket within HANDSHAKE');
         ($first['done'])(0, '', 'Connection timed out');
         $this->assertSame([], $answers, 'the next node is asked');
         $second = $this->requests[1];
@@ -154,7 +174,7 @@ class StandaloneRelayTest extends TestCase
         $this->assertSame('https://my.myip.test/check', $myip['url']);
         $this->assertContains('X-Console-Signature: ' . ConsoleTicket::checkSignature($nixpal['body'], self::KEY), $nixpal['headers']);
         $body = json_decode($nixpal['body'], true);
-        $this->assertSame(1000, $body['ts']);
+        $this->assertSame($this->now, $body['ts']);
         $this->assertSame([11, 12], array_column($body['consoles'], 'id'));
         $this->assertSame(['id' => 11, 'jti' => $a['jti'], 'server_id' => 7, 'service_id' => 42, 'user_id' => 3, 'vmid' => 101], $body['consoles'][0]);
 
@@ -168,12 +188,19 @@ class StandaloneRelayTest extends TestCase
     public function test_a_config_not_sound_is_refused_at_the_start(): void
     {
         $site = fn (array $over) => ['sites' => [$over + $this->config()['sites'][0]]];
-        $cluster = fn (array $over) => $site(['clusters' => [7 => $over + ['nodes' => [['base' => 'https://pve1.example.test:8006', 'ip' => '10.0.0.11']],
+        $cluster = fn (array $over) => $site(['clusters' => [7 => $over + ['keys' => [self::KEY], 'nodes' => [['base' => 'https://pve1.example.test:8006', 'ip' => '10.0.0.11']],
             'token_id' => 'a@pve!b', 'token_secret' => 'c']]]);
         $bad = [
             ['sites' => []],
             $site(['origin' => 'my.nixpal.test']),
-            $site(['keys' => ['short']]),
+            $site(['origin' => 'http://my.nixpal.test']),
+            $site(['check_url' => 'http://my.nixpal.test/api/proxmox/console/check']), // its answer unsigned: TLS only (review of #675)
+            ['sites' => [$this->config()['sites'][0], $this->config()['sites'][0]]], // one origin twice
+            $cluster(['keys' => ['short']]),
+            $cluster(['keys' => []]),
+            // One key on two clusters (review of #675): whoever has it would sign for both.
+            ['sites' => [$cluster([])['sites'][0], ['clusters' => [3 => ['keys' => [self::KEY]] + $this->config()['sites'][1]['clusters'][3]]]
+                + $this->config()['sites'][1]]],
             $site(['clusters' => []]),
             $cluster(['nodes' => [['base' => 'https://pve1.example.test:8006']], 'self_signed' => true]), // self-signed without the IP
             $cluster(['nodes' => [['base' => 'http://pve1.example.test:8006']]]),
@@ -189,5 +216,54 @@ class StandaloneRelayTest extends TestCase
                 $this->addToAssertionCount(1);
             }
         }
+    }
+
+    /** Review of #675 (2): two clusters of one site, each its own key: each one's consoles checked with its own key. */
+    public function test_each_clusters_consoles_are_checked_with_its_own_key(): void
+    {
+        $config = $this->config();
+        $config['sites'][0]['clusters'][8] = ['keys' => ['nixpal-second-cluster-key-of-32-chars-00']] + $config['sites'][0]['clusters'][7];
+        $relay = $this->relay($config);
+        $a = $relay->ticket($this->sign('https://my.nixpal.test', 7, self::KEY));
+        $b = $relay->ticket($this->sign('https://my.nixpal.test', 8, 'nixpal-second-cluster-key-of-32-chars-00'));
+        $this->assertNull($relay->ticket($this->sign('https://my.nixpal.test', 8, self::KEY)), 'cluster 7\'s key never passes a ticket of cluster 8');
+        $relay->check([1 => $a, 2 => $b], fn () => null);
+
+        $this->assertCount(2, $this->requests, 'one call a cluster');
+        foreach ([[self::KEY, [1]], ['nixpal-second-cluster-key-of-32-chars-00', [2]]] as $k => [$key, $ids]) {
+            $request = $this->requests[$k];
+            $signature = (string) preg_replace('/^X-Console-Signature: /', '', (string) current(preg_grep('/^X-Console-Signature:/', $request['headers'])));
+            $this->assertTrue(ConsoleTicket::checkSigned($request['body'], $signature, [$key]));
+            $this->assertSame($ids, array_column(json_decode($request['body'], true)['consoles'], 'id'));
+        }
+    }
+
+    /** Review of #675 (1): a node named by its IP is reached at it, its self-signed certificate accepted, as `connect` does. */
+    public function test_a_node_named_by_its_ip_is_asked_at_that_ip(): void
+    {
+        $config = $this->config();
+        $config['sites'][0]['clusters'][7]['nodes'] = [['base' => 'https://10.0.0.11:8006']];
+        $relay = $this->relay($config);
+        $relay->prepare($relay->ticket($this->sign('https://my.nixpal.test', 7, self::KEY)), fn () => null);
+
+        $this->assertSame(['ip' => '10.0.0.11', 'self_signed' => true], $this->requests[0]['tls']);
+    }
+
+    /** Review of #675 (6): once the console no longer waits (closed, its deadline past), no further node is asked. */
+    public function test_no_further_node_is_asked_once_the_console_no_longer_waits(): void
+    {
+        $relay = $this->relay();
+        $answers = [];
+        $waiting = true;
+        $relay->prepare($relay->ticket($this->sign('https://my.nixpal.test', 7, self::KEY)), function (?array $proxy, ?string $error) use (&$answers) {
+            $answers[] = $error;
+        }, function () use (&$waiting) {
+            return $waiting;
+        });
+        $waiting = false;
+        ($this->requests[0]['done'])(0, '', 'Operation timed out');
+
+        $this->assertCount(1, $this->requests, 'pve2 never asked');
+        $this->assertSame(['Operation timed out'], $answers);
     }
 }

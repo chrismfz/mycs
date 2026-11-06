@@ -82,17 +82,20 @@ final class ConsoleTicket
     }
 
     /**
-     * The site a ticket says it is of, unchecked: only to pick the keys it must then be verified with (one site's key
-     * never passes a ticket naming another).
+     * The site and the cluster a ticket says it is of, unchecked: only to pick the keys it must then be verified with
+     * (one cluster's key never passes a ticket naming another).
+     *
+     * @return array{origin: string, server_id: int}|null
      */
-    public static function origin(string $token): ?string
+    public static function peek(string $token): ?array
     {
         if (strlen($token) > self::MAX_LENGTH || preg_match('/^v1\.([A-Za-z0-9_-]+)\./', $token, $m) !== 1) {
             return null;
         }
         $claims = json_decode((string) self::decode($m[1]), true);
 
-        return is_array($claims) && is_string($claims['o'] ?? null) ? $claims['o'] : null;
+        return is_array($claims) && is_string($claims['o'] ?? null) && is_int($claims['sv'] ?? null)
+            ? ['origin' => $claims['o'], 'server_id' => $claims['sv']] : null;
     }
 
     /** The header of the relay's call to MyCS (`X-Console-Signature`): over its whole body, which carries its time. */
