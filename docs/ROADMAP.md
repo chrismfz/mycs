@@ -166,7 +166,8 @@ adversarial review.
     client area (#502), IP pools (#505), κονσόλα noVNC (#506).
   - **Η κονσόλα σε cPanel (orion):** ανοιχτό ως την ώρα της myip (υπεύθυνος 2026-10-28). Τρεις επιλογές:
     PHP streaming, relay στο cluster ή SPICE (`proxmox.md` → «Η κονσόλα σε cPanel»). Πριν από την παραγωγή χρειάζεται
-    ρύθμιση console on/off.
+    ρύθμιση console on/off. Σχέδιο 2026-11-06, προς έγκριση: relay σε LXC της vega με δικό του token μόνο για κονσόλα,
+    υπογεγραμμένα εισιτήρια 30'' και on/off ανά server (`proxmox.md` → «Σχέδιο: το relay στο cluster»).
   - **Μετά, με τον importer:** οι υπάρχοντες VPS αντιστοιχίζονται από το `mod_pvewhmcs_vms`, και το pool τους με
     `app:import-whmcs-ip-pools`.
   - **Επόμενο:** create και reinstall χωρίς templates (εγκατάσταση από ISO): ξανασυζητιούνται.
