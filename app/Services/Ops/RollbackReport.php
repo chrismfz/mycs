@@ -108,7 +108,10 @@ final class RollbackReport
         return [
             $this->payments(),
             $this->changed('payments_changed', 'WHMCS payments changed or deleted', InvoiceTransaction::class,
-                'The same on the WHMCS payment: a deleted one is deleted there (DeleteTransaction / the invoice back to unpaid), a refunded amount as below.'),
+                'The same on the WHMCS payment: a deleted one is deleted there (DeleteTransaction / the invoice back to unpaid), a refunded amount as below.'
+                . ' One noted «Payment Pending» has no payment in WHMCS (its invoice is still Payment Pending there): record the payment in WHMCS'
+                . ' (AddInvoicePayment) when it was completed here, or mark the invoice\'s debit failed when it was deleted.',
+                extra: ['note'], extraOf: fn (array $ids) => $this->importedPending($ids)),
             $this->refunds(),
             $this->newInvoices(),
             $this->changed('invoices_changed', 'Invoices changed', Invoice::class,
@@ -469,6 +472,23 @@ final class RollbackReport
         })->filter()->values();
 
         return $this->section($key, $title, $todo, ['id', ...$extra, 'at', 'event', 'change', 'by'], $rows);
+    }
+
+    /**
+     * The payments among these that the importer made of a WHMCS «Payment Pending» (whmcs-pending-*: WHMCS has no payment
+     * for them, R1b-2), by the row or, deleted, by its audit's old values.
+     *
+     * @param  list<int>  $ids
+     * @return array<int, list<string>>
+     */
+    private function importedPending(array $ids): array
+    {
+        $pending = InvoiceTransaction::query()->whereKey($ids)->where('transaction_id', 'like', 'whmcs-pending-%')->pluck('id')
+            ->merge(Audit::query()->where('auditable_type', (new InvoiceTransaction)->getMorphClass())->whereIntegerInRaw('auditable_id', $ids)
+                ->where('old_values', 'like', '%whmcs-pending-%')->pluck('auditable_id'))
+            ->map(fn ($id) => (int) $id)->unique();
+
+        return $pending->mapWithKeys(fn (int $id) => [$id => ['Payment Pending in WHMCS: no payment there; record it in WHMCS, or mark the debit failed']])->all();
     }
 
     private static function flat(mixed $value): string

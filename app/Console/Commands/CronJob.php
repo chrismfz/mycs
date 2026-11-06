@@ -20,6 +20,7 @@ use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\McpCall;
 use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
@@ -640,6 +641,25 @@ class CronJob extends Command
 
                 // Those cancelled now: one paid or cancelled by staff since it was read is not (adversarial ADV-2).
                 return Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->count();
+            }, transaction: false);
+
+            // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
+            // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
+            // R1b-3), staff are told, once a week (R1-5). Nothing changes by itself.
+            $this->runCronJob('imported_pending_payments', function () {
+                $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
+                    ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
+                    ->with('invoice:id,client_id')->orderBy('id')->get();
+                foreach ($stale as $payment) {
+                    if (Cache::add("imported-pending-told:{$payment->id}", true, now()->addDays(7))) {
+                        $this->notices["imported_pending_payments #{$payment->invoice_id}"] = new DisplayException(sprintf(
+                            'Invoice #%d (client #%d): the payment WHMCS had on its way at the cut-over (%s, %s) is still processing. Confirm the debit in the gateway,'
+                            . ' then record it with that transaction id (the same gateway or none), or delete the payment if it failed.',
+                            $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id, number_format((float) $payment->amount, 2, '.', '')));
+                    }
+                }
+
+                return $stale->count();
             }, transaction: false);
 
             $this->runCronJob('upgrade_invoices_updated', function ($number = 0) {
