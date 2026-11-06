@@ -107,4 +107,24 @@ class ImportPaymentWaysTest extends TestCase
         $this->assertNull(Gateway::query()->where('extension', 'BankTransfer')->sole()->settings()->where('key', 'accounts')->value('value'));
         $this->assertStringContainsString('its accounts were not found', $out);
     }
+
+    /** Review of #679: what a reader never sees is not an account; a way WHMCS hides but items still pay by; a deleted gateway. */
+    public function test_hidden_text_hidden_ways_used_by_items_and_a_deleted_gateway(): void
+    {
+        $this->whmcs->exec('DELETE FROM tblemailtemplates');
+        $this->whmcs->prepare("INSERT INTO tblemailtemplates (name, language, message) VALUES ('Invoice Created', '', ?)")->execute(['{if $invoice_payment_method eq "Bank deposit"}'
+            . "<!--\n<p>Old: GR11 0000 0000 0000 0000 0000 000</p>\n--><span style=\"display:none\">GR22 0000 0000 0000 0000 0000 000</span>"
+            . '<table><tr><td>IBAN</td><td>GR16 0110 1250 0000 0001 2300 695</td></tr></table>{/if}']);
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, domainstatus TEXT, paymentmethod TEXT)');
+        $this->whmcs->exec("INSERT INTO tblhosting (userid, domainstatus, paymentmethod) VALUES (1, 'Active', 'paypal')");
+        DB::table('extensions')->insert(['name' => 'Old bank', 'extension' => 'BankTransfer', 'type' => 'gateway', 'enabled' => true, 'deleted_at' => now(),
+            'created_at' => now(), 'updated_at' => now()]);
+
+        $this->run_();
+
+        $live = DB::table('extensions')->where('extension', 'BankTransfer')->whereNull('deleted_at')->sole();
+        $this->assertSame(['Bank deposit', false], [$live->name, (bool) $live->enabled], 'a new one, never the deleted');
+        $this->assertSame("IBAN\nGR16 0110 1250 0000 0001 2300 695", Gateway::query()->findOrFail($live->id)->settings()->where('key', 'accounts')->value('value'));
+        $this->assertArrayHasKey('PayPal', $this->gateways(), 'hidden in WHMCS, but a live service pays by it');
+    }
 }

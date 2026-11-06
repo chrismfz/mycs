@@ -2,13 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\GatewayResource\Pages\EditGateway;
 use App\Models\BillingAgreement;
 use App\Models\Gateway;
+use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsPayMethodImport;
 use App\Services\Payment\ItemPaymentMethod;
+use Filament\Actions\DeleteAction;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -101,7 +106,7 @@ class Adv679PayMethodsTest extends TestCase
         $this->whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES (31, {$c}, 'RemoteCreditCard', 'stripe', 0, NULL)");
         $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (941, {$c}, 'Active', 'stripe'), (942, {$c}, 'Active', 'banktransfer')");
         Service::factory()->create(['id' => 941, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['Stripe']]);
-        $byBank = Service::factory()->create(['id' => 942, 'client_id' => $c, 'payment_gateway_id' => $this->gateways['BankTransfer']]);
+        $byBank = Service::factory()->create(['id' => 942, 'client_id' => $c, 'status' => Service::STATUS_ACTIVE, 'payment_gateway_id' => $this->gateways['BankTransfer']]);
         Http::fake(['https://whmcs.example.test/includes/api.php' => Http::response(['result' => 'success', 'clientid' => $c, 'paymethods' => [
             ['id' => 31, 'remote_token' => json_encode(['customer' => 'cus_Gamma1', 'method' => 'pm_Card3']), 'expiry_date' => '01/40', 'card_last_four' => '4242', 'card_type' => 'Visa'],
         ]])]);
@@ -111,8 +116,15 @@ class Adv679PayMethodsTest extends TestCase
         $this->assertTrue((bool) DB::table('clients')->where('id', $c)->value('auto_charge'), 'precondition: #679 keeps the account charged');
         $this->assertNull(ItemPaymentMethod::chargedBy($byBank->fresh()), 'precondition: the bank transfer item is not charged');
 
+        // Not fixed by design (owner's ADV-541-5: a deleted gateway's items are their account's again, as WHMCS moves a
+        // deactivated gateway's items to another). Staff are told on the delete instead, before it happens.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(EditGateway::class, ['record' => $this->gateways['BankTransfer']])
+            ->assertActionExists('delete', fn (DeleteAction $delete): bool => str_contains((string) $delete->getModalDescription(), '1 live service(s) and domain(s) pay by it'));
+
         Gateway::query()->findOrFail($this->gateways['BankTransfer'])->delete(); // staff remove a gateway they do not use
 
-        $this->assertNull(ItemPaymentMethod::chargedBy($byBank->fresh()), 'WHMCS never charged it: the card must not either');
+        $this->assertNotNull(ItemPaymentMethod::chargedBy($byBank->fresh()), 'the account\'s again (ADV-541-5), as staff were told');
     }
 }

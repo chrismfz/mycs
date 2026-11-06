@@ -165,7 +165,9 @@ final class WhmcsPayMethodImport
             $own = ($this->itemGateway ?? $this->gateway)($module);
             if ($own === null) {
                 $unkept[$module] = $count;
-            } elseif ($own === $gateway) {
+            } elseif ($own === $gateway && !isset($first[$module])) {
+                // Not a saved method's own module (Stripe SEPA beside a Stripe card): its method charges it, as WHMCS
+                // did (ADV-679-1).
                 $sameGateway[$module] = $count;
             }
         }
