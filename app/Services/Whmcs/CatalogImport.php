@@ -923,7 +923,10 @@ final class CatalogImport
                             continue; // not offered in WHMCS; a transfer is one year here (D-5)
                         }
                         if (!DomainTldPrice::offered($operation, $amount)) {
-                            continue; // a registration or renewal year at 0.00: one WHMCS never sold, not offered (ADV-A5-1)
+                            // A registration or renewal year at 0.00: one WHMCS never sold, not offered (ADV-A5-1); told.
+                            $this->notes[] = ".{$name}: {$operation} for {$years} year(s) in {$code} at 0.00 in WHMCS: not offered here.";
+
+                            continue;
                         }
                         $offered["{$operation}:{$years}:{$code}"] = $amount;
                     }

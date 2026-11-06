@@ -96,14 +96,17 @@ class DomainTld extends Model implements Auditable
 
     /**
      * The years $operation is offered for in $currency (DomainTldPrice::offered: never a registration or renewal year at
-     * 0.00, ADV-A5-1), unordered.
+     * 0.00, ADV-A5-1), unordered. A registration only for years its renewal is offered for too: it renews for the years
+     * it was registered for, and one with no renew price is never billed and lapses (review of ADV-A5-1).
      *
      * @return Collection<int, int>
      */
     public function offeredYears(string $operation, string $currency): Collection
     {
-        return $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)
+        $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)
             ->filter(fn (DomainTldPrice $row) => $row->isOffered())->pluck('years')->map(fn ($y) => (int) $y)->unique()->values();
+
+        return $operation === 'register' ? $years->intersect($this->offeredYears('renew', $currency))->values() : $years;
     }
 
     /**

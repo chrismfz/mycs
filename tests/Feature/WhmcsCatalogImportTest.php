@@ -310,8 +310,10 @@ class WhmcsCatalogImportTest extends TestCase
         $this->import();
         $this->whmcs->exec("UPDATE tblpricing SET qsetupfee = 0 WHERE type IN ('domainregister', 'domainrenew') AND relid = 31");
 
-        $this->import();
+        $notes = $this->import()['notes'];
 
+        $this->assertContains('.com: register for 2 year(s) in EUR at 0.00 in WHMCS: not offered here.', $notes);
+        $this->assertContains('.com: renew for 2 year(s) in EUR at 0.00 in WHMCS: not offered here.', $notes);
         $com = DomainTld::query()->where('tld', 'com')->sole()->load('prices');
         $rows = $com->prices->where('years', 2)->whereIn('operation', ['register', 'renew'])->pluck('price')->all();
         $this->assertSame([null, null], array_values($rows), 'withdrawn, not «free»');

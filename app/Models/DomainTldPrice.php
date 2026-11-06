@@ -64,6 +64,16 @@ class DomainTldPrice extends Model implements Auditable
         return self::offered($this->operation, $this->price);
     }
 
+    /**
+     * A price staff decided on that the registrar import keeps (keepFreeAndClosed, D-6): not offered (none), or free
+     * where free is allowed (a transfer, a fee). A registration or renewal at 0.00 is no decision (a year WHMCS never
+     * sold, ADV-A5-1): repriced.
+     */
+    public function freeOrClosed(): bool
+    {
+        return $this->price === null || (bccomp((string) $this->price, '0', 2) === 0 && $this->isOffered());
+    }
+
     /** @return BelongsTo<DomainTld, $this> */
     public function domainTld(): BelongsTo
     {

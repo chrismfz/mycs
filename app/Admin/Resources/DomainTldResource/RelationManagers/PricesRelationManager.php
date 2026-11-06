@@ -72,7 +72,9 @@ class PricesRelationManager extends RelationManager
                 TextColumn::make('operation')->label(__('Operation'))->formatStateUsing(fn (string $state) => self::operations()[$state] ?? $state),
                 TextColumn::make('years')->label(__('Years')),
                 TextColumn::make('currency_code')->label(__('Currency')),
-                TextColumn::make('price')->label(__('Price'))->placeholder(__('Not offered')),
+                // A registration or renewal left at 0.00 (from WHMCS) is not offered: shown so, never as free (ADV-A5-1).
+                TextColumn::make('price')->label(__('Price'))->placeholder(__('Not offered'))
+                    ->getStateUsing(fn (DomainTldPrice $record) => $record->isOffered() ? $record->price : null),
                 TextColumn::make('cost')->label(__('Cost'))
                     ->formatStateUsing(fn (DomainTldPrice $record) => $record->cost === null ? '—' : $record->cost . ' ' . $record->cost_currency),
             ])

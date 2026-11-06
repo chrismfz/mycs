@@ -469,7 +469,7 @@
     "Years": "Έτη",
     "new": "νέο",
     "Keep free and not-offered prices": "Κράτα τις δωρεάν τιμές και όσες δεν προσφέρονται",
-    "A 0.00 (free) or empty (not offered) price stays as it is.": "Μια τιμή 0,00 (δωρεάν) ή κενή (δεν προσφέρεται) μένει ως έχει.",
+    "A free (0.00) transfer or fee, or an empty (not offered) price, stays as it is. A registration or renewal at 0.00 is not offered: priced again.": "Μια δωρεάν (0,00) μεταφορά ή τέλος, ή μια κενή τιμή (δεν προσφέρεται), μένει ως έχει. Εγγραφή ή ανανέωση με 0,00 δεν προσφέρεται: τιμολογείται ξανά.",
     "An exchange rate is a number above zero.": "Η ισοτιμία είναι αριθμός πάνω από μηδέν.",
     "Fetch the costs from this registrar first.": "Πρώτα ανακτήστε τα κόστη από αυτόν τον registrar.",
     "Not a TLD.": "Δεν είναι TLD.",
