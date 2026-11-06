@@ -84,7 +84,8 @@ class Credits extends Component
         $this->gateways = ExtensionHelper::getCheckoutGateways($this->amount, $this->currency, 'credits');
         $this->validate([
             'currency' => 'required|exists:currencies,code',
-            'amount' => 'required|numeric|min:' . config('settings.credits_minimum_deposit') . '|max:' . config('settings.credits_maximum_deposit'),
+            // Never nothing, whatever the minimum (ADV-648-3: a minimum of 0 made a 0.00 invoice that blocked the next deposit).
+            'amount' => 'required|numeric|gt:0|min:' . config('settings.credits_minimum_deposit') . '|max:' . config('settings.credits_maximum_deposit'),
             'gateway' => 'required|in:' . implode(',', array_column($this->gateways, 'id')),
         ]);
 
@@ -99,15 +100,14 @@ class Credits extends Component
             $client->invoices()->lockForUpdate()->get();
             $credits = $client->credits()->where('currency_code', $this->currency)->lockForUpdate()->get();
 
-            // Check if user has credits in this currency
-            if ($credits->isNotEmpty()) {
-                // Check if the current credits + the new credits exceed the maximum credits allowed
-                if ($credits->sum('amount') + $this->amount > config('settings.credits_maximum_credit')) {
-                    DB::rollBack();
-                    $this->notify(__('You cannot exceed the maximum credits allowed.'), 'error');
+            // The balance and this deposit never past the maximum credit, a first deposit too (ADV-648-2: one with no
+            // credit yet was let through to any amount up to the maximum deposit).
+            $balance = $credits->reduce(fn (string $sum, Credit $credit) => bcadd($sum, (string) $credit->amount, 2), '0');
+            if (bccomp(bcadd($balance, (string) $this->amount, 2), (string) config('settings.credits_maximum_credit'), 2) > 0) {
+                DB::rollBack();
+                $this->notify(__('You cannot exceed the maximum credits allowed.'), 'error');
 
-                    return;
-                }
+                return;
             }
 
             // Check if the user has any unpaid invoice items referencing credits

@@ -41,7 +41,7 @@ class SetAutoCharge extends Action
                 : (bool) $record->no_auto_charge)
             ->modalDescription($kept
                 ? 'The cron no longer charges it to the customer\'s saved payment method. The customer can still pay it.'
-                : 'The cron charges it to the customer\'s saved payment method again, on its due date and on the retry days.');
+                : 'The cron charges it to the customer\'s saved payment method again, on its due date and on the retry days. If the customer chose «I\'ll pay another way» on it (its audit says so), a transfer of theirs may already be on its way.');
 
         return $this;
     }

@@ -34,6 +34,13 @@ class InvoiceItem extends Model implements Auditable
 
     public const KIND_TRANSFER = 'transfer';
 
+    /**
+     * A discount on the line it follows, by staff (an upgrade's difference, owner 2026-11-06): a negative line with that
+     * line's reference, so it moves, is cancelled and counts as paid with it, but it is never the charge itself (the cron
+     * reprices and a renewal paid meanwhile bills only the charge: ServiceUpgradeService::shortfall).
+     */
+    public const KIND_DISCOUNT = 'discount';
+
     /** The fees of a domain's stage (D5b-1): the only kinds that change into each other (grace's into redemption's). */
     public const STAGE_FEES = ['grace_fee', 'redemption_fee'];
 

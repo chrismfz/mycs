@@ -17,6 +17,7 @@ use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
 use App\Services\Order\StaffOrderNotice;
 use App\Support\CurrentClient;
+use App\Support\OrderConversion;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -228,6 +229,9 @@ class Cart extends Component
 
         // The cart row is gone; this drops its cookie.
         ClassesCart::clear();
+
+        // Its conversion on the next page (WG-13: GA4/Ads `purchase`, the «Order complete code» setting).
+        OrderConversion::queue($placed->order);
 
         // Staff are told (WHMCS «New Order Notification»), after the commit. A mail that fails never fails the order.
         try {

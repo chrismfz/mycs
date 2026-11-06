@@ -162,7 +162,7 @@ class ImportServiceServersTest extends TestCase
             maxaccounts INT, active INT, disabled INT)');
         $this->whmcs->exec("INSERT INTO tblservers VALUES (1, 'orion', 'cpanel', 'orion.example.test', '', 0, 'root', 0, 1, 0),
             (2, 'rigel', 'cpanel', 'rigel.example.test', '', 0, 'root', 500, 0, 0), (3, 'stream', 'centovacast', 'stream.example.test', '', 0, 'admin', 0, 1, 0),
-            (4, 'other', 'ngm', 'ngm.example.test', '', 0, '', 0, 1, 0)");
+            (4, 'other', 'somepanel', 'panel.example.test', '', 0, '', 0, 1, 0)"); // a module with no extension (ngm is Offline VM now)
         $this->whmcs->exec('CREATE TABLE tblservergroups (id INTEGER PRIMARY KEY, name TEXT, filltype INT)');
         $this->whmcs->exec("INSERT INTO tblservergroups VALUES (1, 'shared', 1)");
         $this->whmcs->exec('CREATE TABLE tblservergroupsrel (groupid INT, serverid INT)');

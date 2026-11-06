@@ -270,6 +270,19 @@ class ModuleAction extends Model
         return $query->where('status', self::STATUS_OPEN);
     }
 
+    /**
+     * Waiting on staff: given up after its retries, or a domain's action (a paid renewal, D5b-2: never given up by itself,
+     * always theirs). The dashboard's «Needs attention» and the list's «Needs staff» filter count the same.
+     *
+     * @param  Builder<ModuleAction>  $query
+     * @return Builder<ModuleAction>
+     */
+    public function scopeNeedsStaff(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_OPEN)
+            ->where(fn (Builder $query) => $query->whereNotNull('given_up_at')->orWhereIn('action', self::DOMAIN_ACTIONS));
+    }
+
     private static function openFor(Service $service, string $action): ?self
     {
         // A module's own row: never a task for staff (its instructions overwritten by a later failure: review of #447).

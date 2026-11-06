@@ -78,8 +78,13 @@ class ZlicRateLimitTest extends TestCase
         $this->assertSame('Active', $this->check($this->key, '198.51.100.7')['status']);
     }
 
+    /**
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
+     */
     public function test_a_wrong_psk_counts_on_its_key_and_another_license_there_is_not_held_back(): void
     {
+        $this->freezeTime();
         $other = $this->secondLicense();
         $this->assertSame('Active', $this->check($other, '198.51.100.7')['status']); // a working neighbour, known there
         for ($i = 0; $i < ZlicController::KEY_FAILURES_PER_HOUR; $i++) {

@@ -25,6 +25,7 @@ use App\Support\CurrentClient;
 use App\Support\Domains\DnssecOptions;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
+use App\Support\ItemPaymentAccess;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -593,6 +594,12 @@ class Show extends Component
     public function setPaymentMethod(int $gatewayId): void
     {
         abort_unless($this->setsPaymentMethod(), 403);
+        // Only one billed for renewal, as the select shows and the table on «Payment methods» (ADV-612-4).
+        if (!ItemPaymentAccess::offersChoice($this->domain)) {
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
         // It chooses which saved method charges it (#568): the money permission's in «Login as client» (SA-5, ADV-568-R2-2).
         if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
             $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
@@ -628,7 +635,7 @@ class Show extends Component
 
     private function setsPaymentMethod(): bool
     {
-        return Gate::allows('update', $this->domain) && $this->staffMay('admin.domains.update') && $this->seesInvoices();
+        return ItemPaymentAccess::mayChange($this->domain); // as the table on «Payment methods» (PR 6b)
     }
 
     public function addNameserver(): void
@@ -674,13 +681,18 @@ class Show extends Component
     }
 
     /**
-     * ID protection, offered only where its TLD offers it (D-7) and the registrar allows it (R7): whether Openprovider
-     * charges for it is not settled (docs/domains.md), so not where the company does not sell it.
+     * ID protection, free (WG-32, docs/domains.md D-24): turned on only where its TLD offers it (D-7, Openprovider's
+     * is_private_whois_allowed) and the registrar allows it (R7); one that is on can always be turned off, even after its
+     * TLD stopped offering it (review of #670).
      */
     public function privacyOffered(): bool
     {
-        return (bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false
-            && $this->management()->registrarSupports($this->domain, 'supportsPrivacy');
+        if (!$this->management()->registrarSupports($this->domain, 'supportsPrivacy')) {
+            return false;
+        }
+
+        return (bool) $this->domain->id_protection
+            || ((bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false);
     }
 
     public function toggleTransferLock(): void

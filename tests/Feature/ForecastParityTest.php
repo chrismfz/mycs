@@ -100,6 +100,26 @@ class ForecastParityTest extends TestCase
         $this->assertSame($this->differences()['suspended on'][0]['mycs'], $first);
     }
 
+    /**
+     * WG-1: WHMCS bills an account's group discount as a line of its own on each renewal, off the service's amount; its
+     * renewal is the amount less that line (nixpal: 46.40 − 4.64). A price here that kept the full amount is 10% more.
+     */
+    public function test_whmcss_renewal_is_its_amount_less_the_groups_discount(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblclientgroups (id INTEGER PRIMARY KEY, susptermexempt TEXT, discountpercent REAL)');
+        $this->whmcs->exec("INSERT INTO tblclientgroups VALUES (3, '', 10.00)");
+        $this->whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, groupid INT)');
+        $discounted = $this->service(['amount' => 1.85], ['price' => 1.66]);
+        $full = $this->service(['amount' => 5.0], ['price' => 5.0]);
+        foreach ([$discounted, $full] as $service) {
+            $this->whmcs->exec("INSERT INTO tblclients VALUES ({$service->client_id}, 3)");
+        }
+
+        $differences = $this->differences()['renewal amount'];
+
+        $this->assertSame([[$full->id, '4.50', '5.00']], array_map(fn (array $d) => [$d['id'], $d['whmcs'], $d['mycs']], $differences));
+    }
+
     public function test_an_amount_a_cycle_a_due_date_and_an_invoicing_day_that_differ_are_listed(): void
     {
         $this->service(['amount' => 12.0, 'billingcycle' => 'Annually', 'nextduedate' => '2026-11-22', 'nextinvoicedate' => '2026-11-22']);

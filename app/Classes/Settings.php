@@ -163,6 +163,21 @@ class Settings
                     'live' => true,
                 ],
                 [
+                    'name' => 'captcha_login',
+                    'label' => 'Captcha on sign-in',
+                    'type' => 'select',
+                    'options' => [
+                        'after_failure' => 'After a failed sign-in from the same address',
+                        'always' => 'Always',
+                        'never' => 'Never',
+                    ],
+                    'default' => 'after_failure',
+                    // Owner 2026-11-06: wanted on sign-up above all; on sign-in it is in the way. A failure from the
+                    // address (15 minutes) brings it back; the sign-in limits apply either way.
+                    'description' => 'Sign-up, password reset and contact always ask for it. On sign-in, «After a failed sign-in» shows it only once that address has failed in the last 15 minutes; the limits on sign-in attempts apply either way. Only with ALTCHA: a provider\'s captcha is always asked on sign-in.',
+                    'hidden' => fn (Get $get) => in_array($get('captcha'), [null, '', 'disabled'], true),
+                ],
+                [
                     'name' => 'altcha_difficulty',
                     'label' => 'ALTCHA difficulty',
                     'type' => 'select',
@@ -656,6 +671,18 @@ class Settings
                     'min_value' => 0,
                     'description' => 'The number of days before the due date to generate the renewal invoice.',
                 ],
+                [
+                    // WG-14 (owner 2026-11-05): a month's renewal 14 days ahead is half of the month, and one paid late
+                    // gets the next invoice the following day; WHMCS's «Monthly» days (myip 10).
+                    'name' => 'cronjob_invoice_monthly',
+                    'section' => 'Billing Settings',
+                    'label' => 'Invoice Generation, monthly',
+                    'type' => 'number',
+                    'default' => null,
+                    'required' => false,
+                    'min_value' => 0,
+                    'description' => 'Days before the due date for a monthly plan\'s renewal invoice. Empty: as Invoice Generation.',
+                ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [
                     'name' => 'autocharge_days_before',
@@ -705,6 +732,18 @@ class Settings
                     'default' => '',
                     'required' => false,
                     'description' => 'The email(s) or merchant id(s) of our PayPal account(s), comma-separated. A PayPal notice still sent to WHMCS\'s old address is told to staff only when it is for one of them (PR H2b).',
+                ],
+                [
+                    'name' => 'order_days_grace',
+                    'section' => 'Billing Settings',
+                    'label' => 'New order invoice due in',
+                    'type' => 'number',
+                    'default' => 7,
+                    'required' => true,
+                    'min_value' => 0,
+                    'max_value' => 3650,
+                    'validation' => 'integer',
+                    'description' => 'Days from the order to the due date of its invoice (WHMCS «Order Days Grace»). 0: due the same day. «Cancel unpaid orders after» below this cancels an order before its invoice is due.',
                 ],
                 [
                     'name' => 'cronjob_order_cancel',
@@ -1046,6 +1085,18 @@ class Settings
                     'section' => 'Custom code',
                 ],
                 [
+                    // WG-13: GA4/Google Ads `purchase` (OrderConversion), as myip's WHMCS hook sent it on «order complete».
+                    'name' => 'theme_order_complete_code',
+                    'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
+                    'validation' => 'max:65000',
+                    'label' => 'Order complete code',
+                    'type' => 'textarea',
+                    'rows' => 8,
+                    'default' => '',
+                    'description' => 'Raw HTML on the first page after a customer places an order, once per order (never a free one, nor for staff logged in as the customer). Placeholders, each a JSON value (strings with their quotes): use them bare inside a <script>, never inside quotes or an HTML attribute. {purchase} (GA4\'s purchase event: transaction_id, value net, tax, currency, coupon, items), {order_id}, {value}, {tax}, {currency}, {coupon}, {items}; written literally elsewhere in the code they are replaced too. E.g. <script>(function(){var p={purchase};try{if(sessionStorage.getItem(\'purchase-\'+p.transaction_id))return;sessionStorage.setItem(\'purchase-\'+p.transaction_id,\'1\')}catch(e){}gtag(\'event\',\'purchase\',p)})();</script> (sent once even after Back), with gtag and consent in the custom <head>.',
+                    'section' => 'Custom code',
+                ],
+                [
                     'name' => 'theme_assets',
                     'permission' => '*', // code on this site's origin, the admin's too: a full admin's alone (AUD3-2)
                     'label' => 'Files',
@@ -1214,6 +1265,18 @@ class Settings
                     'required' => true,
                     'min_value' => 1,
                     'description' => 'The EPP code a client gave for a transfer is kept (encrypted, shown to staff) until the transfer is no longer pending and this many days have passed since the order.',
+                ],
+                // The company site's live search (WG-20): its server asks /api/v1/domain-check for all its visitors from one
+                // address, so with this key it has a bucket of its own (DomainCheckController::SITE_PER_MINUTE).
+                [
+                    'name' => 'domain_check_site_key',
+                    'section' => 'Site search API',
+                    'permission' => '*',
+                    'label' => 'Site key',
+                    'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
+                    'validation' => 'nullable|min:32|max:255',
+                    'description' => 'The key the company site sends (X-Site-Key) when its server checks domains on /api/v1/domain-check for its visitors. It then has its own limit instead of one address\'s. At least 32 characters. Empty: the site is limited like any address.',
                 ],
                 // The sync in batches (owner 2026-10-18): one cron, every few hours, so many domains per registrar connection,
                 // the longest unsynced first; a registry is never asked for all at once (1,400 .gr at myip).

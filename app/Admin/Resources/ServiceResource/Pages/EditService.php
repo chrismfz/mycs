@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ServiceResource\Pages;
 
+use App\Admin\Actions\AddAddonAction;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
@@ -9,6 +10,7 @@ use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\ServiceResource\ChangePackage;
 use App\Admin\Resources\ServiceResource\OfflineMachine;
 use App\Admin\Resources\ServiceResource\PoolAddresses;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
@@ -246,6 +248,8 @@ class EditService extends EditRecord
 
         return [
             InvoiceSelectedItemsAction::nextPeriod()->visible(in_array($record->status, ['active', 'suspended'], true)),
+            // An addon fastened to it (docs/addons.md, step 3).
+            AddAddonAction::make(),
             // A machine with no API: its details (the form's «Machine» opens it too).
             OfflineMachine::editAction()->visible(fn (Service $record) => OfflineMachine::fields($record) !== []),
             // Its Proxmox VM's power (one mapped in Proxmox Guests).
@@ -295,6 +299,8 @@ class EditService extends EditRecord
                         }
                         $this->redirect(ServiceResource::getUrl());
                     }),
+                // WHMCS's «Upgrade/Downgrade»: another product, with the days left and what is due before the order (ChangePackage).
+                ChangePackage::action(),
                 // SVC-14b: another plan of its product (another cycle), now or from the next renewal, with what it does.
                 Action::make('changeCycle')
                     ->label('Change billing cycle')

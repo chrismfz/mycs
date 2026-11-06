@@ -21,8 +21,8 @@ class RecordsToCheck extends TableWidget
 {
     protected static ?int $sort = 22;
 
-    // Half the width from lg: they flow two by two, the first beside «Income» (owner 2026-10-21).
-    protected int|string|array $columnSpan = 1; // the dashboard's grid: one column below lg (full width), two from lg
+    // In the right column of the dashboard (`Dashboard::RIGHT`, owner 2026-11-04): it stacks there on its own.
+    protected int|string|array $columnSpan = 1;
 
     /** Active this many days past its expiry: the sync has not moved it. */
     public const LAG_DAYS = 2;

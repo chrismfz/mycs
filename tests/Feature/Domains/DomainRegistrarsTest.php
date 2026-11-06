@@ -8,6 +8,7 @@ use App\Admin\Resources\DomainRegistrarConnectionResource\Pages\EditDomainRegist
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainTld;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
@@ -140,5 +141,72 @@ class DomainRegistrarsTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/domains') && $request['autorenew'] === 'off'
             && $request['owner_handle'] === 'NEW1-GR' && $request['tech_handle'] === 'NEW2-GR' && $request['billing_handle'] === 'EX111-GR');
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/customers') && isset($request['phone']) && $request['phone']['area_code'] !== '');
+    }
+
+    /** WG-23: a customer made at Openprovider from Greek contact data gets it in Latin letters (ELOT 743). */
+    public function test_greek_contact_data_goes_to_openprovider_in_latin_letters(): void
+    {
+        $user = User::factory()->create();
+        $owner = $user->client()->primaryContact;
+        $owner->update(['first_name' => 'Χαράλαμπος', 'last_name' => 'Ψαρράς', 'company_name' => 'ΕΥΡΩΠΑΪΚΗ Ο.Ε.', 'phone' => '+30 2310 123456',
+            'address1' => 'Εγνατίας 12', 'address2' => 'Όροφος 2', 'city' => 'Θεσσαλονίκη', 'state' => 'Κεντρική Μακεδονία', 'postcode' => '54630', 'country' => 'GR']);
+        $domain = Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'shop', 'fqdn' => 'shop.test', 'status' => 'pending_register',
+            'registrant_contact_id' => $owner->id, 'admin_contact_id' => $owner->id, 'tech_contact_id' => $owner->id, 'billing_handle' => 'EX111-GR']);
+        $domain->nameservers()->create(['host' => 'ns1.example.net', 'sort' => 0]);
+        Http::fake([
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => Http::response(['data' => ['handle' => 'NEW1-GR']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 777, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains/777' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
+        ]);
+
+        (new OpenproviderRegistrar)->register($domain->fresh(), 1, new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
+
+        Http::assertSent(function ($request) {
+            if (!str_ends_with($request->url(), '/v1/customers')) {
+                return false;
+            }
+            $this->assertSame(['first_name' => 'Charalampos', 'last_name' => 'Psarras'], $request['name']);
+            $this->assertSame('EVROPAIKI O.E.', $request['company_name']);
+            $this->assertSame(['street' => 'Egnatias', 'number' => '12', 'suffix' => 'Orofos 2', 'city' => 'Thessaloniki', 'state' => 'Kentriki Makedonia'],
+                array_intersect_key($request['address'], array_flip(['street', 'number', 'suffix', 'city', 'state'])));
+            $this->assertDoesNotMatchRegularExpression('/[^\x20-\x7E]/', json_encode($request->data(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'ASCII only (review of #669)');
+
+            return true;
+        });
+        $this->assertSame('Θεσσαλονίκη', $owner->fresh()->city, 'Greek here, as the customer wrote it');
+
+        // An update of the customer there (review of #669): its address in Latin letters, its email and postcode as they are.
+        $owner->update(['email' => 'μαρία@example.test', 'city' => 'Ηράκλειο', 'postcode' => '71202']);
+        Http::fake([self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]), self::SANDBOX . '/v1/customers/NEW1-GR' => Http::response(['code' => 0])]);
+        (new OpenproviderRegistrar)->updateContact('NEW1-GR', $owner->fresh(), new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
+        Http::assertSent(fn ($request) => $request->method() === 'PUT' && str_ends_with($request->url(), '/v1/customers/NEW1-GR')
+            && $request['address']['city'] === 'Irakleio' && $request['address']['zipcode'] === '71202' && $request['email'] === 'μαρία@example.test');
+    }
+
+    /** WG-32: a domain with ID protection keeps it at Openprovider (free there), only where its TLD offers it. */
+    public function test_id_protection_is_sent_on_a_registration_where_its_tld_offers_it(): void
+    {
+        $user = User::factory()->create();
+        $owner = $user->client()->primaryContact;
+        $owner->update(['first_name' => 'Maria', 'last_name' => 'Owner', 'phone' => '+30 2310 123456', 'address1' => 'Egnatia 12', 'city' => 'Thessaloniki', 'postcode' => '54630', 'country' => 'GR']);
+        Http::fake([
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => Http::response(['data' => ['handle' => 'NEW1-GR']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 777, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains/777' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
+        ]);
+        $sent = [];
+        foreach (['com' => true, 'eu' => false] as $tld => $offered) {
+            $model = DomainTld::query()->firstOrCreate(['tld' => $tld], ['is_active' => true]);
+            $model->forceFill(['id_protection' => $offered])->save();
+            $domain = Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'shop', 'tld' => $tld, 'fqdn' => "shop.{$tld}", 'status' => 'pending_register',
+                'domain_tld_id' => $model->id, 'id_protection' => true, 'registrant_contact_id' => $owner->id, 'admin_contact_id' => $owner->id, 'tech_contact_id' => $owner->id]);
+            $domain->nameservers()->create(['host' => 'ns1.example.net', 'sort' => 0]);
+            (new OpenproviderRegistrar)->register($domain->fresh(), 1, new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
+        }
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/domains') && $request['domain']['extension'] === 'com' && ($request['is_private_whois_enabled'] ?? null) === true);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/domains') && $request['domain']['extension'] === 'eu' && !isset($request['is_private_whois_enabled']));
     }
 }

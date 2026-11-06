@@ -111,7 +111,8 @@ server module (`getActions`) και τα shortcuts του είναι φόρμα 
   - Το υπόλοιπο στους registrars είναι μια λεπτή γραμμή κάτω από τις κάρτες, π.χ. «Openprovider 131,87 € · GR 201,00 €».
     Πότε διαβάστηκε φαίνεται με hover, και ένα πρόβλημα με κόκκινο και ⚠.
   - Η σειρά: κάρτες, registrars, Revenue | Support, Income | Upcoming domain renewals (στον χώρο δίπλα στο Income), μετά
-    οι υπόλοιπες λίστες ανά δύο, και τελευταίο το Active Users σε όλο το πλάτος.
+    οι υπόλοιπες λίστες ανά δύο, και το «Staff and sessions» (Staff online και Active Users σε μία
+    κάρτα, 2026-11-04) στην αριστερή στήλη κάτω από το Payments tracking, με scroll.
   - Τα widgets πλήρους πλάτους είναι μόνο στην αρχή και στο τέλος, οπότε η ροή δεν αφήνει κενά, όποια δικαιώματα κι αν
     έχει ο χρήστης του staff.
 
@@ -236,7 +237,7 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
 | **Pending Cancellations** | — | `service_cancellations` `end_of_period` με υπηρεσία ακόμα active/suspended | νέο |
 | **Pending Module Actions** | badge στα Failed Jobs | `failed_jobs` με `Jobs\Server\*`, υπηρεσίες κολλημένες σε pending | νέο |
 | Support (awaiting reply, assigned to you, πρόσφατα) | `Support` (5 πρόσφατα) | `tickets.assigned_to` | επέκταση: «Assigned to me» |
-| Client Activity (active clients, online, πρόσφατα logins) | `ActiveUsers` | πελάτες με ενεργή υπηρεσία, `user_sessions` | επέκταση |
+| Client Activity (active clients, online, πρόσφατα logins) | `StaffAndSessions` (πρώην `ActiveUsers`) | πελάτες με ενεργή υπηρεσία, `user_sessions` | επέκταση |
 | Billing (Today / This Month / This Year / All Time) | `Overview` με φίλτρο περιόδου | `invoice_transactions` succeeded, όχι credit, μείον refunds | νέο: 4 ποσά μαζί |
 | Income Forecast (ανά κύκλο, ετήσια εκτίμηση) | — | ενεργές υπηρεσίες: τιμή × κύκλος χρέωσης | νέο |
 | Upcoming Renewals (υπηρεσίες) | — | `services.expires_at` στις επόμενες N ημέρες | νέο |

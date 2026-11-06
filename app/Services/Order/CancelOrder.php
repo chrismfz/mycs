@@ -117,6 +117,8 @@ final class CancelOrder
 
             $ended = [];
             foreach ($live as $service) {
+                // Read again: an addon its parent ended earlier in this loop is ended already (ADV-634-2), its stock back.
+                $service->refresh();
                 if ($service->isEnded()) {
                     continue;
                 }

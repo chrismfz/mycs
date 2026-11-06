@@ -28,6 +28,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use MyCS\Cnic\Command;
 use MyCS\Cnic\Response;
+use Nixpal\DomainTools\Elot743;
 use RuntimeException;
 use Throwable;
 
@@ -361,9 +362,9 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
             if ($handle === null) {
                 try {
                     $made = $this->write($credentials, ['COMMAND' => 'AddContact',
-                        'FIRSTNAME' => (string) $contact->first_name,
-                        'LASTNAME' => (string) ($contact->last_name ?: $contact->first_name),
-                        'ORGANIZATION' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
+                        'FIRSTNAME' => Elot743::transliterate((string) $contact->first_name),
+                        'LASTNAME' => Elot743::transliterate((string) ($contact->last_name ?: $contact->first_name)),
+                        'ORGANIZATION' => trim((string) $contact->company_name) !== '' ? Elot743::transliterate(trim((string) $contact->company_name)) : null,
                     ] + self::contactDetails($contact));
                 } catch (RegistrarOutcomeUnknown|ConnectionException $e) {
                     // At most an orphan contact there; the domain was not touched: its roles go back here (code review 4).
@@ -406,12 +407,13 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
     {
         $phone = Phone::split($contact->phone, $contact->country);
         // A second line or a state taken away is cleared there too on an update (ADV-7 of #300); the rest is required.
-        $optional = fn (?string $value) => trim((string) $value) !== '' ? trim((string) $value) : ($clear ? Command::CLEAR : null);
+        // In Latin letters (WG-23: ELOT 743, as WHMCS's CentralNic transliteration sent them); Greek here.
+        $optional = fn (?string $value) => trim((string) $value) !== '' ? Elot743::transliterate(trim((string) $value)) : ($clear ? Command::CLEAR : null);
 
         return [
-            'STREET0' => trim((string) $contact->address1) ?: null,
+            'STREET0' => Elot743::transliterate(trim((string) $contact->address1)) ?: null,
             'STREET1' => $optional($contact->address2),
-            'CITY' => trim((string) $contact->city) ?: null,
+            'CITY' => Elot743::transliterate(trim((string) $contact->city)) ?: null,
             'ZIP' => trim((string) $contact->postcode) ?: null,
             'STATE' => $optional($contact->state),
             'COUNTRY' => strtoupper(trim((string) $contact->country)) ?: null,

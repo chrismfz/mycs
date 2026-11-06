@@ -67,6 +67,9 @@ class OpenproviderSslTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A frozen clock: the order's dates, the paid periods and the sync's «today» are read at different moments, and a
+        // run across midnight (UTC) saw two different days (renewal_only_once, adv4, adv9; 2026-11-05).
+        $this->freezeTime();
         Http::preventStrayRequests();
         Mail::fake();
         Queue::fake();

@@ -127,7 +127,7 @@ final class DomainRenewalYears
     /** Its renewal at the catalog price for its current period, net as the cron bills it; null when not priced. */
     private function catalogNet(Domain $domain): ?string
     {
-        $price = $domain->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $domain->years), $domain->currency_code);
+        $price = $domain->catalogRenewalPrice(max(1, (int) $domain->years)); // with its group's discount on domains
 
         return $price === null ? null : OrderPricing::toNet((string) $price, $domain->client);
     }

@@ -18,6 +18,16 @@ use OwenIt\Auditing\Contracts\Auditable;
 /**
  * @property int|null $credit_cents what a downgrade gave back as credit (DowngradeCredit)
  * @property \Illuminate\Support\Carbon|null $credit_until the end of the days it was given for
+ * @property int|null $from_product_id the product the service had before it was applied (the service's history)
+ * @property int|null $from_plan_id the plan it had before
+ * @property string|null $from_price the net recurring amount per unit it had before
+ * @property string|null $to_price the net recurring amount per unit it renews at after
+ * @property string|null $source who asked for it: SOURCE_CLIENT or SOURCE_STAFF
+ * @property int|null $staff_id the staff member who placed it
+ * @property \Illuminate\Support\Carbon|null $applied_at when the service changed
+ * @property string|null $discount staff's discount on the difference, net (all of it when waived: no invoice)
+ * @property string|null $discount_percent the percentage it was given as, when it was
+ * @property string|null $discount_base the full net difference it was given on (the cron keeps its share of it)
  */
 #[ObservedBy([ServiceUpgradeObserver::class])]
 class ServiceUpgrade extends Model implements Auditable
@@ -46,13 +56,21 @@ class ServiceUpgrade extends Model implements Auditable
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Asked for by the customer on their upgrade page. */
+    public const SOURCE_CLIENT = 'client';
+
+    /** Placed by staff from the service's page («Upgrade/Downgrade»). */
+    public const SOURCE_STAFF = 'staff';
+
     public $guarded = [];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
         // A downgrade's credit and the day it was given for (DowngradeCredit).
-        return ['credit_cents' => 'integer', 'credit_until' => 'date'];
+        return ['credit_cents' => 'integer', 'credit_until' => 'date', 'from_price' => 'decimal:2', 'to_price' => 'decimal:2',
+            'applied_at' => 'datetime', 'discount' => 'decimal:2', 'discount_percent' => 'decimal:2',
+            'discount_base' => 'decimal:2'];
     }
 
     /** @return BelongsTo<Service, $this> */
@@ -71,6 +89,24 @@ class ServiceUpgrade extends Model implements Auditable
     public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    /** @return BelongsTo<Product, $this> */
+    public function fromProduct(): BelongsTo
+    {
+        return $this->belongsTo(Product::class, 'from_product_id');
+    }
+
+    /** @return BelongsTo<Plan, $this> */
+    public function fromPlan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class, 'from_plan_id');
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function staff(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class);
     }
 
     /** @return BelongsTo<Invoice, $this> */
@@ -245,6 +281,10 @@ class ServiceUpgrade extends Model implements Auditable
         $after->exists = true;
         $after->product_id = $this->product_id ?? $this->product->id ?? $service->product_id;
         $after->setRelation('product', $this->product ?? $service->product);
+        // A coupon that is not kept on a product change ends with it (ADV-650-1, as WHMCS's promotion that is not lifetime).
+        if ((int) $after->product_id !== (int) $service->product_id && $service->coupon?->kept_on_product_change === false) {
+            $after->coupon_expired_at = now()->toImmutable();
+        }
         $plan = $this->targetPlan() ?? $service->plan;
         $after->plan_id = $plan?->id;
         $after->setRelation('plan', $plan);

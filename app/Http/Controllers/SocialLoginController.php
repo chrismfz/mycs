@@ -97,6 +97,9 @@ class SocialLoginController extends Controller
         if (!$user->email_verified_at) {
             return $this->refuse('login', __('auth.oauth.not_logged_in')); // as one that does not exist: a reset confirms it
         }
+        if ($user->closedOut()) {
+            return $this->refuse('login', __('auth.closed')); // its every account closed (WG-8)
+        }
 
         if ($user->tfa_secret) {
             Session::put('2fa', [

@@ -4,6 +4,8 @@ namespace App\Livewire\Services;
 
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
+use App\Http\Controllers\ServiceConsoleController;
+use App\Jobs\Server\ProxmoxSnapshotJob;
 use App\Livewire\Component;
 use App\Models\IpAddress;
 use App\Models\ProxmoxGuest;
@@ -23,6 +25,7 @@ use Throwable;
  * addresses, its graph for an hour, a day or a week, and start, shut down, reboot and hard stop. Never while it is
  * suspended (its unsuspension starts it); the customer never reaches the cluster itself. Lazy: the page never waits on it.
  * The customer may start a VM staff stopped while the service is active (owner 2026-10-28: abuse is a suspension).
+ * Where its product offers it, one snapshot of its disks, taken, rolled back to and deleted in the queue (owner 2026-11-06).
  */
 #[Lazy]
 class ProxmoxPanel extends Component
@@ -47,6 +50,12 @@ class ProxmoxPanel extends Component
 
     private const KEEP_STATE_PENDING = 4;
 
+    /** A snapshot's job may take its whole timeout: the panel waits on it this long at most, one at a time. */
+    private const SNAPSHOT_PENDING = 150;
+
+    /** One snapshot action a minute per VM: each one writes the whole of its disk's changes on the cluster. */
+    private const SNAPSHOT_EVERY = 60;
+
     /**
      * Which state each action needs (ADV-502-R2-4: a VM paused, migrating or locked, read from its qmpstatus and lock, is
      * not powered by a crafted call).
@@ -62,6 +71,11 @@ class ProxmoxPanel extends Component
     {
         abort_unless($this->allowed('update'), 403);
         if (!in_array($action, GuestLifecycle::POWER, true) || $this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
+            return;
+        }
+        if (str_starts_with((string) Cache::get($this->pendingKey()), 'snapshot.')) {
+            $this->notify(__('services.proxmox.snapshot.busy'), 'error'); // its job holds the VM meanwhile
+
             return;
         }
         $key = 'proxmox-power:' . $this->service->id;
@@ -97,6 +111,56 @@ class ProxmoxPanel extends Component
         $this->notify(__('services.proxmox.sent.' . $action), 'success');
     }
 
+    /** The customer's snapshot: queued, the panel told how it went (snapshotSettled). */
+    public function snapshot(string $action): void
+    {
+        abort_unless($this->allowed('update'), 403);
+        if (!in_array($action, GuestLifecycle::SNAPSHOT_ACTIONS, true) || $this->service->fresh()?->status !== Service::STATUS_ACTIVE
+            || !ProxmoxPower::snapshots($this->service) || ($guest = ProxmoxPower::guest($this->service)) === null || $this->extension() === null) {
+            return;
+        }
+        // One at a time, whatever asks: the pending mark is taken atomically, the rate after it (a double click, two tabs).
+        if (!Cache::add(self::pendingKeyOf($this->service), 'snapshot.' . $action, self::SNAPSHOT_PENDING)) {
+            $busy = str_starts_with((string) Cache::get(self::pendingKeyOf($this->service)), 'snapshot.');
+            $this->notify(__($busy ? 'services.proxmox.snapshot.busy' : 'services.proxmox.too_soon'), 'error');
+
+            return;
+        }
+        if (RateLimiter::hit('proxmox-snapshot:' . $this->service->id, self::SNAPSHOT_EVERY) > 1) {
+            Cache::forget(self::pendingKeyOf($this->service));
+            $this->notify(__('services.proxmox.snapshot.too_soon'), 'error');
+
+            return;
+        }
+        Cache::forget(self::snapshotResultKey($this->service));
+        ProxmoxSnapshotJob::dispatch($this->service, $action);
+        $this->service->auditEvent = 'vm_snapshot';
+        $this->service->isCustomEvent = true;
+        $this->service->auditCustomOld = [];
+        $this->service->auditCustomNew = ['action' => $action, 'user_id' => auth('web')->id(), 'vmid' => $guest->vmid];
+        event(new AuditCustom($this->service));
+        $this->notify(__('services.proxmox.snapshot.sent.' . $action), 'success');
+    }
+
+    /**
+     * The customer's snapshot job ended ($outcome: done, failed, or changed: refused, the VM's settings changed since the
+     * snapshot): the panel reads the VM afresh and tells the customer once how it went.
+     */
+    public static function snapshotSettled(Service $service, string $action, string $outcome): void
+    {
+        self::refresh($service);
+        Cache::put(self::snapshotResultKey($service), $outcome === 'done' ? 'done.' . $action : $outcome, 600);
+        Cache::forget(self::pendingKeyOf($service));
+    }
+
+    /** The VM read afresh on the panel's next render (staff acted on it). */
+    public static function refresh(Service $service): void
+    {
+        if (($guest = ProxmoxPower::guest($service)) !== null) {
+            self::forgetReads($service, $guest);
+        }
+    }
+
     public function placeholder(): string
     {
         return '<div class="text-sm opacity-60 p-4">…</div>';
@@ -109,6 +173,7 @@ class ProxmoxPanel extends Component
         }
         $vm = null;
         $pending = Cache::get($this->pendingKey());
+        $snapshots = ProxmoxPower::snapshots($this->service);
         // Each render asks again who may see it (a grant revoked, a session ended: ADV-502-1), and which VM is the service's
         // now (a VM re-mapped is not shown to the service it left: ADV-502-4).
         $guest = $this->allowed('view') ? ProxmoxPower::guest($this->service) : null;
@@ -119,7 +184,7 @@ class ProxmoxPanel extends Component
             try {
                 if ($state === null || ($graph === null && !$graphFailed)) {
                     [$read, $readGraph, $failed] = $extension->lifecycle($this->service)
-                        ->read($this->service, $graph === null && !$graphFailed ? $this->timeframe : null);
+                        ->read($this->service, $graph === null && !$graphFailed ? $this->timeframe : null, $snapshots);
                     if ($state === null) {
                         $state = $read;
                         Cache::put($this->stateKey($guest), $state, $pending !== null ? self::KEEP_STATE_PENDING : self::KEEP_STATE);
@@ -144,6 +209,11 @@ class ProxmoxPanel extends Component
             'vm' => $vm,
             'pending' => $pending,
             'canPower' => $this->service->status === Service::STATUS_ACTIVE && $this->allowed('update'),
+            // Only with the console on for its cluster, and a relay to open it (docs/proxmox.md, «Σχέδιο: το relay»).
+            'console' => ServiceConsoleController::relay($this->service) !== null,
+            'snapshots' => $snapshots,
+            // Told once, to whoever sees the panel next (the job has no page to tell).
+            'snapshotResult' => $vm === null ? null : Cache::pull(self::snapshotResultKey($this->service)),
             // Its addresses from the IP pools, with what the installer asks (an ISO install sets them by hand: B3).
             'network' => $vm === null ? [] : $this->service->ipAddresses()->with('pool')->orderBy('id')->get()->map(fn (IpAddress $ip) => [
                 'address' => $ip->address,
@@ -163,36 +233,55 @@ class ProxmoxPanel extends Component
     /** After an action: every timeframe's read, not only the one shown (ADV-502-3). */
     private function forget(?ProxmoxGuest $guest): void
     {
-        if ($guest === null) {
-            return;
+        if ($guest !== null) {
+            self::forgetReads($this->service, $guest);
         }
-        Cache::forget($this->stateKey($guest));
-        Cache::forget($this->refusalKey($guest));
+    }
+
+    private static function forgetReads(Service $service, ProxmoxGuest $guest): void
+    {
+        Cache::forget(self::guestKey($service, $guest, 'state'));
+        Cache::forget(self::guestKey($service, $guest, 'refused'));
         foreach (ProxmoxClient::TIMEFRAMES as $timeframe) {
-            Cache::forget($this->graphKey($guest, $timeframe));
-            Cache::forget($this->graphKey($guest, $timeframe) . '.failed');
+            Cache::forget(self::guestKey($service, $guest, "graph.{$timeframe}"));
+            Cache::forget(self::guestKey($service, $guest, "graph.{$timeframe}") . '.failed');
         }
     }
 
     /** Keyed on the VM as well: a VM mapped to another service is not read from the one it left. */
+    private static function guestKey(Service $service, ProxmoxGuest $guest, string $what): string
+    {
+        return "proxmox-panel.{$service->id}.{$guest->id}.{$guest->vmid}.{$what}";
+    }
+
     private function stateKey(ProxmoxGuest $guest): string
     {
-        return "proxmox-panel.{$this->service->id}.{$guest->id}.{$guest->vmid}.state";
+        return self::guestKey($this->service, $guest, 'state');
     }
 
     private function graphKey(ProxmoxGuest $guest, string $timeframe): string
     {
-        return "proxmox-panel.{$this->service->id}.{$guest->id}.{$guest->vmid}.graph.{$timeframe}";
+        return self::guestKey($this->service, $guest, "graph.{$timeframe}");
     }
 
     private function refusalKey(ProxmoxGuest $guest): string
     {
-        return "proxmox-panel.{$this->service->id}.{$guest->id}.{$guest->vmid}.refused";
+        return self::guestKey($this->service, $guest, 'refused');
     }
 
     private function pendingKey(): string
     {
-        return "proxmox-panel.{$this->service->id}.pending";
+        return self::pendingKeyOf($this->service);
+    }
+
+    private static function pendingKeyOf(Service $service): string
+    {
+        return "proxmox-panel.{$service->id}.pending";
+    }
+
+    private static function snapshotResultKey(Service $service): string
+    {
+        return "proxmox-panel.{$service->id}.snapshot";
     }
 
     private function extension(): ?Proxmox

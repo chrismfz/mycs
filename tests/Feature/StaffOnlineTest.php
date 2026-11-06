@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Widgets\StaffOnline as StaffOnlineWidget;
+use App\Admin\Widgets\StaffAndSessions as StaffOnlineWidget;
 use App\Enums\StaffPresenceStatus;
 use App\Livewire\Admin\StaffHeartbeat;
 use App\Livewire\Admin\StaffOnline;

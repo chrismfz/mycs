@@ -68,6 +68,7 @@ class LoginTest extends TestCase
             'settings.captcha' => 'recaptcha-v3',
             'settings.captcha_site_key' => '6Lfi6dkkAAAAAMoS7Ya74nsiIQv840dQpPdDIYqT',
             'settings.captcha_secret' => '6Lfi6dkkAAAAAEdMgMWZB0VqTh6lpeBHYoxff78n',
+            'settings.captcha_login' => 'always', // asked on the first try (LoginCaptchaModeTest has the default)
         ]);
 
         Livewire::test(Login::class)

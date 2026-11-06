@@ -187,6 +187,53 @@ class WhmcsTicketImportTest extends TestCase
         $this->assertSame([1, 1, 1], [$counts['files'], $counts['files_refused'], $counts['files_missing']]);
     }
 
+    /**
+     * WG-21: a WHMCS whose Storage Settings moved its ticket files has them in two folders (myip: attachments/ before
+     * 11/2023, its storage folder since): each name is looked for in each, the first that has it wins, none is missing.
+     */
+    public function test_files_are_looked_for_in_every_folder_given(): void
+    {
+        $storage = storage_path('framework/testing/whmcs-storage-' . uniqid());
+        File::ensureDirectoryExists($storage);
+        try {
+            file_put_contents("{$this->folder}/111111_old.pdf", Eml::pdf());
+            file_put_contents("{$storage}/222222_new.pdf", Eml::pdf());
+            file_put_contents("{$storage}/111111_old.pdf", '<html>not this one</html>');
+            // A copy refused in the first folder does not hide a good one in the next (review of #668).
+            file_put_contents("{$this->folder}/555555_fixed.pdf", '<html><script>x</script></html>');
+            file_put_contents("{$storage}/555555_fixed.pdf", Eml::pdf());
+            $this->ticket(9, ['attachment' => '111111_old.pdf|222222_new.pdf|333333_gone.pdf|555555_fixed.pdf']);
+
+            $counts = (new WhmcsTicketImport($this->whmcs, [$this->folder, $storage . '/']))->run();
+
+            $this->assertSame(['fixed.pdf', 'new.pdf', 'old.pdf'], Ticket::query()->findOrFail(9)->messages()->sole()->attachments()->pluck('filename')->sort()->values()->all());
+            $this->assertSame([3, 0, 1], [$counts['files'], $counts['files_refused'], $counts['files_missing']], 'the first folder whose copy passes wins');
+        } finally {
+            File::deleteDirectory($storage);
+        }
+    }
+
+    /** WG-21: where WHMCS keeps ticket files now (Storage Settings) is said, and with missing files, what to copy. */
+    public function test_the_report_says_where_whmcs_keeps_ticket_files(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblstorageconfigurations (id INTEGER PRIMARY KEY, name TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblfileassetsettings (id INTEGER PRIMARY KEY, asset_type TEXT, storageconfiguration_id INT)');
+        $this->whmcs->exec("INSERT INTO tblstorageconfigurations VALUES (5, 'Local Storage: /home/example/whmcs')");
+        $this->whmcs->exec("INSERT INTO tblfileassetsettings VALUES (1, 'downloads', 9), (6, 'ticket_attachments', 5)");
+        $this->ticket(10, ['attachment' => '444444_gone.pdf']);
+
+        $counts = $this->import();
+
+        $this->assertSame('Local Storage: /home/example/whmcs', $counts['whmcs_storage']);
+        $command = new class extends Command {};
+        $output = new BufferedOutput;
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
+        ImportWhmcsTickets::report($command, $counts);
+        $text = $output->fetch();
+        $this->assertStringContainsString('WHMCS keeps ticket files in «Local Storage: /home/example/whmcs»', $text);
+        $this->assertStringContainsString('1 file(s) missing', $text);
+    }
+
     public function test_another_status_is_open_and_told_and_the_command_reports_parity(): void
     {
         $this->ticket(8, ['status' => 'Escalated']);

@@ -57,14 +57,41 @@ final class MoveToClient
             if (!$service->isEnded() && $service->cancellation()->exists()) {
                 throw new DisplayException(__('clients.move.cancellation'));
             }
-            $refs = [[Service::class, $service->id]];
-            foreach (ServiceUpgrade::query()->where('service_id', $service->id)->pluck('id') as $upgrade) {
-                $refs[] = [ServiceUpgrade::class, (int) $upgrade];
+            // An addon is its parent's (docs/addons.md): it moves with it, never on its own; its addons with it, their
+            // open invoices in the same plan (a renewal billed with the parent's stays one invoice).
+            if ($service->parent_service_id !== null) {
+                throw new DisplayException(__('services.addons.move_addon'));
+            }
+            // Only those still running: an ended one is the first client's history, its debt too (code review 1 of #634);
+            // it stays with them, no longer fastened to a service that is not theirs.
+            $all = Service::query()->where('parent_service_id', $service->id)->orderBy('id')->lockForUpdate()->get();
+            $addons = $all->reject(fn (Service $addon) => $addon->isEnded())->values();
+            foreach ($addons as $addon) {
+                if (filled($addon->subscription_id)) {
+                    throw new DisplayException(__('clients.move.subscription'));
+                }
+                if ($addon->cancellation()->exists()) {
+                    throw new DisplayException(__('clients.move.cancellation'));
+                }
+            }
+            $refs = [];
+            foreach ([$service, ...$addons] as $moved) {
+                $refs[] = [Service::class, $moved->id];
+                foreach (ServiceUpgrade::query()->where('service_id', $moved->id)->pluck('id') as $upgrade) {
+                    $refs[] = [ServiceUpgrade::class, (int) $upgrade];
+                }
             }
             $plan = $this->plan($refs, $service);
             $service->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
             // A late payment of the first client's ended subscription is never the new client's (code review of #605).
             SubscriptionEnded::forget($service);
+            foreach ($addons as $addon) {
+                $addon->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
+                SubscriptionEnded::forget($addon);
+            }
+            foreach ($all->filter(fn (Service $addon) => $addon->isEnded()) as $ended) {
+                $ended->forceFill(['parent_service_id' => null])->save();
+            }
             $result = $this->moveInvoices($plan, $to);
             $label = '#' . $service->id . ' ' . (string) $service->product?->name;
             $this->notes($from, $to, $by, 'service', $label);

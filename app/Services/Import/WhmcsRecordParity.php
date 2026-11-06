@@ -9,7 +9,9 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\Extension;
 use App\Models\Server;
 use App\Models\Setting;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Money\MoneyTrail;
+use App\Services\Whmcs\CatalogImport;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use PDO;
@@ -22,7 +24,7 @@ use Throwable;
  * account, number, status, amount, due and paid days; a payment's invoice and amount; a service's account, product,
  * status, price, cycle and due date, and where it lives (its server and the address that is reached at, its username, its
  * domain: a suspension of the wrong account is the worst a cut-over can do); a domain's account, name, status, expiry,
- * amount and registrar. What the importer leaves out by its own rule (a payment on no invoice here, money out on no payment
+ * amount and registrar; a live addon's parent, account, status, price, cycle and due date. What the importer leaves out by its own rule (a payment on no invoice here, money out on no payment
  * here) is a note, never a difference. Read only on both. Amounts in cents.
  */
 final class WhmcsRecordParity
@@ -60,6 +62,7 @@ final class WhmcsRecordParity
         $this->invoices();
         $this->payments();
         $this->services();
+        $this->addons();
         $this->domains();
 
         return array_map(fn (array $check) => ['checked' => count($check['records']), 'count' => count($check['differ']), 'differ' => $check['examples']],
@@ -246,7 +249,23 @@ final class WhmcsRecordParity
         foreach ($this->whmcs->query('SELECT * FROM tblservers')->fetchAll(PDO::FETCH_ASSOC) as $server) {
             $whmcsServers[(int) $server['id']] = $server;
         }
+        // A cluster's nodes are one server here, its WHMCS id one node's (CatalogImport::CLUSTER_MODULES): each node is it.
+        foreach ($whmcsServers as $whmcsId => $server) {
+            $module = strtolower((string) ($server['type'] ?? ''));
+            if (!$byWhmcs->has($whmcsId) && in_array($module, CatalogImport::CLUSTER_MODULES, true)) {
+                $node = collect($whmcsServers)->first(fn ($other) => strtolower((string) ($other['type'] ?? '')) === $module && $byWhmcs->has((int) $other['id']));
+                if ($node !== null) {
+                    $byWhmcs->put($whmcsId, $byWhmcs->get((int) $node['id']));
+                }
+            }
+        }
         $byHand = [];
+        // Each account's group discount: WHMCS bills it as a line of its own on each renewal, the import takes it off (WG-1).
+        try {
+            $groupPercents = $this->pairs('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0');
+        } catch (Throwable) {
+            $groupPercents = [];
+        }
         foreach ($this->whmcs->query('SELECT * FROM tblhosting ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $id = (int) $row['id'];
             $service = $here->get($id);
@@ -260,8 +279,9 @@ final class WhmcsRecordParity
             $this->check('Services', $id, (int) $service->client_id === (int) $row['userid'], "service #{$id}: account #{$row['userid']} in WHMCS, #{$service->client_id} here");
             $this->check('Services', $id, (int) $service->product_id === (int) $row['packageid'], "service #{$id}: product #{$row['packageid']} in WHMCS, #{$service->product_id} here");
             $this->check('Services', $id, $want === (string) $service->status, "service #{$id}: {$want} in WHMCS, {$service->status} here");
-            // Never below zero here (ADV-551-3): a negative WHMCS amount is 0.
-            $price = max(0, WhmcsMassPay::cents($row['amount']));
+            // Never below zero here (ADV-551-3): a negative WHMCS amount is 0. Less its account's group discount (WG-1).
+            $price = WhmcsMassPay::cents(ClientGroupPricing::discounted(self::cents(max(0, WhmcsMassPay::cents($row['amount']))),
+                number_format((float) ($groupPercents[(int) $row['userid']] ?? 0), 2, '.', '')));
             $this->check('Services', $id, $price === WhmcsMassPay::cents($service->price),
                 "service #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
             // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1).
@@ -334,13 +354,99 @@ final class WhmcsRecordParity
                 continue;
             }
             $this->check('Service servers', $id, $server !== null && $server->id === $expected->id, "service #{$id}: on WHMCS server {$name}, here on {$on}");
-            // The server here is reached where WHMCS's is: its host, and its IP (cPanel and DirectAdmin connect to it).
-            $at = $theirs === null ? null : $this->pointsElsewhere($addresses[$expected->id] ?? [], $theirs, strict: false);
+            // The server here is reached where WHMCS's is: its host, and its IP (cPanel and DirectAdmin connect to it). A
+            // cluster's is reached at any of its nodes (Pegasus's service, the cluster's server at Vega's address).
+            $module = strtolower((string) ($theirs['type'] ?? ''));
+            $nodes = $theirs === null ? [] : (in_array($module, CatalogImport::CLUSTER_MODULES, true)
+                ? array_filter($whmcsServers, fn ($other) => strtolower((string) ($other['type'] ?? '')) === $module) : [$theirs]);
+            $at = null;
+            foreach ($nodes as $node) {
+                $at = $this->pointsElsewhere($addresses[$expected->id] ?? [], $node, strict: false);
+                if ($at === null) {
+                    break;
+                }
+            }
             $this->check('Service servers', $id, $at === null,
                 "service #{$id}: WHMCS server {$name} is " . self::whmcsAddress($theirs ?? []) . ", server #{$expected->id} here points to {$at}");
         }
         foreach ($byHand as $what => $ids) {
             $this->note('Servers set by staff', "{$what}, at WHMCS's address: service(s) #" . implode(', #', $ids) . '.');
+        }
+    }
+
+    /**
+     * Each live WHMCS addon against its own service here (WhmcsAddonImport, docs/addons.md step 4): fastened to its parent, on
+     * its account, an addon product, its status (suspended with a suspended parent), price, quantity, cycle and due date.
+     * One whose parent is not here is left out by the importer's rule: a note.
+     */
+    private function addons(): void
+    {
+        try {
+            $rows = $this->whmcs->query("SELECT a.*, h.domainstatus AS parent_status FROM tblhostingaddons a LEFT JOIN tblhosting h ON h.id = a.hostingid
+                WHERE a.status IN ('" . implode("', '", WhmcsAddonImport::LIVE) . "') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable) {
+            return; // a WHMCS without addons
+        }
+        $here = DB::table('services')->whereNotNull('whmcs_addon_id')
+            ->get(['id', 'whmcs_addon_id', 'parent_service_id', 'client_id', 'product_id', 'plan_id', 'status', 'price', 'quantity', 'expires_at'])->keyBy('whmcs_addon_id');
+        $parents = DB::table('services')->whereNull('parent_service_id')->pluck('client_id', 'id');
+        $addonProducts = DB::table('products')->where('is_addon', true)->pluck('taxable', 'id');
+        $plans = DB::table('plans')->get(['id', 'type', 'billing_period', 'billing_unit'])->keyBy('id');
+        try {
+            $groupPercents = $this->pairs('SELECT c.id, g.discountpercent FROM tblclients c JOIN tblclientgroups g ON g.id = c.groupid WHERE g.discountpercent > 0');
+        } catch (Throwable) {
+            $groupPercents = [];
+        }
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $parent = (int) $row['hostingid'];
+            $service = $here->get($id);
+            if ($service === null && !$parents->has($parent)) {
+                $this->note('Addons', "WHMCS addon #{$id}: its service #{$parent} is not here (deleted in WHMCS), not imported by rule.");
+
+                continue;
+            }
+            $this->check('Addons', $id, $service !== null, "addon #{$id}: not here");
+            if ($service === null) {
+                continue;
+            }
+            $this->check('Addons', $id, (int) $service->parent_service_id === $parent, "addon #{$id}: of service #{$parent} in WHMCS, of #" . ($service->parent_service_id ?? 'none') . ' here');
+            $this->check('Addons', $id, (int) $service->client_id === (int) ($parents[$parent] ?? 0), "addon #{$id}: on account #{$service->client_id} here, its service on #" . ($parents[$parent] ?? '?'));
+            $this->check('Addons', $id, $addonProducts->has((int) $service->product_id), "addon #{$id}: product #{$service->product_id} here is not an addon product");
+            // Taxed as WHMCS billed it: its own flag, here its product's (the reason for WhmcsAddonImport's variants).
+            $taxed = WhmcsAddonImport::on($row['tax'] ?? '');
+            $this->check('Addons', $id, !$addonProducts->has((int) $service->product_id) || (bool) $addonProducts[(int) $service->product_id] === $taxed,
+                "addon #{$id}: " . ($taxed ? 'taxed' : 'not taxed') . ' in WHMCS, ' . ($taxed ? 'not taxed' : 'taxed') . ' here');
+            // Suspended with a suspended parent, ended with an ended one (WhmcsAddonImport).
+            $want = ImportFromWhmcs::serviceStatus((string) $row['status']);
+            $parentWant = ImportFromWhmcs::serviceStatus((string) $row['parent_status']);
+            $want = match (true) {
+                in_array($parentWant, ['terminated', 'cancelled'], true) => $parentWant,
+                $want === 'active' && $parentWant === 'suspended' => 'suspended',
+                default => $want,
+            };
+            $this->check('Addons', $id, $want === (string) $service->status, "addon #{$id}: {$want} in WHMCS, {$service->status} here");
+            $price = WhmcsMassPay::cents(ClientGroupPricing::discounted(self::cents(max(0, WhmcsMassPay::cents($row['recurring']))),
+                number_format((float) ($groupPercents[(int) ($parents[$parent] ?? 0)] ?? 0), 2, '.', '')));
+            $this->check('Addons', $id, $price === WhmcsMassPay::cents($service->price),
+                "addon #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
+            $this->check('Addons', $id, max(1, (int) $row['qty']) === (int) $service->quantity, "addon #{$id}: quantity {$row['qty']} in WHMCS, {$service->quantity} here");
+            $cycle = trim((string) $row['billingcycle']);
+            // An addon's may be «Free» or «One Time» as well as a service's names (WhmcsAddonImport::planFor).
+            $name = match (strtolower(str_replace(['-', ' '], '', $cycle))) {
+                'free', 'freeaccount' => 'Free',
+                'onetime' => 'One-Time',
+                default => ImportFromWhmcs::planName($cycle),
+            };
+            [$type, $period, $unit] = self::CYCLES[$name];
+            $plan = $service->plan_id === null ? null : $plans->get((int) $service->plan_id);
+            $this->check('Addons', $id, $plan !== null && (string) $plan->type === $type
+                && ($type !== 'recurring' || ((int) $plan->billing_period === $period && strtolower((string) $plan->billing_unit) === $unit)),
+                "addon #{$id}: billed «{$cycle}» in WHMCS, here " . ($plan === null ? 'on no plan' : ((string) $plan->type === 'recurring' ? "every {$plan->billing_period} {$plan->billing_unit}" : $plan->type)));
+            if ($type === 'recurring') {
+                $this->check('Addons', $id, self::day($row['nextduedate']) === self::day($service->expires_at),
+                    "addon #{$id}: due " . self::day($row['nextduedate']) . ' in WHMCS, ' . self::day($service->expires_at) . ' here');
+            }
         }
     }
 
@@ -380,9 +486,13 @@ final class WhmcsRecordParity
                 "domain #{$id}: «{$row['domain']}» in WHMCS, «{$domain->fqdn}» here");
             $this->check('Domains', $id, self::day($row['expirydate']) === self::day($domain->expires_at),
                 "domain #{$id} ({$domain->fqdn}): expires " . self::day($row['expirydate']) . ' in WHMCS, ' . self::day($domain->expires_at) . ' here');
-            $this->check('Domains', $id, WhmcsMassPay::cents($row['recurringamount']) === WhmcsMassPay::cents($domain->recurring_amount),
-                "domain #{$id} ({$domain->fqdn}): " . self::cents(WhmcsMassPay::cents($row['recurringamount'])) . ' in WHMCS, '
-                . self::cents(WhmcsMassPay::cents($domain->recurring_amount)) . ' here');
+            // What it renews at: WHMCS's amount, or its TLD's where it follows the catalog (WG-12, WhmcsDomainImport).
+            $model = Domain::query()->with('domainTld.prices')->find($id);
+            $expected = $model === null ? (string) $row['recurringamount'] : WhmcsDomainImport::expectedRenewal($model, (string) $row['recurringamount']);
+            $renews = $model?->renewalPrice();
+            $this->check('Domains', $id, WhmcsMassPay::cents($expected) === WhmcsMassPay::cents($renews),
+                "domain #{$id} ({$domain->fqdn}): renews at " . self::cents(WhmcsMassPay::cents($expected)) . ' by WHMCS\'s amount '
+                . self::cents(WhmcsMassPay::cents($row['recurringamount'])) . ', ' . ($renews === null ? 'none' : self::cents(WhmcsMassPay::cents($renews))) . ' here');
             // Its status as the importer maps it: an ended one is renewed nowhere, a live one is.
             $want = WhmcsDomainImport::status((string) $row['status'], (string) ($row['type'] ?? ''));
             if ($want !== null && WhmcsDomainImport::registeredWhilePending($want, $row, isset($paidRenewals[$id]))) {

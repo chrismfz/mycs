@@ -12,7 +12,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A customer group (ROADMAP 5, as WHMCS's): a name and colour for staff, and a percentage off its members' services,
- * taken in their price after a coupon (OrderPricing::line). Never on domains.
+ * taken in their price after a coupon (OrderPricing::line). On domains only with «Also on domains» (Domain::catalogRenewalPrice, D-23).
  *
  * @property int $id
  * @property string $name
@@ -27,11 +27,11 @@ class ClientGroup extends Model implements Auditable
 {
     use Traits\Auditable;
 
-    protected $fillable = ['name', 'colour', 'discount_percent', 'separate_invoices', 'dunning_exempt', 'no_overdue_reminders'];
+    protected $fillable = ['name', 'colour', 'discount_percent', 'applies_to_domains', 'separate_invoices', 'dunning_exempt', 'no_overdue_reminders'];
 
     protected function casts(): array
     {
-        return ['discount_percent' => 'decimal:2', 'separate_invoices' => 'boolean', 'dunning_exempt' => 'boolean', 'no_overdue_reminders' => 'boolean'];
+        return ['discount_percent' => 'decimal:2', 'applies_to_domains' => 'boolean', 'separate_invoices' => 'boolean', 'dunning_exempt' => 'boolean', 'no_overdue_reminders' => 'boolean'];
     }
 
     /** @return HasMany<Client, $this> */

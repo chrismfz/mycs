@@ -56,6 +56,14 @@ class ProductResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    /** Setup → Product Addons lists the addons (ProductAddonResource), Products the rest (docs/addons.md). */
+    protected static bool $addons = false;
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('is_addon', static::$addons);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -87,18 +95,18 @@ class ProductResource extends Resource
                                     ->afterStateHydrated(fn (TextInput $component, ?Product $record) => $component->state($record?->exists && $record->category
                                         ? route('products.checkout', ['category' => $record->category, 'product' => $record]) : null))
                                     ->helperText('Add ?plan= with a plan id to preselect its billing cycle.')
-                                    ->visibleOn('edit')
+                                    ->visibleOn('edit')->hidden(static::$addons)
                                     ->columnSpanFull(),
                                 TextInput::make('stock')->integer()->nullable(),
-                                TextInput::make('per_user_limit')->integer()->nullable(),
+                                TextInput::make('per_user_limit')->integer()->nullable()->hidden(static::$addons),
                                 // WHMCS «Apply Tax» (Δ1): a product sold without VAT.
                                 Toggle::make('taxable')->label('Apply tax')->default(true)
                                     ->helperText('Off: sold without tax (its invoice lines are not taxed).'),
                                 // WHMCS «Prorata Billing» (decision 3, PR D): every service renews on the same day.
-                                TextInput::make('prorata_day')->label('Pro rata day')->integer()->nullable()
+                                TextInput::make('prorata_day')->label('Pro rata day')->integer()->nullable()->hidden(static::$addons)
                                     ->minValue(1)->maxValue(28)
                                     ->helperText('Day of the month every service of a monthly or yearly plan renews on; the first invoice is for the days up to it. Empty: off.'),
-                                TextInput::make('prorata_next_after_day')->label('Charge next month after day')->integer()->nullable()
+                                TextInput::make('prorata_next_after_day')->label('Charge next month after day')->integer()->nullable()->hidden(static::$addons)
                                     ->minValue(1)->maxValue(31)
                                     ->gt('prorata_day')
                                     ->helperText('Ordered on or after this day, the first invoice also bills the next full period. Empty: never.'),
@@ -112,16 +120,16 @@ class ProductResource extends Resource
                                     ->hint('Shown as {{ product_info }} in the "service activated" email. Same template syntax, e.g. {{ service.product.name }}, {{ service.license.license_key }} (a nixpal license: its key and status only).')
                                     ->rule(TemplateRenderer::rule())
                                     ->nullable(),
-                                Checkbox::make('hidden')
+                                Checkbox::make('hidden')->hidden(static::$addons)
                                     ->label('Hide product')
                                     ->hint('Not listed in the shop; still ordered by its link.'),
                                 // WHMCS «Retired»: its services go on, no new orders (ADV-1 of #216).
                                 Checkbox::make('retired')
                                     ->label('Retired')
-                                    ->hint('Not ordered any more, also not by its link or by staff; its services go on.'),
+                                    ->hint(static::$addons ? 'Not fastened to services any more; its services go on.' : 'Not ordered any more, also not by its link or by staff; its services go on.'),
 
                                 RichEditor::make('description')->nullable()->columnSpanFull(),
-                                FileUpload::make('image')
+                                FileUpload::make('image')->hidden(static::$addons)
                                     ->label('Image')
                                     ->nullable()
                                     ->visibility('public')
@@ -140,7 +148,18 @@ class ProductResource extends Resource
                         Tab::make('Pricing')
                             ->schema([self::plan()]),
 
+                        // What an addon fastens to (docs/addons.md): its parent's module or product; none, any service.
+                        Tab::make('Applies to')
+                            ->visible(static::$addons)
+                            ->schema([
+                                Select::make('addon_targets')->label('Applies to')->multiple()->searchable()
+                                    ->options(fn () => self::addonTargetOptions())
+                                    ->placeholder('Any service')
+                                    ->helperText('The services it can be added to: of these modules, or these products. Empty: any service.'),
+                            ]),
+
                         Tab::make('Upgrades')
+                            ->hidden(static::$addons)
                             ->schema([
                                 // Select input for the products this product can upgrade to (hasmany relationship)
                                 Select::make('upgrades')
@@ -162,6 +181,7 @@ class ProductResource extends Resource
                             ]),
 
                         Tab::make('Server')
+                            ->hidden(static::$addons) // an addon is on its parent's machine: no module of its own
                             ->schema([
                                 // WHMCS's Module Settings → «Auto Setup» (Σ1-b).
                                 Radio::make('autosetup')->label('Auto Setup')->required()->default(Product::AUTOSETUP_PAYMENT)
@@ -362,6 +382,34 @@ class ProductResource extends Resource
                             ->hidden(fn (Get $get) => $get('type') === 'free'),
                     ]),
             ]);
+    }
+
+    /**
+     * What an addon can fasten to: the modules of the servers here, and the products that are not addons.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function addonTargetOptions(): array
+    {
+        $modules = Server::query()->whereNotNull('extension')->distinct()->orderBy('extension')->pluck('extension')
+            ->mapWithKeys(fn (string $module) => ['module:' . $module => $module])->all();
+        $products = Product::query()->where('is_addon', false)->orderBy('name')->pluck('name', 'id')
+            ->mapWithKeys(fn (string $name, int $id) => ['product:' . $id => $name])->all();
+
+        return [__('Modules') => $modules, __('Products') => $products];
+    }
+
+    /** An addon's «Applies to» in words: its modules and products, or «Any service». */
+    public static function addonTargetsLabel(Product $product): string
+    {
+        $targets = array_values(array_filter((array) ($product->addon_targets ?? [])));
+        if ($targets === []) {
+            return __('Any service');
+        }
+        $names = Product::query()->whereKey(array_map(fn (string $t) => (int) substr($t, 8), array_filter($targets, fn (string $t) => str_starts_with($t, 'product:'))))->pluck('name', 'id');
+
+        return collect($targets)->map(fn (string $target) => str_starts_with($target, 'module:') ? substr($target, 7)
+            : (string) ($names[(int) substr($target, 8)] ?? $target))->implode(', ');
     }
 
     /** Auto Setup in a word, as WHMCS's list. */

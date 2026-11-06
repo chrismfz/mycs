@@ -22,6 +22,7 @@ use App\Services\Mcp\Proposals;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
 use App\Support\Tickets\MergeTickets;
+use App\Support\Tickets\TicketPresence;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\MarkdownEditor;
@@ -40,6 +41,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use MyCS\TicketMail\Attachments;
 
 class EditTicket extends EditRecord
@@ -50,6 +52,58 @@ class EditTicket extends EditRecord
     protected static string $resource = TicketResource::class;
 
     protected string $view = 'admin.resources.ticket-resource.pages.edit-ticket';
+
+    /**
+     * The last message this page has shown its member before they started writing (docs/tickets.md §6ν): another's
+     * message after it stops the first «Send».
+     */
+    #[Locked]
+    public int $seenMessageId = 0;
+
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+        if ($this->record instanceof Ticket) {
+            $this->seenMessageId = TicketPresence::lastMessageId($this->record);
+        }
+        $this->presenceBeat(viewing: true, typed: false);
+    }
+
+    /**
+     * The page's heartbeat (docs/tickets.md §6ν), which also refreshes the thread. $viewing: the tab is in front and
+     * someone moved in it lately; $typed: the reply box changed since the last beat.
+     */
+    public function presenceBeat(bool $viewing = true, bool $typed = false): void
+    {
+        $staff = Auth::guard('staff')->user();
+        if (!$staff instanceof Staff || !$this->record instanceof Ticket) {
+            return;
+        }
+        $hasDraft = $this->hasDraft();
+        // Nothing written yet: what came in is on the page before they start, so it is seen.
+        if (!$hasDraft) {
+            $this->seenMessageId = max($this->seenMessageId, TicketPresence::lastMessageId($this->record));
+        }
+        TicketPresence::beat($this->record, $staff, $this->getId(), $viewing, $typed && $hasDraft, $hasDraft);
+    }
+
+    private function hasDraft(): bool
+    {
+        return trim((string) ($this->data['message'] ?? '')) !== '' || array_filter((array) ($this->data['attachments'] ?? [])) !== [];
+    }
+
+    /**
+     * Messages of others since this page's member started writing.
+     *
+     * @return Collection<int, TicketMessage>
+     */
+    private function newerMessages(): Collection
+    {
+        $staff = Auth::guard('staff')->user();
+
+        return $staff instanceof Staff && $this->record instanceof Ticket && $this->hasDraft()
+            ? TicketPresence::newerThan($this->record, $this->seenMessageId, $staff->id) : collect();
+    }
 
     public function form(Schema $schema): Schema
     {
@@ -161,7 +215,13 @@ class EditTicket extends EditRecord
     /** @return array<string, mixed> */
     protected function getViewData(): array
     {
-        return ['drafts' => $this->drafts()];
+        $staff = Auth::guard('staff')->user();
+
+        return [
+            'drafts' => $this->drafts(),
+            'presence' => $this->record instanceof Ticket ? TicketPresence::onTicket($this->record, $staff instanceof Staff ? $staff->id : null) : [],
+            'newer' => $this->newerMessages(),
+        ];
     }
 
     /** Into the reply box, after what staff already wrote: staff change it and send it, or not. */
@@ -211,6 +271,17 @@ class EditTicket extends EditRecord
 
             return;
         }
+        // Another's message came in while they wrote (docs/tickets.md §6ν): this «Send» stops, the next one sends. A note
+        // reaches no customer, so it goes on.
+        if (!$internal && $this->record instanceof Ticket && $this->newerMessages()->isNotEmpty()) {
+            $this->seenMessageId = TicketPresence::lastMessageId($this->record);
+            Notification::make()->warning()->persistent()
+                ->title(__('A new reply came in while you were writing.'))
+                ->body(__('Read it above. If yours still stands, press Send again.'))
+                ->send();
+
+            return;
+        }
         $data = $this->form->getState();
         // Only files just uploaded here, in the tickets' folder: never a path from elsewhere on the disk (`.env`).
         foreach ($data['attachments'] ?? [] as $attachment) {
@@ -241,6 +312,11 @@ class EditTicket extends EditRecord
         }
 
         $this->form->fill();
+        // Their own message is seen, and the box is empty: no longer writing.
+        if ($this->record instanceof Ticket) {
+            $this->seenMessageId = TicketPresence::lastMessageId($this->record);
+        }
+        $this->presenceBeat();
     }
 
     public function infolist(Schema $schema): Schema

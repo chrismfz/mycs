@@ -5,6 +5,7 @@ namespace App\Services\Invoice;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ServiceUpgrade;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -39,6 +40,14 @@ final class SplitInvoice
             // Each part bills something (adversarial E-ADV-7): a discount line alone would make an invoice of less than
             // nothing, and the other part would bill without it; a part of nothing would stay open, reminded.
             $lines = InvoiceItem::query()->where('invoice_id', $invoice->id)->get();
+            // An upgrade's lines stay together (ADV-685-1): its charge and staff's discount on it. Apart, the upgrade would
+            // follow one of them and bill the other again (ServiceUpgradeService::shortfall).
+            $upgradeOf = fn (InvoiceItem $line) => $line->reference_type === ServiceUpgrade::class ? (int) $line->reference_id : null;
+            $movingUpgrades = $lines->whereIn('id', $lineIds)->map($upgradeOf)->filter()->unique();
+            $stayingUpgrades = $lines->whereNotIn('id', $lineIds)->map($upgradeOf)->filter()->unique();
+            if ($movingUpgrades->intersect($stayingUpgrades)->isNotEmpty()) {
+                throw new DisplayException(__('An upgrade\'s lines stay together: move its discount with it, or neither.'));
+            }
             $moving = (int) $lines->whereIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
             $staying = (int) $lines->whereNotIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
             if ($moving <= 0 || $staying <= 0) {

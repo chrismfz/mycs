@@ -31,12 +31,14 @@ Schedule::command(CronJob::class)->description('Runs daily to send out invoices,
 Schedule::call(function () {
     if (app()->isDownForMaintenance()) {
         NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
-            The daily run's time came while the app was in maintenance (a deploy): today's invoices, charges and reminders are not done.<br>
-            Run it once the deploy is over: <code>php artisan app:cron-job</code>.
+            The daily run's time came while the app was in maintenance (a deploy): today's invoices, charges and reminders are not done yet.<br>
+            The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the deploy is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
             HTML);
     }
 })->name('cron-skipped-in-maintenance')->description('Tells staff when the daily run fell in maintenance')
     ->dailyAt(config('settings.cronjob_time', '09:00'))->evenInMaintenanceMode()->onOneServer();
+// Today's daily run that did not start (its minute in a deploy, the server down): started by itself, once (2026-11-04).
+Schedule::command(CronJob::class, ['--catch-up'])->description('Starts today\'s daily run if it did not start at its time')->hourlyAt(35)->withoutOverlapping(120)->onOneServer();
 // Suspensions and terminations on their days and from their hour (Settings → Automation): the daily run may be at night.
 Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

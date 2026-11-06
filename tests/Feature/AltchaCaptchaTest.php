@@ -25,7 +25,7 @@ class AltchaCaptchaTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['settings.captcha' => 'altcha', 'settings.default_currency' => 'USD']);
+        config(['settings.captcha' => 'altcha', 'settings.captcha_login' => 'always', 'settings.default_currency' => 'USD']);
         // The real difficulties take seconds in PHP: a tiny one, the same code otherwise.
         $this->app->instance(Altcha::class, new class extends Altcha
         {
@@ -95,7 +95,7 @@ class AltchaCaptchaTest extends TestCase
     public function test_the_login_needs_a_solved_altcha(): void
     {
         $user = User::factory()->create(['password' => bcrypt('secret-password')]);
-        config(['settings.captcha' => 'altcha']); // creating a model reloads the settings: set it again after
+        config(['settings.captcha' => 'altcha', 'settings.captcha_login' => 'always']); // creating a model reloads the settings: set it again after
 
         Livewire::test(Login::class)->set('email', $user->email)->set('password', 'secret-password')
             ->call('submit')->assertHasErrors('captcha');
@@ -121,7 +121,7 @@ class AltchaCaptchaTest extends TestCase
     public function test_a_field_updated_after_solving_does_not_spend_the_solution(): void
     {
         $user = User::factory()->create(['password' => bcrypt('secret-password')]);
-        config(['settings.captcha' => 'altcha']);
+        config(['settings.captcha' => 'altcha', 'settings.captcha_login' => 'always']);
 
         Livewire::test(Login::class)->set('captcha', $this->solve($this->challenge()))
             ->set('email', $user->email)->set('password', 'secret-password')
@@ -168,7 +168,7 @@ class AltchaCaptchaTest extends TestCase
     public function test_its_error_shows_once_in_the_visitors_language_and_goes_once_solved(): void
     {
         $user = User::factory()->create(['password' => bcrypt('secret-password')]);
-        config(['settings.captcha' => 'altcha']);
+        config(['settings.captcha' => 'altcha', 'settings.captcha_login' => 'always']);
         app()->setLocale('el');
 
         $whois = Livewire::test(Whois::class)->set('query', 'example.com')->call('lookup')->assertHasErrors(['captcha' => __('auth.captcha_required')]);

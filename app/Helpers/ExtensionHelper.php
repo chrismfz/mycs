@@ -1928,6 +1928,30 @@ class ExtensionHelper
     }
 
     /**
+     * An addon's own server action (its own invoice, its own end, staff's command): a task for staff on its parent's
+     * machine, until a module does addons itself (docs/addons.md). Its parent ended: the machine is gone, nothing to do.
+     *
+     * @return array<string, mixed>
+     */
+    private static function addonTask(Service $service, string $recorded, string $action, string $audit): array
+    {
+        $parent = $service->parent;
+        if ($parent === null || $parent->isEnded()) {
+            throw new NothingToDoOnServer('Its main service has ended: nothing left on its machine.');
+        }
+        self::recordAudit($service, 'extension_action', [], ['action' => $audit]);
+        $module = (string) ($parent->provisioningServer()?->extension ?: 'addon');
+        $on = trim(preg_replace('/\s+/', ' ', "#{$parent->id} " . ($parent->domain ?: '') . ' ' . ($parent->dedicated_ip ? "({$parent->dedicated_ip})" : '')));
+        $what = ($service->product->name ?? 'addon') . ((int) $service->quantity > 1 ? " ×{$service->quantity}" : '');
+        $state = $parent->status === Service::STATUS_ACTIVE ? '' : ' (the service itself is ' . $parent->status . ')';
+
+        return self::staffTask($service, $recorded, $module, $action,
+            "By hand: {$recorded} the addon «{$what}» of service {$on}{$state}, then mark this done.",
+            "Addon #{$service->id} «{$what}» of service {$on} ({$module}){$state}: {$recorded} it by hand, "
+            . 'then mark the task done in Pending Module Actions.');
+    }
+
+    /**
      * A task for staff in Pending Module Actions (open, given up at once: no retry can do it), staff mailed once with the
      * service's details; older open tasks of the service that it makes moot are closed.
      *
@@ -2017,6 +2041,9 @@ class ExtensionHelper
     protected static function serverAction(Service $service, string $action, string $audit)
     {
         $recorded = ModuleAction::ACTIONS[$action];
+        if ($service->parent_service_id !== null) {
+            return self::addonTask($service, $recorded, $action, $audit);
+        }
         try {
             $server = self::checkServer($service, $action);
         } catch (NothingToDoOnServer $e) {

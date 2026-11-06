@@ -13,8 +13,9 @@ use Throwable;
 /**
  * An account's services follow its group discount (ROADMAP 5; reviews of #272): each live service whose price holds
  * another percentage (services.group_percent) than its account's now takes the account's, from its next renewal (an open
- * invoice keeps its lines, as WHMCS). The price the system computes when it was that one; any other (an old catalog's,
- * an import's, staff's, another tax decision's) by ratio: price × (100 − now) / (100 − then). Never a service staff
+ * invoice keeps its lines, as WHMCS). One with its price without the discount kept (services.undiscounted_price: WHMCS's
+ * amount, ADV-641-1/2) from that, exactly; the price the system computes when it was that one; any other (an old
+ * catalog's, staff's, another tax decision's) by ratio: price × (100 − now) / (100 − then). Never a service staff
  * locked («Keep this price»). Under the service's row lock, reading the account's group in it: run again, it changes
  * nothing; two changes at once end at the last. The daily cron runs it for any account left behind (reconcile()).
  */
@@ -33,6 +34,17 @@ final class ClientGroupPricing
         }
 
         return $repriced;
+    }
+
+    /**
+     * A price without the group's discount, with it: the discount rounded on its own and taken off, as WHMCS's
+     * `GroupDiscount` line per service and the pricing package's (LinePricer) do (1.85 at 10%: 1.85 − 0.19 = 1.66).
+     */
+    public static function discounted(string $price, string $percent): string
+    {
+        $price = BigDecimal::of($price);
+
+        return (string) $price->minus($price->multipliedBy($percent)->dividedBy(100, 2, RoundingMode::HalfUp))->toScale(2);
     }
 
     /** The cron's: the accounts with a live service whose price holds another group discount than theirs. */
@@ -71,7 +83,12 @@ final class ClientGroupPricing
             return 0;
         }
         $price = number_format((float) $service->price, 2, '.', '');
-        if ($service->plan !== null && bccomp($price, $service->calculatePrice(groupPercent: $then), 2) === 0) {
+        if ($service->undiscounted_price !== null) {
+            // Its price without the discount kept: the new discount off it, rounded as WHMCS's line (ADV-641-1/2).
+            $new = self::discounted(number_format((float) $service->undiscounted_price, 2, '.', ''), $now);
+        } elseif ($service->plan !== null && $service->plan->hasPriceIn($service->currency_code)
+            // A price computed from its plan; one with no price in its currency computes to its own (ADV-628-1): scaled below.
+            && bccomp($price, $service->calculatePrice(groupPercent: $then), 2) === 0) {
             $new = $service->calculatePrice(groupPercent: $now);
         } elseif (bccomp($then, '100', 2) === 0) {
             // A whole discount leaves nothing to scale: the computed price, or staff decide.

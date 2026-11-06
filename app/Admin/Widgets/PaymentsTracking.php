@@ -34,6 +34,8 @@ class PaymentsTracking extends TableWidget
     {
         return $table
             ->query(BankMovement::query()->credits()->with(['acknowledgedBy', 'invoice']))
+            // What the yellow rows are, under the heading (B2, owner 2026-11-04).
+            ->description(__('Yellow: not seen to yet'))
             ->defaultSort('executed_at', 'desc')
             // A widget pages «simply» (no count): here the page and the total show, with thousands of movements (owner 2026-10-28).
             ->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)->paginationMode(PaginationMode::Default)
@@ -57,9 +59,16 @@ class PaymentsTracking extends TableWidget
                         default => 'In the mailbox before the reading started',
                     }),
                 TextColumn::make('amount')->label('Amount')->alignEnd()
-                    ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €')
-                    ->description(fn (BankMovement $record) => $record->bankName()),
-                TextColumn::make('reason')->label('Reference')->wrap()->searchable()
+                    ->formatStateUsing(fn (BankMovement $record) => number_format((float) $record->amount, 2, ',', '.') . ' €'),
+                // A column of its own, not a second line under the amount: a row is one line (owner 2026-11-03, dashboard direction B).
+                TextColumn::make('bank')->label('Bank')->color('gray')
+                    ->formatStateUsing(fn (BankMovement $record) => $record->bankName()),
+                // One line, cut to the room the card has (density.css, `.mycs-cut-cell`), the whole of it in its tooltip: a
+                // movement is a row of its own height, and the actions stay in view (B2, owner 2026-11-04).
+                TextColumn::make('reason')->label('Reference')->searchable()
+                    ->extraCellAttributes(['class' => 'mycs-cut-cell'])
+                    // Always: how much is cut depends on the width, ten characters on a phone (review of #642).
+                    ->tooltip(fn (BankMovement $record) => filled($record->reason) ? $record->reason : null)
                     ->description(fn (BankMovement $record) => $record->authentic ? null
                         : (in_array($record->authenticity, ['not_our_account', BankMovement::TAKEN_OUT], true) ? '⚠ Not one of our accounts (' . $record->account . '): check it at the bank'
                             : '⚠ Not vouched for by our mail server: check it at the bank')),

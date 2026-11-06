@@ -174,7 +174,7 @@ final class ClientIncome
      */
     public static function renewingDomains(string $currency, ?array $clients = null): Collection
     {
-        return Domain::query()->with(['client.primaryContact', 'domainTld.prices']) // toNet reads the client's tax (review of #503: N+1)
+        return Domain::query()->with(['client.primaryContact', 'client.group', 'domainTld.prices']) // toNet reads the client's tax (review of #503: N+1)
             ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
             ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)
             ->when($clients !== null, fn ($query) => $query->whereIn('client_id', $clients ?: [0]))->get();

@@ -12,10 +12,12 @@ use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Ops\Scrub;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Support\AdminBadge;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
+use App\Support\Redact;
 use Closure;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
@@ -34,6 +36,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * WHMCS's «Domains» (docs/domains.md, D1): the domains of every account, on their own, beside Products/Services. Read
@@ -106,11 +109,20 @@ class DomainResource extends Resource
                 TextColumn::make('expires_at')->label(__('Expires'))->date()->sortable()->placeholder('—'),
                 IconColumn::make('auto_renew')->label(__('Auto renew'))->boolean(),
                 TextColumn::make('status')->label(__('Status'))->badge(),
+                // That the registrar sync runs (owner 2026-11-06): the registrar log keeps only failures and changes, so a
+                // quiet week reads as stopped. Red with its error when the last one failed.
+                TextColumn::make('last_synced_at')->label(__('Last synced'))->since()->sortable()->placeholder(__('Never'))
+                    ->dateTimeTooltip()
+                    ->color(fn (Domain $record) => $record->sync_error !== null ? 'danger' : null)
+                    ->icon(fn (Domain $record) => $record->sync_error !== null ? 'heroicon-m-exclamation-triangle' : null)
+                    ->description(fn (Domain $record) => $record->sync_error !== null ? Str::limit(self::syncError($record), 60) : null),
             ])
             ->filters([
                 SelectFilter::make('status')->label(__('Status'))->options(DomainStatus::options()),
                 Filter::make('not_ours')->label(__('Not ours at its registrar'))
                     ->query(fn ($query) => $query->whereNotNull('meta->not_ours')),
+                Filter::make('sync_failing')->label(__('Last sync failed'))
+                    ->query(fn (Builder $query) => $query->whereNotNull('sync_error')->whereNotIn('status', DomainStatus::terminalValues())), // as the health check counts them
                 Filter::make('expiring')->label(__('Expiring in 60 days'))
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
                 SelectFilter::make('client')->label(__('Client'))->attribute('client_id')->searchable()
@@ -257,7 +269,8 @@ class DomainResource extends Resource
             TextEntry::make('id_protection')->label(__('WHOIS privacy'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
             TextEntry::make('registrar_domain_id')->label(__('ID at the registrar'))->placeholder('—'),
             TextEntry::make('last_synced_at')->label(__('Last synced'))->dateTime()->placeholder('—'),
-            TextEntry::make('sync_error')->label(__('Sync error'))->placeholder('—')->columnSpan(2),
+            TextEntry::make('sync_error')->label(__('Sync error'))->placeholder('—')->columnSpan(2)
+                ->formatStateUsing(fn ($state, Domain $record) => self::syncError($record)),
         ]);
 
         // Each role: its contact here, its handle (linked, or only at the registrar), and what staff do with it (D4c).
@@ -441,5 +454,14 @@ class DomainResource extends Resource
             'index' => ListDomains::route('/'),
             'view' => ViewDomain::route('/{record}'),
         ];
+    }
+
+    /**
+     * Its last sync error as staff may read it: a registrar's message can echo a key or the transfer code, so scrubbed and
+     * redacted as the MCP tool does (code review of #683), before any cut.
+     */
+    private static function syncError(Domain $record): string
+    {
+        return Redact::values((string) Scrub::text((string) $record->sync_error), array_filter([$record->epp_code]));
     }
 }

@@ -168,7 +168,7 @@ class CronWaitAdversarialTest extends TestCase
     {
         $events = collect(app(Schedule::class)->events())
             ->filter(fn ($e) => str_contains((string) $e->command, 'app:cron-job'));
-        $this->assertCount(2, $events, 'the daily and the hourly run');
+        $this->assertCount(3, $events, 'the daily run, the hourly one and the hourly catch-up');
 
         foreach ($events as $event) {
             $this->assertFalse($event->runsInMaintenanceMode(), $event->command);

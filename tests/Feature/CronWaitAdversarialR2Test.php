@@ -59,15 +59,6 @@ class CronWaitAdversarialR2Test extends TestCase
         return EmailLog::query()->where('subject', 'like', '%daily run%')->exists();
     }
 
-    /** A real cron of this host's live site (same pattern as CronWait::cronAlive) would make a release-stale test moot. */
-    private function aRealCronRunsOnThisHost(): bool
-    {
-        // The same pattern as CronWait::cronAlive (round 2 of #556): a parallel test's `php artisan -v app:cron-job` too.
-        exec('pgrep -f ' . escapeshellarg('[a]rtisan( .*)? app:cron-j'), $out, $code);
-
-        return $code !== 1;
-    }
-
     /** A process whose command line reads $title (as `ps` and `pgrep -f` see it), alive for 30 s. */
     private function spawn(string $title): void
     {
@@ -75,9 +66,9 @@ class CronWaitAdversarialR2Test extends TestCase
         $p = proc_open([PHP_BINARY, '-r', $code], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes);
         $this->assertIsResource($p);
         $this->procs[] = $p;
-        // Wait for the title to show.
+        // Wait for the title to show, on this process's own child: another process's fake of the same title is not it.
         for ($i = 0; $i < 40; $i++) {
-            exec('pgrep -f ' . escapeshellarg(preg_quote($title, null)), $o, $c);
+            exec('pgrep -P ' . getmypid() . ' -f ' . escapeshellarg(preg_quote($title, null)), $o, $c);
             if ($c === 0) {
                 return;
             }
@@ -161,15 +152,42 @@ class CronWaitAdversarialR2Test extends TestCase
     // app:cron-wait --release-stale
     // ---------------------------------------------------------------------------------------------------------------
 
+    /**
+     * Flaked in full runs (2026-11-04, «1 is identical to 0»): the probe saw the whole host, and a fake
+     * cron another parallel process had just spawned (R3's pgrep false positive) or the live site's hourly run passed
+     * for a live one. The skip before it could not close the gap. The tests now probe only their own children
+     * (CronWait::$ownChildrenOnly, TestCase::setUp).
+     */
     public function test_holds_release_stale_clears_a_crashed_runs_lock(): void
     {
-        if ($this->aRealCronRunsOnThisHost()) {
-            $this->markTestSkipped('a real app:cron-job runs on this host right now');
-        }
         $this->assertTrue(Cache::lock('app:cron-job', 7200)->get(), 'a crashed run\'s lock');
 
         $this->assertSame(0, Artisan::call('app:cron-wait', ['--release-stale' => true]));
         $this->assertTrue(Cache::lock('app:cron-job', 10)->get(), 'cleared');
+    }
+
+    /** The flake above, on purpose: a fake cron that is not this process's child (another parallel process's) is not seen. */
+    public function test_holds_release_stale_ignores_another_test_process_fake_cron(): void
+    {
+        $title = 'php artisan app:cron-job ' . uniqid('elsewhere-');
+        // Through a shell that exits at once: the fake's parent is gone, as for a sibling process's.
+        exec('sh -c ' . escapeshellarg(PHP_BINARY . ' -r ' . escapeshellarg('cli_set_process_title(' . var_export($title, true) . '); sleep(30);') . ' >/dev/null 2>&1 &'));
+        try {
+            for ($i = 0; $i < 40; $i++) {
+                exec('pgrep -f ' . escapeshellarg(preg_quote($title, null)), $o, $c);
+                if ($c === 0) {
+                    break;
+                }
+                usleep(50_000);
+            }
+            $this->assertSame(0, $c, 'the fake process never showed its title');
+            $this->assertTrue(Cache::lock('app:cron-job', 7200)->get(), 'a crashed run\'s lock');
+
+            $this->assertSame(0, Artisan::call('app:cron-wait', ['--release-stale' => true]));
+            $this->assertTrue(Cache::lock('app:cron-job', 10)->get(), 'cleared');
+        } finally {
+            exec('pkill -f ' . escapeshellarg(preg_quote($title, null)));
+        }
     }
 
     public function test_holds_release_stale_refuses_while_a_cron_process_runs(): void

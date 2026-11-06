@@ -134,6 +134,25 @@ class WhmcsRecordParityTest extends TestCase
         $this->assertSame(["service #{$this->service->id}: username «alice» in WHMCS, «bob» here"], $records['Service accounts']['differ']);
     }
 
+    /** A cluster's nodes (pvewhmcs: Pegasus and Vega) are one server here: a service on either node, on it, is no difference. */
+    public function test_a_service_on_another_node_of_a_cluster_is_on_its_one_server(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblservers ADD COLUMN type TEXT');
+        $this->whmcs->exec("INSERT INTO tblservers (id, name, hostname, ipaddress, type) VALUES (54, 'Vega', 'vega.example.test', '192.0.2.54', 'pvewhmcs'),
+            (61, 'Pegasus', 'pegasus.example.test', '192.0.2.61', 'pvewhmcs')");
+        $cluster = Extension::query()->create(['name' => 'Vega', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $cluster->forceFill(['whmcs_id' => 54])->save();
+        $cluster->settings()->create(['key' => 'host', 'value' => 'https://vega.example.test:8006']); // Vega's address, for Pegasus's service too
+        $this->whmcs->exec("UPDATE tblhosting SET server = 61 WHERE id = {$this->service->id}");
+        $this->service->forceFill(['server_id' => $cluster->id, 'whmcs_server_id' => 61])->save();
+
+        $this->assertSame(0, $this->records()['Service servers']['count']);
+
+        // On any other server it still differs.
+        $this->service->forceFill(['server_id' => Extension::query()->where('whmcs_id', 3)->value('id')])->save();
+        $this->assertSame(1, $this->records()['Service servers']['count']);
+    }
+
     /** A server here pointing elsewhere than WHMCS's of the same id. */
     public function test_a_server_pointing_elsewhere_is_seen(): void
     {
@@ -174,9 +193,12 @@ class WhmcsRecordParityTest extends TestCase
     {
         [$a] = $this->clients;
         $child = (int) DB::table('invoices')->where('client_id', $a)->value('id');
-        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, status, duedate, subtotal, total) VALUES (900, {$a}, 'Paid', '2026-11-10', 10, 10)");
-        $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES (900, 'Invoice', {$child}, 10)");
-        $this->whmcs->exec("UPDATE tblaccounts SET invoiceid = 900 WHERE invoiceid = {$child}");
+        // The parent's id clear of every invoice of both sides, and of the one made below: the fixture's WHMCS invoices
+        // carry MyCS's ids, and MariaDB's counter does not restart per test (a fixed 900 collided on CI, #624).
+        $parent = (int) DB::table('invoices')->max('id') + 1000;
+        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, status, duedate, subtotal, total) VALUES ({$parent}, {$a}, 'Paid', '2026-11-10', 10, 10)");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES ({$parent}, 'Invoice', {$child}, 10)");
+        $this->whmcs->exec("UPDATE tblaccounts SET invoiceid = {$parent} WHERE invoiceid = {$child}");
         $this->assertSame(0, $this->differing());
 
         $other = Invoice::factory()->create(['client_id' => $a, 'status' => 'unpaid', 'currency_code' => 'USD']);
@@ -185,7 +207,7 @@ class WhmcsRecordParityTest extends TestCase
 
         $records = $this->records();
         $this->assertSame(1, $records['Payments']['count']);
-        $this->assertStringContainsString("on Mass Pay invoice #900 in WHMCS (its invoices #{$child}), here on invoice #{$other->id}", $records['Payments']['differ'][0]);
+        $this->assertStringContainsString("on Mass Pay invoice #{$parent} in WHMCS (its invoices #{$child}), here on invoice #{$other->id}", $records['Payments']['differ'][0]);
     }
 
     /** M7: a payment on no invoice here is not imported (importPayments): a note, never a difference, and out of the account's sums. */
@@ -267,6 +289,23 @@ class WhmcsRecordParityTest extends TestCase
         $parity = new WhmcsRecordParity($this->whmcs);
         $this->assertSame(0, array_sum(array_map(fn (array $result) => $result['count'], $parity->run())));
         $this->assertStringContainsString("domain #{$other->id} (dave.test): Active in WHMCS, also live as #{$kept->id}", implode("\n", $parity->notes()));
+    }
+
+    /**
+     * WG-1, code review of #641: WHMCS's amount is without its account's group discount, billed as a line of its own;
+     * the import takes it off (10.00 at 10%: 9.00), which is no difference. The full amount kept here is one.
+     */
+    public function test_a_services_price_is_compared_less_its_groups_discount(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblclients ADD COLUMN groupid INTEGER DEFAULT 0');
+        $this->whmcs->exec('CREATE TABLE tblclientgroups (id INTEGER PRIMARY KEY, discountpercent REAL)');
+        $this->whmcs->exec('INSERT INTO tblclientgroups VALUES (3, 10.00)');
+        $this->whmcs->exec("UPDATE tblclients SET groupid = 3 WHERE id = {$this->clients[0]}");
+        $this->service->forceFill(['price' => 9])->save();
+        $this->assertSame([], $this->records()['Services']['differ']);
+
+        $this->service->forceFill(['price' => 10])->save();
+        $this->assertSame(["service #{$this->service->id}: 9.00 in WHMCS, 10.00 here"], $this->records()['Services']['differ']);
     }
 
     /** M6: a WHMCS status the importer's map does not know (imported pending) is a difference. */

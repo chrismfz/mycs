@@ -19,6 +19,12 @@ class CronWait extends Command
 
     protected $description = 'Waits for a cron run in progress to finish (deploy/update.sh)';
 
+    /**
+     * Tests only: look for the cron among this process's own children. pgrep sees the whole host, where a parallel test
+     * process's fake cron, another checkout's suite or the live site's hourly run would pass for this test's live run.
+     */
+    public static bool $ownChildrenOnly = false;
+
     public function handle(): int
     {
         $timeout = max(0, (int) $this->option('timeout'));
@@ -64,7 +70,8 @@ class CronWait extends Command
         $code = 1;
         // «[a]rtisan»: the pattern does not match the shell that runs pgrep with it. Options before the command, or
         // its abbreviation, too (R2-3: `artisan -v app:cron-job`).
-        @exec('pgrep -f ' . escapeshellarg('[a]rtisan( .*)? app:cron-j'), $out, $code);
+        $scope = self::$ownChildrenOnly ? '-P ' . getmypid() . ' ' : '';
+        @exec('pgrep ' . $scope . '-f ' . escapeshellarg('[a]rtisan( .*)? app:cron-j'), $out, $code);
 
         return $code !== 1; // 0: found; 1: none; anything else (no pgrep): assume one
     }

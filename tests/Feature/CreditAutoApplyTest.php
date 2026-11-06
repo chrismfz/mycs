@@ -167,8 +167,13 @@ class CreditAutoApplyTest extends TestCase
         $this->assertSame('30.00', $this->balance());
     }
 
+    /**
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
+     */
     public function test_the_daily_pass_pays_before_anything_is_suspended(): void
     {
+        $this->freezeTime();
         $product = $this->createProduct();
         $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'expires_at' => now()->subDays(5)]);

@@ -13,7 +13,6 @@ use App\Jobs\Server\TerminateJob;
 use App\Logging\WriteFailures;
 use App\Models\BulkMail;
 use App\Models\Cart;
-use App\Models\Client;
 use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\Domain;
@@ -48,11 +47,13 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
 use App\Services\Payment\SavedMethodCharge;
+use App\Services\Service\DunningRules;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
 use App\Support\DunningWindow;
 use App\Support\Retention;
+use Brick\Math\BigDecimal;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,6 +61,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use MyCS\Pricing\DifferenceDiscount;
 use Throwable;
 
 class CronJob extends Command
@@ -69,7 +71,8 @@ class CronJob extends Command
      *
      * @var string
      */
-    protected $signature = 'app:cron-job {--dunning-only : Only the suspensions and terminations, when their days and hours allow (the hourly run)}';
+    protected $signature = 'app:cron-job {--dunning-only : Only the suspensions and terminations, when their days and hours allow (the hourly run)}
+        {--catch-up : Today\'s daily run, only if it did not start at its time (the hourly check)}';
 
     /**
      * The console command description.
@@ -98,6 +101,9 @@ class CronJob extends Command
     /** When a daily run last got to the suspensions (the hourly run's gate). */
     public const DUNNING_READY = 'cron_dunning_ready_at';
 
+    /** When a daily run last started (runSteps): the catch-up's «today's run started», ended or not (ADV-624-2). */
+    public const STARTED = 'cron_run_started_at';
+
     /**
      * Execute the console command.
      */
@@ -107,6 +113,9 @@ class CronJob extends Command
         // stock back twice. The lock outlives a crashed run by 2 hours at most.
         if ($this->option('dunning-only') && DunningWindow::always()) {
             return self::SUCCESS; // every day at any hour: the daily run does them, as before #411
+        }
+        if ($this->option('catch-up')) {
+            return $this->catchUp();
         }
         $lock = Cache::lock('app:cron-job', 7200);
         if (!$lock->get()) {
@@ -130,8 +139,8 @@ class CronJob extends Command
             // Today's renewals, charges and reminders did not run: staff are told, not left to Health a day later (review
             // of #411). Run it again by hand once the other run is over.
             NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
-                The daily run found another run of the cron in progress (or the lock of one that crashed, for up to two hours) and did not start: today's invoices, charges and reminders are not done.<br>
-                Run it again once the other is over: <code>php artisan app:cron-job</code>.
+                The daily run found another run of the cron in progress (or the lock of one that crashed, for up to two hours) and did not start: today's invoices, charges and reminders are not done yet.<br>
+                The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the other is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
                 HTML);
 
             return self::FAILURE;
@@ -156,12 +165,83 @@ class CronJob extends Command
         $this->error('The app is in maintenance (a deploy): not started.');
         if (!$this->option('dunning-only')) {
             NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
-                The daily run started while the app was in maintenance (a deploy) and did nothing: today's invoices, charges and reminders are not done.<br>
-                Run it again once the deploy is over: <code>php artisan app:cron-job</code>.
+                The daily run started while the app was in maintenance (a deploy) and did nothing: today's invoices, charges and reminders are not done yet.<br>
+                The hourly check starts it by itself at :35 past the hour (the same day, for a daily time before 23:25) once the deploy is over. To run it now instead (only if that check has not started it yet): <code>php artisan app:cron-job</code>.
                 HTML);
         }
 
         return self::FAILURE;
+    }
+
+    /**
+     * Today's daily run that did not start: its minute fell in a deploy, the server was down, or another run held the lock
+     * past its wait. The hourly check starts it, once a day, so the day's invoices, charges and reminders do not wait for
+     * staff to read the mail (2026-11-04: a deploy from 23:59 skipped the 00:00 run). Nothing before its time (and the
+     * daily run's own wait for the lock, with a margin: review of #624), once a run started today (ended, still running past
+     * its lock, or killed: that one is staff's, not run again; ADV-624-2), while the app is down, read again under the lock
+     * (the next hour then; ADV-624-1), or while a run holds the lock. A run at 23:25 or later that did not start is not
+     * caught up: the next day is the next run's.
+     */
+    private function catchUp(): int
+    {
+        try {
+            $time = Carbon::today()->setTimeFromTimeString((string) config('settings.cronjob_time', '09:00'));
+        } catch (Throwable) {
+            return self::SUCCESS;
+        }
+        $margin = max(10, intdiv(self::$lockWait, 60) + 5);
+        if (Carbon::now()->lt($time->copy()->addMinutes($margin)) || self::startedToday() || self::down()) {
+            return self::SUCCESS;
+        }
+        $lock = Cache::lock('app:cron-job', 7200);
+        if (!$lock->get()) {
+            return self::SUCCESS;
+        }
+        try {
+            // Read again under the lock: a run that started meanwhile, a deploy that went down. Once a day, whatever it ends with.
+            if (self::startedToday() || self::down() || !Cache::add('cron-catch-up:' . Carbon::today()->toDateString(), true, 86400)) {
+                return self::SUCCESS;
+            }
+            $this->warn("Today's daily run did not start at {$time->format('H:i')}: starting it now.");
+            NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run started late', e(sprintf(
+                "Today's daily run did not start at %s (a deploy at that minute, the server down, or another run in progress). The hourly check started it at %s; a «Cron Job Error» follows if anything in it fails.",
+                $time->format('H:i'), Carbon::now()->format('H:i'))));
+
+            return $this->runSteps() ?? self::SUCCESS;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * The app is in maintenance (a deploy).
+     *
+     * @phpstan-impure a deploy may have gone down since the last call (ADV-624-1)
+     */
+    private static function down(): bool
+    {
+        return app()->isDownForMaintenance();
+    }
+
+    /**
+     * A daily run started today: its start (STARTED), its reaching the suspensions (DUNNING_READY) or its end
+     * (last_cron_run) is of today, whatever the daily time is now (staff may move it later: ADV-624-3). An unreadable or
+     * future time counts as none.
+     *
+     * @phpstan-impure it reads the database: a run may have started since the last call
+     */
+    private static function startedToday(): bool
+    {
+        return Setting::query()->whereIn('key', [self::STARTED, self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)
+            ->pluck('value')->contains(function ($value) {
+                try {
+                    $at = Carbon::parse((string) $value);
+                } catch (Throwable) {
+                    return false;
+                }
+
+                return $at->isToday() && $at->lte(Carbon::now());
+            });
     }
 
     /**
@@ -189,7 +269,7 @@ class CronJob extends Command
         // The daily run may come later today (at 14:00, 22:00): what it does before the suspensions is done here first, so
         // a card that pays today or a cancellation due today comes before a suspension (round 2 of #411). Each is once a
         // day where it is done (AutoCharge per invoice, a cancellation ends its service): the daily run finds them done.
-        $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(quiet: true), transaction: false, quietWhenNone: true);
         if ($this->successFullCharges > 0) {
             // In the dashboard's «Invoices Charged», as the daily run's (review of #411).
             CronStat::create(['key' => 'invoice_charged', 'value' => $this->successFullCharges, 'date' => now()->toDateString()]);
@@ -253,6 +333,8 @@ class CronJob extends Command
 
     private function runSteps()
     {
+        // Started: the hourly catch-up never starts today's run again, ended or not (ADV-624-2).
+        Setting::updateOrCreate(['key' => self::STARTED, 'settingable_type' => CronStat::class], ['value' => now()->toDateTimeString(), 'type' => 'string']);
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
         $this->failures = $this->notices = $this->suspended = $this->terminated = [];
@@ -407,10 +489,16 @@ class CronJob extends Command
                 $billing = new RenewalBilling;
                 // What it tells staff is mailed also when a step of it fails (review F7).
                 try {
-                    $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
+                    // As far as the longest of the invoice days looks, then each service's own: a monthly plan's
+                    // (cronjob_invoice_monthly, WG-14) or Invoice Generation's (RenewalBilling::serviceInvoiceDays).
+                    $lookAhead = now()->addDays(RenewalBilling::longestServiceInvoiceDays());
                     // In id order, never the index's: the renewals are invoiced in the same order whatever the plan.
-                    $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->orderBy('id')->pluck('id');
-                    foreach ($ids as $id) {
+                    // The plan its renewal bills: one set «from the next renewal» decides its days (ADV-660-1a/b).
+                    $plans = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $lookAhead)->orderBy('id')
+                        ->with(['plan', 'nextPlan'])->get(['id', 'plan_id', 'next_plan_id', 'product_id'])
+                        ->mapWithKeys(fn (Service $service) => [$service->id => RenewalBilling::billedPlan($service)]);
+                    foreach ($plans as $id => $plan) {
+                        $billUntil = now()->addDays(RenewalBilling::serviceInvoiceDays($plan));
                         try {
                             // One short transaction per service, on a fresh locked row: a payment committed
                             // while the cron runs is seen, and nothing stays locked for the whole run.
@@ -462,7 +550,7 @@ class CronJob extends Command
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
                 // Off by default (owner 2026-10-19): as WHMCS, only staff cancel an order, from Pending Orders.
                 $days = (int) config('settings.cronjob_order_cancel', 0);
-                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->orderBy('id')->pluck('id');
+                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->tap(self::parentsFirst(...))->pluck('id');
                 if ($days > 0) {
                     foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
                         $this->notices["orders_cancelled #{$partPaid}"] = new DisplayException("Service #{$partPaid} is an order part paid and not started: not cancelled (refund it, or take the rest and start it).");
@@ -711,13 +799,22 @@ class CronJob extends Command
 
     }
 
-    /** Saved cards and agreements charged (AutoCharge: once a day per invoice): the daily run's step, and the hourly one's. */
-    private function chargeInvoices(): int
+    /**
+     * Saved cards and agreements charged (AutoCharge: once a day per invoice): the daily run's step, and the hourly one's
+     * ($quiet: its row only when one was declined). The charges not taken are counted apart (charges_declined): the step
+     * counts those taken, so a run whose every charge was declined said «charged 0», as if it had tried none (2026-11-04).
+     */
+    private function chargeInvoices(bool $quiet = false): int
     {
-        $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
+        $run = new AutoCharge;
+        $charged = $run->run(function (int $id, Throwable $e) {
             $this->failures["invoices_charged #{$id}"] = $e;
         });
         $this->successFullCharges += $charged;
+        if (!$quiet || $run->declined > 0) {
+            CronStat::create(['key' => 'charges_declined', 'value' => $run->declined, 'date' => now()->toDateString()]);
+            $this->info("Cronjob task '" . __('admin.cronjob.charges_declined') . "' completed: Processed {$run->declined} items.");
+        }
 
         return $charged;
     }
@@ -732,7 +829,7 @@ class CronJob extends Command
         $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->where('expires_at', '<=', now()->endOfDay())
             ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
-            ->orderBy('id')
+            ->tap(self::parentsFirst(...)) // an addon ending with its parent ends with it, not on its own (ADV-634-3b)
             ->pluck('id');
         foreach ($ids as $id) {
             try {
@@ -744,6 +841,17 @@ class CronJob extends Command
         }
 
         return $number;
+    }
+
+    /**
+     * Services in id order, parents before their addons (docs/addons.md): an addon follows what its parent's step does to it
+     * in the same run, whatever the ids (an older service fastened to a newer one, ids from WHMCS).
+     *
+     * @param  Builder<Service>  $query
+     */
+    private static function parentsFirst(Builder $query): void
+    {
+        $query->orderByRaw('CASE WHEN parent_service_id IS NULL THEN 0 ELSE 1 END')->orderBy('id');
     }
 
     /** Suspend services Suspend Days past due: the daily run's step, and the hourly one's (DunningWindow). */
@@ -764,7 +872,9 @@ class CronJob extends Command
                 $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
             }
         }
-        foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
+        // Parents before addons, whatever their ids: an addon follows its parent's suspension (AddonCascade) rather
+        // than being suspended on its own first (ADV-634-3a).
+        foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->tap(self::parentsFirst(...))->pluck('id') as $id) {
             $heldUntil = null;
             try {
                 $done = DB::transaction(function () use ($id, $requiresInvoice, $hourly, &$heldUntil) {
@@ -883,7 +993,7 @@ class CronJob extends Command
         // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
         // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
         // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
-        foreach ($this->terminable()->orderBy('id')->pluck('id') as $id) {
+        foreach ($this->terminable()->tap(self::parentsFirst(...))->pluck('id') as $id) {
             try {
                 $done = DB::transaction(function () use ($id) {
                     $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
@@ -933,6 +1043,11 @@ class CronJob extends Command
             // only looked at (accepted), waiting for its payment, is cancelled as any other (owner 2026-10-19).
             ->whereNull('started_unpaid_at')
             ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
+            // Not an addon whose invoice is not due $days ago yet (one billed from a later date of its own: ADV-637-6); an
+            // order's invoices count from the order, as ever.
+            ->where(fn (Builder $query) => $query->whereNull('parent_service_id')
+                ->orWhereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
+                    ->where('invoices.due_at', '>=', now()->subDays($days)->startOfDay())))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
     }
@@ -1003,51 +1118,16 @@ class CronJob extends Command
                 ->orWhere('status', InvoiceTransactionStatus::Processing)));
     }
 
-    /**
-     * Active services past Suspend Days, not held, not of a client exempt from it (its own setting or its group's), not on
-     * a free or one-time plan (no period to pay; a service whose
-     * plan is gone is not exempt), with no payment on its way. With $overdueInvoice: and an open invoice of theirs due
-     * and issued Suspend Days ago (a missing due date counts from its issue).
-     *
-     * @return Builder<Service>
-     */
+    /** @return Builder<Service> DunningRules::suspendable, as of today */
     private function suspendable(bool $overdueInvoice = false, ?Carbon $holdDay = null): Builder
     {
-        // Held until $holdDay: suspendable the day after it, so Suspend Days counted to that day (code review 3).
-        $asOf = $holdDay !== null ? $holdDay->copy()->addDay() : today();
-        $cutoff = $asOf->copy()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
-        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE), $holdDay)
-            ->whereDate('expires_at', '<', $cutoff)
-
-            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
-
-        return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
-            ->where('invoices.status', Invoice::STATUS_UNPAID)
-            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
-            ->whereDate('invoices.created_at', '<', $cutoff));
+        return DunningRules::suspendable(today(), $overdueInvoice, $holdDay);
     }
 
-    /**
-     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held, not of
-     * a client exempt from it,
-     * with no payment on its way (a SEPA payment would land on the invoices the termination cancels).
-     *
-     * @return Builder<Service>
-     */
+    /** @return Builder<Service> DunningRules::terminable, as of today */
     private function terminable(): Builder
     {
-        return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
-            ->whereNotNull('dunning_suspended_at')
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'))
-            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString())
-            // A later period already paid (it waits behind one unpaid or given up on): ending the service would keep that
-            // money without the period. Staff decide; the cron tells them (billRenewal), as endAsRequested does.
-            ->whereNotExists(fn ($line) => $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
-                ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
-                ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
-                ->where('invoices.status', Invoice::STATUS_PAID));
+        return DunningRules::terminable(today());
     }
 
     /**
@@ -1078,26 +1158,6 @@ class CronJob extends Command
     {
         return $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
             ->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice));
-    }
-
-    /**
-     * No hold (a hold holds through its last day), no open invoice of theirs with a processing payment (PAY-9), and no
-     * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way. And a plan: one
-     * without is never billed (BIL-6), so never dunned either.
-     *
-     * @param  Builder<Service>  $query
-     * @return Builder<Service>
-     */
-    private function unheldWithNoPaymentOnItsWay(Builder $query, ?Carbon $holdDay = null): Builder
-    {
-        // A service without a plan is never billed (staff are told, BIL-6): never suspended or terminated as unpaid.
-        // $holdDay: those held until that day instead (the notice before it ends, holdsEnding()).
-        return $query->whereNotNull('plan_id')->where(fn ($hold) => $holdDay !== null
-            ? $hold->whereDate('suspend_hold_until', $holdDay->toDateString())
-            : $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
-            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
-                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
-            ->whereNotExists(fn ($line) => RenewalBilling::paidLineToApply($line));
     }
 
     /**
@@ -1138,17 +1198,30 @@ class CronJob extends Command
         if ($invoice === null || $service->plan === null) {
             return 0;
         }
-
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
         // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
         // Never below zero: a downgrade's difference is credit at order time (Livewire Upgrade), not a negative line
         // that leaves the invoice owing the customer (adversarial review of 2b, S6).
         $price = max(0, $upgrade->calculatePrice()->price);
         $changed = 0;
-        $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get()
-            ->each(function (InvoiceItem $line) use ($price, &$changed) {
-                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
-            });
+        $lines = $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->orderBy('id')->get();
+        [$discounts, $charges] = $lines->partition(fn (InvoiceItem $line) => $line->kind === InvoiceItem::KIND_DISCOUNT);
+        $charges->each(function (InvoiceItem $line) use ($price, &$changed) {
+            $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
+        });
+        // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge, worked out from what it was
+        // given on (no drift from a day's rounding): the same percentage, or the share an amount was (ADV-685-2: frozen, a
+        // discount came to cost more than none). Never more than given: the days a renewal paid meanwhile adds are billed
+        // without it (as ServiceUpgradeService::shortfall), whether the cron runs before the payment or not. Under the
+        // invoice's lock ChangeOpenLine took for the charge (this transaction): both change, or neither.
+        if ($upgrade->discount !== null && $upgrade->discount_base !== null) {
+            $net = (string) BigDecimal::min(BigDecimal::of(DifferenceDiscount::follow((string) $upgrade->discount_base,
+                (string) $upgrade->discount, number_format($price, 2, '.', ''),
+                $upgrade->discount_percent === null ? null : (string) $upgrade->discount_percent)), BigDecimal::of((string) $upgrade->discount));
+            foreach ($discounts as $line) {
+                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = '-' . $net) ? 1 : 0;
+            }
+        }
 
         return $changed > 0 ? 1 : 0;
     }

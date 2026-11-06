@@ -13,5 +13,6 @@ return [
     'domains' => 'Domains',
     'runtime' => 'PHP και ρυθμίσεις παραγωγής',
     'ticket_mail' => 'Mailboxes των tickets',
+    'tax' => 'Φόροι',
     'vat_rates' => 'Συντελεστές ΦΠΑ ΕΕ',
 ];

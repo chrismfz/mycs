@@ -15,6 +15,7 @@ return [
 
     'failed' => 'These credentials do not match our records.',
     'password' => 'The provided password is incorrect.',
+    'closed' => 'Your account is closed. Contact us to reopen it.',
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
 
     'sign_in' => 'Sign in',

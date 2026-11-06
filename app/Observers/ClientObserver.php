@@ -8,6 +8,7 @@ use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\EkdosiDocument;
 use App\Models\Service;
+use App\Models\UserSession;
 use App\Services\Billing\ClientGroupPricing;
 
 class ClientObserver
@@ -31,6 +32,15 @@ class ClientObserver
         if ($client->wasChanged('client_group_id')) {
             $client->unsetRelation('group');
             ClientGroupPricing::reprice($client);
+        }
+        // Closed (WG-8): the logins it leaves with no open account are signed out now, their sessions and «Remember me»
+        // gone (review of #651: a live session went on until it expired).
+        if ($client->wasChanged('closed_at') && $client->closed_at !== null) {
+            foreach ($client->users()->get() as $user) {
+                if ($user->closedOut()) {
+                    UserSession::query()->where('user_id', $user->id)->delete();
+                }
+            }
         }
     }
 

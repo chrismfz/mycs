@@ -55,7 +55,7 @@
         @foreach ($breadcrumbs as $index => $breadcrumb)
             <x-ri-arrow-right-s-line class="size-4 text-base/50 mx-1" aria-hidden="true" />
             @if ($index === count($breadcrumbs) - 1)
-                <span class="text-base font-semibold" aria-current="page">{{ $breadcrumb['name'] }}</span>
+                <span class="text-base font-semibold min-w-0 [overflow-wrap:anywhere]" aria-current="page">{{ $breadcrumb['name'] }}</span>
             @elseif (!empty($breadcrumb['url']))
                 <a href="{{ $breadcrumb['url'] }}" wire:navigate class="text-base/70 hover:text-primary">{{ $breadcrumb['name'] }}</a>
             @else
