@@ -43,7 +43,10 @@ class Change extends Command
                 }
                 // What type is the setting?
                 if ($setting->type === 'select') {
-                    return select('What value should the setting have?', $setting->options);
+                    // Options read when shown are a Closure in Settings::settings() (code review of #689).
+                    $options = collect(Settings::settings())->flatten(1)->firstWhere('name', $key)['options'] ?? $setting->options;
+
+                    return select('What value should the setting have?', $options instanceof \Closure ? $options() : (array) $options);
                 } else {
                     return text('What value should the setting have?', default: $setting->value ?? '');
                 }

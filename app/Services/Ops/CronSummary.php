@@ -16,6 +16,7 @@ use App\Services\Service\DunningForecast;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -51,7 +52,23 @@ final class CronSummary
      */
     public static function run(?Carbon $today = null, bool $force = false): string
     {
-        $today = ($today ?? Carbon::today())->copy()->startOfDay();
+        if (config('settings.mail_disable')) {
+            return 'Mail is disabled (Settings → Mail): not sent, the days stay to be covered.';
+        }
+        // One at a time: by hand while the scheduled one runs, the covered day is read by both (code review of #689).
+        $lock = Cache::lock('cron-summary', 300);
+        if (!$lock->get()) {
+            return 'Another summary is being sent: try again in a few minutes.';
+        }
+        try {
+            return self::runLocked(($today ?? Carbon::today())->copy()->startOfDay(), $force);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private static function runLocked(Carbon $today, bool $force): string
+    {
         if (!$force) {
             if (self::mode() === 'off') {
                 return 'Off (Settings → Automation → Daily Summary Email).';
@@ -128,12 +145,17 @@ final class CronSummary
     public static function build(Carbon $today, Carbon $from, Carbon $to): array
     {
         $cells = CronDay::range($from, $to);
+        // The daily run, not the hourly one (whose suspensions and charges also count): it always writes these, 0 or not
+        // (code review of #689). A day with only the hourly run's counts did not have its daily run.
+        $daily = CronStat::query()->whereIn('key', ['invoices_created', 'logs_pruned'])
+            ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
+            ->pluck('date')->map(fn ($date) => Carbon::parse($date)->toDateString())->unique()->all();
         $days = [];
         $failed = false;
         for ($day = $from->copy(); $day->lte($to); $day->addDay()) {
             $key = $day->toDateString();
             $cell = $cells[$key] ?? null;
-            $ran = (bool) ($cell['ran'] ?? false);
+            $ran = in_array($key, $daily, true);
             $start = $day->copy()->startOfDay();
             $end = $day->copy()->endOfDay();
             $charges = ChargeAttempt::query()->with('invoice.client')->whereBetween('created_at', [$start, $end])
@@ -158,7 +180,7 @@ final class CronSummary
         }
         $due = [];
         if ($forecast !== null) {
-            $due[] = ['label' => !$forecast['suspend_on'] || !$forecast['terminate_on'] ? __('Waiting (safety net)') : __('Due now'), 'url' => self::dayUrl($today->toDateString()),
+            $due[] = ['label' => !$forecast['suspend_on'] ? __('Waiting (safety net)') : __('Due now'), 'url' => self::dayUrl($today->toDateString()),
                 'suspend' => self::services($forecast['now']['suspend']), 'terminate' => self::services($forecast['now']['terminate'])];
             for ($d = 1; $d <= 2; $d++) {
                 $day = $today->copy()->addDays($d);
@@ -171,7 +193,8 @@ final class CronSummary
         return [
             'from' => $from, 'to' => $to, 'today' => $today, 'days' => $days, 'failed' => $failed,
             'due' => $due, 'forecastError' => $forecastError,
-            'netOn' => $forecast !== null && (!$forecast['suspend_on'] || !$forecast['terminate_on']),
+            'suspendOff' => $forecast !== null && !$forecast['suspend_on'],
+            'terminateOff' => $forecast !== null && $forecast['suspend_on'] && !$forecast['terminate_on'],
             'calendarUrl' => self::dayUrl($to->toDateString()),
             'settingsUrl' => SettingsPage::getUrl(panel: 'admin') . '?tab=cronjob%3A%3Adata%3A%3Atab',
             'serviceUrl' => fn (Service $service): string => ServiceResource::getUrl('edit', ['record' => $service->id], panel: 'admin'),
@@ -179,7 +202,8 @@ final class CronSummary
     }
 
     /**
-     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen, the System Email Address.
+     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen (or none left), the System
+     * Email Address.
      *
      * @return list<string>
      */
@@ -192,9 +216,17 @@ final class CronSummary
             return $system === '' ? [] : [$system];
         }
 
-        return Staff::query()->whereKey($ids)->where('active', true)->with('role')->orderBy('id')->get()
+        $staff = Staff::query()->whereKey($ids)->where('active', true)->with('role')->orderBy('id')->get()
             ->filter(fn (Staff $staff) => $staff->hasPermission('admin.cron_stats.view') && trim((string) $staff->email) !== '')
             ->map(fn (Staff $staff) => (string) $staff->email)->unique()->values()->all();
+        // Every one chosen left or lost the permission: the System Email Address, not silence (code review of #689).
+        if ($staff === []) {
+            $system = trim((string) config('settings.system_email_address'));
+
+            return $system === '' ? [] : [$system];
+        }
+
+        return $staff;
     }
 
     /** @param  array<string, mixed>  $data */

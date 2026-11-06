@@ -47,8 +47,10 @@
 @endforeach
 
 <p style="margin:20px 0 4px"><strong>{{ __('What the cron suspends and terminates if nothing is paid') }}</strong></p>
-@if ($netOn)
+@if ($suspendOff)
 <p style="color:#b45309">{{ __('The safety net is on (Settings → Cron): what is due waits until «Enable Suspension» is on again.') }}</p>
+@elseif ($terminateOff)
+<p style="color:#b45309">{{ __('Terminations are off (Settings → Cron): what is due to be terminated waits until «Enable Termination» is on again.') }}</p>
 @endif
 @if ($forecastError !== null)
 <p style="{{ $danger }}">{{ __('Could not be worked out: :error', ['error' => \Illuminate\Support\Str::limit($forecastError, 200)]) }}</p>

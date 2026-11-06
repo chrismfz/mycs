@@ -8,6 +8,7 @@ use App\Models\ChargeAttempt;
 use App\Models\CronStat;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
@@ -207,5 +208,57 @@ class CronSummaryTest extends TestCase
         $this->actingAs($staff);
 
         Livewire::test(SettingsPage::class)->assertSee('Daily Summary Email')->assertSee('Summary Reader');
+    }
+
+    public function test_monday_first_time_with_working_days_only_covers_friday_to_sunday(): void
+    {
+        $this->storeSettings(['cron_summary_mode' => 'daily', 'cron_summary_workdays' => true]);
+        Carbon::setTestNow(Carbon::parse('2026-11-16 10:00')); // Monday, no summary before
+        [$from, $to] = CronSummary::period(Carbon::today());
+        $this->assertSame(['2026-11-13', '2026-11-15'], [$from->toDateString(), $to->toDateString()]);
+    }
+
+    public function test_a_module_action_left_open_is_a_failure(): void
+    {
+        $this->storeSettings(['cron_summary_mode' => 'failures']);
+        $this->ran('2026-11-10');
+        $product = $this->createProduct();
+        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00]);
+        $action = ModuleAction::query()->create(['service_id' => $service->id, 'action' => 'suspend', 'status' => ModuleAction::STATUS_OPEN]);
+        $action->forceFill(['created_at' => '2026-11-10 09:10', 'last_error' => 'cPanel said no'])->save();
+
+        $this->artisan('app:cron-summary')->assertExitCode(0);
+        $this->assertCount(1, $this->sent());
+        $this->assertStringContainsString('cPanel said no', $this->sent()[0]->body);
+    }
+
+    public function test_a_day_with_only_the_hourly_run_did_not_have_its_daily_run(): void
+    {
+        $this->storeSettings(['cron_summary_mode' => 'failures']);
+        CronStat::create(['key' => 'services_suspended', 'value' => 2, 'date' => '2026-11-10']); // the hourly run's
+
+        $this->artisan('app:cron-summary')->assertExitCode(0);
+        $this->assertCount(1, $this->sent());
+        $this->assertStringContainsString('the cron did not run', $this->sent()[0]->body);
+    }
+
+    public function test_with_mail_disabled_the_days_stay_to_be_covered(): void
+    {
+        $this->storeSettings(['cron_summary_mode' => 'daily', 'mail_disable' => true]);
+        $this->ran('2026-11-10');
+        $this->artisan('app:cron-summary')->expectsOutputToContain('Mail is disabled')->assertExitCode(0);
+        $this->assertNull($this->covered());
+    }
+
+    public function test_terminations_off_alone_is_told_apart_from_the_safety_net(): void
+    {
+        $this->storeSettings(['cron_summary_mode' => 'daily', 'cronjob_terminate_enabled' => false]);
+        $this->ran('2026-11-10');
+        $this->artisan('app:cron-summary')->assertExitCode(0);
+        $body = $this->sent()[0]->body;
+        $this->assertStringContainsString('Terminations are off', $body);
+        $this->assertStringNotContainsString('Waiting (safety net)', $body);
+        $this->assertStringContainsString('Due now', $body);
     }
 }

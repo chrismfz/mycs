@@ -1661,9 +1661,18 @@ class Settings
     public static function summaryRecipientOptions(): array
     {
         try {
-            return Staff::query()->where('active', true)->with('role')->orderBy('first_name')->get()
+            $options = Staff::query()->where('active', true)->with('role')->orderBy('first_name')->get()
                 ->filter(fn (Staff $staff) => $staff->hasPermission('admin.cron_stats.view'))
                 ->mapWithKeys(fn (Staff $staff) => [$staff->id => $staff->name . ' <' . $staff->email . '>'])->all();
+            // One chosen who left or lost the permission stays listed (code review of #689): the field's «in» rule would
+            // refuse every save of the page, and staff could not see what to remove. Not sent to (CronSummary::recipients).
+            $stored = array_filter(array_map('intval', (array) config('settings.cron_summary_recipients', [])));
+            foreach (array_diff($stored, array_keys($options)) as $id) {
+                $staff = Staff::query()->find($id);
+                $options[$id] = ($staff ? $staff->name . ' <' . $staff->email . '>' : "#{$id}") . ' (' . __('not sent to: inactive or no access') . ')';
+            }
+
+            return $options;
         } catch (Exception) {
             return []; // no database yet (install)
         }
