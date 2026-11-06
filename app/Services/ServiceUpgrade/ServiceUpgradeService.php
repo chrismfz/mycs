@@ -198,8 +198,10 @@ class ServiceUpgradeService
             return null;
         }
         $invoiced = BigDecimal::zero();
+        // The charge, not staff's discount on it (owner 2026-11-06): the discount was on the days invoiced, not on more.
         foreach (InvoiceItem::query()->where('invoice_id', $upgrade->invoice_id)->where('reference_type', ServiceUpgrade::class)
-            ->where('reference_id', $upgrade->id)->get(['price', 'quantity']) as $line) {
+            ->where('reference_id', $upgrade->id)->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_DISCOUNT))
+            ->get(['price', 'quantity']) as $line) {
             $invoiced = $invoiced->plus(BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity)));
         }
         $owed = BigDecimal::of(number_format((float) $upgrade->calculatePrice()->price, 2, '.', ''))->minus($invoiced);

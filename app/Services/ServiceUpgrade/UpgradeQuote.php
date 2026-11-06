@@ -6,6 +6,8 @@ use App\Models\ServiceUpgrade;
 use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use MyCS\Pricing\DifferenceDiscount;
+use MyCS\Pricing\DifferenceDiscountRefused;
 use MyCS\Pricing\LinePricer;
 
 /**
@@ -59,6 +61,21 @@ final class UpgradeQuote
         return new self($daysLeft, $daysInPeriod, $dueNow, $downgrade ? self::credit($upgrade, $today) : '0.00', $downgrade,
             (string) $renews(number_format((float) $service->price, 2, '.', ''), $service->product),
             (string) $renews($upgrade->newRecurringPrice(), $upgrade->product ?? $service->product));
+    }
+
+    /**
+     * Staff's discount on what an upgrade charges now (owner 2026-11-06): $mode a DifferenceDiscount one (a percentage, an
+     * amount to pay with tax, or waived), on the difference its invoice line charges, at that line's tax rate (as
+     * grossPrice and LineTax decide it: the new product's). Priced as the invoice prices its two lines.
+     *
+     * @throws DifferenceDiscountRefused a downgrade or nothing due (REFUSED_NOTHING_DUE), too large, not a number
+     */
+    public static function discount(ServiceUpgrade $upgrade, string $mode, string $value = ''): DifferenceDiscount
+    {
+        $service = $upgrade->service;
+
+        return DifferenceDiscount::of(number_format((float) $upgrade->calculatePrice()->price, 2, '.', ''),
+            OrderPricing::taxRate($service->client, $upgrade->product ?? $service->product), $mode, $value);
     }
 
     /** A downgrade gives credit only where staff turned it on: «Credit on downgrade» and credits (AUTH-5). */

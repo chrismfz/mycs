@@ -120,7 +120,9 @@ final class InvoiceLineMove
             // One by one, through the model: each move is audited, and keeps its tax (InvoiceItemObserver).
             $line->update(['invoice_id' => $to->id]);
         }
-        $upgrades = $lines->where('reference_type', ServiceUpgrade::class)->pluck('reference_id')->unique()->all();
+        // From its charge, never from staff's discount under it alone (ADV-685-1).
+        $upgrades = $lines->where('reference_type', ServiceUpgrade::class)->where('kind', '!==', InvoiceItem::KIND_DISCOUNT)
+            ->pluck('reference_id')->unique()->all();
         foreach (ServiceUpgrade::query()->whereKey($upgrades)->get() as $upgrade) {
             $upgrade->forceFill(['invoice_id' => $to->id])->save();
         }

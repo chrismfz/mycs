@@ -10,6 +10,9 @@ return [
     'no_transactions' => 'No related transactions found',
     'generated_on' => 'PDF generated on :date',
     'group_discount_note' => '(−:percent% client discount)',
+    // Staff's discount on an upgrade's difference, the line under it (owner 2026-11-06).
+    'upgrade_discount' => 'Discount on the upgrade',
+    'upgrade_discount_percent' => 'Discount on the upgrade (:percent%)',
     'moved_to_credit' => 'Moved to account credit',
     'transaction_processing' => 'Processing',
     'note_statuses' => ['active' => 'Active', 'voided' => 'Voided'],
