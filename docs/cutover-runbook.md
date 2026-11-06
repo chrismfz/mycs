@@ -119,20 +119,23 @@ credentials. Το import της ημέρας τα φέρνει όλα:
 domain register/transfer), `clientarea.php` (ανά action, με τα ids του WHMCS που κρατιούνται), `viewinvoice.php`,
 `viewticket.php` (με τον αριθμό), `submitticket.php`, login/register/pwreset, ανακοινώσεις, `index.php?rp=…`, το
 knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πάει στην αρχική, ποτέ σε 404. Μόνο σε δικές μας διευθύνσεις.
+- **Host του MyCS για το myip:** `clients.myip.gr` (ιδιοκτήτης 2026-11-06). Σήμερα κάνει redirect στο `/clients/` του
+  WHMCS (`importer.md`): αυτό καταργείται, και το DNS/vhost του δείχνει στο MyCS. Οι διευθύνσεις χωρίς `/clients` εκεί
+  (`/store/…`, `cart.php`) τις απαντά το MyCS κατευθείαν.
 - **myip.gr** (το site, nginx του DirectAdmin, `*.cust_nginx`, όχι στο repo): όλο το `/clients/` στο MyCS, εκτός από τα
   callbacks των gateways (POST: ένα 301 τα σπάει), που περνούν όπως ήρθαν:
   ```nginx
   location ^~ /clients/modules/gateways/callback/ {
-      proxy_pass https://<το MyCS>;
-      proxy_set_header Host <το MyCS>;
+      proxy_pass https://clients.myip.gr;
+      proxy_set_header Host clients.myip.gr;
       proxy_set_header X-Forwarded-For $remote_addr;   # ο πραγματικός αποστολέας: το throttle του IPN ανά IP
       proxy_ssl_server_name on;
-      proxy_ssl_name <το MyCS>;
+      proxy_ssl_name clients.myip.gr;
       proxy_ssl_verify on;
       proxy_ssl_trusted_certificate /etc/pki/tls/certs/ca-bundle.crt;
   }
-  location ^~ /clients/ { return 301 https://<το MyCS>$request_uri; }
-  location = /clients { return 301 https://<το MyCS>/clients/; }
+  location ^~ /clients/ { return 301 https://clients.myip.gr$request_uri; }
+  location = /clients { return 301 https://clients.myip.gr/clients/; }
   ```
   - Στο MyCS: Settings → «Trusted Proxies» = **μόνο** η IP του myip.gr (ποτέ `*`), ώστε το `X-Forwarded-For` να μετρά
     μόνο από αυτόν. Αλλιώς όλα τα IPN μοιράζονται ένα όριο (30 πλαστά/λεπτό), και ένα flood καθυστερεί τα γνήσια
@@ -165,12 +168,12 @@ knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πά
 - **Mail:** το piping/POP του WHMCS για τα tickets, ώστε να τα διαβάζει μόνο το MyCS.
 - **Live αναζήτηση domain του site (myip, WG-20):** το `/api/domain-check.php` του site φορτώνει το WHMCS. Στο
   `_config.php` του rigel (`public_html/api/`, όχι στο repo), στο κλειδί `domain`:
-  `'backend' => 'mycs', 'mycs_url' => 'https://<το MyCS>', 'mycs_key' => '<ίδιο με το domain_check_site_key>'`.
+  `'backend' => 'mycs', 'mycs_url' => 'https://clients.myip.gr', 'mycs_key' => '<ίδιο με το domain_check_site_key>'`.
   Πριν: «Site key» στο MyCS (Settings → Domains → Site search API, 32+ χαρακτήρες). Έλεγχος:
   `curl -s 'https://myip.gr/api/domain-check.php?list=tlds' | jq '.tlds | length'` > 0 και ένα `?domain=` ελεύθερο
   (`true`). Επιστροφή: `'backend' => 'whmcs'`. Τα links του καλαθιού του site (`DOMAINS_CART_URL`, `/clients/store/…`
   στο `links.ts`) αλλάζουν με τον χάρτη 301. Το «Στο καλάθι» της αναζήτησης: στο `.env` του site
-  `PUBLIC_DOMAIN_ADD_URL=https://<το MyCS>/domain-search?domain={domain}` και deploy (η αναζήτηση του MyCS με το
+  `PUBLIC_DOMAIN_ADD_URL=https://clients.myip.gr/domain-search?domain={domain}` και deploy (η αναζήτηση του MyCS με το
   «Προσθήκη»· όχι κατευθείαν στο καλάθι: ένα δημόσιο GET που ελέγχει διαθεσιμότητα θα ήταν whois χωρίς κλειδί, review
   του #667). Πριν: σύγκριση μερικών τιμών του `?list=tlds` με του WHMCS (ΦΠΑ). Η cache του site είναι ξεχωριστή ανά
   backend, οπότε ο έλεγχος βλέπει αμέσως το MyCS.
