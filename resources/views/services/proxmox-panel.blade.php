@@ -35,8 +35,8 @@
         @endif
         @if ($canPower && $known)
         <div class="flex flex-wrap gap-2">
-            @if ($running)
-            {{-- In its own tab: the console takes the whole window (B6). --}}
+            @if ($running && $console)
+            {{-- In its own tab: the console takes the whole window (B6); only with the console on for its cluster. --}}
             <a href="{{ route('services.console', $service) }}" target="_blank" rel="noopener"
                 class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.console.button') }}</a>
             @endif

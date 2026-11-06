@@ -4931,7 +4931,7 @@
             "dist": {
                 "type": "path",
                 "url": "packages/proxmox",
-                "reference": "90806ceec2b952c26ddbe8025d2cf1d175c9a97b"
+                "reference": "d7a30dce1ec6a2f2b7eab9364e5541945953ad83"
             },
             "require": {
                 "ext-json": "*",
@@ -4940,6 +4940,13 @@
             "require-dev": {
                 "phpunit/phpunit": "^11.5|^12.0"
             },
+            "suggest": {
+                "ext-curl": "the console relay's requests to the cluster and to MyCS (bin/console-relay)",
+                "ext-pcntl": "the console relay ends cleanly on SIGTERM"
+            },
+            "bin": [
+                "bin/console-relay"
+            ],
             "type": "library",
             "autoload": {
                 "psr-4": {
@@ -4954,7 +4961,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn. Framework-free.",
+            "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn; and the customers' console relay (noVNC), run next to the cluster with its own console-only token. Framework-free.",
             "transport-options": {
                 "symlink": true,
                 "relative": true

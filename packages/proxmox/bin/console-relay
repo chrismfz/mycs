@@ -1,0 +1,74 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The VPS console relay, next to the cluster (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): php-cli and this
+ * package, nothing else (no Composer needed). systemd runs it (deploy/console-relay/), behind nginx with TLS.
+ *
+ *   console-relay /etc/mycs-console-relay/config.php
+ *
+ * SIGTERM or SIGINT ends it (its consoles with it), and so does a touch of its `restart_file`; systemd starts it again.
+ */
+
+declare(strict_types=1);
+
+spl_autoload_register(function (string $class) {
+    if (str_starts_with($class, 'MyCS\\Proxmox\\')) {
+        $file = __DIR__ . '/../src/' . str_replace('\\', '/', substr($class, strlen('MyCS\\Proxmox\\'))) . '.php';
+        if (is_file($file)) {
+            require $file;
+        }
+    }
+});
+
+$file = $argv[1] ?? '/etc/mycs-console-relay/config.php';
+if (!is_file($file) || !is_readable($file)) {
+    fwrite(STDERR, "console-relay: cannot read the config {$file}\n");
+    exit(2);
+}
+if ((fileperms($file) & 0o077) !== 0) {
+    fwrite(STDERR, "console-relay: {$file} holds secrets: chmod 600 it\n");
+    exit(2);
+}
+$config = require $file;
+if (!is_array($config)) {
+    fwrite(STDERR, "console-relay: {$file} returns no array\n");
+    exit(2);
+}
+
+$log = function (string $message, array $context): void {
+    // One line each, to the journal: what opened and closed, never a ticket or a token.
+    fwrite(STDOUT, date('c') . ' ' . $message . ($context === [] ? '' : ' ' . json_encode($context)) . "\n");
+};
+
+try {
+    $relay = MyCS\Proxmox\Console\StandaloneRelay::relay($config, $log);
+} catch (Throwable $e) {
+    fwrite(STDERR, 'console-relay: ' . $e->getMessage() . "\n");
+    exit(2);
+}
+$log('Listening on ' . $relay->address(), []);
+
+$stop = false;
+if (function_exists('pcntl_async_signals')) {
+    pcntl_async_signals(true);
+    foreach ([SIGTERM, SIGINT] as $signal) {
+        pcntl_signal($signal, function () use (&$stop) {
+            $stop = true;
+        });
+    }
+}
+// A deploy that brings new code touches `restart_file` (the devbox: deploy/update.sh): the relay exits, and systemd
+// starts the new code (Restart=always). Its consoles drop; the customer reconnects.
+$restart = is_string($config['restart_file'] ?? null) ? $config['restart_file'] : null;
+$started = time();
+$checked = 0;
+$relay->run(function () use (&$stop, &$checked, $restart, $started) {
+    if (!$stop && $restart !== null && time() - $checked >= 10) {
+        $checked = time();
+        clearstatcache(true, $restart);
+        $stop = is_file($restart) && filemtime($restart) > $started;
+    }
+
+    return $stop;
+});
