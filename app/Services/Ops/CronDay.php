@@ -102,7 +102,8 @@ final class CronDay
             'suspended' => self::changedTo('suspended', $from, $to),
             'terminated' => self::changedTo(Service::STATUS_TERMINATED, $from, $to),
             'actions' => $part(ModuleAction::query()->with(['service.product', 'domain'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
-            'mails' => EmailLog::query()->whereBetween('created_at', [$from, $to])->selectRaw('COALESCE(template_key, ?) as template, COUNT(*) as total', ['other'])
+            // Mails that went out (or tried): not the ones held back by a customer's preferences.
+            'mails' => EmailLog::query()->whereBetween('created_at', [$from, $to])->where('status', '!=', EmailLog::STATUS_SKIPPED)->selectRaw('COALESCE(template_key, ?) as template, COUNT(*) as total', ['other'])
                 ->groupBy('template')->orderByDesc('total')->pluck('total', 'template')->map(fn ($total) => (int) $total)->all(),
         ];
     }

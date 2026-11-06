@@ -10,6 +10,7 @@ use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\NotificationTemplate;
 use App\Models\Role;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use Database\Seeders\EmailTemplateSeeder;
@@ -153,5 +154,31 @@ class EmailNotSentLogTest extends TestCase
 
         // Without the email log's permission: no tab.
         $this->actingAs($this->staff(['admin.clients.view', 'admin.clients.viewAny']), 'staff')->get($url)->assertForbidden();
+    }
+
+    /** Review of #687: a later mail held back never hides an earlier one that failed («Last mail failed»). */
+    public function test_a_later_mail_not_sent_never_hides_a_failure(): void
+    {
+        $invoice = $this->invoice();
+        $failed = EmailLog::query()->create(['client_id' => $this->client->id, 'subject' => 'Invoice', 'to' => 'owner@example.test', 'body' => 'x',
+            'related_type' => $invoice->getMorphClass(), 'related_id' => $invoice->id]);
+        $failed->forceFill(['status' => EmailLog::STATUS_FAILED])->save();
+        EmailLog::query()->create(['client_id' => $this->client->id, 'subject' => 'Paid', 'to' => 'owner@example.test', 'body' => 'x',
+            'related_type' => $invoice->getMorphClass(), 'related_id' => $invoice->id, 'status' => EmailLog::STATUS_SKIPPED]);
+
+        $this->assertSame($failed->id, $invoice->fresh()->latestSentEmailLog?->id);
+        $this->assertTrue(Invoice::query()->whereKey($invoice->id)->whereHas('latestSentEmailLog', fn ($q) => $q->where('status', EmailLog::STATUS_FAILED))->exists());
+    }
+
+    /** Review of #687: a «suspended» mail held back is no telling: its end is not told either. */
+    public function test_a_suspension_mail_not_sent_is_not_told(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create(['client_id' => $this->client->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
+            'status' => Service::STATUS_SUSPENDED, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => now()->addMonth()]);
+        EmailLog::query()->create(['client_id' => $this->client->id, 'subject' => 'Suspended', 'to' => 'owner@example.test', 'body' => 'x',
+            'template_key' => 'server_suspended', 'related_type' => $service->getMorphClass(), 'related_id' => $service->id, 'status' => EmailLog::STATUS_SKIPPED]);
+
+        $this->assertFalse($service->fresh()->toldOfSuspension());
     }
 }

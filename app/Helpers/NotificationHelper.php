@@ -307,7 +307,10 @@ class NotificationHelper
                 'from_address' => config('settings.mail_from_address'),
                 'template_key' => $notificationTemplate->key,
                 ...MailAudit::related($data),
-            ])->forceFill(['status' => EmailLog::STATUS_SKIPPED, 'error' => $why])->save();
+                // In the same insert: never a moment «pending», which the sweep would fail and resend-failed send.
+                'status' => EmailLog::STATUS_SKIPPED,
+                'error' => $why,
+            ]);
         } catch (Throwable $e) {
             report($e); // the log of a mail not sent never breaks what triggered it
         }

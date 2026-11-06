@@ -647,7 +647,8 @@ class Service extends Model implements Auditable
     public function toldOfSuspension(): bool
     {
         $mails = EmailLog::query()->where('related_type', self::class)->where('related_id', $this->id)
-            ->whereIn('template_key', ['server_suspended', 'server_unsuspended']);
+            ->whereIn('template_key', ['server_suspended', 'server_unsuspended'])
+            ->where('status', '!=', EmailLog::STATUS_SKIPPED); // held back by preferences: the customer was not told
         // A manual hold has no start: the latest of its mails says (none: never told; review round 2 of #434).
         if ($this->dunning_suspended_at === null) {
             return (clone $mails)->latest('id')->value('template_key') === 'server_suspended';

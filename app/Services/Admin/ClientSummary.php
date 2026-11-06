@@ -75,7 +75,7 @@ class ClientSummary
             'domains' => $may('domains') ? self::domains($client) : null,
             'open_tickets' => $may('tickets') ? Ticket::query()->where('client_id', $client->id)->where('status', '!=', 'closed')->count() : null,
             'emails' => $may('emails') ? EmailLog::query()->where('client_id', $client->id)->latest('id')->limit(5)
-                ->get(['id', 'subject', 'status', 'created_at'])->all() : null,
+                ->get(['id', 'subject', 'status', 'error', 'created_at'])->all() : null,
             'settings' => self::settings($client),
             'other' => self::other($client, $may('logins')),
         ];

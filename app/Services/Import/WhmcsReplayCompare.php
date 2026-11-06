@@ -329,7 +329,9 @@ final class WhmcsReplayCompare
     {
         $out = [];
         foreach ($this->ledger as $line) {
-            if ($line['event'] !== 'mail' || preg_match('/^(\S+) \(/', $line['detail'], $m) !== 1 || preg_match(self::MYCS_IGNORED, $m[1]) === 1) {
+            // A mail held back by the customer's preferences (`skipped`) never went: WHMCS's tblemails has only mails sent.
+            if ($line['event'] !== 'mail' || preg_match('/^(\S+) \(/', $line['detail'], $m) !== 1 || preg_match(self::MYCS_IGNORED, $m[1]) === 1
+                || str_ends_with($line['detail'], '(skipped)')) {
                 continue;
             }
             $key = (self::MYCS_MAILS[$m[1]] ?? 'other: ' . $m[1]) . '|' . $line['ref'];
