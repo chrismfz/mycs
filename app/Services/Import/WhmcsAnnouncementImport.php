@@ -2,6 +2,8 @@
 
 namespace App\Services\Import;
 
+use App\Helpers\ExtensionHelper;
+use App\Models\Extension;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -11,7 +13,8 @@ use PDOException;
 /**
  * WHMCS's published announcements (`tblannouncements`) into the Announcements extension, with their dates, so the news page
  * keeps them (nixpal 4). Only the published ones, the parent language (a translation row has `parentid`); the HTML as written
- * (the extension sanitises on show). The extension's table is there once the extension is installed: without it, said.
+ * (the extension sanitises on show). Without the extension (the cut-over's import runs on an empty database), it is
+ * installed and enabled first, as the admin's «Install» does, so the news page keeps them (rehearsal of 2026-11-06).
  */
 final class WhmcsAnnouncementImport
 {
@@ -26,8 +29,14 @@ final class WhmcsAnnouncementImport
         } catch (PDOException) {
             return ['counts' => $counts, 'notes' => []];
         }
-        if ($rows !== [] && !Schema::hasTable('ext_announcements')) {
-            return ['counts' => $counts, 'notes' => [count($rows) . ' announcement(s) not imported: the Announcements extension is not installed here (install it and run the import again).']];
+        $notes = [];
+        if ($rows !== [] && !self::extensionTable()) {
+            $extension = Extension::query()->firstOrCreate(['type' => 'other', 'extension' => 'Announcements'], ['name' => 'Announcements', 'enabled' => true]);
+            ExtensionHelper::call($extension, 'installed', mayFail: true);
+            if (!self::extensionTable()) {
+                return ['counts' => $counts, 'notes' => [count($rows) . ' announcement(s) not imported: the Announcements extension could not be installed (install it and run the import again).']];
+            }
+            $notes[] = 'The Announcements extension was installed and enabled for WHMCS\'s announcements.';
         }
         foreach ($rows as $row) {
             $title = mb_substr(trim(html_entity_decode((string) $row['title'], ENT_QUOTES | ENT_HTML5, 'UTF-8')), 0, 255);
@@ -56,6 +65,16 @@ final class WhmcsAnnouncementImport
             $counts['announcements']++;
         }
 
-        return ['counts' => $counts, 'notes' => []];
+        return ['counts' => $counts, 'notes' => $notes];
+    }
+
+    /**
+     * Whether the extension's table is there (asked again after installing it: the answer changes).
+     *
+     * @phpstan-impure
+     */
+    private static function extensionTable(): bool
+    {
+        return Schema::hasTable('ext_announcements');
     }
 }
