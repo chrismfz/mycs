@@ -678,7 +678,8 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   Τα pending δεν έρχονται· τα failed έρχονται ως failed.
 - **Announcements** (`WhmcsAnnouncementImport`): τα 4 δημοσιευμένα της nixpal («Zonecloud updates» κ.ά., 2020–2024) στο extension
   Announcements, με τις ημερομηνίες τους. Αν το extension δεν είναι εγκατεστημένο (το τελικό import τρέχει σε άδεια βάση: πρόβα
-  2026-11-06), ο importer το εγκαθιστά και το ενεργοποιεί, όπως το «Install» του admin, και μετά τις φέρνει. Τα URLs τους
+  2026-11-06), ο importer το εγκαθιστά όπως το «Install» του admin και το ενεργοποιεί (το admin το αφήνει ανενεργό· στο WHMCS ήταν δημοσιευμένες:
+  σελίδα ειδήσεων, home και dashboard), και μετά τις φέρνει. Ένα που υπάρχει ήδη κρατά το δικό του on/off. Τα URLs τους
   θέλουν 301 στο cut-over (όχι Knowledgebase: αυτό έχει ήδη έρθει).
 
 ## Simulation: το πραγματικό cron, μέρα με τη μέρα, σε αντίγραφο (`bin/simulate`, ROADMAP 9β(2), 2026-10-31)

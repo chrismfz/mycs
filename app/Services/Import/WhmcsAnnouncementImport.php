@@ -14,7 +14,8 @@ use PDOException;
  * WHMCS's published announcements (`tblannouncements`) into the Announcements extension, with their dates, so the news page
  * keeps them (nixpal 4). Only the published ones, the parent language (a translation row has `parentid`); the HTML as written
  * (the extension sanitises on show). Without the extension (the cut-over's import runs on an empty database), it is
- * installed and enabled first, as the admin's «Install» does, so the news page keeps them (rehearsal of 2026-11-06).
+ * installed as the admin's «Install» does, and enabled (the admin's leaves it off): WHMCS showed them, so the news page
+ * keeps them (rehearsal of 2026-11-06). One already there keeps its own on/off.
  */
 final class WhmcsAnnouncementImport
 {
@@ -36,7 +37,9 @@ final class WhmcsAnnouncementImport
             if (!self::extensionTable()) {
                 return ['counts' => $counts, 'notes' => [count($rows) . ' announcement(s) not imported: the Announcements extension could not be installed (install it and run the import again).']];
             }
-            $notes[] = 'The Announcements extension was installed and enabled for WHMCS\'s announcements.';
+            $notes[] = $extension->enabled
+                ? 'The Announcements extension was installed and enabled for WHMCS\'s announcements.'
+                : 'The Announcements extension is installed but disabled here: enable it for WHMCS\'s announcements to show.';
         }
         foreach ($rows as $row) {
             $title = mb_substr(trim(html_entity_decode((string) $row['title'], ENT_QUOTES | ENT_HTML5, 'UTF-8')), 0, 255);
