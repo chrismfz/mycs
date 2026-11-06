@@ -5,6 +5,7 @@ namespace App\Services\Payment;
 use App\Models\Service;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use OwenIt\Auditing\Events\AuditCustom;
@@ -80,21 +81,20 @@ final class SubscriptionEnded
     }
 
     /**
-     * The services a payment of the subscription is for: those it pays, or else those it paid until it ended.
+     * The services a payment of the subscription is for: those it pays, or else those it paid until it ended. Each read
+     * is one query (never «exists?» then «get»): a clear() committed in between moves a service from the first to the
+     * second together with its kept id, so a payment always finds it (code review of #607).
      *
-     * @return Builder<Service>
+     * @return Collection<int, Service> by id
      */
-    public static function services(string $subscriptionId): Builder
+    public static function services(string $subscriptionId): Collection
     {
-        $paying = Service::query()->where('subscription_id', $subscriptionId);
         if ($subscriptionId === '') {
-            return $paying->whereRaw('1 = 0'); // an empty id is no subscription's
+            return new Collection; // an empty id is no subscription's
         }
-        if ((clone $paying)->exists()) {
-            return $paying;
-        }
+        $paying = Service::query()->where('subscription_id', $subscriptionId)->orderBy('id')->get();
 
-        return self::ended($subscriptionId);
+        return $paying->isNotEmpty() ? $paying : self::ended($subscriptionId)->orderBy('id')->get();
     }
 
     /** @return Builder<Service> the services the subscription paid until it ended here */

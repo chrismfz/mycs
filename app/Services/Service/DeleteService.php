@@ -54,6 +54,9 @@ class DeleteService
         if ($service->subscription_id && !$service->isEnded()) {
             $outside = true;
         }
+        if (!$service->isEnded()) {
+            ExtensionHelper::cancelEndedSubscriptions($service); // one that may bill again (ADV-607-1)
+        }
         if ($service->subscription_id && !$service->isEnded() && !ExtensionHelper::cancelSubscription($service)) {
             // No gateway knows the id (an imported or legacy one): deleted anyway, staff check it at the gateway.
             PaymentsLog::warning('Service deleted with a subscription no gateway cancelled: check it at the gateway.', [

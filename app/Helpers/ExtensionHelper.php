@@ -750,6 +750,25 @@ class ExtensionHelper
     }
 
     /**
+     * The service ends: its gateway subscriptions that ended here but may bill again (a Stripe one unpaid or paused,
+     * cleared from it by SubscriptionEnded) are cancelled with it, as one it still carried would be (ADV-607-1). A failure
+     * is reported, never thrown: the service's own change is the caller's.
+     */
+    public static function cancelEndedSubscriptions(Service $service): void
+    {
+        // One gateway that cannot be loaded (its extension gone) is reported, never stops a move or an end (RV-607-M1).
+        foreach (Gateway::all() as $gateway) {
+            try {
+                if (self::hasFunction($gateway, 'cancelEndedSubscriptions')) {
+                    self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelEndedSubscriptions($service);
+                }
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+    }
+
+    /**
      * Cancel subscription
      */
     /**
