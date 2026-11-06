@@ -22,7 +22,8 @@ use Throwable;
 /**
  * The daily summary email (owner 2026-11-06, ROADMAP 9β-4): the Cron stats calendar by mail. The days since the last
  * one (yesterday; Monday's covers the weekend with «working days only»), and what the cron suspends and terminates
- * today and in the next two days if nothing is paid, so staff can tell a customer in time. Off by default; «only when
+ * today and in the next two days (up to the next summary's day: Friday's to Monday with «working days only», ADV-A3-5)
+ * if nothing is paid, so staff can tell a customer in time. Off by default; «only when
  * something failed» sends it for a day the cron did not run, a card charge that did not go through or a module action
  * left open (the calendar's red). Read only: it changes nothing but the day it covered last.
  */
@@ -182,7 +183,7 @@ final class CronSummary
         if ($forecast !== null) {
             $due[] = ['label' => !$forecast['suspend_on'] ? __('Waiting (safety net)') : __('Due now'), 'url' => self::dayUrl($today->toDateString()),
                 'suspend' => self::services($forecast['now']['suspend']), 'terminate' => self::services($forecast['now']['terminate'])];
-            for ($d = 1; $d <= 2; $d++) {
+            for ($d = 1; $d <= self::ahead($today); $d++) {
                 $day = $today->copy()->addDays($d);
                 $lists = $forecast['days'][$day->toDateString()] ?? ['suspend' => [], 'terminate' => []];
                 $due[] = ['label' => $day->translatedFormat('l j/n'), 'url' => self::dayUrl($day->toDateString()),
@@ -199,6 +200,20 @@ final class CronSummary
             'settingsUrl' => SettingsPage::getUrl(panel: 'admin') . '?tab=cronjob%3A%3Adata%3A%3Atab',
             'serviceUrl' => fn (Service $service): string => ServiceResource::getUrl('edit', ['record' => $service->id], panel: 'admin'),
         ];
+    }
+
+    /**
+     * The days after today it looks ahead to: two, and up to the day of the next summary, so what is due before it is in
+     * this one (ADV-A3-5: with «working days only», Friday's goes on to Monday, whose own mail goes after its suspensions).
+     */
+    public static function ahead(Carbon $today): int
+    {
+        $next = $today->copy()->addDay();
+        while (config('settings.cron_summary_workdays') && $next->isWeekend()) {
+            $next->addDay();
+        }
+
+        return max(2, (int) $today->copy()->startOfDay()->diffInDays($next->startOfDay()));
     }
 
     /**
