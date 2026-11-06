@@ -140,7 +140,9 @@ class DomainCheckApiTest extends TestCase
     {
         $this->fake();
         $gr = DomainTld::query()->create(['tld' => 'gr', 'is_active' => true, 'sort' => 4, 'registrar_connection_id' => DomainRegistrarConnection::query()->value('id')]);
-        DomainTldPrice::query()->create(['domain_tld_id' => $gr->id, 'operation' => 'register', 'years' => 2, 'currency_code' => 'EUR', 'price' => '24.00']);
+        foreach (['register', 'renew'] as $operation) { // a registration is sold for years it renews for
+            DomainTldPrice::query()->create(['domain_tld_id' => $gr->id, 'operation' => $operation, 'years' => 2, 'currency_code' => 'EUR', 'price' => '24.00']);
+        }
 
         $this->check('ab.gr')->assertOk()->assertJson(['available' => false, 'premium' => true]);
     }

@@ -65,7 +65,7 @@ final class Charges
             $client === null || !$client->auto_charge => '«Auto-charge» is off for the account',
             !$client->billingAgreements()->exists() => 'the account has no saved method',
             $invoice->finish_pending_at !== null => 'a payment of it is being finished',
-            default => 'not a renewal the cron charges (an order, an invoice staff made, a registration or transfer, or a line of an item not active or not renewing)',
+            default => 'not a renewal the cron charges (an order, an invoice staff made, a registration or transfer, or a line of an item not active, not renewing or asked to be cancelled)',
         };
     }
 

@@ -55,6 +55,23 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   3. Μετά το import: `grep 'in Collections' <log του import>` δεν πρέπει να βρει τίποτα (η γραμμή βγαίνει νωρίς και
      χάνεται στο scroll). Αν βρει, όσα τιμολόγια λέει έμειναν ως απλήρωτα και ακυρώνονται στο MyCS πριν τρέξει το πρώτο
      cron του.
+- **Upgrades του WHMCS που δεν πληρώθηκαν (ADV-A1-1, απόφαση ιδιοκτήτη 2026-11-07): τακτοποιούνται ή ακυρώνονται στο
+  WHMCS πριν από το τελικό dump.** Εδώ έρχονται ως απλή χρέωση της υπηρεσίας: η πληρωμή τους **δεν** κάνει upgrade, και
+  το τιμολόγιό τους έρχεται με `no_auto_charge` (η MyCS δεν το χρεώνει μόνη της). Έλεγχος 2026-11-06: κανένα σε καμία
+  εταιρεία.
+  1. Ακριβώς πριν από το dump: `SELECT u.id, u.relid, u.type, ii.invoiceid FROM tblupgrades u JOIN tblinvoiceitems ii
+     ON ii.type = 'Upgrade' AND ii.relid = u.id JOIN tblinvoices i ON i.id = ii.invoiceid WHERE u.status = 'Pending'
+     AND u.paid <> 'Y' AND u.type IN ('package', 'configoptions') AND i.status NOT IN ('Paid', 'Cancelled', 'Refunded')`
+     = καμία γραμμή. Όσα βγουν: να πληρωθούν (και να εφαρμοστούν) ή να ακυρωθούν στο WHMCS, με το τιμολόγιό τους.
+  2. Μετά το import: `grep 'unpaid WHMCS upgrade' <log του import>` **πρέπει να μη βρει τίποτα**. Αν βρει (ονομάζει
+     τιμολόγιο, υπηρεσία και upgrade): τακτοποιούνται στο WHMCS και το import ξανατρέχει. Το `no_auto_charge` μπαίνει
+     σε όλο το τιμολόγιο, όχι μόνο στη γραμμή του upgrade: δεν είναι λύση για να μείνει έτσι (R1b-4).
+- **«Payment Pending» (ADV-A1-3):** έρχονται `unpaid` με πληρωμή `processing` του υπολοίπου (transaction id
+  `whmcs-pending-<τιμολόγιο>`, με την ημέρα του τιμολογίου): ούτε χρέωση της αποθηκευμένης μεθόδου ούτε υπενθυμίσεις.
+  Ενός γονικού Mass Pay, τα ανοιχτά παιδιά του κρατούνται για όσο η χρέωσή του, και η πίστωση που πήρε τα πληρώνει.
+  Ο importer τα ονομάζει (`grep 'Payment Pending' <log>`). Όταν περάσει η χρέωση (το webhook της θα είναι «ξένο»), το staff καταγράφει την πληρωμή με αυτό το
+  transaction id, **με το ίδιο gateway ή χωρίς gateway**· αν απέτυχε, σβήνει την πληρωμή `processing`. Όσες μείνουν
+  7 μέρες μετά το import τις θυμίζει το cron («needs staff attention»).
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**
@@ -208,7 +225,8 @@ knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πά
     something failed» (μέρα χωρίς cron, κάρτα που δεν χρεώθηκε, ενέργεια module ανοιχτή), παραλήπτες από το staff που
     βλέπει Cron stats (κανείς: το System Email Address), ώρα αποστολής (μετά το Time of Day) και «Working days only»
     (η Δευτέρα καλύπτει το Σαββατοκύριακο). Κάθε email: οι μέρες από το προηγούμενο (έως 7), και τι αναστέλλεται ή
-    τερματίζεται τώρα, αύριο και μεθαύριο, με τις υπηρεσίες. Για τις πρώτες μέρες: «Every day». Δοκιμή χωρίς να
+    τερματίζεται τώρα, αύριο και μεθαύριο, με τις υπηρεσίες· με «Working days only» της Παρασκευής φτάνει ως τη Δευτέρα,
+    γιατί το email της Δευτέρας φεύγει μετά τις αναστολές της (ADV-A3-5). Για τις πρώτες μέρες: «Every day». Δοκιμή χωρίς να
     περιμένεις: `php artisan app:cron-summary --force`.
 
   Έτσι μια επιστροφή έχει ελάχιστα να ξαναπεράσει στο WHMCS.

@@ -400,8 +400,10 @@ class Stripe extends Gateway
                 break;
             case 'charge.updated':
                 $charge = $event->data->object; // contains a StripeCharge
-                $invoiceTransaction = InvoiceTransaction::where('transaction_id', $charge->payment_intent)->first();
-                if (!$invoiceTransaction) {
+                // A charge with no payment intent (the Charges API: WHMCS's older module, another app on the account) is
+                // no payment of ours: `transaction_id = null` would find one staff entered with none (ADV-A4-3).
+                $paymentIntent = is_string($charge->payment_intent ?? null) ? $charge->payment_intent : '';
+                if ($paymentIntent === '' || ExtensionHelper::feePayment($paymentIntent, 'Stripe') === null) {
                     break;
                 }
                 // Get fee from charge
@@ -410,7 +412,7 @@ class Stripe extends Gateway
                     $balanceTransaction = $this->request('get', '/balance_transactions/' . $charge->balance_transaction);
                     $fee = $balanceTransaction->fee / 100;
                 }
-                ExtensionHelper::addPaymentFee($charge->payment_intent, $fee);
+                ExtensionHelper::addPaymentFee($paymentIntent, $fee, 'Stripe');
 
                 break;
             case 'refund.created':

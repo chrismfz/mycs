@@ -61,7 +61,7 @@ class DomainOrderTest extends TestCase
         $op = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
         $op->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
         $this->com = DomainTld::query()->create(['tld' => 'com', 'is_active' => true, 'sort' => 1, 'registrar_connection_id' => $op->id, 'epp_code_required' => true]);
-        foreach ([['register', 1, '23.33'], ['register', 2, '46.66'], ['renew', 1, '23.33'], ['transfer', 1, '20.00']] as [$operation, $years, $price]) {
+        foreach ([['register', 1, '23.33'], ['register', 2, '46.66'], ['renew', 1, '23.33'], ['renew', 2, '46.66'], ['transfer', 1, '20.00']] as [$operation, $years, $price]) {
             DomainTldPrice::query()->create(['domain_tld_id' => $this->com->id, 'operation' => $operation, 'years' => $years, 'currency_code' => 'EUR', 'price' => $price]);
         }
         $this->user = User::factory()->create();

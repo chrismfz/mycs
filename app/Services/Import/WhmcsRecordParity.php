@@ -134,7 +134,10 @@ final class WhmcsRecordParity
         $hereCredit = DB::table('credits')->groupBy('client_id')->selectRaw('client_id k, SUM(ROUND(amount * 100)) v')->pluck('v', 'k');
         $clients = DB::table('clients')->pluck('id', 'id');
 
+        // As the importer brings it: plus an unfinished Mass Pay parent's credit, given back (ADV-A1-2).
+        $credits = WhmcsParity::creditBalances($this->whmcs);
         foreach ($this->whmcs->query('SELECT id, ROUND(credit * 100) credit FROM tblclients ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $row['credit'] = $credits[(int) $row['id']] ?? (int) $row['credit'];
             $id = (int) $row['id'];
             $client = $clients->get($id);
             $this->check('Accounts', $id, $client !== null, "account #{$id}: not here");

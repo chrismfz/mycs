@@ -195,17 +195,21 @@ class TldImportGridAdversarialTest extends TestCase
         $eu = DomainTld::query()->create(['tld' => 'eu']);
         DomainTldPrice::query()->create(['domain_tld_id' => $eu->id, 'operation' => 'register', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
         DomainTldPrice::query()->create(['domain_tld_id' => $eu->id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => null]);
+        DomainTldPrice::query()->create(['domain_tld_id' => $eu->id, 'operation' => 'transfer', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
         $this->fake([self::PROD . '/v1/tlds/eu?*' => Http::response(['code' => 0, 'data' => $this->tld('eu', '6.98', '4.60')])]);
 
         $page = $this->page()->fillForm(['tlds' => 'eu'])->call('fetch');
         $ops = $page->instance()->grid()['rows']['eu']['ops'];
-        $shown = ['register' => $ops['register']['new'] ?? $ops['register']['now'], 'renew' => $ops['renew']['new'] ?? $ops['renew']['now']];
+        $shown = collect(['register', 'renew', 'transfer'])->mapWithKeys(fn (string $op) => [$op => $ops[$op]['new'] ?? $ops[$op]['now']])->all();
 
         $page->set('selected', ['eu'])->call('import');
         $eu->refresh()->load('prices');
-        $written = ['register' => $eu->priceFor('register', 1, 'EUR'), 'renew' => $eu->priceFor('renew', 1, 'EUR')];
+        $stored = fn (string $operation) => $eu->prices->first(fn ($row) => $row->operation === $operation && $row->years === 1 && $row->currency_code === 'EUR')?->price;
+        $written = ['register' => $stored('register'), 'renew' => $stored('renew'), 'transfer' => $stored('transfer')];
 
-        $this->assertSame(['register' => '0.00', 'renew' => null], $written, 'the import kept them (as designed)');
+        // The free transfer and the closed renewal kept (as designed); a registration at 0.00 is not offered, no
+        // decision to keep: priced (ADV-A5-1).
+        $this->assertSame(['register' => '8.38', 'renew' => null, 'transfer' => '0.00'], $written, 'the import kept them (as designed)');
         $this->assertSame($written, $shown, 'the grid promised other prices than the import wrote');
     }
 }

@@ -41,8 +41,8 @@ final class DomainRenewalYears
             return [];
         }
 
-        return $tld->prices->where('operation', 'renew')->where('currency_code', $domain->currency_code)->whereNotNull('price')
-            ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1 && $y <= 10)->unique()->sort()->values()->all();
+        // Offered only: never a year at 0.00 WHMCS never sold, renewed free (ADV-A5-1).
+        return $tld->offeredYears('renew', (string) $domain->currency_code)->filter(fn (int $y) => $y >= 1 && $y <= 10)->sort()->values()->all();
     }
 
     /**

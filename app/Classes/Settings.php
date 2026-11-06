@@ -653,7 +653,7 @@ class Settings
                     'default' => 'off',
                     'required' => true,
                     'validation' => 'in:off,failures,daily',
-                    'description' => 'One email with what the cron did on the days since the last one (as the Cron stats calendar) and what it suspends or terminates today and in the next two days if nothing is paid. «Only when something failed»: a day the cron did not run, a card charge that did not go through or a module action left open.',
+                    'description' => 'One email with what the cron did on the days since the last one (as the Cron stats calendar) and what it suspends or terminates today and in the next two days (with «Working days only», Friday\'s up to Monday) if nothing is paid. «Only when something failed»: a day the cron did not run, a card charge that did not go through or a module action left open.',
                 ],
                 [
                     'name' => 'cron_summary_recipients',
@@ -683,7 +683,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
-                    'description' => 'Not on Saturday or Sunday: Monday\'s covers the weekend.',
+                    'description' => 'Not on Saturday or Sunday: Monday\'s covers the weekend, and Friday\'s looks ahead to Monday.',
                 ],
                 [
                     'name' => 'cronjob_end_keeps_overdue',

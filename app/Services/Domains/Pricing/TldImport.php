@@ -174,8 +174,9 @@ class TldImport
                     foreach ($operations as $operation => $byYears) {
                         foreach ($byYears as $years => $price) {
                             $existing = DomainTldPrice::query()->where(['domain_tld_id' => $row->id, 'operation' => $operation, 'years' => $years, 'currency_code' => $currency])->first();
-                            // Free and not offered are staff's decisions (D-6): the import keeps them unless told not to.
-                            if ($existing !== null && $options->keepFreeAndClosed && ($existing->price === null || bccomp((string) $existing->price, '0', 2) === 0)) {
+                            // Free and not offered are staff's decisions (D-6): the import keeps them unless told not to;
+                            // never a registration or renewal at 0.00 (not offered, repriced: ADV-A5-1).
+                            if ($existing !== null && $options->keepFreeAndClosed && $existing->freeOrClosed()) {
                                 $existing->update(['cost' => $price['cost'], 'cost_currency' => $price['cost_currency']]);
 
                                 continue;

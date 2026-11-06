@@ -11,6 +11,7 @@ return [
         'card_expiry_notices' => 'Expiry notices of saved payment methods sent',
         'add_funds_cancelled' => 'Unpaid «Add Funds» cancelled',
         'orders_cancelled' => 'Orders cancelled',
+        'imported_pending_payments' => 'Imported WHMCS payments still processing (staff told)',
         'upgrade_invoices_updated' => 'Upgrade invoices updated',
         'credit_applied' => 'Account credit applied to open invoices',
         'cancellations_processed' => 'Cancellation requests processed',
