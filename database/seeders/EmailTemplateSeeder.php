@@ -301,6 +301,19 @@ class EmailTemplateSeeder extends Seeder
                 {% endif %}
                 {% endif %}
 
+                {% if service_server %}
+                **Server**
+                {% if server_hostname %}
+                - Hostname: {{ server_hostname }}
+                {% endif %}
+                {% if server_ip %}
+                - IP: {{ server_ip }}
+                {% endif %}
+                {% if service_ips %}
+                - Your IPs: {{ service_ips }}
+                {% endif %}
+                {% endif %}
+
                 {% if product_info %}
                 {{ product_info }}
                 {% endif %}
@@ -1428,6 +1441,19 @@ class EmailTemplateSeeder extends Seeder
                     {% if service_password %}
                     **Στοιχεία σύνδεσης**
                     - Κωδικός: {{ service_password }}
+                    {% endif %}
+                    {% endif %}
+
+                    {% if service_server %}
+                    **Server**
+                    {% if server_hostname %}
+                    - Hostname: {{ server_hostname }}
+                    {% endif %}
+                    {% if server_ip %}
+                    - IP: {{ server_ip }}
+                    {% endif %}
+                    {% if service_ips %}
+                    - Οι IP σας: {{ service_ips }}
                     {% endif %}
                     {% endif %}
 

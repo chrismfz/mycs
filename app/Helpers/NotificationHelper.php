@@ -617,7 +617,41 @@ class NotificationHelper
         // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
         // can read the password (Service::TEMPLATE_HIDDEN).
         $data['service_password'] ??= rescue(fn () => $service->password, null);
+        // Where it lives, as WHMCS's welcome mails said ({$service_server_hostname}, {$service_server_ip},
+        // {$service_dedicated_ip}, {$service_assigned_ips}): a hosting panel's address, a machine's own IPs.
+        $data += self::welcomeServer($service);
         self::toAccount($client, 'new_server_created', $data, mailOnly: $resend, gated: !$resend && !$byStaff);
+    }
+
+    /**
+     * The welcome mail's «Server»: the hosting panel's hostname and IP (cPanel, DirectAdmin: where the account is, for its
+     * DNS and login; never another module's address, a cluster's API is not the customer's), and the service's own IPs.
+     *
+     * @return array{service_server: ?bool, server_hostname: ?string, server_ip: ?string, service_ips: ?string} service_server:
+     *                                                                                                          any of them (the
+     *                                                                                                          templates have no «or»)
+     */
+    public static function welcomeServer(Service $service): array
+    {
+        // A public address only (a panel reached over the LAN is no address of the customer's: review of #674).
+        $public = fn (mixed $value) => filter_var(trim((string) $value), FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ?: null;
+        // Never lost: the welcome goes without the block if the server's settings cannot be read.
+        [$hostname, $ip] = rescue(function () use ($service, $public) {
+            $server = $service->provisioningServer();
+            if ($server === null || !in_array($server->extension, ['CPanel', 'DirectAdmin'], true)) {
+                return [null, null];
+            }
+            $settings = $server->settings->pluck('value', 'key');
+            $host = parse_url(trim((string) ($settings['host'] ?? '')), PHP_URL_HOST);
+
+            return [is_string($host) && $host !== '' ? $host : null, $public($settings['ip'] ?? '')];
+        }, [null, null]);
+        // Only what is an IP of the free text WHMCS kept (assignedips may hold notes).
+        $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])
+            ->map(fn ($value) => trim((string) $value))->filter(fn (string $value) => filter_var($value, FILTER_VALIDATE_IP) !== false)->unique()->values();
+        $ips = $ips->isNotEmpty() ? $ips->implode(', ') : null;
+
+        return ['service_server' => $hostname !== null || $ip !== null || $ips !== null ? true : null, 'server_hostname' => $hostname, 'server_ip' => $ip, 'service_ips' => $ips];
     }
 
     /**
