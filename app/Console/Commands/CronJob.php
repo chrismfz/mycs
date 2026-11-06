@@ -644,10 +644,11 @@ class CronJob extends Command
             }, transaction: false);
 
             // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
-            // staff complete or delete it: after a week, staff are told, once a week (R1-5). Nothing changes by itself.
+            // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
+            // R1b-3), staff are told, once a week (R1-5). Nothing changes by itself.
             $this->runCronJob('imported_pending_payments', function () {
                 $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
-                    ->where('transaction_id', 'like', 'whmcs-pending-%')->where('created_at', '<', now()->subDays(7))
+                    ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
                     ->with('invoice:id,client_id')->orderBy('id')->get();
                 foreach ($stale as $payment) {
                     if (Cache::add("imported-pending-told:{$payment->id}", true, now()->addDays(7))) {

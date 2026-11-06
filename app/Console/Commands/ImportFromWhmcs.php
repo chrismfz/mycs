@@ -2486,12 +2486,14 @@ class ImportFromWhmcs extends Command
      * WHMCS's «Payment Pending» (a SEPA/ACH debit or a PayPal capture started, not cleared yet) comes `unpaid` with a
      * `processing` payment of what WHMCS still has it owe (its total, net of credit, less the money in on it): the money is
      * on its way (SavedMethodCharge::onItsWay), so the cron neither charges the saved method again nor reminds or
-     * suspends for it (ADV-A1-3, ADV-A4-1). A Mass Pay parent in it is no invoice here: each of its open children gets one
-     * of its own remaining instead (R1-3). Dated by the invoice's day (the parent's for a child), before the cut-over: never
-     * taken for MyCS's own (R1-6). Ids above every WHMCS payment; its transaction id is one staff type to complete it when
-     * the debit clears (RecordPaymentService: a processing payment of that id), or they delete it if it failed; the cron
-     * reminds staff of one still processing after a week (R1-5). Never journaled, never in parity (only succeeded money
-     * is). Named, so staff follow them up.
+     * suspends for it (ADV-A1-3, ADV-A4-1). A Mass Pay parent in it is no invoice here: as WhmcsMassPay::plan places a
+     * paid one, its debit holds its open children in due order and what it took from account credit pays the rest as
+     * credit payments (journaled with their credit_out): the holds add up to its total, the credit stays the customer's
+     * (R1-3, R1b-1). Dated by the invoice's day (the parent's for a child), before the cut-over: never taken for MyCS's own
+     * (R1-6); its updated_at is the import's time, from which the cron counts a week before telling staff of one still
+     * processing (R1-5, R1b-3). Ids above every WHMCS payment; its transaction id is one staff type to complete it when
+     * the debit clears (RecordPaymentService: a processing payment of that id), or they delete it if it failed. Never
+     * journaled, never in parity (only succeeded money is). Named, so staff follow them up.
      */
     private function importPendingPayments(): void
     {
@@ -2511,7 +2513,7 @@ class ImportFromWhmcs extends Command
                 'transaction_id' => "whmcs-pending-{$id}",
                 'status' => InvoiceTransactionStatus::Processing->value,
                 'created_at' => $at,
-                'updated_at' => $at,
+                'updated_at' => now(), // when it was imported (the cron's week, R1b-3)
             ]);
 
             return $held[$id] = true;
@@ -2523,18 +2525,38 @@ class ImportFromWhmcs extends Command
             $id = (int) $record['id'];
             $at = $this->validateDate($record['date'] ?? null) ?? now();
             if (isset($this->massPayParents()[$id])) {
-                $children = [];
-                foreach ($this->rows("SELECT c.id, c.userid, c.total FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid
-                    WHERE ii.invoiceid = ? AND ii.type = 'Invoice' ORDER BY ii.id", [$id]) as $child) {
+                // Only an open child of the same customer imported here (as importMassPay places a parent's money), in the
+                // order MyCS pays a group in: due date, then id.
+                $children = array_values(array_filter($this->rows("SELECT c.id, c.userid, c.total, c.duedate FROM tblinvoiceitems ii
+                    JOIN tblinvoices c ON c.id = ii.relid WHERE ii.invoiceid = ? AND ii.type = 'Invoice' ORDER BY ii.id", [$id]),
+                    fn (array $child) => (int) $child['userid'] === (int) $record['userid'] && isset($this->importedInvoices()[(int) $child['id']])
+                        && !isset($held[(int) $child['id']]) && DB::table('invoices')->where('id', $child['id'])->value('status') === Invoice::STATUS_UNPAID));
+                usort($children, fn (array $a, array $b) => [$this->validateDate($a['duedate']) ?? '9999-12-31', (int) $a['id']]
+                    <=> [$this->validateDate($b['duedate']) ?? '9999-12-31', (int) $b['id']]);
+                $debit = WhmcsMassPay::cents($record['total']) - WhmcsMassPay::cents($this->row('SELECT COALESCE(SUM(amountin), 0) AS paid FROM tblaccounts WHERE invoiceid = ? AND amountin > 0', [$id])['paid'] ?? 0);
+                $credit = max(0, WhmcsMassPay::cents($record['credit'] ?? 0));
+                $creditAt = $this->sourceRows("SELECT MAX(date) AS date FROM tblcredit WHERE amount < 0 AND description = 'Credit Applied to Invoice #{$id}'")[0]['date'] ?? null;
+                $creditAt = $this->validateDate($creditAt) ?? $at;
+                $names = [];
+                foreach ($children as $child) {
                     $childId = (int) $child['id'];
-                    // Only an open child of the same customer imported here (as importMassPay places a parent's money).
-                    if ((int) $child['userid'] === (int) $record['userid'] && isset($this->importedInvoices()[$childId])
-                        && DB::table('invoices')->where('id', $childId)->value('status') === Invoice::STATUS_UNPAID
-                        && $hold($childId, $owed($child), $record['paymentmethod'] ?? null, $at)) {
-                        $children[] = $childId;
+                    $left = $owed($child);
+                    $take = min($left, max(0, $debit));
+                    $debit -= $take;
+                    $fromCredit = min($left - $take, $credit);
+                    $credit -= $fromCredit;
+                    if ($fromCredit > 0) {
+                        DB::table('invoice_transactions')->insert(['id' => $nextId, 'invoice_id' => $childId, 'amount' => $fromCredit / 100,
+                            'is_credit_transaction' => true, 'created_at' => $creditAt, 'updated_at' => $creditAt]);
+                        $this->dayOnly[] = $nextId++; // WHMCS dates its «Credit Applied» by the day only
+                    }
+                    if ($hold($childId, $take, $record['paymentmethod'] ?? null, $at) || $fromCredit > 0) {
+                        $names[] = $childId;
                     }
                 }
-                $parents[] = "Mass Pay #{$id}" . ($children === [] ? ' (no open child here)' : ' on #' . implode(', #', $children));
+                $parents[] = "Mass Pay #{$id}" . ($names === [] ? ' (no open child here)' : ' on #' . implode(', #', $names))
+                    . ($debit > 0 || $credit > 0 ? sprintf(' (%s of its debit and %s of its credit on no child: check it)',
+                        number_format(max(0, $debit) / 100, 2, '.', ''), number_format($credit / 100, 2, '.', '')) : '');
 
                 continue;
             }

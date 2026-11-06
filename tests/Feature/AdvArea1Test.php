@@ -19,12 +19,14 @@ use App\Models\User;
 use App\Services\Import\WhmcsParity;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\MoneyTrail;
+use App\Services\Ops\RollbackReport;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail as MailFacade;
@@ -345,18 +347,23 @@ class AdvArea1Test extends TestCase
         $told = fn () => EmailLog::query()->where('subject', 'like', '%needs staff attention%')
             ->where('body', 'like', "%Invoice #700 (client #{$this->clientId}): the payment WHMCS had on its way%")->count();
 
-        Carbon::setTestNow('2026-10-21 10:00:00'); // 6 days after its invoice's day
+        // A week counts from the import (2026-10-20), not from its WHMCS invoice's day (2026-10-15: R1b-3).
+        Carbon::setTestNow('2026-10-26 10:00:00'); // 11 days after its invoice's day, 6 after the import
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(0, $told());
 
-        Carbon::setTestNow('2026-10-23 10:00:00');
+        Carbon::setTestNow('2026-10-28 10:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(1, $told());
         $this->assertSame('processing', InvoiceTransaction::query()->where('invoice_id', 700)->sole()->status->value, 'nothing changes by itself');
     }
 
-    /** R1-3 (fixer): each open child of a Payment Pending Mass Pay is held for its own remaining, and the parent is named. */
-    public function test_fix_r1_3_a_payment_pending_mass_pay_holds_each_child_for_its_remaining(): void
+    /**
+     * R1-3, R1b-1 (fixer): a Payment Pending Mass Pay (20 of debit, 5 of credit) holds its open children in due order for
+     * its debit, its credit pays the rest as a credit payment, and the parent is named. (Its first version held each child
+     * for its full remaining, 10 and 15: the 5 of credit landed nowhere, R1b-1.)
+     */
+    public function test_fix_r1_3_a_payment_pending_mass_pay_holds_its_children_for_its_debit_and_its_credit_pays_the_rest(): void
     {
         foreach ([[801, 10], [802, 15]] as [$id, $amount]) {
             $this->invoice($id, 'Unpaid', $amount);
@@ -368,10 +375,42 @@ class AdvArea1Test extends TestCase
         $this->item(900, 'Invoice', 802, 15);
         $this->import();
 
-        $this->assertSame([[801, '10.00', 'whmcs-pending-801', '2026-10-16'], [802, '15.00', 'whmcs-pending-802', '2026-10-16']],
-            InvoiceTransaction::query()->orderBy('invoice_id')->get()->map(fn (InvoiceTransaction $t) => [(int) $t->invoice_id,
-                number_format((float) $t->amount, 2, '.', ''), $t->transaction_id, $t->created_at->toDateString()])->all());
-        $this->assertStringContainsString('Mass Pay #900 on #801, #802', $this->output->fetch());
+        $this->assertSame([[801, '10.00', 'whmcs-pending-801', '2026-10-16', false], [802, '10.00', 'whmcs-pending-802', '2026-10-16', false],
+            [802, '5.00', null, '2026-10-16', true]],
+            InvoiceTransaction::query()->orderBy('invoice_id')->orderBy('is_credit_transaction')->get()->map(fn (InvoiceTransaction $t) => [(int) $t->invoice_id,
+                number_format((float) $t->amount, 2, '.', ''), $t->transaction_id, $t->created_at->toDateString(), (bool) $t->is_credit_transaction])->all());
+        $this->assertStringContainsString('Mass Pay #900 on #801, #802)', $this->output->fetch());
+        $this->assertSame(['5.00'], DB::table('money_events')->where('kind', 'credit_out')->where('cause', MoneyTrail::CAUSE_CREDIT_PAYMENT)
+            ->where('invoice_id', 802)->pluck('amount')->map(fn ($a) => number_format((float) $a, 2, '.', ''))->all(), 'its credit_out');
         $this->assertFalse(DB::table('money_events')->where('cause', MoneyTrail::CAUSE_CANCELLATION)->exists(), 'its credit is not «unfinished»');
+
+        // Parity: WHMCS's credit applied counts the parent's, here on the child.
+        foreach (['CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, domainstatus TEXT)', 'CREATE TABLE tbltickets (id INTEGER PRIMARY KEY, merged_ticket_id INTEGER DEFAULT 0)',
+            'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY)'] as $sql) {
+            $this->whmcs->exec($sql);
+        }
+        $rows = collect((new WhmcsParity($this->whmcs))->rows())->keyBy('metric');
+        $this->assertSame([500, 500], [$rows['Credit applied to invoices']['whmcs'], $rows['Credit applied to invoices']['mycs']]);
+    }
+
+    /** R1b-2 (fixer): the rollback report says a completed imported pending payment has no payment in WHMCS. */
+    public function test_fix_r1b_2_the_rollback_report_notes_an_imported_pending_payment(): void
+    {
+        Config::set('audit.console', false);
+        $this->service(101);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 101, 10);
+        $this->import();
+        $cutover = now()->addMinute();
+        Carbon::setTestNow('2026-10-22 10:00:00');
+        Config::set('audit.console', true);
+
+        (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(700), null, '10.00', 'whmcs-pending-700');
+
+        $section = collect((new RollbackReport($cutover))->sections())->firstWhere('key', 'payments_changed');
+        $this->assertSame('note', $section['columns'][1]);
+        $this->assertNotEmpty($section['rows']);
+        $this->assertStringContainsString('no payment there; record it in WHMCS', $section['rows'][0][1]);
+        $this->assertStringContainsString('record the payment in WHMCS', $section['todo']);
     }
 }
