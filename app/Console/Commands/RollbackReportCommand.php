@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\Ops\RollbackReport;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -23,19 +24,25 @@ class RollbackReportCommand extends Command
 
     public function handle(): int
     {
-        try {
-            $since = Carbon::parse((string) $this->option('since'));
-            $until = $this->option('until') ? Carbon::parse((string) $this->option('until')) : null;
-        } catch (Throwable) {
-            $since = null;
+        $since = $this->moment('since');
+        if ($since === null) {
+            $this->error('--since is the cut-over\'s time, e.g. --since="2026-11-14 22:00" (or with its zone, "… +02:00").');
+
+            return self::INVALID;
         }
-        if (!$this->option('since') || $since === null) {
-            $this->error('--since is the cut-over\'s time, e.g. --since="2026-11-14 22:00".');
+        $until = $this->option('until') ? $this->moment('until') : null;
+        if ($this->option('until') && $until === null) {
+            $this->error('--until is not a time.');
 
             return self::INVALID;
         }
         if ($since->isFuture()) {
             $this->error('--since is in the future.');
+
+            return self::INVALID;
+        }
+        if ($until !== null && $until->lt($since)) {
+            $this->error('--until is before --since.');
 
             return self::INVALID;
         }
@@ -62,7 +69,8 @@ class RollbackReportCommand extends Command
             $this->line('<options=bold>' . $section['title'] . ' (' . count($section['rows']) . ')</>');
             $this->line('In WHMCS: ' . $section['todo']);
             if ($section['rows'] !== []) {
-                $this->table($section['columns'], $section['rows']);
+                // Cut on screen only; the CSV keeps every cell whole.
+                $this->table($section['columns'], array_map(fn (array $row) => array_map(fn (string $cell) => Str::limit($cell, 120), $row), $section['rows']));
             }
         }
         if ($dir !== null) {
@@ -71,6 +79,18 @@ class RollbackReportCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function moment(string $option): ?Carbon
+    {
+        if (!$this->option($option)) {
+            return null;
+        }
+        try {
+            return Carbon::parse((string) $this->option($option));
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -86,7 +106,8 @@ class RollbackReportCommand extends Command
         fputcsv($handle, $columns, escape: '');
         foreach ($rows as $row) {
             // A cell starting with = + - @ is read as a formula by a spreadsheet: quoted as text.
-            fputcsv($handle, array_map(fn (string $cell) => preg_match('/^(?:[=+@\t\r]|-(?!\d))/', $cell) ? "'" . $cell : $cell, $row), escape: '');
+            // A number stays a number; any other cell starting with one of these is text (ADV-690-9: «-1+cmd|…»).
+            fputcsv($handle, array_map(fn (string $cell) => !preg_match('/^-?\d+(\.\d+)?$/', $cell) && preg_match('/^[=+\-@\t\r]/', $cell) ? "'" . $cell : $cell, $row), escape: '');
         }
         fclose($handle);
         @chmod($path, 0600);

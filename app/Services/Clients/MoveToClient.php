@@ -23,7 +23,9 @@ use App\Services\Payment\SubscriptionEnded;
 use App\Support\AfterCommit;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use InvalidArgumentException;
+use OwenIt\Auditing\Events\AuditCustom;
 
 /**
  * A service or a domain moved to another client by staff (owner 2026-10-23, as WHMCS's «Move»): the item is the other
@@ -146,6 +148,12 @@ final class MoveToClient
             $update['meta'] = json_encode($meta);
             Domain::query()->whereKey($domain->id)->update($update);
             $domain->refresh();
+            // Written without the model, so audited here (adversarial #690: the rollback report reads the audits).
+            $domain->auditEvent = 'updated';
+            $domain->isCustomEvent = true;
+            $domain->auditCustomOld = ['client_id' => $from->id];
+            $domain->auditCustomNew = ['client_id' => $to->id];
+            Event::dispatch(new AuditCustom($domain));
             $result = $this->moveInvoices($plan, $to);
             $this->notes($from, $to, $by, 'domain', (string) $domain->fqdn);
 

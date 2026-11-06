@@ -204,7 +204,9 @@ class Adv690Test extends TestCase
     public function test_whmcs_rows_deleted_in_the_mycs_are_listed(): void
     {
         [, $service, $invoice] = $this->imported();
+        Config::set('audit.console', false); // as the importer: no «created» audit (it would be the MyCS's own line)
         $line = InvoiceItem::factory()->create(['invoice_id' => $invoice->id, 'price' => 5, 'quantity' => 1, 'description' => 'Setup', 'created_at' => '2026-11-01']);
+        Config::set('audit.console', true);
 
         (new DeleteService)->handle($service->fresh());
         $line->delete();

@@ -2,24 +2,27 @@
 
 namespace App\Services\Ops;
 
+use App\Enums\MoneyEventKind;
 use App\Models\Audit;
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\ClientNote;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
 use App\Models\EmailLog;
-use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
+use App\Models\MoneyEvent;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
@@ -38,7 +41,37 @@ final class RollbackReport
     /** Fields of an audit not worth carrying back (bookkeeping of the MyCS itself). */
     private const NOISE = ['updated_at', 'created_at', 'last_synced_at', 'sync_error', 'remember_token', 'last_login_at'];
 
-    public function __construct(private readonly Carbon $since, private readonly ?Carbon $until = null) {}
+    private readonly Carbon $since;
+
+    private readonly ?Carbon $until;
+
+    /** @var array<string, list<int>> the ids the MyCS created, by model */
+    private array $mine = [];
+
+    public function __construct(Carbon $since, ?Carbon $until = null)
+    {
+        // The rows are kept in the app's zone: an --since given in another («00:00 +02:00») is the same moment (ADV-690-7).
+        $zone = (string) config('app.timezone');
+        $this->since = $since->copy()->setTimezone($zone);
+        $this->until = $until?->copy()->setTimezone($zone);
+    }
+
+    /**
+     * The rows of a model the MyCS created: a «created» audit after --since (the importer writes none), or a created_at
+     * after it. Not created_at alone (adversarial #690): an imported row may have none (WHMCS's 0000-00-00), a merge dates
+     * the invoice it keeps back to the oldest one, and a deleted row has no date left to read.
+     *
+     * @param  class-string<Model>  $class
+     * @return list<int>
+     */
+    private function mine(string $class): array
+    {
+        return $this->mine[$class] ??= array_values(array_unique([
+            ...Audit::query()->where('auditable_type', (new $class)->getMorphClass())->where('event', 'created')
+                ->where('created_at', '>=', $this->since)->pluck('auditable_id')->map(fn ($id) => (int) $id)->all(),
+            ...$class::query()->withoutGlobalScopes()->where('created_at', '>=', $this->since)->pluck('id')->map(fn ($id) => (int) $id)->all(),
+        ]));
+    }
 
     /**
      * Every part, in the order they go back (money first).
@@ -49,6 +82,8 @@ final class RollbackReport
     {
         return [
             $this->payments(),
+            $this->changed('payments_changed', 'WHMCS payments changed or deleted', InvoiceTransaction::class,
+                'The same on the WHMCS payment: a deleted one is deleted there (DeleteTransaction / the invoice back to unpaid), a refunded amount as below.'),
             $this->refunds(),
             $this->newInvoices(),
             $this->changed('invoices_changed', 'Invoices changed', Invoice::class,
@@ -71,6 +106,7 @@ final class RollbackReport
             $this->registrar(),
             $this->tickets(),
             $this->ticketReplies(),
+            $this->notes(),
             $this->cards(),
             $this->mails(),
         ];
@@ -108,18 +144,18 @@ final class RollbackReport
             return $value ? 'yes' : 'no';
         }
 
-        return Str::limit(trim(preg_replace('/\s+/', ' ', (string) $value) ?? ''), 160);
+        return trim(preg_replace('/\s+/', ' ', (string) $value) ?? ''); // whole: the CSV is read by a script (ADV-690-8)
     }
 
     /** Whether the invoice was issued by the MyCS (after --since): then it is made in WHMCS first. */
     private function isNew(?Invoice $invoice): string
     {
-        return $invoice !== null && $invoice->created_at !== null && $invoice->created_at->gte($this->since) ? 'new (MyCS)' : 'WHMCS';
+        return $invoice !== null && in_array((int) $invoice->id, $this->mine(Invoice::class), true) ? 'new (MyCS)' : 'WHMCS';
     }
 
     private function payments(): array
     {
-        $rows = $this->between(InvoiceTransaction::query()->with(['invoice.client', 'gateway']))->orderBy('id')->get()
+        $rows = $this->between(InvoiceTransaction::query()->with(['invoice.client', 'gateway'])->whereKey($this->mine(InvoiceTransaction::class)))->orderBy('id')->get()
             ->map(fn (InvoiceTransaction $t) => [$t->id, $t->created_at, $t->invoice_id, $this->isNew($t->invoice), $t->invoice?->client_id,
                 $t->invoice?->client?->name, $t->amount, $t->invoice?->currency_code, $t->is_credit_transaction ? 'credit applied' : ($t->gateway->name ?? '—'),
                 $t->transaction_id, $t->status, $t->refunded_amount, $t->fee]);
@@ -130,16 +166,20 @@ final class RollbackReport
 
     private function refunds(): array
     {
-        $rows = $this->between(GatewayRefund::query())->orderBy('id')->get()
-            ->map(fn (GatewayRefund $r) => [$r->id, $r->created_at, $r->invoice_transaction_id, $r->gateway, $r->reference, $r->amount, $r->currency_code, $r->origin]);
+        // The money trail, not gateway_refunds (adversarial #690): a refund by hand or to credit has no gateway row, and a
+        // dispute merely opened has one that moved nothing. A reversal is a refund undone (a chargeback won).
+        $rows = $this->between(MoneyEvent::query()->whereIn('kind', [MoneyEventKind::Refund, MoneyEventKind::Reversal]), 'occurred_at')->orderBy('id')->get()
+            ->map(fn (MoneyEvent $e) => [$e->id, $e->occurred_at, $e->kind, $e->invoice_id, $e->invoice_transaction_id,
+                in_array((int) $e->invoice_transaction_id, $this->mine(InvoiceTransaction::class), true) ? 'new (MyCS)' : 'WHMCS',
+                $e->client_id, $e->amount, $e->currency_code, $e->source, $e->cause, $e->external_reference, $e->reason]);
 
-        return $this->section('refunds', 'Refunds', 'The refund on the WHMCS payment (RefundInvoicePayment without the gateway: it is already refunded there).',
-            ['id', 'at', 'payment', 'gateway', 'reference', 'amount', 'currency', 'origin'], $rows);
+        return $this->section('refunds', 'Refunds and reversals', 'On a WHMCS payment: RefundInvoicePayment without the gateway (it is refunded there already), to credit if the cause says so; a reversal puts it back. On a payment «new (MyCS)»: record the payment first.',
+            ['id', 'at', 'kind', 'invoice', 'payment', 'payment from', 'client', 'amount', 'currency', 'source', 'cause', 'reference', 'reason'], $rows);
     }
 
     private function newInvoices(): array
     {
-        $rows = $this->between(Invoice::query()->with(['client', 'items']))->orderBy('id')->get()
+        $rows = Invoice::query()->with(['client', 'items'])->whereKey($this->mine(Invoice::class))->orderBy('id')->get()
             ->map(fn (Invoice $i) => [$i->id, $i->created_at, $i->number, $i->client_id, $i->client?->name, $i->status, $i->total, $i->currency_code, $i->due_at,
                 $i->items->map(fn (InvoiceItem $item) => ($item->reference_type ? class_basename($item->reference_type) . ' #' . $item->reference_id . ' ' : '')
                     . $item->description . ' ' . $item->price . ($item->period_end ? ' → ' . Carbon::parse($item->period_end)->toDateString() : ''))->implode(' | ')]);
@@ -151,7 +191,7 @@ final class RollbackReport
     /** Lines the MyCS added to invoices that came from WHMCS (an upgrade, a late fee, a merge). */
     private function linesOnWhmcsInvoices(): array
     {
-        $rows = $this->between(InvoiceItem::query()->with('invoice'))->whereIn('invoice_id', Invoice::query()->where('created_at', '<', $this->since)->select('id'))
+        $rows = InvoiceItem::query()->with('invoice')->whereKey($this->mine(InvoiceItem::class))->whereNotIn('invoice_id', $this->mine(Invoice::class))
             ->orderBy('id')->get()
             ->map(fn (InvoiceItem $item) => [$item->id, $item->created_at, $item->invoice_id, $item->invoice?->client_id, $item->description, $item->price, $item->quantity,
                 $item->reference_type ? class_basename($item->reference_type) . ' #' . $item->reference_id : '']);
@@ -175,7 +215,7 @@ final class RollbackReport
 
     private function newClients(): array
     {
-        $rows = $this->between(Client::query())->orderBy('id')->get()
+        $rows = Client::query()->whereKey($this->mine(Client::class))->orderBy('id')->get()
             ->map(fn (Client $c) => [$c->id, $c->created_at, $c->name, $c->email, $c->country]);
 
         return $this->section('clients_new', 'New clients', 'AddClient in WHMCS (a new id there: note it, every row below of this client follows it).',
@@ -201,7 +241,7 @@ final class RollbackReport
 
     private function newServices(): array
     {
-        $rows = $this->between(Service::query()->with(['client', 'product']))->orderBy('id')->get()
+        $rows = Service::query()->with(['client', 'product'])->whereKey($this->mine(Service::class))->orderBy('id')->get()
             ->map(fn (Service $s) => [$s->id, $s->created_at, $s->client_id, $s->client?->name, $s->product?->name, $s->label, $s->status, $s->price, $s->expires_at]);
 
         return $this->section('services_new', 'New services', 'In WHMCS with its order (AddOrder), the same product, price and next due date; on the server it already is.',
@@ -219,7 +259,7 @@ final class RollbackReport
 
     private function newDomains(): array
     {
-        $rows = $this->between(Domain::query()->with('client'))->orderBy('id')->get()
+        $rows = Domain::query()->with('client')->whereKey($this->mine(Domain::class))->orderBy('id')->get()
             ->map(fn (Domain $d) => [$d->id, $d->created_at, $d->fqdn, $d->client_id, $d->client->name, $d->status, $d->expires_at]);
 
         return $this->section('domains_new', 'New domains', 'In WHMCS with its order, the registrar and expiry as here.',
@@ -255,6 +295,16 @@ final class RollbackReport
             ['id', 'at', 'ticket', 'whmcs ticket', 'from', 'kind', 'start'], $rows);
     }
 
+    /** Staff's notes on accounts, and those a move to another account writes (MoveToClient: its domain row is written without the model). */
+    private function notes(): array
+    {
+        $rows = $this->between(ClientNote::query())->orderBy('id')->get()
+            ->map(fn (ClientNote $n) => [$n->id, $n->created_at, $n->client_id, $n->staff_id ? 'staff #' . $n->staff_id : '', $n->body]);
+
+        return $this->section('notes', 'Client notes', 'AddClientNote; a note of a move to another account: the service or domain moved in WHMCS too (Move to client).',
+            ['id', 'at', 'client', 'by', 'note'], $rows);
+    }
+
     private function cards(): array
     {
         $rows = $this->between(BillingAgreement::query()->withTrashed()->with(['client', 'gateway']))->orderBy('id')->get()
@@ -279,12 +329,17 @@ final class RollbackReport
             ['client', 'name', 'mails', 'last', 'subjects (first 5)'], $rows);
     }
 
-    /** Changes of rows that came from WHMCS (created before --since); the new ones are listed in their own part. */
+    /**
+     * Changes of rows that came from WHMCS, deletions too (the audit keeps the row: adversarial #690); the MyCS's own rows
+     * are listed in their own part, as they are now.
+     *
+     * @param  class-string<Model>  $class
+     */
     private function changed(string $key, string $title, string $class, string $todo): array
     {
         $model = new $class;
         $audits = $this->between(Audit::query()->where('auditable_type', $model->getMorphClass())->whereIn('event', ['updated', 'deleted', 'restored']))
-            ->whereIn('auditable_id', $class::query()->withoutGlobalScopes()->where('created_at', '<', $this->since)->select('id'))
+            ->whereNotIn('auditable_id', $this->mine($class))
             ->orderBy('id')->get();
         $rows = $audits->map(function (Audit $a) {
             $old = (array) $a->old_values;
