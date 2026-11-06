@@ -288,11 +288,13 @@ class DomainShopAdversarialTest extends TestCase
     {
         $com = DomainTld::query()->where('tld', 'com')->first();
         DomainTldPrice::query()->create(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 1, 'currency_code' => 'USD', 'price' => '30.00']);
+        // A registration is sold for years it renews for.
+        DomainTldPrice::query()->create(['domain_tld_id' => $com->id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'USD', 'price' => '31.00']);
         $this->withSession(['currency' => 'EUR'])->get('/domain-pricing')->assertSee('.org<!--', false);
         $this->withSession(['currency' => 'USD'])->get('/domain-pricing')->assertSee('.com<!--', false)->assertDontSee('.org<!--', false)->assertDontSee('23,33');
 
         $this->getJson('/api/v1/domain-pricing?currency=usd')->assertOk()->assertJsonPath('currency', 'USD')
-            ->assertJsonCount(1, 'tlds')->assertJsonPath('tlds.0.years.1.register', '30.00')->assertJsonPath('tlds.0.years.1.renew', null);
+            ->assertJsonCount(1, 'tlds')->assertJsonPath('tlds.0.years.1.register', '30.00')->assertJsonPath('tlds.0.years.1.renew', '31.00');
         $json = $this->getJson('/api/v1/domain-pricing')->assertOk()->json();
         $this->assertSame(['com', 'net', 'org', 'eu'], array_column($json['tlds'], 'tld'), 'inactive .biz and unpriced .io left out');
     }

@@ -184,6 +184,7 @@ class GreppG4bAdversarialTest extends TestCase
         Currency::query()->firstOrCreate(['code' => 'USD'], ['name' => 'Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         $this->price($this->tld, 'register', 1, '15.00', 'USD');
         $this->price($this->tld, 'register', 2, '28.00', 'USD');
+        $this->price($this->tld, 'renew', 1, '15.00', 'USD'); // a registration is sold for years it renews for
         $this->cached('free-example.gr', DomainSearch::FREE);
 
         $usd = collect(app(DomainSearch::class)->search('free-example.gr', 'USD'))->firstWhere('fqdn', 'free-example.gr');

@@ -159,7 +159,7 @@ class ImportTlds extends Page implements HasForms
                 Toggle::make('redemption_fee')->label(__('Import the grace and redemption fees'))->live()->helperText(__('The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.')),
                 Toggle::make('auto_register')->label(__('Automatic registration with this registrar')),
                 Toggle::make('keep_free_and_closed')->label(__('Keep free and not-offered prices'))
-                    ->helperText(__('A 0.00 (free) or empty (not offered) price stays as it is.')),
+                    ->helperText(__('A free (0.00) transfer or fee, or an empty (not offered) price, stays as it is. A registration or renewal at 0.00 is not offered: priced again.')),
             ]),
             Section::make(__('Exchange rates'))->columns(4)
                 ->description(__('MyCS keeps no rates: one unit of the registrar\'s currency is how much of each other currency. A currency left empty gets no price from the import.'))
@@ -404,8 +404,10 @@ class ImportTlds extends Page implements HasForms
                     $period = in_array($operation, ['register', 'renew'], true) ? $pricing->minYears : 1;
                     $price = $record?->prices->first(fn ($p) => $p->operation === $operation && (int) $p->years === $period);
                     // What the import writes: a free or not-offered price it keeps is shown kept (adversarial F5 of #422).
-                    $kept = $price !== null && $options->keepFreeAndClosed && ($price->price === null || bccomp((string) $price->price, '0', 2) === 0);
-                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $price?->price, $kept ? null : ($new[$operation][$period]['price'] ?? null));
+                    $kept = $price !== null && $options->keepFreeAndClosed && $price->freeOrClosed();
+                    // Today's: a registration or renewal at 0.00 is not offered, never shown as free (ADV-A5-1).
+                    $now = $price !== null && $price->isOffered() ? $price->price : null;
+                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $now, $kept ? null : ($new[$operation][$period]['price'] ?? null));
                     $row['ops'][$operation] = $cell;
                     $row['alert'] = $row['alert'] || ($cell['alert'] !== null && in_array($operation, $this->operations(), true));
                 }

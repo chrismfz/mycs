@@ -20,7 +20,7 @@ use Illuminate\Validation\Rules\Unique;
 
 /**
  * A TLD's prices (docs/domains.md D-5, D-6, D-8): per operation, years and currency of MyCS. An empty price is not
- * offered; 0.00 is free and offered (a .gr transfer). The cost is the registrar's, written by the sync or the import.
+ * offered; 0.00 is free and offered (a .gr transfer, a fee), never for a registration or renewal (ADV-A5-1). The cost is the registrar's, written by the sync or the import.
  */
 class PricesRelationManager extends RelationManager
 {
@@ -56,8 +56,10 @@ class PricesRelationManager extends RelationManager
                     ->where('operation', $get('operation'))->where('currency_code', $get('currency_code'))),
             Select::make('currency_code')->label(__('Currency'))->required()
                 ->options(fn () => Currency::query()->orderBy('code')->pluck('code', 'code')),
-            TextInput::make('price')->label(__('Price'))->numeric()->minValue(0)->maxValue(99999)->rule('decimal:0,2')
-                ->helperText(__('Empty: not offered. 0.00: free and offered.')),
+            // Only a transfer or a fee may be free: a registration or renewal at 0.00 is never sold (ADV-A5-1).
+            TextInput::make('price')->label(__('Price'))->numeric()->maxValue(99999)->rule('decimal:0,2')
+                ->minValue(fn (Get $get) => in_array($get('operation'), ['register', 'renew'], true) ? 0.01 : 0)
+                ->helperText(__('Empty: not offered. 0.00: free and offered (transfers and fees only).')),
         ]);
     }
 
@@ -70,7 +72,9 @@ class PricesRelationManager extends RelationManager
                 TextColumn::make('operation')->label(__('Operation'))->formatStateUsing(fn (string $state) => self::operations()[$state] ?? $state),
                 TextColumn::make('years')->label(__('Years')),
                 TextColumn::make('currency_code')->label(__('Currency')),
-                TextColumn::make('price')->label(__('Price'))->placeholder(__('Not offered')),
+                // A registration or renewal left at 0.00 (from WHMCS) is not offered: shown so, never as free (ADV-A5-1).
+                TextColumn::make('price')->label(__('Price'))->placeholder(__('Not offered'))
+                    ->getStateUsing(fn (DomainTldPrice $record) => $record->isOffered() ? $record->price : null),
                 TextColumn::make('cost')->label(__('Cost'))
                     ->formatStateUsing(fn (DomainTldPrice $record) => $record->cost === null ? '—' : $record->cost . ' ' . $record->cost_currency),
             ])
