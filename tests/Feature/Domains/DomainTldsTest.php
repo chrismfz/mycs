@@ -185,4 +185,21 @@ class DomainTldsTest extends TestCase
             ->assertHasNoTableActionErrors();
         $this->assertSame('0.00', $tld->load('prices')->priceFor('transfer', 1, 'USD'), 'free and offered');
     }
+
+    /** ADV-A5-1: a registration or renewal at 0.00 (left by WHMCS) is not offered: shown so, refused by the form, repriced by the import. */
+    public function test_a_zero_registration_or_renewal_is_shown_not_offered_and_repriced(): void
+    {
+        $tld = DomainTld::query()->create(['tld' => 'gr']);
+        $renew = DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
+        $transfer = DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'transfer', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
+
+        $this->livewireAs($this->staff())->test(PricesRelationManager::class, ['ownerRecord' => $tld, 'pageClass' => EditDomainTld::class])
+            ->assertTableColumnStateSet('price', null, $renew)->assertTableColumnStateSet('price', '0.00', $transfer)
+            ->callTableAction('create', data: ['operation' => 'register', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0'])
+            ->assertHasTableActionErrors(['price']);
+
+        $costs = ['renew' => ['cost' => '9.50', 'currency' => 'EUR'], 'transfer' => ['cost' => '9.50', 'currency' => 'EUR']];
+        app(TldImport::class)->import($this->op, ['gr' => new TldPricing(tld: 'gr', costs: $costs)], new TldImportOptions(marginType: 'percent', margin: '20'));
+        $this->assertSame(['11.40', '0.00'], [$renew->fresh()->price, $transfer->fresh()->price], 'the renewal repriced, the free transfer kept');
+    }
 }

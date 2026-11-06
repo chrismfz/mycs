@@ -321,7 +321,8 @@ class DomainSearch
             return [
                 'tld' => $tld->tld,
                 'years' => $years->mapWithKeys(fn (int $y) => [$y => [
-                    'register' => $tld->priceFor('register', $y, $currency),
+                    // Only a registration it renews for (DomainTld::offeredYears).
+                    'register' => $tld->offeredYears('register', $currency)->contains($y) ? $tld->priceFor('register', $y, $currency) : null,
                     'renew' => $tld->priceFor('renew', $y, $currency),
                     'transfer' => $tld->priceFor('transfer', $y, $currency),
                 ]])->all(),

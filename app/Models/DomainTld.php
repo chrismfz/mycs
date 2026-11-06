@@ -9,6 +9,7 @@ use App\Services\Domains\Registrars\GrEppRegistrar;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -85,17 +86,27 @@ class DomainTld extends Model implements Auditable
         return $this->hasMany(Domain::class);
     }
 
-    /**
-     * The price of an operation for so many years in a currency: null when it is not offered (no row, or no price), a
-     * string amount otherwise, «0.00» being free and offered (D-6).
-     */
     /** The shortest period $operation is priced for in $currency (1 for most; 2 for .gr: even years), null when none. */
     public function shortestYears(string $operation, string $currency): ?int
     {
-        $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)->whereNotNull('price')
-            ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1)->min();
+        $years = $this->offeredYears($operation, $currency)->filter(fn (int $y) => $y >= 1)->min();
 
         return $years === null ? null : (int) $years;
+    }
+
+    /**
+     * The years $operation is offered for in $currency (DomainTldPrice::offered: never a registration or renewal year at
+     * 0.00, ADV-A5-1), unordered. A registration only for years its renewal is offered for too: it renews for the years
+     * it was registered for, and one with no renew price is never billed and lapses (review of ADV-A5-1).
+     *
+     * @return Collection<int, int>
+     */
+    public function offeredYears(string $operation, string $currency): Collection
+    {
+        $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)
+            ->filter(fn (DomainTldPrice $row) => $row->isOffered())->pluck('years')->map(fn ($y) => (int) $y)->unique()->values();
+
+        return $operation === 'register' ? $years->intersect($this->offeredYears('renew', $currency))->values() : $years;
     }
 
     /**
@@ -133,11 +144,15 @@ class DomainTld extends Model implements Auditable
         return $operation === 'transfer' ? $capabilities->supportsTransfer : $capabilities->supportsRegistration;
     }
 
+    /**
+     * The price of an operation for so many years in a currency: null when it is not offered (no row, no price, or a
+     * registration or renewal at 0.00: ADV-A5-1), a string amount otherwise, «0.00» being free and offered (D-6).
+     */
     public function priceFor(string $operation, int $years, string $currency): ?string
     {
         $price = $this->prices->first(fn (DomainTldPrice $row) => $row->operation === $operation && $row->years === $years
             && $row->currency_code === $currency);
 
-        return $price?->price;
+        return $price !== null && $price->isOffered() ? $price->price : null;
     }
 }
