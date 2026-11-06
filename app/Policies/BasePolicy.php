@@ -28,7 +28,9 @@ class BasePolicy
         if (!$user instanceof User || $clientId === null) {
             return false;
         }
-        $grant = ClientUser::query()->where('user_id', $user->id)->where('client_id', (int) $clientId)->whereNull('revoked_at')->first();
+        // A closed account's records are not reached by id (ADV-A6-1): staff in «Login as client» may, as CurrentClient.
+        $grant = ClientUser::query()->where('user_id', $user->id)->where('client_id', (int) $clientId)->whereNull('revoked_at')
+            ->when(!Actor::impersonating(), fn ($open) => $open->onOpenAccount())->first();
 
         if ($grant === null) {
             return false;

@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
+use App\Support\Actor;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
@@ -46,6 +48,17 @@ class ServiceConsoleController extends Controller
         return $extension instanceof Proxmox ? $extension->consoleRelay() : null;
     }
 
+    /**
+     * Staff in «Login as client» opening it: named in the ticket, so the relay's check (no session) asks about them, not
+     * the customer's login (ADV-A6-1, review 6: a closed account's console stays open for staff only).
+     */
+    private static function staffId(): ?int
+    {
+        $staff = Actor::impersonating() ? Auth::guard('staff')->id() : null;
+
+        return $staff === null ? null : (int) $staff;
+    }
+
     public function ticket(Service $service): JsonResponse
     {
         $refuse = fn (string $key, int $status = 409) => response()->json(['message' => __('services.proxmox.console.' . $key)], $status);
@@ -77,7 +90,7 @@ class ServiceConsoleController extends Controller
         $parts = (array) parse_url((string) config('app.url'));
         $origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
         $token = ConsoleTicket::sign(['origin' => $origin, 'server_id' => $server->id, 'service_id' => $service->id,
-            'user_id' => (int) auth('web')->id()] + $console, $relay['key']);
+            'user_id' => (int) auth('web')->id(), 'staff_id' => self::staffId()] + $console, $relay['key']);
         $service->auditEvent = 'vm_console';
         $service->isCustomEvent = true;
         $service->auditCustomOld = [];

@@ -380,7 +380,8 @@ relay.
 
 **Ο έλεγχος των 30'' (relay → MyCS).**
 - Κάθε 30'' το relay στέλνει **μία** κλήση ανά cluster κάθε site, για όλες τις κονσόλες του, χωρίς να σταματά ο βρόχος:
-  `POST <origin>/api/proxmox/console/check`, με `{ts, consoles: [{id, jti, server_id, service_id, user_id, vmid}]}`.
+  `POST <origin>/api/proxmox/console/check`, με `{ts, consoles: [{id, jti, server_id, service_id, user_id, vmid}]}`,
+  και `staff_id` όταν την άνοιξε staff σε «Login as client» (ADV-A6-1: το εισιτήριο το γράφει, το relay το επιστρέφει).
 - Η υπογραφή είναι με το κλειδί εκείνου του cluster, πάνω στο `console-check|<body>`, στο header
   `X-Console-Signature: sha256=…`.
 - Η απάντηση δεν υπογράφεται: μόνο το TLS την προστατεύει. Γι' αυτό το relay δέχεται μόνο `https://` για το site και
@@ -388,7 +389,10 @@ relay.
 - Η MyCS:
   - δέχεται μόνο υπογραφή με το κλειδί ενός server Proxmox, και `ts` έως 60'' παλιό·
   - απαντά μόνο για τις κονσόλες εκείνου του server: `{allowed: {"<id>": bool}}`·
-  - λέει «ναι» όσο το service είναι active, στο ίδιο VM, και ο χρήστης έχει ακόμη `update`.
+  - λέει «ναι» όσο το service είναι active, στο ίδιο VM, και ο χρήστης έχει ακόμη `update`· για κονσόλα του staff, όσο
+    εκείνο είναι ενεργό με `admin.users.impersonate` και `admin.services.update` και ο login έχει ακόμη grant (ακόμη κι
+    αν ο λογαριασμός έκλεισε). Ένα relay που δεν έχει ξαναστηθεί με αυτόν τον κώδικα δεν στέλνει `staff_id`, οπότε οι
+    κονσόλες του staff σε κλειστό λογαριασμό κλείνουν μέσα σε 30''.
 - Μια κονσόλα κλείνει με «όχι». Χωρίς απάντηση κλείνει μετά από 3 αποτυχίες στη σειρά, όπως πριν.
 
 **Ο διακόπτης (console on/off).**

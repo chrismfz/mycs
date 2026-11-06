@@ -46,6 +46,15 @@ class ClientUser extends Pivot
         return $query->whereNull('revoked_at');
     }
 
+    /**
+     * On an account that is not closed (WG-8): a closed account is not worked on, nor reached by id (ADV-A6-1), as
+     * CurrentClient (review of #651). Staff in «Login as client» may, so the callers skip it for them.
+     */
+    public function scopeOnOpenAccount(Builder $query): Builder
+    {
+        return $query->whereHas('client', fn (Builder $client) => $client->whereNull('closed_at'));
+    }
+
     /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {

@@ -29,6 +29,14 @@ class ConsoleTicketTest extends TestCase
         $this->assertNotSame($ticket['jti'], ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE, self::KEY, 1000), [self::KEY], 1010)['jti']);
     }
 
+    /** ADV-A6-1, review 6: the staff member who opened it in «Login as client», when one did; a bad one is refused. */
+    public function test_a_ticket_may_name_the_staff_member_who_opened_it(): void
+    {
+        $this->assertSame(9, ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE + ['staff_id' => 9], self::KEY, 1000), [self::KEY], 1010)['staff_id'] ?? null);
+        $this->assertArrayNotHasKey('staff_id', ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE + ['staff_id' => null], self::KEY, 1000), [self::KEY], 1010));
+        $this->assertNull(ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE + ['staff_id' => 0], self::KEY, 1000), [self::KEY], 1010));
+    }
+
     public function test_a_changed_payload_or_signature_is_refused(): void
     {
         $token = ConsoleTicket::sign(self::CONSOLE, self::KEY, 1000);

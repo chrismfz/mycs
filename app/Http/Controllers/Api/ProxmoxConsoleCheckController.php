@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
 use App\Http\Controllers\Controller;
+use App\Models\ClientUser;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
+use App\Support\Actor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
@@ -86,6 +89,28 @@ class ProxmoxConsoleCheckController extends Controller
 
         return $service !== null && $user !== null && $service->status === Service::STATUS_ACTIVE
             && $service->provisioningServer()?->id === $console['server_id']
-            && ProxmoxPower::guest($service)?->vmid === $console['vmid'] && $user->can('update', $service);
+            && ProxmoxPower::guest($service)?->vmid === $console['vmid']
+            && (array_key_exists('staff_id', $console) ? self::staffMay($console['staff_id'], $user, $service) : $user->can('update', $service));
+    }
+
+    /**
+     * A console staff opened in «Login as client» (its ticket names them): open while they may still log in as the
+     * client and power the VPS there (active, `admin.users.impersonate`, `manageproducts` as SA-5) and the login they
+     * look through still has its grant, the account closed or not (ADV-A6-1, review 6). The check has no session, so
+     * owns() would ask about the customer's own login and close it.
+     */
+    private static function staffMay(mixed $staffId, User $user, Service $service): bool
+    {
+        $staff = is_int($staffId) ? Staff::query()->find($staffId) : null;
+        if (!$staff instanceof Staff || !$staff->hasPermission('admin.users.impersonate')) {
+            return false;
+        }
+        foreach ((array) Actor::STAFF_PERMISSION_AS['manageproducts'] as $admin) {
+            if (!$staff->hasPermission($admin)) {
+                return false;
+            }
+        }
+
+        return ClientUser::query()->where('user_id', $user->id)->where('client_id', $service->client_id)->whereNull('revoked_at')->exists();
     }
 }

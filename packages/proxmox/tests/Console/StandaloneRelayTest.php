@@ -185,6 +185,17 @@ class StandaloneRelayTest extends TestCase
         $this->assertSame([11 => true, 12 => false, 13 => null], $answers);
     }
 
+    /** ADV-A6-1, review 6: a console staff opened in «Login as client» is checked as theirs: the check names them. */
+    public function test_the_check_names_the_staff_member_who_opened_a_console(): void
+    {
+        $relay = $this->relay();
+        $staff = $relay->ticket(ConsoleTicket::sign(['origin' => 'https://my.nixpal.test', 'server_id' => 7, 'service_id' => 42, 'user_id' => 3,
+            'node' => 'vega', 'type' => 'qemu', 'vmid' => 101, 'staff_id' => 9], self::KEY, $this->now));
+        $relay->check([11 => $staff], fn () => null);
+
+        $this->assertSame(9, json_decode($this->requests[0]['body'], true)['consoles'][0]['staff_id'] ?? null);
+    }
+
     public function test_a_config_not_sound_is_refused_at_the_start(): void
     {
         $site = fn (array $over) => ['sites' => [$over + $this->config()['sites'][0]]];
