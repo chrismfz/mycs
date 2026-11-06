@@ -50,6 +50,6 @@ final class ItemPaymentAccess
         $user = Auth::guard('web')->user();
 
         return $user instanceof User && (bool) ClientUser::query()->where('client_id', $item->client_id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->first()?->allows('invoices');
+            ->whereNull('revoked_at')->onOpenAccount()->first()?->allows('invoices'); // never a closed account (ADV-A6-1)
     }
 }

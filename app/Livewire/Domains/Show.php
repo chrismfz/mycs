@@ -494,7 +494,7 @@ class Show extends Component
         $user = Auth::guard('web')->user();
 
         return $user instanceof User && (bool) ClientUser::query()->where('client_id', $this->domain->client_id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->first()?->allows('invoices');
+            ->whereNull('revoked_at')->onOpenAccount()->first()?->allows('invoices'); // never a closed account (ADV-A6-1)
     }
 
     private function limited(string $key): bool

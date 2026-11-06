@@ -869,8 +869,9 @@ class Show extends Component
             return Actor::staffMayAs($permission); // only what they may do in the admin (SA-5)
         }
 
+        // Never on a closed account (ADV-A6-1).
         return (bool) ClientUser::query()->where('client_id', $service->client_id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->first()?->allows($permission);
+            ->whereNull('revoked_at')->onOpenAccount()->first()?->allows($permission);
     }
 
     public function render()
