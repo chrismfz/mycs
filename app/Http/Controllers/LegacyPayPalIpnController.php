@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Enums\MoneyEventKind;
 use App\Helpers\NotificationHelper;
 use App\Models\GatewayRefund;
 use App\Models\InvoiceTransaction;
@@ -138,7 +139,7 @@ class LegacyPayPalIpnController extends Controller
         };
         // MyCS's own transaction (the account's IPN setting points every one at this old address: vault charges, checkouts,
         // MyCS's refunds) or one imported with its invoice: recorded already, never «record it by hand» (ADV-A4-4).
-        $recorded = $kind === 'notice' ? null : self::recordedHere($kind, $txn, self::field($fields, 'parent_txn_id'));
+        $recorded = $kind === 'notice' ? null : self::recordedHere($kind, $status, $txn, self::field($fields, 'parent_txn_id'));
         if ($recorded !== null) {
             PaymentsLog::info("PayPal sent a {$type} notice ({$status}) of {$txn} to WHMCS's old IPN address: already recorded here ({$recorded}), nothing to do.");
 
@@ -175,16 +176,17 @@ class LegacyPayPalIpnController extends Controller
      * Where this site has the IPN's money already («invoice #N»), or null: a payment (txn_id) recorded on an invoice; a
      * refund or reversal recorded by its id (PayPal's refund id is its txn_id), or of a payment MyCS took through its own
      * PayPal gateway (parent_txn_id: its webhook records what PayPal gives or takes back). Not a WHMCS-era payment's
-     * reversal: nothing here records that, staff do (ADV-A4-4).
+     * reversal, nor one of a payment staff recorded by hand: nothing here records that, staff do (ADV-A4-4, R4-1).
      */
-    private static function recordedHere(string $kind, string $txn, string $parent): ?string
+    private static function recordedHere(string $kind, string $status, string $txn, string $parent): ?string
     {
         $invoice = fn (?int $id) => $id === null ? null : 'invoice #' . $id;
         if ($kind === 'money') {
             return $txn === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $txn)->where('is_credit_transaction', false)
                 ->where('status', '!=', InvoiceTransactionStatus::Failed)->orderBy('id')->value('invoice_id'));
         }
-        $refund = $txn === '' ? null : GatewayRefund::query()->where('gateway', 'PayPal')->where('reference', $txn)
+        // A refund's own id only for money that went back: a Canceled_Reversal is money coming back to us (R4-3).
+        $refund = $txn === '' || $status === 'Canceled_Reversal' ? null : GatewayRefund::query()->where('gateway', 'PayPal')->where('reference', $txn)
             ->whereNotIn('origin', [GatewayRefund::ORIGIN_WAITING, GatewayRefund::ORIGIN_FAILED, GatewayRefund::ORIGIN_CHARGEBACK_WAITING])->first();
         if ($refund !== null) {
             return $invoice(InvoiceTransaction::query()->whereKey($refund->invoice_transaction_id)->value('invoice_id')) ?? 'refund ' . $refund->id;
@@ -192,8 +194,11 @@ class LegacyPayPalIpnController extends Controller
 
         return $parent === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $parent)->where('is_credit_transaction', false)
             ->whereHas('gateway', fn ($gw) => $gw->where('extension', 'PayPal'))
-            ->whereNotExists(fn ($import) => $import->from('money_events')->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')
-                ->where('money_events.source', MoneyTrail::SOURCE_IMPORT))
+            // The gateway recorded it itself: its payment event carries the provider's id, which one staff entered by hand
+            // (a legacy Standard sale this controller told them to record) or the importer wrote never does (R4-1).
+            ->whereExists(fn ($own) => $own->from('money_events')->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')
+                ->where('money_events.kind', MoneyEventKind::Payment->value)->whereNotNull('money_events.external_reference')
+                ->where('money_events.source', '!=', MoneyTrail::SOURCE_IMPORT))
             ->orderBy('id')->value('invoice_id'));
     }
 

@@ -742,7 +742,8 @@ class ExtensionHelper
 
     /**
      * The gateway's fee on its payment, by the payment's id there. Never on a payment with no id (a lookup by an empty one
-     * finds a payment staff entered with none) and, with $gateway, only on that gateway's succeeded payment (ADV-A4-3).
+     * finds a payment staff entered with none) and, with $gateway, only on that gateway's succeeded or processing payment
+     * (ADV-A4-3, R4-2).
      */
     public static function addPaymentFee($transactionId, $fee, ?string $gateway = null)
     {
@@ -762,7 +763,8 @@ class ExtensionHelper
         }
 
         return InvoiceTransaction::query()->where('transaction_id', $transactionId)
-            ->when($gateway !== null, fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded)
+            // A processing one too (SEPA: its charge.updated can come before payment_intent.succeeded; R4-2), never a failed one.
+            ->when($gateway !== null, fn ($query) => $query->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing])
                 ->whereHas('gateway', fn ($gw) => $gw->where('extension', $gateway)))
             ->orderBy('id')->first();
     }
