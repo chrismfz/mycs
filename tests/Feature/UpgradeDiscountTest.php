@@ -19,6 +19,7 @@ use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
@@ -374,9 +375,9 @@ class UpgradeDiscountTest extends TestCase
         // On 07-25 six of the 31 days are left: (30 − 10) × 6 / 31 = 3.87 net, 4.80 with tax.
         return [
             // 10% stays 10%: 0.387 → 0.39 net, 0.48 with tax.
-            'a percentage' => [['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10'], ['3.87', '-0.39'], '0.39'],
+            'a percentage' => [['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10'], ['3.87', '-0.39'], '1.03'],
             // 12.50 of 12.80 was 0.24 net off 10.32; the same share of 3.87 is 0.09.
-            'an amount' => [['discount_mode' => DifferenceDiscount::AMOUNT, 'discount_value' => '12.50'], ['3.87', '-0.09'], '0.09'],
+            'an amount' => [['discount_mode' => DifferenceDiscount::AMOUNT, 'discount_value' => '12.50'], ['3.87', '-0.09'], '0.24'],
         ];
     }
 
@@ -399,9 +400,44 @@ class UpgradeDiscountTest extends TestCase
 
         $lines = $this->lines($upgrade->invoice->fresh());
         $this->assertSame($nets, array_column($lines, 1));
-        $this->assertSame($recorded, $upgrade->fresh()->discount, 'the record follows the line');
+        $this->assertSame($recorded, $upgrade->fresh()->discount, 'what was given stays on record');
         $this->assertLessThanOrEqual(480, (int) round((float) $this->totalOf($upgrade->invoice->fresh()) * 100), 'never above no discount');
         $this->assertSame(Invoice::STATUS_UNPAID, $upgrade->invoice->fresh()->status);
+    }
+
+    /** Re-review: the cron runs between a renewal paid meanwhile and the payment: the days it adds get no discount. */
+    public function test_the_cron_never_grows_the_discount_onto_the_days_a_renewal_added(): void
+    {
+        $service = $this->service($this->small, 10.00);
+        $this->staffUpgrade($service, ['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10']);
+        $upgrade = ServiceUpgrade::query()->sole();
+        DB::table('services')->where('id', $service->id)->update(['expires_at' => '2026-08-31']);
+
+        Carbon::setTestNow('2026-07-16 03:00:00');
+        $this->artisan('app:cron-job');
+
+        [$charge, $discount] = array_column($this->lines($upgrade->invoice->fresh()), 1);
+        $this->assertGreaterThan(10.32, (float) $charge, 'the charge took the renewal\'s days');
+        $this->assertSame('-1.03', $discount, 'never more than given');
+    }
+
+    public function test_a_cancelled_upgrade_keeps_the_discount_it_was_given(): void
+    {
+        $service = $this->service($this->small, 10.00);
+        $this->staffUpgrade($service, ['discount_mode' => DifferenceDiscount::PERCENT, 'discount_value' => '10']);
+        $upgrade = ServiceUpgrade::query()->sole();
+        // Another service's line on its invoice: the cancellation takes only the upgrade's lines off.
+        $other = Service::factory()->create(['client_id' => $service->client_id, 'product_id' => $this->small->id,
+            'plan_id' => $this->small->plans()->first()->id, 'price' => 5, 'quantity' => 1, 'currency_code' => 'USD',
+            'status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-07-31']);
+        $upgrade->invoice->items()->create(['description' => 'Setup work', 'price' => 5, 'quantity' => 1,
+            'reference_type' => Service::class, 'reference_id' => $other->id, 'kind' => InvoiceItem::KIND_CHARGE]);
+
+        CancelPendingUpgrades::one($upgrade->id, 'test');
+
+        $this->assertSame(ServiceUpgrade::STATUS_CANCELLED, $upgrade->fresh()->status);
+        $this->assertSame([['Setup work', '5.00', '6.20', InvoiceItem::KIND_CHARGE]], $this->lines($upgrade->invoice->fresh()));
+        $this->assertSame(['1.03', '10.00'], [$upgrade->fresh()->discount, $upgrade->fresh()->discount_percent]);
     }
 
     public function test_a_later_downgrade_gives_back_only_what_the_discounted_upgrade_paid(): void

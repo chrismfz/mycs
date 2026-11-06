@@ -1206,19 +1206,20 @@ class CronJob extends Command
         $changed = 0;
         $lines = $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->orderBy('id')->get();
         [$discounts, $charges] = $lines->partition(fn (InvoiceItem $line) => $line->kind === InvoiceItem::KIND_DISCOUNT);
-        $oldCharge = (string) $charges->reduce(fn (BigDecimal $sum, InvoiceItem $line) => $sum->plus((string) $line->price), BigDecimal::zero());
         $charges->each(function (InvoiceItem $line) use ($price, &$changed) {
             $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
         });
-        // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge: the same percentage, or the
-        // share an amount was (adversarial ADV-685-2: frozen, a discount came to cost more than none). Under the invoice's
-        // lock ChangeOpenLine took for the charge (this transaction): both change, or neither (a paid one keeps both).
-        foreach ($discounts as $line) {
-            $net = DifferenceDiscount::follow($oldCharge, (string) BigDecimal::of((string) $line->price)->negated(),
-                number_format($price, 2, '.', ''), $upgrade->discount_percent === null ? null : (string) $upgrade->discount_percent);
-            if (ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = '-' . $net)) {
-                $changed++;
-                $upgrade->forceFill(['discount' => $net])->save();
+        // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge, worked out from what it was
+        // given on (no drift from a day's rounding): the same percentage, or the share an amount was (ADV-685-2: frozen, a
+        // discount came to cost more than none). Never more than given: the days a renewal paid meanwhile adds are billed
+        // without it (as ServiceUpgradeService::shortfall), whether the cron runs before the payment or not. Under the
+        // invoice's lock ChangeOpenLine took for the charge (this transaction): both change, or neither.
+        if ($upgrade->discount !== null && $upgrade->discount_base !== null) {
+            $net = (string) BigDecimal::min(BigDecimal::of(DifferenceDiscount::follow((string) $upgrade->discount_base,
+                (string) $upgrade->discount, number_format($price, 2, '.', ''),
+                $upgrade->discount_percent === null ? null : (string) $upgrade->discount_percent)), BigDecimal::of((string) $upgrade->discount));
+            foreach ($discounts as $line) {
+                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = '-' . $net) ? 1 : 0;
             }
         }
 

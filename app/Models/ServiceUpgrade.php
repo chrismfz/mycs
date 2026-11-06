@@ -27,6 +27,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property \Illuminate\Support\Carbon|null $applied_at when the service changed
  * @property string|null $discount staff's discount on the difference, net (all of it when waived: no invoice)
  * @property string|null $discount_percent the percentage it was given as, when it was
+ * @property string|null $discount_base the full net difference it was given on (the cron keeps its share of it)
  */
 #[ObservedBy([ServiceUpgradeObserver::class])]
 class ServiceUpgrade extends Model implements Auditable
@@ -68,7 +69,8 @@ class ServiceUpgrade extends Model implements Auditable
     {
         // A downgrade's credit and the day it was given for (DowngradeCredit).
         return ['credit_cents' => 'integer', 'credit_until' => 'date', 'from_price' => 'decimal:2', 'to_price' => 'decimal:2',
-            'applied_at' => 'datetime', 'discount' => 'decimal:2', 'discount_percent' => 'decimal:2'];
+            'applied_at' => 'datetime', 'discount' => 'decimal:2', 'discount_percent' => 'decimal:2',
+            'discount_base' => 'decimal:2'];
     }
 
     /** @return BelongsTo<Service, $this> */

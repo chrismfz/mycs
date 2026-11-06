@@ -132,8 +132,11 @@ class InvoiceItemObserver
      */
     public function deleted(InvoiceItem $invoice): void
     {
-        // Staff took the discount off an upgrade's invoice: the upgrade no longer has one (ADV-685-3).
-        if ($invoice->kind === InvoiceItem::KIND_DISCOUNT && $invoice->reference_type === ServiceUpgrade::class) {
+        // Staff took the discount off an upgrade's invoice, its charge left there: the upgrade no longer has one (ADV-685-3).
+        // Not when the upgrade's lines go with it (a cancellation keeps what was given, for «Package changes»).
+        if ($invoice->kind === InvoiceItem::KIND_DISCOUNT && $invoice->reference_type === ServiceUpgrade::class
+            && InvoiceItem::query()->where('invoice_id', $invoice->invoice_id)->where('reference_type', ServiceUpgrade::class)
+                ->where('reference_id', $invoice->reference_id)->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_DISCOUNT))->exists()) {
             ServiceUpgrade::query()->whereKey($invoice->reference_id)->first()?->forceFill(['discount' => null, 'discount_percent' => null])->save();
         }
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');

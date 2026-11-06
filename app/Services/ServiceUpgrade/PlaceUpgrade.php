@@ -215,7 +215,8 @@ final class PlaceUpgrade
             if ($discount->none()) {
                 $discount = null;
             } else {
-                $upgrade->forceFill(['discount' => $discount->discountNet, 'discount_percent' => $discount->percent])->save();
+                $upgrade->forceFill(['discount' => $discount->discountNet, 'discount_percent' => $discount->percent,
+                    'discount_base' => $discount->fullNet])->save();
             }
         }
 
