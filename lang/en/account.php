@@ -248,7 +248,7 @@ return [
         'receipt' => 'Receipt',
         'none' => 'None',
     ],
-    'email_preferences_none' => 'None: only the ones that always go',
+    'email_preferences_none' => 'None: no invoices, receipts, orders or welcome emails. Only suspensions, terminations, overdue and expiry notices and ticket replies go.',
     'email_preferences_help' => 'The account\'s mails go to this email of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
     'contact_email_preferences_help' => 'This contact gets its own copy of the account\'s mails of the kinds ticked here. Never a password or a ticket\'s reply: those go to the account\'s email only.',
     'contact_email_kinds_not_allowed' => 'This contact takes mails you may not see: only the account\'s owner can change its email.',

@@ -46,6 +46,13 @@ class EmailLog extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    /**
+     * Not sent, on purpose: the account's contact does not take its kind of mail, or the login turned it off. Logged so
+     * staff see why a customer got nothing (owner 2026-11-06: an addon's invoice and receipt went nowhere, without a
+     * trace); never queued, never swept or retried. Staff's Resend still sends it.
+     */
+    public const STATUS_SKIPPED = 'skipped';
+
     public const TRIGGER_AUTO = 'auto';
 
     public const TRIGGER_MANUAL = 'manual';

@@ -810,4 +810,10 @@ class Invoice extends Model implements Auditable
     {
         return $this->morphOne(EmailLog::class, 'related')->latestOfMany();
     }
+
+    /** Its latest mail that went (or tried): one held back by preferences later never hides a failure («Last mail failed»). */
+    public function latestSentEmailLog(): MorphOne
+    {
+        return $this->morphOne(EmailLog::class, 'related')->ofMany(['id' => 'max'], fn ($query) => $query->where('status', '!=', EmailLog::STATUS_SKIPPED));
+    }
 }

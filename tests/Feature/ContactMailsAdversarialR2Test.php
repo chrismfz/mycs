@@ -65,7 +65,7 @@ class ContactMailsAdversarialR2Test extends TestCase
     /** @return list<string> */
     private function mailedTo(?string $template = null): array
     {
-        return EmailLog::query()->when($template, fn ($q) => $q->where('template_key', $template))->orderBy('id')->pluck('to')->all();
+        return EmailLog::query()->where('status', '!=', EmailLog::STATUS_SKIPPED)->when($template, fn ($q) => $q->where('template_key', $template))->orderBy('id')->pluck('to')->all();
     }
 
     private function invoice(): Invoice

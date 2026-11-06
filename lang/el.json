@@ -1701,5 +1701,7 @@
     "Past the :days days the forecast looks ahead: pick a closer day.": "Πέρα από τις :days μέρες που κοιτά η πρόβλεψη: διάλεξε μια πιο κοντινή μέρα.",
     "Invoices :i · charges :c · payments :p": "Τιμολόγια :i · χρεώσεις :c · πληρωμές :p",
     "Last sync failed": "Απέτυχε ο τελευταίος συγχρονισμός",
+    "All emails": "Όλα τα emails",
+    "Queued": "Σε αναμονή",
     "An upgrade's lines stay together: move its discount with it, or neither.": "Οι γραμμές μιας αναβάθμισης μένουν μαζί: μετακίνησε την έκπτωση μαζί με τη χρέωσή της, ή καμία από τις δύο."
 }

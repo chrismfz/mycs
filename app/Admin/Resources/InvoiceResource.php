@@ -460,7 +460,7 @@ class InvoiceResource extends Resource
                 // Its latest mail failed (the mail audit): to resend.
                 Filter::make('mail_failed')
                     ->label('Last mail failed')
-                    ->query(fn (Builder $query) => $query->whereHas('latestEmailLog', fn (Builder $query) => $query->where('status', EmailLog::STATUS_FAILED))),
+                    ->query(fn (Builder $query) => $query->whereHas('latestSentEmailLog', fn (Builder $query) => $query->where('status', EmailLog::STATUS_FAILED))),
                 // Paid with no active fiscal document yet (E2): what Ekdosi has still to issue, or missed.
                 SelectFilter::make('ekdosi_document')
                     ->label(__('Fiscal document'))

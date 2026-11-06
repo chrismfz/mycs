@@ -16,6 +16,7 @@ use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Notification;
+use App\Models\NotificationPreference;
 use App\Models\NotificationTemplate;
 use App\Models\Order;
 use App\Models\Service;
@@ -266,6 +267,55 @@ class NotificationHelper
             ->queue($mail);
     }
 
+    /**
+     * Why an account's mail was held back by a choice made for this customer, or null when there is nothing to log: mail
+     * off for everyone (Settings), a template that mails no one («Never», in-app only), or one off unless chosen
+     * («Off by default») that the customer never chose. Those are no customer's missing mail.
+     */
+    private static function whyNotSent(NotificationTemplate $notification, ?NotificationPreference $userPreference, bool $noMail): ?string
+    {
+        if (config('settings.mail_disable') || self::$account === null || $notification->mail_enabled === NotificationEnabledStatus::Never) {
+            return null;
+        }
+        if ($noMail) {
+            return 'Not sent: the account\'s contact does not take «' . __('account.email_preference.' . EmailKinds::of($notification->key), [], 'en')
+                . '» emails (its email preferences).';
+        }
+        if ($userPreference !== null && !$userPreference->mail_enabled && $notification->mail_enabled !== NotificationEnabledStatus::Force) {
+            return 'Not sent: the customer turned this email off (their notification preferences).';
+        }
+
+        return null;
+    }
+
+    /**
+     * A mail not sent on purpose (deliver): logged as the one sent would be, body included, status «skipped» and why.
+     * Never queued.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private static function logSkippedEmail(NotificationTemplate $notificationTemplate, array $data, User $user, ?string $to, string $why): void
+    {
+        try {
+            $mail = new Mail($notificationTemplate, $data);
+            $mail->locale(app()->getLocale());
+            EmailLog::create([
+                'client_id' => self::$account?->id,
+                'subject' => $mail->envelope()->subject,
+                'to' => $to ?? (string) $user->email,
+                'body' => self::bodyForLog($mail, $notificationTemplate, $data),
+                'from_address' => config('settings.mail_from_address'),
+                'template_key' => $notificationTemplate->key,
+                ...MailAudit::related($data),
+                // In the same insert: never a moment «pending», which the sweep would fail and resend-failed send.
+                'status' => EmailLog::STATUS_SKIPPED,
+                'error' => $why,
+            ]);
+        } catch (Throwable $e) {
+            report($e); // the log of a mail not sent never breaks what triggered it
+        }
+    }
+
     public static function sendSystemEmailNotification(
         string $subject,
         string $body,
@@ -379,6 +429,9 @@ class NotificationHelper
             // $noMail: the account's primary contact does not take this kind of mail (toAccount).
             if (!$noMail && $notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
                 self::sendEmailNotification($notification, $data, $user, $attachments, to: $mailTo);
+            } elseif (($why = self::whyNotSent($notification, $userPreference, $noMail)) !== null) {
+                // Not sent on purpose: kept in the log with why, so staff see it was not lost (owner 2026-11-06).
+                self::logSkippedEmail($notification, $data, $user, $mailTo, $why);
             }
         } catch (TemplateError $e) {
             report($e);

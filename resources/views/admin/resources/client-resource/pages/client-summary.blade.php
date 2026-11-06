@@ -62,7 +62,8 @@
         @endphp
         <div class="{{ $row }} items-center" data-setting="email_preferences"><span class="{{ $label }}">{{ __('Receives emails') }}</span><span class="flex flex-wrap items-center justify-end gap-1 text-right">
             @if ($missing === [])<span class="{{ $label }}">{{ __('All') }}</span>
-            @elseif ($emails === [])<x-filament::badge color="warning">{{ __('account.email_preferences_none') }}</x-filament::badge>
+            {{-- Owner 2026-11-06: a «None» passed unseen and an addon's invoice and receipt went nowhere: shown as the fault it is. --}}
+            @elseif ($emails === [])<x-filament::badge color="danger" icon="ri-mail-forbid-line">{{ __('account.email_preferences_none') }}</x-filament::badge>
             @else{{ implode(' · ', array_map($kind, $emails)) }} <x-filament::badge color="warning">{{ __('Not: :list', ['list' => implode(', ', array_map($kind, $missing))]) }}</x-filament::badge>@endif
         </span></div>
     </x-filament::section>
@@ -155,13 +156,15 @@
         <div class="{{ $row }}"><span class="{{ $label }}">{{ __('Contacts') }}</span><span>{{ $other['contacts'] }}</span></div>
 
         @if ($summary['emails'] !== null)
-            <div class="pt-4 text-sm font-medium">{{ __('Recent Emails') }}</div>
+            <div class="pt-4 text-sm font-medium flex justify-between">{{ __('Recent Emails') }}
+                @if ($links['emails'])<x-filament::link :href="$links['emails']" size="sm">{{ __('All emails') }}</x-filament::link>@endif
+            </div>
             @forelse ($summary['emails'] as $mail)
                 <div class="{{ $row }}">
                     <span class="truncate">
                         @if ($links['email'])<x-filament::link :href="($links['email'])($mail->id)">{{ $mail->subject }}</x-filament::link>@else{{ $mail->subject }}@endif
                     </span>
-                    <span class="{{ $label }} whitespace-nowrap">{{ $mail->created_at?->format('d/m/Y') }}@if ($mail->status !== EmailLog::STATUS_SENT) · {{ __(ucfirst($mail->status)) }}@endif</span>
+                    <span class="{{ $label }} whitespace-nowrap">{{ $mail->created_at?->format('d/m/Y') }}@if ($mail->status !== EmailLog::STATUS_SENT) · <span @class(['text-danger-600 dark:text-danger-400' => in_array($mail->status, [EmailLog::STATUS_FAILED, EmailLog::STATUS_SKIPPED], true)]) @if ($mail->error) title="{{ $mail->error }}" @endif>{{ __(\App\Admin\Resources\EmailLogResource::statusLabel($mail->status)) }}</span>@endif</span>
                 </div>
             @empty
                 <div class="text-sm {{ $label }}">—</div>

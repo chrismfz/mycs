@@ -127,6 +127,18 @@ class ReplayCompareAdversarialTest extends TestCase
         $this->assertNotEmpty($result['mails']['only_whmcs'], 'WHMCS sent two payment mails the simulation did not: not the same');
     }
 
+    /** Review of #687: a mail held back by the customer's preferences (`skipped`) never went, as WHMCS's tblemails has only mails sent. */
+    public function test_a_mail_not_sent_is_not_counted_as_sent(): void
+    {
+        $this->after->exec("INSERT INTO tblemails VALUES (501, 7, 'First Invoice Overdue Notice')");
+
+        $result = $this->compare([$this->line('mail', 'client #7', 'invoice_overdue (skipped)')]);
+        $this->assertNotEmpty($result['mails']['only_whmcs'], 'WHMCS sent it, MyCS held it back: a difference, never «both»');
+
+        $result = $this->compare([$this->line('mail', 'client #7', 'card_payment_due (skipped)')]);
+        $this->assertSame([], $result['mails']['only_mycs'], 'held back in MyCS, not sent by WHMCS: no difference');
+    }
+
     /** ADV-567-4: mails are counted per kind; to whom is thrown away (tblemails.userid and the ledger's «client #N» are both there). */
     public function test_the_same_mail_kind_to_a_different_client_is_a_difference(): void
     {

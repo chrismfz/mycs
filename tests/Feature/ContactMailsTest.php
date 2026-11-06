@@ -72,7 +72,7 @@ class ContactMailsTest extends TestCase
     /** @return list<string> the addresses mailed */
     private function mailedTo(): array
     {
-        return EmailLog::query()->orderBy('id')->pluck('to')->all();
+        return EmailLog::query()->where('status', '!=', EmailLog::STATUS_SKIPPED)->orderBy('id')->pluck('to')->all(); // mailed: not the ones held back (STATUS_SKIPPED)
     }
 
     private function invoice(): Invoice

@@ -58,6 +58,7 @@ class EmailLogResource extends Resource
             EmailLog::STATUS_SENT => 'success',
             EmailLog::STATUS_FAILED => 'danger',
             EmailLog::STATUS_SENDING => 'info',
+            EmailLog::STATUS_SKIPPED => 'warning',
             default => 'gray',
         };
     }
@@ -66,6 +67,7 @@ class EmailLogResource extends Resource
     {
         return match ($status) {
             EmailLog::STATUS_PENDING => 'Queued',
+            EmailLog::STATUS_SKIPPED => 'Not sent',
             null => '—',
             default => ucfirst($status),
         };
@@ -155,6 +157,7 @@ class EmailLogResource extends Resource
                 EmailLog::STATUS_SENDING => 'Sending',
                 EmailLog::STATUS_SENT => 'Sent',
                 EmailLog::STATUS_FAILED => 'Failed',
+                EmailLog::STATUS_SKIPPED => 'Not sent (preferences)',
             ]),
             SelectFilter::make('template_key')->label('Template')->multiple()
                 ->options(fn () => EmailLog::query()->whereNotNull('template_key')->distinct()->orderBy('template_key')->pluck('template_key', 'template_key')->all()),

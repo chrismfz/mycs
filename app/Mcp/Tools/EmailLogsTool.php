@@ -20,7 +20,7 @@ class EmailLogsTool extends McpTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'status' => $schema->string()->enum([EmailLog::STATUS_PENDING, EmailLog::STATUS_SENDING, EmailLog::STATUS_SENT, EmailLog::STATUS_FAILED]),
+            'status' => $schema->string()->enum([EmailLog::STATUS_PENDING, EmailLog::STATUS_SENDING, EmailLog::STATUS_SENT, EmailLog::STATUS_FAILED, EmailLog::STATUS_SKIPPED]),
             'to' => $schema->string()->description('A recipient address (exact).'),
             'template' => $schema->string()->description('A template key, e.g. new_invoice_created, server_suspended.'),
             'client_id' => $schema->integer()->description('An account id.'),

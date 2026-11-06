@@ -73,7 +73,7 @@ class EmailPreferencesTest extends TestCase
     /** @return list<string> the templates mailed to the owner */
     private function mailed(): array
     {
-        return EmailLog::query()->where('to', 'owner@example.test')->orderBy('id')->pluck('template_key')->all();
+        return EmailLog::query()->where('to', 'owner@example.test')->where('status', '!=', EmailLog::STATUS_SKIPPED)->orderBy('id')->pluck('template_key')->all(); // mailed, not held back (STATUS_SKIPPED)
     }
 
     private function invoice(): Invoice
