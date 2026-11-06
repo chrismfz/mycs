@@ -203,7 +203,9 @@ class TldImportGridAdversarialTest extends TestCase
 
         $page->set('selected', ['eu'])->call('import');
         $eu->refresh()->load('prices');
-        $written = ['register' => $eu->priceFor('register', 1, 'EUR'), 'renew' => $eu->priceFor('renew', 1, 'EUR')];
+        // The rows as written (priceFor is the price sold at: a registration at 0.00 is not offered, ADV-A5-1).
+        $stored = fn (string $operation) => $eu->prices->first(fn ($row) => $row->operation === $operation && $row->years === 1 && $row->currency_code === 'EUR')?->price;
+        $written = ['register' => $stored('register'), 'renew' => $stored('renew')];
 
         $this->assertSame(['register' => '0.00', 'renew' => null], $written, 'the import kept them (as designed)');
         $this->assertSame($written, $shown, 'the grid promised other prices than the import wrote');

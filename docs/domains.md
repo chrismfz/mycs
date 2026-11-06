@@ -122,6 +122,9 @@
   protection), IDN, **μέρες grace/redemption** (null = του registrar ή καμία), active. Δεν σβήνεται όσο έχει domains.
 - `domain_tld_prices`: tld, πράξη (**register/renew/transfer/grace/redemption**), **έτη**, νόμισμα του MyCS, `price`
   (null = δεν προσφέρεται, 0,00 = δωρεάν), `cost` και `cost_currency`. Τα έτη που προσφέρονται = οι γραμμές με τιμή·
+  δωρεάν μόνο μεταφορά και τέλη grace/redemption: έτος εγγραφής ή ανανέωσης με 0,00 **δεν προσφέρεται** (κανόνας
+  `DomainTldPrice::offered`, σε `priceFor`, επιλογή περιόδου, grace/redemption, παραγγελία· ADV-A5-1/2: το WHMCS αφήνει
+  0,00 σε έτη που δεν πουλά, ADV-655-1)· το cron το αναφέρει ως «χωρίς τιμή ανανέωσης», δεν το τιμολογεί 0,00·
   τα τέλη grace/redemption = η γραμμή 1 έτους της πράξης τους. Το sync γράφει μόνο `cost`· η `price` αλλάζει μόνο με
   το import του D-6 ή με το χέρι. Ιστορικό αλλαγών: το audit.
 - `domains`: **`id` = `tbldomains.id`** όταν εισάγεται (όπως ο importer κρατά τα IDs του WHMCS· D-11· τα domains που

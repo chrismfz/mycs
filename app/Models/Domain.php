@@ -306,9 +306,8 @@ class Domain extends Model implements Auditable
         if ($this->recurring_amount !== null) {
             return max(1, (int) $this->years);
         }
-        $years = $this->domainTld?->loadMissing('prices')->prices
-            ->where('operation', 'renew')->where('currency_code', $this->currency_code)->whereNotNull('price')
-            ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1)->min();
+        // Its shortest period offered: never a year at 0.00 WHMCS never sold, restored free (ADV-A5-2).
+        $years = $this->domainTld?->shortestYears('renew', (string) $this->currency_code);
 
         return max(1, (int) ($years ?? $this->years ?? 1));
     }

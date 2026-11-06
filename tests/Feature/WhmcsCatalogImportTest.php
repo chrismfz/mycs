@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\Server;
 use App\Models\ServerGroup;
 use App\Models\Setting;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Whmcs\CatalogImport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -298,6 +299,31 @@ class WhmcsCatalogImportTest extends TestCase
         $this->assertSame(255, (int) Category::query()->where('whmcs_id', 3)->value('sort'));
         $row = DomainTldPrice::query()->where(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 2])->sole();
         $this->assertSame([null, '12.00'], [$row->price, number_format((float) $row->cost, 2, '.', '')]);
+    }
+
+    /**
+     * ADV-A5-1: WHMCS keeps 0.00 in a TLD's year it never sells (ADV-655-1). A registration or renewal year at 0.00 comes
+     * as not offered (on a re-run too) and is never sold; a transfer at 0.00 stays free and offered (D-6).
+     */
+    public function test_a_zero_registration_or_renewal_year_is_not_offered_a_zero_transfer_is(): void
+    {
+        $this->import();
+        $this->whmcs->exec("UPDATE tblpricing SET qsetupfee = 0 WHERE type IN ('domainregister', 'domainrenew') AND relid = 31");
+
+        $this->import();
+
+        $com = DomainTld::query()->where('tld', 'com')->sole()->load('prices');
+        $rows = $com->prices->where('years', 2)->whereIn('operation', ['register', 'renew'])->pluck('price')->all();
+        $this->assertSame([null, null], array_values($rows), 'withdrawn, not «free»');
+        $this->assertSame([1], app(DomainOffer::class)->years($com, 'register', 'EUR')->all());
+        $gr = DomainTld::query()->where('tld', 'gr')->sole()->load('prices');
+        $this->assertSame(['0.00', [1]], [$gr->priceFor('transfer', 1, 'EUR'), app(DomainOffer::class)->years($gr, 'transfer', 'EUR')->all()]);
+
+        // One set at 0.00 by hand is not sold either.
+        DomainTldPrice::query()->where(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 2])->update(['price' => '0.00']);
+        $com->load('prices');
+        $this->assertNull($com->priceFor('register', 2, 'EUR'));
+        $this->assertSame([1], app(DomainOffer::class)->years($com, 'register', 'EUR')->all());
     }
 
     /** A hidden WHMCS group is off the menu, still opened by its link; a visible one is in it (docs/admin-ux.md). */
