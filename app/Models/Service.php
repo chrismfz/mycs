@@ -243,14 +243,13 @@ class Service extends Model implements Auditable
     /**
      * The hold that applies to it, in force on $day (through its last day): its own «Do Not Suspend Until», or for an
      * addon its parent's, as addons follow their parent (ADV-A3-1/2/4). The cron's rules (DunningRules) ask the same as a
-     * query (whereNoHoldOn).
+     * query (whereNoHoldOn). $parentDay: the day the parent's must reach instead (stillOverdue: past today).
      */
-    public function holdInForce(CarbonInterface $day): bool
+    public function holdInForce(CarbonInterface $day, ?CarbonInterface $parentDay = null): bool
     {
-        $day = CarbonImmutable::instance($day)->startOfDay();
         $parentHold = $this->parent_service_id !== null ? $this->parent?->suspend_hold_until : null;
-        foreach ([$this->suspend_hold_until, $parentHold] as $hold) {
-            if ($hold !== null && !CarbonImmutable::parse($hold)->startOfDay()->lessThan($day)) {
+        foreach ([[$this->suspend_hold_until, $day], [$parentHold, $parentDay ?? $day]] as [$hold, $on]) {
+            if ($hold !== null && !CarbonImmutable::parse($hold)->startOfDay()->lessThan(CarbonImmutable::instance($on)->startOfDay())) {
                 return true;
             }
         }
@@ -719,7 +718,10 @@ class Service extends Model implements Auditable
         }
         $today = CarbonImmutable::today();
         // Its own hold, or its parent's for an addon (ADV-A3-4: staff hold and unsuspend the parent, the addon comes back).
-        if ($this->holdInForce($today)) {
+        // The parent's only past today: the hold through today a parent back from a suspension gets on its own
+        // (ServiceObserver, a dunning window set) would bring back an addon overdue on its own, suspended again tomorrow
+        // (review 3 of the fix, R3-1).
+        if ($this->holdInForce($today, parentDay: $today->addDay())) {
             return false;
         }
         $cutoff = $today->subDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
