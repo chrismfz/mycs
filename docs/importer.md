@@ -1368,7 +1368,7 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - Eurobank: confirm/cancel μόνο για όσες πληρωμές βρίσκονται σε εξέλιξη τη στιγμή του cut-over·
   - ppcpv webhook, όπως στη nixpal·
   - Stripe webhook: 5 κλήσεις.
-- **Χάρτης 301:** το clients.myip.gr κάνει redirect στο `/clients/…`, και `/store/cpanel-hosting/*`, `cart.php`,
+- **Χάρτης 301** (γίνεται: `cutover-runbook.md` §1β, το clients.myip.gr γίνεται το MyCS): σήμερα το clients.myip.gr κάνει redirect στο `/clients/…`, και `/store/cpanel-hosting/*`, `cart.php`,
   `/knowledgebase/tag/*` έχουν ακόμα κίνηση.
 - **API:** καμία κλήση από παραγωγή. Τρία credentials (ALL-ROLES, ekdosi, invoicer), που ανακαλούνται μετά.
 - **`/home/myipgr/eurobank_iris_debug.txt`:** debug log του gateway, 942 KB. Να ελεγχθεί τι κρατά και να σβηστεί.
