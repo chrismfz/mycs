@@ -34,20 +34,47 @@ class Login extends Component
 
     /**
      * The captcha on sign-in (setting «Captcha on sign-in», owner 2026-11-06): always, never, or by default only once the
-     * address has failed to sign in (its failures, 15 minutes): a customer typing the right password never sees it.
+     * address has failed to sign in (its failures, 15 minutes) or has a try under way: a customer typing the right
+     * password never sees it.
      */
     public function captchaNeeded(): bool
     {
-        return match (config('settings.captcha_login', 'after_failure')) {
+        return match (self::captchaMode()) {
             'always' => true,
             'never' => false,
-            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0,
+            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0 || Cache::has(self::freeTryKey()),
+        };
+    }
+
+    private static function captchaMode(): string
+    {
+        $mode = (string) config('settings.captcha_login', 'after_failure');
+
+        return in_array($mode, ['always', 'never'], true) ? $mode : 'after_failure';
+    }
+
+    /**
+     * The address's one try without the captcha: taken atomically (a file lock), so many requests sent at once get one
+     * between them, never one each (review of #684: the failures are counted only after the password is checked).
+     */
+    private static function freeTryKey(): string
+    {
+        return 'login-free-try:' . CallerIp::key();
+    }
+
+    /** Whether this sign-in must have its captcha solved: the free try taken here, if it is this one's. */
+    private function captchaRequiredForThisTry(): bool
+    {
+        return match (self::captchaMode()) {
+            'always' => true,
+            'never' => false,
+            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0 || !Cache::add(self::freeTryKey(), 1, 900),
         };
     }
 
     public function submit(\App\Actions\Auth\Login $loginAction)
     {
-        if ($this->captchaNeeded()) {
+        if ($this->captchaRequiredForThisTry()) {
             $this->captcha();
         }
         $this->validate();
@@ -108,6 +135,9 @@ class Login extends Component
 
             return;
         }
+
+        // The password was right: the next sign-in from here is free again (with 2FA too).
+        Cache::forget(self::freeTryKey());
 
         // Check 2FA
         if ($user->tfa_secret) {

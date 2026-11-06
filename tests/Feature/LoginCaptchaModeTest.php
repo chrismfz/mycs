@@ -7,6 +7,7 @@ use App\Livewire\Auth\Register;
 use App\Models\User;
 use App\Support\CallerIp;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -29,10 +30,52 @@ class LoginCaptchaModeTest extends TestCase
         $user = $this->user();
         $this->storeSettings(['captcha' => 'altcha']);
 
-        $this->get('/login')->assertOk()->assertDontSee('<altcha-widget', false);
+        $this->assertCaptchaHidden($this->get('/login')->assertOk()->getContent());
         Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')
             ->call('submit')->assertHasNoErrors()->assertRedirect();
         $this->assertAuthenticatedAs($user);
+        $this->assertFalse(Cache::has('login-free-try:' . CallerIp::key()), 'signed in: the next one is free again');
+    }
+
+    /** Its widget is on the page from the start (its scripts run), hidden until needed (review of #684, finding 1). */
+    private function assertCaptchaHidden(string $html): void
+    {
+        $this->assertStringContainsString('<altcha-widget', $html);
+        $this->assertMatchesRegularExpression('/<div class="hidden" data-login-captcha>/', $html);
+    }
+
+    private function assertCaptchaShown(string $html): void
+    {
+        $this->assertStringContainsString('<altcha-widget', $html);
+        $this->assertStringNotContainsString('class="hidden" data-login-captcha', $html);
+        $this->assertStringContainsString('data-login-captcha', $html);
+    }
+
+    /**
+     * Review of #684, finding 2: requests sent at once from a clean address each saw no failure yet (counted only after
+     * the password check) and skipped the captcha. The free try is taken atomically: one between them.
+     */
+    public function test_requests_at_once_get_one_free_try_between_them(): void
+    {
+        $user = $this->user();
+        $this->storeSettings(['captcha' => 'altcha']);
+
+        // The first request has taken the free try and not finished (no failure counted yet): the second needs it.
+        Cache::add('login-free-try:' . CallerIp::key(), 1, 900);
+        Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')
+            ->call('submit')->assertHasErrors('captcha');
+        $this->assertGuest();
+    }
+
+    public function test_a_right_password_with_two_factor_frees_the_try_too(): void
+    {
+        $user = $this->user();
+        $user->forceFill(['tfa_secret' => 'JBSWY3DPEHPK3PXP'])->save();
+        $this->storeSettings(['captcha' => 'altcha']);
+
+        Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')
+            ->call('submit')->assertHasNoErrors()->assertRedirect(route('2fa'));
+        $this->assertFalse(Cache::has('login-free-try:' . CallerIp::key()));
     }
 
     public function test_by_default_a_failure_from_the_address_brings_the_captcha_back(): void
@@ -41,16 +84,18 @@ class LoginCaptchaModeTest extends TestCase
         $this->storeSettings(['captcha' => 'altcha']);
 
         $login = Livewire::test(Login::class)->set('email', $user->email)->set('password', 'wrong')
-            ->call('submit')->assertHasErrors(['email' => __('auth.failed')])->assertSee('<altcha-widget', false);
+            ->call('submit')->assertHasErrors(['email' => __('auth.failed')]);
+        $this->assertCaptchaShown($login->html());
 
         // The right password now still needs the captcha solved: a guesser never gets a free try after a failure.
         $login->set('password', 'Right-Pass-1')->call('submit')->assertHasErrors('captcha');
         $this->assertGuest();
-        $this->get('/login')->assertSee('<altcha-widget', false);
+        $this->assertCaptchaShown($this->get('/login')->getContent());
 
-        // Its failures forgotten (15 minutes), it goes again.
+        // Its failures and its try forgotten (15 minutes), it goes again.
         RateLimiter::clear('login-ip:' . CallerIp::key());
-        $this->get('/login')->assertDontSee('<altcha-widget', false);
+        Cache::forget('login-free-try:' . CallerIp::key());
+        $this->assertCaptchaHidden($this->get('/login')->getContent());
     }
 
     public function test_always_asks_on_the_first_try(): void
@@ -58,7 +103,7 @@ class LoginCaptchaModeTest extends TestCase
         $user = $this->user();
         $this->storeSettings(['captcha' => 'altcha', 'captcha_login' => 'always']);
 
-        $this->get('/login')->assertSee('<altcha-widget', false);
+        $this->assertCaptchaShown($this->get('/login')->getContent());
         Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')
             ->call('submit')->assertHasErrors('captcha');
         $this->assertGuest();
