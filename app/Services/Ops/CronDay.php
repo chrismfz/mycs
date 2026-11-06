@@ -44,7 +44,8 @@ final class CronDay
         $from = $from->copy()->startOfDay();
         $to = $to->copy()->endOfDay();
         $days = [];
-        $stats = CronStat::query()->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+        // whereDate: the date cast stores «Y-m-d 00:00:00» where the column is not a DATE (SQLite), past a one-day range's end.
+        $stats = CronStat::query()->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
             ->selectRaw('date, `key`, SUM(value) as total')->groupBy('date', 'key')->get();
         foreach ($stats as $stat) {
             $day = Carbon::parse($stat->date)->toDateString();

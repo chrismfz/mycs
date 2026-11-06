@@ -1703,5 +1703,19 @@
     "Last sync failed": "Απέτυχε ο τελευταίος συγχρονισμός",
     "All emails": "Όλα τα emails",
     "Queued": "Σε αναμονή",
-    "An upgrade's lines stay together: move its discount with it, or neither.": "Οι γραμμές μιας αναβάθμισης μένουν μαζί: μετακίνησε την έκπτωση μαζί με τη χρέωσή της, ή καμία από τις δύο."
+    "An upgrade's lines stay together: move its discount with it, or neither.": "Οι γραμμές μιας αναβάθμισης μένουν μαζί: μετακίνησε την έκπτωση μαζί με τη χρέωσή της, ή καμία από τις δύο.",
+    "Something to look at: a day the cron did not run, a card that was not charged or a module action left open.": "Κάτι θέλει ματιά: μέρα που δεν έτρεξε το cron, κάρτα που δεν χρεώθηκε ή ενέργεια module που έμεινε ανοιχτή.",
+    "Cards not charged": "Κάρτες που δεν χρεώθηκαν",
+    "Module actions left open": "Ενέργειες module που έμειναν ανοιχτές",
+    "What the cron suspends and terminates if nothing is paid": "Τι αναστέλλει και τερματίζει το cron αν δεν πληρωθεί τίποτα",
+    "The safety net is on (Settings → Cron): what is due waits until «Enable Suspension» is on again.": "Το δίχτυ είναι ανοιχτό (Settings → Cron): ό,τι λήγει περιμένει μέχρι να ξαναγίνει on το «Enable Suspension».",
+    "Could not be worked out: :error": "Δεν υπολογίστηκε: :error",
+    "Suspend": "Αναστολή",
+    "Terminate": "Τερματισμός",
+    "Cron calendar": "Ημερολόγιο cron",
+    "Change who gets this email, or when": "Αλλαγή παραληπτών ή ώρας αυτού του email",
+    "Cron summary :period": "Σύνοψη cron :period",
+    ":count service due|:count services due": ":count υπηρεσία λήγει|:count υπηρεσίες λήγουν",
+    "Terminations are off (Settings → Cron): what is due to be terminated waits until «Enable Termination» is on again.": "Οι τερματισμοί είναι κλειστοί (Settings → Cron): ό,τι λήγει για τερματισμό περιμένει μέχρι να ξαναγίνει on το «Enable Termination».",
+    "not sent to: inactive or no access": "δεν το λαμβάνει: ανενεργός ή χωρίς πρόσβαση"
 }

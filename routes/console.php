@@ -1,6 +1,7 @@
 <?php
 
 use App\Console\Commands\CronJob;
+use App\Console\Commands\CronSummaryCommand;
 use App\Console\Commands\Domains\ReadBalances;
 use App\Console\Commands\Domains\SyncCosts;
 use App\Console\Commands\Domains\SyncDomains;
@@ -44,6 +45,8 @@ Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 // The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. In the morning,
 // after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
+// The daily summary email (Settings → Automation → Daily Summary Email; off by default): it checks the mode and the day.
+Schedule::command(CronSummaryCommand::class)->description('Emails staff the daily summary of the cron and what it suspends next')->dailyAt(config('settings.cron_summary_time', '10:00'))->withoutOverlapping(30)->onOneServer();
 Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command(SyncDomains::class, ['--scheduled'])->description('Syncs a batch of domains with their registrars (its hours and size in Settings → Domains) and moves them by their dates')->everyTenMinutes()->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncServiceUsage::class)->description('Reads every live service\'s disk and bandwidth usage from its server (cPanel)')->cron('17 */4 * * *')->withoutOverlapping(60)->onOneServer();
