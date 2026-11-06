@@ -55,6 +55,15 @@ use OwenIt\Auditing\Contracts\Auditable;
 #[ObservedBy([InvoiceObserver::class])]
 class Invoice extends Model implements Auditable
 {
+    /**
+     * Its created_at is its date (WHMCS `date`, «Invoice date»): audited, so a date changed here goes back on a return and
+     * a WHMCS invoice dated today is not taken for one the MyCS issued (ADV-690b-S-2/S-3). Not updated_at.
+     */
+    protected $auditTimestamps = true;
+
+    /** @var list<string> */
+    protected $auditExclude = ['updated_at'];
+
     use HasFactory, HasProperties, Traits\Auditable;
 
     /**
