@@ -756,13 +756,14 @@ class ExtensionHelper
      */
     public static function cancelEndedSubscriptions(Service $service): void
     {
+        // One gateway that cannot be loaded (its extension gone) is reported, never stops a move or an end (RV-607-M1).
         foreach (Gateway::all() as $gateway) {
-            if (self::hasFunction($gateway, 'cancelEndedSubscriptions')) {
-                try {
+            try {
+                if (self::hasFunction($gateway, 'cancelEndedSubscriptions')) {
                     self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelEndedSubscriptions($service);
-                } catch (Throwable $e) {
-                    report($e);
                 }
+            } catch (Throwable $e) {
+                report($e);
             }
         }
     }
