@@ -9,6 +9,7 @@ use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\NotificationTemplate;
@@ -2535,6 +2536,11 @@ class ImportFromWhmcs extends Command
                 $this->warn("Refund #{$refund['id']} gives back " . number_format($cents / 100, 2, '.', '') . " of payment #{$payment->id}, more than is left of it: "
                     . number_format(max(0, $take) / 100, 2, '.', '') . ' recorded. Check it by hand.');
             }
+            // The gateway's id of a cash refund (tblaccounts.transid, Stripe's re_...): its late event after the cut-over
+            // (a `refund.updated`) is then a replay, never booked a second time (ADV-A4-2).
+            if (!$credit) {
+                $this->keepGatewayRefund($refund, $payment, $cents, max(0, $take));
+            }
             if ($take <= 0) {
                 continue;
             }
@@ -2547,6 +2553,27 @@ class ImportFromWhmcs extends Command
             $this->warn('Money out on no payment imported, not imported (a chargeback or a refund typed by hand in WHMCS): WHMCS tblaccounts #'
                 . implode(', #', $this->refundsWithoutPayment) . '.');
         }
+    }
+
+    /** @var array<int, array{gateway: string, transid: string}>|null WHMCS refund rows (tblaccounts) and the gateway they went through */
+    private ?array $refundGateways = null;
+
+    /** A WHMCS refund at a gateway MyCS has an extension for, kept by its id there: its late event is a replay (ADV-A4-2). */
+    private function keepGatewayRefund(array $refund, object $payment, int $cents, int $recorded): void
+    {
+        $this->refundGateways ??= collect($this->sourceRows('SELECT id, gateway, transid FROM tblaccounts WHERE amountout > 0') ?? [])
+            ->mapWithKeys(fn (array $row) => [(int) $row['id'] => ['gateway' => (string) ($row['gateway'] ?? ''), 'transid' => trim((string) ($row['transid'] ?? ''))]])->all();
+        $row = $this->refundGateways[(int) $refund['id']] ?? null;
+        $module = strtolower(trim($row['gateway'] ?? ''));
+        $gateway = self::GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+        if ($gateway === null || $row['transid'] === '') {
+            return;
+        }
+        // Once per id (WHMCS may write a refund's id twice): the first is the one recorded.
+        DB::table('gateway_refunds')->insertOrIgnore(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $row['transid'],
+            'payment_reference' => DB::table('invoice_transactions')->where('id', $payment->id)->value('transaction_id'), 'amount' => $cents / 100,
+            'currency_code' => (string) DB::table('invoices')->where('id', $payment->invoice_id)->value('currency_code'), 'recorded_amount' => $recorded / 100,
+            'origin' => GatewayRefund::ORIGIN_IMPORT, 'created_at' => $this->validateDate($refund['date']), 'updated_at' => now()]);
     }
 
     /** @var list<array{transaction_id: int, cents: int, to_credit: bool, from_credit: int, at: ?string}> the refunds imported, for the journal */
