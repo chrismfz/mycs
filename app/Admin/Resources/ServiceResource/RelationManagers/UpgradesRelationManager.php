@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * The service's changes of package, as WHMCS's upgrades list (owner 2026-11-04): when, from what to what, what it renewed
- * at before and after, the invoice that charged it or the credit a downgrade gave, who asked for it. Read only: a change
- * is placed by «Upgrade/Downgrade» or by the customer's upgrade page.
+ * at before and after, the invoice that charged it or the credit a downgrade gave, staff's discount on it, who asked for
+ * it. Read only: a change is placed by «Upgrade/Downgrade» or by the customer's upgrade page.
  */
 class UpgradesRelationManager extends RelationManager
 {
@@ -49,6 +49,12 @@ class UpgradesRelationManager extends RelationManager
                     ->placeholder('—'),
                 TextColumn::make('credit_cents')->label('Credit')
                     ->formatStateUsing(fn ($state) => number_format(((int) $state) / 100, 2, '.', ''))
+                    ->placeholder('—'),
+                // Staff's discount on the difference (owner 2026-11-06): net, its percentage, and «waived» with no invoice.
+                TextColumn::make('discount')->label('Discount (net)')
+                    ->formatStateUsing(fn ($state, ServiceUpgrade $record) => number_format((float) $state, 2, '.', '')
+                        . ($record->discount_percent !== null ? ' (' . rtrim(rtrim((string) $record->discount_percent, '0'), '.') . '%)' : '')
+                        . ($record->invoice_id === null ? ', waived' : ''))
                     ->placeholder('—'),
                 TextColumn::make('status')->badge()
                     ->color(fn (string $state) => match ($state) {

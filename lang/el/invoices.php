@@ -10,6 +10,9 @@ return [
     'no_transactions' => 'Δεν υπάρχουν συναλλαγές',
     'generated_on' => 'Το PDF δημιουργήθηκε στις :date',
     'group_discount_note' => '(−:percent% έκπτωση πελάτη)',
+    // Η έκπτωση του staff στη διαφορά μιας αναβάθμισης, η γραμμή κάτω από αυτήν (υπεύθυνος, 2026-11-06).
+    'upgrade_discount' => 'Έκπτωση στην αναβάθμιση',
+    'upgrade_discount_percent' => 'Έκπτωση στην αναβάθμιση (:percent%)',
     'moved_to_credit' => 'Μεταφέρθηκε στην πίστωση του λογαριασμού',
     'transaction_processing' => 'Σε επεξεργασία',
     'note_statuses' => ['active' => 'Ενεργό', 'voided' => 'Ακυρωμένο'],

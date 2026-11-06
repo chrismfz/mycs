@@ -10,20 +10,29 @@ use App\Models\ServiceConfig;
 use App\Models\ServiceUpgrade;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
 use App\Services\ServiceUpgrade\UpgradeQuote;
+use Brick\Math\BigDecimal;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use MyCS\Pricing\DifferenceDiscount;
+use MyCS\Pricing\DifferenceDiscountRefused;
 
 /**
  * WHMCS's admin «Upgrade/Downgrade» (owner 2026-11-04): another product for the service, its cycle, and before anything is
  * made the days left of the cycle and what is due (UpgradeQuote). An upgrade makes the invoice the customer's page would
  * (applied once paid); a downgrade is applied now at 0.00, its new price from the next renewal (credit only where the
  * settings give it). Both are kept on the service's «Package changes» and mailed to the customer once applied.
+ *
+ * On an upgrade staff may give a discount on the difference (owner 2026-11-06, docs/decisions.md, SVC-14): a percentage,
+ * the amount to charge (with tax, as the summary shows it), or waive it. The summary shows the result before anything is
+ * made; the invoice shows the discount as a line of its own. The renewal price is not touched.
  */
 final class ChangePackage
 {
@@ -48,9 +57,30 @@ final class ChangePackage
                 Placeholder::make('cycle')
                     ->label('Billing cycle')
                     ->content(fn (Get $get, Service $record) => self::cycle($record, $get('product_id'))),
+                ToggleButtons::make('discount_mode')
+                    ->label('Discount on the difference')
+                    ->options([
+                        'none' => 'None',
+                        DifferenceDiscount::PERCENT => 'Percentage',
+                        DifferenceDiscount::AMOUNT => 'Amount to charge',
+                        DifferenceDiscount::WAIVE => 'Waive it',
+                    ])
+                    ->default('none')
+                    ->inline()
+                    ->live()
+                    // Only an upgrade that charges something: a downgrade or nothing due stays as it is.
+                    ->visible(fn (Get $get, Service $record) => self::upgradeDue($record, $get('product_id'))),
+                TextInput::make('discount_value')
+                    ->label(fn (Get $get) => $get('discount_mode') === DifferenceDiscount::PERCENT ? 'Percentage (%)' : 'Amount to charge (with tax)')
+                    ->helperText(fn (Get $get) => $get('discount_mode') === DifferenceDiscount::PERCENT
+                        ? 'Of the difference, up to 100.' : 'What the customer pays now, tax included; 0 waives it.')
+                    ->required()
+                    ->live(debounce: 500)
+                    ->visible(fn (Get $get, Service $record) => in_array($get('discount_mode'), [DifferenceDiscount::PERCENT, DifferenceDiscount::AMOUNT], true)
+                        && self::upgradeDue($record, $get('product_id'))),
                 Placeholder::make('summary')
                     ->label('Upgrade summary')
-                    ->content(fn (Get $get, Service $record) => self::summary($record, $get('product_id'))),
+                    ->content(fn (Get $get, Service $record) => self::summary($record, $get('product_id'), $get('discount_mode'), $get('discount_value'))),
             ])
             ->modalSubmitActionLabel('Create order')
             ->action(function (array $data, Service $record, Action $action, $livewire): void {
@@ -61,14 +91,16 @@ final class ChangePackage
 
                     return;
                 }
+                [$mode, $value] = self::discountOf($data['discount_mode'] ?? null, $data['discount_value'] ?? null);
                 $placed = PlaceUpgrade::handle($record, $product, PlaceUpgrade::defaultChoices($record, $product), ServiceUpgrade::SOURCE_STAFF,
-                    Auth::guard('staff')->id());
+                    Auth::guard('staff')->id(), $mode, $value);
                 $why = match ($placed->outcome) {
                     PlaceUpgrade::NOT_UPGRADABLE => 'Another change of this service is waiting for payment.',
                     PlaceUpgrade::INVALID => 'The new product has no plan for this billing cycle in this currency.',
                     PlaceUpgrade::UNCHANGED => 'It already has this product.',
                     PlaceUpgrade::NEEDS_STAFF => 'The catalog has no price for it in the service\'s currency: change it by hand.',
                     PlaceUpgrade::NOT_NOW => 'The service no longer runs.',
+                    PlaceUpgrade::DISCOUNT_REFUSED => self::refusalText($placed->refusal),
                     default => null,
                 };
                 if ($why !== null) {
@@ -95,7 +127,8 @@ final class ChangePackage
                 }
                 $credit = $placed->creditCents > 0 ? ' ' . number_format($placed->creditCents / 100, 2, '.', '') . " {$record->currency_code} credited." : '';
                 Notification::make()->success()->title('Package changed')
-                    ->body(($placed->downgrade ? 'Nothing charged now; the new price applies from the next renewal.' : 'Nothing to pay now.') . $credit)
+                    ->body(($placed->downgrade ? 'Nothing charged now; the new price applies from the next renewal.'
+                        : ($placed->discount !== null ? 'The difference was waived: nothing charged, applied now.' : 'Nothing to pay now.')) . $credit)
                     ->send();
             });
     }
@@ -163,12 +196,16 @@ final class ChangePackage
         return $plan->name . ($price ? " ({$price})" : '') . ' — the cycle stays; «Change billing cycle» changes it.';
     }
 
-    /** As WHMCS's «Days Left on Current Cycle: 16 / 31, Upgrade Total Due: €40.21 EUR». */
-    private static function summary(Service $service, mixed $productId): HtmlString|string
+    /**
+     * The upgrade as it would be placed (not saved), with the options it sets, or null without a product.
+     *
+     * @return array{ServiceUpgrade, array<int, int>, Product}|null
+     */
+    private static function draft(Service $service, mixed $productId): ?array
     {
         $product = $productId ? self::targets($service)->firstWhere('id', (int) $productId) : null;
         if ($product === null) {
-            return 'Choose a product.';
+            return null;
         }
         $upgrade = new ServiceUpgrade(['service_id' => $service->id, 'product_id' => $product->id,
             'plan_id' => PlaceUpgrade::targetPlan($service, $product)?->id]);
@@ -178,6 +215,53 @@ final class ChangePackage
         $upgrade->setRelation('configs', collect($choices)->map(fn ($value, $option) => new ServiceConfig([
             'config_option_id' => $option, 'config_value_id' => $value,
         ]))->values());
+
+        return [$upgrade, $choices, $product];
+    }
+
+    /** The chosen product is an upgrade that charges something now: the discount is offered. */
+    private static function upgradeDue(Service $service, mixed $productId): bool
+    {
+        $draft = self::draft($service, $productId);
+        if ($draft === null || $draft[0]->needsStaff()) {
+            return false;
+        }
+
+        return (float) $draft[0]->calculatePrice()->price > 0;
+    }
+
+    /**
+     * The discount as the form gives it: [mode, value], or [null, ''] for none. A comma is a decimal point (Greek
+     * keyboards); anything else not a number DifferenceDiscount refuses.
+     *
+     * @return array{?string, string}
+     */
+    private static function discountOf(mixed $mode, mixed $value): array
+    {
+        if (!in_array($mode, [DifferenceDiscount::PERCENT, DifferenceDiscount::AMOUNT, DifferenceDiscount::WAIVE], true)) {
+            return [null, ''];
+        }
+
+        return [$mode, str_replace(',', '.', trim((string) $value))];
+    }
+
+    private static function refusalText(?string $reason): string
+    {
+        return match ($reason) {
+            DifferenceDiscount::REFUSED_TOO_LARGE => 'The discount is more than the difference: at most 100%, or an amount to charge from 0 up to the difference.',
+            DifferenceDiscount::REFUSED_NOTHING_DUE => 'Nothing is charged for this change: there is no difference to discount.',
+            default => 'The discount must be a number of at most two decimals, 0 or more.',
+        };
+    }
+
+    /** As WHMCS's «Days Left on Current Cycle: 16 / 31, Upgrade Total Due: €40.21 EUR», with staff's discount. */
+    private static function summary(Service $service, mixed $productId, mixed $discountMode = null, mixed $discountValue = null): HtmlString|string
+    {
+        $draft = self::draft($service, $productId);
+        if ($draft === null) {
+            return 'Choose a product.';
+        }
+        [$upgrade, $choices, $product] = $draft;
         if ($upgrade->needsStaff()) {
             return 'The catalog has no price for it in the service\'s currency: change it by hand.';
         }
@@ -199,7 +283,7 @@ final class ChangePackage
                 : 'No credit; the new price applies from the next renewal'
                     . ($service->expires_at ? ' on ' . $service->expires_at->format('d/m/Y') : '') . '.';
         } elseif ((float) $quote->dueNow > 0) {
-            $lines[] = "Upgrade total due: {$quote->dueNow} {$currency} (with tax; an invoice, applied once paid)";
+            array_push($lines, ...self::discountLines($upgrade, $quote, $currency, $discountMode, $discountValue));
         } else {
             // Nothing to charge (its period ended, or the same price): applied at once, as PlaceUpgrade does (CR-3 of #638).
             $lines[] = "Total due: 0.00 {$currency}; applied at once, the new price from the next renewal";
@@ -207,5 +291,41 @@ final class ChangePackage
         $lines[] = "Renews at: {$quote->renewsAfter} {$currency} per period with tax (now {$quote->renewsNow})";
 
         return new HtmlString(implode('<br>', array_map('e', $lines)));
+    }
+
+    /**
+     * What an upgrade charges now, with staff's discount when one is chosen: the full difference, the discount, and what
+     * is due (as PlaceUpgrade prices it: UpgradeQuote::discount).
+     *
+     * @return list<string>
+     */
+    private static function discountLines(ServiceUpgrade $upgrade, UpgradeQuote $quote, string $currency, mixed $mode, mixed $value): array
+    {
+        [$mode, $value] = self::discountOf($mode, $value);
+        $full = "Upgrade total due: {$quote->dueNow} {$currency} (with tax; an invoice, applied once paid)";
+        if ($mode === null || ($mode !== DifferenceDiscount::WAIVE && $value === '')) {
+            return [$full];
+        }
+        try {
+            $discount = UpgradeQuote::discount($upgrade, $mode, $value);
+        } catch (DifferenceDiscountRefused $e) {
+            return [$full, 'Discount: ' . self::refusalText($e->reason)];
+        }
+        if ($discount->none()) {
+            return [$full, 'Discount: none'];
+        }
+        $lines = ["Upgrade difference: {$discount->fullTotal} {$currency} (with tax)",
+            "Discount: −{$discount->discountTotal} {$currency}" . ($discount->percent !== null ? " ({$discount->percent}%)" : '')];
+        if ($discount->waived()) {
+            $lines[] = "Due now: 0.00 {$currency}; no invoice, applied at once, the new price from the next renewal";
+
+            return $lines;
+        }
+        $lines[] = "Due now: {$discount->dueTotal} {$currency} (with tax; an invoice, applied once paid)";
+        if ($mode === DifferenceDiscount::AMOUNT && !BigDecimal::of($value)->isEqualTo($discount->dueTotal)) {
+            $lines[] = "{$value} {$currency} cannot be reached exactly (each invoice line rounds its own tax): the cent under it.";
+        }
+
+        return $lines;
     }
 }

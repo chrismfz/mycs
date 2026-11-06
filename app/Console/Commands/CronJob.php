@@ -1196,6 +1196,11 @@ class CronJob extends Command
         if ($invoice === null || $service->plan === null) {
             return 0;
         }
+        // Staff priced it by hand (a discount on the difference, owner 2026-11-06): its invoice keeps what they agreed,
+        // as an invoice staff edit; a repriced line under a fixed discount would charge what nobody chose.
+        if ($upgrade->discount !== null) {
+            return 0;
+        }
 
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
         // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
