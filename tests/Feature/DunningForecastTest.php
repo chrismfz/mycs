@@ -17,6 +17,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -164,7 +165,7 @@ class DunningForecastTest extends TestCase
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => ['*']])->id]);
         $clientId = User::factory()->create()->client()->id;
         $invoice = Invoice::factory()->create(['client_id' => $clientId]);
-        ChargeAttempt::query()->forceCreate(['key' => 'k' . uniqid(), 'invoice_id' => $invoice->id, 'client_id' => $clientId, 'amount' => '5.00',
+        ChargeAttempt::query()->forceCreate(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $clientId, 'amount' => '5.00',
             'currency_code' => 'EUR', 'source' => ChargeAttempt::SOURCE_CLIENT, 'status' => ChargeAttempt::STATUS_FAILED, 'started_at' => now()->subDay(), 'created_at' => now()->subDay()]);
 
         $this->livewireAs($staff)->test(CronToday::class)->assertSee('the cron did not run');
