@@ -4,6 +4,7 @@ namespace App\Services\Clients;
 
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ClientNote;
 use App\Models\Contact;
@@ -84,9 +85,14 @@ final class MoveToClient
             $plan = $this->plan($refs, $service);
             $service->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
             // A late payment of the first client's ended subscription is never the new client's (code review of #605).
+            // One that ended there but may bill again (unpaid, paused: ADV-607-1) is cancelled first, while its id is
+            // still kept: forgotten, nothing would cancel it, and revived it would charge the first client's card for a
+            // service that is no longer theirs (RV-607-M1).
+            ExtensionHelper::cancelEndedSubscriptions($service);
             SubscriptionEnded::forget($service);
             foreach ($addons as $addon) {
                 $addon->forceFill(['client_id' => $to->id, 'contact_id' => null])->save();
+                ExtensionHelper::cancelEndedSubscriptions($addon);
                 SubscriptionEnded::forget($addon);
             }
             foreach ($all->filter(fn (Service $addon) => $addon->isEnded()) as $ended) {
