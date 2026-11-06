@@ -112,6 +112,40 @@ credentials. Το import της ημέρας τα φέρνει όλα:
     `lastDailyCronInvocationTime` είναι μεταγενέστερη από του `lastDailyCronEndTime`, το cron είχε ξεκινήσει και δεν είχε
     τελειώσει. Τότε το dump ξαναπαίρνεται, αλλιώς οι υπενθυμίσεις εκείνου του πρωινού φεύγουν ξανά.
 
+## 1β. Χάρτης 301 (οι διευθύνσεις του WHMCS που φέρνουν κίνηση)
+Το MyCS απαντά ήδη (`LegacyWhmcsController`, 301) σε κάθε διεύθυνση του WHMCS, με `/clients` μπροστά (myip) και χωρίς
+(nixpal): store και προϊόντα (και τα παλιά slugs, `whmcs_product_slugs` από το `tblproducts_slugs`), `cart.php` (pid, gid,
+domain register/transfer), `clientarea.php` (ανά action, με τα ids του WHMCS που κρατιούνται), `viewinvoice.php`,
+`viewticket.php` (με τον αριθμό), `submitticket.php`, login/register/pwreset, ανακοινώσεις, `index.php?rp=…`, το
+knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πάει στην αρχική, ποτέ σε 404. Μόνο σε δικές μας διευθύνσεις.
+- **myip.gr** (το site, nginx του DirectAdmin, `*.cust_nginx`, όχι στο repo): όλο το `/clients/` στο MyCS, εκτός από τα
+  callbacks των gateways (POST: ένα 301 τα σπάει), που περνούν όπως ήρθαν:
+  ```nginx
+  location ^~ /clients/modules/gateways/callback/ {
+      proxy_pass https://<το MyCS>;
+      proxy_set_header Host <το MyCS>;
+      proxy_set_header X-Forwarded-For $remote_addr;   # ο πραγματικός αποστολέας: το throttle του IPN ανά IP
+      proxy_ssl_server_name on;
+      proxy_ssl_name <το MyCS>;
+      proxy_ssl_verify on;
+      proxy_ssl_trusted_certificate /etc/pki/tls/certs/ca-bundle.crt;
+  }
+  location ^~ /clients/ { return 301 https://<το MyCS>$request_uri; }
+  location = /clients { return 301 https://<το MyCS>/clients/; }
+  ```
+  - Στο MyCS: Settings → «Trusted Proxies» = **μόνο** η IP του myip.gr (ποτέ `*`), ώστε το `X-Forwarded-For` να μετρά
+    μόνο από αυτόν. Αλλιώς όλα τα IPN μοιράζονται ένα όριο (30 πλαστά/λεπτό), και ένα flood καθυστερεί τα γνήσια
+    (review του #676).
+  - Το MyCS δέχεται το IPN του PayPal και κάτω από το `/clients/` (`routes/legacy.php`). Τα άλλα callbacks εκεί (Stripe
+    `stripe.php`, Eurobank, ppcpv) παίρνουν 405: αναμενόμενο, αφού κλείνουν στο §2.
+  - Ένα POST στο `/clients/` από φόρμα του site γίνεται GET χωρίς σώμα και καταλήγει στη σελίδα του (login, αναζήτηση). Έλεγχος μετά: ένα άρθρο του
+  knowledgebase, ένα `/clients/store/cpanel-hosting/business10`, ένα `cart.php?a=add&pid=` από τον Google Search Console,
+  όλα σε 301 και όχι 404. Και το site: `PUBLIC_DOMAIN_ADD_URL` (WG-20) και τα `/clients/store/…` του `links.ts`, που μετά
+  περνούν από το 301 (καλύτερα να δείχνουν κατευθείαν στο MyCS με το επόμενο deploy).
+- **nixpal:** το `clients.nixpal.com` είναι το ίδιο το MyCS, άρα οι διευθύνσεις φτάνουν κατευθείαν. Στον orion (cPanel,
+  Apache) το `.htaccess` του Laravel στέλνει στο `index.php` ό,τι `.php` δεν υπάρχει ως αρχείο: να ελεγχθεί ένα
+  `cart.php?a=add&pid=` μετά το deploy.
+
 ## 2. Τι κλείνει στο WHMCS την ίδια ώρα
 Αλλιώς διπλές ανανεώσεις, διπλές καταγραφές πληρωμών ή αντιφατικά suspend.
 - **Το cron του WHMCS.**

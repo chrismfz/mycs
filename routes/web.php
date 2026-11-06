@@ -6,12 +6,14 @@ use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\KnowledgebaseRedirectController;
 use App\Http\Controllers\LeaveImpersonationController;
+use App\Http\Controllers\LegacyWhmcsController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\ServiceConsoleController;
 use App\Http\Controllers\ServicePanelLoginController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\SslFileController;
 use App\Http\Controllers\TicketAttachmentController;
+use App\Http\Middleware\LegacyWhmcsRp;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\MustVerfiyEmail;
 use App\Http\Middleware\PrivateLinkHeaders;
@@ -38,7 +40,7 @@ use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', Home::class)->name('home');
+Route::get('/', Home::class)->name('home')->middleware(LegacyWhmcsRp::class);
 // The shop's domains (D8a): search, whois and price list, public.
 Route::get('/domain-search', DomainShop\Search::class)->name('domain.search');
 Route::get('/domain-transfer', DomainShop\Transfer::class)->name('domain.transfer');
@@ -64,6 +66,14 @@ Route::get('/knowledgebase/{id}', [KnowledgebaseRedirectController::class, 'id']
 Route::get('/knowledgebase.php', [KnowledgebaseRedirectController::class, 'script']);
 Route::get('/clients/knowledgebase.php', [KnowledgebaseRedirectController::class, 'script']);
 Route::get('/clients/knowledgebase/{path?}', [KnowledgebaseRedirectController::class, 'clients'])->where('path', '.*');
+// The cut-over's 301 map (LegacyWhmcsController): every other WHMCS address, under /clients (myip.gr sends /clients/* here)
+// and at the root (nixpal's clients.nixpal.com). After the knowledgebase's own above.
+Route::get('/clients/{path?}', [LegacyWhmcsController::class, 'clients'])->where('path', '.*')->middleware('throttle:legacy-whmcs');
+foreach (['cart.php', 'clientarea.php', 'viewinvoice.php', 'submitticket.php', 'supporttickets.php', 'viewticket.php', 'login.php', 'dologin.php',
+    'register.php', 'pwreset.php', 'domainchecker.php', 'domainpricing.php', 'contact.php', 'serverstatus.php', 'dl.php', 'affiliates.php',
+    'announcements.php', 'downloads.php', 'upgrade.php', 'index.php', 'store', 'store/{group}', 'store/{group}/{product}', 'announcements/{id}/{slug}'] as $legacy) {
+    Route::get($legacy, [LegacyWhmcsController::class, 'bare'])->whereNumber('id')->middleware('throttle:legacy-whmcs');
+}
 
 // Our captcha's challenges (docs/captcha.md): while it is the chosen captcha, or none is (the contact form uses ours
 // then); a few a minute per address.

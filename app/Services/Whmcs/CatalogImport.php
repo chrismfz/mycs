@@ -152,6 +152,7 @@ final class CatalogImport
             $this->serverGroups();
             $this->configOptions();
             $this->products();
+            $this->productSlugs();
             $this->tlds($connection !== null ? [$connection->registrar => $connection] : []);
             $dryRun ? DB::rollBack() : DB::commit();
         } catch (Throwable $e) {
@@ -217,8 +218,33 @@ final class CatalogImport
         $this->categories();
         $this->configOptions();
         $this->products();
+        $this->productSlugs();
 
         return ['counts' => $this->counts, 'notes' => $this->notes];
+    }
+
+    /**
+     * WHMCS's store addresses of each product, the old ones too (tblproducts_slugs), for the cut-over's 301 map
+     * (LegacyWhmcsController). A WHMCS without the table (older than 8): none; a product not here: left out.
+     */
+    private function productSlugs(): void
+    {
+        try {
+            $rows = $this->rows('SELECT group_slug, slug, product_id FROM tblproducts_slugs ORDER BY id');
+        } catch (PDOException) {
+            return;
+        }
+        foreach ($rows as $row) {
+            $group = mb_substr(strtolower(trim((string) $row['group_slug'])), 0, 255);
+            $slug = mb_substr(strtolower(trim((string) $row['slug'])), 0, 255);
+            $product = Product::query()->where('whmcs_id', (int) $row['product_id'])->value('id');
+            if ($group === '' || $slug === '' || $product === null) {
+                continue;
+            }
+            DB::table('whmcs_product_slugs')->updateOrInsert(['group_slug' => $group, 'slug' => $slug],
+                ['product_id' => $product, 'updated_at' => now(), 'created_at' => now()]);
+            $this->counts['product_slugs'] = ($this->counts['product_slugs'] ?? 0) + 1;
+        }
     }
 
     /**

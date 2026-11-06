@@ -149,7 +149,7 @@ adversarial review.
 **WG-34** δεν γίνεται, δικό μας chat στο MyCS (ιδιοκτήτης 2026-11-06).
 
 ### Cut-over (myip, και ό,τι ισχύει για τη nixpal)
-- [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301
+- [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** (στο MyCS **έγινε**, feat/whmcs-301-map, `cutover-runbook.md` §1β· μένει ο κανόνας του myip.gr τη μέρα) από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301
       υπάρχουν στο MyCS (`knowledgebase.md`), μένει το rewrite του `/clients/knowledgebase` του myip.gr προς το
       MyCS· `/clients/store/...` (~640/μήνα) στα προϊόντα του MyCS, `/clients/announcements`. Αλλιώς χάνεται η κίνηση.
 - [ ] Freeze, import, DNS/rewrites, προώθηση του IPN του PayPal (το endpoint υπάρχει, `routes/legacy.php`), dump του
