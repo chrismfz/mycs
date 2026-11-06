@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -167,6 +168,11 @@ class UpgradeLifecycleTest extends TestCase
 
         $this->assertSame('10.00', number_format((float) $line->fresh()->price, 2, '.', ''), 'a payment on it: the line keeps its price');
         $this->assertSame(ServiceUpgrade::STATUS_COMPLETED, $upgrade->fresh()->status);
+        // ADV-A2-2: the period's difference at the new amount is billed on an invoice of its own.
+        $apart = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
+            ->where('invoice_id', '!=', $upgrade->invoice_id)->sole();
+        $this->assertSame('10.00', number_format((float) $apart->price, 2, '.', ''));
+        $this->assertSame(Invoice::STATUS_UNPAID, $apart->invoice->status);
     }
 
     public function test_a_new_recurring_amount_reprices_an_open_line_with_nothing_paid(): void

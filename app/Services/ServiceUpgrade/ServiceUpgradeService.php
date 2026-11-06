@@ -15,6 +15,7 @@ use App\Services\Money\PaymentsLog;
 use App\Services\Service\OptionTasks;
 use App\Support\AfterCommit;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -75,6 +76,7 @@ class ServiceUpgradeService
             $newPrice = $serviceUpgrade->newRecurringPrice();
             $fromCatalog = $serviceUpgrade->repricesFromCatalog();
             $shortfall = $this->shortfall($serviceUpgrade);
+            $partPaid = $this->partPaidPeriods($service);
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
             $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
@@ -168,6 +170,7 @@ class ServiceUpgradeService
             if ($shortfall !== null) {
                 $this->billShortfall($serviceUpgrade, $service, $shortfall);
             }
+            $this->billPartPaidPeriods($serviceUpgrade, $service, $partPaid);
 
             // Its customer told, once it is committed (an upgrade, a downgrade or options; WHMCS confirms one).
             $id = (int) $service->id;
@@ -207,6 +210,72 @@ class ServiceUpgradeService
         $owed = BigDecimal::of(number_format((float) $upgrade->calculatePrice()->price, 2, '.', ''))->minus($invoiced);
 
         return $owed->isGreaterThan(0) ? (string) $owed->toScale(2) : null;
+    }
+
+    /**
+     * The open renewal lines of the service on an invoice with a payment on it (credit auto-apply part paid it, say),
+     * each with the price of its period before the upgrade (ADV-A2-2): ChangeOpenLine keeps such a line (R9), so the
+     * difference is billed apart once the service has its new price (billPartPaidPeriods).
+     *
+     * @return list<array{line: InvoiceItem, before: string}>
+     */
+    private function partPaidPeriods(Service $service): array
+    {
+        $periods = [];
+        foreach ($service->livePeriodLines() as $line) {
+            if (in_array($line->invoice?->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && $line->invoice->hasPayments()) {
+                $periods[] = ['line' => $line, 'before' => $service->priceForPeriod($line->period_start, $line->period_end)];
+            }
+        }
+
+        return $periods;
+    }
+
+    /**
+     * The difference the upgrade makes to a period whose line kept its price (ADV-A2-2), on an invoice of its own as
+     * billShortfall does: what this upgrade adds (new price of the period less its price before), so a second upgrade
+     * bills only its own part. A line repriced after all (its payment gone meanwhile), or one paid, bills nothing; a
+     * downgrade's period stays as it is (R9: staff decide).
+     *
+     * @param  list<array{line: InvoiceItem, before: string}>  $periods
+     */
+    private function billPartPaidPeriods(ServiceUpgrade $upgrade, Service $service, array $periods): void
+    {
+        $lines = [];
+        foreach ($periods as ['line' => $line, 'before' => $before]) {
+            $kept = InvoiceItem::query()->with('invoice')->find($line->id);
+            if ($kept === null || $kept->invoice === null || !in_array($kept->invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)
+                || !$kept->invoice->hasPayments() || (string) $kept->price !== (string) $line->price) {
+                continue;
+            }
+            $difference = BigDecimal::of($service->priceForPeriod($kept->period_start, $kept->period_end))->minus(BigDecimal::of($before))
+                ->multipliedBy(max(1, (int) $kept->quantity))->toScale(2, RoundingMode::HalfUp);
+            if ($difference->isGreaterThan(0)) {
+                $lines[] = ['line' => $kept, 'amount' => (string) $difference];
+            }
+        }
+        if ($lines === []) {
+            return;
+        }
+        $invoice = Invoice::query()->create([
+            'currency_code' => $service->currency_code,
+            'status' => Invoice::STATUS_UNPAID,
+            'due_at' => Carbon::now()->addDays(7),
+            'client_id' => $service->client_id,
+        ]);
+        foreach ($lines as ['line' => $line, 'amount' => $amount]) {
+            $invoice->items()->create([
+                'description' => 'Upgrade ' . $service->product->name . ': the difference for ' . $line->period_start->format('d/m/Y')
+                    . ' - ' . $line->period_end->format('d/m/Y') . ', billed before the upgrade',
+                'price' => $amount,
+                'quantity' => 1,
+                'reference_id' => $upgrade->id,
+                'reference_type' => ServiceUpgrade::class,
+            ]);
+            PaymentsLog::warning('Upgrade of a service whose open renewal has a payment on it: billed the difference apart.',
+                ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $invoice->id,
+                    'renewal_invoice_id' => $line->invoice_id, 'amount' => $amount]);
+        }
     }
 
     /** The rest of an upgrade on an invoice of its own, as the upgrade's (`Livewire\Services\Upgrade`). */
