@@ -62,7 +62,8 @@ class ProcessPaidInvoiceService
                         return;
                     }
                     (new RenewServiceService)->handle($service, $item);
-                } elseif ($item->reference_type == ServiceUpgrade::class) {
+                } elseif ($item->reference_type == ServiceUpgrade::class && $item->kind !== InvoiceItem::KIND_DISCOUNT) {
+                    // (A discount line under it applies nothing of its own.)
                     // ServiceUpgradeService locks the service and the upgrade and reads it again: the cron may apply the
                     // same invoice again (BIL-9); an upgrade is done once, and never on a service that no longer runs.
                     $serviceUpgrade = ServiceUpgrade::query()->find($item->reference_id);

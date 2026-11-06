@@ -53,6 +53,7 @@ use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
 use App\Support\DunningWindow;
 use App\Support\Retention;
+use Brick\Math\BigDecimal;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,6 +61,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use MyCS\Pricing\DifferenceDiscount;
 use Throwable;
 
 class CronJob extends Command
@@ -1196,17 +1198,30 @@ class CronJob extends Command
         if ($invoice === null || $service->plan === null) {
             return 0;
         }
-
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
         // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
         // Never below zero: a downgrade's difference is credit at order time (Livewire Upgrade), not a negative line
         // that leaves the invoice owing the customer (adversarial review of 2b, S6).
         $price = max(0, $upgrade->calculatePrice()->price);
         $changed = 0;
-        $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get()
-            ->each(function (InvoiceItem $line) use ($price, &$changed) {
-                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
-            });
+        $lines = $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->orderBy('id')->get();
+        [$discounts, $charges] = $lines->partition(fn (InvoiceItem $line) => $line->kind === InvoiceItem::KIND_DISCOUNT);
+        $charges->each(function (InvoiceItem $line) use ($price, &$changed) {
+            $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
+        });
+        // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge, worked out from what it was
+        // given on (no drift from a day's rounding): the same percentage, or the share an amount was (ADV-685-2: frozen, a
+        // discount came to cost more than none). Never more than given: the days a renewal paid meanwhile adds are billed
+        // without it (as ServiceUpgradeService::shortfall), whether the cron runs before the payment or not. Under the
+        // invoice's lock ChangeOpenLine took for the charge (this transaction): both change, or neither.
+        if ($upgrade->discount !== null && $upgrade->discount_base !== null) {
+            $net = (string) BigDecimal::min(BigDecimal::of(DifferenceDiscount::follow((string) $upgrade->discount_base,
+                (string) $upgrade->discount, number_format($price, 2, '.', ''),
+                $upgrade->discount_percent === null ? null : (string) $upgrade->discount_percent)), BigDecimal::of((string) $upgrade->discount));
+            foreach ($discounts as $line) {
+                $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = '-' . $net) ? 1 : 0;
+            }
+        }
 
         return $changed > 0 ? 1 : 0;
     }

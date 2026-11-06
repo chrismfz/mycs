@@ -2,7 +2,9 @@
 
 namespace App\Services\ServiceUpgrade;
 
+use App\Helpers\NotificationHelper;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
@@ -12,6 +14,10 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
+use LogicException;
+use MyCS\Pricing\DifferenceDiscount;
+use MyCS\Pricing\DifferenceDiscountRefused;
 use Throwable;
 
 /**
@@ -22,6 +28,10 @@ use Throwable;
  *   credit for the days left only with «Credit on downgrade» and credits on.
  *
  * Under the service's lock: a second change while one is pending is refused.
+ *
+ * Staff may give a discount on an upgrade's difference (owner 2026-11-06, docs/decisions.md, SVC-14): a percentage, an
+ * amount to pay (with tax), or all of it. Its invoice has the upgrade's line at the full difference and a negative
+ * discount line under it; waived, there is no invoice and it is applied at once. The renewal price is not touched.
  */
 final class PlaceUpgrade
 {
@@ -46,6 +56,9 @@ final class PlaceUpgrade
     /** An invoice made; applied when it is paid. */
     public const INVOICED = 'invoiced';
 
+    /** Staff's discount not given: `refusal` is a DifferenceDiscount::REFUSED_* (nothing_due: a downgrade, nothing to pay). */
+    public const DISCOUNT_REFUSED = 'discount_refused';
+
     private function __construct(
         public readonly string $outcome,
         public readonly ?ServiceUpgrade $upgrade = null,
@@ -54,6 +67,10 @@ final class PlaceUpgrade
         public readonly int $creditCents = 0,
         /** It lowered the recurring amount (calculatePrice below zero). */
         public readonly bool $downgrade = false,
+        /** Staff's discount, as given (null: none). */
+        public readonly ?DifferenceDiscount $discount = null,
+        /** Why the discount was refused (DISCOUNT_REFUSED). */
+        public readonly ?string $refusal = null,
     ) {}
 
     /**
@@ -109,15 +126,20 @@ final class PlaceUpgrade
 
     /**
      * Place the change of $service to $product with the option values it sets ($chosen: option id => value id, of the
-     * product's upgradable options).
+     * product's upgradable options). $discountMode (staff only): a DifferenceDiscount mode, with its $discountValue.
      *
      * @param  array<int, int>  $chosen
      */
-    public static function handle(Service $service, Product $product, array $chosen, string $source, ?int $staffId = null): self
+    public static function handle(Service $service, Product $product, array $chosen, string $source, ?int $staffId = null,
+        ?string $discountMode = null, string $discountValue = ''): self
     {
+        // The customer's page never gives itself a discount.
+        if ($discountMode !== null && $source !== ServiceUpgrade::SOURCE_STAFF) {
+            throw new InvalidArgumentException('Only staff give a discount on an upgrade.');
+        }
         DB::beginTransaction();
         try {
-            $result = self::place($service, $product, $chosen, $source, $staffId);
+            $result = self::place($service, $product, $chosen, $source, $staffId, $discountMode, $discountValue);
             if (in_array($result->outcome, [self::APPLIED, self::INVOICED], true)) {
                 DB::commit();
             } else {
@@ -133,7 +155,8 @@ final class PlaceUpgrade
     }
 
     /** @param  array<int, int>  $chosen */
-    private static function place(Service $service, Product $product, array $chosen, string $source, ?int $staffId): self
+    private static function place(Service $service, Product $product, array $chosen, string $source, ?int $staffId,
+        ?string $discountMode, string $discountValue): self
     {
         $service = Service::where('id', $service->id)->lockForUpdate()->first();
 
@@ -180,9 +203,28 @@ final class PlaceUpgrade
 
         $price = $upgrade->calculatePrice();
 
-        if ($price->price <= 0) {
+        // Staff's discount, priced now under the lock (the difference shrinks by the day): only on an upgrade, never more
+        // than it. One that takes nothing off is no discount.
+        $discount = null;
+        if ($discountMode !== null) {
+            try {
+                $discount = UpgradeQuote::discount($upgrade, $discountMode, $discountValue);
+            } catch (DifferenceDiscountRefused $e) {
+                return new self(self::DISCOUNT_REFUSED, refusal: $e->reason);
+            }
+            if ($discount->none()) {
+                $discount = null;
+            } else {
+                $upgrade->forceFill(['discount' => $discount->discountNet, 'discount_percent' => $discount->percent,
+                    'discount_base' => $discount->fullNet])->save();
+            }
+        }
+
+        // Nothing to charge: a downgrade, the same price, or an upgrade staff waived (no credit for that one: it gives
+        // nothing back, it only charges nothing).
+        if ($price->price <= 0 || $discount?->waived()) {
             // The credit as priced, before the service changes (UpgradeQuote::credit, what the page showed).
-            $credit = UpgradeQuote::credit($upgrade, CarbonImmutable::now());
+            $credit = $discount !== null ? '0.00' : UpgradeQuote::credit($upgrade, CarbonImmutable::now());
             $until = $service->expires_at;
             // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
             if (!(new ServiceUpgradeService)->handle($upgrade)) {
@@ -199,7 +241,7 @@ final class PlaceUpgrade
                 $upgrade->forceFill(['credit_cents' => $cents, 'credit_until' => $until])->save();
             }
 
-            return new self(self::APPLIED, $upgrade, creditCents: $cents, downgrade: $price->price < 0);
+            return new self(self::APPLIED, $upgrade, creditCents: $cents, downgrade: $price->price < 0, discount: $discount);
         }
 
         $invoice = new Invoice([
@@ -220,7 +262,26 @@ final class PlaceUpgrade
             'reference_id' => $upgrade->id,
             'reference_type' => ServiceUpgrade::class,
         ]);
+        if ($discount !== null) {
+            // Under it, in the customer's language (as their PDF): the same reference, so its tax is the upgrade's line's
+            // (LineTax) and it goes wherever that line goes.
+            $invoice->items()->create([
+                'description' => $discount->percent === null
+                    ? __('invoices.upgrade_discount', [], NotificationHelper::localeFor($service->client))
+                    : __('invoices.upgrade_discount_percent', ['percent' => $discount->percent], NotificationHelper::localeFor($service->client)),
+                'price' => '-' . $discount->discountNet,
+                'quantity' => 1,
+                'kind' => InvoiceItem::KIND_DISCOUNT,
+                'reference_id' => $upgrade->id,
+                'reference_type' => ServiceUpgrade::class,
+            ]);
+            // The invoice charges what staff were shown, to the cent, or nothing is made.
+            $total = (int) $invoice->items()->get()->sum(fn (InvoiceItem $line) => $line->totalCents());
+            if ($total !== RecordPaymentService::toCents($discount->dueTotal)) {
+                throw new LogicException("Upgrade #{$upgrade->id}: its invoice totals {$total} cents, the discount priced {$discount->dueTotal}.");
+            }
+        }
 
-        return new self(self::INVOICED, $upgrade, $invoice);
+        return new self(self::INVOICED, $upgrade, $invoice, discount: $discount);
     }
 }
