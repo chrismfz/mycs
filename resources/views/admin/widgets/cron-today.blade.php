@@ -7,7 +7,7 @@
             <li class="flex justify-between gap-3 py-1.5">
                 <a href="{{ $yesterdayUrl }}" class="font-medium hover:underline">{{ __('Yesterday') }}</a>
                 <span class="text-end">
-                    @if ($yesterday === null)
+                    @if ($yesterday === null || !$yesterday['ran'])
                     <span style="color:var(--danger-600)">{{ __('the cron did not run') }}</span>
                     @else
                     {{ trans_choice(':count invoice|:count invoices', $yesterday['invoices']) }} · {{ __(':ok/:declined cards', ['ok' => $yesterday['charged'], 'declined' => $yesterday['declined']]) }}

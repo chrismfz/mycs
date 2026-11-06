@@ -66,7 +66,8 @@ class CronCalendar extends Widget
             $forecast = DunningForecast::upcoming($today);
         } catch (Throwable $e) {
             report($e);
-            $forecast = ['now' => ['suspend' => [], 'terminate' => []], 'days' => [], 'suspend_on' => true, 'terminate_on' => true];
+            $forecast = ['now' => ['suspend' => [], 'terminate' => []], 'days' => [],
+                'suspend_on' => (bool) config('settings.cronjob_suspend_enabled', true), 'terminate_on' => (bool) config('settings.cronjob_terminate_enabled', true)];
         }
         $cells = CronDay::month($month);
         $days = [];
@@ -98,9 +99,10 @@ class CronCalendar extends Widget
             'suspendOn' => $forecast['suspend_on'],
             'terminateOn' => $forecast['terminate_on'],
             'next' => array_slice($forecast['days'], 0, 3, true),
-            'serviceUrl' => fn (Service $service) => ServiceResource::getUrl('edit', ['record' => $service]),
-            'clientUrl' => fn (?int $id) => $id === null ? null : ClientResource::getUrl('view', ['record' => $id]),
-            'invoiceUrl' => fn (?int $id) => $id === null ? null : InvoiceResource::getUrl('edit', ['record' => $id]),
+            // Links only to the pages the viewer may open (code review of #681).
+            'serviceUrl' => fn (Service $service) => ServiceResource::canViewAny() ? ServiceResource::getUrl('edit', ['record' => $service]) : null,
+            'clientUrl' => fn (?int $id) => $id === null || !ClientResource::canViewAny() ? null : ClientResource::getUrl('view', ['record' => $id]),
+            'invoiceUrl' => fn (?int $id) => $id === null || !InvoiceResource::canViewAny() ? null : InvoiceResource::getUrl('edit', ['record' => $id]),
         ];
     }
 

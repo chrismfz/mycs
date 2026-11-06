@@ -34,7 +34,14 @@ final class DunningForecast
     {
         $today = ($today ?? Carbon::today())->copy()->startOfDay();
 
-        return Cache::remember('dunning-forecast:' . $today->toDateString() . ':' . $days, 600, fn () => self::compute($today, $days));
+        // Keyed by the settings it reads (code review of #681: suspensions switched back on at the cut-over are seen at
+        // once); two minutes, so a service paid or suspended since drops out soon. The switches are read fresh.
+        $settings = collect(['cronjob_order_suspend', 'cronjob_order_terminate', 'cronjob_terminate_min_suspended_days', 'cronjob_suspend_requires_invoice',
+            'cronjob_suspend_enabled', 'cronjob_terminate_enabled', 'cronjob_dunning_days', 'cronjob_dunning_from'])->map(fn (string $key) => config("settings.{$key}"))->all();
+        $forecast = Cache::remember('dunning-forecast:' . $today->toDateString() . ':' . $days . ':' . md5((string) json_encode($settings)), 120,
+            fn () => self::compute($today, $days));
+
+        return ['suspend_on' => (bool) config('settings.cronjob_suspend_enabled', true), 'terminate_on' => (bool) config('settings.cronjob_terminate_enabled', true)] + $forecast;
     }
 
     /** @return array{now: array{suspend: list<int>, terminate: list<int>}, days: array<string, array{suspend: list<int>, terminate: list<int>}>, suspend_on: bool, terminate_on: bool} */
@@ -60,8 +67,11 @@ final class DunningForecast
 
         // Each service's day: «now» (qualifies today), a day within the forecast, or none past it.
         $dayOf = ['suspend' => [], 'terminate' => []];
-        $place = function (string $what, int $id, Carbon $from) use (&$dayOf, $today, $last) {
-            $day = $from->lessThanOrEqualTo($today) ? self::NOW : DunningWindow::firstDayFrom($from)->toDateString();
+        // Today out of the dunning window: what qualifies now waits for its next open day (code review of #681).
+        $todayOpen = DunningWindow::firstDayFrom($today)->isSameDay($today);
+        $place = function (string $what, int $id, Carbon $from) use (&$dayOf, $today, $last, $todayOpen) {
+            $from = $from->lessThan($today) ? $today : $from;
+            $day = $from->isSameDay($today) && $todayOpen ? self::NOW : DunningWindow::firstDayFrom($from)->toDateString();
             if ($day <= $last->toDateString()) {
                 $dayOf[$what][$id] = isset($dayOf[$what][$id]) ? min($dayOf[$what][$id], $day) : $day;
             }
@@ -75,8 +85,10 @@ final class DunningForecast
 
         // Those still to be suspended, terminated in turn once Termination Days are past and they have been suspended the
         // minimum days (DunningRules::terminable, counted from the day they will be).
-        $expires = Service::query()->whereKey(array_keys($suspendFrom))->pluck('expires_at', 'id');
-        foreach ($suspendFrom as $id => $from) {
+        // Not while suspensions are off (the safety net): a service never suspended is never terminated (code review of #681).
+        $suspendOn = (bool) config('settings.cronjob_suspend_enabled', true);
+        $expires = $suspendOn ? Service::query()->whereKey(array_keys($suspendFrom))->pluck('expires_at', 'id') : collect();
+        foreach ($suspendOn ? $suspendFrom : [] as $id => $from) {
             if (isset($terminateFrom[$id]) || !isset($expires[$id])) {
                 continue;
             }

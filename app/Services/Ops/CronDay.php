@@ -31,8 +31,18 @@ final class CronDay
      */
     public static function month(Carbon $month): array
     {
-        $from = $month->copy()->startOfMonth();
-        $to = $month->copy()->endOfMonth();
+        return self::range($month->copy()->startOfMonth(), $month->copy()->endOfMonth());
+    }
+
+    /**
+     * The cells of the days from $from to $to.
+     *
+     * @return array<string, array{ran: bool, invoices: int, charged: int, declined: int, suspended: int, terminated: int, attention: bool}>
+     */
+    public static function range(Carbon $from, Carbon $to): array
+    {
+        $from = $from->copy()->startOfDay();
+        $to = $to->copy()->endOfDay();
         $days = [];
         $stats = CronStat::query()->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->selectRaw('date, `key`, SUM(value) as total')->groupBy('date', 'key')->get();
@@ -48,7 +58,7 @@ final class CronDay
         }
         $attention = ModuleAction::query()->whereBetween('created_at', [$from, $to])->where('status', ModuleAction::STATUS_OPEN)
             ->selectRaw('DATE(created_at) as day')->distinct()->pluck('day')
-            ->merge(ChargeAttempt::query()->whereBetween('created_at', [$from, $to])->whereNotIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_SETTLED])
+            ->merge(ChargeAttempt::query()->whereBetween('created_at', [$from, $to])->where('source', ChargeAttempt::SOURCE_CRON)->whereNotIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_SETTLED])
                 ->selectRaw('DATE(created_at) as day')->distinct()->pluck('day'));
         foreach ($attention as $day) {
             $day = Carbon::parse($day)->toDateString();
@@ -67,7 +77,7 @@ final class CronDay
      *     invoices: array{count: int, rows: Collection<int, Invoice>},
      *     charges: array{count: int, rows: Collection<int, ChargeAttempt>},
      *     payments: array{count: int, rows: Collection<int, InvoiceTransaction>},
-     *     suspended: Collection<int, Service>, terminated: Collection<int, Service>,
+     *     suspended: array{count: int, rows: Collection<int, Service>}, terminated: array{count: int, rows: Collection<int, Service>},
      *     actions: array{count: int, rows: Collection<int, ModuleAction>},
      *     mails: array<string, int>
      * }
@@ -83,27 +93,27 @@ final class CronDay
         return [
             'stats' => CronStat::query()->whereDate('date', $day->toDateString())->selectRaw('`key`, SUM(value) as total')->groupBy('key')
                 ->pluck('total', 'key')->map(fn ($total) => (int) $total)->all(),
-            'invoices' => $part(Invoice::query()->with(['client', 'items'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
+            'invoices' => $part(Invoice::query()->with(['client', 'items', 'adjustmentNotes', 'currency'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
             'charges' => $part(ChargeAttempt::query()->with(['invoice.client', 'billingAgreement'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
+            // Every payment recorded that day, the charges' too (code review of #681: telling them apart by invoice dropped a
+            // manual payment beside a charge, and listed a Mass Pay group's other invoices as «another way»).
             'payments' => $part(InvoiceTransaction::query()->with(['invoice.client', 'gateway'])->whereBetween('created_at', [$from, $to])
-                ->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false)
-                ->whereNotIn('invoice_id', ChargeAttempt::query()->whereBetween('created_at', [$from, $to])->where('status', ChargeAttempt::STATUS_SUCCEEDED)->select('invoice_id'))
-                ->orderBy('id')),
+                ->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false)->orderBy('id')),
             'suspended' => self::changedTo('suspended', $from, $to),
             'terminated' => self::changedTo(Service::STATUS_TERMINATED, $from, $to),
-            'actions' => $part(ModuleAction::query()->with(['service', 'domain'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
+            'actions' => $part(ModuleAction::query()->with(['service.product', 'domain'])->whereBetween('created_at', [$from, $to])->orderBy('id')),
             'mails' => EmailLog::query()->whereBetween('created_at', [$from, $to])->selectRaw('COALESCE(template_key, ?) as template, COUNT(*) as total', ['other'])
                 ->groupBy('template')->orderByDesc('total')->pluck('total', 'template')->map(fn ($total) => (int) $total)->all(),
         ];
     }
 
-    /** @return Collection<int, Service> services whose status changed to $status that day (their audits), by whom or the cron */
-    private static function changedTo(string $status, Carbon $from, Carbon $to): Collection
+    /** @return array{count: int, rows: Collection<int, Service>} services whose status changed to $status that day (their audits), by whom or the cron */
+    private static function changedTo(string $status, Carbon $from, Carbon $to): array
     {
         $ids = Audit::query()->where('auditable_type', Service::class)->where('event', 'updated')->whereBetween('created_at', [$from, $to])
-            ->where('new_values', 'like', '%"status":"' . $status . '"%')->limit(self::LIMIT)->pluck('auditable_id')->unique();
+            ->where('new_values', 'like', '%"status":"' . $status . '"%')->distinct()->orderBy('auditable_id')->pluck('auditable_id');
 
-        return Service::query()->with(['client', 'product'])->whereKey($ids)->orderBy('id')->get();
+        return ['count' => $ids->count(), 'rows' => Service::query()->with(['client', 'product'])->whereKey($ids->take(self::LIMIT))->orderBy('id')->get()];
     }
 
     /** @return array{ran: bool, invoices: int, charged: int, declined: int, suspended: int, terminated: int, attention: bool} */

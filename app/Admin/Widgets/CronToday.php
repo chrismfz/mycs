@@ -31,7 +31,7 @@ class CronToday extends Widget
     {
         $today = Carbon::today();
         $yesterday = $today->copy()->subDay();
-        $cell = CronDay::month($yesterday)[$yesterday->toDateString()] ?? null;
+        $cell = CronDay::range($yesterday, $yesterday)[$yesterday->toDateString()] ?? null;
         try {
             $forecast = DunningForecast::upcoming($today);
         } catch (Throwable $e) {

@@ -1680,8 +1680,6 @@
     "Module actions": "Ενέργειες modules",
     "Next month": "Επόμενος μήνας",
     "Previous month": "Προηγούμενος μήνας",
-    "Paid another way": "Πληρωμές με άλλον τρόπο",
-    "Safety net on: the cron does not :what. What it would do is listed, for staff to do by hand or leave.": "Το δίχτυ είναι ανοιχτό: το cron δεν κάνει :what. Ό,τι θα έκανε φαίνεται εδώ, για να το κάνει ή να το αφήσει το staff.",
     "Something failed or waits for staff": "Κάτι απέτυχε ή περιμένει το staff",
     "Suspended": "Σε αναστολή",
     "Terminated": "Τερματίστηκαν",
@@ -1697,5 +1695,7 @@
     "suspend": "αναστολές",
     "terminate": "τερματισμούς",
     "suspend or terminate": "αναστολές ή τερματισμούς",
-    "the cron did not run": "το cron δεν έτρεξε"
+    "the cron did not run": "το cron δεν έτρεξε",
+    "Safety net on (Settings → Cron): the cron does not :what. What it would do is listed, for staff to do by hand or leave; switched back on, its first run does all of it.": "Το δίχτυ είναι ανοιχτό (Settings → Cron): το cron δεν κάνει :what. Ό,τι θα έκανε φαίνεται εδώ, για να το κάνει ή να το αφήσει το staff· όταν ο διακόπτης ξαναγίνει on, το πρώτο τρέξιμο τα κάνει όλα.",
+    "Payments recorded": "Πληρωμές που καταγράφηκαν"
 }

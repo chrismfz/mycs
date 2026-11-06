@@ -6,6 +6,8 @@ use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Widgets\CronStat\CronCalendar;
 use App\Admin\Widgets\CronToday;
+use App\Models\ChargeAttempt;
+use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
@@ -136,5 +138,35 @@ class DunningForecastTest extends TestCase
         $this->livewireAs($staff)->test(CronToday::class)->assertSee('Waiting (safety net)')->assertSee('1 to suspend');
         $this->assertContains(CronToday::class, Dashboard::RIGHT);
         $this->assertNotNull(CronStats::getUrl());
+    }
+
+    /** Code review of #681: the net on, no termination foretold for what is never suspended; the switches read fresh. */
+    public function test_with_suspensions_off_nothing_is_foretold_terminated_and_switching_back_is_seen_at_once(): void
+    {
+        config(['settings.cronjob_suspend_enabled' => false]);
+        $long = $this->service(20);
+
+        $off = DunningForecast::upcoming(Carbon::today());
+        $this->assertSame([$long->id], $off['now']['suspend']);
+        $this->assertSame([], array_merge(...array_values(array_column($off['days'], 'terminate'))), 'never suspended, never terminated');
+        $this->assertFalse($off['suspend_on']);
+
+        config(['settings.cronjob_suspend_enabled' => true]);
+        $on = DunningForecast::upcoming(Carbon::today());
+        $this->assertTrue($on['suspend_on'], 'not ten minutes of a cached «safety net on»');
+        $this->assertNotSame([], array_merge(...array_values(array_column($on['days'], 'terminate'))));
+    }
+
+    /** Code review of #681: a day the cron did not run says so, even with a declined checkout that day. */
+    public function test_a_day_without_a_run_says_so_on_the_dashboard(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => ['*']])->id]);
+        $clientId = User::factory()->create()->client()->id;
+        $invoice = Invoice::factory()->create(['client_id' => $clientId]);
+        ChargeAttempt::query()->forceCreate(['key' => 'k' . uniqid(), 'invoice_id' => $invoice->id, 'client_id' => $clientId, 'amount' => '5.00',
+            'currency_code' => 'EUR', 'source' => ChargeAttempt::SOURCE_CLIENT, 'status' => ChargeAttempt::STATUS_FAILED, 'started_at' => now()->subDay(), 'created_at' => now()->subDay()]);
+
+        $this->livewireAs($staff)->test(CronToday::class)->assertSee('the cron did not run');
     }
 }

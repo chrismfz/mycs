@@ -11,7 +11,7 @@
 
         @if (!$suspendOn || !$terminateOn)
         <div class="mb-3 rounded-lg px-3 py-2 text-sm" style="background: color-mix(in oklab, var(--warning-500) 15%, transparent)">
-            {{ __('Safety net on: the cron does not :what. What it would do is listed, for staff to do by hand or leave.', ['what' => !$suspendOn && !$terminateOn ? __('suspend or terminate') : (!$suspendOn ? __('suspend') : __('terminate'))]) }}
+            {{ __('Safety net on (Settings → Cron): the cron does not :what. What it would do is listed, for staff to do by hand or leave; switched back on, its first run does all of it.', ['what' => !$suspendOn && !$terminateOn ? __('suspend or terminate') : (!$suspendOn ? __('suspend') : __('terminate'))]) }}
         </div>
         @endif
 
@@ -23,14 +23,15 @@
         @foreach ($weeks as $week)
         <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:4px">
             @foreach ($week as $d)
-            @php($c = $d['cell'])
+            @php($c = ($d['cell']['ran'] ?? false) ? $d['cell'] : null)
+            @php($flag = $d['cell']['attention'] ?? false)
             @php($f = $d['forecast'])
             <button type="button" wire:click="pick('{{ $d['date'] }}')"
                 class="rounded-lg p-1.5 text-start text-xs ring-1 ring-gray-950/5 dark:ring-white/10 {{ $d['in_month'] ? '' : 'opacity-50' }}"
                 style="min-height:4.25rem;{{ $d['date'] === $selected ? 'outline:2px solid var(--primary-500);' : '' }}{{ $d['future'] ? 'border:1px dashed color-mix(in oklab, currentColor 30%, transparent);' : '' }}{{ $d['past'] && $c === null ? 'background: color-mix(in oklab, currentColor 6%, transparent);' : '' }}">
                 <div style="display:flex;justify-content:space-between" class="font-medium text-gray-900 dark:text-white">
                     <span>{{ $d['number'] }}</span>
-                    @if ($c !== null && $c['attention'])<span style="width:.5rem;height:.5rem;border-radius:9999px;background:var(--danger-500)" title="{{ __('Something failed or waits for staff') }}"></span>@endif
+                    @if ($flag)<span style="width:.5rem;height:.5rem;border-radius:9999px;background:var(--danger-500)" title="{{ __('Something failed or waits for staff') }}"></span>@endif
                 </div>
                 @if ($c !== null)
                 <div>{{ trans_choice(':count invoice|:count invoices', $c['invoices']) }}</div>
@@ -77,7 +78,7 @@
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
             @foreach ($detail['invoices']['rows'] as $invoice)
             <li class="flex justify-between gap-3 py-1">
-                <a href="{{ $invoiceUrl($invoice->id) }}" class="hover:underline">#{{ $invoice->number ?? $invoice->id }} · {{ $invoice->client?->name }}</a>
+                <a @if ($u = $invoiceUrl($invoice->id)) href="{{ $u }}" @endif class="hover:underline">#{{ $invoice->number ?? $invoice->id }} · {{ $invoice->client?->name }}</a>
                 <span class="tabular-nums">{{ $invoice->formattedTotal }}</span>
             </li>
             @endforeach
@@ -88,26 +89,26 @@
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
             @foreach ($detail['charges']['rows'] as $charge)
             <li class="flex justify-between gap-3 py-1">
-                <a href="{{ $invoiceUrl($charge->invoice_id) }}" class="hover:underline">#{{ $charge->invoice?->number ?? $charge->invoice_id }} · {{ $charge->invoice?->client?->name }}</a>
+                <a @if ($u = $invoiceUrl($charge->invoice_id)) href="{{ $u }}" @endif class="hover:underline">#{{ $charge->invoice?->number ?? $charge->invoice_id }} · {{ $charge->invoice?->client?->name }}</a>
                 <span class="tabular-nums" style="color: {{ $charge->status === 'succeeded' || $charge->status === 'settled' ? 'var(--success-600)' : 'var(--danger-600)' }}">{{ $charge->amount }} {{ $charge->currency_code }} · {{ $charge->status }}@if ($charge->error): {{ \Illuminate\Support\Str::limit((string) $charge->error, 80) }}@endif</span>
             </li>
             @endforeach
         </ul>
 
-        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Paid another way') }} · {{ $detail['payments']['count'] }}</h4>
+        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Payments recorded') }} · {{ $detail['payments']['count'] }}</h4>
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
             @foreach ($detail['payments']['rows'] as $payment)
             <li class="flex justify-between gap-3 py-1">
-                <a href="{{ $invoiceUrl($payment->invoice_id) }}" class="hover:underline">#{{ $payment->invoice?->number ?? $payment->invoice_id }} · {{ $payment->invoice?->client?->name }}</a>
+                <a @if ($u = $invoiceUrl($payment->invoice_id)) href="{{ $u }}" @endif class="hover:underline">#{{ $payment->invoice?->number ?? $payment->invoice_id }} · {{ $payment->invoice?->client?->name }}</a>
                 <span class="tabular-nums">{{ $payment->amount }} · {{ $payment->gateway?->name ?? __('manual') }}</span>
             </li>
             @endforeach
         </ul>
 
-        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Suspended') }} · {{ $detail['suspended']->count() }}</h4>
-        @include('admin.widgets.partials.cron-services', ['services' => $detail['suspended']])
-        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Terminated') }} · {{ $detail['terminated']->count() }}</h4>
-        @include('admin.widgets.partials.cron-services', ['services' => $detail['terminated']])
+        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Suspended') }} · {{ $detail['suspended']['count'] }}</h4>
+        @include('admin.widgets.partials.cron-services', ['services' => $detail['suspended']['rows']])
+        <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Terminated') }} · {{ $detail['terminated']['count'] }}</h4>
+        @include('admin.widgets.partials.cron-services', ['services' => $detail['terminated']['rows']])
 
         <h4 class="mb-1 mt-3 text-sm font-medium">{{ __('Module actions') }} · {{ $detail['actions']['count'] }}</h4>
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
