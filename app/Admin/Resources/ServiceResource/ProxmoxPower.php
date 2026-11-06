@@ -3,9 +3,12 @@
 namespace App\Admin\Resources\ServiceResource;
 
 use App\Helpers\ExtensionHelper;
+use App\Jobs\Server\ProxmoxSnapshotJob;
 use App\Models\ProxmoxGuest;
 use App\Models\Service;
+use App\Services\Proxmox\GuestLifecycle;
 use App\Support\Redact;
+use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Notifications\Notification;
@@ -34,13 +37,52 @@ final class ProxmoxPower
             ->where(fn ($q) => $q->whereNull('status')->orWhere('status', '!=', 'destroyed'))->first();
     }
 
+    /** Whether its product offers the customer a snapshot (owner 2026-11-06; the product's «Customer snapshot»). */
+    public static function snapshots(Service $service): bool
+    {
+        $settings = ExtensionHelper::settingsToArray($service->product->settings ?? collect());
+
+        return filter_var($settings['snapshots'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+
     public static function group(Service $service): ActionGroup
     {
         $guest = self::guest($service);
 
-        return ActionGroup::make(array_map(fn (string $power) => self::action($power), array_keys(self::LABELS)))
+        return ActionGroup::make([...array_map(fn (string $power) => self::action($power), array_keys(self::LABELS)), self::deleteSnapshot()])
             ->label('VM ' . ($guest->vmid ?? ''))->icon('ri-instance-line')->button()->color('gray')
             ->visible($guest !== null && (bool) Auth::guard('staff')->user()?->hasPermission('admin.services.update'));
+    }
+
+    /**
+     * The customer's snapshot, read from the cluster as the modal opens, deleted for them (a disk filling up). In the
+     * queue, as the customer's own: the snapshot's removal is waited for.
+     */
+    private static function deleteSnapshot(): Action
+    {
+        return Action::make('vm_snapshot_delete')->label('Delete customer snapshot')->icon('ri-camera-off-line')->color('danger')
+            ->visible(fn (Service $record) => self::snapshots($record) && self::guest($record) !== null
+                && (bool) Auth::guard('staff')->user()?->hasPermission('admin.services.update'))
+            ->requiresConfirmation()
+            ->modalDescription(function (Service $record) {
+                try {
+                    $server = $record->provisioningServer();
+                    $extension = $server === null ? null : ExtensionHelper::getExtension('server', $server->extension, $server->settings);
+                    $taken = $extension instanceof Proxmox ? $extension->lifecycle($record)->read($record, snapshot: true)[0]['snapshot'] : null;
+                } catch (Throwable $e) {
+                    report($e);
+
+                    return 'The cluster could not be read now: the snapshot «' . GuestLifecycle::SNAPSHOT . '» is deleted if it is there.';
+                }
+
+                return $taken === null ? 'VM ' . self::guest($record)?->vmid . ' has no customer snapshot now.'
+                    : 'Taken ' . Carbon::createFromTimestamp($taken)->timezone(config('app.timezone'))->format('d/m/Y H:i')
+                        . '. Deleted from VM ' . self::guest($record)?->vmid . '; the customer may take a new one.';
+            })
+            ->action(function (Service $record) {
+                ProxmoxSnapshotJob::dispatch($record, 'delete', false);
+                Notification::make()->success()->title('Snapshot: being deleted')->body('The cluster does it now.')->send();
+            });
     }
 
     private static function action(string $power): Action

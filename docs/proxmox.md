@@ -137,11 +137,12 @@ for p in /pool/mycs /storage /nodes /sdn/zones; do pveum acl modify $p --roles M
 
 ```bash
 pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
-pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"
+pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console VM.Snapshot VM.Snapshot.Rollback"
 pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
 ```
 
-- `VM.Config.Options` χρειάζεται για το `onboot`, και `VM.Allocate` για το destroy.
+- `VM.Config.Options` χρειάζεται για το `onboot`, `VM.Allocate` για το destroy, και `VM.Snapshot`/`VM.Snapshot.Rollback`
+  για το snapshot του πελάτη (PR 8).
 - Τα VM των πελατών μπαίνουν στο pool με `pvesh set /pools --poolid mycs --vms 101,102,…`. Το κουμπί «Pool command»
   στο Proxmox Guests δίνει έτοιμη τη λίστα των αντιστοιχισμένων που λείπουν.
 - Ό,τι μείνει εκτός pool δεν το αγγίζει η MyCS: το suspend ή το terminate του πηγαίνει στο staff (Pending Module
@@ -255,6 +256,38 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
      `VM.Console`) και το ACL του στο pool. Ως τότε υπήρχε μόνο το `PVEAuditor` στο `/`.
    - **Σε server με nginx (devbox, 2026-10-28):** εγκαταστάθηκαν το unit `mycs-console` και το `location = /console/ws`.
      Ελέγχθηκαν το 403 χωρίς εισιτήριο ή από άλλο site και το restart στο deploy.
+
+7. [x] **PR 8, snapshot του πελάτη (υπεύθυνος 2026-11-06, όπως το hack του pvewhmcs στη myip από 2026-11-05):**
+   - Ρύθμιση του προϊόντος «Customer snapshot» (προεπιλογή off). Όπου είναι on, ο πελάτης έχει **ένα** snapshot των
+     δίσκων, χωρίς τη μνήμη (`vmstate=0`). Το όνομά του είναι `client-snap`, ίδιο με του hack, ώστε ένα snapshot που
+     πάρθηκε από το WHMCS να είναι το ίδιο και εδώ μετά το cut-over.
+   - **Λήψη:** αν υπάρχει ήδη snapshot, σβήνεται πρώτα, και η MyCS περιμένει να τελειώσει η διαγραφή πριν πάρει το νέο.
+     **Επαναφορά:** οι δίσκοι γυρίζουν στο snapshot. Ο Proxmox σταματά το VM, και το VM ξεκινά ξανά μόνο αν έτρεχε.
+     **Διαγραφή.**
+   - Η MyCS αγγίζει μόνο το `client-snap`. Τα snapshots του staff, με άλλο όνομα, δεν τα αγγίζει ποτέ.
+   - **Η επαναφορά αρνείται αν άλλαξαν οι ρυθμίσεις του VM από το snapshot** (ADV-SNAP-1). Ο Proxmox επαναφέρει μαζί με
+     τους δίσκους και το config του snapshot: μνήμη, πυρήνες, όριο δικτύου, onboot. Χωρίς τον έλεγχο, ένας πελάτης που
+     πήρε snapshot στο μεγάλο πακέτο και μετά έκανε downgrade θα ξαναέπαιρνε το μεγάλο. Η MyCS συγκρίνει το config του
+     snapshot με το τωρινό. Αγνοεί μόνο τα κλειδιά που αφορούν το ίδιο το snapshot (`snaptime`, `parent`, `digest`,
+     `vmstate`, `description` κ.λπ.). Σε διαφορά, ο πελάτης βλέπει ότι η επαναφορά δεν έγινε και ότι χρειάζεται νέο snapshot.
+   - Ισχύουν οι ίδιοι έλεγχοι με το power (`GuestLifecycle::guest()`: ένα VM, στο pool, το ίδιο μηχάνημα) και το ίδιο
+     lock. Για τον πελάτη, επιπλέον: η υπηρεσία active, και το VM running ή stopped (όχι paused ή locked).
+   - Τρέχει στην ουρά (`ProxmoxSnapshotJob`, μία προσπάθεια, όχι retry), γιατί οι εργασίες του Proxmox περιμένονται:
+     - Το panel παρακολουθεί το job όσο τρέχει, και μετά λέει μία φορά αν έγινε ή όχι. Μια αποτυχία πάει στο log για
+       το staff. Το ίδιο ισχύει και όταν ο worker τερματίσει το job, π.χ. λόγω timeout (`failed()`, ADV-SNAP-5).
+     - Ένα job του staff δεν αγγίζει το panel του πελάτη: δεν λήγει την αναμονή του, ούτε του λέει κάτι (ADV-SNAP-3).
+     - Αν δεν διαβάζεται η λίστα των snapshots, κρύβεται μόνο η γραμμή του snapshot, όχι το VM και τα κουμπιά του
+       (ADV-SNAP-2).
+     - Μία ενέργεια τη φορά, και το power περιμένει να τελειώσει. Μία ενέργεια το λεπτό ανά VM.
+     - Κάθε ενέργεια θέλει επιβεβαίωση και γράφεται στο audit (`vm_snapshot`).
+   - **Staff:** στη σελίδα της υπηρεσίας, «VM … → Delete customer snapshot». Το παράθυρο δείχνει πότε πάρθηκε το snapshot.
+     Η διαγραφή γίνεται και όταν η υπηρεσία είναι suspended.
+   - Το terminate (`qm destroy --purge`) σβήνει και τα snapshots.
+   - **Στο cluster (ο υπεύθυνος, πριν ανοίξει η ρύθμιση σε κάποιο προϊόν):**
+     `pveum role modify MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console VM.Snapshot VM.Snapshot.Rollback"`.
+   - **Ανοιχτά για τον υπεύθυνο:** αν το snapshot θα έχει όριο ηλικίας και θα σβήνεται μόνο του. Ως τότε πιάνει χώρο ώσπου
+     να το σβήσει ο πελάτης ή το staff. Σε ZFS η επαναφορά γίνεται μόνο στο πιο πρόσφατο snapshot: αν το staff πάρει ένα
+     δικό του μετά από του πελάτη, η επαναφορά του πελάτη αποτυγχάνει και ο πελάτης βλέπει «δεν έγινε».
 
 #### Η κονσόλα σε cPanel (orion): ανοιχτό, για την ώρα της myip
 Ο υπεύθυνος αποφάσισε στις 2026-10-28: η κονσόλα μένει όπως είναι, και η λύση δοκιμάζεται όταν έρθει η ώρα της myip.
