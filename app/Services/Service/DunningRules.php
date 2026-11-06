@@ -71,16 +71,19 @@ final class DunningRules
      * No hold (a hold holds through its last day), no open invoice of theirs with a processing payment (PAY-9), and no
      * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way. And a plan: one
      * without is never billed (BIL-6), so never dunned either. $holdDay: those held until that day instead (the notice
-     * before it ends, CronJob::holdsEnding).
+     * before it ends, CronJob::holdsEnding). An addon whose parent is held is held with it, either way: it follows its
+     * parent (ADV-A3-1/2, Service::holdInForce).
      *
      * @param  Builder<Service>  $query
      * @return Builder<Service>
      */
     private static function unheldWithNoPaymentOnItsWay(Builder $query, Carbon $asOf, ?Carbon $holdDay = null): Builder
     {
-        return $query->whereNotNull('plan_id')->where(fn ($hold) => $holdDay !== null
-            ? $hold->whereDate('suspend_hold_until', $holdDay->toDateString())
-            : $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', $asOf->toDateString()))
+        $query = $holdDay !== null
+            ? Service::whereNoHoldOn($query->whereDate('suspend_hold_until', $holdDay->toDateString()), $asOf->toDateString(), own: false)
+            : Service::whereNoHoldOn($query, $asOf->toDateString());
+
+        return $query->whereNotNull('plan_id')
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
                 ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
             ->whereNotExists(fn ($line) => RenewalBilling::paidLineToApply($line));
