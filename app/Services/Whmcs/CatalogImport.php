@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use PDO;
+use PDOException;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -41,10 +43,29 @@ use Throwable;
 final class CatalogImport
 {
     /** WHMCS's server module → MyCS's server extension; the others are reported and skipped. */
-    private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow'];
+    private const SERVER_MODULES = ['cpanel' => 'CPanel', 'centovacast' => 'CentovaCast', 'mailcow' => 'Mailcow', 'pvewhmcs' => 'Proxmox',
+        'hetznercloud' => 'OfflineVm', 'ngm' => 'Ngm'];
+
+    /**
+     * Modules whose WHMCS servers are nodes of one cluster: one server here for them all, as the extension talks to the
+     * cluster (myip's Proxmox: Pegasus and Vega, owner 2026-11-04). A server staff already set up of the extension is it.
+     */
+    public const CLUSTER_MODULES = ['pvewhmcs'];
+
+    /**
+     * Modules with no API here (Hetzner Cloud): their servers come as Offline VM, so every action on their services is a
+     * task for staff, never a silent «nothing» (docs/importer.md).
+     */
+    private const OFFLINE_MODULES = ['hetznercloud' => 'Hetzner Cloud'];
+
+    /**
+     * Modules whose API is on a port of its own, not WHMCS's server port (ngm's on 9601, its 443 serves the customers'
+     * sites, as our WHMCS module ignores that port): their host comes bare, and the extension adds its port.
+     */
+    private const OWN_PORT_MODULES = ['ngm'];
 
     /** A module's default port when WHMCS has none (its admin API over TLS). */
-    private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199];
+    private const SERVER_PORTS = ['cpanel' => 2087, 'centovacast' => 2199, 'pvewhmcs' => 8006];
 
     /** WHMCS's recurring cycles → [plan name, billing period, unit, setup fee column]. */
     private const CYCLES = [
@@ -103,11 +124,14 @@ final class CatalogImport
     /**
      * @param  ?int  $registrarConnectionId  the connection that takes WHMCS's TLDs with automatic registration at a
      *                                       registrar it has a driver for (by its key: openprovider, …); null: none
+     * @param  bool  $keepWhmcsIds  a new product group or product takes its WHMCS id (the full importer's: its services,
+     *                              orders and licenses point at WHMCS's product ids)
      */
     public function __construct(
         private readonly PDO $whmcs,
         private readonly bool $makeDefaultCurrency = true,
         private readonly ?int $registrarConnectionId = null,
+        private readonly bool $keepWhmcsIds = false,
     ) {}
 
     /** @return array{counts: array<string, int>, notes: list<string>} */
@@ -128,6 +152,7 @@ final class CatalogImport
             $this->serverGroups();
             $this->configOptions();
             $this->products();
+            $this->productSlugs();
             $this->tlds($connection !== null ? [$connection->registrar => $connection] : []);
             $dryRun ? DB::rollBack() : DB::commit();
         } catch (Throwable $e) {
@@ -148,18 +173,19 @@ final class CatalogImport
     }
 
     /**
-     * The full importer's step (app:import-from-whmcs, after its products): WHMCS's servers and server groups, and each
-     * product's group and server as run() gives them, so that every account comes in on its own server (AUD4-1). A
-     * product is found by its `whmcs_id`, else by the same id (the full importer keeps WHMCS's).
+     * The full importer's step (app:import-from-whmcs, before productsForFullImport, which gives each product its group
+     * and server from it): WHMCS's servers and server groups, so that every account comes in on its own server (AUD4-1).
+     * A product here already (found by its `whmcs_id`, else by the same id) is given its group and server too; in the
+     * full import there is none yet.
      *
-     * @return array{counts: array<string, int>, notes: list<string>}
+     * @return array{counts: array<string, int>, notes: list<string>, server_ids: array<int, int>} server_ids: WHMCS server id => its server here (a cluster's nodes share one)
      */
     public function serversForFullImport(): array
     {
         $this->servers();
         $this->serverGroups();
         foreach ($this->rows('SELECT id, name, servertype, servergroup FROM tblproducts ORDER BY id') as $row) {
-            $product = Product::query()->where('whmcs_id', (int) $row['id'])->first() ?? Product::query()->whereNull('whmcs_id')->find((int) $row['id']);
+            $product = Product::query()->where('whmcs_id', (int) $row['id'])->first() ?? Product::query()->whereNull('whmcs_id')->where('is_addon', false)->find((int) $row['id']);
             $module = strtolower((string) ($row['servertype'] ?? ''));
             if ($product === null || !isset(self::SERVER_MODULES[$module])) {
                 continue;
@@ -173,7 +199,52 @@ final class CatalogImport
             $product->save();
         }
 
+        return ['counts' => $this->counts, 'notes' => $this->notes, 'server_ids' => $this->serverIds];
+    }
+
+    /**
+     * The full importer's catalog step (WG-2), after serversForFullImport() on this same instance, whose servers and groups
+     * its products take: the product groups, config options and products, their plans, prices, packages and links, as run()
+     * brings them. Before it the full importer had its own older copy, which lost the cPanel and ngm packages, the hidden
+     * groups, the retired products, the free (0.00) prices, the order and the config options' links. Made with their WHMCS
+     * ids (keepWhmcsIds): the services, orders and licenses the full importer brings point at them.
+     *
+     * @return array{counts: array<string, int>, notes: list<string>}
+     */
+    public function productsForFullImport(): array
+    {
+        $this->notes = []; // the servers' were reported with their step
+        $this->currencies();
+        $this->categories();
+        $this->configOptions();
+        $this->products();
+        $this->productSlugs();
+
         return ['counts' => $this->counts, 'notes' => $this->notes];
+    }
+
+    /**
+     * WHMCS's store addresses of each product, the old ones too (tblproducts_slugs), for the cut-over's 301 map
+     * (LegacyWhmcsController). A WHMCS without the table (older than 8): none; a product not here: left out.
+     */
+    private function productSlugs(): void
+    {
+        try {
+            $rows = $this->rows('SELECT group_slug, slug, product_id FROM tblproducts_slugs ORDER BY id');
+        } catch (PDOException) {
+            return;
+        }
+        foreach ($rows as $row) {
+            $group = mb_substr(strtolower(trim((string) $row['group_slug'])), 0, 255);
+            $slug = mb_substr(strtolower(trim((string) $row['slug'])), 0, 255);
+            $product = Product::query()->where('whmcs_id', (int) $row['product_id'])->value('id');
+            if ($group === '' || $slug === '' || $product === null) {
+                continue;
+            }
+            DB::table('whmcs_product_slugs')->updateOrInsert(['group_slug' => $group, 'slug' => $slug],
+                ['product_id' => $product, 'updated_at' => now(), 'created_at' => now()]);
+            $this->counts['product_slugs'] = ($this->counts['product_slugs'] ?? 0) + 1;
+        }
     }
 
     /**
@@ -250,11 +321,17 @@ final class CatalogImport
 
     private function servers(): void
     {
+        $clusters = [];
         foreach ($this->rows('SELECT * FROM tblservers ORDER BY id') as $row) {
             $module = strtolower((string) $row['type']);
             $extension = self::SERVER_MODULES[$module] ?? null;
             if ($extension === null) {
                 $this->notes[] = "Server #{$row['id']} «{$row['name']}»: module «{$row['type']}» has no MyCS extension, skipped.";
+
+                continue;
+            }
+            if (in_array($module, self::CLUSTER_MODULES, true)) {
+                $clusters[$module][] = $row; // all its nodes together, below
 
                 continue;
             }
@@ -269,9 +346,10 @@ final class CatalogImport
             // One staff already set up (same module and host) is adopted, not copied without its password (review F10).
             $adopted = $server === null && ($server = $this->sameServer($extension, $hostname)) !== null;
             $server ??= new Server;
+            $offline = self::OFFLINE_MODULES[$module] ?? null;
             $server->forceFill([
                 'whmcs_id' => (int) $row['id'],
-                'name' => (string) $row['name'],
+                'name' => $offline !== null ? "{$row['name']} ({$offline}, offline)" : (string) $row['name'],
                 'extension' => $extension,
                 'type' => 'server',
                 'enabled' => !(int) ($row['disabled'] ?? 0),
@@ -279,9 +357,13 @@ final class CatalogImport
             ])->save();
             // Its address (a URL, as the extension takes it: review 3) and login, only where none is set yet: a URL or
             // login staff corrected stays, and a stored API key is never sent to a host they did not type (R6). Never
-            // its password (the API token comes with the credentials step).
+            // its password (the API token comes with the credentials step). An offline one has neither.
             $port = (int) ($row['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
-            $settings = ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')];
+            $settings = match (true) {
+                $offline !== null => [],
+                in_array($module, self::OWN_PORT_MODULES, true) => ['host' => $hostname], // no login: its token is staff's to enter
+                default => ['host' => $hostname !== '' ? "https://{$hostname}:{$port}" : '', 'username' => (string) ($row['username'] ?? '')],
+            };
             // Its IP (WHMCS's ipaddress): the panel's connection goes to it whatever DNS says (PanelConnection). Only for a
             // module with that setting; a public address only: a private or reserved one is pinned to nothing the panel could reach.
             // A server staff set up (adopted) keeps its connection: its host may be one they corrected (ADV-561-3).
@@ -302,6 +384,101 @@ final class CatalogImport
             $this->defaultServers[$module] ??= $server->id;
             $this->counts['servers']++;
         }
+        foreach ($clusters as $module => $rows) {
+            $this->cluster($module, $rows);
+        }
+    }
+
+    /**
+     * A cluster's WHMCS servers (its nodes) as its one server here (CLUSTER_MODULES), found by any node's id on a re-run.
+     * Kept as it is once here, made by the import or adopted from staff (its name, state, addresses and token are staff's
+     * then: review of #628); deleted here, left deleted. A new one is enabled when a node is, its live nodes' addresses
+     * first: the host, then the extension's failover nodes.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function cluster(string $module, array $rows): void
+    {
+        $extension = self::SERVER_MODULES[$module];
+        $ids = array_map(fn (array $row) => (int) $row['id'], $rows);
+        $names = implode(', ', array_map(fn (array $row) => "#{$row['id']} «{$row['name']}»", $rows));
+        $live = array_values(array_filter($rows, fn (array $row) => !(int) ($row['disabled'] ?? 0)));
+        $nodes = [...$live, ...array_values(array_filter($rows, fn (array $row) => (bool) (int) ($row['disabled'] ?? 0)))];
+        $hostOf = fn (array $row): string => strtolower(trim((string) ($row['hostname'] ?: $row['ipaddress'])));
+        $server = Server::withTrashed()->whereIn('whmcs_id', $ids)->orderBy('id')->first();
+        if ($server?->trashed()) {
+            $this->notes[] = "Servers {$names} («{$module}»): their cluster's server was deleted here, left deleted.";
+
+            return;
+        }
+        // Staff's own, or the one made before whose node has left WHMCS: of the extension, at any node's hostname or IP in
+        // any of its addresses (ADV-628-3, ADV-628-4); else the extension's only one staff set up (owner 2026-11-04).
+        $server ??= $this->clusterAt($extension, $nodes);
+        $server ??= $this->onlyServer($extension);
+        $made = $server === null;
+        if ($server === null) {
+            $server = new Server;
+            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id'], 'name' => (string) $nodes[0]['name'], 'extension' => $extension, 'type' => 'server',
+                'enabled' => $live !== []])->save();
+            foreach (array_slice($nodes, 0, 3) as $i => $node) {
+                $host = $hostOf($node);
+                if ($host !== '') {
+                    $port = (int) ($node['port'] ?? 0) ?: (self::SERVER_PORTS[$module] ?? 443);
+                    Setting::query()->create(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id,
+                        'key' => ['host', 'node2_host', 'node3_host'][$i], 'value' => "https://{$host}:{$port}", 'type' => 'string', 'encrypted' => false]);
+                }
+            }
+        } elseif (!in_array((int) $server->whmcs_id, $ids, true)) {
+            // Adopted, or its node gone from WHMCS: a node of now, so a re-run finds it by id.
+            $server->forceFill(['whmcs_id' => (int) $nodes[0]['id']])->save();
+        }
+        foreach ($ids as $id) {
+            $this->serverIds[$id] = $server->id;
+        }
+        $this->defaultServers[$module] = $server->id;
+        $this->counts['servers']++;
+        $this->notes[] = "Servers {$names} («{$module}»): one cluster here, server «{$server->name}» (" . ($made ? 'made' : 'kept as it is') . ', '
+            . ($server->enabled ? 'enabled' : 'disabled') . '). Its API token is staff\'s to enter, and its VMs are mapped by hand (Proxmox Guests).';
+    }
+
+    /**
+     * A server of this extension reached at one of the nodes: any node's hostname or IP in its host, its failover nodes'
+     * hosts or its IPs (a URL or a bare name). The first by id when more than one.
+     *
+     * @param  list<array<string, mixed>>  $nodes
+     */
+    private function clusterAt(string $extension, array $nodes): ?Server
+    {
+        $addresses = [];
+        foreach ($nodes as $node) {
+            foreach (['hostname', 'ipaddress'] as $key) {
+                $address = strtolower(trim((string) ($node[$key] ?? '')));
+                if ($address !== '') {
+                    $addresses[$address] = true;
+                }
+            }
+        }
+        foreach (Server::query()->where('extension', $extension)->orderBy('id')->get() as $server) {
+            $values = Setting::query()->where(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id])
+                ->whereIn('key', ['host', 'node2_host', 'node3_host', 'ip', 'node2_ip', 'node3_ip'])->pluck('value');
+            foreach ($values as $value) {
+                $value = strtolower(trim((string) $value));
+                $host = parse_url(str_contains($value, '://') ? $value : "https://{$value}", PHP_URL_HOST);
+                if (is_string($host) && isset($addresses[trim($host, '[]')])) {
+                    return $server;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** The one server of this extension staff set up (not from WHMCS), or none when there is none or more than one. */
+    private function onlyServer(string $extension): ?Server
+    {
+        $servers = Server::query()->where('extension', $extension)->whereNull('whmcs_id')->limit(2)->get();
+
+        return $servers->count() === 1 ? $servers->first() : null;
     }
 
     /** A server of this extension not from WHMCS, at this host (its URL or bare name). */
@@ -345,11 +522,37 @@ final class CatalogImport
 
     private function configOptions(): void
     {
+        // WHMCS's «Quantity» options a service ever took (WG-15): the others are not brought (myip: 133 of 134, SSL SANs
+        // and servers, dediserve, onApp and Hetzner VPS sizes the modules made and nobody bought); the ones taken come
+        // hidden, as MyCS does not charge a quantity yet (CART-9). Unknown (no tblhostingconfigoptions): all brought.
+        try {
+            $used = array_flip(array_map('intval', array_column($this->rows('SELECT DISTINCT configid FROM tblhostingconfigoptions WHERE qty > 0'), 'configid')));
+        } catch (PDOException) {
+            $used = null;
+        }
+        $skipped = 0;
         foreach ($this->rows('SELECT * FROM tblproductconfigoptions ORDER BY id') as $row) {
+            $quantity = (int) ($row['optiontype'] ?? 1) === 4;
+            if ($quantity && $used !== null && !isset($used[(int) $row['id']])) {
+                $skipped++;
+                // One an earlier run brought (the catalog's own command on a live MyCS) is hidden, never left on sale for
+                // nothing (R662-1).
+                $earlier = ConfigOption::query()->where('whmcs_ref', 'option:' . $row['id'])->first();
+                if ($earlier !== null && !$earlier->hidden) {
+                    $earlier->forceFill(['hidden' => true])->save();
+                    $this->notes[] = "Quantity option #{$row['id']} «{$earlier->name}»: brought by an earlier run, no service ever took it: hidden now.";
+                }
+
+                continue;
+            }
             [$env, $name] = $this->envName((string) $row['optionname']);
             $option = $this->byWhmcs(ConfigOption::class, 'whmcs_ref', 'option:' . $row['id']);
+            if ($quantity) {
+                $this->notes[] = "Quantity option #{$row['id']} «{$name}»: brought hidden, MyCS does not charge a quantity yet (WG-15, CART-9): "
+                    . 'the services that took it keep WHMCS\'s price; an addon product does it here (importer.md).';
+            }
             $option->forceFill([
-                'name' => $name, 'env_variable' => $env, 'sort' => (int) ($row['order'] ?? 0), 'hidden' => (bool) ($row['hidden'] ?? false),
+                'name' => $name, 'env_variable' => $env, 'sort' => (int) ($row['order'] ?? 0), 'hidden' => $quantity || (bool) ($row['hidden'] ?? false),
                 'type' => match ((int) ($row['optiontype'] ?? 1)) {
                     2 => 'radio',
                     3 => 'checkbox',
@@ -367,6 +570,9 @@ final class CatalogImport
                 $this->prices($value, $this->rows("SELECT * FROM tblpricing WHERE type = 'configoptions' AND relid = ?", [$sub['id']]), 'recurring');
             }
         }
+        if ($skipped > 0) {
+            $this->notes[] = "{$skipped} «Quantity» option(s) no service ever took in WHMCS: not brought (WG-15).";
+        }
     }
 
     private function products(): void
@@ -375,16 +581,22 @@ final class CatalogImport
         $rows = $this->rows('SELECT * FROM tblproducts ORDER BY id');
         foreach ($rows as $row) {
             $categoryId = $this->categoryIds[(int) $row['gid']] ?? null;
-            if ($categoryId === null) {
-                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing, skipped.";
-
-                continue;
+            // Its group deleted in WHMCS, which still renews its services: brought, hidden, in a hidden group of its own, never
+            // skipped (ADV-646-1: a live service on it pointed at no product and no plan, never renewed).
+            $orphan = $categoryId === null;
+            if ($orphan) {
+                $categoryId = $this->groupless();
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: its group #{$row['gid']} is missing in WHMCS, brought hidden in «" . self::GROUPLESS_NAME . '».';
             }
             $product = $this->byWhmcs(Product::class, 'whmcs_id', (int) $row['id']);
             $slug = (string) ($row['slug'] ?? '') ?: Str::slug((string) $row['name']);
             $retired = (bool) ($row['retired'] ?? false);
             $module = strtolower((string) ($row['servertype'] ?? ''));
             $group = $this->groupIds[(int) ($row['servergroup'] ?? 0)] ?? null;
+            if (($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) > 28) {
+                // Pro rata aligns to a day every month has here (PR D).
+                $this->notes[] = "Product #{$row['id']} «{$row['name']}»: pro rata day {$row['proratadate']} imported as 28.";
+            }
             $product->forceFill([
                 'category_id' => $categoryId,
                 'name' => (string) $row['name'],
@@ -392,7 +604,7 @@ final class CatalogImport
                 'slug' => $this->uniqueSlug('products', $slug ?: 'product-' . $row['id'], $product->id),
                 // Retired in WHMCS: not ordered any more, its own flag (ADV-1 of #216: a stock of 0 came back with the
                 // first cancellation); a hidden group's products are not listed (reviews 5, F1).
-                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || ($this->hiddenGroups[(int) $row['gid']] ?? false),
+                'hidden' => (bool) ($row['hidden'] ?? false) || $retired || $orphan || ($this->hiddenGroups[(int) $row['gid']] ?? false),
                 'retired' => $retired,
                 'taxable' => (bool) ($row['tax'] ?? true),
                 'prorata_day' => ($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) >= 1 ? min((int) $row['proratadate'], 28) : null,
@@ -433,11 +645,25 @@ final class CatalogImport
                 Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => 'package'],
                     ['value' => (string) $row['configoption1'], 'type' => 'string', 'encrypted' => false]);
             }
+            if (in_array($module, ['cpanel', 'mailcow', 'centovacast'], true)) {
+                $this->moduleSettings($product, $module, $row);
+            }
+            if ($module === 'ngm') {
+                // As our WHMCS module's options: configoption1 the ngm package (by name), configoption2 the PHP version.
+                foreach (['package' => 'configoption1', 'php' => 'configoption2'] as $key => $option) {
+                    if (trim((string) ($row[$option] ?? '')) !== '') {
+                        Setting::query()->updateOrCreate(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key],
+                            ['value' => trim((string) $row[$option]), 'type' => 'string', 'encrypted' => false]);
+                    }
+                }
+            }
             if ($module === 'licensing') {
                 $licensing ??= Server::query()->firstOrCreate(['extension' => 'NixpalLicensing'], ['name' => 'nixpal Licensing', 'type' => 'server', 'enabled' => true]);
                 (new WhmcsLicensingImport($this->whmcs))->productSettings($product, $row, $licensing);
                 $this->counts['licensing_products']++;
-            } elseif ($module !== '' && $module !== 'cpanel') {
+            } elseif ($module !== '' && !isset(self::SERVER_MODULES[$module])) {
+                // A server module's product has its server (above): only one of a module with no extension here is told
+                // (review of #646: ~80 notes on myip hid the few that need staff).
                 $this->notes[] = "Product #{$row['id']} «{$row['name']}»: module «{$module}» not mapped (its settings stay to be set).";
             }
         }
@@ -459,6 +685,76 @@ final class CatalogImport
                 }
             }
         }
+    }
+
+    /**
+     * A product's module settings beyond the package (WG-16, owner 2026-11-05), as the extension here reads them, from
+     * WHMCS's configoptionN of the module:
+     * - cPanel, a «Reseller Account» product (myip: 6, 23 live resellers): 15 limit by number (the accounts), 17 disk and
+     *   18 bandwidth (MB, whatever 16 «limit by usage» says: owner 2026-11-05, MyCS's products set the limits), 19/20
+     *   overselling, 21 the ACL list, 24 the reseller owns its account. Without it a create or upgrade made a plain account, and a suspension for non-payment
+     *   suspended the reseller alone, its customers' accounts running (WHM's suspendreseller).
+     * - mailcow (myip's MyMail): 1 aliases, 2 mailboxes, 3 default and 4 max mailbox quota, 5 domain quota (MB), 6/7 the
+     *   rate limit and its frame, 8 DKIM, 9 its selector, 10 its key size, 11 restart SOGo, 12 terminate mode, 13 lock on
+     *   suspend, 14 lock even a multi-domain admin: the order of both modules.
+     * - Centova Cast: 1 the account template, 6 «start server» (the limits are the template's).
+     * Not brought: cPanel themes (paper_lantern, x3mail, gone from cPanel) and the old custom limits a package overrides.
+     *
+     * @param  array<string, mixed>  $row  a tblproducts row
+     */
+    private function moduleSettings(Product $product, string $module, array $row): void
+    {
+        $option = fn (int $n) => trim((string) ($row['configoption' . $n] ?? ''));
+        $on = fn (int $n) => in_array(strtolower($option($n)), ['on', 'yes', '1', 'true'], true);
+        $number = fn (int $n) => ctype_digit($option($n)) && strlen($option($n)) <= 9 ? (string) (int) $option($n) : null;
+        $resellerKeys = ['reseller', 'reseller_acl', 'reseller_max_accounts', 'reseller_disk_mb', 'reseller_bandwidth_mb',
+            'reseller_overselling_disk', 'reseller_overselling_bandwidth', 'reseller_owns_itself'];
+        $settings = match ($module) {
+            // A product no longer a reseller one in WHMCS drops them all on a re-run (R663-2).
+            'cpanel' => ($row['type'] ?? '') !== 'reselleraccount' ? array_fill_keys($resellerKeys, null) : [
+                'reseller' => '1',
+                'reseller_acl' => $option(21) !== '' ? $option(21) : null,
+                'reseller_max_accounts' => $number(15),
+                // The product's limits whether WHMCS applied them or not (owner 2026-11-05: limits are MyCS's products',
+                // never set by hand in WHM again; Reseller 30/70/120 left «by usage» off and staff set them in WHM).
+                'reseller_disk_mb' => $number(17),
+                'reseller_bandwidth_mb' => $number(18),
+                'reseller_overselling_disk' => $on(19) ? '1' : '0',
+                'reseller_overselling_bandwidth' => $on(20) ? '1' : '0',
+                'reseller_owns_itself' => $on(24) ? '1' : '0',
+            ],
+            'mailcow' => [
+                'aliases' => $number(1), 'mailboxes' => $number(2), 'defquota' => $number(3), 'maxquota' => $number(4), 'quota' => $number(5),
+                'rl_value' => $number(6), 'rl_frame' => in_array($option(7), ['s', 'm', 'h', 'd'], true) ? $option(7) : null,
+                'create_dkim' => $on(8) ? '1' : '0', 'dkim_selector' => $option(9) !== '' ? $option(9) : null,
+                'dkim_keysize' => in_array($option(10), ['1024', '2048', '4096'], true) ? $option(10) : null,
+                'restart_sogo' => $option(11) === '0' ? '0' : '1',
+                'terminate_mode' => in_array($option(12), ['lock_only', 'delete_all'], true) ? $option(12) : null,
+                'lock_on_suspend' => $on(13) ? '1' : '0', 'force_lock_multi' => $on(14) ? '1' : '0',
+            ],
+            'centovacast' => ['template' => $option(1) !== '' ? $option(1) : null, 'autostart' => $on(6) ? '1' : '0'],
+            default => [],
+        };
+        foreach ($settings as $key => $value) {
+            $where = ['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key];
+            // One WHMCS no longer sets is gone on a re-run, never an older run's left behind (R663-2).
+            $value === null ? Setting::query()->where($where)->delete()
+                : Setting::query()->updateOrCreate($where, ['value' => $value, 'type' => 'string', 'encrypted' => false]);
+        }
+    }
+
+    private const GROUPLESS_NAME = 'Without a group (WHMCS)';
+
+    /** The hidden group of the products whose WHMCS group is gone: one, found again on a re-run by its slug. */
+    private function groupless(): int
+    {
+        $category = Category::query()->whereNull('whmcs_id')->where('slug', 'whmcs-without-group')->first() ?? new Category;
+        if (!$category->exists) {
+            $category->forceFill(['name' => self::GROUPLESS_NAME, 'slug' => $this->uniqueSlug('categories', 'whmcs-without-group', null),
+                'show_in_menu' => false, 'sort' => 255])->save();
+        }
+
+        return $category->id;
     }
 
     /** The group's first enabled server of the module, else the module's default one. */
@@ -511,6 +807,26 @@ final class CatalogImport
             $withdrawn->delete();
         }
         $this->withdraw($priceable, $kept);
+    }
+
+    /**
+     * A plan of the product for a WHMCS billing cycle it does not offer, without prices: so none is sold, as a cycle WHMCS no
+     * longer offers (withdraw()), while a service WHMCS bills on it renews here at its own price, as WHMCS bills its amount
+     * (myip rehearsal 2026-11-04: 13 live services had no plan, «not billed (set its plan)»). Null for a cycle with no
+     * period (One Time, Free Account) or an unknown one.
+     */
+    public static function unpricedPlan(Product $product, string $whmcsCycle): ?int
+    {
+        [$name, $period, $unit] = self::CYCLES[strtolower(str_replace('-', '', trim($whmcsCycle)))] ?? [null, null, null];
+        if ($name === null) {
+            return null;
+        }
+        $plan = Plan::query()->where(['priceable_type' => $product->getMorphClass(), 'priceable_id' => $product->id, 'type' => 'recurring'])
+            ->where('billing_period', $period)->where('billing_unit', $unit)->orderBy('id')->first();
+        $plan ??= Plan::query()->forceCreate(['priceable_type' => $product->getMorphClass(), 'priceable_id' => $product->id, 'type' => 'recurring',
+            'name' => $name, 'billing_period' => $period, 'billing_unit' => $unit, 'sort' => 99]);
+
+        return (int) $plan->id;
     }
 
     /** The plan of this type and cycle, or a new one (not saved). */
@@ -576,7 +892,9 @@ final class CatalogImport
                 'epp_code_required' => (bool) ($row['eppcode'] ?? true),
                 'dns_management' => (bool) ($row['dnsmanagement'] ?? false),
                 'email_forwarding' => (bool) ($row['emailforwarding'] ?? false),
-                'id_protection' => (bool) ($row['idprotection'] ?? false),
+                // WHMCS's on a new TLD only: on a re-run its registrar's word stays (Openprovider's is_private_whois_allowed,
+                // WG-32, ADV-670-2).
+                'id_protection' => $tld->exists ? $tld->id_protection : (bool) ($row['idprotection'] ?? false),
                 // WHMCS -1: the registrar's / not offered.
                 'grace_days' => (int) ($row['grace_period'] ?? -1) >= 0 ? (int) $row['grace_period'] : null,
                 'redemption_days' => (int) ($row['redemption_grace_period'] ?? -1) >= 0 ? (int) $row['redemption_grace_period'] : null,
@@ -646,7 +964,9 @@ final class CatalogImport
     }
 
     /**
-     * The record this WHMCS id brought, or a new one carrying it (the key is set explicitly: it is not fillable).
+     * The record this WHMCS id brought, or a new one carrying it (the key is set explicitly: it is not fillable). With
+     * keepWhmcsIds, a new product group or product takes the WHMCS id as its own; one taken here already is an error, never
+     * another id (its services would land on another product).
      *
      * @template T of \Illuminate\Database\Eloquent\Model
      *
@@ -655,7 +975,14 @@ final class CatalogImport
      */
     private function byWhmcs(string $class, string $key, int|string $value): Model
     {
-        $model = $class::query()->where($key, $value)->first() ?? new $class;
+        $model = $class::query()->where($key, $value)->first();
+        if ($model === null && $this->keepWhmcsIds && in_array($class, [Category::class, Product::class], true)) {
+            if ($class::query()->whereKey($value)->exists()) {
+                throw new RuntimeException(class_basename($class) . " #{$value} is here already, not from WHMCS: the full import keeps WHMCS's ids.");
+            }
+            $model = (new $class)->forceFill(['id' => $value]);
+        }
+        $model ??= new $class;
         $model->forceFill([$key => $value]);
 
         return $model;

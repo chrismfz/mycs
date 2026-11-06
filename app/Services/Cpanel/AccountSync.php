@@ -79,11 +79,13 @@ final class AccountSync
                     // Its service ended and another live one now has the account (a username made again): that one's.
                     $row->service_id = $row->suggestedServiceId() ?? $row->service_id;
                 }
+                // What the account has against what we bill, with the mapping just decided (the package and limits check).
+                AccountCheck::apply($row);
                 $row->save();
                 $seen[] = $data['user'];
             }
             $gone = CpanelAccount::query()->where('server_id', $server->id)->whereNull('gone_at')->whereNotIn('user', $seen ?: [''])
-                ->update(['gone_at' => $now]);
+                ->update(['gone_at' => $now, 'limits_check' => null, 'limits_check_mb' => null, 'limits_checked_at' => null]);
 
             return ['seen' => count($seen), 'new' => $new, 'gone' => $gone];
         });

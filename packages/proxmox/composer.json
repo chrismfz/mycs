@@ -1,11 +1,15 @@
 {
     "name": "mycs/proxmox",
-    "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn. Framework-free.",
+    "description": "Reads a Proxmox VE cluster with an API token (nodes, guests, their MACs and IPs, RRD graphs), trying each node's address in turn; and the customers' console relay (noVNC), run next to the cluster with its own console-only token. Framework-free.",
     "license": "MIT",
     "version": "1.0.0",
     "require": {
         "php": "^8.3",
         "ext-json": "*"
+    },
+    "suggest": {
+        "ext-curl": "the console relay's requests to the cluster and to MyCS (bin/console-relay)",
+        "ext-pcntl": "the console relay ends cleanly on SIGTERM"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5|^12.0"
@@ -19,5 +23,8 @@
         "psr-4": {
             "MyCS\\Proxmox\\Tests\\": "tests/"
         }
-    }
+    },
+    "bin": [
+        "bin/console-relay"
+    ]
 }

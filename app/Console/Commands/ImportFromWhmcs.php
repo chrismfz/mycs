@@ -5,12 +5,13 @@ namespace App\Console\Commands;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ClientUser;
-use App\Models\ConfigOption;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\NotificationTemplate;
 use App\Models\Order;
 use App\Models\PaymentGroup;
 use App\Models\Product;
@@ -19,6 +20,8 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Billing\ClientGroupPricing;
+use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
 use App\Services\Import\WhmcsContactImport;
@@ -44,11 +47,11 @@ use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Tax\EuVat;
 use App\Services\Whmcs\CatalogImport;
+use App\Services\Whmcs\RolePermissions;
 use App\Support\Locales;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
-use Illuminate\Http\Client\Batch;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
@@ -79,12 +82,12 @@ class ImportFromWhmcs extends Command
         {--source-socket= : the WHMCS database\'s unix socket, instead of host and port}
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
-        {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}
+        {--ticket-attachments=* : A copy of a WHMCS folder with ticket files, once per folder (its storage folder and attachments/)}
         {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}
         {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
 
     /** WHMCS's SSL modules with no extension here → their provider: kept on an Offline SSL server, by hand. */
-    private const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
+    public const OFFLINE_SSL_MODULES = ['thesslstorefullv2' => 'TheSSLStore', 'thesslstore' => 'TheSSLStore'];
 
     /** A WHMCS service never suspended automatically («Override Auto-Suspend» without a date): a hold this far off. */
     public const NEVER_SUSPEND = '9999-12-31';
@@ -175,6 +178,14 @@ class ImportFromWhmcs extends Command
 
             return self::SUCCESS;
         }
+        // A folder of ticket files that is not there would leave every file of it «missing» (review of #668).
+        foreach ((array) $this->option('ticket-attachments') as $folder) {
+            if (is_string($folder) && $folder !== '' && !is_dir($folder)) {
+                $this->error("No folder {$folder} (--ticket-attachments).");
+
+                return self::FAILURE;
+            }
+        }
         // The import empties this instance's database (migrate:fresh): only one named here, by its name.
         if ($this->option('confirm-database') !== $target) {
             $this->error("The import empties this instance's database «{$target}» first. Run it again with --confirm-database={$target} if that is meant"
@@ -195,17 +206,24 @@ class ImportFromWhmcs extends Command
             $this->importCurrencies();
             $this->importAutomationSettings();
             $this->importUsers();
+            $this->importMarketingConsent();
             $this->importAdmins();
-            $this->importCategories();
-            $this->importConfigOptions();
-            $this->importProducts();
             $this->importServers();
+            // After the servers: each product takes its group and server from them (WG-2).
+            $this->importCatalog();
             $this->importPromotions();
             $this->importTickets();
             $this->importKnowledgebase();
             $this->importOrders();
             $this->importServices();
+            // After the services and the catalog's options (WG-11).
+            $this->importServiceOptions();
+            // After the services and the catalog's reseller products (WG-16).
+            $this->markCpanelResellers();
+            // After the services (their parents) and the orders, before the notes and the invoice lines (docs/addons.md, step 4).
+            $this->importAddons();
             $this->importOfflineSsl();
+            $this->importOfflineDedicated();
             $this->importDomains();
             $this->importEkdosiContacts();
             $this->importContacts();
@@ -226,6 +244,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->importPaymentWays();
             $this->importInvoicePreferences();
             $this->importItemPaymentMethods();
             $this->journalMoney();
@@ -511,7 +530,8 @@ class ImportFromWhmcs extends Command
             . " 'SendReminder', 'SendInvoiceReminderDays', 'SendFirstOverdueInvoiceReminder', 'SendSecondOverdueInvoiceReminder',"
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
-            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade', 'AddFundsMinimum', 'AddFundsMaximum',"
+            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService', 'InvoicePayTo')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -528,6 +548,28 @@ class ImportFromWhmcs extends Command
 
             return ctype_digit($value) && strlen($value) <= 4 && (int) $value <= 3650 ? (string) (int) $value : null;
         };
+        // An amount as WHMCS keeps it («5000.00»), to two decimals, without float. 0 is none, kept as MyCS's own: a maximum
+        // of 0 would refuse every deposit, a minimum of 0 let one of nothing through (ADV-648-3).
+        $money = function (string $key) use ($config): ?string {
+            $value = trim((string) ($config[$key] ?? ''));
+            if (!preg_match('/^\d{1,9}(\.\d+)?$/', $value)) {
+                return null;
+            }
+            $value = bcadd($value, '0', 2);
+
+            return bccomp($value, '0', 2) <= 0 ? null : $value;
+        };
+        $deposits = ['credits_minimum_deposit' => $money('AddFundsMinimum'), 'credits_maximum_deposit' => $money('AddFundsMaximum'),
+            'credits_maximum_credit' => $money('AddFundsMaximumBalance')];
+        // Only as a whole that makes sense: a minimum above the maximum would refuse every deposit (WG-3). The pair as it
+        // would be, one not imported being MyCS's own (review of #648: WHMCS's minimum 200 beside MyCS's maximum 100).
+        $minimum = $deposits['credits_minimum_deposit'] ?? (string) config('settings.credits_minimum_deposit', 5);
+        $maximum = $deposits['credits_maximum_deposit'] ?? (string) config('settings.credits_maximum_deposit', 100);
+        if (($deposits['credits_minimum_deposit'] !== null || $deposits['credits_maximum_deposit'] !== null)
+            && is_numeric($minimum) && is_numeric($maximum) && bccomp($minimum, $maximum, 2) > 0) {
+            $this->warn("The minimum deposit {$minimum} would be above the maximum {$maximum}: both kept as MyCS's own.");
+            $deposits['credits_minimum_deposit'] = $deposits['credits_maximum_deposit'] = null;
+        }
         $hour = isset($config['DailyCronExecutionHour']) && ctype_digit(trim((string) $config['DailyCronExecutionHour']))
             ? (int) $config['DailyCronExecutionHour'] : null;
         // WHMCS counts hours, MyCS days: a part of a day is a whole one (48 → 2, 120 → 5); 0 or empty is never, on both sides.
@@ -552,12 +594,31 @@ class ImportFromWhmcs extends Command
         }
         $overdue = array_values(array_unique($overdue));
         sort($overdue);
+        // The terms the cart and the sign-up ask to accept (WG-7: both companies have it on, with a URL): a web page only,
+        // as the Settings page takes it (review of #330); WHMCS's off is none here.
+        $tosUrl = trim((string) ($config['TermsOfService'] ?? ''));
+        $tosValid = strlen($tosUrl) <= 255 && filter_var($tosUrl, FILTER_VALIDATE_URL) !== false
+            && in_array(strtolower((string) parse_url($tosUrl, PHP_URL_SCHEME)), ['http', 'https'], true);
+        $tos = !$has('EnableTOSAccept') ? null : (!$on('EnableTOSAccept') ? ['string', ''] : ($tosValid ? ['string', $tosUrl] : null));
+        if ($on('EnableTOSAccept') && !$tosValid) {
+            $this->warn("Terms of Service: WHMCS asks for them, but «{$tosUrl}» is no web address: set the tos setting by hand.");
+        }
+        $invoiceDays = $days('CreateInvoiceDaysBefore');
+        // A monthly plan's own (WG-14, owner 2026-11-05): WHMCS's «Monthly» when it has one above 0 (myip 10), else none
+        // (as Invoice Generation; nixpal).
+        $monthlyDays = ($m = $days('CreateInvoiceDaysBeforeMonthly')) !== null && (int) $m > 0 ? $m : null;
         $settings = [
             'cronjob_suspend_enabled' => $has('AutoSuspension') ? ['boolean', $on('AutoSuspension') ? '1' : '0'] : null,
             'cronjob_order_suspend' => ($v = $days('AutoSuspensionDays')) !== null ? ['string', $v] : null,
             'cronjob_terminate_enabled' => $has('AutoTermination') ? ['boolean', $on('AutoTermination') ? '1' : '0'] : null,
             'cronjob_order_terminate' => ($v = $days('AutoTerminationDays')) !== null ? ['string', $v] : null,
-            'cronjob_invoice' => ($v = $days('CreateInvoiceDaysBefore')) !== null ? ['string', $v] : null,
+            // WHMCS's general one for every cycle but a monthly plan's (WG-14, owner 2026-11-05: myip 14, its quarterly 15
+            // and longer cycles' 20 not kept; nixpal 7).
+            'cronjob_invoice' => ($v = $invoiceDays) !== null ? ['string', $v] : null,
+            // None in WHMCS (0 or empty) clears it, so a re-run never keeps an older value (R660-4).
+            // An unreadable one keeps MyCS's own, as the general does (review of #660).
+            'cronjob_invoice_monthly' => $monthlyDays !== null ? ['string', $monthlyDays]
+                : (in_array(trim((string) ($config['CreateInvoiceDaysBeforeMonthly'] ?? 'x')), ['', '0'], true) ? ['string', ''] : null),
             // Never 03:xx here (the clock changes at 03:00, BIL-16): kept as MyCS's own then.
             'cronjob_time' => $hour !== null && $hour < 24 && $hour !== 3 ? ['string', sprintf('%02d:00', $hour)] : null,
             'cronjob_close_ticket' => $closeHours !== null ? ['string', (string) (int) ceil((int) $closeHours / 24)] : null,
@@ -577,6 +638,18 @@ class ImportFromWhmcs extends Command
             // «Credit on Downgrade»: the rest of the period's difference as account credit, or nothing (2026-11-03: nixpal on,
             // myip off, MyCS's default on: myip's downgrades would have given credit WHMCS never gave).
             'credits_on_downgrade' => $has('CreditOnDowngrade') ? ['boolean', $on('CreditOnDowngrade') ? '1' : '0'] : null,
+            // «Add Funds» limits (WG-3: myip 1 / 5,000 / 10,000, nixpal 2 / 1,000 / 1,000; MyCS's defaults 5 / 100 / 300
+            // refused 13 of myip's last year's deposits).
+            ...array_map(fn (?string $value) => $value !== null ? ['string', $value] : null, $deposits),
+            // «Order Days Grace»: a new order's invoice is due after it (WG-4: myip 8, nixpal 0, the same day).
+            'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
+            'tos' => $tos,
+            // WHMCS's «Pay To Text» (WG-17): the company's block on every invoice, Bill To Text here (shown escaped, its lines
+            // kept). Decoded first, as WHMCS keeps its texts escaped (review of #664: «&amp;» would show as such); a <br> and
+            // the newline after it are one line break; its tags are dropped, never taken as HTML; empty keeps MyCS's own.
+            'bill_to_text' => ($payTo = mb_substr(trim(strip_tags((string) preg_replace(['/\r\n?/', '/<br\s*\/?>\n?/i'], "\n",
+                html_entity_decode((string) ($config['InvoicePayTo'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')))), 0, 2000)) !== ''
+                ? ['string', $payTo] : null,
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
@@ -594,11 +667,12 @@ class ImportFromWhmcs extends Command
             $this->warn('Overdue reminders after ' . PaymentReminders::MAX_DAYS . ' days are not sent by MyCS: left out (' . implode(', ', $dropped) . ').');
         }
         // Invoice days per billing cycle: MyCS holds one value (ROADMAP: per cycle, «Ν»): said, for staff to choose.
-        $perCycle = array_filter(['Monthly', 'Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
+        $perCycle = array_filter(['Quarterly', 'SemiAnnually', 'Annually', 'Biennially', 'Triennially'],
             fn (string $cycle) => $days('CreateInvoiceDaysBefore' . $cycle) !== null && (int) $days('CreateInvoiceDaysBefore' . $cycle) > 0);
         if ($perCycle !== []) {
             $this->warn('WHMCS invoices per billing cycle (' . implode(', ', array_map(fn (string $c) => $c . ' ' . $days('CreateInvoiceDaysBefore' . $c), $perCycle))
-                . '); MyCS has one value, cronjob_invoice = ' . ($days('CreateInvoiceDaysBefore') ?? 'unchanged') . ': check it before the first cron run.');
+                . '); MyCS has a monthly plan\'s own and one for every other cycle, cronjob_invoice = ' . ($invoiceDays ?? 'unchanged')
+                . ($invoiceDays !== null ? ' (WHMCS\'s general, WG-14): those cycles are invoiced that many days before their due date.' : '.'));
         }
     }
 
@@ -676,6 +750,36 @@ class ImportFromWhmcs extends Command
         return $ids;
     }
 
+    /**
+     * Who said no to marketing mail in WHMCS (WG-9): «news» off for the account's owner (its login), as «Stop these
+     * emails» sets it (AnnouncementUnsubscribeController), so the first news mail never reaches them. WHMCS's state is
+     * `tblclients.emailoptout` and, from WHMCS 8, `marketing_emails_opt_in` (tblmarketing_consent is its history): either
+     * one saying no is no (myip 345/346, nixpal 76/77). Important announcements are not news: still sent.
+     */
+    private function importMarketingConsent(): void
+    {
+        $template = NotificationTemplate::query()->where('key', 'announcement_news')->first();
+        if ($template === null) {
+            $this->warn('Marketing consent: no «announcement_news» template here, nothing set.');
+
+            return;
+        }
+        try {
+            $clients = $this->pdo->query('SELECT id FROM tblclients WHERE emailoptout = 1 OR marketing_emails_opt_in = 0')->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException) {
+            $clients = $this->pdo->query('SELECT id FROM tblclients WHERE emailoptout = 1')->fetchAll(PDO::FETCH_COLUMN); // before WHMCS 8
+        }
+        $users = DB::table('client_user')->where('owner', true)->whereIn('client_id', array_map('intval', $clients))->distinct()->pluck('user_id');
+        $now = now();
+        foreach ($users->chunk(500) as $chunk) {
+            // No unique key on the pair: one row each, the earlier ones (a re-run) replaced.
+            DB::table('notification_preferences')->where('notification_template_id', $template->id)->whereIn('user_id', $chunk->all())->delete();
+            DB::table('notification_preferences')->insert($chunk->map(fn ($user) => ['user_id' => $user, 'notification_template_id' => $template->id,
+                'mail_enabled' => false, 'in_app_enabled' => false, 'created_at' => $now, 'updated_at' => $now])->values()->all());
+        }
+        $this->info('Marketing consent: news off for ' . $users->count() . ' login(s) of ' . count($clients) . ' account(s) that said no in WHMCS.');
+    }
+
     private function importUsers()
     {
         $this->importLogins();
@@ -712,6 +816,8 @@ class ImportFromWhmcs extends Command
                     'auto_charge' => !($record['disableautocc'] ?? false),
                     // «Disable overdue notices», and its group (sweep of myip, 2026-10-25).
                     'no_overdue_reminders' => (bool) ($record['overideduenotices'] ?? false),
+                    // WHMCS «Closed» (WG-8: nixpal 2): no sign-in, no orders. «Inactive» is what its services say.
+                    'closed_at' => ($record['status'] ?? null) === 'Closed' ? now() : null,
                     'client_group_id' => isset($groups[(int) ($record['groupid'] ?? 0)]) ? (int) $record['groupid'] : null,
                     // Its mails' language (WHMCS «greek», «english», …; empty: the instance's).
                     'language' => Locales::fromWhmcs($record['language'] ?? null)];
@@ -908,335 +1014,27 @@ class ImportFromWhmcs extends Command
             $stmt = $this->pdo->prepare('SELECT name FROM tbladminroles WHERE id = :id LIMIT 1');
             $stmt->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
             $stmt->execute();
-            $name = (string) ($stmt->fetchColumn() ?: 'WHMCS role ' . $whmcsRoleId);
-            $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => []]);
+            $name = trim((string) $stmt->fetchColumn()) ?: 'WHMCS role ' . $whmcsRoleId;
+            if (mb_strtolower($name) === 'admin') {
+                $name .= ' (WHMCS)'; // never the Full Administrator's `*` by its name (a case-insensitive collation)
+            }
+            $perms = $this->pdo->prepare('SELECT permid FROM tbladminperms WHERE roleid = :id');
+            $perms->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
+            $perms->execute();
+            $mapped = RolePermissions::map($perms->fetchAll(PDO::FETCH_COLUMN));
+            // Two WHMCS roles named alike (by case or spaces, as the collation sees them) stay two (review of #649).
+            $same = Role::query()->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->first();
+            if ($same !== null && $same->permissions !== $mapped['permissions']) {
+                $name .= " (WHMCS #{$whmcsRoleId})";
+            }
+            $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => $mapped['permissions']]);
+            if ($role->wasRecentlyCreated && $mapped['unmapped'] !== []) {
+                $this->warn("Role «{$name}»: " . count($mapped['unmapped']) . ' WHMCS permission(s) MyCS has nothing for: '
+                    . implode(', ', $mapped['unmapped']) . '.');
+            }
         }
 
         return $this->staffRoles[$whmcsRoleId] = $role->id;
-    }
-
-    private function importCategories()
-    {
-        $this->info('Importing categories... (' . $this->count('tblproductgroups') . ' records)');
-
-        $this->migrateInBatch('tblproductgroups', 'SELECT * FROM tblproductgroups LIMIT :limit OFFSET :offset', function ($records) {
-            $data = [];
-            foreach ($records as $record) {
-                $data[] = [
-                    'id' => $record['id'],
-                    'name' => $record['name'],
-                    'description' => $record['tagline'],
-                    'sort' => $record['order'],
-                    'slug' => $record['slug'],
-                    'created_at' => $record['created_at'],
-                    'updated_at' => $record['updated_at'],
-                ];
-            }
-
-            DB::table('categories')->insert($data);
-        });
-    }
-
-    private function importConfigOptions()
-    {
-        $this->info('Importing config options... (' . $this->count('tblproductconfigoptions') . ' records)');
-
-        $this->migrateInBatch('tblproductconfigoptions', 'SELECT * FROM tblproductconfigoptions LIMIT :limit OFFSET :offset', function ($records) {
-            $planData = [];
-            $priceData = [];
-
-            // First, insert parent config options and track their new IDs
-            foreach ($records as $record) {
-                if (strpos($record['optionname'], '|') !== false) {
-                    $environmentVariable = explode('|', $record['optionname'])[0];
-                    $name = explode('|', $record['optionname'])[1] ?? $record['optionname'];
-                } else {
-                    $environmentVariable = null;
-                    $name = $record['optionname'];
-                }
-
-                $parentData = [
-                    'name' => $name,
-                    'env_variable' => $environmentVariable,
-                    'type' => match ($record['optiontype']) {
-                        1 => 'select',
-                        2 => 'radio',
-                        3 => 'checkbox',
-                        4 => 'number',
-                        default => 'select',
-                    },
-                    'sort' => $record['order'],
-                    'hidden' => $record['hidden'],
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ];
-
-                // Insert parent and get the new Laravel-generated ID
-                $newParentId = DB::table('config_options')->insertGetId($parentData);
-
-                // Get child options for this parent
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproductconfigoptionssub WHERE configid = :configid');
-                $stmt->bindValue(':configid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $optionRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($optionRecords as $option) {
-                    if (strpos($option['optionname'], '|') !== false) {
-                        $environmentVariable = explode('|', $option['optionname'])[0];
-                        $name = explode('|', $option['optionname'])[1] ?? $option['optionname'];
-                    } else {
-                        $environmentVariable = null;
-                        $name = $option['optionname'];
-                    }
-
-                    $childData = [
-                        'parent_id' => $newParentId, // Use the new Laravel-generated parent ID
-                        'name' => $name,
-                        'env_variable' => $environmentVariable,
-                        'sort' => $option['sortorder'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-
-                    // Insert child and get the new Laravel-generated ID
-                    $newChildId = DB::table('config_options')->insertGetId($childData);
-
-                    // Get pricing for the option
-                    $stmt2 = $this->pdo->prepare('SELECT * FROM tblpricing WHERE type = "configoptions" AND relid = :relid');
-                    $stmt2->bindValue(':relid', $option['id'], PDO::PARAM_INT);
-                    $stmt2->execute();
-                    $prices = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-
-                    $this->priceMagic($prices, $planData, $priceData, ['id' => $newChildId, 'paytype' => 'recurring'], ConfigOption::class);
-                }
-            }
-
-            // Insert plans and then prices
-            foreach ($planData as $planKey => $plan) {
-                $planId = DB::table('plans')->insertGetId($plan);
-                if (isset($priceData[$planKey])) {
-                    foreach ($priceData[$planKey] as &$price) {
-                        $price['plan_id'] = $planId;
-                    }
-                    DB::table('prices')->insert($priceData[$planKey]);
-                }
-            }
-        });
-    }
-
-    private function priceMagic(&$prices, &$planData, &$priceData, $record, $priceableType = Product::class)
-    {
-        foreach ($prices as $pricing) {
-            if ($record['paytype'] === 'onetime') {
-                // One-time payment product, create a one-time plan
-                $setupFee = $pricing['msetupfee'] ?? 0;
-
-                // Create a unique key to link plan and price
-                $planKey = $record['id'] . '_onetime';
-
-                $planData[$planKey] = [
-                    'priceable_id' => $record['id'],
-                    'priceable_type' => $priceableType,
-                    'name' => 'One-Time',
-                    'type' => 'one-time',
-                    'billing_period' => 0,
-                    'billing_unit' => null,
-                ];
-
-                $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                $currency->bindValue(':id', $pricing['currency'], PDO::PARAM_INT);
-                $currency->execute();
-                $currency = $currency->fetch(PDO::FETCH_ASSOC);
-
-                $priceData[$planKey][] = [
-                    'currency_code' => $currency['code'],
-                    'price' => $pricing['monthly'],
-                    'setup_fee' => $setupFee,
-                ];
-
-                continue;
-            }
-
-            foreach (['monthly', 'quarterly', 'semiannually', 'annually', 'biennially', 'triennially'] as $period) {
-                if ($pricing[$period] > 0) {
-                    $setupFee = match ($period) {
-                        'monthly' => $pricing['msetupfee'],
-                        'quarterly' => $pricing['qsetupfee'],
-                        'semiannually' => $pricing['ssetupfee'],
-                        'annually' => $pricing['asetupfee'],
-                        'biennially' => $pricing['bsetupfee'],
-                        'triennially' => $pricing['tsetupfee'],
-                        default => 0,
-                    };
-
-                    // Create a unique key to link plan and price
-                    $planKey = $record['id'] . '_' . $period;
-
-                    $planData[$planKey] = [
-                        'priceable_id' => $record['id'],
-                        'priceable_type' => $priceableType,
-                        'name' => ucfirst($period),
-                        'type' => 'recurring',
-                        'billing_period' => match ($period) {
-                            'monthly' => 1,
-                            'quarterly' => 3,
-                            'semiannually' => 6,
-                            'annually' => 1,
-                            'biennially' => 2,
-                            'triennially' => 3,
-                            default => 1,
-                        },
-                        'billing_unit' => match ($period) {
-                            'monthly', 'quarterly', 'semiannually' => 'month',
-                            'annually', 'biennially', 'triennially' => 'year',
-                            default => 'month',
-                        },
-                    ];
-
-                    $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                    $currency->bindValue(':id', $pricing['currency'], PDO::PARAM_INT);
-                    $currency->execute();
-                    $currency = $currency->fetch(PDO::FETCH_ASSOC);
-
-                    $priceData[$planKey][] = [
-                        'currency_code' => $currency['code'],
-                        'price' => $pricing[$period],
-                        'setup_fee' => $setupFee,
-                    ];
-                }
-
-            }
-        }
-
-    }
-
-    private function importProducts()
-    {
-        $this->info('Importing products... (' . $this->count('tblproducts') . ' records)');
-
-        $this->migrateInBatch('tblproducts', 'SELECT * FROM tblproducts LIMIT :limit OFFSET :offset', function ($records) {
-            $data = [];
-            $planData = [];
-            $priceData = [];
-            $upgrades = [];
-
-            foreach ($records as $record) {
-                if (($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) > 28) {
-                    // MyCS aligns to a day every month has (PR D): the parity check should show it.
-                    $this->warn("Product #{$record['id']}: pro rata day {$record['proratadate']} imported as 28.");
-                }
-                $data[] = [
-                    'id' => $record['id'],
-                    'category_id' => $record['gid'],
-                    'name' => $record['name'],
-                    'description' => $record['description'],
-                    'slug' => !empty($record['slug']) ? $record['slug'] : \Str::slug($record['name']),
-                    'hidden' => $record['hidden'],
-                    // WHMCS «Apply Tax» (Δ1).
-                    'taxable' => (bool) ($record['tax'] ?? true),
-                    // WHMCS «Prorata Billing» (decision 3, PR D): its day, and «charge next month» (over 31: never).
-                    'prorata_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) >= 1
-                        ? min((int) $record['proratadate'], 28) : null,
-                    'prorata_next_after_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratachargenextmonth'] ?? 0) >= 1
-                        && (int) $record['proratachargenextmonth'] <= 31 ? (int) $record['proratachargenextmonth'] : null,
-                    // When its service is set up (Σ1-b): '' (never), on (Accept), order, payment.
-                    'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$record['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
-                    'stock' => $record['stockcontrol'] ? $record['qty'] : null,
-                    'allow_quantity' => match ($record['allowqty']) {
-                        1 => 'separated',
-                        3 => 'combined',
-                        default => 'disabled',
-                    },
-                    'created_at' => $this->validateDate($record['created_at']) ?? now(),
-                    'updated_at' => $this->validateDate($record['updated_at']) ?? now(),
-                ];
-
-                // Upgrades
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproduct_upgrade_products WHERE product_id = :product_id');
-                $stmt->bindValue(':product_id', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $upgradeRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($upgradeRecords as $upgrade) {
-                    $upgrades[] = [
-                        'product_id' => $upgrade['product_id'],
-                        'upgrade_id' => $upgrade['upgrade_product_id'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                }
-
-                // Config options
-                $stmt = $this->pdo->prepare('SELECT * FROM tblproductconfiglinks WHERE pid = :pid');
-                $stmt->bindValue(':pid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $configOptionRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                foreach ($configOptionRecords as $configOptionGroupId) {
-                    // Get the config option group
-                    $configOptionGroup = $this->pdo->prepare('SELECT * FROM tblproductconfiggroups WHERE id = :id LIMIT 1');
-                    $configOptionGroup->bindValue(':id', $configOptionGroupId['gid'], PDO::PARAM_INT);
-                    $configOptionGroup->execute();
-                    $configOptionGroup = $configOptionGroup->fetch(PDO::FETCH_ASSOC);
-                    if (!$configOptionGroup) {
-                        continue;
-                    }
-                    // Get config options in the group
-                    $configOptions = $this->pdo->prepare('SELECT * FROM tblproductconfigoptions WHERE gid = :gid');
-                    $configOptions->bindValue(':gid', $configOptionGroup['id'], PDO::PARAM_INT);
-                    $configOptions->execute();
-                    $configOptions = $configOptions->fetchAll(PDO::FETCH_ASSOC);
-                    foreach ($configOptions as $configOption) {
-                        // Link config option to product
-                        DB::table('config_option_products')->insert([
-                            'product_id' => $record['id'],
-                            'config_option_id' => $configOption['id'],
-                        ]);
-                    }
-                }
-            }
-
-            // Insert products first
-            DB::table('products')->insert($data);
-
-            // Insert upgrades
-            if (count($upgrades) > 0) {
-                DB::table('product_upgrades')->insert($upgrades);
-            }
-
-            // Now process plans for all products in this batch
-            foreach ($records as $record) {
-                if ($record['paytype'] === 'free') {
-                    // Free product, create a free plan
-                    $planData[$record['id'] . '_free'] = [
-                        'priceable_id' => $record['id'],
-                        'priceable_type' => Product::class,
-                        'name' => 'Free',
-                        'type' => 'free',
-                    ];
-
-                    continue;
-                }
-                $stmt = $this->pdo->prepare('SELECT * FROM tblpricing WHERE type = "product" AND relid = :relid');
-                $stmt->bindValue(':relid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $prices = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                $this->priceMagic($prices, $planData, $priceData, $record);
-            }
-
-            // Insert plans and then prices
-            foreach ($planData as $planKey => $plan) {
-                $planId = DB::table('plans')->insertGetId($plan);
-
-                if (isset($priceData[$planKey])) {
-                    foreach ($priceData[$planKey] as &$price) {
-                        $price['plan_id'] = $planId;
-                    }
-                    DB::table('prices')->insert($priceData[$planKey]);
-                }
-            }
-        });
     }
 
     /** The tickets (docs/tickets.md §5α, PR Δ); also on its own: app:import-whmcs-tickets. */
@@ -1244,11 +1042,11 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing tickets... (' . $this->count('tbltickets') . ' records)');
         try {
-            $folder = $this->option('ticket-attachments');
+            $folders = array_values(array_filter((array) $this->option('ticket-attachments'), fn ($folder) => is_string($folder) && $folder !== ''));
         } catch (Throwable) {
-            $folder = null; // called without the command's input (the tests' reflection)
+            $folders = []; // called without the command's input (the tests' reflection)
         }
-        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run()) !== self::SUCCESS) {
+        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, $folders))->run()) !== self::SUCCESS) {
             $this->warn('Tickets: see above; app:import-whmcs-tickets can be run again on its own.');
         }
     }
@@ -1312,6 +1110,113 @@ class ImportFromWhmcs extends Command
         return $value === '' ? null : ($max === null ? $value : mb_substr($value, 0, $max));
     }
 
+    /**
+     * A service's options as WHMCS keeps them (tblhostingconfigoptions, WG-11), by the catalog's `whmcs_ref`: a dropdown
+     * or radio its value, a checkbox its value when ticked (qty > 0), a quantity its number as a property (as an order
+     * writes one; PlaceOrderService). Its price is not touched: WHMCS's amount, with the options in it, stays the
+     * service's (undiscounted_price); a price computed from the catalog (an upgrade, the price report) now counts them.
+     * A quantity option still has no price here (CART-9, WG-15). One not brought (an option or value WHMCS deleted, an
+     * option of a group its product does not offer) is said.
+     */
+    private function importServiceOptions(): void
+    {
+        $this->info('Importing service options... (' . $this->count('tblhostingconfigoptions') . ' records)');
+        $refs = DB::table('config_options')->whereNotNull('whmcs_ref')->get(['id', 'parent_id', 'type', 'name', 'env_variable', 'whmcs_ref'])->keyBy('whmcs_ref');
+        $services = DB::table('services')->whereNull('whmcs_addon_id')->pluck('product_id', 'id');
+        // Only an option its product offers: WHMCS prices a service by its product's option groups (tblproductconfiglinks),
+        // and an option of another group is in neither its amount nor its recalculation (review of #653: myip's 4 Dedicated
+        // IPs, 7.00 and 62.00 with none in them, would have priced at 9.00 and 86.00 on a change of cycle).
+        $linked = DB::table('config_option_products')->get(['product_id', 'config_option_id'])
+            ->mapWithKeys(fn ($link) => [$link->product_id . '|' . $link->config_option_id => true]);
+        $unlinked = [];
+        $morph = (new Service)->getMorphClass();
+        $configs = [];
+        $properties = [];
+        $missing = [];
+        $now = now();
+        foreach ($this->pdo->query('SELECT hc.relid, hc.configid, hc.optionid, hc.qty, o.optiontype FROM tblhostingconfigoptions hc
+            LEFT JOIN tblproductconfigoptions o ON o.id = hc.configid ORDER BY hc.id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $service = (int) $row['relid'];
+            if (!$services->has($service)) {
+                continue; // a service not brought
+            }
+            $option = $refs->get('option:' . (int) $row['configid']);
+            if ($option === null && (int) ($row['optiontype'] ?? 0) === 4 && (int) $row['qty'] <= 0) {
+                continue; // a quantity of 0 of an option no service took: not brought (WG-15), nothing chosen
+            }
+            if ($option === null) {
+                $missing[] = "service #{$service}, option #{$row['configid']}";
+
+                continue;
+            }
+            if (!isset($linked[$services[$service] . '|' . $option->id])) {
+                if ($option->type === 'select' || $option->type === 'radio' || (int) $row['qty'] > 0) {
+                    $unlinked[] = "service #{$service}, «{$option->name}»";
+                }
+
+                continue;
+            }
+            $quantity = (int) $row['qty'];
+            if ($option->type === 'number') {
+                if ($quantity > 0) {
+                    // One row per service and key: a second (a duplicate in WHMCS) replaces the first.
+                    $properties[$service . '|' . ($option->env_variable ?: $option->name)] = ['model_type' => Service::class, 'model_id' => $service,
+                        'key' => $option->env_variable ?: $option->name, 'name' => $option->name, 'value' => (string) $quantity,
+                        'created_at' => $now, 'updated_at' => $now];
+                }
+
+                continue;
+            }
+            if ($option->type === 'checkbox' && $quantity <= 0) {
+                continue; // not ticked
+            }
+            $value = $refs->get('value:' . (int) $row['optionid']);
+            if ($value === null || (int) $value->parent_id !== (int) $option->id) {
+                $missing[] = "service #{$service}, option «{$option->name}» value #{$row['optionid']}";
+
+                continue;
+            }
+            $configs[$service . '|' . $option->id] = ['configurable_type' => $morph, 'configurable_id' => $service, 'config_option_id' => $option->id,
+                'config_value_id' => $value->id, 'created_at' => $now, 'updated_at' => $now];
+        }
+        foreach (array_chunk(array_values($configs), 500) as $chunk) {
+            DB::table('service_configs')->insert($chunk);
+        }
+        foreach (array_chunk(array_values($properties), 500) as $chunk) {
+            DB::table('properties')->insertOrIgnore($chunk); // one another step wrote under the same key stays
+        }
+        $this->info('Service options: ' . count($configs) . ' chosen, ' . count($properties) . ' quantities.');
+        if ($missing !== []) {
+            $this->warn(count($missing) . ' service option(s) whose option or value WHMCS no longer has, left out: ' . implode('; ', array_slice($missing, 0, 20))
+                . (count($missing) > 20 ? '; …' : '') . '.');
+        }
+        if ($unlinked !== []) {
+            $this->warn(count($unlinked) . ' service option(s) of a group its product does not offer, left out (WHMCS never charged them): '
+                . implode('; ', array_slice($unlinked, 0, 20)) . (count($unlinked) > 20 ? '; …' : '') . '.');
+        }
+    }
+
+    /**
+     * A cPanel reseller product's services are WHM resellers (WG-16): marked as the extension marks one it made
+     * (CPanel::RESELLER, «cpanel_reseller»), so a suspension takes their customers' accounts with it (suspendreseller, when
+     * WHM lists the user as a reseller), as WHMCS did, and WHM SSO and a downgrade's unmake know it, whatever the product
+     * becomes later. A termination is not changed by it: it always reads the owned accounts from WHM and needs staff's
+     * typed confirmation (review of #663).
+     */
+    private function markCpanelResellers(): void
+    {
+        $products = Setting::query()->where('settingable_type', (new Product)->getMorphClass())->where('key', 'reseller')->where('value', '1')->pluck('settingable_id');
+        $services = DB::table('services')->whereIn('product_id', $products)->whereNull('whmcs_addon_id')->pluck('id');
+        $now = now();
+        foreach ($services->chunk(500) as $chunk) {
+            DB::table('properties')->insertOrIgnore($chunk->map(fn ($id) => ['model_type' => Service::class, 'model_id' => $id, 'key' => 'cpanel_reseller',
+                'name' => 'WHM reseller', 'value' => '1', 'created_at' => $now, 'updated_at' => $now])->values()->all());
+        }
+        if ($services->isNotEmpty()) {
+            $this->info('cPanel resellers: ' . $services->count() . ' service(s) of ' . $products->count() . ' reseller product(s) marked (WG-16).');
+        }
+    }
+
     private function importServices()
     {
         $this->info('Importing services... (' . $this->count('tblhosting') . ' records)');
@@ -1322,11 +1227,23 @@ class ImportFromWhmcs extends Command
         // Each account's own server (tblhosting.server), by the catalog's WHMCS ids; one not here (deleted, or a module
         // with no extension) stays none, never the product's (AUD4-1).
         $servers = Server::query()->whereNotNull('whmcs_id')->get(['id', 'whmcs_id', 'extension'])->keyBy('whmcs_id');
+        // A cluster's other nodes (myip's Pegasus beside Vega): one server here, its WHMCS id the first node's (CatalogImport).
+        $byId = Server::query()->whereKey(array_values($this->whmcsServers))->get(['id', 'whmcs_id', 'extension'])->keyBy('id');
+        foreach ($this->whmcsServers as $whmcsId => $serverId) {
+            if (!$servers->has($whmcsId) && $byId->has($serverId)) {
+                $servers->put($whmcsId, $byId->get($serverId));
+            }
+        }
         $productServers = DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')->pluck('extensions.extension', 'products.id');
         $withoutServer = [];
         $freeOnPlan = [];
+        $offCycle = [];
+        $unpriced = []; // plan id => it has no prices
         $marked = [];
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan) {
+        // Each account's group discount, as its services' prices hold it (ClientGroupPricing).
+        $groupPercents = DB::table('clients')->join('client_groups', 'client_groups.id', '=', 'clients.client_group_id')
+            ->pluck('client_groups.discount_percent', 'clients.id')->map(fn ($percent) => number_format((float) $percent, 2, '.', ''))->all();
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced, $groupPercents) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
@@ -1354,6 +1271,20 @@ class ImportFromWhmcs extends Command
                         $freeOnPlan[] = (int) $record['id'];
                     }
                 }
+                // Billed on a cycle its product does not offer (WHMCS bills the service's own amount): a plan of that cycle
+                // without prices, never sold, so it renews here at its price (myip rehearsal 2026-11-04: 13 live ones). A
+                // live one only: an ended one renews no more, and its plan would only crowd its product's (review of #628).
+                $live = in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true);
+                if ($planId === null && !$freeAccount && $live && ($product = Product::query()->find((int) $record['packageid'])) !== null) {
+                    $planId = CatalogImport::unpricedPlan($product, (string) $record['billingcycle']);
+                }
+                // Listed for staff: each live one on a plan with no price in its currency (made here, a cycle WHMCS no longer
+                // sells, or one priced in another currency only): «Recalculate price» would make it 0.00 (review of #628).
+                $currency = (string) ($user['code'] ?? '');
+                if ($planId !== null && !$freeAccount && $live
+                    && ($unpriced["{$planId}|{$currency}"] ??= !DB::table('prices')->where('plan_id', $planId)->where('currency_code', $currency)->exists())) {
+                    $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
+                }
 
                 $whmcsServer = array_key_exists('server', $record) ? (int) $record['server'] : null;
                 $server = $whmcsServer ? $servers->get($whmcsServer) : null;
@@ -1373,6 +1304,8 @@ class ImportFromWhmcs extends Command
                     $marked[] = [(int) $record['id'], $mark[0] === Mailcow::LOCKED ? 'mailcow' : 'Centova', (string) ($record['username'] ?: $record['domain'])];
                 }
 
+                // WHMCS's amount, without its account's group discount; none for a «Free Account» (below).
+                $amount = $freeAccount ? null : $this->recurringAmount($record);
                 $data[] = [
                     'id' => $record['id'],
                     'order_id' => $record['orderid'],
@@ -1381,8 +1314,10 @@ class ImportFromWhmcs extends Command
                     'product_id' => $record['packageid'],
                     'status' => self::serviceStatus((string) $record['domainstatus']),
                     // Never below zero (ADV-551-3): it would renew free; staff are told. A «Free Account» is free whatever
-                    // amount WHMCS left on it: WHMCS never invoiced it.
-                    'price' => $freeAccount ? '0.00' : $this->recurringAmount($record),
+                    // amount WHMCS left on it: WHMCS never invoiced it. WHMCS keeps the amount without its account's group
+                    // discount and bills the discount on each renewal, a `GroupDiscount` line per service (nixpal: 46.40,
+                    // −4.64, 41.76 each month); here the price holds it (WG-1).
+                    'price' => $amount === null ? '0.00' : ClientGroupPricing::discounted($amount, $groupPercents[(int) $record['userid']] ?? '0.00'),
                     'quantity' => $record['qty'],
                     'client_id' => $record['userid'],
                     'plan_id' => $planId,
@@ -1393,6 +1328,11 @@ class ImportFromWhmcs extends Command
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,
+                    // The discount its price now holds: the cron's reconcile of group prices leaves it as it is.
+                    'group_percent' => $groupPercents[(int) $record['userid']] ?? '0.00',
+                    // WHMCS's amount itself: a later change of group reprices from it as WHMCS would bill it, never by
+                    // ratio (ADV-641-1: a 100% group's 0.00; ADV-641-2: 1.66 back to 1.85, not 1.84).
+                    'undiscounted_price' => $amount,
                     // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
                     'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Its own cron leaves the reason
@@ -1438,6 +1378,10 @@ class ImportFromWhmcs extends Command
             $this->warn(count($withoutServer) . ' live service(s) whose WHMCS server is not here: no server action until staff set one.');
             $this->table(['Service', 'WHMCS server'], $withoutServer);
         }
+        if ($offCycle !== []) {
+            $this->warn(count($offCycle) . ' live service(s) billed on a cycle their product does not offer: on a plan of that cycle without prices (not sold), renewed at their own price. Check each one\'s price.');
+            $this->table(['Service', 'Cycle', 'Product'], $offCycle);
+        }
         if ($marked !== []) {
             // Before the cut-over: each one checked disabled (Centova) or locked (mailcow) there, as WHMCS left it.
             $this->info(count($marked) . ' suspended service(s) marked as suspended by us: a payment enables them again.');
@@ -1445,16 +1389,103 @@ class ImportFromWhmcs extends Command
         }
     }
 
+    /** WHMCS's product addons (WhmcsAddonImport): each live one a service fastened to its parent. */
+    private function importAddons(): void
+    {
+        if (!$this->sourceHas('tblhostingaddons')) {
+            return;
+        }
+        $suspendDays = $this->sourceHas('tblconfiguration')
+            ? (int) ($this->pdo->query("SELECT value FROM tblconfiguration WHERE setting = 'AutoSuspensionDays'")->fetchColumn() ?: 0) : 0;
+        $result = (new WhmcsAddonImport($this->pdo, $suspendDays))->run();
+        $this->addonsHere = $result['services'];
+        $c = $result['counts'];
+        $this->info("Product addons: {$c['services']} live addon(s) as services of their parents, {$c['products']} addon product(s); {$c['skipped']} not imported.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /** @var array<int, int>|null WHMCS addon (tblhostingaddons.id) => its own service here (WhmcsAddonImport) */
+    private ?array $addonsHere = null;
+
+    /** @return array<int, int> */
+    private function addonsHere(): array
+    {
+        return $this->addonsHere ??= DB::table('services')->whereNotNull('whmcs_addon_id')->pluck('id', 'whmcs_addon_id')
+            ->mapWithKeys(fn ($id, $addon) => [(int) $addon => (int) $id])->all();
+    }
+
+    /** @var array<int, int> WHMCS server id => its server here (a cluster's nodes share one), from importServers */
+    private array $whmcsServers = [];
+
     /** WHMCS's servers and groups, and its products' (the catalog's step): before the services, which come on theirs. */
     private function importServers()
     {
         if (!$this->sourceHas('tblservers')) {
             return;
         }
-        $result = (new CatalogImport($this->pdo))->serversForFullImport();
+        $result = $this->catalog()->serversForFullImport();
+        $this->whmcsServers = $result['server_ids'];
         $this->info("Servers: {$result['counts']['servers']} servers, {$result['counts']['server_groups']} groups (no passwords or API keys: staff enter them).");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
+        }
+    }
+
+    /** The catalog's importer, one for the servers and the products: a product takes the servers its step brought. */
+    private ?CatalogImport $catalog = null;
+
+    private function catalog(): CatalogImport
+    {
+        return $this->catalog ??= new CatalogImport($this->pdo, makeDefaultCurrency: false, keepWhmcsIds: true);
+    }
+
+    /**
+     * WHMCS's product groups, config options and products, as the catalog's own import brings them (WG-2): the cPanel and
+     * ngm packages, the hidden groups, the retired products, the free prices, the order and the config options' links.
+     * Products and groups keep their WHMCS ids, which the services, orders and licenses point at.
+     */
+    private function importCatalog(): void
+    {
+        $result = $this->catalog()->productsForFullImport();
+        $this->info("Catalog: {$result['counts']['categories']} groups, {$result['counts']['products']} products, {$result['counts']['config_options']} config options, "
+            . "{$result['counts']['plans']} plans, {$result['counts']['prices']} prices.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+    }
+
+    /**
+     * The products with no module in WHMCS that a live service is on (myip: dedicated servers, colocation, managed ones, a
+     * backup MX, a few by hand), and those services: on one Offline Dedicated server, so every action on them (a suspension
+     * for non-payment too) is a task for staff to see, never a status changed and nothing done (owner 2026-11-04). Only one
+     * with no server in WHMCS: one on its own WHMCS server keeps it, and one whose WHMCS server is not here (deleted, a module
+     * with no extension) stays listed for staff to set (review of #628). An ended service keeps none of its own; staff
+     * acting on it by hand from its page get a task too. Listed for staff, who move one that is not a machine (a
+     * certificate, a license) where it belongs. Redfish (iDRAC, BMC) is the roadmap's, later (ROADMAP).
+     */
+    private function importOfflineDedicated(): void
+    {
+        if (!$this->sourceHas('tblproducts') || !$this->sourceHas('tblhosting')) {
+            return;
+        }
+        $live = "('Active', 'Suspended', 'Pending')";
+        $ids = array_map('intval', $this->pdo->query("SELECT p.id FROM tblproducts p WHERE COALESCE(p.servertype, '') = ''
+            AND EXISTS (SELECT 1 FROM tblhosting h WHERE h.packageid = p.id AND h.domainstatus IN {$live}) ORDER BY p.id")->fetchAll(PDO::FETCH_COLUMN));
+        if ($ids === []) {
+            return;
+        }
+        $server = Server::query()->firstOrCreate(['extension' => 'OfflineDedicated', 'name' => 'Manual (offline)'], ['type' => 'server', 'enabled' => true]);
+        DB::table('products')->whereIn('id', $ids)->whereNull('server_id')->update(['server_id' => $server->id]);
+        $services = DB::table('services')->whereIn('product_id', $ids)->whereNull('server_id')
+            ->where(fn ($none) => $none->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0))
+            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->orderBy('id')->get(['id', 'product_id', 'domain']);
+        DB::table('services')->whereIn('id', $services->pluck('id'))->update(['server_id' => $server->id]);
+        $this->info(count($services) . ' live service(s) of ' . count($ids) . " product(s) with no module in WHMCS on «{$server->name}» (Offline Dedicated): every action on them is a task for staff.");
+        if ($services->isNotEmpty()) {
+            $names = DB::table('products')->whereIn('id', $ids)->pluck('name', 'id');
+            $this->table(['Service', 'Product', 'Domain'], $services->map(fn ($service) => [$service->id, $names[$service->product_id] ?? '', $service->domain])->all());
         }
     }
 
@@ -1564,7 +1595,7 @@ class ImportFromWhmcs extends Command
         $this->domains = new WhmcsDomainImport($this->pdo);
         $result = $this->domains->run();
         $c = $result['counts'];
-        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
+        $this->info("Domains: {$c['domains']} ({$c['skipped']} skipped, {$c['at_tld_price']} at their TLD's price), {$c['tlds']} TLDs, {$c['connections']} registrar connection(s); "
             . "{$c['handles']} handle(s) linked, {$c['handles_kept']} kept for staff; {$c['reminders']} notice(s) already sent.");
         foreach ($result['notes'] as $note) {
             $this->warn($note);
@@ -1605,8 +1636,146 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * The gateway here of a WHMCS module, for a preferred payment method: only one already here (its payments', or set
-     * up), never installed for a label, it would be offered to everyone unconfigured (reviews of #539).
+     * WHMCS's ways of paying, each a gateway here, installed DISABLED (staff set it up and enable it) before the invoices',
+     * items' and saved methods' ways are set: on the cut-over's empty database a bank transfer or Eurobank one was no way
+     * at all, and a customer paying some items so and others by card stopped being charged (owner 2026-11-06; myip's
+     * rehearsal: 31 customers, 101 items). The ways WHMCS shows customers («visible»), and any a live service or domain
+     * still pays by (a way hidden since: review of #679). A disabled gateway is offered to no one (the concern of #539).
+     * One it installs gets the name WHMCS shows (bank transfer, the Eurobank vPOS); bank transfer's accounts come from its
+     * «Invoice Created» template (bankAccounts), also on a re-run while it has none: WHMCS keeps its own text encrypted in
+     * a scheme nothing outside it reads.
+     */
+    private function importPaymentWays(): void
+    {
+        try {
+            $rows = $this->pdo->query("SELECT gateway, setting, value FROM tblpaymentgateways WHERE setting IN ('visible', 'name')")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return;
+        }
+        $ways = [];
+        foreach ($rows as $row) {
+            $ways[strtolower(trim((string) $row['gateway']))][(string) $row['setting']] = trim((string) $row['value']);
+        }
+        $used = [];
+        foreach ([["SELECT DISTINCT paymentmethod FROM tblhosting WHERE domainstatus IN ('Active', 'Suspended')", 'tblhosting'],
+            ["SELECT DISTINCT paymentmethod FROM tbldomains WHERE status IN ('Active', 'Grace', 'Redemption', 'Pending')", 'tbldomains']] as [$sql, $table]) {
+            if ($this->sourceHas($table)) {
+                foreach ($this->pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN) as $module) {
+                    $used[strtolower(trim((string) $module))] = true;
+                }
+            }
+        }
+        foreach ($ways as $module => $settings) {
+            if (($settings['visible'] ?? '') !== 'on' && !isset($used[$module])) {
+                continue;
+            }
+            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            if ($extension === null) {
+                $this->warn("Payment way «{$module}» («" . ($settings['name'] ?? '') . '»): MyCS has no gateway for it; its invoices and items keep none.');
+
+                continue;
+            }
+            $existed = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->exists();
+            $id = $this->installedGateway($extension);
+            unset($this->itemGateways[$module]); // read again by the steps after
+            $name = mb_substr($settings['name'] ?? '', 0, 255);
+            // Its own name only on one it installed, and only for a way of its own (paypal and paypal_ppcpv share PayPal).
+            if (!$existed && $name !== '' && isset(self::PREFERRED_GATEWAYS[$module])) {
+                DB::table('extensions')->where('id', $id)->update(['name' => $name]);
+            }
+            // Its accounts once: never over what staff wrote, and again on a re-run that has none yet.
+            $gateway = Gateway::query()->find($id);
+            if ($extension === 'BankTransfer' && $gateway !== null && trim((string) $gateway->settings()->where('key', 'accounts')->value('value')) === '') {
+                $this->bankAccounts($gateway, $name);
+            }
+        }
+    }
+
+    /**
+     * Bank transfer's accounts (its required «Bank accounts»), from WHMCS's «Invoice Created» template: the block it shows
+     * for this way ({if $invoice_payment_method eq "<its name>"} … its own {elseif}/{else}/{/if}, an {if} inside it kept
+     * whole), as text: no comments, styles, scripts or hidden elements (old or preheader text, review of #679), cells and
+     * paragraphs apart; a line that is Smarty («deposit {$invoice_total} …») left out, unless it holds an IBAN (then only its
+     * Smarty goes). None found: said, staff write them.
+     */
+    private function bankAccounts(Gateway $gateway, string $name): void
+    {
+        $opening = '{if $invoice_payment_method eq "' . $name . '"}';
+        try {
+            $templates = $name === '' ? [] : $this->pdo->query("SELECT message FROM tblemailtemplates WHERE name = 'Invoice Created' ORDER BY language = '' DESC, id")
+                ->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException) {
+            $templates = [];
+        }
+        $iban = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){10,30}\b/';
+        $text = null;
+        foreach ($templates as $message) {
+            $start = mb_strpos((string) $message, $opening);
+            if ($start === false) {
+                continue;
+            }
+            $block = self::smartyBranch(mb_substr((string) $message, $start + mb_strlen($opening)));
+            // What a reader never sees.
+            $block = (string) preg_replace(['/<!--.*?-->/s', '#<(style|script|head|title)\b[^>]*>.*?</\1\s*>#is'], '', $block);
+            $block = (string) preg_replace('#<(\w+)\b[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|\bhidden\b)[^>]*>.*?</\1\s*>#is', '', $block);
+            // A paragraph, heading, row or box ends with a blank line; a <br>, an item or a cell with a new line.
+            $block = (string) preg_replace('#<\s*(/p|/div|/tr|/table|/h[1-6])\b[^>]*>#i', "\n\n", $block);
+            $block = (string) preg_replace('#<\s*(br|/li|/td|/th)\b[^>]*>#i', "\n", $block);
+            // The tags, also those split over lines, out of the whole block; a non-breaking space (&nbsp;) as a plain one.
+            $block = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($block), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            $lines = [];
+            foreach (explode("\n", $block) as $line) {
+                $line = trim($line);
+                if (str_contains($line, '{')) {
+                    if (preg_match($iban, $line) !== 1) {
+                        continue; // a Smarty line, meaningless out of its mail
+                    }
+                    $line = trim((string) preg_replace('/\s*\{[^}]*\}\s*/', ' ', $line));
+                }
+                $lines[] = $line;
+            }
+            // One blank line between its parts (the field's «a blank line between them»).
+            $text = trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", $lines)));
+            if ($text !== '' && preg_match($iban, $text) === 1) {
+                $text = mb_substr($text, 0, 5000);
+                break;
+            }
+            $text = null;
+        }
+        if ($text === null) {
+            $this->warn('Gateway «Bank transfer»: its accounts were not found in WHMCS\'s «Invoice Created» template: write them in its settings before enabling it.');
+
+            return;
+        }
+        $gateway->settings()->updateOrCreate(['key' => 'accounts'], ['value' => $text, 'type' => 'string', 'encrypted' => false]);
+        $this->info('Gateway «Bank transfer»: its accounts brought from WHMCS\'s «Invoice Created» template (' . count(explode("\n", $text)) . ' lines): check them before enabling it'
+            . ' (WHMCS\'s own bank transfer text is encrypted: paste it instead if it should be that one).');
+    }
+
+    /** A Smarty {if} branch's own text: up to its {elseif}/{else}/{/if}, an {if} … {/if} inside it kept whole. */
+    private static function smartyBranch(string $rest): string
+    {
+        $depth = 0;
+        $offset = 0;
+        while (preg_match('/\{(\/?if\b|elseif\b|else\b)[^}]*\}/', $rest, $m, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            [$tag, $at] = $m[0];
+            $kind = strtolower($m[1][0]);
+            if (str_starts_with($kind, 'if')) {
+                $depth++;
+            } elseif ($depth === 0) {
+                return substr($rest, 0, $at);
+            } elseif ($kind === '/if') {
+                $depth--;
+            }
+            $offset = $at + strlen($tag);
+        }
+
+        return $rest;
+    }
+
+    /**
+     * The gateway here of a WHMCS module, for a preferred payment method: only one here by now (its payments', set up, or
+     * installed disabled by importPaymentWays), never one installed for a label alone, enabled for everyone (#539).
      */
     private function existingGateway(string $module): ?int
     {
@@ -1765,6 +1934,13 @@ class ImportFromWhmcs extends Command
                 }
             }
         }
+        // An addon's own (WhmcsAddonImport): its service here by its WHMCS id.
+        foreach ($this->sourceHas('tblhostingaddons') ? $this->pdo->query('SELECT id, paymentmethod FROM tblhostingaddons')->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+            $module = strtolower(trim((string) ($row['paymentmethod'] ?? '')));
+            if ($module !== '' && isset($this->addonsHere()[(int) $row['id']]) && ($gateway = $this->existingGateway($module)) !== null) {
+                $set += DB::table('services')->where('id', $this->addonsHere()[(int) $row['id']])->update(['payment_gateway_id' => $gateway]);
+            }
+        }
         $this->info("Services' and domains' payment method: {$set} set from WHMCS.");
     }
 
@@ -1868,11 +2044,44 @@ class ImportFromWhmcs extends Command
 
             DB::table('service_cancellations')->insertOrIgnore($data);
         });
+        $this->cancellationsToAddons();
+    }
+
+    /**
+     * A parent's end-of-period request on each of its live addons that has none of its own, as one made here
+     * (AddonCascade::requestWithParent, `with_parent`): never renewed again, ended with it (code review 1 of #647). Rows
+     * written directly, as the requests: no mail to the customer, who asked once.
+     */
+    private function cancellationsToAddons(): void
+    {
+        $copies = [];
+        foreach (DB::table('service_cancellations')->where('type', 'end_of_period')->where('with_parent', false)->get(['service_id', 'reason', 'created_at']) as $request) {
+            $addons = DB::table('services')->where('parent_service_id', $request->service_id)->whereIn('status', Service::PAYING_STATUSES)
+                ->whereNotExists(fn ($own) => $own->from('service_cancellations')->whereColumn('service_cancellations.service_id', 'services.id'))->orderBy('id')->pluck('id');
+            foreach ($addons as $addon) {
+                $copies[] = ['service_id' => (int) $addon, 'reason' => $request->reason, 'type' => 'end_of_period', 'with_parent' => true,
+                    'created_at' => $request->created_at, 'updated_at' => $request->created_at];
+            }
+        }
+        DB::table('service_cancellations')->insertOrIgnore($copies);
+        if ($copies !== []) {
+            $this->info(count($copies) . ' addon(s) of services with an end-of-period cancellation: cancelled with them.');
+        }
     }
 
     private function importInvoices()
     {
         $this->info('Importing invoices... (' . $this->count('tblinvoices') . ' records)');
+        // WHMCS's «Collections» (myip's auto-cancellation hook writes them on terminate) come unpaid: reminders and
+        // auto-charge would chase them. The owner's call (WG-18): they are cancelled in WHMCS before the final import.
+        // Only those imported below: not a Mass Pay parent, nor one whose customer has no currency (review of #665).
+        $collections = array_values(array_filter(array_map('intval', $this->pdo->query("SELECT i.id FROM tblinvoices i
+            JOIN tblclients c ON c.id = i.userid JOIN tblcurrencies cu ON cu.id = c.currency WHERE i.status = 'Collections' ORDER BY i.id")
+            ->fetchAll(PDO::FETCH_COLUMN)), fn (int $id) => !isset($this->massPayParents()[$id])));
+        if ($collections !== []) {
+            $this->warn(count($collections) . ' WHMCS invoice(s) in Collections (#' . implode(', #', $collections) . '): imported as unpaid, so reminders and'
+                . ' auto-charge apply to them. Cancel them in WHMCS before the final import (cutover-runbook, WG-18).');
+        }
 
         $this->migrateInBatch('tblinvoices', 'SELECT * FROM tblinvoices LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
@@ -1964,8 +2173,8 @@ class ImportFromWhmcs extends Command
     /**
      * The reminders WHMCS has sent already, as sent here (review of #531): with the due dates in (AUD9-2), the first cron
      * run would otherwise send each open invoice's «due soon» again, and the overdue notice of the last few days. Every
-     * overdue day up to today counts as sent, and «due soon» where its due date is within WHMCS's reminder days. The days
-     * ahead are the cron's own.
+     * overdue day up to WHMCS's last daily run counts as sent, and «due soon» where that run was within WHMCS's reminder
+     * days of its due date. The days after it are the cron's own.
      */
     private function importReminderState(): void
     {
@@ -1975,22 +2184,24 @@ class ImportFromWhmcs extends Command
             $before = ctype_digit($value) && (int) $value <= PaymentReminders::MAX_DAYS ? (int) $value : 0;
         }
         $today = Carbon::today();
+        $sentUpTo = $this->whmcsLastDailyRun($today);
         $rows = [];
         foreach (DB::table('invoices')->where('status', Invoice::STATUS_UNPAID)->whereNotNull('due_at')->get(['id', 'due_at']) as $invoice) {
             $due = Carbon::parse($invoice->due_at)->startOfDay();
             $row = ['invoice_id' => $invoice->id, 'due_on' => $due->toDateString(), 'sent_at' => now()];
             if ($due->greaterThan($today)) {
-                if ($due->lessThanOrEqualTo($today->copy()->addDays($before))) {
+                if ($due->lessThanOrEqualTo($sentUpTo->copy()->addDays($before))) {
                     $rows[] = ['kind' => 'due', 'days' => 0] + $row;
                 }
 
                 continue;
             }
             // Only within the overdue days the cron still sends on (and catches up): an older one is never reminded again.
-            $late = (int) $due->diffInDays($today);
-            if ($late > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
+            if ((int) $due->diffInDays($today) > PaymentReminders::MAX_DAYS + PaymentReminders::CATCH_UP_DAYS) {
                 continue;
             }
+            // Late on WHMCS's last run: due after it, none of its notices went yet (0 days).
+            $late = $due->lessThan($sentUpTo) ? (int) $due->diffInDays($sentUpTo) : 0;
             for ($day = 1; $day <= min($late, PaymentReminders::MAX_DAYS); $day++) {
                 $rows[] = ['kind' => 'overdue', 'days' => $day] + $row;
             }
@@ -1998,7 +2209,34 @@ class ImportFromWhmcs extends Command
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('invoice_reminders')->insertOrIgnore($chunk);
         }
-        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . '.');
+        $this->info('Reminders WHMCS sent already, kept as sent: ' . count($rows) . " (up to its daily run of {$sentUpTo->toDateString()}).");
+    }
+
+    /**
+     * The day of WHMCS's last finished daily run (its reminders go in it): a dump taken before the day's run has not sent
+     * the day's notices, and WHMCS's cron is off from the cut-over (replay of nixpal, 2026-11-03: four «Second Overdue
+     * Notice» of 09:00 counted as sent by an import of 02:21). Never after today; today when WHMCS does not say.
+     */
+    private function whmcsLastDailyRun(Carbon $today): Carbon
+    {
+        if (!$this->sourceHas('tblconfiguration')) {
+            return $today;
+        }
+        $at = [];
+        foreach ($this->pdo->query("SELECT setting, value FROM tblconfiguration WHERE setting IN ('lastDailyCronEndTime', 'lastDailyCronInvocationTime')") as $row) {
+            $at[$row['setting']] = trim((string) $row['value']);
+        }
+        $value = ($at['lastDailyCronEndTime'] ?? '') !== '' ? $at['lastDailyCronEndTime'] : ($at['lastDailyCronInvocationTime'] ?? '');
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $m) !== 1 || $m[1] === '0000-00-00') {
+            return $today;
+        }
+        try {
+            $day = Carbon::createFromFormat('!Y-m-d', $m[1]);
+        } catch (Throwable) {
+            return $today;
+        }
+
+        return $day === null || $day->greaterThan($today) ? $today : $day;
     }
 
     private function importInvoiceItems()
@@ -2056,7 +2294,9 @@ class ImportFromWhmcs extends Command
     /**
      * What a WHMCS invoice line is for (tblinvoiceitems.type, relid), so income goes to its product (#504):
      * - Hosting: the service's renewal (services keep their WHMCS ids), as before: no kind, its period given when paid.
-     * - Setup, PromoHosting (relid = the service), Addon (relid = tblhostingaddons, on its service) and Upgrade (relid =
+     * - Addon (relid = tblhostingaddons): the addon's own service when it was imported (a live one, WhmcsAddonImport), as a
+     *   Hosting line; an ended one's on its parent, as below.
+     * - Setup, PromoHosting (relid = the service), Addon of an ended addon (on its parent) and Upgrade (relid =
      *   tblupgrades of a package or its options, on its service): the service's, `kind = charge`, never a period: a
      *   payment renews nothing with it, and the billing never takes it for a period (docs/importer.md).
      * - AddFunds: a credit purchase, as MyCS's own: never income (the credit is, when it pays; #275).
@@ -2091,7 +2331,11 @@ class ImportFromWhmcs extends Command
         };
 
         return match (true) {
-            $type === 'Hosting' => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            // Never an addon's service (its id is no WHMCS service's, ADV-647-3); a deleted service's line is WG-27's.
+            $type === 'Hosting' && !in_array($relid, $this->addonsHere(), true) => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            // An addon imported as a service of its own (WhmcsAddonImport): its renewal, as a service's Hosting line (paid, it
+            // renews it; unpaid, it is the renewal billed already).
+            $type === 'Addon' && isset($this->addonsHere()[$relid]) => ['reference_type' => Service::class, 'reference_id' => $this->addonsHere()[$relid], 'kind' => null],
             $type === 'AddFunds' => ['reference_type' => Credit::class, 'reference_id' => null, 'kind' => null],
             $service !== null && isset($this->importedServices()[$service]) => ['reference_type' => Service::class, 'reference_id' => $service, 'kind' => InvoiceItem::KIND_CHARGE],
             default => ['reference_type' => null, 'reference_id' => $record['relid'], 'kind' => null],
@@ -2107,7 +2351,8 @@ class ImportFromWhmcs extends Command
     /** @return array<int, true> */
     private function importedServices(): array
     {
-        return $this->importedServices ??= array_fill_keys(DB::table('services')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+        // WHMCS's services only: an addon's service (WhmcsAddonImport) is no WHMCS service id.
+        return $this->importedServices ??= array_fill_keys(DB::table('services')->whereNull('whmcs_addon_id')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
     }
 
     /** @var array<int, int>|null WHMCS product addon (tblhostingaddons.id) => its service */
@@ -2388,13 +2633,14 @@ class ImportFromWhmcs extends Command
      */
     private function installedGateway(string $extension): int
     {
-        $id = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->value('id');
+        // Never a deleted one (staff removed it): a new one, as the admin's «Install» would (review of #679).
+        $id = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
         if ($id !== null) {
             return (int) $id;
         }
         $gateway = Extension::create(['name' => $extension, 'type' => 'gateway', 'extension' => $extension]);
         ExtensionHelper::call($gateway, 'installed', mayFail: true);
-        $this->warn("Gateway «{$extension}» installed for the imported payments: set it up and enable it.");
+        $this->warn("Gateway «{$extension}» installed, disabled: set it up and enable it.");
 
         return (int) $gateway->id;
     }
@@ -2408,11 +2654,21 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * WHMCS promotions (tblpromotions) as coupons, with their ids (tblhosting.promoid). One MyCS cannot express as WHMCS
-     * applies it (a price override, some billing cycles only, new or existing clients only, «requires», once per order,
-     * recurring for N times) is imported closed for new orders (expired now) and reported: staff recreate it. The
-     * services ordered with it keep it, for the record (serviceCoupon).
+     * WHMCS promotions (tblpromotions) as coupons, with their ids (tblhosting.promoid), and their rules as MyCS has them
+     * since #274 (WG-6): a price override, its billing cycles, new or existing clients, once per client, «requires» (held
+     * already, with «Requires Existing»), recurring for N times (N discounted invoices, the order's among them: review of
+     * #650), «Lifetime Promotion» (kept_on_product_change: ADV-650-1). One MyCS still cannot express as WHMCS applies it
+     * (once per order, for upgrades, a fixed amount in more than one currency, a negative value, addons or domains) is
+     * imported closed for new orders (expired now) and reported: staff recreate it. The services ordered with it keep it,
+     * for the record (serviceCoupon), also those WHMCS no longer marks (ADV-650-2: «once per client» remembers them).
      */
+    /** WHMCS's billing cycles as a coupon lists them (Coupon::cycleKey); its domains' «1Years»… are no product's. */
+    private const PROMOTION_CYCLES = ['Monthly' => 'month:1', 'Quarterly' => 'month:3', 'Semi-Annually' => 'month:6',
+        'Annually' => 'year:1', 'Biennially' => 'year:2', 'Triennially' => 'year:3', 'One Time' => 'one_time'];
+
+    /** @var array<int, int> WHMCS orders placed with a promotion's code (tblorders.promocode) => its id: serviceCoupon */
+    private array $orderPromotions = [];
+
     /** @var array<int, array{recurring: int, recurfor: int, code: string}> the promotions imported, by id: serviceCoupon */
     private array $promotions = [];
 
@@ -2424,47 +2680,91 @@ class ImportFromWhmcs extends Command
         $currencies = (int) $this->pdo->query('SELECT COUNT(*) FROM tblcurrencies')->fetchColumn();
         $closed = now()->subSecond()->toDateTimeString(); // past already: closed from the import on
 
+        $promotionCodes = $this->pdo->query('SELECT code, id FROM tblpromotions ORDER BY id')->fetchAll(PDO::FETCH_KEY_PAIR);
+        try {
+            foreach ($this->pdo->query("SELECT id, promocode FROM tblorders WHERE promocode <> ''")->fetchAll(PDO::FETCH_KEY_PAIR) as $order => $code) {
+                if (isset($promotionCodes[$code])) {
+                    $this->orderPromotions[(int) $order] = (int) $promotionCodes[$code];
+                }
+            }
+        } catch (PDOException) {
+            // a source without tblorders (a test's): none
+        }
+
         foreach ($this->pdo->query('SELECT * FROM tblpromotions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $promo) {
             $why = [];
             [$type, $value, $appliesTo] = match ($promo['type']) {
                 'Percentage' => ['percentage', $promo['value'], 'all'],
                 'Fixed Amount' => ['fixed', $promo['value'], 'all'],
                 'Free Setup' => ['percentage', '100.00', 'setup_fee'],
+                'Price Override' => ['override', $promo['value'], 'all'],
                 default => ['fixed', '0.00', 'all'],
             };
-            if (!in_array($promo['type'], ['Percentage', 'Fixed Amount', 'Free Setup'], true)) {
+            if (!in_array($promo['type'], ['Percentage', 'Fixed Amount', 'Free Setup', 'Price Override'], true)) {
                 $why[] = "type «{$promo['type']}»";
             }
-            $recurring = (int) $promo['recurring'] === 0 ? null : 0; // the first payment only, or every one
-            if ((int) $promo['recurring'] === 1 && (int) $promo['recurfor'] > 0) {
+            // A surcharge or a price below zero (WHMCS takes one; MyCS's discount refuses it, the cart would fail: ADV-650-3),
+            // or more than the whole.
+            if (!is_numeric($value) || $value < 0 || ($type === 'percentage' && $value > 100)) {
+                $why[] = "value {$promo['value']}";
+            }
+            // The first payment only (null), every one (0), or N invoices, the order's among them: WHMCS's promocount is 1
+            // after the order and the promotion stops at recurfor (review of #650: FREETRIAL, 2, never more than 2
+            // discounted invoices; divramis50, 1, the first renewal at full price). MyCS counts cycles the same way.
+            $recurring = (int) $promo['recurring'] === 0 ? null : max(0, (int) $promo['recurfor']);
+            if ($recurring !== null && $recurring > 1000) {
                 $why[] = "recurring for {$promo['recurfor']} times";
             }
-            $cycles = array_filter(array_map('trim', explode(',', (string) $promo['cycles'])));
-            // MyCS has no cycle limit: one WHMCS limits (a list without every cycle, «One Time» too) is not expressible.
-            if ($cycles !== [] && array_diff(['Monthly', 'Quarterly', 'Semi-Annually', 'Annually', 'Biennially', 'Triennially', 'One Time'], $cycles) !== []) {
-                $why[] = 'some billing cycles only (' . implode(', ', $cycles) . ')';
+            $cycles = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $promo['cycles'])))));
+            $billingCycles = null; // every cycle: none listed, or all of them
+            if ($cycles !== []) {
+                // A free account has nothing to discount: known, no cycle (review of #650: it is no one-time plan).
+                $unknown = array_filter($cycles, fn (string $cycle) => !isset(self::PROMOTION_CYCLES[$cycle]) && $cycle !== 'Free Account'
+                    && preg_match('/^\d+Years$/', $cycle) !== 1);
+                $keys = array_values(array_unique(array_map(fn (string $cycle) => self::PROMOTION_CYCLES[$cycle],
+                    array_filter($cycles, fn (string $cycle) => isset(self::PROMOTION_CYCLES[$cycle])))));
+                if ($unknown !== []) {
+                    $why[] = 'billing cycles unknown here (' . implode(', ', $unknown) . ')';
+                } elseif ($keys === []) {
+                    $why[] = 'billing cycles of domains or free accounts only (' . implode(', ', $cycles) . ')';
+                } elseif (array_diff(array_unique(self::PROMOTION_CYCLES), $keys) !== []) {
+                    $billingCycles = $keys;
+                }
             }
             // A MyCS coupon has no currency: a fixed amount means another sum in each one (WHMCS converts it).
             if ($promo['type'] === 'Fixed Amount' && $currencies > 1) {
                 $why[] = 'a fixed amount with more than one currency';
             }
-            foreach (['newsignups' => 'new clients only', 'existingclient' => 'existing clients only', 'requiresexisting' => 'requires an existing product',
-                'applyonce' => 'once per order', 'upgrades' => 'for upgrades', 'lifetimepromo' => 'kept on upgrades'] as $column => $label) {
+            foreach (['applyonce' => 'once per order', 'upgrades' => 'for upgrades'] as $column => $label) {
                 if ((int) ($promo[$column] ?? 0) === 1) {
                     $why[] = $label;
                 }
             }
-            if (trim((string) ($promo['requires'] ?? '')) !== '') {
-                $why[] = 'requires other products';
+            $customers = 'all';
+            if ((int) ($promo['newsignups'] ?? 0) === 1 && (int) ($promo['existingclient'] ?? 0) === 1) {
+                $why[] = 'new and existing clients only'; // no one, as WHMCS reads it
+            } elseif ((int) ($promo['newsignups'] ?? 0) === 1) {
+                $customers = 'new';
+            } elseif ((int) ($promo['existingclient'] ?? 0) === 1) {
+                $customers = 'existing';
+            }
+            $requires = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) ($promo['requires'] ?? ''))))));
+            $requiredIds = array_values(array_unique(array_filter(array_map('intval', array_filter($requires, 'ctype_digit')), fn (int $id) => $products->has($id))));
+            if (count($requiredIds) !== count($requires)) {
+                $why[] = 'requires addons, domains or products not imported';
             }
             $applies = array_filter(array_map('trim', explode(',', (string) $promo['appliesto'])));
-            $productIds = array_values(array_filter(array_map('intval', array_filter($applies, 'ctype_digit')), fn (int $id) => $products->has($id)));
-            if (count($productIds) !== count($applies)) {
+            $productIds = array_values(array_unique(array_filter(array_map('intval', array_filter($applies, 'ctype_digit')), fn (int $id) => $products->has($id))));
+            if (count($productIds) !== count(array_unique($applies))) {
                 $why[] = 'addons, domains or products not imported';
             }
             // No products in MyCS means every product (ADV-3): one WHMCS applies to nothing stays closed.
             if ($applies === []) {
                 $why[] = 'applies to no product';
+            }
+            // An override is for the products it names, in the default currency (Coupon::covers): said where WHMCS has more.
+            if ($type === 'override' && $currencies > 1 && $why === []) {
+                $this->warn("Promotion #{$promo['id']} «{$promo['code']}»: a price override, applied here in the default currency only.");
             }
             // Its uses: MyCS counts the services with it, WHMCS counted more (deleted services, orders). Used up there:
             // closed; else the uses left there on top of those brought here (ADV-2).
@@ -2474,7 +2774,10 @@ class ImportFromWhmcs extends Command
                 if ($left <= 0) {
                     $why[] = "used up ({$promo['uses']} of {$promo['maxuses']})";
                 }
-                $statement = $this->pdo->prepare('SELECT COALESCE(SUM(qty), 0) FROM tblhosting WHERE promoid = ?');
+                // The services that come with it (serviceCoupon): those with its promoid, and those of orders with its code.
+                $orders = array_keys(array_filter($this->orderPromotions, fn (int $id) => $id === (int) $promo['id']));
+                $statement = $this->pdo->prepare('SELECT COALESCE(SUM(qty), 0) FROM tblhosting WHERE promoid = ?'
+                    . ($orders === [] ? '' : ' OR (COALESCE(promoid, 0) = 0 AND orderid IN (' . implode(',', array_map('intval', $orders)) . '))'));
                 $statement->execute([$promo['id']]);
                 $maxUses = (int) $statement->fetchColumn() + max(0, $left);
             }
@@ -2490,7 +2793,13 @@ class ImportFromWhmcs extends Command
                 'applies_to' => $appliesTo,
                 'recurring' => $recurring,
                 'max_uses' => $maxUses,
-                'max_uses_per_user' => (int) $promo['onceperclient'] === 1 ? 1 : null,
+                'max_uses_per_user' => null,
+                'once_per_client' => (int) $promo['onceperclient'] === 1,
+                // WHMCS drops one that is not lifetime on an upgrade (ADV-650-1).
+                'kept_on_product_change' => (int) ($promo['lifetimepromo'] ?? 0) === 1,
+                'customers' => $customers,
+                'requires_existing' => (int) ($promo['requiresexisting'] ?? 0) === 1 && $requiredIds !== [],
+                'billing_cycles' => $billingCycles === null ? null : json_encode($billingCycles),
                 'starts_at' => $this->validateDate($promo['startdate'] ?? null),
                 // Closed for new orders when MyCS would apply it otherwise than WHMCS.
                 'expires_at' => $why !== [] && ($expires === null || $expires > $now) ? $closed : $expires,
@@ -2500,6 +2809,9 @@ class ImportFromWhmcs extends Command
             $this->promotions[(int) $promo['id']] = ['recurring' => (int) $promo['recurring'], 'recurfor' => (int) $promo['recurfor'], 'code' => (string) $promo['code']];
             if ($productIds !== []) {
                 DB::table('coupon_products')->insert(array_map(fn (int $id) => ['coupon_id' => $promo['id'], 'product_id' => $id], $productIds));
+            }
+            if ($requiredIds !== []) {
+                DB::table('coupon_required_products')->insert(array_map(fn (int $id) => ['coupon_id' => $promo['id'], 'product_id' => $id], $requiredIds));
             }
             if ($why !== []) {
                 $this->warn("Promotion #{$promo['id']} «{$promo['code']}»: imported closed for new orders (" . implode('; ', $why) . '): recreate it by hand if still offered.');
@@ -2517,7 +2829,8 @@ class ImportFromWhmcs extends Command
      */
     private function serviceCoupon(array $record): array
     {
-        $promo = (int) ($record['promoid'] ?? 0);
+        // WHMCS sets promoid back to 0 when a recurring promotion ends: its order's code still says it (ADV-650-2).
+        $promo = (int) ($record['promoid'] ?? 0) ?: ($this->orderPromotions[(int) ($record['orderid'] ?? 0)] ?? 0);
         $row = $this->promotions[$promo] ?? null;
         if ($row === null) {
             return ['coupon_id' => null, 'coupon_started_at' => null, 'coupon_expired_at' => null];

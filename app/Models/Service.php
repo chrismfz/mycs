@@ -11,9 +11,9 @@ use App\Redactors\FullRedactor;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
-use App\Services\Ops\Scrub;
 use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\ServiceIdentifier;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -29,7 +29,6 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
-use Illuminate\Support\Str;
 use MyCS\BillingPeriod\BillingPeriod;
 use MyCS\BillingPeriod\Prorata;
 use MyCS\Pricing\LinePricer;
@@ -105,6 +104,7 @@ class Service extends Model implements Auditable
 
     protected $fillable = [
         'order_id',
+        'parent_service_id',
         'product_id',
         'plan_id',
         'quantity',
@@ -145,6 +145,7 @@ class Service extends Model implements Auditable
 
     protected $casts = [
         'group_percent' => 'decimal:2',
+        'undiscounted_price' => 'decimal:2',
         'price_locked' => 'boolean',
         'no_auto_charge' => 'boolean',
         'expires_at' => 'date',
@@ -218,6 +219,37 @@ class Service extends Model implements Auditable
         return $this->belongsTo(Client::class);
     }
 
+    /** Why an addon is suspended when its parent was, not for its own invoice: back with its parent (docs/addons.md). */
+    public const SUSPEND_REASON_PARENT = 'Parent service suspended';
+
+    /** @return BelongsTo<Service, $this> the service it is an addon of (docs/addons.md), if it is one */
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_service_id');
+    }
+
+    /** @return HasMany<Service, $this> its addons, ended ones too */
+    public function addons(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_service_id');
+    }
+
+    /** An addon of another service: it follows its parent, and its server actions are staff's tasks (docs/addons.md). */
+    public function isAddon(): bool
+    {
+        return $this->parent_service_id !== null;
+    }
+
+    /**
+     * Not an addon: the services a list shows on their own, their addons under them.
+     *
+     * @param  Builder<Service>  $query
+     */
+    public function scopeNotAddons(Builder $query): void
+    {
+        $query->whereNull('parent_service_id');
+    }
+
     /**
      * @return BelongsTo<Gateway, $this> its own payment method (WHMCS's paymentmethod): its renewals are invoiced apart with
      *                                   it preferred, and a saved method of another gateway never charges them; none: the account's
@@ -240,6 +272,22 @@ class Service extends Model implements Auditable
         );
     }
 
+    /**
+     * A gateway subscription's id, or null: a blank one (spaces, from a staff form) is none. MariaDB compares a VARCHAR
+     * with trailing spaces padded (`' ' = ''`), and its collation (uca1400) holds invisible characters equal to '' too
+     * (a no-break or zero-width space, a control character: review of #608); SQLite and PHP do not. So the SQL checks
+     * (`subscription_id != ''`: AutoCharge::due, Invoice::billsSubscription) and the PHP ones (`(string) … !== ''`)
+     * disagreed on such a row (main's MariaDB job on Adv602, 2026-11-03). A value with no visible character is none.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    public function subscriptionId(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($value) => $value === null || preg_match('/^[\s\p{Z}\p{C}]*$/u', (string) $value) === 1 ? null : (string) $value
+        );
+    }
+
     /** @return Attribute<mixed, mixed> */
     public function label(): Attribute
     {
@@ -253,35 +301,16 @@ class Service extends Model implements Auditable
      * others of the same product. A license: its own label (its nickname) and the IP it runs on (owner: more use than its
      * key), else its key masked (prefix…last4, as everywhere); a service of the licensing module with no license row
      * yet (its domain is its key: code review of #592, F5) the same, never its whole key. Anything else: its domain (one
-     * with no dot is no domain but a key: masked), else its own label. What tells it apart is cut to MAIL_NAME_DETAIL characters: a customer's label of 255 would
-     * overflow the mail log's subject (F3).
+     * with no dot is no domain but a key: masked) and its IP, else its panel's username, else its own label: the rules
+     * of ServiceIdentifier, the same on every page. What tells it apart is cut to MAIL_NAME_DETAIL characters: a
+     * customer's label of 255 would overflow the mail log's subject (F3).
      *
      * @return Attribute<string, never>
      */
     public function mailName(): Attribute
     {
-        return Attribute::make(get: function (): string {
-            $license = $this->license;
-            $label = trim((string) ($this->getAttributes()['label'] ?? ''));
-            if ($license !== null || $this->product?->server?->extension === 'NixpalLicensing') {
-                $ips = $license === null ? [] : array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
-                $ip = $ips === [] ? '' : $ips[0] . (count($ips) > 1 ? ' +' . (count($ips) - 1) : '');
-                $key = (string) ($license->license_key ?? $this->domain ?? '');
-                $detail = implode(' · ', array_filter([$label, $ip])) ?: (string) Scrub::licenseKey($key);
-            } else {
-                $domain = trim((string) $this->domain);
-                // No dot: no domain but a key, or whatever was typed there (a license whose module is gone): masked.
-                $detail = $domain === '' ? $label : (str_contains($domain, '.') ? $domain : (string) Scrub::licenseKey($domain));
-            }
-            $detail = Str::limit($detail, self::MAIL_NAME_DETAIL);
-            $name = trim((string) ($this->product->name ?? ''));
-
-            return match (true) {
-                $detail === '' => $name,
-                $name === '' => $detail,
-                default => "{$name} — {$detail}",
-            };
-        });
+        // ServiceIdentifier, as every page names it (owner 2026-11-03): what tells it apart cut to MAIL_NAME_DETAIL.
+        return Attribute::make(get: fn (): string => ServiceIdentifier::named($this, trim((string) ($this->product->name ?? '')), self::MAIL_NAME_DETAIL, username: false));
     }
 
     /** @return Attribute<mixed, mixed> */
@@ -336,17 +365,33 @@ class Service extends Model implements Auditable
         return trim($this->describePeriod($start, $end) . "\n" . $this->describeOptions());
     }
 
+    /**
+     * Its product's name on an invoice line; an addon's with its parent's («Extra IPv4 (vm104.example.gr)», docs/addons.md),
+     * never a username (a line is mailed).
+     */
+    public function lineName(): string
+    {
+        $name = (string) ($this->product->name ?? '');
+        if ($this->parent_service_id === null || ($parent = $this->parent) === null) {
+            return $name;
+        }
+        $of = ServiceIdentifier::line($parent, 60, username: false);
+        $of = $of !== '' ? $of : (string) ($parent->product->name ?? '');
+
+        return $of === '' ? $name : "{$name} ({$of})";
+    }
+
     /** Invoice line text for one billing period. */
     public function describePeriod(CarbonInterface $start, ?CarbonInterface $end): string
     {
         if ($end === null) {
-            return $this->product->name ?? '';
+            return $this->lineName();
         }
 
         $format = __('services.invoice_period_date_format');
 
         return __('services.invoice_period', [
-            'product' => $this->product->name ?? '',
+            'product' => $this->lineName(),
             'start' => $start->format($format),
             'end' => $end->format($format),
         ]);
@@ -583,7 +628,8 @@ class Service extends Model implements Auditable
             }
             $locked->status = self::STATUS_SUSPENDED;
             // A staff hold: not the cron's «Overdue on Payment» any more (review R5); staff write their own reason.
-            if ($locked->dunning_suspended_at !== null) {
+            // Nor «with its parent» (an addon): their hold is not lifted with the parent's (ADV-634-1).
+            if ($locked->dunning_suspended_at !== null || $locked->suspend_reason === self::SUSPEND_REASON_PARENT) {
                 $locked->suspend_reason = null;
             }
             $locked->dunning_suspended_at = null;
@@ -939,6 +985,10 @@ class Service extends Model implements Auditable
      */
     public function provisioningServer(): ?Server
     {
+        // An addon is on its parent's machine, never a module's account of its own (docs/addons.md): no module is asked.
+        if ($this->parent_service_id !== null) {
+            return null;
+        }
         if ($this->server_id !== null) {
             return $this->server;
         }
@@ -960,11 +1010,12 @@ class Service extends Model implements Auditable
 
     /**
      * Whether its server actions run: a server to act on, or an account (or an order, pending) on a server of WHMCS's not
-     * here. Those fail to staff in checkServer(), never skipped (reviews of #530).
+"     * here. Those fail to staff in checkServer(), never skipped (reviews of #530). An addon's are staff's tasks on its
+     * parent's machine (ExtensionHelper::addonTask): they run too, a paid addon's creation among them (ADV-634-6).
      */
     public function hasServerActions(): bool
     {
-        return $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
+        return $this->parent_service_id !== null || $this->provisioningServer() !== null || ($this->server_id === null && (int) $this->whmcs_server_id > 0);
     }
 
     /**
@@ -973,7 +1024,7 @@ class Service extends Model implements Auditable
      */
     public function scopeOnServers(Builder $query, array $servers): void
     {
-        $query->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
+        $query->whereNull('parent_service_id')->where(fn (Builder $on) => $on->whereIn('server_id', $servers)
             ->orWhere(fn (Builder $product) => $product->whereNull('server_id')
                 ->where(fn (Builder $whmcs) => $whmcs->whereNull('whmcs_server_id')->orWhere('whmcs_server_id', 0)->orWhere('status', self::STATUS_PENDING))
                 ->whereHas('product', fn (Builder $p) => $p->whereIn('server_id', $servers))));
@@ -1217,6 +1268,12 @@ class Service extends Model implements Auditable
     {
         // No plan: the price it has (nothing to compute it from until staff set one).
         if ($this->plan === null) {
+            return number_format((float) $this->price, 2, '.', '');
+        }
+        // A plan with no price in its currency (a cycle no longer sold, one the import made for a service on a cycle its
+        // product does not price: #628): nothing to compute from either. Its own price, never 0.00, which would renew it
+        // free for good after a «Recalculate» or a coupon ending (ADV-628-1, ADV-628-2).
+        if (!$this->plan->hasPriceIn($this->currency_code)) {
             return number_format((float) $this->price, 2, '.', '');
         }
         $price = BigDecimal::of(number_format((float) $this->plan->price($this->currency_code)->price, 2, '.', ''));

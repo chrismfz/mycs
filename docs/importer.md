@@ -37,7 +37,8 @@
 
 ## Parity: τι πρέπει να συμφωνεί 1:1 μετά το import
 - **Πελάτες:** πλήθος ανά status· επαφές/sub-users· custom fields· credit balance ανά πελάτη (άθροισμα).
-- **Υπηρεσίες:** πλήθος ανά status, κύκλο χρέωσης και προϊόν· next due date / λήξη· τιμή ανά υπηρεσία· config options·
+- **Υπηρεσίες:** πλήθος ανά status, κύκλο χρέωσης και προϊόν· next due date / λήξη· τιμή ανά υπηρεσία· config options (**δεν ελέγχονται ακόμα, ούτε εισάγονται**:
+  WG-11 στο `sweeps/whmcs-gaps.md`)·
   addons· server και username (τα credentials κρυπτογραφημένα).
 - **Domains:** πλήθος ανά registrar/status· ημερομηνίες λήξης και next due· auto-renew, ID protection, DNS management·
   σύγκριση με το μητρώο μετά το import (sync).
@@ -253,7 +254,7 @@
 | Paid | `paid` |
 | Cancelled | `cancelled` |
 | Refunded | `refunded` (PR 2c) |
-| Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `unpaid` με σημείωση) |
+| Collections | `unpaid`. Απόφαση ιδιοκτήτη 2026-11-05 (WG-18): ακυρώνονται στο WHMCS πριν από το τελικό import (`cutover-runbook.md` §1). Το myip έχει 15 (813,99, κανένα με πληρωμή), από το `AfterModuleTerminate` του `auto-cancellation.php`. Όσα μείνουν, ο importer τα ονομάζει σε προειδοποίηση |
 
 Ο importer του upstream (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
 χρησιμοποιείται· ο νέος importer ακολουθεί τον πίνακα.
@@ -430,8 +431,8 @@ disabled ή locked στον server. Αν τον είχε κλείσει το sta
     σημειώσεων. Ενός ακυρωμένου τιμολογίου γίνεται **και** `cancellation_reason` (ως 255 χαρακτήρες), που το βλέπει το staff
     στο τιμολόγιο: της nixpal είναι όλες «Automatic Cancellation after N days overdue», της myip οι περισσότερες «Transferred
     Away».
-  - `tblhostingaddons.notes` → στις σημειώσεις της υπηρεσίας του addon, με το όνομά του. Αν το WHMCS έχει σβήσει την
-    υπηρεσία, πάει στον λογαριασμό του.
+  - `tblhostingaddons.notes` → ενός ζωντανού addon, στη δική του υπηρεσία (`WhmcsAddonImport`)· ενός τελειωμένου, στις
+    σημειώσεις της γονικής, με το όνομά του. Αν το WHMCS έχει σβήσει τη γονική, πάει στον λογαριασμό του.
   - Μια σημείωση admin που δεν υπάρχει πια κρατά το όνομά του στην αρχή («WHMCS admin #N»).
   - Σε MariaDB οι σημειώσεις λογαριασμού και υπηρεσίας είναι `MEDIUMTEXT`, ώστε μια σημείωση κοντά στα 64 KB, μαζί με ό,τι
     προσθέτει το import, να μη σταματά το import.
@@ -471,13 +472,37 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
 - **Σειρά με τον πλήρη importer:** το `app:import-from-whmcs` ξεκινά με `migrate:fresh`: στο cut-over σβήνει ό,τι έφερε
   αυτός ο κατάλογος και ό,τι πρόσθεσε το staff από πάνω (API keys, servers, συνδέσεις registrar, TLDs). Το
   `app:import-whmcs-licensing` βρίσκει τα products με `whmcs_id` όταν υπάρχει, αλλιώς με το ίδιο id (πλήρης importer).
+- **Ο πλήρης importer φέρνει τον κατάλογο με τον ίδιο κώδικα (WG-2, 2026-11-04):** μετά τους servers,
+  `CatalogImport::productsForFullImport` (groups, config options, products, plans, τιμές, `package`, upgrades,
+  συνδέσεις των options). Ως τότε είχε δικό του, παλιότερο αντίγραφο, που έχανε το `package` των cPanel/ngm, τα κρυφά
+  groups, τα retired, τις τιμές 0.00, τη σειρά και τις συνδέσεις των config options (γράφονταν με τα ids του WHMCS,
+  ενώ τα options έπαιρναν νέα). Products και groups **κρατούν το id του WHMCS** (`keepWhmcsIds`), γιατί σε αυτό
+  δείχνουν οι υπηρεσίες, οι παραγγελίες και τα licenses· ένα id που υπάρχει ήδη εδώ σταματά το import, δεν παίρνει
+  άλλο. Product με group που το WHMCS έσβησε έρχεται κρυφό, σε κρυφό group «Without a group (WHMCS)», με σημείωση: το
+  WHMCS ανανεώνει ακόμα τις υπηρεσίες του (ADV-646-1· myip: 1, χωρίς υπηρεσίες· nixpal: 0). Το `mycs:parity` μετρά
+  όλα τα products, τα listed και όσα έχουν `package`.
+- **Ρυθμίσεις module πέρα από το `package`** (WG-16, απόφαση ιδιοκτήτη 2026-11-05, `CatalogImport::moduleSettings`):
+  - **cPanel, προϊόντα «Reseller Account»** (myip: 6, 23 ζωντανοί): `configoption15` όριο λογαριασμών, `17` χώρος και
+    `18` bandwidth σε MB **ό,τι κι αν λέει το `16` «Limit by Usage»** (απόφαση ιδιοκτήτη 2026-11-05: τα όρια τα ορίζουν τα
+    προϊόντα του MyCS, όχι πια το χέρι στο WHM· οι Reseller 30/70/120 είχαν το `16` κλειστό και τα όρια μπήκαν με το χέρι:
+    έλεγχος 2026-11-05, 25 από 29 resellers στους έξι servers), `19`/`20` overselling, `21` ACL, `24` ιδιοκτησία του
+    λογαριασμού. Σε αλλαγή πακέτου το cPanel extension στέλνει **μόνο** τα όρια που ορίζει το προϊόν· ό,τι αφήνει κενό δεν
+    το αγγίζει (review του #663). Οι υπηρεσίες τους σημαδεύονται
+    «WHM reseller» (`cpanel_reseller`, `markCpanelResellers`): μια αναστολή για απλήρωτο παίρνει μαζί και τους λογαριασμούς
+    των πελατών τους (`suspendreseller`), όπως στο WHMCS.
+  - **mailcow (MyMail)**: τα `configoption1`–`14` με την ίδια σειρά και στα δύο modules (aliases, mailboxes, quotas, rate
+    limit, DKIM, SOGo, terminate mode, κλείδωμα στην αναστολή).
+  - **Centova Cast**: `configoption1` το template και `6` το «start server» (τα όρια είναι του template).
+  - Δεν έρχονται: τα θέματα του cPanel (`paper_lantern`, `x3mail`, δεν υπάρχουν πια) και τα παλιά όρια ενός προϊόντος με
+    package (τα αγνοεί και το WHMCS)· τα πλάνα του Proxmox (`pvewhmcs`), γιατί οι VM αντιστοιχίζονται με το χέρι (A3).
 - Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.
 
 ## Admins (`app:import-whmcs-admins`, 2026-10-16)
 Οι admins μιας εγκατάστασης WHMCS ως staff σε ένα MyCS που **ήδη τρέχει** (ο πλήρης importer τους φέρνει μόνο με
-`migrate:fresh`). Οι ίδιοι κανόνες ρόλων: Full Administrator → `admin` (`*`), άλλος ρόλος → ρόλος με το όνομά του χωρίς
-permissions (τα δίνει το staff), οι disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
+`migrate:fresh`). Οι ίδιοι κανόνες ρόλων: Full Administrator → `admin` (`*`), άλλος ρόλος → ρόλος με το όνομά του και
+τα δικαιώματά του (βλ. «Ρόλοι staff» πιο κάτω) όταν το αρχείο έχει `permids`, αλλιώς χωρίς (τα δίνει το staff), οι
+disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
 μένει όπως είναι (κωδικός, ρόλος, status). Το bcrypt hash του WHMCS κρατιέται όπως είναι (μπαίνουν με τον κωδικό του
 WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction, `--dry-run`.
 - **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
@@ -485,20 +510,81 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με
   το κλειδί. Ούτε η εντολή ούτε το audit τυπώνουν hash.
 
+### Ρόλοι staff (WG-5, 2026-11-04)
+Κάθε ρόλος εκτός του Full Administrator παίρνει τα `tbladminperms` του ως δικαιώματα του MyCS
+(`App\Services\Whmcs\RolePermissions`), και τα προεπιλεγμένα του MyCS (online staff, staff chat, chats). Κάθε
+δικαίωμα του WHMCS δίνει τα πλησιέστερα του MyCS και **ποτέ περισσότερα**· ένα delete δίνει και το bulk delete. Τα
+«Configure General/Automation Settings» δίνουν το `settings.update`, δηλαδή όλες τις ρυθμίσεις (απόφαση του owner,
+2026-11-04: όπως στο WHMCS). Από τα 162 αντιστοιχούν 96. Τα 66 που μένουν τα γράφει ο importer με το όνομά τους ανά
+ρόλο: λειτουργίες που το MyCS δεν έχει (affiliates, downloads, calendar, to-do, banned IPs, MarketConnect, disputes,
+scheduled ticket actions, update του WHMCS κ.ά.), και όσα το πλησιέστερο δικαίωμα του MyCS θα έδινε περισσότερα (review
+του #649): «Edit Transaction» (το `invoice_transactions.update` είναι το refund), οι σημειώσεις πελάτη (όλος ο πελάτης),
+«Module Command Operations» και «Create Upgrade/Downgrade Orders» (όλη η υπηρεσία), «Create Add Funds Invoice» (το
+`credits.create` είναι δωρεάν πίστωση), «Cancel Invoice» (όλο το τιμολόγιο). Τα logins των πελατών (`users.*`) έρχονται
+μόνο από τα «Manage/List Users», τα υπόλοιπα των gateways μόνο από το «View Gateway Balances». Ρόλος με όνομα «Admin»
+γίνεται «Admin (WHMCS)», ώστε να μην πάρει ποτέ το `*` του `admin`· δύο ρόλοι με όνομα που διαφέρει μόνο σε
+κεφαλαία/κενά και άλλα δικαιώματα μένουν δύο («… (WHMCS #id)»). Ζωντανοί ρόλοι (2026-11-04): Sales Operator της
+nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστοιχο), Support Operator της myip 99 → 114 (32). Για το
+`app:import-whmcs-admins` το JSON φέρνει τα permids του ρόλου στο πεδίο `permids`:
+`(SELECT GROUP_CONCAT(permid) FROM tbladminperms p WHERE p.roleid = a.roleid) AS permids`.
+
 ## Πύλες πληρωμών και promotions (2026-10-20)
 - **Πύλη κάθε πληρωμής** (`tblaccounts.gateway` → `invoice_transactions.gateway_id`, για το «Payment Method» της
   παραγγελίας και το money trail): `stripe*` → Stripe, `paypal`/`paypal_ppcpv`/`paypalcheckout` → PayPal, `mollie*` →
   Mollie, `cardlink*`/`eurobank` → Cardlink (`ImportFromWhmcs::GATEWAYS`). Αν η βάση (μετά το `migrate:fresh`) δεν έχει
   το extension, ο importer το εγκαθιστά όπως το «Install» του admin, **απενεργοποιημένο**: το staff βάζει τα κλειδιά και
   το ενεργοποιεί. Έμβασμα (`banktransfer`) και ό,τι άλλο: χωρίς πύλη (χειροκίνητη πληρωμή), με πλήθος ανά module στην
-  έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS, Stripe SEPA
-  (`whmcs-usage.md`)· **να επιβεβαιωθεί το όνομα του module της Eurobank** στο `tblaccounts` της myip πριν το cut-over.
-- **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`): Percentage → percentage,
-  Fixed Amount → fixed, Free Setup → 100% στο setup fee· `recurring` 0 → μόνο η πρώτη πληρωμή, 1 με `recurfor` 0 → κάθε
-  κύκλος· `maxuses`, `onceperclient` → ανά πελάτη 1, ημερομηνίες. Όποιο το MyCS θα εφάρμοζε **αλλιώς** από το WHMCS
-  (Price Override, ορισμένοι κύκλοι μόνο, νέοι/υπάρχοντες πελάτες, «requires», once per order, upgrades, lifetime,
-  `recurfor` > 0, addons/domains) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import) και
-  αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: και τα 4 (FREETRIAL, 25OffAgentNode, MOBIAN10/25).
+  έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS (`eurobanklib`), Stripe SEPA.
+- **Οι τρόποι πληρωμής του WHMCS** (`importPaymentWays`, ιδιοκτήτης 2026-11-06, πρόβα της myip με το API): κάθε gateway που
+  δείχνει το WHMCS (`tblpaymentgateways` «visible») γίνεται gateway εδώ, **απενεργοποιημένο**, πριν από τους τρόπους των
+  τιμολογίων, των items και τις μεθόδους πληρωμής. Πριν, στην άδεια βάση του cut-over, το έμβασμα και η Eurobank (μόνο ως
+  «υπάρχον» gateway, review του #539) δεν ήταν κανένας τρόπος: τα τιμολόγια και τα items τους έμεναν χωρίς, και 31 πελάτες
+  με κάρτα δίπλα τους έμεναν χωρίς αυτόματη χρέωση (101 items που το WHMCS χρεώνει). Ένα απενεργοποιημένο gateway δεν
+  προσφέρεται σε κανέναν. Όσα εγκαθιστά παίρνουν το όνομα του WHMCS (έμβασμα, Eurobank: «Κατάθεση σε τραπεζικό
+  λογαριασμό», «Κάρτες ή IRIS»). Οι πληρωμές του εμβάσματος και της Eurobank μένουν χειροκίνητες (απόφαση 2026-10-29).
+  - **Λογαριασμοί του εμβάσματος:** το κείμενο του gateway στο WHMCS είναι κρυπτογραφημένο σε σχήμα που δεν ανοίγει έξω από
+    αυτό (ούτε το `DecryptPassword` του API). Έρχονται από το μπλοκ του «Invoice Created» για αυτόν τον τρόπο
+    (`{if $invoice_payment_method eq "<όνομα>"}`), ως κείμενο, χωρίς τις γραμμές του Smarty· να ελεγχθεί πριν ενεργοποιηθεί.
+  - **Το ίδιο gateway κάτω από άλλο module** (το παλιό PayPal δίπλα στο PayPal vault, myip 15 πελάτες): μόνο εκείνα τα
+    items «Do not charge automatically», ο λογαριασμός χρεώνεται όπως στο WHMCS (πριν: όλος off).
+- **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`), με τους κανόνες που έχει το
+  MyCS από το #274 (WG-6, 2026-11-04): Percentage → percentage, Fixed Amount → fixed, Free Setup → 100% στο setup fee,
+  Price Override → override (μόνο για τα προϊόντα που ονομάζει, στο κύριο νόμισμα· όχι στο setup ή στις επιλογές, που
+  στη nixpal δεν υπάρχουν). `recurring` 0 → μόνο η πρώτη πληρωμή, 1 με `recurfor` 0 → κάθε κύκλος, 1 με `recurfor` N →
+  **N τιμολόγια συνολικά, μαζί με της παραγγελίας** (review του #650: στα δεδομένα το FREETRIAL, N = 2, δεν έχει ποτέ
+  πάνω από 2 εκπτωτικές γραμμές ανά υπηρεσία). `cycles` → `billing_cycles` (Monthly → `month:1` … Triennially →
+  `year:3`, One Time → `one_time`· όλοι ή κανένας → κάθε κύκλος). New Signups → `customers` new, Existing Client →
+  existing, `onceperclient` → `once_per_client`, `requires` → `coupon_required_products` και `requiresexisting` →
+  `requires_existing`, `lifetimepromo` → `kept_on_product_change` (νέα ρύθμιση του κουπονιού, «Kept on upgrades»,
+  default on: όταν είναι off, ένα upgrade σε άλλο προϊόν τελειώνει το κουπόνι, όπως το WHMCS με promotion που δεν
+  είναι lifetime· ADV-650-1), `maxuses`, ημερομηνίες. Μια υπηρεσία που το WHMCS δεν δείχνει πια με το promotion
+  (`promoid` 0 όταν τελειώσει), αλλά η παραγγελία της έχει τον κωδικό (`tblorders.promocode`), έρχεται κι αυτή με το
+  κουπόνι used up, ώστε το «once per client» να ξέρει ότι ο πελάτης το χρησιμοποίησε (ADV-650-2). Όποιο το MyCS θα
+  εφάρμοζε **ακόμα αλλιώς** από το WHMCS (once per order, upgrades, νέοι και υπάρχοντες μαζί, κύκλοι μόνο domains ή
+  Free Account ή άγνωστοι, αρνητική τιμή ή ποσοστό πάνω από 100, Fixed Amount με πολλά νομίσματα, addons/domains στο
+  `appliesto` ή στο `requires`, εξαντλημένο) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import)
+  και αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: ανοιχτά τα FREETRIAL και 25OffAgentNode,
+  κλειστά τα MOBIAN10 (εξαντλημένο) και MOBIAN25 (once per order). Myip: ανοιχτά όσα δεν έχουν λήξει, εκτός από τα
+  STREAM50 και CYBER50DA (once per order), MYIP20OFF και CYBER25CP (upgrades), FALL2020 (κύκλοι domains), 30-OFF
+  (εξαντλημένο) και το Gr-Domain-Discount (domains, αρνητική τιμή).
+- **Quantity options** (WG-15, απόφαση ιδιοκτήτη 2026-11-05, `CatalogImport::configOptions`): όσα δεν πήρε ποτέ καμία
+  υπηρεσία (`tblhostingconfigoptions.qty` > 0) **δεν έρχονται**. Στο myip είναι 133 από τα 134: τα extra SAN και servers
+  των SSL, που τα έφτιαξε το module και δεν πουλήθηκαν ποτέ, και μεγέθη VPS (dediserve, onApp, Hetzner). Όσα πήρε
+  υπηρεσία έρχονται **κρυφά**, γιατί το MyCS δεν χρεώνει ποσότητα ακόμα (CART-9). Στο myip είναι μόνο το «Extra Addon
+  domain» της #2618, που γίνεται addon στο cut-over (`cutover-runbook.md`). Η nixpal δεν έχει κανένα.
+- **Επιλογές υπηρεσιών** (WG-11, 2026-11-04, `importServiceOptions`): `tblhostingconfigoptions` → `service_configs` μέσω
+  του `whmcs_ref` του καταλόγου (`option:N`, `value:N`). Dropdown και radio → η τιμή τους, checkbox → η τιμή του μόνο αν
+  είναι τσεκαρισμένο (`qty` > 0), quantity → το πλήθος ως property της υπηρεσίας (όπως το γράφει μια παραγγελία), μόνο
+  αν `qty` > 0. Η τιμή της υπηρεσίας δεν αλλάζει: μένει το ποσό του WHMCS, με τις επιλογές μέσα (`undiscounted_price`).
+  Μια τιμή υπολογισμένη από τον κατάλογο (upgrade, αναφορά τιμών) τις μετρά πλέον, π.χ. το Dedicated IP. Μια quantity
+  δεν έχει ακόμα τιμή εδώ (CART-9, WG-15· ένα Recalculate ή μια αλλαγή κύκλου του #2618 βγάζει 21.00 αντί για 31.00,
+  όπως και πριν: ADV-653-3, test incomplete ως το WG-15). Επιλογή ή τιμή που το WHMCS έσβησε αναφέρεται και
+  παραλείπεται. **Μόνο επιλογές που προσφέρει το προϊόν της υπηρεσίας** (`config_option_products`, από το
+  `tblproductconfiglinks`): μια επιλογή άλλου group δεν ήταν ούτε στο ποσό ούτε στον επανυπολογισμό του WHMCS, και θα
+  χρεωνόταν εδώ σε αλλαγή κύκλου ή Recalculate (review του #653, ADV-653-1: τα 4 Dedicated IP του myip, 7.00 → 9.00 και
+  62.00 → 86.00)· παραλείπεται και αναφέρεται. Parity: «Service options» και «Service quantity options», με τον ίδιο
+  κανόνα. Myip: ζωντανά OS/location/backup σε VPS και 1 Extra Addon domain ×2· 8 γραμμές άλλου group (τα 4 IP, 4
+  dropdowns) και 1 με επιλογή που δεν υπάρχει πια παραλείπονται· nixpal: καμία.
 - **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
   του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
   ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`
@@ -521,7 +607,8 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 |---|---|---|
 | Hosting | `Service`, relid (οι υπηρεσίες κρατούν τα WHMCS ids) | κενό: ανανέωση, η περίοδος δίνεται όταν πληρωθεί |
 | Setup, PromoHosting | `Service`, relid | `charge` |
-| Addon | `Service`, η υπηρεσία του addon (`tblhostingaddons.hostingid`) | `charge` |
+| Addon ζωντανού addon | `Service`, η δική του υπηρεσία (`whmcs_addon_id`, [`addons.md`](addons.md) βήμα 4) | κενό: ανανέωση, όπως Hosting |
+| Addon τελειωμένου addon | `Service`, η γονική (`tblhostingaddons.hostingid`) | `charge` |
 | Upgrade | `Service`, η υπηρεσία του upgrade (`tblupgrades.relid`, μόνο `package`/`configoptions`) | `charge` |
 | AddFunds | `Credit`, κενό | κενό |
 | οτιδήποτε άλλο (Domain*, PromoDomain, LateFee, GroupDiscount, Item, …) | κενό, το relid όπως ήταν | κενό |
@@ -530,9 +617,9 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   (`ProcessPaidInvoiceService`), η ακύρωση του τιμολογίου δεν της δίνει περίοδο ως «forgone» (`InvoiceObserver`), το
   upgrade δεν της αλλάζει την τιμή (`ServiceUpgradeService`), δεν μετρά ως τιμολογημένη περίοδος (`IncomePlan`), δεν
   γίνεται συνδρομή Stripe. Μετρά όμως ως γραμμή της υπηρεσίας (ακύρωση τιμολογίων της, affiliates, έσοδα ανά προϊόν).
-- **Addon/Upgrade → η υπηρεσία (απόφαση):** στη MyCS τα addons γίνονται επιλογές της υπηρεσίας (`service_configs`,
-  παρακάτω) και ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά τους είναι του προϊόντος της υπηρεσίας. Το
-  «System Maintenance», που θα γίνει ξεχωριστή υπηρεσία όταν εισαχθούν τα addons, μένει ως τότε στη γονική.
+- **Addon/Upgrade → η υπηρεσία (απόφαση):** ένα upgrade αλλάζει την ίδια την υπηρεσία, άρα τα έσοδά του είναι του
+  προϊόντος της. Ένα ζωντανό addon είναι πια δική του υπηρεσία (2026-11-04, `addons.md` βήμα 4), με τις γραμμές του· ενός
+  τελειωμένου μένουν στη γονική.
 - **Υπηρεσία που δεν υπάρχει** (σβήστηκε στο WHMCS, ή addon/upgrade χωρίς γραμμή): χωρίς τύπο, ποτέ με «μάντεμα».
 - **Domains:** οι γραμμές τους πάνε στο domain τους (D6, επόμενη ενότητα). Μια γραμμή domain που δεν υπάρχει εδώ μένει
   χωρίς τύπο, όπως πριν.
@@ -595,13 +682,17 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   γραμμές (οδηγία, link) και το «License Key: {$service_domain}» προϊόντος άδειας ως `{{ service.license.license_key }}`.
   Γραμμή με άλλη μεταβλητή Smarty δεν έρχεται και λέγεται· snippet που υπάρχει εδώ μένει. Nixpal: τα 6 προϊόντα ZoneCloud (template
   84) παίρνουν «License key» και «Refer to https://zonecloud.io/ …». Το «ZoneCloud Controller» (87) δεν συνδέεται με προϊόν.
-  Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email.
+  Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email. Αυτό λέει πια και πού ζει η υπηρεσία,
+  όπως τα «Hosting/Reseller/Dedicated-VPS Welcome» του myip (ιδιοκτήτης 2026-11-06): hostname και IP του panel (cPanel,
+  DirectAdmin· ποτέ η διεύθυνση άλλου module, π.χ. του cluster) και οι IPs της υπηρεσίας (dedicated και assigned).
 - **Ιστορικό emails** (`WhmcsEmailHistoryImport`): το τελευταίο έτος του `tblemails` (nixpal 4.033 από 13.136) στο `email_logs`
   (το `cronjob_delete_email_logs` γίνεται 365, αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα bodies **καθαρίζονται**:
   `Password: …`, κλειδιά στα query των links (reset κωδικού) και κάθε γνωστό secret (`Redact::text`)· 2 body της nixpal είχαν.
   Τα pending δεν έρχονται· τα failed έρχονται ως failed.
 - **Announcements** (`WhmcsAnnouncementImport`): τα 4 δημοσιευμένα της nixpal («Zonecloud updates» κ.ά., 2020–2024) στο extension
-  Announcements, με τις ημερομηνίες τους. Αν το extension δεν είναι εγκατεστημένο, λέγεται και δεν γράφει τίποτα. Τα URLs τους
+  Announcements, με τις ημερομηνίες τους. Αν το extension δεν είναι εγκατεστημένο (το τελικό import τρέχει σε άδεια βάση: πρόβα
+  2026-11-06), ο importer το εγκαθιστά όπως το «Install» του admin και το ενεργοποιεί (το admin το αφήνει ανενεργό· στο WHMCS ήταν δημοσιευμένες:
+  σελίδα ειδήσεων, home και dashboard), και μετά τις φέρνει. Ένα που υπάρχει ήδη κρατά το δικό του on/off. Τα URLs τους
   θέλουν 301 στο cut-over (όχι Knowledgebase: αυτό έχει ήδη έρθει).
 
 ## Simulation: το πραγματικό cron, μέρα με τη μέρα, σε αντίγραφο (`bin/simulate`, ROADMAP 9β(2), 2026-10-31)
@@ -711,6 +802,10 @@ dunning τρεις ώρες μετά), με ρολόι που προχωρά κ�
   4. **Domains: τιμολόγηση 8 ημέρες νωρίτερα** (9 από 9): το MyCS τιμολογεί 15 ημέρες πριν (`domain_invoice_days`, απόφαση
      D7 «και οι δύο εταιρείες ίδιες»), το WHMCS 7. Το #12 (5ετές, λήξη 2030): το `nextinvoicedate` του WHMCS είναι παλιό (2025)
      και κανείς δεν το τιμολογεί πριν το 2030.
+- **Myip: τιμολόγηση ανά κύκλο** (WG-14, αποδεκτό): οι μηνιαίες συμφωνούν (10), οι διετείς και τριετείς επίσης (η γενική
+  14)· διαφέρουν στο «invoiced on» (2026-11-05, ενεργές και σε αναστολή): τριμηνιαίες 13 μία ημέρα αργότερα από το 15 του
+  WHMCS, εξαμηνιαίες 11 και ετήσιες 393 έξι ημέρες αργότερα από το 20. Η nixpal δεν επηρεάζεται (7 = 7, χωρίς τιμές ανά
+  κύκλο).
 - Για το «χρεώνεται από μέθοδο» το MyCS μετράει σαν να ήταν ενεργά τα gateways (έρχονται απενεργοποιημένα): ενεργοποιούνται στο cut-over.
 - **Ό,τι ξέρει η αναφορά να μη λέει «ίδια» (adversarial review του #565):** η ημέρα αναστολής/τερματισμού είναι η ημέρα που **ενεργεί
   το cron**, άρα «never» όταν ο διακόπτης είναι κλειστός, ο πελάτης (ή η ομάδα του) εξαιρείται, υπάρχει hold, ή (τερματισμός)
@@ -841,6 +936,24 @@ dunning τρεις ώρες μετά), με ρολόι που προχωρά κ�
   άλλης εταιρείας σε πελάτη αυτής.
 - **TLDs και τιμές:** όπως τα φέρνει ο κατάλογος (`CatalogImport::tldsForFullImport`). Το καθένα με αυτόματη καταχώριση
   στη σύνδεση του module του.
+- **Τιμή ανανέωσης** (WG-12, απόφαση ιδιοκτήτη 2026-11-04, `WhmcsDomainImport::followsCatalog`): το WHMCS κρατά ποσό σε
+  κάθε domain· ως `recurring_amount` εδώ δεν θα ακολουθούσε ποτέ τον κατάλογο. Domain στην τιμή renew του TLD του (για τα
+  έτη και το νόμισμά του) έρχεται **χωρίς δικό του ποσό**: ακολουθεί τον κατάλογο. Ακριβότερο: κι αυτό στον κατάλογο (ο
+  πελάτης πληρώνει λιγότερο· παλιές τιμές), εκτός αν είναι ενεργό addon που το WHMCS χρεώνει μέσα στο ποσό (DNS
+  management, email forwarding), που εδώ δεν έχει τιμή. Το ID protection δεν μετράει: είναι δωρεάν εδώ (WG-32, ιδιοκτήτης
+  2026-11-06). Η τιμή του στο WHMCS (`tblpricing` «domainaddons», `ssetupfee`, ανά έτος επί τα έτη, στο νόμισμα του
+  πελάτη· myip 5,50) αφαιρείται **από κάθε ποσό**, πριν από τον κανόνα: μια συμφωνία, ένα domain με DNS management ή σε
+  grace κρατούν το δικό τους χωρίς αυτήν (ADV-670-1), και το `meta.whmcs.id_protection_price` την κρατά για τα parity.
+  Όπου η τιμή θα ξεπερνούσε το ποσό (δεν χρεώθηκε ποτέ), δεν αφαιρείται τίποτα. Το ID protection μένει ενεργό. Φθηνότερο (συμφωνία, π.χ. τα .gr του trouvas στα
+  14.51 από το promotion «Gr-Domain-Discount-FIXED-4.5», όχι από group), χωρίς τιμή TLD για τα έτη του ή με τιμή 0.00
+  (ποτέ δωρεάν ανανέωση), premium (`is_premium`, στο `meta.whmcs.premium`), σε grace ή redemption (κρατά τα έτη που
+  χρεώνει το WHMCS εκεί· στην τιμή του TLD θα ανανεωνόταν για τη συντομότερη περίοδο), ή όνομα που τιμολογεί μόνο το
+  staff (.gr δύο χαρακτήρων): κρατά το δικό του (reviews του #655). Ο importer λέει τα ακριβότερα που
+  πήγαν στον κατάλογο και όσα κράτησαν το δικό τους· το «Recalculate» στην τιμή ανανέωσης του domain το στέλνει στον
+  κατάλογο. Τα parity (`Domains, renewal amount`, ανά domain, forecast) συγκρίνουν με τον ίδιο κανόνα την τιμή που θα
+  χρεωθεί. Myip (2026-11-04, ζωντανά, κατά προσέγγιση): ~1.810 στην τιμή του TLD, ~12 ακριβότερα χωρίς addon, 6 με ID
+  protection, 24 φθηνότερα, 3–5 χωρίς τιμή TLD, 7 σε grace· nixpal: τα ακριβότερα (.ch 27.77 → 16.55, .in 17.27 → 12.25)
+  ακολουθούν τον κατάλογο. Η έκπτωση group αγγίζει domains μόνο με το «Also on domains» του group (off στο import).
 - **Κάθε domain:**
   - με το WHMCS id του, το νόμισμα του πελάτη του, ημερομηνίες εγγραφής και λήξης, έτη, recurring amount, addons (DNS,
     email forwarding, ID protection), DNSSEC (`tbldomains_extra`), IDN script·
@@ -921,6 +1034,9 @@ dunning τρεις ώρες μετά), με ρολόι που προχωρά κ�
 
 ## Product addons του WHMCS → επιλογές της υπηρεσίας (2026-10-21, `provisioning.md`)
 
+> **Αντικαθίσταται (2026-11-04) από το [`addons.md`](addons.md):** κάθε addon γίνεται δική του υπηρεσία, κουμπωμένη στη
+> γονική, με δική του γραμμή, τιμή, λήξη και ακύρωση, όπως ζήτησε ο υπεύθυνος. Το παρακάτω μένει ως ιστορικό.
+
 `tblhostingaddons` (Active/Suspended) → `service_configs` της γονικής υπηρεσίας:
 - **Αντιστοίχιση:** με το `addonid` (`tbladdons`), ή με το όνομα όταν `addonid = 0` (addons φτιαγμένα με το χέρι):
   - «Dedicated IP …» → `dedicated_ip` = Yes·
@@ -949,7 +1065,7 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - `AutoSuspension`/`AutoTermination` → `cronjob_suspend_enabled`/`cronjob_terminate_enabled`· «on», «1», «yes», «true»
     σημαίνουν on.
   - `AutoSuspensionDays`/`AutoTerminationDays` → `cronjob_order_suspend`/`cronjob_order_terminate`.
-  - `CreateInvoiceDaysBefore` → `cronjob_invoice`.
+  - `CreateInvoiceDaysBefore` → `cronjob_invoice`, και `CreateInvoiceDaysBeforeMonthly` (> 0) → `cronjob_invoice_monthly` (WG-14).
   - `DailyCronExecutionHour` → `cronjob_time` (ποτέ 03:xx).
   - `CloseInactiveTickets`, σε ώρες → `cronjob_close_ticket`, σε ημέρες, με στρογγυλοποίηση προς τα πάνω (48 → 2). Κενό
     ή 0 σημαίνει ποτέ.
@@ -963,10 +1079,10 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
     (round 3 του #518).
   - Με το «Payment Reminder Emails» (`SendReminder`) off, σταματούν και οι υπενθυμίσεις overdue, όπως στο WHMCS.
 - **Τιμές εκτός ορίων:** ό,τι λείπει ή ξεπερνά τις 3.650 ημέρες κρατά την τιμή της MyCS, και το import το λέει.
-- **Ημέρες τιμολόγησης ανά κύκλο** (myip: μήνας 10, τρίμηνο 15, εξάμηνο και έτος 20): η MyCS κρατά μία τιμή
-  (`cronjob_invoice`), και το import το λέει. **Απόφαση του υπευθύνου (2026-10-29): 14 για τη myip**, όσο και η ενιαία
-  τιμή του WHMCS, που την φέρνει ήδη το import. Με το 20 οι μηνιαίοι πελάτες θα έπαιρναν το επόμενο τιμολόγιο λίγες
-  μέρες μόνο μετά την πληρωμή του τωρινού.
+- **Ημέρες τιμολόγησης ανά κύκλο** (myip: γενική 14, μήνας 10, τρίμηνο 15, εξάμηνο και έτος 20, διετία/τριετία η
+  γενική): η MyCS κρατά τη γενική για κάθε κύκλο (`cronjob_invoice`) και **δική του για τον μηνιαίο**
+  (`cronjob_invoice_monthly`). **Απόφαση του ιδιοκτήτη (2026-11-05, WG-14): myip 14 και 10, nixpal 7**· τα 15/20 των
+  μεγαλύτερων κύκλων δεν κρατιούνται (το forecast parity το δείχνει, πιο πάνω, «Myip: τιμολόγηση ανά κύκλο»).
 - **Ανά υπηρεσία, «Override Auto-Suspend»** (myip: 36 ενεργές, από αυτές 32 «ποτέ»):
   - με ημερομηνία → `suspend_hold_until` σε αυτή·
   - χωρίς ημερομηνία → `9999-12-31`.
@@ -998,9 +1114,14 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - **2 ορφανές γραμμές**, χωρίς τιμολόγιο: θα σπάσουν το FK, άρα παραλείπονται με αναφορά.
 - **Χώρα του τιμολογίου:** `tblinvoicedata` (6.116) → `invoice_snapshots.tax_country`. Χρειάζεται ως στοιχείο για το
   ΦΠΑ ΕΕ (OSS, reverse charge).
-- **Συναίνεση marketing:** `tblclients.emailoptout` (76), `marketing_emails_opt_in` (156), `tblmarketing_consent`
-  (269) → το opt-out του `announcement_news` (`NotificationPreference`). Χωρίς αυτό, το πρώτο μαζικό email θα πάει σε
-  όσους έχουν πει όχι (GDPR).
+- ~~**Συναίνεση marketing**~~ **έγινε** (WG-9, 2026-11-04, `importMarketingConsent`): λογαριασμός με `emailoptout` = 1
+  ή `marketing_emails_opt_in` = 0 (η τρέχουσα κατάσταση· το `tblmarketing_consent` είναι το ιστορικό) → «news» off
+  (`announcement_news`, mail και in-app) για τον owner του, όπως το «Stop these emails». Τα σημαντικά announcements
+  φεύγουν κανονικά. Parity: «Owners without news (marketing)». Myip 345/346, nixpal 76/77.
+- **Κλειστοί πελάτες** (WG-8, 2026-11-04): `tblclients.status` Closed → `clients.closed_at`. Τα logins του δεν μπαίνουν
+  (κωδικός, social, «Remember me»), εκτός αν έχουν κι άλλον ανοιχτό λογαριασμό, και δεν δέχεται παραγγελίες. Το staff
+  τον ξανανοίγει αδειάζοντας το «Closed» στη φόρμα του πελάτη. Το Inactive δεν αποθηκεύεται: το λένε οι υπηρεσίες του.
+  Parity: «Customers closed». Nixpal 2, myip 0.
 - **Κατάσταση υπενθυμίσεων:** των τιμολογίων **έγινε** (review του #531): κάθε απλήρωτο με `due_at` παίρνει ως «στάλθηκε»
   κάθε overdue ημέρα ως σήμερα, και το «due soon» όταν λήγει μέσα στις `SendInvoiceReminderDays` του WHMCS· οι επόμενες
   είναι του cron. Των domains έγινε με το D6 (`domain_reminders`, ενότητα «Domains»).
@@ -1030,7 +1151,8 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
   - **PayPal** (app «MyApp_WHMCS»): ένα webhook, `clients.nixpal.com/modules/gateways/callback/paypal_ppcpv.php`, με
     Payment capture completed/declined/denied/pending/refunded/reversed και Vault payment-token created/deleted.
     **Στο cut-over:** νέο webhook στην ίδια app προς `https://<host του MyCS>/extensions/paypal/webhook`, με τα ίδια
-    events **και** `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (τα disputes, `payments.md`)· το Webhook ID
+    events **και** `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (τα disputes, `payments.md`), `PAYMENT.SALE.COMPLETED`,
+    `PAYMENT.SALE.REFUNDED` και `BILLING.SUBSCRIPTION.CANCELLED/EXPIRED/SUSPENDED/ACTIVATED` (συνδρομές, #605)· το Webhook ID
     του μπαίνει στο gateway PayPal της MyCS (υποχρεωτικό: με αυτό ελέγχεται η υπογραφή). Μετά σβήνεται το παλιό.
   - **Stripe** (λογαριασμός Nixpal): ένα endpoint, `clients.nixpal.com/modules/gateways/callback/stripe.php`, API
     2019-09-09, μόνο 4 events αλλαγής κάρτας (`customer.card.updated`, `customer.source.updated`,
@@ -1069,10 +1191,13 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 3. **Μετά τον host, ποτέ πριν:** τα webhooks παίρνουν το `APP_URL` της στιγμής· με το παλιό θα έδειχναν στο
    `mycs.nixpal.com`.
 4. **Μαζί μέσω Chrome (υπεύθυνος + Claude):**
+   - **Από 2026-11-06 τα 1–2 του PayPal και το 1 του Stripe τα κάνει το `app:enable-imported-gateways`** (cutover-runbook,
+     «Gateways»), με τα κλειδιά που έφερε το `--with-logins`· με το χέρι μόνο όσα δεν ήρθαν. Τα παρακάτω μένουν ως έλεγχος.
    - **PayPal** — developer.paypal.com → Apps & Credentials (Live) → «MyApp_WHMCS»:
      1. Add webhook: `https://clients.nixpal.com/extensions/paypal/webhook`, events: Payment capture
         completed/declined/denied/pending/refunded/reversed, Vault payment-token created/deleted, **Customer dispute
-        created/resolved**.
+        created/resolved**, **Payment sale completed/refunded**, **Billing subscription cancelled/expired/suspended/activated**
+        (χωρίς αυτά μια συνδρομή που ακυρώνεται στο PayPal κρατά τα τιμολόγια των υπηρεσιών της: `payments.md`).
      2. Το **Webhook ID** του νέου → MyCS, Gateways → PayPal → «Webhook ID». Client ID/Secret της ίδιας app (τα βάζει ο
         υπεύθυνος στη φόρμα). Save.
      3. Delete το παλιό webhook (`.../callback/paypal_ppcpv.php`).
@@ -1100,8 +1225,9 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   `ExpiredDomains.php.bak-20261025`. Από τότε δεν χάνονται άλλα.
   - 20 διαγραφές από 19/09 ως 21/10.
   - 6.615 γραμμές τιμολογίων δείχνουν σε domains που δεν υπάρχουν πια. Μόνο τα 809 βρίσκονται στο `tbldomains_backup`.
-- **Νεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών στις
-  31 και των τιμολογίων στο terminate **δεν γίνονται σήμερα**. Πρόταση για το myip: `cronjob_add_funds_cancel = 0`, εκτός
+- **Μισονεκρό `auto-cancellation.php`** (`mysql_*`): η ακύρωση του add funds στις 30 ημέρες, των απλήρωτων παραγγελιών
+  στις 31 και των τιμολογίων στο terminate **δεν γίνονται σήμερα**. Ζει μόνο το `AfterModuleTerminate` (Capsule), που
+  γράφει τα Collections (2 στο 2026, WG-18). Πρόταση για το myip: `cronjob_add_funds_cancel = 0`, εκτός
   αν ο υπεύθυνος το θέλει ενεργό.
 - **Το Ekdosi του devbox (84.54.49.31) διαβάζει το WHMCS της παραγωγής** μέσω `ekdosi_bridge/resolve.php`: 21.034 κλήσεις
   σε 25 ημέρες.
@@ -1143,6 +1269,18 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
 - **Flag ανά πελάτη «χωρίς υπενθυμίσεις overdue»** (`overideduenotices`): 18 πελάτες → `clients.no_overdue_reminders`.
   Τα flags αυτά υπάρχουν πλέον και στις ομάδες (`client_groups.separate_invoices`, `dunning_exempt`,
   `no_overdue_reminders`), και ο importer τα παίρνει από το `tblclientgroups`.
+- **Έκπτωση ομάδας** (WG-1, 2026-11-04): το WHMCS κρατά στο `tblhosting.amount` την τιμή **χωρίς** την έκπτωση και τη
+  χρεώνει σε κάθε ανανέωση ως γραμμή `GroupDiscount` ανά υπηρεσία, στρογγυλεμένη μόνη της (nixpal, ομάδα 10%, 24
+  υπηρεσίες: Hosting 46,40, `GroupDiscount` −4,64, σύνολο 41,76 κάθε μήνα). Εδώ η έκπτωση είναι μέσα στην τιμή: ο
+  importer γράφει `price = amount − round(amount × %, 2)` και `group_percent` = της ομάδας, οπότε το reconcile του cron
+  δεν την ξαναβγάζει. Το `mycs:forecast-parity` και το `mycs:parity --records` συγκρίνουν με το ίδιο ποσό. (Το review του
+  #628 είχε διαβάσει το amount ως ήδη μειωμένο: η nixpal θα χρέωνε 10% παραπάνω.) Οι παλιές γραμμές `GroupDiscount`
+  έρχονται όπως ήταν, χωρίς αναφορά. Το ίδιο το ποσό του WHMCS μένει στο `services.undiscounted_price` (ADV-641-1/2):
+  μια αλλαγή ομάδας αργότερα ξαναϋπολογίζει από αυτό, όπως θα χρέωνε το WHMCS, όχι με αναλογία. Έτσι το 1,66 γυρίζει
+  1,85 και όχι 1,84, και μια ομάδα 100% δεν αφήνει την υπηρεσία δωρεάν για πάντα. Μόλις αλλάξει η τιμή, το προϊόν, το
+  plan ή το νόμισμα (από το staff, από νέο υπολογισμό, από upgrade ή αλλαγή κύκλου, ADV-641-3/4), το ποσό σβήνεται, και
+  από εκεί και πέρα ισχύει ο κανόνας του `ClientGroupPricing`. Το ποσό γράφεται μόνο από import σε άδεια βάση: όσα
+  instances έκαναν import πριν από το #641 δεν το έχουν. Το cut-over ξεκινά με `migrate:fresh`, οπότε δεν επηρεάζεται.
 - **Ekdosi:**
   - `mod_ekdosi_contacts` 178, `mod_ekdosi_routing` 185, `mod_ekdosi_invoice_marks` 147: εισάγονται στη γέφυρα
     (`ekdosi-bridge.md` → «Importer»): οι επαφές γίνονται κανονικές `contacts`, το routing η σχετική επαφή της υπηρεσίας
@@ -1160,8 +1298,45 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
     παραγγελία. Τα κενά της συμπληρώνει το `tblsslorders`, μόνο όταν είναι η ίδια παραγγελία (και ποτέ γραμμή άλλου
     module ή addon). Ποτέ το CSR, τα κλειδιά ή το `authdata`. Στο myip υπάρχουν στοιχεία για 4 από τις 12· στις άλλες τα
     συμπληρώνει το staff. Περνούν στο Openprovider SSL στη λήξη τους (απόφαση ROADMAP).
-  - Hetzner Cloud: 1 υπηρεσία. Γίνεται Offline VM.
-  - ngm: 1 υπηρεσία. Γίνεται Offline VM.
+  - Hetzner Cloud: 1 υπηρεσία.
+    - Ως τις 2026-11-04 ο importer **παρέλειπε** τον server του («no MyCS extension»), και η υπηρεσία ερχόταν χωρίς
+      server (βρέθηκε στην πρόβα του myip).
+    - Τώρα ο server του WHMCS γίνεται server **Offline VM** («<όνομα> (Hetzner Cloud, offline)»), χωρίς διεύθυνση και
+      login. Κάθε ενέργεια πάνω του γίνεται εργασία του staff.
+- **ngm** (δικό μας panel, 1 υπηρεσία στο myip): server του extension **ngm** (`extensions/Servers/Ngm`, από το δικό
+  μας WHMCS module του).
+  - Ο server έρχεται με το όνομά του και `host` **μόνο το hostname**, χωρίς το port του WHMCS. Το API του ngm ακούει
+    στο δικό του port (9601), ενώ στο 443 το nginx σερβίρει τα sites των πελατών. Το extension βάζει μόνο του https και
+    9601, όπως και το WHMCS module, που αγνοούσε το port του server (`OWN_PORT_MODULES`).
+  - Δεν έρχεται login. Το API token (admin, scopes `read` και `accounts`) το βάζει το staff· το βήμα των credentials
+    λέει «enter it by hand».
+  - Τα προϊόντα: `configoption1` → `package` (το όνομα του πακέτου στο ngm), `configoption2` → `php`. Κενό = κανένα.
+  - Οι υπηρεσίες έρχονται με το `username` του WHMCS, και με αυτό τις χειρίζεται το extension. Το suspend δεν θέλει
+    σημάδι: το ngm το κάνει idempotent.
+- **Προϊόντα χωρίς module στο WHMCS** (myip: 14 με ζωντανή υπηρεσία, 17 υπηρεσίες: dedicated, colocation, managed, backup
+  MX, ένα SSL, ένα Imunify360):
+  - το προϊόν και οι ζωντανές υπηρεσίες του μπαίνουν στο «Manual (offline)» (Offline Dedicated Server), με εξαίρεση όσες
+    είχαν δικό τους server στο WHMCS·
+  - ένα suspend για απλήρωτο ή ένα terminate γίνεται εργασία στα Pending Module Actions (πλακίδιο στο dashboard και mail
+    στο staff), ώστε να γίνει με το χέρι, π.χ. να ακυρωθεί το license (υπεύθυνος, 2026-11-04)·
+  - ως τότε έμεναν χωρίς server, και ένα suspend άλλαζε μόνο την κατάσταση·
+  - το import τις βγάζει σε λίστα· ό,τι δεν είναι μηχάνημα (SSL, license) το μεταφέρει το staff όπου ταιριάζει.
+  Το Redfish (iDRAC, BMC) είναι στο ROADMAP.
+- **Proxmox (pvewhmcs):** οι servers του WHMCS (Pegasus, Vega) είναι κόμβοι **ενός cluster** (υπεύθυνος, 2026-11-04).
+  - Γίνονται **ένας** server Proxmox, και σε νέα εκτέλεση βρίσκεται με το id οποιουδήποτε κόμβου.
+  - **Νέος server:**
+    - είναι ενεργός αν είναι ενεργός κάποιος κόμβος·
+    - host είναι ένας ενεργός κόμβος (`:8006`) και οι άλλοι γίνονται `node2_host` / `node3_host`, για failover·
+    - δεν έχει login.
+  - **Server που υπάρχει ήδη** (από προηγούμενο import, ή του staff που υιοθετείται: σε διεύθυνση κάποιου κόμβου, ή ο
+    μόνος του extension): μένει όπως είναι, με όνομα, κατάσταση, διευθύνσεις και token. Αν το staff τον έχει σβήσει,
+    μένει σβησμένος.
+  - **Στο cut-over** το πλήρες import αδειάζει πρώτα τη βάση (`migrate:fresh`), άρα ο server φτιάχνεται από το import. Μετά
+    το staff βάζει ξανά το token, τα IP/self-signed των κόμβων, το pool, τη ρύθμιση Terminate και τις αντιστοιχίσεις των
+    Proxmox Guests. Υιοθεσία κάνει μόνο το `app:import-whmcs-catalog` πάνω σε υπάρχουσα βάση.
+  - Οι υπηρεσίες κάθε κόμβου πάνε σε αυτόν. Οι VM αντιστοιχίζονται με το χέρι (`proxmox.md` → Α3).
+  - Κάθε server `pvewhmcs` θεωρείται κόμβος του ίδιου cluster: η myip έχει ένα. Η γραμμή του import λέει ποιους ένωσε.
+  - Ως τις 2026-11-04 κι αυτοί παραλείπονταν.
 - **Centova:** custom fields `port`, `username`, `sourcepassword` (μυστικό, κρυπτογραφείται), `servertype`, `sourcetype`,
   `transferlimit`. Ο mailcow έχει 10 ενεργές.
 - **Domains, για το D6:**
@@ -1206,7 +1381,56 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   - Eurobank: confirm/cancel μόνο για όσες πληρωμές βρίσκονται σε εξέλιξη τη στιγμή του cut-over·
   - ppcpv webhook, όπως στη nixpal·
   - Stripe webhook: 5 κλήσεις.
-- **Χάρτης 301:** το clients.myip.gr κάνει redirect στο `/clients/…`, και `/store/cpanel-hosting/*`, `cart.php`,
+- **Χάρτης 301** (γίνεται: `cutover-runbook.md` §1β, το clients.myip.gr γίνεται το MyCS): σήμερα το clients.myip.gr κάνει redirect στο `/clients/…`, και `/store/cpanel-hosting/*`, `cart.php`,
   `/knowledgebase/tag/*` έχουν ακόμα κίνηση.
 - **API:** καμία κλήση από παραγωγή. Τρία credentials (ALL-ROLES, ekdosi, invoicer), που ανακαλούνται μετά.
 - **`/home/myipgr/eurobank_iris_debug.txt`:** debug log του gateway, 942 KB. Να ελεγχθεί τι κρατά και να σβηστεί.
+
+## Πρόβα μετά τη λίστα WG (2026-11-06)
+Απόφαση ιδιοκτήτη 2026-11-04: όταν κλείσει η λίστα WG (`sweeps/whmcs-gaps.md`), πλήρης πρόβα και των δύο. Φρέσκα dumps
+(6/11, `mariadb-dump --single-transaction`, `nice`/`ionice`: nixpal από τον orion, myip από τον rigel με push και προσωρινό
+κλειδί που σβήστηκε αμέσως), πλήρες `app:import-from-whmcs` στο main `2a57682d` σε scratch βάσεις, χωρίς logins, API
+και συνημμένα (κατά πρόθεση: έρχονται στο τελικό, `cutover-runbook.md` §1). nixpal 2′17″, myip ~10′.
+
+**Τι έρχεται:** parity πληθών και ανά εγγραφή, forecast, και έλεγχος ανά WG (ρυθμίσεις και πλήθη) με SELECT και στις δύο
+πλευρές. Ταιριάζουν: ομάδες και πελάτες σε ομάδες (WG-1), `order_days_grace` (WG-4), promotions (WG-6), `tos` (WG-7),
+κλειστοί πελάτες (WG-8), `mail_must_verify` off (WG-10), επιλογές υπηρεσιών (WG-11, myip 18), μέρες τιμολόγησης (WG-14:
+myip 14/10, nixpal 7), resellers (WG-16, myip 27), `bill_to_text` (WG-17), ID protection (WG-32: myip 6, με την τιμή του
+αφαιρεμένη και στα 6).
+
+**Διαφορές, όλες με αιτία:**
+- **nixpal:** χρήματα −15,80 (η πληρωμή Stripe #1224 χωρίς τιμολόγιο) και οι προμήθειες. Ανά εγγραφή: καμία.
+- **myip, σύνολα:** όπως στις 29/10 (`prelaunch-audit.md`, ροή 9): «Money in» −30.236,91 (394 πληρωμές σε σβησμένα
+  τιμολόγια), «Money out» −171, προμήθειες, cancelled +2 (Fraud), πληρωμένα −190 και ακυρωμένα −107 (τιμολόγια με σύνολο
+  χωρίς γραμμές), tickets +12 (merged σε σβησμένο). Τα domains (1.899) ταιριάζουν πια, μετά το WG-12.
+- **myip, ανά εγγραφή (30):**
+  - 5 τιμολόγια: τα 4 με σύνολο χωρίς γραμμές και 1 με γραμμή «taxed» χωρίς φόρο στο WHMCS (+4,56)· από αυτά τα 5 «Account billed».
+  - 11 πληρωμές τιμολογίων άλλου πελάτη (`tblaccounts.userid` ≠ του τιμολογίου): ο importer τις δίνει στον πελάτη του
+    τιμολογίου· από αυτές τα 18 «Account paid» (ανά ζεύγος βγαίνουν ακριβώς).
+  - Το #17906: λήξη «0200-04-24» στο WHMCS (και είναι Collections, WG-18).
+  - Η υπηρεσία #937: Free Account με ξεχασμένο ποσό 0,81 στο WHMCS· εδώ 0,00 (#594).
+- **Forecast (και οι δύο):**
+  - μέρες τιμολόγησης: υπηρεσίες −6 (οι 20 του WHMCS στους μεγάλους κύκλους) και −1 (Quarterly 15), addons το ίδιο (WG-14)·
+  - suspend/terminate μία μέρα (γνωστό)·
+  - «charged by a saved method» yes → no: χωρίς API στην πρόβα δεν ήρθαν μέθοδοι·
+  - Free Account → «recurring 1 month» (#594: 0,00, χωρίς λήξη);
+  - domains: nixpal 8 μέρες νωρίτερα εδώ (WHMCS 7, εδώ 15: απόφαση 2026-10-17)· myip 145 με `nextinvoicedate` του WHMCS ένα
+    ή περισσότερα χρόνια πίσω από τη λήξη (το sync του registrar κουνά τη λήξη, όχι αυτό)· εδώ τιμολογούνται 15 μέρες πριν
+    τη λήξη. Και το #12 της nixpal (λήξη 2030, `nextinvoicedate` 2025)·
+  - 3 που το WHMCS θα τερμάτιζε κι εδώ ποτέ: η υπηρεσία #619 (αναστολή του staff, «Service Transfer») και 2 addons σε
+    αναστολή (της γονικής, και «Suspended in WHMCS»): κράτηση του staff, ποτέ αυτόματος τερματισμός (#531).
+
+**Πίνακες που ο importer δεν διαβάζει** (με εγγραφές): logs (`tbllog_register`, `tblactivitylog`, `tbladminlog`,
+`tblgatewaylog`, `tblticketlog`, `tblwhoislog`, `tbltransaction_history` …), οι γνωστές παραλείψεις (WG-30, `tblinvoicedata`,
+`tblproducts_slugs`, `tbldomains_backup`), modules που δεν περνούν (`mod_sslstore_*`, `mod_pvewhmcs_*`: χειροκίνητα,
+`proxmox.md`; `ispapi_*`, `mod_cnic_zones`; `rsthemes_*`; `mod_timologia`, `mod_ekdosi_*`: Ekdosi), και ελέγχθηκαν:
+- `tblmodulequeue`: όλα `completed`, τίποτα σε εκκρεμότητα (nixpal 14).
+- `tblclienttags` (myip 67): όλα κενά. `tblaffiliates` (5): υπόλοιπο 0. `tblticketactions`: όλα τελειωμένα.
+- `tblbankaccts` (myip 4 ζωντανοί): SEPA της Stripe, έρχονται με τις μεθόδους πληρωμής (`RemoteBankAccount`).
+- `tblquotes` (myip 15, καμία αποδεκτή· οι 7 νεότερες με σύνολο 0,00): **δεν γίνονται** quotes στο MyCS (ιδιοκτήτης 2026-11-06).
+- `crm_*` (myip 555 leads, χωρίς κίνηση από 5/2025): το CRM της ModulesGarden αφαιρέθηκε· **δεν περνά** (ιδιοκτήτης 2026-11-06).
+- `tblticketpendingimports` (myip 7, `senderNotAuthorized`, 2/2024–3/2026): απαντήσεις από ξένες διευθύνσεις που δεν
+  εγκρίθηκαν ποτέ· δεν εισάγονται.
+- Ρόλοι staff χωρίς κανένα μέλος (myip «WHMCS», «TechPolicy»· nixpal «Support Operator») δεν έρχονται: ο importer φτιάχνει
+  ρόλο μόνο για όσους έχουν staff.
+

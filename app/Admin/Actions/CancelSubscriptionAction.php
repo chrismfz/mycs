@@ -4,6 +4,7 @@ namespace App\Admin\Actions;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
+use App\Services\Payment\SubscriptionEnded;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Component;
@@ -58,6 +59,10 @@ class CancelSubscriptionAction
             return $e->getMessage();
         }
 
+        // A payment of it already on its way still finds the service (SubscriptionEnded).
+        if (filled($service->subscription_id)) {
+            SubscriptionEnded::keep($service, (string) $service->subscription_id);
+        }
         $service->update(['subscription_id' => null]);
 
         return null;

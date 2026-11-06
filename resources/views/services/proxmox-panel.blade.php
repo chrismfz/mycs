@@ -35,8 +35,8 @@
         @endif
         @if ($canPower && $known)
         <div class="flex flex-wrap gap-2">
-            @if ($running)
-            {{-- In its own tab: the console takes the whole window (B6). --}}
+            @if ($running && $console)
+            {{-- In its own tab: the console takes the whole window (B6); only with the console on for its cluster. --}}
             <a href="{{ route('services.console', $service) }}" target="_blank" rel="noopener"
                 class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.console.button') }}</a>
             @endif
@@ -81,6 +81,47 @@
         <div><dt class="text-base/50">{{ __('services.proxmox.network.dns') }}</dt><dd class="font-mono text-xs break-all select-all">{{ $ip['dns'] ? implode(' · ', $ip['dns']) : '—' }}</dd></div>
     </dl>
     @endforeach
+    @endif
+
+    @if ($snapshots)
+    {{-- The customer's one snapshot of its disks (owner 2026-11-06), in the queue: the panel follows it while pending. --}}
+    @php($snapshotPending = str_starts_with((string) $pending, 'snapshot.'))
+    <div class="flex flex-wrap items-center justify-between gap-2 mt-5">
+        <div>
+            <h5 class="text-sm font-semibold">{{ __('services.proxmox.snapshot.title') }}</h5>
+            {{-- A state cached by the code before has neither key (ADV-SNAP-4): not known, then, until its next read. --}}
+            @php($snapshotKnown = (bool) ($vm['snapshot_read'] ?? false))
+            @php($taken = $vm['snapshot'] ?? null)
+            <p class="text-xs text-base/60">
+                @if (!$snapshotKnown)
+                {{ __('services.proxmox.snapshot.unknown') }}
+                @elseif ($taken !== null)
+                {{ __('services.proxmox.snapshot.taken', ['date' => $taken > 0 ? \Carbon\Carbon::createFromTimestamp($taken)->timezone(config('app.timezone'))->format('d/m/Y H:i') : '—']) }}
+                @else
+                {{ __('services.proxmox.snapshot.none') }}
+                @endif
+            </p>
+        </div>
+        @if ($canPower && $known && $snapshotKnown && !$snapshotPending)
+        <div class="flex flex-wrap gap-2">
+            <button type="button" wire:click="snapshot('take')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.' . ($taken !== null ? 'replace' : 'take')) }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.snapshot.action.take') }}</button>
+            @if ($taken !== null)
+            <button type="button" wire:click="snapshot('rollback')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.rollback') }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral text-error">{{ __('services.proxmox.snapshot.action.rollback') }}</button>
+            <button type="button" wire:click="snapshot('delete')" wire:loading.attr="disabled"
+                wire:confirm="{{ __('services.proxmox.snapshot.confirm.delete') }}"
+                class="text-sm rounded-md px-3 py-1 border border-neutral hover:bg-neutral">{{ __('services.proxmox.snapshot.action.delete') }}</button>
+            @endif
+        </div>
+        @endif
+    </div>
+    <p class="text-xs text-base/50 mt-1">{{ __('services.proxmox.snapshot.hint') }}</p>
+    @if ($snapshotResult)
+    <p class="text-sm mt-1 {{ str_starts_with($snapshotResult, 'done.') ? 'text-success' : 'text-error' }}">{{ __('services.proxmox.snapshot.result.' . $snapshotResult) }}</p>
+    @endif
     @endif
 
     <div class="flex items-center justify-between mt-5">

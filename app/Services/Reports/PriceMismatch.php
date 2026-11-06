@@ -115,14 +115,15 @@ final class PriceMismatch
         $rows = [];
         Domain::query()->whereNotNull('recurring_amount')
             ->whereIn('status', [DomainStatus::Active->value, DomainStatus::Expired->value, DomainStatus::Grace->value])
-            ->with(['domainTld.prices', 'domainTld.registrarConnection', 'registrarConnection', 'client'])->orderBy('id')
+            ->with(['domainTld.prices', 'domainTld.registrarConnection', 'registrarConnection', 'client.group'])->orderBy('id')
             ->chunk(200, function ($domains) use (&$rows) {
                 foreach ($domains as $domain) {
                     // A name only staff price (.gr two characters) has no catalog price to compare with.
                     if ($domain->staffPriced()) {
                         continue;
                     }
-                    $tld = $domain->domainTld?->priceFor('renew', max(1, (int) $domain->years), (string) $domain->currency_code);
+                    // As «Recalculate» would set it: its group's discount on domains in it (R656-3).
+                    $tld = $domain->catalogRenewalPrice(max(1, (int) $domain->years));
                     if ($tld === null) {
                         continue; // its extension no longer offers it: nothing to compare (staff's own price)
                     }

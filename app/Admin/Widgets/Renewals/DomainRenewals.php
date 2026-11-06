@@ -23,16 +23,31 @@ class DomainRenewals extends TableWidget
 {
     protected static ?int $sort = 20;
 
-    // Half the width from lg: they flow two by two, the first beside «Income» (owner 2026-10-21).
-    protected int|string|array $columnSpan = 1; // the dashboard's grid: one column below lg (full width), two from lg
+    // In the right column of the dashboard (`Dashboard::RIGHT`, owner 2026-11-04): it stacks there on its own.
+    protected int|string|array $columnSpan = 1;
 
     /** An expired domain stays on the list this long after its expiry. */
     public const PAST_DAYS = 90;
+
+    /** The windows a renewals list offers, in days; the first-choice one is 30. */
+    public const WINDOWS = [7, 30, 60, 90];
+
+    /**
+     * The window a renewals list's «within» filter asks for, read the same way by its query and its heading (review
+     * of #640): one of the offered windows, else 30.
+     */
+    public static function windowDays(mixed $value): int
+    {
+        return in_array((int) $value, self::WINDOWS, true) ? (int) $value : 30;
+    }
 
     public function table(Table $table): Table
     {
         return $table
             ->heading(__('Upcoming domain renewals'))
+            // Denser (B2, owner 2026-11-04): the window under the heading instead of a row of «Active filters».
+            ->description(fn () => __('Within :days days', ['days' => self::windowDays($this->tableFilters['within']['value'] ?? null)]))
+            ->hiddenFilterIndicators()
             ->query(Domain::query()->with(['client.primaryContact', 'client.ownerGrant.user', 'registrarConnection', 'domainTld.registrarConnection'])
                 ->whereIn('status', [DomainStatus::Active->value, DomainStatus::Expired->value, DomainStatus::Grace->value, DomainStatus::Redemption->value])
                 ->whereNotNull('expires_at')->whereDate('expires_at', '>=', today()->subDays(self::PAST_DAYS)))
@@ -40,7 +55,7 @@ class DomainRenewals extends TableWidget
             ->filters([
                 SelectFilter::make('within')->label(__('Within'))->default('30')->selectablePlaceholder(false)
                     ->options(['7' => __('7 days'), '30' => __('30 days'), '60' => __('60 days'), '90' => __('90 days')])
-                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays((int) ($data['value'] ?: 30)))),
+                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays(self::windowDays($data['value'] ?? null)))),
             ])
             ->columns([
                 TextColumn::make('fqdn')->label(__('Domain'))->searchable(),

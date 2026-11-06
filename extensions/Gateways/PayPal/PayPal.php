@@ -10,16 +10,20 @@ use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\GatewayReference;
+use App\Services\Money\PaymentsLog;
 use App\Services\Payment\SavedMethodCharge;
+use App\Services\Payment\SubscriptionEnded;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
@@ -33,6 +37,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use JsonException;
 use Throwable;
 
 #[ExtensionMeta(
@@ -243,6 +248,14 @@ class PayPal extends Gateway
             }
         });
         Event::listen(Updated::class, function (Updated $event) {
+            // Staff set back an id that ended here (SubscriptionEnded, «active again»): its marker again, so that ending
+            // the service cancels the subscription in PayPal.
+            if ($event->changed('subscription_id') && is_string($id = $event->changes['subscription_id']) && self::isSubscriptionId($id)
+                && Service::query()->whereKey($event->service->id)->value('subscription_id') === $id
+                && $event->service->properties()->where('key', SubscriptionEnded::keptKey($id))->exists()) {
+                $event->service->properties()->updateOrCreate(['key' => 'has_paypal_subscription'], ['name' => 'PayPal', 'value' => '1']);
+                $event->service->unsetRelation('properties');
+            }
             // From the database: an earlier event of the same commit may have cancelled and removed the marker.
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
                 return;
@@ -347,6 +360,7 @@ class PayPal extends Gateway
     }
 
     /**
+     * @param  array<mixed>|string  $data  a string is sent as the JSON body as it is (the webhook's verification)
      * @param  string|null  $requestId  PayPal-Request-Id: the same id for a retry of the same operation lets PayPal
      *                                  answer the first result instead of doing it twice (refunds); null = a new one
      *
@@ -355,11 +369,15 @@ class PayPal extends Gateway
     public function request($method, $url, $data = [], ?string $requestId = null, array $headers = [])
     {
         $requestId ??= (string) Str::uuid();
-        $send = fn () => Http::withHeaders([
-            'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->generateAccessToken(),
-            'PayPal-Request-Id' => $requestId,
-        ] + $headers)->$method($url, $data);
+        $send = function () use ($method, $url, $data, $requestId, $headers) {
+            $http = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $this->generateAccessToken(),
+                'PayPal-Request-Id' => $requestId,
+            ] + $headers);
+
+            return is_string($data) ? $http->withBody($data, 'application/json')->$method($url) : $http->$method($url, $data);
+        };
 
         $response = $send();
         if ($response->status() === 401) { // expired token: a new one, same request id
@@ -393,6 +411,41 @@ class PayPal extends Gateway
         }
 
         return $rows;
+    }
+
+    /** The events its webhook handles (webhook(), docs/importer.md): WHMCS's app's capture and vault ones, disputes, sales, subscriptions. */
+    public const WEBHOOK_EVENTS = ['PAYMENT.CAPTURE.COMPLETED', 'PAYMENT.CAPTURE.DECLINED', 'PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.PENDING',
+        'PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED', 'VAULT.PAYMENT-TOKEN.CREATED', 'VAULT.PAYMENT-TOKEN.DELETED',
+        'CUSTOMER.DISPUTE.CREATED', 'CUSTOMER.DISPUTE.RESOLVED', 'PAYMENT.SALE.COMPLETED', 'PAYMENT.SALE.REFUNDED',
+        'BILLING.SUBSCRIPTION.CREATED', 'BILLING.SUBSCRIPTION.ACTIVATED', 'BILLING.SUBSCRIPTION.CANCELLED', 'BILLING.SUBSCRIPTION.EXPIRED',
+        'BILLING.SUBSCRIPTION.SUSPENDED'];
+
+    /** Its client id and secret open the app: a token is given (nothing else asked of PayPal). */
+    public function checkConnection(): void
+    {
+        $this->accessToken = null;
+        $this->generateAccessToken();
+    }
+
+    /**
+     * This site's webhook on the app (the cut-over's step by hand until 2026-11-06, importer.md): the one already made for
+     * this address, its events brought up to WEBHOOK_EVENTS, or a new one. Other addresses' (WHMCS's) are never touched.
+     *
+     * @return string its id, for the webhook_id setting
+     */
+    public function ensureWebhook(): string
+    {
+        $base = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        $url = route('extensions.gateways.paypal.webhook');
+        $events = array_map(fn (string $name) => ['name' => $name], self::WEBHOOK_EVENTS);
+        $ours = collect($this->request('get', $base . '/v1/notifications/webhooks')->webhooks ?? [])->first(fn ($webhook) => ($webhook->url ?? null) === $url);
+        if ($ours !== null) {
+            $this->request('patch', $base . '/v1/notifications/webhooks/' . $ours->id, [['op' => 'replace', 'path' => '/event_types', 'value' => $events]]);
+
+            return (string) $ours->id;
+        }
+
+        return (string) $this->request('post', $base . '/v1/notifications/webhooks', ['url' => $url, 'event_types' => $events])->id;
     }
 
     public function supportsPaymentGroups(): bool
@@ -581,7 +634,15 @@ class PayPal extends Gateway
      */
     public function recordSubscriptionSale(array $resource): void
     {
-        $services = Service::where('subscription_id', $resource['billing_agreement_id'])->orderBy('id')->get();
+        // Also a subscription that ended here before its sale came (SubscriptionEnded): its money is still theirs.
+        $services = SubscriptionEnded::services((string) $resource['billing_agreement_id'])->orderBy('id')->get();
+        if ($services->isEmpty()) {
+            // No service of ours carries it: never ours to record, and never lost without staff knowing.
+            GatewayReference::foreign('PayPal', 'PAYMENT.SALE.COMPLETED of subscription ' . $resource['billing_agreement_id'], (string) ($resource['id'] ?? ''),
+                $resource['amount']['total'] ?? null, $resource['amount']['currency'] ?? null);
+
+            return;
+        }
         $targets = $services
             ->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)
                 ->orderBy('invoices.created_at')->orderBy('invoices.id')->first())
@@ -627,16 +688,33 @@ class PayPal extends Gateway
     public function webhook(Request $request)
     {
         $body = $request->getContent();
+        // Only a JSON object is an event; anything else is not asked about (and could not be embedded below as a value).
+        if (!is_array(json_decode($body, true)) || !str_starts_with(ltrim($body), '{')) {
+            GatewayLog::current()->signature(false);
+
+            return response()->json(['status' => 'error'], 400);
+        }
+        // The event goes to PayPal as it came, never decoded and encoded again: a decoded `{}` comes back `[]`, and the
+        // event no longer matches its signature (two of the first live events, 2026-11-02, failed so on every retry).
         try {
-            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
+            $fields = json_encode([
                 'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
                 'cert_url' => $request->header('PAYPAL-CERT-URL'),
                 'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
                 'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
                 'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
                 'webhook_id' => $this->config('webhook_id'),
-                'webhook_event' => json_decode($body, true),
-            ]);
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException) {
+            // A header that is not UTF-8 is none PayPal sent: refused as a forged call, never a 500 that reads as a
+            // payment lost (ADV-601-1).
+            GatewayLog::current()->signature(false);
+
+            return response()->json(['status' => 'error'], 400);
+        }
+        try {
+            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature',
+                substr($fields, 0, -1) . ',"webhook_event":' . $body . '}');
         } catch (PayPalApiException $e) {
             if ($e->status >= 500) {
                 throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
@@ -661,6 +739,10 @@ class PayPal extends Gateway
             return response()->json(['status' => 'ignored']);
         } elseif ($body['event_type'] === 'PAYMENT.SALE.COMPLETED' && isset($body['resource']['billing_agreement_id'])) {
             $this->recordSubscriptionSale($body['resource']);
+        } elseif (in_array($body['event_type'], self::SUBSCRIPTION_ENDED, true)) {
+            return $this->subscriptionEnded((string) ($body['resource']['id'] ?? ''), $body['event_type']);
+        } elseif ($body['event_type'] === 'BILLING.SUBSCRIPTION.ACTIVATED') {
+            return $this->subscriptionActivated((string) ($body['resource']['id'] ?? ''));
         } elseif ($body['event_type'] === 'VAULT.PAYMENT-TOKEN.DELETED') {
             // Find the billing agreement with this external reference
             $billingAgreement = BillingAgreement::where('external_reference', $body['resource']['id'])->first();
@@ -734,9 +816,88 @@ class PayPal extends Gateway
         return response()->json(['status' => 'success']);
     }
 
+    /** A subscription that bills no more: cancelled (by the customer, in PayPal), expired, suspended (failed payments). */
+    private const SUBSCRIPTION_ENDED = ['BILLING.SUBSCRIPTION.CANCELLED', 'BILLING.SUBSCRIPTION.EXPIRED', 'BILLING.SUBSCRIPTION.SUSPENDED'];
+
+    /**
+     * The subscription ended at PayPal: its services no longer carry it, so their invoices are charged and paid as any
+     * other (SubscriptionEnded). Only once PayPal says so now: an old event sent again (or one that came after the
+     * subscription was activated again) never clears a subscription that still bills.
+     */
+    private function subscriptionEnded(string $id, string $event)
+    {
+        if (!self::isSubscriptionId($id) || !Service::query()->where('subscription_id', $id)->exists()) {
+            // None of ours carries it: someone else's, or one already cleared (a replay). Nothing to do.
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'subscription_not_ours', ['external_id' => $id ?: null]);
+
+            return response()->json(['status' => 'ignored']);
+        }
+        $status = $this->subscriptionStatus($id);
+        if (!in_array($status, ['CANCELLED', 'EXPIRED', 'SUSPENDED'], true)) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'subscription_still_' . strtolower($status ?? 'unknown'), ['external_id' => $id]);
+
+            return response()->json(['status' => 'ignored']);
+        }
+        SubscriptionEnded::clear('PayPal', $id, $event . ', ' . $status . ' at PayPal', ['has_paypal_subscription']);
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * A subscription suspended (so cleared here) and then activated again in PayPal bills its services again, while
+     * their invoices are charged and payable as well. Whether it pays them again is staff's call: they are told.
+     */
+    private function subscriptionActivated(string $id)
+    {
+        $ended = self::isSubscriptionId($id) ? SubscriptionEnded::ended($id)
+            ->where(fn ($unpaid) => $unpaid->whereNull('subscription_id')->orWhere('subscription_id', '!=', $id)) // not one set back already
+            ->orderBy('id')->pluck('id') : collect();
+        if ($ended->isEmpty() || $this->subscriptionStatus($id) !== 'ACTIVE') {
+            return response()->json(['status' => 'ignored']);
+        }
+        $message = sprintf('The PayPal subscription %s is active again. It was cleared from service #%s when it ended, so those invoices are charged and payable as any other while the subscription bills again: what is paid twice becomes credit. Set it back as the service\'s subscription id if it should pay them (it is then cancelled with the service again), or cancel it in PayPal.',
+            $id, $ended->implode(', #'));
+        PaymentsLog::warning($message, ['subscription_id' => $id, 'services' => $ended->all()]);
+        if (Cache::add('paypal-subscription-active-again:' . $id, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('PayPal subscription active again', e($message));
+        }
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /** A PayPal subscription id (I-…): never anything else in the URL it is read from. */
+    private static function isSubscriptionId(string $id): bool
+    {
+        return preg_match('/^I-[A-Z0-9]{1,60}\z/', $id) === 1;
+    }
+
+    /**
+     * The subscription's status as PayPal has it now; null when PayPal does not know it (404). Any other failure (PayPal
+     * down, a rate limit, our credentials) is thrown: the webhook is answered 500 and PayPal sends it again, so an ended
+     * subscription is never left on its services for good (review of #605).
+     */
+    private function subscriptionStatus(string $id): ?string
+    {
+        $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        try {
+            $subscription = $this->request('get', $url . '/v1/billing/subscriptions/' . $id);
+        } catch (PayPalApiException $e) {
+            if ($e->status !== 404) {
+                throw $e;
+            }
+            PaymentsLog::warning('PayPal could not say the status of subscription ' . $id . ': nothing changed here.', ['subscription_id' => $id, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        return is_string($subscription->status ?? null) ? $subscription->status : null;
+    }
+
     public function updateSubscription(Service $service)
     {
-        if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
+        // No id (its marker kept, the id cleared): no subscription to change; else every service without one would be
+        // summed and «/subscriptions/» patched (review of #608).
+        if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1' || blank($service->subscription_id)) {
             return false;
         }
         // Update subscription price

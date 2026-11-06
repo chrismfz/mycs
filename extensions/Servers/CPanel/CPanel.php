@@ -321,7 +321,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /** «10», «+10GB», «10 GB» → 10; «2.5» → 2; anything else (negative, words) → 0. */
-    private static function gigabytes(mixed $value): int
+    public static function gigabytes(mixed $value): int
     {
         $text = trim((string) $value);
         if (is_numeric($text)) {
@@ -612,18 +612,21 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $accounts = self::megabytes($settings['reseller_max_accounts'] ?? null);
         $oversellDisk = self::isReseller(['reseller' => $settings['reseller_overselling_disk'] ?? null]);
         $oversellBandwidth = self::isReseller(['reseller' => $settings['reseller_overselling_bandwidth'] ?? null]);
-        // A limit left empty is not sent (never «0 MB»: code review 4 of #315).
-        $this->whm('/setresellerlimits', array_filter([
-            'user' => $username,
-            'enable_resource_limits' => $disk !== null || $bandwidth !== null ? 1 : 0,
-            'diskspace_limit' => $disk,
-            'bandwidth_limit' => $bandwidth,
-            'enable_overselling' => $oversellDisk || $oversellBandwidth ? 1 : 0,
-            'enable_overselling_diskspace' => $oversellDisk ? 1 : 0,
-            'enable_overselling_bandwidth' => $oversellBandwidth ? 1 : 0,
-            'enable_account_limit' => $accounts !== null ? 1 : 0,
-            'account_limit' => $accounts,
-        ], fn ($value) => $value !== null));
+        // A limit left empty is not sent (never «0 MB»: code review 4 of #315), nor is it turned off: only what the product
+        // sets is set, so limits staff set by hand in WHM stay (review of #663: 25 of myip's 29 resellers,
+        // on products that set none). Resources and their overselling go together, the account limit on its own.
+        $limits = [];
+        if ($disk !== null || $bandwidth !== null) {
+            $limits += array_filter(['enable_resource_limits' => 1, 'diskspace_limit' => $disk, 'bandwidth_limit' => $bandwidth,
+                'enable_overselling' => $oversellDisk || $oversellBandwidth ? 1 : 0, 'enable_overselling_diskspace' => $oversellDisk ? 1 : 0,
+                'enable_overselling_bandwidth' => $oversellBandwidth ? 1 : 0], fn ($value) => $value !== null);
+        }
+        if ($accounts !== null) {
+            $limits += ['enable_account_limit' => 1, 'account_limit' => $accounts];
+        }
+        if ($limits !== []) {
+            $this->whm('/setresellerlimits', ['user' => $username] + $limits);
+        }
     }
 
     /** @return list<string> WHM's resellers */
@@ -1017,7 +1020,62 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             ];
         }
 
+        // What each account's package says (the package and limits check: AccountCheck); a package not read is none, never a failed read.
+        $limits = $this->packageLimits(array_values(array_unique(array_filter(array_column($accounts, 'plan')))));
+        foreach ($accounts as $i => $account) {
+            $accounts[$i]['plan_disk_mb'] = $limits[$account['plan']]['disk'] ?? null;
+            $accounts[$i]['plan_bandwidth_mb'] = $limits[$account['plan']]['bandwidth'] ?? null;
+        }
+
         return $accounts;
+    }
+
+    /**
+     * Disk and bandwidth of each package, as WHM's getpkginfo says (a call a package; QUOTA and BWLIMIT in MB, «unlimited» is 0).
+     * A package that cannot be read is left out: its accounts are not checked. A package WHM does not know is only that; a few
+     * other failures in a row (a login without the right to read packages) stop the rest, and the failure is reported once.
+     *
+     * @param  list<string>  $plans
+     * @return array<string, array{disk: int|null, bandwidth: int|null}>
+     */
+    private function packageLimits(array $plans): array
+    {
+        $read = [];
+        $failures = 0;
+        foreach ($plans as $plan) {
+            try {
+                $package = $this->whm('/getpkginfo', ['pkg' => $plan])['data']['pkg'] ?? null;
+            } catch (Throwable $e) {
+                // A package WHM does not know (gone after a move, still named on accounts) is only not told: it is no sign of a login
+                // without the right, and must not stop the packages after it (review of #622). Anything else, a few times in a row, does.
+                if (!str_contains($e->getMessage(), 'Failed to load package') && ++$failures >= self::LVE_GIVE_UP) {
+                    report($e);
+
+                    break;
+                }
+
+                continue;
+            }
+            $failures = 0;
+            if (is_array($package)) {
+                // A reseller's package has a null BWLIMIT (or none) when its bandwidth is unlimited (seen on the live servers, 2026-11-03: its
+                // accounts have no bandwidth limit either): none is no limit, not «not told».
+                $read[$plan] = ['disk' => self::packageLimit($package['QUOTA'] ?? null),
+                    'bandwidth' => ($package['BWLIMIT'] ?? null) === null ? 0 : self::packageLimit($package['BWLIMIT'])];
+            }
+        }
+
+        return $read;
+    }
+
+    /** A package's number in MB; «unlimited» is 0; anything else is not told. */
+    private static function packageLimit(mixed $value): ?int
+    {
+        if (is_numeric($value)) {
+            return max(0, (int) $value);
+        }
+
+        return strtolower(trim((string) $value)) === 'unlimited' ? 0 : null;
     }
 
     /**

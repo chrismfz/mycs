@@ -162,6 +162,35 @@ class ImportPayMethodsTest extends TestCase
     }
 
     /**
+     * The same on the default's own gateway (myip's rehearsal 2026-11-06): a PayPal wallet default beside basic PayPal
+     * items (paid by hand in WHMCS) keeps the account charged; only those items «Do not charge automatically». Before, the
+     * whole account was off and its wallet items stopped being charged (15 customers).
+     */
+    public function test_the_defaults_own_gateway_under_another_module_keeps_only_those_items_from_it(): void
+    {
+        $o = $this->other->id; // its only saved method is a PayPal wallet here
+        DB::table('billing_agreements')->delete();
+        $this->whmcs->exec('DELETE FROM tblpaymethods');
+        $this->whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES (13, {$o}, 'RemoteCreditCard', 'paypal_ppcpv', 0, NULL)");
+        $this->whmcs->exec('DELETE FROM tblhosting');
+        $this->whmcs->exec("INSERT INTO tblhosting (id, userid, domainstatus, paymentmethod) VALUES (911, {$o}, 'Active', 'paypal_ppcpv'), (912, {$o}, 'Active', 'paypal')");
+        $wallet = Service::factory()->create(['id' => 911, 'client_id' => $o, 'payment_gateway_id' => $this->gateways['PayPal']]);
+        $basic = Service::factory()->create(['id' => 912, 'client_id' => $o, 'payment_gateway_id' => $this->gateways['PayPal']]);
+        Http::fake(['https://whmcs.example.test/includes/api.php' => Http::response(['result' => 'success', 'clientid' => $o, 'paymethods' => [
+            ['id' => 13, 'remote_token' => json_encode(['vaultId' => '7XK31234AB567890C', 'customerId' => 'abcDEF123']), 'expiry_date' => '03/54', 'card_last_four' => 'x@example.test', 'card_type' => 'PayPal'],
+        ]])]);
+        $items = fn (string $module) => in_array($module, ['paypal', 'paypal_ppcpv'], true) ? $this->gateways['PayPal'] : null;
+
+        $result = $this->import(new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $items);
+
+        $client = $this->other->fresh();
+        $this->assertTrue((bool) $client->auto_charge, 'its wallet items are charged, as in WHMCS');
+        $this->assertNotNull($client->default_billing_agreement_id);
+        $this->assertSame([false, true], [(bool) $wallet->fresh()->no_auto_charge, (bool) $basic->fresh()->no_auto_charge]);
+        $this->assertStringContainsString("Customer #{$o}: 1 service(s) and domain(s) paid by «paypal» in WHMCS", implode("\n", $result['notes']));
+    }
+
+    /**
      * Two saved modules on one gateway (a Stripe card and Stripe SEPA) beside a PayPal default: each charges its own items in
      * WHMCS, so none of them is kept as «another module's» (review 2 of #568).
      */

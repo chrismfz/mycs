@@ -126,7 +126,7 @@ class MassPayReviewTest extends TestCase
     public function test_a_subscription_sale_on_a_group_lead_pays_the_subscription_not_the_group(): void
     {
         Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $a = $this->service(['subscription_id' => 'I-REVIEW']);
+        $a = $this->service();
         $b = $this->service(['subscription_id' => 'I-REVIEW']);
         $c = $this->service();
         $invoiceA = $this->invoice(10, '+1 day', $a);
@@ -134,6 +134,8 @@ class MassPayReviewTest extends TestCase
         $invoiceC = $this->invoice(10, '+2 days', $c);
         $group = (new MassPay)->open($this->user->client(), [$invoiceA->id, $invoiceC->id], $this->user);
         $this->assertSame((int) $invoiceA->id, (int) $group->invoice_id);
+        // Subscribed after the group was chosen: a subscription invoice is not paid together since (the group is stale).
+        $a->update(['subscription_id' => 'I-REVIEW']);
 
         (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-REVIEW', 'billing_agreement_id' => 'I-REVIEW', 'amount' => ['total' => '20.00', 'currency' => 'USD']]);
 

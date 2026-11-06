@@ -3,8 +3,11 @@
 namespace App\Services\Import;
 
 use App\Console\Commands\ImportFromWhmcs;
+use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\Product;
+use App\Models\Service;
 use App\Services\Money\MoneyTrail;
 use App\Services\Tax\EuVat;
 use Illuminate\Support\Facades\DB;
@@ -41,9 +44,62 @@ final class WhmcsParity
             DB::table('clients')->whereNotExists(fn ($contact) => $contact->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id')
                 ->whereNotNull('contacts.country')->where('contacts.country', '!=', ''))->count());
 
+        // WG-8: the closed accounts (no sign-in, no orders); WG-9: the owners who said no to marketing mail, news off here.
+        if ($this->hasColumn('tblclients', 'status') && $this->hasColumn('tblusers_clients', 'owner')) {
+            $owned = 'EXISTS (SELECT 1 FROM tblusers_clients uc JOIN tblusers u ON u.id = uc.auth_user_id WHERE uc.client_id = c.id AND uc.owner = 1)';
+            $add('Customers closed', $this->count("SELECT COUNT(*) FROM tblclients c WHERE c.status = 'Closed' AND {$owned}"),
+                DB::table('clients')->whereNotNull('closed_at')->count());
+        }
+        if ($this->hasColumn('tblclients', 'emailoptout') && $this->hasColumn('tblusers_clients', 'owner')) {
+            $no = 'c.emailoptout = 1' . ($this->hasColumn('tblclients', 'marketing_emails_opt_in') ? ' OR c.marketing_emails_opt_in = 0' : '');
+            $add('Owners without news (marketing)', $this->count('SELECT COUNT(DISTINCT uc.auth_user_id) FROM tblusers_clients uc JOIN tblusers u ON u.id = uc.auth_user_id'
+                . " JOIN tblclients c ON c.id = uc.client_id WHERE uc.owner = 1 AND ({$no})"),
+                DB::table('notification_preferences')->where('mail_enabled', false)
+                    ->whereIn('notification_template_id', DB::table('notification_templates')->where('key', 'announcement_news')->select('id'))->count());
+        }
+
+        // WG-11: the services' options, one per service and option: a dropdown or radio, a ticked checkbox, a quantity above 0.
+        if ($this->hasColumn('tblhostingconfigoptions', 'qty') && $this->hasColumn('tblproductconfigoptions', 'optiontype')) {
+            // Of a group its product offers only, as the importer brings them (review of #653).
+            $options = 'FROM tblhostingconfigoptions hc JOIN tblproductconfigoptions o ON o.id = hc.configid JOIN tblhosting h ON h.id = hc.relid'
+                . ($this->hasColumn('tblproductconfiglinks', 'pid') ? ' AND EXISTS (SELECT 1 FROM tblproductconfiglinks l WHERE l.gid = o.gid AND l.pid = h.packageid)' : '');
+            $add('Service options', $this->count("SELECT COUNT(*) FROM (SELECT DISTINCT hc.relid, hc.configid {$options}
+                WHERE o.optiontype IN (1, 2) OR (o.optiontype = 3 AND hc.qty > 0)) t"),
+                DB::table('service_configs')->where('configurable_type', (new Service)->getMorphClass())->count());
+            $numbers = DB::table('config_options')->whereNull('parent_id')->where('type', 'number')->whereNotNull('whmcs_ref')
+                ->get(['name', 'env_variable'])->map(fn ($option) => $option->env_variable ?: $option->name)->unique()->values()->all();
+            $add('Service quantity options', $this->count("SELECT COUNT(*) FROM (SELECT DISTINCT hc.relid, hc.configid {$options}
+                WHERE o.optiontype = 4 AND hc.qty > 0) t"),
+                DB::table('properties')->where('model_type', Service::class)->whereIn('key', $numbers)->count());
+        }
+
+        // WG-2: the catalog as the catalog's import brings it, every product (one of a group WHMCS deleted too, hidden:
+        // ADV-646-2). Listed: neither hidden nor retired, in a group there and not hidden, and of no SSL module retired here
+        // (importOfflineSsl). A package: cPanel's, ngm's.
+        if ($this->hasColumn('tblproducts', 'retired') && $this->hasColumn('tblproductgroups', 'hidden')) {
+            $products = 'FROM tblproducts p LEFT JOIN tblproductgroups g ON g.id = p.gid';
+            $ssl = "'" . implode("', '", array_keys(ImportFromWhmcs::OFFLINE_SSL_MODULES)) . "'";
+            $add('Products', $this->count("SELECT COUNT(*) {$products}"), DB::table('products')->whereNotNull('whmcs_id')->count());
+            $add('Products listed', $this->count("SELECT COUNT(*) {$products} WHERE p.hidden = 0 AND p.retired = 0 AND g.id IS NOT NULL AND g.hidden = 0
+                AND LOWER(COALESCE(p.servertype, '')) NOT IN ({$ssl})"),
+                DB::table('products')->whereNotNull('whmcs_id')->where('hidden', false)->count());
+            $add('Products with a package', $this->count("SELECT COUNT(*) {$products} WHERE (LOWER(p.servertype) = 'cpanel' AND p.configoption1 <> '')
+                OR (LOWER(p.servertype) = 'ngm' AND TRIM(p.configoption1) <> '')"),
+                DB::table('settings')->where('settingable_type', (new Product)->getMorphClass())->where('key', 'package')
+                    ->whereIn('settingable_id', DB::table('products')->whereNotNull('whmcs_id')->select('id'))->count());
+        }
+
         foreach (['Active' => 'active', 'Suspended' => 'suspended', 'Terminated' => 'terminated', 'Cancelled' => 'cancelled', 'Pending' => 'pending'] as $whmcs => $mycs) {
+            // WHMCS's services only: an addon's (WhmcsAddonImport) is counted below.
             $add("Services {$mycs}", $this->count('SELECT COUNT(*) FROM tblhosting WHERE domainstatus = ?', [$whmcs]),
-                DB::table('services')->where('status', $mycs)->count());
+                DB::table('services')->whereNull('whmcs_addon_id')->where('status', $mycs)->count());
+        }
+        // The live addons, each a service here (docs/addons.md, step 4); an ended one is not imported.
+        if ($this->hasColumn('tblhostingaddons', 'status')) {
+            foreach (['Active' => 'active', 'Suspended' => 'suspended', 'Pending' => 'pending'] as $whmcs => $mycs) {
+                $add("Addons {$mycs}", $this->count('SELECT COUNT(*) FROM tblhostingaddons WHERE status = ?', [$whmcs]),
+                    DB::table('services')->whereNotNull('whmcs_addon_id')->where('status', $mycs)->count());
+            }
         }
 
         // Mass Pay parents, by the importer's own rule (WhmcsMassPay::PARENTS_SQL): no invoices here. Each WHMCS status
@@ -108,8 +164,19 @@ final class WhmcsParity
         // D6: the live ones by status, and the invoice lines of a domain now on it (a domain's line whose domain is here).
         if (Schema::hasTable('domains') && $this->hasColumn('tbldomains', 'status') && $this->hasColumn('tbldomains', 'recurringamount')) {
             $add('Domains active', $this->count("SELECT COUNT(*) FROM tbldomains WHERE status = 'Active'"), DB::table('domains')->where('status', 'active')->count());
-            $add('Domains, recurring amount', $this->count("SELECT COALESCE(SUM(ROUND(recurringamount * 100)), 0) FROM tbldomains WHERE status = 'Active'"),
-                (int) DB::table('domains')->where('status', 'active')->selectRaw('COALESCE(SUM(ROUND(recurring_amount * 100)), 0) a')->value('a'));
+            // What the active ones renew at: WHMCS's amount, or its TLD's where a domain follows the catalog (WG-12), beside
+            // what each renews at here (its own, or its TLD's).
+            $expected = 0;
+            $renews = 0;
+            $here = Domain::query()->with('domainTld.prices')->get()->keyBy('id');
+            foreach ($this->whmcs->query("SELECT id, recurringamount FROM tbldomains WHERE status = 'Active'")->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $amount) {
+                $domain = $here->get((int) $id);
+                $expected += WhmcsMassPay::cents($domain === null ? (string) $amount : WhmcsDomainImport::expectedRenewal($domain, (string) $amount));
+            }
+            foreach ($here->where('status', DomainStatus::Active) as $domain) {
+                $renews += WhmcsMassPay::cents($domain->renewalPrice() ?? '0');
+            }
+            $add('Domains, renewal amount', $expected, $renews);
             $add('Domain invoice lines', $this->count("SELECT COUNT(*) FROM tblinvoiceitems ii JOIN tbldomains d ON d.id = ii.relid JOIN tblinvoices i ON i.id = ii.invoiceid
                 WHERE ii.type LIKE 'Domain%' AND {$notParent}"),
                 DB::table('invoice_items')->where('reference_type', Domain::class)->count());

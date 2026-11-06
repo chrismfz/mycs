@@ -108,6 +108,9 @@ final class WhmcsCredentialImport
             }
             $this->counts['found']++;
             $label = "Server #{$row['id']} «{$row['name']}»";
+            if ($server->extension === 'OfflineVm') {
+                continue; // no login to carry: every action on it is staff's (Hetzner Cloud: review of #628)
+            }
             if (strtolower((string) $row['type']) !== 'cpanel') {
                 $this->skip("{$label}: its login is not carried for the module «{$row['type']}»: enter it by hand.");
 

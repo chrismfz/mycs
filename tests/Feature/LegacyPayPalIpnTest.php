@@ -83,6 +83,17 @@ class LegacyPayPalIpnTest extends TestCase
         $this->assertSame('not_verified', PaymentGatewayEvent::query()->sole()->reason);
     }
 
+    /** myip's WHMCS lived under /clients: myip.gr hands its callbacks on as they came (the cut-over's 301 map, never a redirect). */
+    public function test_the_same_under_clients(): void
+    {
+        Http::fake(['https://ipnpb.paypal.com/*' => Http::response('INVALID')]);
+
+        $this->call('POST', '/clients' . self::URL, [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], http_build_query($this->subscrPayment()))
+            ->assertStatus(400);
+
+        $this->assertSame('not_verified', PaymentGatewayEvent::query()->sole()->reason);
+    }
+
     public function test_paypal_down_is_answered_503_so_it_is_sent_again(): void
     {
         Http::fake(['https://ipnpb.paypal.com/*' => Http::response('', 500)]);

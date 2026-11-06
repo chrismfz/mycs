@@ -52,6 +52,10 @@ class ResolveUserSession
             // Login user
             // Customers only (the `web` guard): staff have their own guard and plain session (docs/accounts.md, PR 1).
             if (!Auth::guard('web')->check() || Auth::guard('web')->id() !== $token->user_id) {
+                // Back by its cookie or session to accounts all closed since (WG-8): not signed in.
+                if ($token->user->closedOut()) {
+                    return $this->fail($request);
+                }
                 Auth::guard('web')->login($token->user);
                 if ($remembered) {
                     // Back by «Remember me»: in the Login History, as staff's (review of #409).

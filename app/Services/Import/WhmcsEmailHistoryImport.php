@@ -30,6 +30,15 @@ final class WhmcsEmailHistoryImport
 
     private const CHUNK = 500;
 
+    /**
+     * A batch's bodies at most this many bytes: one INSERT of 500 HTML mails passed MariaDB's max_allowed_packet (16 MB by
+     * default) on myip's history and stopped the import (rehearsal of 2026-11-04). A quarter of it: escaping can double a body.
+     */
+    private const BATCH_BYTES = 4_000_000;
+
+    /** The source's rows read at a time: up to ~13 MB of bodies (a WHMCS body is at most 64 KB). */
+    private const PAGE = 200;
+
     private const NOT_KEPT = '[the body of this mail is not kept: it could not be cleaned of secrets]';
 
     /** The ways a space is written in an HTML mail. */
@@ -51,15 +60,18 @@ final class WhmcsEmailHistoryImport
             $statement = $this->whmcs->prepare('SELECT COUNT(*) FROM tblemails WHERE date < ?');
             $statement->execute([$since]);
             $this->counts['older'] = (int) $statement->fetchColumn();
-            $statement = $this->whmcs->prepare('SELECT id, userid, subject, `to`, message, date, failed, pending FROM tblemails WHERE date >= ? ORDER BY id');
-            $statement->execute([$since]);
+            // A page at a time, by id: MySQL's PDO buffers a whole result, and a year of myip's mail is hundreds of MB of HTML
+            // (the rehearsal of 2026-11-04 ran out of memory reading it in one go).
+            $page = $this->whmcs->prepare('SELECT id, userid, subject, `to`, message, date, failed, pending FROM tblemails WHERE date >= ? AND id > ? ORDER BY id LIMIT ' . self::PAGE);
+            $page->execute([$since, 0]);
         } catch (PDOException) {
             return ['counts' => $this->counts, 'notes' => []];
         }
         $clients = DB::table('clients')->pluck('id')->flip()->all();
         $had = DB::table('email_logs')->where('template_key', self::TEMPLATE_KEY)->pluck('message_id')->flip()->all();
         $batch = [];
-        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+        $bytes = 0;
+        foreach ($this->rows($page, $since) as $row) {
             if ((int) $row['pending'] === 1) {
                 $this->counts['pending']++;
             } elseif ((int) $row['failed'] === 1) {
@@ -83,10 +95,13 @@ final class WhmcsEmailHistoryImport
                     'updated_at' => $date,
                 ];
                 $this->counts['mails']++;
+                $last = $batch[array_key_last($batch)];
+                $bytes += strlen($last['body']) + strlen($last['subject']) + strlen($last['to']);
             }
-            if (count($batch) >= self::CHUNK) {
+            if (count($batch) >= self::CHUNK || $bytes >= self::BATCH_BYTES) {
                 DB::table('email_logs')->insert($batch);
                 $batch = [];
+                $bytes = 0;
             }
         }
         if ($batch !== []) {
@@ -97,6 +112,26 @@ final class WhmcsEmailHistoryImport
         }
 
         return ['counts' => $this->counts, 'notes' => []];
+    }
+
+    /**
+     * The year's mails, a page at a time (its first page already executed), each page read whole before the next is asked for.
+     *
+     * @return \Generator<int, array<string, mixed>>
+     */
+    private function rows(\PDOStatement $page, string $since): \Generator
+    {
+        while (true) {
+            $rows = $page->fetchAll(PDO::FETCH_ASSOC);
+            $page->closeCursor();
+            foreach ($rows as $row) {
+                yield $row;
+            }
+            if (count($rows) < self::PAGE) {
+                return;
+            }
+            $page->execute([$since, (int) $rows[array_key_last($rows)]['id']]);
+        }
     }
 
     /** 365 days where the log is kept for fewer; a longer retention, or none (0), is the owner's. */

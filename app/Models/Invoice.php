@@ -14,6 +14,7 @@ use App\Observers\InvoiceObserver;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Tax\EuVat;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -183,6 +184,13 @@ class Invoice extends Model implements Auditable
             ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id'))->exists();
     }
 
+    /** It bills a service a gateway subscription pays (its sale pays the subscription's services: AutoCharge::due leaves it). */
+    public function billsSubscription(): bool
+    {
+        return Service::query()->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+            ->whereIn('id', $this->items()->where('reference_type', Service::class)->select('reference_id'))->exists();
+    }
+
     /** It records a service period given up on (Δ3a): kept, else the cron would bill that period again. */
     public function recordsForgonePeriod(): bool
     {
@@ -229,14 +237,24 @@ class Invoice extends Model implements Auditable
 
     /**
      * The first day of a period the cron would not bill yet, as a date string: it bills a period starting before now plus
-     * its days before (services: Invoice Generation days; domains: their own, RenewalBilling::domainInvoiceDays), so up to
-     * that day itself (review A4-1).
+     * its days before (services: Invoice Generation days, a month's period the farthest of those and the monthly ones,
+     * WG-14; domains: their own, RenewalBilling::domainInvoiceDays), so up to that day itself (review A4-1).
+     *
+     * A service's period is judged by its own length, how it was billed, never by the plan or the setting of today: a
+     * month's by the farthest of Invoice Generation and the monthly days, so a renewal the cron billed is never read as
+     * one to come and billed again (ADV-660-1c/2: a change of cycle, or of the setting, since); any other by Invoice
+     * Generation's, as the cron bills it (R660b-1: a monthly value above it never gives a longer period up).
      *
      * @param  class-string  $type
      */
-    public static function billedFrom(string $type): string
+    public static function billedFrom(string $type, ?CarbonInterface $start = null, ?CarbonInterface $end = null): string
     {
-        $days = $type === Domain::class ? RenewalBilling::domainInvoiceDays() : (int) config('settings.cronjob_invoice', 7);
+        $month = $start !== null && $end !== null && ($length = (int) $start->copy()->startOfDay()->diffInDays($end->copy()->startOfDay())) >= 28 && $length <= 31;
+        $days = match (true) {
+            $type === Domain::class => RenewalBilling::domainInvoiceDays(),
+            $month => RenewalBilling::longestServiceInvoiceDays(),
+            default => RenewalBilling::serviceInvoiceDays(null),
+        };
 
         return today()->addDays($days + 1)->toDateString();
     }
@@ -244,10 +262,10 @@ class Invoice extends Model implements Auditable
     /** Its renewal lines all bill periods the cron would not bill yet: cancelled, kept billable (Δ3, ADV-4). */
     public function billsOnlyPeriodsToCome(): bool
     {
-        $lines = $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNull('kind')->get(['reference_type', 'period_start']);
+        $lines = $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNull('kind')->get(['reference_type', 'period_start', 'period_end']);
 
         return $lines->isNotEmpty() && $lines->every(fn (InvoiceItem $line) => $line->period_start !== null
-            && $line->period_start->toDateString() >= self::billedFrom($line->reference_type));
+            && $line->period_start->toDateString() >= self::billedFrom($line->reference_type, $line->period_start, $line->period_end));
     }
 
     /**

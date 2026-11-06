@@ -14,6 +14,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\PaymentStatus;
 use App\Services\Invoice\RecordPaymentService;
@@ -21,13 +22,17 @@ use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\Actor;
 use App\Support\PayOptions;
+use App\Support\ServiceIdentifier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
+use OwenIt\Auditing\Events\AuditCustom;
 
 /**
  * The customer's invoice page: its status card (PaymentStatus) and its ways to pay (PayOptions, docs/pay-flow-ux.md).
@@ -257,6 +262,65 @@ class Show extends Component
         return $this->statusMemo ??= PaymentStatus::for($this->invoice, (bool) $this->checkPayment);
     }
 
+    /**
+     * «I'll pay another way» (owner 2026-11-03): the customer keeps this invoice from the cron's charge of their saved method,
+     * as staff's «Do not auto-charge» does (SetAutoCharge), so a transfer they make is not paid twice. This invoice only:
+     * the account's later renewals are still charged. Under its payment lock, the one the cron's charge reads the flag under
+     * (SavedMethodCharge::charge), and never while a charge of it may still land. One way: paying it now with the saved
+     * method does what turning it back on would, and a customer never undoes a hold staff or the import set.
+     */
+    public function keepFromAutoCharge(): void
+    {
+        // Staff in «Login as client» stop the collection only with the admin permission the same change needs there
+        // (SetAutoCharge: admin.invoices.update; SA-5, review of #623).
+        if (!$this->mayKeepFromAutoCharge()) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
+        $kept = DB::transaction(function () {
+            $locked = (new RecordPaymentService)->lockInvoice($this->invoice->id);
+            if ($locked->status !== Invoice::STATUS_UNPAID) {
+                return 'closed'; // paid, or cancelled, meanwhile
+            }
+            if ($locked->no_auto_charge || !AutoCharge::willCharge($locked)) {
+                return 'none'; // nothing the cron would charge (kept already, a subscription's)
+            }
+            if (SavedMethodCharge::onItsWay($locked)) {
+                return 'held';
+            }
+            Invoice::query()->whereKey($locked->id)->update(['no_auto_charge' => true]);
+            // Who stopped the collection of money, and when: in the invoice's audit, as staff's (CR-4 of PR H2b).
+            $locked->auditEvent = 'auto_charge_disabled';
+            $locked->isCustomEvent = true;
+            $locked->auditCustomOld = ['no_auto_charge' => false];
+            $locked->auditCustomNew = ['no_auto_charge' => true, 'by' => Actor::impersonating() ? 'staff_as_client' : 'client', 'user_id' => Auth::id(),
+                'staff_id' => Actor::impersonating() ? Auth::guard('staff')->id() : null];
+            event(new AuditCustom($locked));
+
+            return 'kept';
+        });
+        $this->invoice->refresh();
+        $this->statusMemo = null;
+        if ($kept === 'kept') {
+            // Another way: the bank transfer, where it is offered; never the saved method just declined (review of #623).
+            $transfer = collect($this->gateways)->first(fn ($gateway) => $gateway->extension === 'BankTransfer');
+            $this->selectedMethod = $transfer !== null ? 'gateway-' . $transfer->id : null;
+        }
+        match ($kept) {
+            'kept' => $this->notify(__('invoices.keep_from_charge.done'), 'success'),
+            'held' => $this->notify(__('A payment for this invoice is already on its way.'), 'error'),
+            'closed' => $this->notify(__('This invoice cannot be paid.'), 'error'),
+            default => $this->notify(__('invoices.keep_from_charge.not_charged'), 'error'),
+        };
+    }
+
+    /** Who may press «I'll pay another way»: the account, or staff as it with the admin permission (SA-5). */
+    public function mayKeepFromAutoCharge(): bool
+    {
+        return !Actor::impersonating() || Actor::staffMayAs('pay');
+    }
+
     public function processPayment()
     {
         // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
@@ -437,10 +501,18 @@ class Show extends Component
 
     public function render()
     {
-        return view('invoices.show', ['paymentStatus' => $this->status()])->layoutData([
-            'title' => $this->invoice->displayTitle(),
-            'sidebar' => true,
-        ]);
+        // The lines with their references, and what tells each one's service apart, read here in a few queries (review of #615: ~5 a line, every render), and
+        // apart from the public invoice, so its relations are not dehydrated and loaded again on each request.
+        $lines = $this->invoice->items()->with(['reference' => fn (MorphTo $reference) => $reference->morphWith([
+            Service::class => ServiceIdentifier::RELATIONS,
+            ServiceUpgrade::class => array_map(fn (string $relation) => 'service.' . $relation, ServiceIdentifier::RELATIONS),
+        ])])->get()->each(fn (InvoiceItem $item) => $item->setRelation('invoice', $this->invoice)); // its price's currency, not a query a line
+
+        return view('invoices.show', ['paymentStatus' => $this->status(), 'lines' => $lines,
+            'identifiers' => $lines->mapWithKeys(fn (InvoiceItem $item) => [$item->id => ServiceIdentifier::forLine($item)])->all()])->layoutData([
+                'title' => $this->invoice->displayTitle(),
+                'sidebar' => true,
+            ]);
     }
 
     public function downloadPDF()

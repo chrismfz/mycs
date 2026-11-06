@@ -106,7 +106,12 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame(['1,3,5', 'string'], $settings['cronjob_overdue_reminders']);
         $this->assertSame(['0', 'boolean'], $settings['credits_auto_use'], 'WHMCS does not apply credit on its own: neither does MyCS');
         $output = $this->output->fetch();
-        $this->assertStringContainsString('Monthly 10, Annually 20', $output);
+        // WG-14 (owner 2026-11-05): a monthly plan's own (WHMCS's «Monthly»), the general for every other cycle.
+        $this->assertSame(['14', 'string'], $settings['cronjob_invoice']);
+        $this->assertSame(['10', 'string'], $settings['cronjob_invoice_monthly']);
+        $this->assertStringContainsString('(Annually 20)', $output);
+        $this->assertStringNotContainsString('Monthly 10', $output, 'the monthly one is kept, never said as lost');
+        $this->assertStringContainsString('cronjob_invoice = 14 (WHMCS\'s general, WG-14)', $output);
     }
 
     /** Review of #518 (M3, L1–L3, L5): switches and values in their odd forms. */
@@ -140,6 +145,38 @@ class ImportAutomationSettingsTest extends TestCase
         $output = $this->output->fetch();
         $this->assertStringContainsString('400', $output);
         $this->assertStringContainsString('5000', $output);
+    }
+
+    /** WG-17: WHMCS's «Pay To Text» is the invoices' Bill To Text, its lines kept, never HTML. */
+    public function test_the_pay_to_text_comes_as_bill_to_text(): void
+    {
+        $billTo = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'bill_to_text')->first()?->getRawOriginal('value');
+        $this->import(['InvoicePayTo' => "Example Networks<br />Main St. 1 - 10000 Town\r\n+30 210 000 0000 <b>support@example.test</b>"]);
+        $this->assertSame("Example Networks\nMain St. 1 - 10000 Town\n+30 210 000 0000 support@example.test", $billTo());
+
+        // As WHMCS stores its texts, escaped (review of #664), and a <br> with its own newline: one line break.
+        $this->import(['InvoicePayTo' => "Smith &amp; Co&lt;br /&gt;\r\nMain St. 1"]);
+        $this->assertSame("Smith & Co\nMain St. 1", $billTo());
+
+        $this->storeSettings(['bill_to_text' => 'Ours']);
+        $this->import(['InvoicePayTo' => '  ']);
+        $this->assertSame('Ours', $billTo(), 'empty in WHMCS: MyCS\'s own kept');
+    }
+
+    /** WG-7: the terms the cart and the sign-up ask to accept, as WHMCS asks for them (both companies: on, with a URL). */
+    public function test_the_terms_of_service_come_when_whmcs_asks_for_them(): void
+    {
+        $tos = fn () => Setting::query()->whereNull('settingable_type')->where('key', 'tos')->first()?->getRawOriginal('value');
+        $this->import(['EnableTOSAccept' => 'on', 'TermsOfService' => 'https://example.test/tos/']);
+        $this->assertSame('https://example.test/tos/', $tos());
+
+        $this->import(['EnableTOSAccept' => '', 'TermsOfService' => 'https://example.test/tos/']);
+        $this->assertSame('', $tos(), 'not asked in WHMCS: not here');
+
+        $this->storeSettings(['tos' => 'https://mine.test/terms']);
+        $this->import(['EnableTOSAccept' => 'on', 'TermsOfService' => 'javascript:alert(1)']);
+        $this->assertSame('https://mine.test/terms', $tos(), 'never a link that is no web page');
+        $this->assertStringContainsString('set the tos setting by hand', $this->output->fetch());
     }
 
     /**

@@ -16,6 +16,9 @@ use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Pricing\TldCostSync;
+use App\Services\Domains\Pricing\TldImport;
+use App\Services\Domains\Pricing\TldImportOptions;
+use App\Support\Domains\TldPricing;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -107,6 +110,38 @@ class DomainQuarantineTest extends TestCase
         $this->assertSame([40, 0], [$tld->fresh()->grace_days, $tld->fresh()->redemption_days], 'the registrar says .com has no redemption');
         $this->assertSame(['42.16', '0.00'], [number_format((float) $grace->fresh()->cost, 2, '.', ''), number_format((float) $grace->fresh()->price, 2, '.', '')], 'the cost moves, never the price');
         $this->assertTrue($tld->audits()->where('event', 'updated')->exists());
+    }
+
+    /**
+     * WG-32 (owner 2026-11-06): ID protection is free for us at Openprovider, so a TLD offers it where its registry allows
+     * it (is_private_whois_allowed, live 2026-11-06: .com true, .eu false); not reported: left as staff set it.
+     */
+    public function test_id_protection_follows_whether_the_registry_allows_it(): void
+    {
+        $q = ['reseller' => ['price' => '9.80', 'currency' => 'EUR']];
+        $answer = fn (string $tld, ?bool $allowed) => Http::response(['data' => array_filter(['name' => $tld, 'is_private_whois_allowed' => $allowed,
+            'prices' => ['create_price' => $q, 'renew_price' => $q, 'transfer_price' => $q]], fn ($v) => $v !== null)]);
+        Http::fake([self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/tlds/com*' => $answer('com', true), self::PROD . '/v1/tlds/eu*' => $answer('eu', false), self::PROD . '/v1/tlds/io*' => $answer('io', null)]);
+        $adapter = app(DomainRegistrarFactory::class)->for($this->op);
+        $credentials = app(DomainRegistrarFactory::class)->credentialsFor($this->op);
+        $this->assertSame([true, false, null], [$adapter->getTldPricing('com', $credentials)->privacyAllowed,
+            $adapter->getTldPricing('eu', $credentials)->privacyAllowed, $adapter->getTldPricing('io', $credentials)->privacyAllowed]);
+
+        $tlds = [];
+        foreach (['com' => false, 'eu' => true, 'io' => true] as $name => $on) {
+            $tlds[$name] = DomainTld::query()->create(['tld' => $name, 'registrar_connection_id' => $this->op->id, 'is_active' => true, 'id_protection' => $on]);
+            app(TldCostSync::class)->sync($tlds[$name]);
+        }
+        $this->assertSame([true, false, true], [$tlds['com']->fresh()->id_protection, $tlds['eu']->fresh()->id_protection, $tlds['io']->fresh()->id_protection]);
+
+        // The import sets it only on a TLD of that registrar, as the stages' days (review 6).
+        $other = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP 2', 'is_active' => true, 'mode' => 'production']);
+        $theirs = DomainTld::query()->create(['tld' => 'net', 'registrar_connection_id' => $other->id, 'is_active' => true, 'id_protection' => true]);
+        $pricing = fn (string $tld) => new TldPricing(tld: $tld, costs: ['register' => ['cost' => '9.80', 'currency' => 'EUR']], privacyAllowed: false);
+        app(TldImport::class)->import($this->op, ['net' => $pricing('net'), 'com' => $pricing('com')], new TldImportOptions(marginType: 'percent', margin: '20'));
+        $this->assertTrue($theirs->fresh()->id_protection, 'another registrar\'s TLD: not touched');
+        $this->assertFalse($tlds['com']->fresh()->id_protection);
     }
 
     public function test_an_expired_domain_in_quarantine_is_grace_or_redemption_never_deleted(): void

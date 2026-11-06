@@ -48,7 +48,11 @@ class TldCostSync
             $changed = 0;
             // The registry's stages after expiry, as the registrar reports them (D5a, D-8): its truth, as the costs.
             $tld->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
-            if ($tld->isDirty(['grace_days', 'redemption_days'])) {
+            // ID protection where its registry allows it (WG-32), as the registrar says.
+            if ($pricing->privacyAllowed !== null) {
+                $tld->id_protection = $pricing->privacyAllowed;
+            }
+            if ($tld->isDirty(['grace_days', 'redemption_days', 'id_protection'])) {
                 $tld->save(); // audited
                 $changed++;
             }

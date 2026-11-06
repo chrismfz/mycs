@@ -9,6 +9,7 @@ use App\Services\Proxmox\GuestLifecycle;
 use App\Support\PanelConnection;
 use App\Support\Proxmox\PanelTransport;
 use Illuminate\Support\HtmlString;
+use MyCS\Proxmox\Console\ConsoleTicket;
 use MyCS\Proxmox\ProxmoxClient;
 use RuntimeException;
 use Throwable;
@@ -40,16 +41,35 @@ class Proxmox extends Server
         <p class="text-gray-500">The second command prints the token's secret once: paste it below, nowhere else. PVEAuditor only reads.</p></div>
         <div><p class="font-medium">2. Suspend, start, terminate: only the VMs in the pool</p>
         <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pvesh create /pools --poolid mycs --comment "VMs managed by MyCS"
-        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Console"
+        pveum role add MyCSLifecycle -privs "VM.Audit VM.PowerMgmt VM.Config.Options VM.Allocate VM.Snapshot VM.Snapshot.Rollback"
         pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'mycs@pve!api'
         pvesh set /pools --poolid mycs --vms 101,102</pre>
         <p class="text-gray-500">PowerMgmt stops and starts, Config.Options turns «start at boot» off while suspended, Allocate destroys
-        (only with «Terminate: Destroy»), Console opens the customer's console (on a role made before: <code>pveum role modify
+        (only with «Terminate: Destroy»), Snapshot and Snapshot.Rollback its one
+        snapshot (on products that offer it; on a role made before: <code>pveum role modify
         MyCSLifecycle -privs "…"</code> with the whole list above). A customer's VM goes in the pool once mapped (Utilities → Proxmox Guests → «Pool
         command» lists them); our own VMs stay out, and MyCS never touches them.</p></div>
+        <div><p class="font-medium">3. The customer's console: the relay's own token, never MyCS's</p>
+        <pre class="text-xs p-2 rounded bg-gray-100 dark:bg-white/5 overflow-x-auto">pveum user add mycs-console@pve --comment "MyCS console relay"
+        pveum user token add mycs-console@pve relay --privsep 1
+        pveum role add MyCSConsole -privs "VM.Console"
+        pveum acl modify /pool/mycs --roles MyCSConsole --users mycs-console@pve --tokens 'mycs-console@pve!relay'</pre>
+        <p class="text-gray-500">Its secret goes in the relay's config, next to the cluster, not here: MyCS only signs the
+        customer's ticket, and the relay opens the console (docs/proxmox.md, «Σχέδιο: το relay στο cluster»). MyCS's own role
+        needs no VM.Console.</p></div>
         </div>
         </details>
         HTML;
+
+    /** What a product offers the customer on its VPS, beyond power and console. */
+    public function getProductConfig($values = []): array
+    {
+        return [
+            ['name' => 'snapshots', 'type' => 'checkbox', 'label' => 'Customer snapshot', 'default' => false, 'database_type' => 'boolean', 'required' => false,
+                'description' => 'One snapshot of the VM\'s disks (not its RAM) that the customer takes, rolls back to and deletes from the client area. '
+                    . 'It grows with every change on the disk until deleted. Needs VM.Snapshot and VM.Snapshot.Rollback in the MyCS role (Setup → Servers).'],
+        ];
+    }
 
     public function getConfig($values = []): array
     {
@@ -73,6 +93,13 @@ class Proxmox extends Server
             ['name' => 'pool', 'type' => 'text', 'label' => 'MyCS pool', 'default' => 'mycs', 'required' => false,
                 'validation' => ['nullable', 'regex:/^[A-Za-z0-9_.-]+$/'],
                 'description' => 'MyCS suspends, starts and destroys only VMs in this pool, each mapped to its service (Proxmox Guests).'],
+            ['name' => 'console', 'type' => 'checkbox', 'label' => 'Customer console', 'default' => false, 'required' => false,
+                'description' => 'The «Console» of the customer\'s VPS, through the console relay next to the cluster. Off: no button, no ticket, and the consoles open now close within 30 seconds.'],
+            ['name' => 'console_url', 'type' => 'text', 'label' => 'Console relay URL', 'placeholder' => 'wss://console.example.com/ws', 'required' => false,
+                'validation' => ['nullable', 'regex:~^wss://[^/\s?#]+/[^\s?#]*$~']],
+            ['name' => 'console_key', 'type' => 'password', 'label' => 'Console relay key', 'required' => false, 'encrypted' => true,
+                'validation' => ['nullable', 'string', 'min:' . ConsoleTicket::MIN_KEY],
+                'description' => 'Random, the same as in the relay\'s config (`openssl rand -base64 48`): it signs the tickets and the relay\'s checks.'],
             ['name' => 'terminate', 'type' => 'select', 'label' => 'Terminate', 'default' => 'stop', 'required' => false,
                 'options' => [['value' => 'stop', 'label' => 'Stop the VM and leave its destroy to staff'], ['value' => 'destroy', 'label' => 'Destroy the VM and its disks']],
                 'description' => 'A failsafe while MyCS is new: a terminated service\'s VM is stopped, and staff destroy it by hand (a task in Pending Module Actions).'],
@@ -95,32 +122,28 @@ class Proxmox extends Server
     }
 
     /**
-     * Where the console relay opens a guest's websocket (docs/proxmox.md, B6): one of this cluster's nodes, as its client
-     * reaches it (its IP when set, a self-signed certificate only with that IP: PanelConnection), and the token's header.
+     * The customer's console relay (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): its URL and key, or null when
+     * the console is off or not set up (no button, no ticket, every check «no»).
      *
-     * @return array{host: string, port: int, ip: string|null, self_signed: bool, authorization: string}
+     * @return array{url: string, key: string}|null
      */
-    public function websocketTarget(string $base): array
+    public function consoleRelay(): ?array
     {
-        foreach ([['host', 'ip'], ['node2_host', 'node2_ip'], ['node3_host', 'node3_ip']] as [$host, $ip]) {
-            if (rtrim(trim((string) $this->config($host)), '/') !== $base || $base === '') {
-                continue;
-            }
-            $parts = parse_url($base);
-            if (!is_array($parts) || strtolower($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') === '') {
-                throw new RuntimeException('A node\'s address must start with https://.');
-            }
-            $address = trim((string) $this->config($ip)) ?: (filter_var(trim($parts['host'], '[]'), FILTER_VALIDATE_IP) ? trim($parts['host'], '[]') : null);
-            $selfSigned = (bool) $this->config('self_signed');
-            if ($selfSigned && $address === null) {
-                throw new RuntimeException('A self-signed certificate needs the node\'s IP: set it in the server\'s settings.');
-            }
-
-            return ['host' => trim($parts['host'], '[]'), 'port' => (int) ($parts['port'] ?? 8006), 'ip' => $address, 'self_signed' => $selfSigned,
-                'authorization' => 'PVEAPIToken=' . trim((string) $this->config('token_id')) . '=' . trim((string) $this->config('token_secret'))];
+        $url = trim((string) $this->config('console_url'));
+        $key = $this->consoleKey();
+        if (!$this->config('console') || preg_match('~^wss://[^/\s?#]+/[^\s?#]*$~', $url) !== 1 || $key === null) {
+            return null;
         }
 
-        throw new RuntimeException('Not a node of this cluster.');
+        return ['url' => $url, 'key' => $key];
+    }
+
+    /** The console key, on or off: the relay's checks are still answered (with «no») once the console is turned off. */
+    public function consoleKey(): ?string
+    {
+        $key = (string) $this->config('console_key');
+
+        return strlen($key) >= ConsoleTicket::MIN_KEY ? $key : null;
     }
 
     /** Suspend = stop (owner 2026-10-24): a clean shutdown, then a hard stop; not started again by a node's reboot. */

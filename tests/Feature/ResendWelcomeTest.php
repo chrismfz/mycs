@@ -225,6 +225,65 @@ class ResendWelcomeTest extends TestCase
         $this->assertStringNotContainsString('Vps-Root-Pass-77', (string) EmailLog::query()->sole()->body);
     }
 
+    /** Owner 2026-11-06: where it lives, as WHMCS's welcome mails said: the hosting panel's hostname and IP, the service's own IPs. */
+    public function test_the_welcome_says_the_server_and_the_services_ips(): void
+    {
+        Server::query()->findOrFail($this->service->server_id)->settings()->create(['key' => 'ip', 'value' => '203.0.113.10']);
+        $this->service->forceFill(['dedicated_ip' => '198.51.100.7', 'assigned_ips' => "198.51.100.8\n198.51.100.9 (old, to remove)"])->save();
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        foreach (['whm.test', '203.0.113.10', '198.51.100.7, 198.51.100.8, 198.51.100.9<'] as $shown) {
+            $this->assertStringContainsString($shown, $mail->renderedHtml);
+        }
+        $this->assertStringContainsString('<strong>Server</strong>', $mail->renderedHtml);
+        // Never the panel's port or scheme, nor WHMCS's notes among the IPs (review of #674).
+        foreach ([':2087', 'https://whm.test', 'old, to'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    public function test_a_private_panel_ip_is_not_shown_and_no_details_no_block(): void
+    {
+        Server::query()->findOrFail($this->service->server_id)->settings()->create(['key' => 'ip', 'value' => '10.0.0.5']);
+        $this->assertNull(NotificationHelper::welcomeServer($this->service->fresh())['server_ip']);
+
+        Server::query()->findOrFail($this->service->server_id)->settings()->where('key', 'host')->delete();
+        $this->page()->callAction('resendWelcome');
+        [$mail] = $this->welcomes();
+        $this->assertStringNotContainsString('<strong>Server</strong>', $mail->renderedHtml, 'nothing to say: no block');
+    }
+
+    public function test_a_clusters_address_is_never_the_customers_and_nothing_shows_without_details(): void
+    {
+        $cluster = Server::query()->create(['name' => 'Vega', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $cluster->settings()->create(['key' => 'host', 'value' => 'https://pve.internal.test:8006']);
+        $this->service->forceFill(['server_id' => $cluster->id])->save();
+
+        $this->assertSame(['service_server' => null, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => null],
+            NotificationHelper::welcomeServer($this->service->fresh()));
+        $this->service->forceFill(['assigned_ips' => '198.51.100.20'])->save();
+        $this->assertSame(['service_server' => true, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => '198.51.100.20'],
+            NotificationHelper::welcomeServer($this->service->fresh()));
+    }
+
+    public function test_the_server_block_migration_adds_it_where_seeded_and_once(): void
+    {
+        $migration = include base_path('database/migrations/2027_02_11_000000_welcome_mail_server_block.php');
+        $template = fn () => \DB::table('notification_templates')->where('key', WelcomeMail::TEMPLATE)->first();
+        $seeded = $template();
+
+        $migration->down(); // as an install seeded before this change
+        $this->assertStringNotContainsString('service_server', $template()->body);
+        $this->assertStringNotContainsString('service_server', json_decode($template()->translations, true)['el']['body']);
+        $migration->up();
+        $this->assertSame($seeded->body, $template()->body);
+        $this->assertSame(json_decode($seeded->translations, true), json_decode($template()->translations, true));
+        $migration->up(); // twice: no change
+        $this->assertSame($seeded->body, $template()->body);
+    }
+
     public function test_the_migration_updates_a_seeded_welcome_and_leaves_an_edited_one(): void
     {
         $migration = include base_path('database/migrations/2027_01_23_000000_welcome_mail_password_without_username.php');

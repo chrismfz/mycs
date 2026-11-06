@@ -190,6 +190,17 @@ class TldImportGridTest extends TestCase
         $this->assertNull(DomainTld::query()->where('tld', 'gov.gr')->first(), 'not offered: never imported');
     }
 
+    /** WG-32: whether its registry allows ID protection comes through the page's state to the import, as the costs. */
+    public function test_id_protection_allowed_comes_through_the_grid_to_the_import(): void
+    {
+        $xyz = DomainTld::query()->create(['tld' => 'xyz', 'registrar_connection_id' => $this->op->id, 'is_active' => true, 'id_protection' => false]);
+        $this->fake([self::PROD . '/v1/tlds/xyz?*' => Http::response(['code' => 0, 'data' => $this->tld('xyz', '1.86', '12.65') + ['is_private_whois_allowed' => true]])]);
+
+        $this->page()->fillForm(['tlds' => 'xyz'])->call('fetch')->set('selected', ['xyz'])->call('import');
+
+        $this->assertTrue($xyz->fresh()->id_protection);
+    }
+
     public function test_every_tld_searched_filtered_sorted_paged_and_ticked_a_page_at_a_time(): void
     {
         DomainTld::query()->create(['tld' => 'com']);

@@ -11,7 +11,8 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * The registrars' costs onto the TLDs' prices (docs/domains.md D-6): costs only, never a price a customer pays. Weekly
+ * The registrars' costs onto the TLDs' prices (docs/domains.md D-6): costs only, never a price a customer pays; with them
+ * the stages' days and whether ID protection is offered (D-24), as the registrar reports them. Weekly
  * from the scheduler; by hand too. A TLD its registrar cannot price (manual, off) is skipped; one failure never stops
  * the rest.
  */

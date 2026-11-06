@@ -49,6 +49,10 @@ final class PlaceOrderService
         if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
         }
+        // A closed account takes no new orders (WG-8): staff reopen it first.
+        if ($client->closed_at !== null) {
+            throw new DisplayException(__('This account is closed.'));
+        }
         // The VAT is the account's country's: without one, only an «all» rate would apply, else 0% with no reason, a
         // consumer's sale without the VAT the company owes (AUD5-1). Asked first, as WHMCS always does.
         if (config('settings.tax_enabled') && EuVat::iso($client->country) === null) {
@@ -115,7 +119,7 @@ final class PlaceOrderService
                     // Made only when something is due (CART-7), with the lines priced in this transaction.
                     $invoice ??= Invoice::query()->create([
                         'client_id' => $client->id,
-                        'due_at' => $dueAt ?? now()->addDays(7),
+                        'due_at' => $dueAt ?? self::orderDueAt(),
                         'currency_code' => $currency,
                         'status' => $invoiceStatus,
                     ]);
@@ -181,6 +185,12 @@ final class PlaceOrderService
         });
     }
 
+    /** A new order's invoice: due after the Order Days Grace (WHMCS's, WG-4: myip 8, nixpal 0, the same day). */
+    public static function orderDueAt(): CarbonInterface
+    {
+        return now()->addDays(min(3650, max(0, (int) config('settings.order_days_grace', 7))));
+    }
+
     /**
      * A domain of the order (D8b): checked again as when it was added (the TLD sold, its price for the years, the name
      * not ours already: a register free, a transfer taken), then pending (pending_register / pending_transfer) with its
@@ -236,7 +246,7 @@ final class PlaceOrderService
         }
         $invoice ??= Invoice::query()->create([
             'client_id' => $client->id,
-            'due_at' => $dueAt ?? now()->addDays(7),
+            'due_at' => $dueAt ?? self::orderDueAt(),
             'currency_code' => $currency,
             'status' => $invoiceStatus,
         ]);
@@ -265,7 +275,7 @@ final class PlaceOrderService
             // The latest product row, locked: two orders cannot both take the last unit.
             $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
             // Retired (WHMCS «Retired»): not ordered any more, whatever its stock says (ADV-1 of #216).
-            if ($product->retired) {
+            if ($product->retired || $product->is_addon) { // an addon is staff's to fasten, never ordered alone (docs/addons.md)
                 throw new DisplayException(__('product.retired', ['product' => $product->name]));
             }
 

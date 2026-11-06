@@ -181,8 +181,13 @@ class StaffLineEditTest extends TestCase
         $this->assertSame('40.00', $this->line($invoice, 'Domain')->price);
     }
 
+    /**
+     * Frozen clock: it reads today when it builds the data and again when it checks, and a run across midnight
+     * (UTC) saw two different days (2026-11-05).
+     */
     public function test_a_save_that_changes_no_line_is_not_refused(): void
     {
+        $this->freezeTime();
         $invoice = $this->invoice(paid: 50);
 
         $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()])

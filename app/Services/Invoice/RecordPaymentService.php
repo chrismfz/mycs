@@ -707,8 +707,7 @@ class RecordPaymentService
     /** Whether the invoice bills a service with a gateway subscription (its sale pays the subscription's services). */
     private function paysSubscription(Invoice $invoice): bool
     {
-        return Service::query()->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
-            ->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))->exists();
+        return $invoice->billsSubscription();
     }
 
     /** @param  list<string>  $notices */

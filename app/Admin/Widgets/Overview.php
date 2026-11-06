@@ -8,10 +8,8 @@ use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Classes\Price;
 use App\Enums\DashboardPeriod;
-use App\Enums\InvoiceTransactionStatus;
 use App\Models\Credit;
 use App\Models\Currency;
-use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
@@ -25,11 +23,12 @@ use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Number;
 use Livewire\Attributes\On;
 
 class Overview extends BaseWidget
 {
-    // The dashboard's order (owner 2026-10-21): cards, registrar credit, revenue | support, income | renewals.
+    // The dashboard's order: cards and bars on top, then two columns (the lists in `Dashboard::LEFT` and `RIGHT`, owner 2026-11-04).
     protected static ?int $sort = 0;
 
     // Poll every 5 minutes (5m doesn't work somehow)
@@ -80,8 +79,8 @@ class Overview extends BaseWidget
         }
         $pending = Order::query()->where('status', Order::STATUS_PENDING)->count();
 
-        return Stat::make('Pending Orders', (string) $pending)
-            ->description($pending === 0 ? 'Nothing waiting' : 'Waiting to be accepted or set up')
+        return $this->quiet(Stat::make(__('Pending Orders'), (string) $pending), $pending === 0)
+            ->description($pending === 0 ? __('Nothing waiting') : __('Waiting to be accepted or set up'))
             ->color($pending === 0 ? 'gray' : 'warning')
             ->url(OrderResource::getUrl('index', ['tab' => 'pending']));
     }
@@ -100,7 +99,7 @@ class Overview extends BaseWidget
         $clients = Credit::query()->where('amount', '>', 0)->distinct()->count('client_id');
         $totals = $credits->map(fn (Credit $row) => ClientSummary::money((int) round((float) $row->getAttribute('total') * 100), (string) $row->currency_code))->implode(', ');
 
-        return Stat::make(__('Clients with credit'), (string) $clients)
+        return $this->quiet(Stat::make(__('Clients with credit'), (string) $clients), $clients === 0)
             ->description($clients === 0 ? __('No unused credit') : $totals)
             ->color($clients === 0 ? 'gray' : 'info')
             ->url(ClientResource::getUrl('index', ['filters' => ['with_credit' => ['value' => '1']]]));
@@ -120,7 +119,7 @@ class Overview extends BaseWidget
         // Never more than the pending ones: the two are cached apart (the sidebar fills the first on every page).
         $soon = $pending === 0 ? 0 : min($pending, AdminBadge::count(ServiceCancellation::class . '.endingWithin7', fn () => ServiceCancellation::query()->endingWithin(7)->count()));
 
-        return Stat::make(__('Pending Cancellations'), (string) $pending)
+        return $this->quiet(Stat::make(__('Pending Cancellations'), (string) $pending), $pending === 0)
             ->description(match (true) {
                 $pending === 0 => __('Nothing waiting'),
                 $soon > 0 => trans_choice(':count ends within 7 days|:count end within 7 days', $soon),
@@ -138,17 +137,17 @@ class Overview extends BaseWidget
         }
         $open = ModuleAction::query()->open()->count();
 
-        return Stat::make('Pending Module Actions', (string) $open)
-            ->description($open === 0 ? 'Nothing failed' : 'Failed server actions: retry or resolve')
+        return $this->quiet(Stat::make(__('Pending Module Actions'), (string) $open), $open === 0)
+            // A failed action, or one staff do by hand (an offline module's suspension, say): both wait here (#628).
+            ->description($open === 0 ? __('Nothing waiting') : __('Server actions for staff: do, retry or resolve'))
             ->color($open === 0 ? 'gray' : 'danger')
             ->url(ModuleActionResource::getUrl());
     }
 
     private function invoiceTransaction(): Stat
     {
-        $query = InvoiceTransaction::query()
-            ->where('status', InvoiceTransactionStatus::Succeeded)
-            ->where('is_credit_transaction', false);
+        // The chart's payments, so that the card and the chart's total agree.
+        $query = Revenue::payments();
 
         $chart = $this->trend(Trend::query(clone $query))->sum('amount');
 
@@ -203,17 +202,18 @@ class Overview extends BaseWidget
 
         // No change is neither good nor bad news (owner 2026-10-21: «Increased by 0.00%» in green, or red).
         $color = $change == 0 ? 'gray' : (($lowerIsBetter ? $change < 0 : $change > 0) ? 'success' : 'danger');
-        $period = strtolower($this->period()->label());
+        $period = mb_strtolower(__($this->period()->label()));
         $description = match (true) {
             $change == 0 => __('No change') . " ({$period})",
             $previous == 0 => __('New in this period') . " ({$period})",
-            default => ($change > 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 1) . "% ({$period})",
+            default => __($change > 0 ? 'Increased by :percent% (:period)' : 'Decreased by :percent% (:period)', ['percent' => Number::format($percentage, 1, locale: app()->getLocale()), 'period' => $period]),
         };
 
         // Revenue in the default currency, as the invoices write it.
         $value = $money ? (new Price(['price' => $current, 'currency' => Currency::query()->find(config('settings.default_currency'))]))->formatted->price : $current;
 
-        return Stat::make($label, $value)
+        // Dimmed only when both periods are empty: a drop to nothing is news (review of #640).
+        return $this->quiet(Stat::make(__($label), $value), $current == 0 && $previous == 0)
             // The sparkline only reads its color when Alpine initializes it, so key the stat on the
             // color to make Livewire replace the element when it changes (filamentphp/filament#13518)
             ->key("{$label}-{$color}")
@@ -226,5 +226,14 @@ class Overview extends BaseWidget
     public static function canView(): bool
     {
         return auth()->user()->hasPermission('admin.widgets.overview');
+    }
+
+    /**
+     * A card with nothing in it is dimmed, as in the mockup (B2, owner 2026-11-04): what has a number stands out
+     * (density.css, `.mycs-stat-quiet`).
+     */
+    private function quiet(Stat $stat, bool $quiet): Stat
+    {
+        return $quiet ? $stat->extraAttributes(['class' => 'mycs-stat-quiet']) : $stat;
     }
 }

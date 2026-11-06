@@ -12,13 +12,13 @@
         @endforeach
     </div>
 
+    {{-- Mass Pay (docs/pay-flow-ux.md, PR 5): how it works, and every invoice on this page that may join at once. --}}
     @if ($massPay)
-    <div class="bg-background-secondary border border-neutral p-4 rounded-lg flex flex-wrap items-center justify-between gap-4">
-        <p class="text-base text-sm">{{ __('invoices.mass_pay_hint') }}</p>
-        <x-button.primary class="!w-fit" wire:click="payTogether" wire:loading.attr="disabled" :disabled="count($selected) < 2">
-            <x-loading target="payTogether" />
-            <span wire:loading.remove wire:target="payTogether">{{ __('invoices.mass_pay_button', ['count' => count($selected)]) }}</span>
-        </x-button.primary>
+    <div class="bg-primary/10 border border-primary/30 px-4 py-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
+        <p class="text-sm">{{ __('invoices.mass_pay_hint') }}</p>
+        @if (collect($rowInfo)->pluck('refusal')->containsStrict(null))
+        <button type="button" wire:click="selectAll" class="text-sm font-semibold text-primary underline">{{ __('invoices.mass_pay_bar.select_all') }}</button>
+        @endif
     </div>
     @endif
 
@@ -29,16 +29,25 @@
         $more = count($lines) - \App\Livewire\Invoices\Index::LINES;
         $overdue = $invoice->status === 'unpaid' && $invoice->due_at?->lt(today());
     @endphp
-    <div class="flex items-start gap-3" wire:key="invoice-{{ $invoice->id }}">
+    @php
+        $ticked = in_array((string) $invoice->id, array_map(fn ($id) => is_scalar($id) ? (string) $id : '', $selected), true);
+        $row = $rowInfo[$invoice->id] ?? null;
+        $refusal = $massPay ? $row['refusal'] ?? null : null;
+    @endphp
+    <div wire:key="invoice-{{ $invoice->id }}"
+        class="bg-background-secondary border p-4 rounded-lg flex items-start gap-3 {{ $ticked ? 'border-primary ring-1 ring-primary' : 'border-neutral' }}">
         @if ($massPay)
-        <div class="pt-5 w-5 shrink-0">
+        <div class="pt-1 w-5 shrink-0">
             @if ($invoice->status === 'unpaid')
-            <input type="checkbox" value="{{ $invoice->id }}" wire:model.live="selected" aria-label="{{ __('invoices.mass_pay_select') }}"
-                class="size-4 rounded border-neutral text-primary focus:ring-primary" />
+            {{-- One that cannot join (MassPay::refusal) says why, instead of failing after the click; one ticked before it
+            could not stays enabled, so it can be unticked (review of #606). --}}
+            <input type="checkbox" id="pay-together-{{ $invoice->id }}" value="{{ $invoice->id }}" wire:model.live="selected"
+                aria-label="{{ __('invoices.mass_pay_select') }}: {{ $title }}" @if ($refusal) aria-describedby="pay-together-why-{{ $invoice->id }}" @if (!$ticked) disabled @endif @endif
+                class="form-checkbox size-5 rounded border-neutral text-primary focus:ring-primary disabled:opacity-40" />
             @endif
         </div>
         @endif
-        <div class="grow min-w-0 bg-background-secondary border border-neutral p-4 rounded-lg flex flex-wrap md:flex-nowrap justify-between gap-4">
+        <div class="grow min-w-0 flex flex-wrap md:flex-nowrap justify-between gap-4">
             <div class="min-w-0 space-y-1">
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="font-semibold text-primary hover:underline">{{ $title }}</a>
@@ -54,6 +63,14 @@
                 @endforeach
                 @if ($more > 0)
                 <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="text-sm text-base/60 hover:underline">{{ trans_choice('invoices.more_lines', $more, ['count' => $more]) }}</a>
+                @endif
+                {{-- What happens to it now (PaymentStatus, PR 2): a charge to come, a payment on its way, the bank asking. --}}
+                @if ($row && $row['status'])
+                <p class="text-sm font-medium {{ ['ok' => 'text-success', 'info' => 'text-primary', 'warn' => 'text-warning', 'error' => 'text-error', 'plain' => 'text-base/70'][$row['tone']] }}">{{ $row['status'] }}</p>
+                @endif
+                {{-- Its refusal is a sentence of its own; not said twice when the status line says it (on its way, ended). --}}
+                @if ($refusal)
+                <p id="pay-together-why-{{ $invoice->id }}" class="text-sm text-base/60 {{ $row['showRefusal'] ? '' : 'sr-only' }}">{{ $refusal }}</p>
                 @endif
             </div>
             <div class="flex flex-wrap md:flex-col items-center md:items-end gap-x-4 gap-y-1 shrink-0 text-sm">
@@ -79,6 +96,34 @@
         <p class="text-base text-sm">{{ __('invoices.no_invoices') }}</p>
     </div>
     @endforelse
+
+    {{-- The bar follows the ticks: how many, their total, what still stops them (PR 5). MassPay::open checks again. --}}
+    {{-- Always there while Mass Pay applies, so a screen reader hears the first tick too (review of #606). --}}
+    @if ($massPay && $selection)
+    <div aria-live="polite">
+    @if ($selection['count'] > 0)
+    <div role="region" aria-label="{{ __('invoices.mass_pay_title') }}"
+        class="sticky bottom-4 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg border border-primary bg-background shadow-lg">
+        <div>
+            <p class="font-semibold">
+                {{ trans_choice('invoices.mass_pay_bar.selected', $selection['count'], ['count' => $selection['count']]) }}
+                @if ($selection['total'])
+                · {{ $selection['total'] }}
+                @endif
+            </p>
+            <p class="text-sm text-base/70">{{ $selection['problem'] ?? __('invoices.mass_pay_bar.ready') }}</p>
+        </div>
+        <div class="flex gap-2">
+            <x-button.secondary class="!w-fit" wire:click="clearSelection">{{ __('invoices.mass_pay_bar.clear') }}</x-button.secondary>
+            <x-button.primary class="!w-fit" wire:click="payTogether" wire:loading.attr="disabled" :disabled="$selection['problem'] !== null">
+                <x-loading target="payTogether" />
+                <span wire:loading.remove wire:target="payTogether">{{ $selection['total'] && !$selection['problem'] ? __('invoices.mass_pay_bar.pay', ['amount' => $selection['total']]) : __('invoices.mass_pay_title') }}</span>
+            </x-button.primary>
+        </div>
+    </div>
+    @endif
+    </div>
+    @endif
 
     {{ $invoices->links() }}
 </div>

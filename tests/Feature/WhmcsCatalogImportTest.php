@@ -167,6 +167,27 @@ class WhmcsCatalogImportTest extends TestCase
         $this->assertNull(Product::query()->where('whmcs_id', 21)->value('server_group_id'));
     }
 
+    /** ngm (our own panel): its server, bare host and no login; its product's package and PHP version, as our WHMCS module's options. */
+    public function test_an_ngm_product_gets_its_package_and_php_and_its_server(): void
+    {
+        $this->whmcs->exec("INSERT INTO tblservers VALUES (64, 'NGM-test', 'ngm', 'ngm.example.test', '', 'admin', 'Encrypted-Pass', 'Encrypted-Hash', 0, 0)");
+        $this->whmcs->exec("INSERT INTO tblproducts VALUES (31, 3, 'NGM Hosting', 'ngm', 'ngm', 0, 1, 'recurring', 'payment', 0, 0, 0, 0, 0, 0, 'ngm', 0, ' basic ', '8.3', '', '', ''),
+            (32, 3, 'NGM Bare', 'ngm-bare', 'ngm', 0, 1, 'recurring', 'payment', 0, 0, 0, 0, 0, 0, 'ngm', 0, '', '', '', '', '')");
+
+        $result = $this->import();
+
+        $server = Server::query()->where('whmcs_id', 64)->sole();
+        $this->assertSame(['Ngm', ['host' => 'ngm.example.test']], [$server->extension, $server->settings()->pluck('value', 'key')->all()]);
+        $product = Product::query()->where('whmcs_id', 31)->sole();
+        $this->assertSame($server->id, $product->server_id);
+        $this->assertSame(['package' => 'basic', 'php' => '8.3'], Setting::query()->where(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id])
+            ->pluck('value', 'key')->sortKeys()->all());
+        $bare = Product::query()->where('whmcs_id', 32)->sole();
+        $this->assertSame(0, Setting::query()->where(['settingable_type' => $bare->getMorphClass(), 'settingable_id' => $bare->id])->count(), 'a blank option is none');
+        $this->assertEmpty(array_filter($result['notes'], fn ($n) => str_contains($n, 'module «ngm»')));
+        $this->assertStringNotContainsString('Encrypted-', DB::table('settings')->pluck('value')->implode(' '), 'no password, no token');
+    }
+
     /** Code review 2: a client group's domain price (its id in tsetupfee) never overwrites the default one. */
     public function test_a_client_group_domain_price_is_not_the_price(): void
     {

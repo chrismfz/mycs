@@ -47,6 +47,13 @@
                     @if ($statusBody !== '')
                     <p class="text-sm text-base">{{ $statusBody }}</p>
                     @endif
+                    {{-- Charged on its own: the customer may keep it from that and pay another way, a transfer say (Show::keepFromAutoCharge). --}}
+                    @if ($paymentStatus->charged() && $this->mayKeepFromAutoCharge())
+                    <button type="button" wire:click="keepFromAutoCharge" wire:confirm="{{ __('invoices.keep_from_charge.confirm') }}"
+                        wire:loading.attr="disabled" wire:target="keepFromAutoCharge" class="text-sm text-primary underline text-left">
+                        {{ __('invoices.keep_from_charge.button') }}
+                    </button>
+                    @endif
                     {{-- A ticket of the invoice's own account, where tickets are on (review of #593). --}}
                     @if ($paymentStatus->offersContact() && !config('settings.tickets_disabled') && (int) \App\Support\CurrentClient::id() === (int) $invoice->client_id && \App\Support\CurrentClient::allows('tickets'))
                     <a href="{{ route('tickets.create') }}" wire:navigate class="text-sm text-primary underline">{{ __('invoices.payment_status.contact') }}</a>
@@ -61,7 +68,7 @@
         of a phone, before it on the page (review of #597). --}}
         <div class="mt-2 grid gap-4 items-start {{ $paymentStatus->payable() ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : '' }}">
         @if ($paymentStatus->payable())
-        <section id="pay" aria-labelledby="pay-title" class="xl:order-last">
+        <section id="pay" aria-labelledby="pay-title" class="xl:order-last min-w-0">
             @include('invoices.partials.pay-panel', [
                 'payAmount' => $invoice->formattedRemaining,
                 'payGroups' => $this->payGroups,
@@ -126,7 +133,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach ($invoice->items as $item)
+                        @foreach ($lines as $item)
                         <tr>
                             <td class="p-4 font-normal whitespace-nowrap">
                                 {{-- A line of a service deleted since keeps its text, without a link (DATA-2). --}}
@@ -138,7 +145,13 @@
                                 {{ $item->description }}
                                 @endif
 
-                                @if($item->reference_type && $item->reference && $item->reference->label)
+                                {{-- A service's line: what tells it apart (ServiceIdentifier, owner 2026-11-03), unless its text says it. --}}
+                                @php
+                                    $identifier = $identifiers[$item->id] ?? '';
+                                @endphp
+                                @if($identifier !== '')
+                                    <br><small class="text-base/60 whitespace-normal break-words">{{ $identifier }}</small>
+                                @elseif($item->reference_type && $item->reference && $item->reference->label)
                                     <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
                                 @endif
                             </td>

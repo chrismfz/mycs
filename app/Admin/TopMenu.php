@@ -52,6 +52,7 @@ use App\Admin\Resources\NotificationTemplateResource;
 use App\Admin\Resources\OfferResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
+use App\Admin\Resources\ProductAddonResource;
 use App\Admin\Resources\ProductResource;
 use App\Admin\Resources\ProxmoxGuestResource;
 use App\Admin\Resources\RoleResource;
@@ -150,6 +151,7 @@ class TopMenu
             [CategoryResource::class, 'index', 'Product Groups'],
             [ProductResource::class, 'index', 'Products'],
             [ConfigOptionResource::class, 'index', 'Configurable Options'],
+            [ProductAddonResource::class, 'index', 'Product Addons'],
             [CustomPropertyResource::class, 'index', 'Custom Client Fields'],
             [CurrencyResource::class, 'index', 'Currencies'],
             [TaxRateResource::class, 'index', 'Tax Rules'],

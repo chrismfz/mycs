@@ -27,6 +27,7 @@ use App\Services\Admin\ClientSummary;
 use App\Support\Locales;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -177,6 +178,10 @@ class ClientResource extends Resource
                             ->label(__('No overdue reminders'))
                             ->helperText(__('No reminder after the due date (the one before it is still sent). Also set on its group.'))
                             ->default(false),
+                        // WHMCS «Closed» (WG-8): on, its logins cannot sign in (unless another account of theirs is open) and it takes no orders.
+                        DateTimePicker::make('closed_at')
+                            ->label(__('Closed'))
+                            ->helperText(__('Set: its logins cannot sign in (unless another account of theirs is open) and it takes no new orders. End its open sessions under Sessions. Clear it to reopen.')),
                         // Decision 6 (PR C2): the account's saved method pays its renewals, another gateway's method those of its items (#568; WHMCS «Disable automatic card charging»).
                         Toggle::make('auto_charge')
                             ->label(__('Charge renewals automatically'))

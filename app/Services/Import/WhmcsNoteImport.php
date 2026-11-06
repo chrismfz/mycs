@@ -15,7 +15,8 @@ use PDOException;
  * - `tblclients.notes` → a note on the account (nixpal 3, myip 127).
  * - `tblinvoices.notes` → a note on the invoice's account, naming it: MyCS's invoices have no notes field (nixpal 66,
  *   myip 27).
- * - `tblhostingaddons.notes` → its service's notes, naming the addon (myip 4).
+ * - `tblhostingaddons.notes` of an addon not imported as a service (an ended one): its parent's notes, naming the addon;
+ *   an imported one's are its own service's (WhmcsAddonImport).
  *
  * Whole, never cut nor filtered; WHMCS's HTML escaping undone (`&#039;`, `<br />`). Rows are written directly (an
  * import: no audit of each).
@@ -93,7 +94,7 @@ final class WhmcsNoteImport
     }
 
     /**
-     * An addon's notes: its service's, naming it (addons are its options here); a service WHMCS deleted: its account's
+     * An ended addon's notes: its service's, naming it; a service WHMCS deleted: its account's
      * (code review 1 of #546: every note).
      *
      * @param  array<int, mixed>  $clients
@@ -101,10 +102,11 @@ final class WhmcsNoteImport
     private function addons(array $clients): void
     {
         $services = DB::table('services')->pluck('notes', 'id')->all();
+        $imported = DB::table('services')->whereNotNull('whmcs_addon_id')->pluck('id', 'whmcs_addon_id')->all();
         foreach ($this->rows('SELECT * FROM tblhostingaddons ORDER BY id') ?? [] as $row) {
             $body = self::text($row['notes'] ?? null);
-            if ($body === null) {
-                continue;
+            if ($body === null || isset($imported[(int) $row['id']])) {
+                continue; // none, or on its own service already (WhmcsAddonImport)
             }
             $service = (int) ($row['hostingid'] ?? 0);
             $name = trim((string) ($row['name'] ?? '')) !== '' ? $row['name'] : "#{$row['id']}";

@@ -29,13 +29,16 @@ class ServiceRenewals extends TableWidget
         return PaymentsTracking::canView() ? 19 : 21;
     }
 
-    // Half the width from lg: they flow two by two, the first beside «Income» (owner 2026-10-21).
-    protected int|string|array $columnSpan = 1; // the dashboard's grid: one column below lg (full width), two from lg
+    // In the right column of the dashboard (`Dashboard::RIGHT`, owner 2026-11-04): it stacks there on its own.
+    protected int|string|array $columnSpan = 1;
 
     public function table(Table $table): Table
     {
         return $table
             ->heading(__('Upcoming service renewals'))
+            // Denser (B2, owner 2026-11-04): the window under the heading instead of a row of «Active filters».
+            ->description(fn () => __('Within :days days', ['days' => DomainRenewals::windowDays($this->tableFilters['within']['value'] ?? null)]))
+            ->hiddenFilterIndicators()
             ->query(Service::query()->with(['client.primaryContact', 'client.ownerGrant.user', 'product', 'plan'])
                 ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
                 ->whereNotNull('expires_at')->whereDate('expires_at', '>=', today()->subDays(DomainRenewals::PAST_DAYS))
@@ -45,7 +48,7 @@ class ServiceRenewals extends TableWidget
             ->filters([
                 SelectFilter::make('within')->label(__('Within'))->default('30')->selectablePlaceholder(false)
                     ->options(['7' => __('7 days'), '30' => __('30 days'), '60' => __('60 days'), '90' => __('90 days')])
-                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays((int) ($data['value'] ?: 30)))),
+                    ->query(fn ($query, array $data) => $query->whereDate('expires_at', '<=', today()->addDays(DomainRenewals::windowDays($data['value'] ?? null)))),
             ])
             ->columns([
                 TextColumn::make('label')->label(__('Service')),

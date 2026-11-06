@@ -181,7 +181,8 @@
 | CentovaCast | ναι (`adminpassword`) | ναι | ναι |
 | Proxmox | **όχι** (παρακάτω) | ναι | ναι, με τον αποθηκευμένο κωδικό |
 | Nixpal Licensing | δεν έχει κωδικό | — | ναι (το κλειδί) |
-| Offline VM / Dedicated (ngm, Hetzner) | όχι (χωρίς API) | ναι | ναι, αν έχει username/κωδικό |
+| ngm | ναι (`POST /accounts/{user}/password`: panel και SSH/SFTP) | ναι | ναι |
+| Offline VM / Dedicated (Hetzner) | όχι (χωρίς API) | ναι | ναι, αν έχει username/κωδικό |
 | DirectAdmin | όχι ακόμα (παρακάτω) | ναι | ναι |
 
 - **Proxmox, γιατί όχι:** δύο δρόμοι, κανένας έτοιμος.
@@ -197,8 +198,48 @@
   τον ίδιο τρόπο με το cPanel: πρώτα ο server, μετά `services.password`, `ServerRefused` στην άρνηση. Με αυτό ανάβει
   μόνο του και το κουμπί, ο generator και το checkbox. Πριν από αυτό: live δοκιμή σε DirectAdmin με άδεια του
   υπεύθυνου, και έλεγχος ότι οι κανόνες κωδικού του (`DIFFICULT_PASSWORD_ENFORCEMENT`) δέχονται τα σύμβολα του generator.
-- **ngm, αργότερα** (1 υπηρεσία, Offline VM): αν ο πάροχος δώσει API για reset του root, γίνεται module με
-  `changePassword`· αλλιώς μένει «Save a password set elsewhere» μετά την αλλαγή στο panel του ngm.
+- **ngm** (έγινε, 2026-11-04): το extension `Ngm` αλλάζει τον κωδικό του account (panel και SSH/SFTP), ποτέ των
+  mailboxes ή των FTP accounts. Η πολιτική κωδικών του ngm (`security.password_policy`) απαντά 400 με τον λόγο, που τον
+  βλέπει ο πελάτης (`ServerRefused`).
+
+## ngm (2026-11-04)
+
+Το δικό μας panel (ngm.myip.gr, ngm2, ngm-debian). Το extension `Ngm` (`extensions/Servers/Ngm`) κάνει ό,τι και το
+WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδιο `/api/v1` (`docs/api-whmcs.md` του ngm):
+
+- **Server:** `host` (https και port 9601, εκτός αν δοθούν: `https://host:port`, `http://` για lab) και `token`
+  (encrypted). Το «Test connection» είναι `GET /ping`.
+- **Προϊόν:** `package` (όνομα πακέτου στο ngm, κενό = κανένα) και `php` (της κύριας σελίδας, κενό = του host).
+- **Create:** `POST /accounts` με username, κωδικό, πακέτο, domain (κύρια σελίδα) και php. Το username είναι της
+  υπηρεσίας (καθαρισμένο όπως στο WHMCS: `^[a-z][a-z0-9_]{0,31}$`), αλλιώς από το domain, με ψηφίο όταν είναι πιασμένο
+  στο ngm ή σε άλλη υπηρεσία. Το όνομα και ο κωδικός φυλάγονται πριν από την κλήση. Ένα 409 μετά από χαμένη απάντηση
+  είναι δικό μας account μόνο αν ισχύουν όλα:
+  - το είχαμε ζητήσει·
+  - δεν το έχει άλλη υπηρεσία·
+  - το ngm το έχει με αυτό ακριβώς το όνομα (ο έλεγχος «own retry» του WHMCS)·
+  - το `created_at` του δεν είναι πριν από το αίτημά μας (με 5 λεπτά ανοχή για τα ρολόγια). Έτσι δεν υιοθετείται ποτέ
+    account που έγινε με το χέρι στο μεσοδιάστημα (review του #630).
+
+  Τότε υιοθετείται, με αναφορά για το staff, γιατί το ngm απαντά 409 και σε account που έμεινε μισό. Σε κάθε άλλο 409 το
+  όνομα εγκαταλείπεται για το επόμενο ελεύθερο: τα ονόματα βάσεων του ngm μπορεί να συγκρούονται ενώ το όνομα του account
+  είναι ελεύθερο. Υπηρεσία suspended πριν από το create παίρνει `enabled: false`. Μια pending παίρνει `true`, γιατί στη
+  MyCS το create γίνεται πάντα πριν η υπηρεσία γίνει active.
+- **Suspend** (με το `suspend_reason`), **unsuspend**, **change package**, **password**, **SSO** (`POST …/sso`),
+  **usage** (`GET /usage`, ένα αίτημα ανά server). Πρώτα ελέγχεται ότι το account υπάρχει με αυτό το όνομα και ότι δεν
+  το έχει άλλη ζωντανή υπηρεσία. Σε create με χαμένη απάντηση (όνομα ζητήθηκε, κανένα δεν κρατήθηκε) κάθε ενέργεια
+  αποτυγχάνει ονομάζοντας το account, για να το ελέγξει το staff στο ngm.
+- **SSO:** ο πελάτης παίρνει το εισιτήριο του πελάτη, και ένα suspended account δεν ανοίγει. Το «Log in to panel» του
+  staff στέλνει `{"admin": true}` (όπως το AdminSingleSignOn του WHMCS): impersonation με banner και audit στο ngm, και
+  ανοίγει και suspended account. Το panel είναι στο ίδιο host:port με το API (`https://host:9601/ui/`).
+- **Terminate:** `DELETE /accounts/{user}`. Το ngm κρατά τα backups και το username μένει στην υπηρεσία. Αν το account
+  λείπει ήδη, η ενέργεια θεωρείται έγινε μόνο για account που έφτιαξε η MyCS. Για ένα εισαγόμενο είναι εργασία του staff.
+- **Αποτυχίες:** μένουν ανοιχτές στα Pending Module Actions με τον λόγο του ngm. Τα 400/409/422 είναι `ServerRefused`
+  (ο λόγος του ngm φαίνεται στον πελάτη). Τα 401/403 (token, scopes, `api.account_writes`), 5xx και timeouts είναι
+  μόνο για το staff, χωρίς ποτέ το token. Τα `warning`/`warnings` του ngm (π.χ. η κύρια σελίδα δεν στήθηκε) πάνε στο
+  `report()`, και η ενέργεια μετρά ως έγινε.
+- **Δεν πέρασαν ακόμα** (τα έχει το WHMCS module, ή η νεότερη έκδοσή του στο `chrismfz/ngm`): οι καρτέλες του
+  πελάτη (domains, mailboxes, βάσεις), η λίστα πακέτων από το `GET /packages` στη
+  ρύθμιση του προϊόντος, τα όρια ανά account (`/limits`), η μεταφορά του token από το WHMCS (`accesshash`).
 
 ## Provisioning fixes (sweep §2, §4, §7)
 - **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:

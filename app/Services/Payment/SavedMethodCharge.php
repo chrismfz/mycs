@@ -126,6 +126,12 @@ final class SavedMethodCharge
             if ($locked->status !== Invoice::STATUS_UNPAID) {
                 throw new DisplayException(__('This invoice is not open for payment.'));
             }
+            // Kept from the cron's charge since the run read it (staff's «Do not auto-charge», the customer's «I'll pay
+            // another way» on its page with a transfer maybe on its way, a service's own «Do not charge automatically»), or
+            // another method now its: the run's choice read again under the lock the invoice's flag is set under.
+            if ($source === ChargeAttempt::SOURCE_CRON && AutoCharge::agreementFor($locked)?->id !== $agreement->id) {
+                throw new DisplayException(__('This invoice is not charged automatically.'));
+            }
             $amount = $group !== null ? RecordPaymentService::toCents($group->total) : RecordPaymentService::toCents($locked->remaining);
             if ($amount <= 0) {
                 throw new DisplayException(__('Nothing is left to pay on this invoice.'));

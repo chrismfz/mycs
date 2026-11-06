@@ -47,7 +47,7 @@ class Product extends Model implements Auditable
      */
     public function scopeListed(Builder $query): void
     {
-        $query->where('hidden', false)->where('retired', false);
+        $query->where('hidden', false)->where('retired', false)->where('is_addon', false);
     }
 
     /**
@@ -58,11 +58,29 @@ class Product extends Model implements Auditable
      */
     public function scopeReachable(Builder $query): void
     {
-        $query->where('retired', false);
+        // An addon is fastened to a service by staff (docs/addons.md), never ordered by itself.
+        $query->where('retired', false)->where('is_addon', false);
+    }
+
+    /**
+     * What an addon fastens to (docs/addons.md): its parent's module («module:Proxmox») or product («product:12»). None
+     * set: any service.
+     */
+    public function appliesTo(Service $parent): bool
+    {
+        $targets = array_values(array_filter((array) ($this->addon_targets ?? [])));
+        if ($targets === []) {
+            return true;
+        }
+        $module = $parent->provisioningServer()->extension ?? $parent->product?->server?->extension;
+
+        return in_array('product:' . $parent->product_id, $targets, true) || ($module !== null && in_array('module:' . $module, $targets, true));
     }
 
     protected $casts = [
         'retired' => 'boolean',
+        'is_addon' => 'boolean',
+        'addon_targets' => 'array',
         'taxable' => 'boolean',
         'prorata_day' => 'integer',
         'prorata_next_after_day' => 'integer',
@@ -161,6 +179,8 @@ class Product extends Model implements Auditable
 
     /**
      * Gets all upgradable config options for the product.
+     *
+     * @return HasManyThrough<ConfigOption, ConfigOptionProduct, $this>
      */
     public function upgradableConfigOptions(): HasManyThrough
     {
