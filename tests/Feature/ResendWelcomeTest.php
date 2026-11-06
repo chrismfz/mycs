@@ -229,14 +229,30 @@ class ResendWelcomeTest extends TestCase
     public function test_the_welcome_says_the_server_and_the_services_ips(): void
     {
         Server::query()->findOrFail($this->service->server_id)->settings()->create(['key' => 'ip', 'value' => '203.0.113.10']);
-        $this->service->forceFill(['dedicated_ip' => '198.51.100.7', 'assigned_ips' => "198.51.100.8\n198.51.100.9"])->save();
+        $this->service->forceFill(['dedicated_ip' => '198.51.100.7', 'assigned_ips' => "198.51.100.8\n198.51.100.9 (old, to remove)"])->save();
 
         $this->page()->callAction('resendWelcome');
 
         [$mail] = $this->welcomes();
-        foreach (['whm.test', '203.0.113.10', '198.51.100.7, 198.51.100.8, 198.51.100.9'] as $shown) {
+        foreach (['whm.test', '203.0.113.10', '198.51.100.7, 198.51.100.8, 198.51.100.9<'] as $shown) {
             $this->assertStringContainsString($shown, $mail->renderedHtml);
         }
+        $this->assertStringContainsString('<strong>Server</strong>', $mail->renderedHtml);
+        // Never the panel's port or scheme, nor WHMCS's notes among the IPs (review of #674).
+        foreach ([':2087', 'https://whm.test', 'old, to'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    public function test_a_private_panel_ip_is_not_shown_and_no_details_no_block(): void
+    {
+        Server::query()->findOrFail($this->service->server_id)->settings()->create(['key' => 'ip', 'value' => '10.0.0.5']);
+        $this->assertNull(NotificationHelper::welcomeServer($this->service->fresh())['server_ip']);
+
+        Server::query()->findOrFail($this->service->server_id)->settings()->where('key', 'host')->delete();
+        $this->page()->callAction('resendWelcome');
+        [$mail] = $this->welcomes();
+        $this->assertStringNotContainsString('<strong>Server</strong>', $mail->renderedHtml, 'nothing to say: no block');
     }
 
     public function test_a_clusters_address_is_never_the_customers_and_nothing_shows_without_details(): void

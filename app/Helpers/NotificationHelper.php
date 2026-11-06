@@ -633,17 +633,22 @@ class NotificationHelper
      */
     public static function welcomeServer(Service $service): array
     {
-        $hostname = $ip = null;
-        $server = rescue(fn () => $service->provisioningServer(), null, false);
-        if ($server !== null && in_array($server->extension, ['CPanel', 'DirectAdmin'], true)) {
+        // A public address only (a panel reached over the LAN is no address of the customer's: review of #674).
+        $public = fn (mixed $value) => filter_var(trim((string) $value), FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ?: null;
+        // Never lost: the welcome goes without the block if the server's settings cannot be read.
+        [$hostname, $ip] = rescue(function () use ($service, $public) {
+            $server = $service->provisioningServer();
+            if ($server === null || !in_array($server->extension, ['CPanel', 'DirectAdmin'], true)) {
+                return [null, null];
+            }
             $settings = $server->settings->pluck('value', 'key');
             $host = parse_url(trim((string) ($settings['host'] ?? '')), PHP_URL_HOST);
-            $hostname = is_string($host) && $host !== '' ? $host : null;
-            $ip = filter_var(trim((string) ($settings['ip'] ?? '')), FILTER_VALIDATE_IP) ?: null;
-        }
-        $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])
-            ->map(fn ($value) => trim((string) $value))->filter(fn (string $value) => $value !== '')->unique()->values();
 
+            return [is_string($host) && $host !== '' ? $host : null, $public($settings['ip'] ?? '')];
+        }, [null, null]);
+        // Only what is an IP of the free text WHMCS kept (assignedips may hold notes).
+        $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])
+            ->map(fn ($value) => trim((string) $value))->filter(fn (string $value) => filter_var($value, FILTER_VALIDATE_IP) !== false)->unique()->values();
         $ips = $ips->isNotEmpty() ? $ips->implode(', ') : null;
 
         return ['service_server' => $hostname !== null || $ip !== null || $ips !== null ? true : null, 'server_hostname' => $hostname, 'server_ip' => $ip, 'service_ips' => $ips];
