@@ -20,10 +20,14 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   λέει σωστά («passwords all move over»).
 - **Μετά το import, από το staff:**
   - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται.
-  - **Gateways:** ενεργοποιούνται.
-  - **Stripe:** Save στο gateway, που φτιάχνει το webhook. Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
-  - **PayPal:** το `webhook_id` του app της εταιρείας.
-  - **Cardlink:** τα URLs return/notify στο vPOS της Eurobank.
+  - **Gateways (απόφαση ιδιοκτήτη 2026-11-06):** **μετά** την αλλαγή του host (τα webhooks παίρνουν το `APP_URL` της
+    στιγμής), `php artisan app:enable-imported-gateways`. Η εντολή ανοίγει όποιο ήρθε ολόκληρο και απαντά:
+    - **Stripe:** τα κλειδιά του απαντούν (ανάγνωση του balance) και φτιάχνεται το webhook. Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
+    - **PayPal:** το client id/secret παίρνει token, και φτιάχνεται (ή βρίσκεται) το webhook του MyCS στο app, με όλα τα
+      events· το id του γράφεται στο `webhook_id`. Το webhook του WHMCS δεν το αγγίζει: σβήνεται με το χέρι.
+    - **Bank transfer:** όταν ήρθαν οι λογαριασμοί.
+    - Ό,τι άλλο μένει κλειστό, με μήνυμα. **Cardlink:** τα κλειδιά και τα URLs return/notify στο vPOS της Eurobank, με το χέρι.
+    Ποτέ σε βάση πρόβας: ο scheduler της θα χρέωνε πραγματικά.
   - **Proxmox (myip):**
     - ο server του cluster: το import τον φτιάχνει από την αρχή, γιατί αδειάζει τη βάση. Ό,τι είχε στηθεί πριν (π.χ. ο
       «vega-proxmox» του mycs.myip.gr) δεν περνά. Συμπληρώνονται: το API token, τα IP/self-signed των κόμβων, το pool

@@ -413,6 +413,41 @@ class PayPal extends Gateway
         return $rows;
     }
 
+    /** The events its webhook handles (webhook(), docs/importer.md): WHMCS's app's capture and vault ones, disputes, sales, subscriptions. */
+    public const WEBHOOK_EVENTS = ['PAYMENT.CAPTURE.COMPLETED', 'PAYMENT.CAPTURE.DECLINED', 'PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.PENDING',
+        'PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED', 'VAULT.PAYMENT-TOKEN.CREATED', 'VAULT.PAYMENT-TOKEN.DELETED',
+        'CUSTOMER.DISPUTE.CREATED', 'CUSTOMER.DISPUTE.RESOLVED', 'PAYMENT.SALE.COMPLETED', 'PAYMENT.SALE.REFUNDED',
+        'BILLING.SUBSCRIPTION.CREATED', 'BILLING.SUBSCRIPTION.ACTIVATED', 'BILLING.SUBSCRIPTION.CANCELLED', 'BILLING.SUBSCRIPTION.EXPIRED',
+        'BILLING.SUBSCRIPTION.SUSPENDED'];
+
+    /** Its client id and secret open the app: a token is given (nothing else asked of PayPal). */
+    public function checkConnection(): void
+    {
+        $this->accessToken = null;
+        $this->generateAccessToken();
+    }
+
+    /**
+     * This site's webhook on the app (the cut-over's step by hand until 2026-11-06, importer.md): the one already made for
+     * this address, its events brought up to WEBHOOK_EVENTS, or a new one. Other addresses' (WHMCS's) are never touched.
+     *
+     * @return string its id, for the webhook_id setting
+     */
+    public function ensureWebhook(): string
+    {
+        $base = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        $url = route('extensions.gateways.paypal.webhook');
+        $events = array_map(fn (string $name) => ['name' => $name], self::WEBHOOK_EVENTS);
+        $ours = collect($this->request('get', $base . '/v1/notifications/webhooks')->webhooks ?? [])->first(fn ($webhook) => ($webhook->url ?? null) === $url);
+        if ($ours !== null) {
+            $this->request('patch', $base . '/v1/notifications/webhooks/' . $ours->id, [['op' => 'replace', 'path' => '/event_types', 'value' => $events]]);
+
+            return (string) $ours->id;
+        }
+
+        return (string) $this->request('post', $base . '/v1/notifications/webhooks', ['url' => $url, 'event_types' => $events])->id;
+    }
+
     public function supportsPaymentGroups(): bool
     {
         return true;

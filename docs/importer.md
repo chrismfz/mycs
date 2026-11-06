@@ -1191,6 +1191,8 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 3. **Μετά τον host, ποτέ πριν:** τα webhooks παίρνουν το `APP_URL` της στιγμής· με το παλιό θα έδειχναν στο
    `mycs.nixpal.com`.
 4. **Μαζί μέσω Chrome (υπεύθυνος + Claude):**
+   - **Από 2026-11-06 τα 1–2 του PayPal και το 1 του Stripe τα κάνει το `app:enable-imported-gateways`** (cutover-runbook,
+     «Gateways»), με τα κλειδιά που έφερε το `--with-logins`· με το χέρι μόνο όσα δεν ήρθαν. Τα παρακάτω μένουν ως έλεγχος.
    - **PayPal** — developer.paypal.com → Apps & Credentials (Live) → «MyApp_WHMCS»:
      1. Add webhook: `https://clients.nixpal.com/extensions/paypal/webhook`, events: Payment capture
         completed/declined/denied/pending/refunded/reversed, Vault payment-token created/deleted, **Customer dispute
