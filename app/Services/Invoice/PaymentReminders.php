@@ -251,7 +251,7 @@ class PaymentReminders
                 }
                 // On the first day the suspensions' window allows (Settings → Automation: no weekend, say).
                 $day = DunningWindow::firstDayFrom($day);
-                $held = $service->suspend_hold_until !== null && !Carbon::parse($service->suspend_hold_until)->lt($day);
+                $held = $service->holdInForce($day); // its own hold or its parent's (ADV-A3-1)
 
                 return $held || $day->lte(Carbon::today()) ? null : $day;
             })

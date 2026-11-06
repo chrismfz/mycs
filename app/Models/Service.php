@@ -241,6 +241,40 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * The hold that applies to it, in force on $day (through its last day): its own «Do Not Suspend Until», or for an
+     * addon its parent's, as addons follow their parent (ADV-A3-1/2/4). The cron's rules (DunningRules) ask the same as a
+     * query (whereNoHoldOn).
+     */
+    public function holdInForce(CarbonInterface $day): bool
+    {
+        $day = CarbonImmutable::instance($day)->startOfDay();
+        $parentHold = $this->parent_service_id !== null ? $this->parent?->suspend_hold_until : null;
+        foreach ([$this->suspend_hold_until, $parentHold] as $hold) {
+            if ($hold !== null && !CarbonImmutable::parse($hold)->startOfDay()->lessThan($day)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * holdInForce() as a query: no hold of theirs in force on $date (Y-m-d), nor of their parent's. $own false: only the
+     * parent's is asked (the caller asks the service's own hold its way).
+     *
+     * @param  Builder<Service>  $query
+     * @return Builder<Service>
+     */
+    public static function whereNoHoldOn(Builder $query, string $date, bool $own = true): Builder
+    {
+        if ($own) {
+            $query->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', $date));
+        }
+
+        return $query->whereDoesntHave('parent', fn ($parent) => $parent->whereDate('suspend_hold_until', '>=', $date));
+    }
+
+    /**
      * Not an addon: the services a list shows on their own, their addons under them.
      *
      * @param  Builder<Service>  $query
@@ -684,7 +718,8 @@ class Service extends Model implements Auditable
             return false;
         }
         $today = CarbonImmutable::today();
-        if ($this->suspend_hold_until !== null && !CarbonImmutable::parse($this->suspend_hold_until)->startOfDay()->lessThan($today)) {
+        // Its own hold, or its parent's for an addon (ADV-A3-4: staff hold and unsuspend the parent, the addon comes back).
+        if ($this->holdInForce($today)) {
             return false;
         }
         $cutoff = $today->subDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
