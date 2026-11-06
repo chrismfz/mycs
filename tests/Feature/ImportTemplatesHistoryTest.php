@@ -248,14 +248,28 @@ class ImportTemplatesHistoryTest extends TestCase
         $this->assertSame(2, $result['counts']['skipped']);
     }
 
-    public function test_without_the_extension_the_announcements_are_said_not_imported(): void
+    /** The cut-over's import runs on an empty database: the extension is installed and enabled, then they come (rehearsal 2026-11-06). */
+    public function test_without_the_extension_it_is_installed_and_they_come(): void
     {
         Schema::dropIfExists('ext_announcements');
         $this->whmcs->prepare('INSERT INTO tblannouncements VALUES (?, ?, ?, ?, ?, ?)')->execute([1, '2024-11-07 10:49:00', 'News', 'x', 1, 0]);
 
         $result = (new WhmcsAnnouncementImport($this->whmcs))->run();
 
-        $this->assertSame(0, $result['counts']['announcements']);
-        $this->assertStringContainsString('extension is not installed', implode("\n", $result['notes']));
+        $this->assertSame(1, $result['counts']['announcements']);
+        $this->assertTrue((bool) Extension::query()->where('type', 'other')->where('extension', 'Announcements')->sole()->enabled);
+        $this->assertStringContainsString('installed and enabled', implode("\n", $result['notes']));
+
+        $again = (new WhmcsAnnouncementImport($this->whmcs))->run();
+        $this->assertSame([0, 1], [$again['counts']['announcements'], Extension::query()->where('extension', 'Announcements')->count()], 'a re-run: once');
+    }
+
+    public function test_no_announcements_installs_nothing(): void
+    {
+        Schema::dropIfExists('ext_announcements');
+
+        (new WhmcsAnnouncementImport($this->whmcs))->run();
+
+        $this->assertSame(0, Extension::query()->where('extension', 'Announcements')->count());
     }
 }
