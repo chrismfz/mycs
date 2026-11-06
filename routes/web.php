@@ -68,11 +68,11 @@ Route::get('/clients/knowledgebase.php', [KnowledgebaseRedirectController::class
 Route::get('/clients/knowledgebase/{path?}', [KnowledgebaseRedirectController::class, 'clients'])->where('path', '.*');
 // The cut-over's 301 map (LegacyWhmcsController): every other WHMCS address, under /clients (myip.gr sends /clients/* here)
 // and at the root (nixpal's clients.nixpal.com). After the knowledgebase's own above.
-Route::get('/clients/{path?}', [LegacyWhmcsController::class, 'clients'])->where('path', '.*')->middleware('throttle:120,1');
+Route::get('/clients/{path?}', [LegacyWhmcsController::class, 'clients'])->where('path', '.*')->middleware('throttle:legacy-whmcs');
 foreach (['cart.php', 'clientarea.php', 'viewinvoice.php', 'submitticket.php', 'supporttickets.php', 'viewticket.php', 'login.php', 'dologin.php',
     'register.php', 'pwreset.php', 'domainchecker.php', 'domainpricing.php', 'contact.php', 'serverstatus.php', 'dl.php', 'affiliates.php',
     'announcements.php', 'downloads.php', 'upgrade.php', 'index.php', 'store', 'store/{group}', 'store/{group}/{product}', 'announcements/{id}/{slug}'] as $legacy) {
-    Route::get($legacy, [LegacyWhmcsController::class, 'bare'])->whereNumber('id')->middleware('throttle:120,1');
+    Route::get($legacy, [LegacyWhmcsController::class, 'bare'])->whereNumber('id')->middleware('throttle:legacy-whmcs');
 }
 
 // Our captcha's challenges (docs/captcha.md): while it is the chosen captcha, or none is (the contact form uses ours

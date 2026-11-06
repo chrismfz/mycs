@@ -121,11 +121,24 @@ knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πά
 - **myip.gr** (το site, nginx του DirectAdmin, `*.cust_nginx`, όχι στο repo): όλο το `/clients/` στο MyCS, εκτός από τα
   callbacks των gateways (POST: ένα 301 τα σπάει), που περνούν όπως ήρθαν:
   ```nginx
-  location ^~ /clients/modules/gateways/callback/ { proxy_pass https://<το MyCS>; proxy_set_header Host <το MyCS>; }
+  location ^~ /clients/modules/gateways/callback/ {
+      proxy_pass https://<το MyCS>;
+      proxy_set_header Host <το MyCS>;
+      proxy_set_header X-Forwarded-For $remote_addr;   # ο πραγματικός αποστολέας: το throttle του IPN ανά IP
+      proxy_ssl_server_name on;
+      proxy_ssl_name <το MyCS>;
+      proxy_ssl_verify on;
+      proxy_ssl_trusted_certificate /etc/pki/tls/certs/ca-bundle.crt;
+  }
   location ^~ /clients/ { return 301 https://<το MyCS>$request_uri; }
   location = /clients { return 301 https://<το MyCS>/clients/; }
   ```
-  Το MyCS δέχεται το IPN του PayPal και κάτω από το `/clients/` (`routes/legacy.php`). Έλεγχος μετά: ένα άρθρο του
+  - Στο MyCS: Settings → «Trusted Proxies» = **μόνο** η IP του myip.gr (ποτέ `*`), ώστε το `X-Forwarded-For` να μετρά
+    μόνο από αυτόν. Αλλιώς όλα τα IPN μοιράζονται ένα όριο (30 πλαστά/λεπτό), και ένα flood καθυστερεί τα γνήσια
+    (review του #676).
+  - Το MyCS δέχεται το IPN του PayPal και κάτω από το `/clients/` (`routes/legacy.php`). Τα άλλα callbacks εκεί (Stripe
+    `stripe.php`, Eurobank, ppcpv) παίρνουν 405: αναμενόμενο, αφού κλείνουν στο §2.
+  - Ένα POST στο `/clients/` από φόρμα του site γίνεται GET χωρίς σώμα και καταλήγει στη σελίδα του (login, αναζήτηση). Έλεγχος μετά: ένα άρθρο του
   knowledgebase, ένα `/clients/store/cpanel-hosting/business10`, ένα `cart.php?a=add&pid=` από τον Google Search Console,
   όλα σε 301 και όχι 404. Και το site: `PUBLIC_DOMAIN_ADD_URL` (WG-20) και τα `/clients/store/…` του `links.ts`, που μετά
   περνούν από το 301 (καλύτερα να δείχνουν κατευθείαν στο MyCS με το επόμενο deploy).

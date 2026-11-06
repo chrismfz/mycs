@@ -31,7 +31,8 @@ class LegacyWhmcsController
     /** A WHMCS address without /clients (nixpal's host): the route's own path. */
     public function bare(Request $request): RedirectResponse
     {
-        return redirect()->to($this->target(trim($request->path(), '/'), $request), 301);
+        // Decoded, as /clients/{path} is (a slug in another script: review of #676).
+        return redirect()->to($this->target(trim($request->decodedPath(), '/'), $request), 301);
     }
 
     /** index.php?rp=/store/… (WHMCS without friendly URLs, or its own links): from the home page's middleware. */
@@ -43,6 +44,10 @@ class LegacyWhmcsController
     private function target(string $path, Request $request): string
     {
         $path = mb_substr($path, 0, 500);
+        // WHMCS's «index.php/…» style of friendly URLs (review of #676).
+        if (str_starts_with($path, 'index.php/')) {
+            $path = substr($path, strlen('index.php/'));
+        }
         if (in_array($path, ['', 'index.php'], true) && is_string($rp = $request->query('rp'))) {
             return $this->path(trim(mb_substr($rp, 0, 500), '/'), $request);
         }
@@ -121,9 +126,14 @@ class LegacyWhmcsController
         };
     }
 
-    /** clientarea.php?action=…: the page here (one service, domain or invoice by its id: WHMCS's ids are kept). */
+    /**
+     * clientarea.php?action=…: the page here (one service, domain or invoice by its id: WHMCS's ids are kept). Whether an
+     * id exists is looked up for someone logged in only: a guest's redirect never tells it (review of #676).
+     */
     private function clientArea(string $action, int $id): string
     {
+        $id = auth()->check() ? $id : 0;
+
         return match ($action) {
             'products', 'services' => route('services'),
             'productdetails' => $id > 0 && Service::query()->whereKey($id)->exists() ? route('services.show', $id) : route('services'),
@@ -139,13 +149,13 @@ class LegacyWhmcsController
 
     private function invoice(int $id): string
     {
-        return $id > 0 && Invoice::query()->whereKey($id)->exists() ? route('invoices.show', $id) : route('invoices');
+        return auth()->check() && $id > 0 && Invoice::query()->whereKey($id)->exists() ? route('invoices.show', $id) : route('invoices');
     }
 
     /** viewticket.php?tid=…: the ticket of that number (its own page checks who may see it), else the list. */
     private function ticket(string $tid): string
     {
-        $ticket = $tid !== '' ? Ticket::query()->where('reference', $tid)->value('id') : null;
+        $ticket = auth()->check() && $tid !== '' ? Ticket::query()->where('reference', $tid)->value('id') : null;
 
         return $ticket !== null ? route('tickets.show', $ticket) : route('tickets');
     }

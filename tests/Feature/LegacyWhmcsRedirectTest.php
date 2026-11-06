@@ -97,9 +97,9 @@ class LegacyWhmcsRedirectTest extends TestCase
         return $this->output->fetch();
     }
 
-    private function assertGoes(string $from, string $to): void
+    private function assertGoes(string $from, string $to, string $why = ''): void
     {
-        $this->get($from)->assertStatus(301)->assertRedirect($to);
+        $this->assertSame($to, $this->get($from)->assertStatus(301)->headers->get('Location'), $why ?: $from);
     }
 
     public function test_the_store_by_its_slugs_old_ones_too_and_with_or_without_clients(): void
@@ -132,7 +132,12 @@ class LegacyWhmcsRedirectTest extends TestCase
 
     public function test_the_client_areas_pages_by_whmcss_kept_ids(): void
     {
-        $client = User::factory()->create()->client();
+        $user = User::factory()->create();
+        $client = $user->client();
+        // A guest is never told whether an id exists (review of #676): the list.
+        $guestInvoice = Invoice::factory()->create(['client_id' => $client->id]);
+        $this->assertGoes("/clients/viewinvoice.php?id={$guestInvoice->id}", route('invoices'));
+        $this->actingAs($user)->withSession($this->loginUser($user));
         $service = Service::factory()->create(['client_id' => $client->id]);
         $invoice = Invoice::factory()->create(['client_id' => $client->id]);
         $ticket = Ticket::factory()->create(['client_id' => $client->id]);
@@ -158,6 +163,24 @@ class LegacyWhmcsRedirectTest extends TestCase
             $this->assertGoes($from, route('home'));
         }
         $this->get('/')->assertOk(); // the home page itself, without rp
+    }
+
+    /** Review of #676: a crawler's HEAD, WHMCS's index.php/ style, ?rp[]=, a re-run and a WHMCS without the slugs table. */
+    public function test_head_index_php_style_rp_arrays_reruns_and_no_slugs_table(): void
+    {
+        $this->import('importServers', 'importCatalog');
+        $this->import('importServers', 'importCatalog');
+        $this->assertSame(2, DB::table('whmcs_product_slugs')->count(), 'a re-run: the same');
+
+        $this->call('HEAD', '/?rp=/store/hosting')->assertStatus(301)->assertRedirect(route('category.show', 'hosting'));
+        $this->assertGoes('/clients/index.php/store/hosting/hosting-s', route('products.show', ['hosting', 'hosting-s']));
+        $this->get('/?rp[]=/store')->assertOk();
+
+        $this->whmcs->exec('DROP TABLE tblproducts_slugs');
+        DB::table('whmcs_product_slugs')->delete();
+        $this->import('importServers', 'importCatalog');
+        $this->assertSame(0, DB::table('whmcs_product_slugs')->count());
+        $this->assertGoes('/clients/store/hosting/hosting-s', route('products.show', ['hosting', 'hosting-s']), 'by the product\'s own slug still');
     }
 
     public function test_only_our_own_addresses(): void

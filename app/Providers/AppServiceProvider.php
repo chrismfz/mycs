@@ -267,6 +267,8 @@ class AppServiceProvider extends ServiceProvider
         FileUpload::configureUsing(fn (FileUpload $upload) => $upload->preventFilePathTampering());
         // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
         RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
+        // The cut-over's 301 map (LegacyWhmcsController): a bucket of its own, never the other pages' (review of #676).
+        RateLimiter::for('legacy-whmcs', fn ($request) => Limit::perMinute(120)->by('legacy-whmcs:' . VisitorKey::of($request)));
         // One name's availability (WG-20): the site's server with its key has a bucket of its own, everyone else theirs.
         RateLimiter::for('domain-check', fn ($request) => DomainCheckController::fromSite($request)
             ? Limit::perMinute(DomainCheckController::SITE_PER_MINUTE)->by('domain-check:site')

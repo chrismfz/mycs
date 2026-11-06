@@ -16,7 +16,8 @@ class LegacyWhmcsRp
     public function handle(Request $request, Closure $next): Response
     {
         $rp = $request->query('rp');
-        if ($request->isMethod('GET') && is_string($rp) && $rp !== '') {
+        // GET and HEAD: a crawler's HEAD sees the same 301 (review of #676).
+        if ($request->isMethodSafe() && is_string($rp) && $rp !== '') {
             return redirect()->to(LegacyWhmcsController::rp(mb_substr($rp, 0, 500)), 301);
         }
 
