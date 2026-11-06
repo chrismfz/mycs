@@ -573,3 +573,15 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 - Μόνο μία από τις επιτρεπτές (`allowed_languages`), αλλιώς του instance. Import: τα ονόματα του WHMCS (`greek`,
   `english`, …) στα δικά μας (`App\Support\Locales`), κενό = του instance.
 
+
+## Κλειστός λογαριασμός (WG-8, #651· ADV-A6-1, 2026-11-07)
+- `clients.closed_at` (το «Closed» του WHMCS): ένας login που έχει μόνο κλειστούς λογαριασμούς δεν μπαίνει (#651). Αν
+  έχει κι άλλον, ανοιχτό, μπαίνει σε εκείνον και ο κλειστός δεν επιλέγεται (`CurrentClient`).
+- **Δεν φαίνεται τίποτα του κλειστού στους logins του**, ούτε με id: τιμολόγια (και τα παλιά, και τα PDF τους),
+  υπηρεσίες, κωδικοί, domains, tickets, panel/SSO, κονσόλα, upgrade, κύκλος, ακύρωση. Ο έλεγχος είναι στο
+  `BasePolicy::owns()` (`ClientUser::onOpenAccount()`) και στα σημεία με δικό τους grant query (`Services\Show::loginMay`,
+  `ItemPaymentAccess`, `Domains\Show`). Ό,τι χρειαστεί ο πελάτης (π.χ. ένα παλιό τιμολόγιο) του το στέλνει το staff.
+- Το staff τον βλέπει και τον δουλεύει με το «Login as client», όσο του επιτρέπει ο ρόλος του (SA-5). Μια κονσόλα VPS που
+  ανοίγει έτσι γράφει στο εισιτήριο το μέλος του staff (`staff_id`), και ο έλεγχος των 30'' τη ρωτά για εκείνο (ενεργό,
+  `admin.users.impersonate`, `admin.services.update`) αντί για τον login του πελάτη (`docs/proxmox.md`).
+- Οι απαντήσεις με mail στα tickets του φτάνουν κανονικά στο staff (`InboundRouter`): η υποστήριξη δεν κόβεται.

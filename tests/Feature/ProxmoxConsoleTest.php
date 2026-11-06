@@ -7,6 +7,7 @@ use App\Http\Controllers\ServiceConsoleController;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -111,6 +112,22 @@ class ProxmoxConsoleTest extends TestCase
             'user_id' => $this->owner($service)->id, 'node' => 'vega', 'type' => 'qemu', 'vmid' => 101],
             array_intersect_key($ticket, array_flip(['origin', 'server_id', 'service_id', 'user_id', 'node', 'type', 'vmid'])));
         $this->assertDatabaseHas('audits', ['auditable_id' => $service->id, 'event' => 'vm_console']);
+    }
+
+    /** ADV-A6-1, review 6: a ticket staff open in «Login as client» names them, for the relay's check; the owner's never. */
+    public function test_a_ticket_staff_open_in_login_as_client_names_them(): void
+    {
+        $service = $this->vps();
+        $owner = $this->owner($service);
+        $this->as($owner);
+        $mine = ConsoleTicket::verify(substr($this->postJson(route('services.console.ticket', $service))->json('url'), strlen(self::RELAY . '?t=')), [self::KEY]);
+        $this->assertArrayNotHasKey('staff_id', $mine);
+
+        $staff = Staff::factory()->withPermissions(['*'])->create();
+        $this->actingAs($staff, 'staff')->actingAs($owner)->withSession($this->loginUser($owner, ['impersonating' => $owner->id,
+            CurrentClient::SESSION_KEY => $service->client_id, CurrentClient::IMPERSONATING_KEY => $service->client_id]));
+        $theirs = ConsoleTicket::verify(substr($this->postJson(route('services.console.ticket', $service))->json('url'), strlen(self::RELAY . '?t=')), [self::KEY]);
+        $this->assertSame([$owner->id, $staff->id], [$theirs['user_id'], $theirs['staff_id'] ?? null]);
     }
 
     public function test_never_another_customers_never_while_suspended_never_a_stopped_vm_and_not_in_a_loop(): void
