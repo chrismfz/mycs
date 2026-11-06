@@ -74,7 +74,8 @@
 ## Γραμμένα ήδη ως συνειδητές παραλείψεις (δεν είναι κενά)
 Ιστορικό activity log (μένει στο old-clients), προμήθειες gateway (`tblaccounts.fees`), αξιολογήσεις tickets, DNS
 management και email forwarding του registrar, σημειώσεις τιμολογίου (γίνονται σημείωση λογαριασμού), «Send Message»
-από το admin (ticket αντί για email), `defaultgateway` του πελάτη.
+από το admin (ticket αντί για email), `defaultgateway` του πελάτη. Και (ιδιοκτήτης 2026-11-06, πρόβα μετά το WG, `importer.md`): quotes
+(`tblquotes`), το CRM της ModulesGarden (`crm_*`), οι εκκρεμείς εισαγωγές tickets από μη εγκεκριμένους αποστολείς.
 
 ## Τι δεν ελέγχθηκε
 - Δεν έτρεξε import ή parity. Τα κενά του importer βγήκαν από ανάγνωση κώδικα και από τις τοπικές βάσεις πρόβας.
