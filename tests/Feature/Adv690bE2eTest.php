@@ -222,6 +222,7 @@ class Adv690bE2eTest extends TestCase
         Config::set('audit.console', false);
         $license = License::query()->create(['service_id' => $service->id, 'license_key' => 'ZCAgent-0123456789abcdef', 'status' => License::STATUS_ACTIVE,
             'valid_ip' => '192.0.2.1', 'valid_domain' => 'old.example.test', 'reissues' => 0, 'whmcs_id' => 77]);
+        $license->forceFill(['created_at' => '2025-01-01'])->saveQuietly(); // as imported: dated before the cut-over
         Config::set('audit.console', true);
 
         Licenses::reissue($license, '198.51.100.9', byStaff: true);

@@ -8,6 +8,7 @@ use App\Services\Tax\EuVat;
 use App\Services\Tax\VatNumberCheck;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Config;
 
 /**
  * Checks the primary contacts' EU VAT numbers with VIES (PR G, docs/eu-vat.md): the pending ones (never answered), and
@@ -30,6 +31,8 @@ class VatRecheck extends Command
 
     public function handle(VatNumberCheck $check): int
     {
+        // Its changes are audited, as CronJob's: a VAT status that flips goes back to WHMCS on a return (ADV-690b-S-6).
+        Config::set('audit.console', true);
         if (!EuVat::enabled()) {
             return self::SUCCESS;
         }

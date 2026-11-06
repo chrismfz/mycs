@@ -14,7 +14,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Event;
 use OwenIt\Auditing\Contracts\Auditable;
+use OwenIt\Auditing\Events\AuditCustom;
 
 /**
  * @property string|null $language
@@ -88,6 +90,19 @@ class User extends Authenticatable implements Auditable, HasAvatar
             if ($user->exists && $user->getOriginal('tfa_secret') !== $user->tfa_secret && !$user->isDirty('tfa_recovery_codes')) {
                 $user->tfa_recovery_codes = null;
             }
+        });
+        // The password is never in an audit (auditExclude), but that it changed is (ADV-690b-E-5: on a return to WHMCS,
+        // whose password changed here is told to reset it there).
+        static::updated(function (User $user) {
+            if (!$user->wasChanged('password')) {
+                return;
+            }
+            $user->auditEvent = 'password_changed';
+            $user->isCustomEvent = true;
+            $user->auditCustomOld = [];
+            $user->auditCustomNew = ['password' => 'changed'];
+            Event::dispatch(new AuditCustom($user));
+            $user->isCustomEvent = false; // a later save is audited as itself
         });
     }
 
