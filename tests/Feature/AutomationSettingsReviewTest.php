@@ -104,7 +104,9 @@ class AutomationSettingsReviewTest extends TestCase
         foreach ($this->tabs($livewire) as $tab) {
             $sections = array_filter($tab->getChildSchema()->getComponents(withHidden: true), fn ($c) => $c instanceof Section);
             $key = (string) $tab->getKey(isAbsolute: false);
-            if (str_starts_with($key, 'automation') || str_starts_with($key, 'cronjob') || str_starts_with($key, 'theme')) {
+            if (str_starts_with($key, 'automation') || str_starts_with($key, 'cronjob')) {
+                $this->assertCount(6, $sections, $key); // Automation: WHMCS's five, and the Daily Summary Email
+            } elseif (str_starts_with($key, 'theme')) {
                 $this->assertCount(5, $sections, $key); // Appearance: layout, colors light/dark, custom code, files
             } elseif (str_starts_with($key, 'domains')) {
                 $this->assertCount(5, $sections, $key); // Domains: ordering, renewals, sync, housekeeping, site search API

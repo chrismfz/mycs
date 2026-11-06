@@ -8,6 +8,7 @@ use App\Helpers\TemplateRenderer;
 use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
 use App\Rules\TicketReferenceMask;
@@ -641,6 +642,48 @@ class Settings
                     'database_type' => 'boolean',
                     'default' => true,
                     'description' => 'After the daily run, one email to the System Email Address listing each service suspended or terminated for non-payment, with its client, unpaid invoices and a link to it (to unsuspend it or set «Do Not Suspend Until»). Only on a day something was suspended or terminated, as WHMCS\'s «Cron Job Activity».',
+                ],
+                // The daily summary email (owner 2026-11-06, ROADMAP 9β-4): the calendar's days and what is due next, by mail.
+                [
+                    'name' => 'cron_summary_mode',
+                    'section' => 'Daily Summary Email',
+                    'label' => 'Send the daily summary',
+                    'type' => 'select',
+                    'options' => ['off' => 'Off', 'failures' => 'Only when something failed', 'daily' => 'Every day'],
+                    'default' => 'off',
+                    'required' => true,
+                    'validation' => 'in:off,failures,daily',
+                    'description' => 'One email with what the cron did on the days since the last one (as the Cron stats calendar) and what it suspends or terminates today and in the next two days if nothing is paid. «Only when something failed»: a day the cron did not run, a card charge that did not go through or a module action left open.',
+                ],
+                [
+                    'name' => 'cron_summary_recipients',
+                    'section' => 'Daily Summary Email',
+                    'label' => 'Send it to',
+                    'type' => 'select',
+                    'options' => fn (): array => self::summaryRecipientOptions(), // when the page shows it
+                    'database_type' => 'array',
+                    'multiple' => true,
+                    'default' => [],
+                    'description' => 'Active staff who may see Cron stats. None chosen: the System Email Address.',
+                ],
+                [
+                    'name' => 'cron_summary_time',
+                    'section' => 'Daily Summary Email',
+                    'label' => 'Send at',
+                    'type' => 'time',
+                    'default' => '10:00',
+                    'required' => true,
+                    'description' => 'After the daily run (Time of Day), so that today\'s run is in what is due. Not between 03:00 and 04:00.',
+                    'validation' => ['not_regex:/^03:/'],
+                ],
+                [
+                    'name' => 'cron_summary_workdays',
+                    'section' => 'Daily Summary Email',
+                    'label' => 'Working days only',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Not on Saturday or Sunday: Monday\'s covers the weekend.',
                 ],
                 [
                     'name' => 'cronjob_end_keeps_overdue',
@@ -1608,6 +1651,22 @@ class Settings
         }
 
         return $rates[$key];
+    }
+
+    /**
+     * The staff the daily summary may go to: active, and allowed to see Cron stats (its clients and invoices are in it).
+     *
+     * @return array<int, string> by staff id
+     */
+    public static function summaryRecipientOptions(): array
+    {
+        try {
+            return Staff::query()->where('active', true)->with('role')->orderBy('first_name')->get()
+                ->filter(fn (Staff $staff) => $staff->hasPermission('admin.cron_stats.view'))
+                ->mapWithKeys(fn (Staff $staff) => [$staff->id => $staff->name . ' <' . $staff->email . '>'])->all();
+        } catch (Exception) {
+            return []; // no database yet (install)
+        }
     }
 
     public static function settingsObject()

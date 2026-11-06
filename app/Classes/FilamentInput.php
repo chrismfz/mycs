@@ -80,6 +80,10 @@ class FilamentInput
                                     'label' => 'label2',
                                 ]]
                         */
+                        // Read when the field is shown, not at every boot (the summary's staff: a query).
+                        if (isset($setting->options) && $setting->options instanceof \Closure) {
+                            return ($setting->options)();
+                        }
                         if (isset($setting->options)) {
                             if (is_array($setting->options)) {
                                 $options = [];
