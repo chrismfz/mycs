@@ -1372,3 +1372,52 @@ WHMCS 8.13.7, 204 πίνακες με δεδομένα· logs 30/09–25/10/2026
   `/knowledgebase/tag/*` έχουν ακόμα κίνηση.
 - **API:** καμία κλήση από παραγωγή. Τρία credentials (ALL-ROLES, ekdosi, invoicer), που ανακαλούνται μετά.
 - **`/home/myipgr/eurobank_iris_debug.txt`:** debug log του gateway, 942 KB. Να ελεγχθεί τι κρατά και να σβηστεί.
+
+## Πρόβα μετά τη λίστα WG (2026-11-06)
+Απόφαση ιδιοκτήτη 2026-11-04: όταν κλείσει η λίστα WG (`sweeps/whmcs-gaps.md`), πλήρης πρόβα και των δύο. Φρέσκα dumps
+(6/11, `mariadb-dump --single-transaction`, `nice`/`ionice`: nixpal από τον orion, myip από τον rigel με push και προσωρινό
+κλειδί που σβήστηκε αμέσως), πλήρες `app:import-from-whmcs` στο main `2a57682d` σε scratch βάσεις, χωρίς logins, API
+και συνημμένα (κατά πρόθεση: έρχονται στο τελικό, `cutover-runbook.md` §1). nixpal 2′17″, myip ~10′.
+
+**Τι έρχεται:** parity πληθών και ανά εγγραφή, forecast, και έλεγχος ανά WG (ρυθμίσεις και πλήθη) με SELECT και στις δύο
+πλευρές. Ταιριάζουν: ομάδες και πελάτες σε ομάδες (WG-1), `order_days_grace` (WG-4), promotions (WG-6), `tos` (WG-7),
+κλειστοί πελάτες (WG-8), `mail_must_verify` off (WG-10), επιλογές υπηρεσιών (WG-11, myip 18), μέρες τιμολόγησης (WG-14:
+myip 14/10, nixpal 7), resellers (WG-16, myip 27), `bill_to_text` (WG-17), ID protection (WG-32: myip 6, με την τιμή του
+αφαιρεμένη και στα 6).
+
+**Διαφορές, όλες με αιτία:**
+- **nixpal:** χρήματα −15,80 (η πληρωμή Stripe #1224 χωρίς τιμολόγιο) και οι προμήθειες. Ανά εγγραφή: καμία.
+- **myip, σύνολα:** όπως στις 29/10 (`prelaunch-audit.md`, ροή 9): «Money in» −30.236,91 (394 πληρωμές σε σβησμένα
+  τιμολόγια), «Money out» −171, προμήθειες, cancelled +2 (Fraud), πληρωμένα −190 και ακυρωμένα −107 (τιμολόγια με σύνολο
+  χωρίς γραμμές), tickets +12 (merged σε σβησμένο). Τα domains (1.899) ταιριάζουν πια, μετά το WG-12.
+- **myip, ανά εγγραφή (30):**
+  - 5 τιμολόγια: τα 4 με σύνολο χωρίς γραμμές και 1 με γραμμή «taxed» χωρίς φόρο στο WHMCS (+4,56)· από αυτά τα 5 «Account billed».
+  - 11 πληρωμές τιμολογίων άλλου πελάτη (`tblaccounts.userid` ≠ του τιμολογίου): ο importer τις δίνει στον πελάτη του
+    τιμολογίου· από αυτές τα 18 «Account paid» (ανά ζεύγος βγαίνουν ακριβώς).
+  - Το #17906: λήξη «0200-04-24» στο WHMCS (και είναι Collections, WG-18).
+  - Η υπηρεσία #937: Free Account με ξεχασμένο ποσό 0,81 στο WHMCS· εδώ 0,00 (#594).
+- **Forecast (και οι δύο):**
+  - μέρες τιμολόγησης: υπηρεσίες −6 (οι 20 του WHMCS στους μεγάλους κύκλους) και −1 (Quarterly 15), addons το ίδιο (WG-14)·
+  - suspend/terminate μία μέρα (γνωστό)·
+  - «charged by a saved method» yes → no: χωρίς API στην πρόβα δεν ήρθαν μέθοδοι·
+  - Free Account → «recurring 1 month» (#594: 0,00, χωρίς λήξη);
+  - domains: nixpal 8 μέρες νωρίτερα εδώ (WHMCS 7, εδώ 15: απόφαση 2026-10-17)· myip 145 με `nextinvoicedate` του WHMCS ένα
+    ή περισσότερα χρόνια πίσω από τη λήξη (το sync του registrar κουνά τη λήξη, όχι αυτό)· εδώ τιμολογούνται 15 μέρες πριν
+    τη λήξη. Και το #12 της nixpal (λήξη 2030, `nextinvoicedate` 2025)·
+  - 3 που το WHMCS θα τερμάτιζε κι εδώ ποτέ: η υπηρεσία #619 (αναστολή του staff, «Service Transfer») και 2 addons σε
+    αναστολή (της γονικής, και «Suspended in WHMCS»): κράτηση του staff, ποτέ αυτόματος τερματισμός (#531).
+
+**Πίνακες που ο importer δεν διαβάζει** (με εγγραφές): logs (`tbllog_register`, `tblactivitylog`, `tbladminlog`,
+`tblgatewaylog`, `tblticketlog`, `tblwhoislog`, `tbltransaction_history` …), οι γνωστές παραλείψεις (WG-30, `tblinvoicedata`,
+`tblproducts_slugs`, `tbldomains_backup`), modules που δεν περνούν (`mod_sslstore_*`, `mod_pvewhmcs_*`: χειροκίνητα,
+`proxmox.md`; `ispapi_*`, `mod_cnic_zones`; `rsthemes_*`; `mod_timologia`, `mod_ekdosi_*`: Ekdosi), και ελέγχθηκαν:
+- `tblmodulequeue`: όλα `completed`, τίποτα σε εκκρεμότητα (nixpal 14).
+- `tblclienttags` (myip 67): όλα κενά. `tblaffiliates` (5): υπόλοιπο 0. `tblticketactions`: όλα τελειωμένα.
+- `tblbankaccts` (myip 4 ζωντανοί): SEPA της Stripe, έρχονται με τις μεθόδους πληρωμής (`RemoteBankAccount`).
+- `tblquotes` (myip 15, καμία αποδεκτή· οι 7 νεότερες με σύνολο 0,00): **δεν γίνονται** quotes στο MyCS (ιδιοκτήτης 2026-11-06).
+- `crm_*` (myip 555 leads, χωρίς κίνηση από 5/2025): το CRM της ModulesGarden αφαιρέθηκε· **δεν περνά** (ιδιοκτήτης 2026-11-06).
+- `tblticketpendingimports` (myip 7, `senderNotAuthorized`, 2/2024–3/2026): απαντήσεις από ξένες διευθύνσεις που δεν
+  εγκρίθηκαν ποτέ· δεν εισάγονται.
+- Ρόλοι staff χωρίς κανένα μέλος (myip «WHMCS», «TechPolicy»· nixpal «Support Operator») δεν έρχονται: ο importer φτιάχνει
+  ρόλο μόνο για όσους έχουν staff.
+
