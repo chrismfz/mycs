@@ -164,6 +164,20 @@ class DomainSyncTest extends TestCase
         $this->assertSame(['nixpal.com', '2027-11-17', $this->user->client()->id], [$domain->fqdn, $domain->expires_at->toDateString(), $domain->client_id]);
     }
 
+    /** Owner 2026-11-06: the list says when each was last checked, and which failed, as the log keeps only failures and changes. */
+    public function test_the_list_says_when_each_was_last_synced_and_which_failed(): void
+    {
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => ['admin.domains.viewAny']])->id]);
+        $ok = Domain::factory()->create(['client_id' => $this->user->client()->id, 'last_synced_at' => now()->subMinutes(30), 'sync_error' => null]);
+        $failing = Domain::factory()->create(['client_id' => $this->user->client()->id, 'last_synced_at' => now()->subHours(3), 'sync_error' => 'cURL error 28: Operation timed out']);
+        $never = Domain::factory()->create(['client_id' => $this->user->client()->id, 'last_synced_at' => null]);
+
+        $this->livewireAs($staff)->test(ListDomains::class)
+            ->assertTableColumnExists('last_synced_at')
+            ->assertSee('30 minutes ago')->assertSee('cURL error 28: Operation timed out')->assertSee(__('never'))
+            ->filterTable('sync_failing')->assertCanSeeTableRecords([$failing])->assertCanNotSeeTableRecords([$ok, $never]);
+    }
+
     public function test_sync_now_for_staff_who_may(): void
     {
         $domain = $this->domain();

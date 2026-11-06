@@ -34,6 +34,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * WHMCS's «Domains» (docs/domains.md, D1): the domains of every account, on their own, beside Products/Services. Read
@@ -106,11 +107,20 @@ class DomainResource extends Resource
                 TextColumn::make('expires_at')->label(__('Expires'))->date()->sortable()->placeholder('—'),
                 IconColumn::make('auto_renew')->label(__('Auto renew'))->boolean(),
                 TextColumn::make('status')->label(__('Status'))->badge(),
+                // That the registrar sync runs (owner 2026-11-06): the registrar log keeps only failures and changes, so a
+                // quiet week reads as stopped. Red with its error when the last one failed.
+                TextColumn::make('last_synced_at')->label(__('Last synced'))->since()->sortable()->placeholder(__('never'))
+                    ->dateTimeTooltip()
+                    ->color(fn (Domain $record) => $record->sync_error !== null ? 'danger' : null)
+                    ->icon(fn (Domain $record) => $record->sync_error !== null ? 'heroicon-m-exclamation-triangle' : null)
+                    ->description(fn (Domain $record) => $record->sync_error !== null ? Str::limit((string) $record->sync_error, 60) : null),
             ])
             ->filters([
                 SelectFilter::make('status')->label(__('Status'))->options(DomainStatus::options()),
                 Filter::make('not_ours')->label(__('Not ours at its registrar'))
                     ->query(fn ($query) => $query->whereNotNull('meta->not_ours')),
+                Filter::make('sync_failing')->label(__('Last sync failed'))
+                    ->query(fn (Builder $query) => $query->whereNotNull('sync_error')),
                 Filter::make('expiring')->label(__('Expiring in 60 days'))
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
                 SelectFilter::make('client')->label(__('Client'))->attribute('client_id')->searchable()
