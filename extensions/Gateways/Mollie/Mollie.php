@@ -195,7 +195,7 @@ class Mollie extends Gateway
         // refund recorded by hand or a chargeback must not hide it (ADV-517-R2-1, R2-2).
         $listed = $this->listOf($paymentId, 'refunds');
         $known = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->where('gateway', 'Mollie')
-            ->whereIn('origin', [GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_HAND])
+            ->whereIn('origin', [GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_HAND, GatewayRefund::ORIGIN_IMPORT])
             ->pluck('reference')->all();
         foreach ($listed as $made) {
             if (in_array($made['status'] ?? null, ['queued', 'pending', 'processing', 'refunded'], true) && !in_array($made['id'] ?? null, $known, true)) {

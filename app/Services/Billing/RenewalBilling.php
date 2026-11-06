@@ -153,7 +153,7 @@ final class RenewalBilling
                 ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED))->exists()
             && !(config('settings.cronjob_terminate_enabled', true)
                 && !$service->client?->dunningExempt() // nothing ends an exempt account's service (adversarial of #455)
-                && ($service->suspend_hold_until === null || CarbonImmutable::parse($service->suspend_hold_until)->startOfDay()->lessThan(CarbonImmutable::today()))
+                && !$service->holdInForce(CarbonImmutable::today()) // its own hold or its parent's, as terminable() asks (ADV-A3-2)
                 && $service->paidUntilBase()->lessThan(CarbonImmutable::today()->subDays(max(0, (int) config('settings.cronjob_order_terminate', 60)))));
         if ($service->status === 'suspended' && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->period_start->greaterThan($service->paidUntilBase()))) {

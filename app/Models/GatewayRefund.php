@@ -16,6 +16,9 @@ class GatewayRefund extends Model
     /** Matched to a refund staff recorded by hand on the payment: not recorded again. */
     public const ORIGIN_HAND = 'hand';
 
+    /** A refund WHMCS made at the gateway before the cut-over, by its id there (the importer): its late event is a replay (ADV-A4-2). */
+    public const ORIGIN_IMPORT = 'import';
+
     /** For a payment not recorded (or not succeeded) here yet: applied when it is. */
     public const ORIGIN_WAITING = 'waiting';
 

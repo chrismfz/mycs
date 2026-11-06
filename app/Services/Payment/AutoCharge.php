@@ -17,6 +17,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\Setting;
 use App\Support\DunningWindow;
 use Carbon\CarbonImmutable;
@@ -34,10 +35,11 @@ use Throwable;
  * confirm with it (they pay it themselves, or save another), and not once the method was declined on
  * autocharge_max_failures days in a row (staff are told; the method is kept).
  *
- * Only renewal invoices of the customer's services, all active and not paid by a gateway subscription: an order or an
- * invoice staff made is paid by the customer (as before). One of a service or domain paid with another gateway is charged
- * to the account's method of that gateway, as WHMCS does (wayOf, owner 2026-11-01); one of two ways is not, nor a WHMCS
- * one of a way with no saved method (no_auto_charge, set at import).
+ * Only renewal invoices of the customer's services, all active, not paid by a gateway subscription and with no
+ * cancellation request (ADV-A2-1): an order or an invoice staff made is paid by the customer (as before). One of a
+ * service or domain paid with another gateway is charged to the account's method of that gateway, as WHMCS does (wayOf,
+ * owner 2026-11-01); one of two ways is not, nor a WHMCS one of a way with no saved method (no_auto_charge, set at
+ * import).
  */
 final class AutoCharge
 {
@@ -91,6 +93,9 @@ final class AutoCharge
         }
         if (self::itemKeptFromIt($invoice)) {
             return null; // a service or domain of it set «Do not charge automatically», now (#568)
+        }
+        if (self::cancellationAsked($invoice)) {
+            return null; // the customer asked to cancel a service of it (ADV-A2-1): read again under the charge's lock
         }
         $client = $invoice->client;
         $way = $client === null ? false : self::wayOf($invoice, $client->autoChargeMethod());
@@ -219,6 +224,17 @@ final class AutoCharge
         return $invoice->items()->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists();
     }
 
+    /**
+     * A service of it has a cancellation request (ADV-A2-1, as CreditAutoApply::eligible): its renewal left open (part
+     * paid, an Ekdosi document, kept as debt, or before CancellationCreatedListener ran) is not charged for a period the
+     * customer cancelled, which would renew the service against the request.
+     */
+    private static function cancellationAsked(Invoice $invoice): bool
+    {
+        return ServiceCancellation::query()->whereIn('service_id', $invoice->items()->select('reference_id')
+            ->where('reference_type', Service::class)->whereNotNull('reference_id'))->exists();
+    }
+
     /** Lines of two ways (a merge, an item's way changed on a shared open invoice): no method charges it. */
     public static function waysMixed(Invoice $invoice): bool
     {
@@ -258,7 +274,9 @@ final class AutoCharge
     private function due(CarbonImmutable $today, bool $dated = true): Builder
     {
         $notCharged = Service::query()->select('id')->where(fn ($query) => $query->where('status', '!=', Service::STATUS_ACTIVE)
-            ->orWhere(fn ($subscribed) => $subscribed->whereNotNull('subscription_id')->where('subscription_id', '!=', '')));
+            ->orWhere(fn ($subscribed) => $subscribed->whereNotNull('subscription_id')->where('subscription_id', '!=', ''))
+            // One the customer asked to cancel (ADV-A2-1, as CreditAutoApply::eligible): not charged for the period after.
+            ->orWhereIn('id', ServiceCancellation::query()->select('service_id')));
 
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')->where('no_auto_charge', false)
             ->when($dated, fn (Builder $dates) => $dates->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())

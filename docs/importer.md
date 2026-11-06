@@ -138,7 +138,7 @@
 | Στο WHMCS | Εδώ |
 |---|---|
 | πληρωμή (`tblaccounts.amountin`) | συναλλαγή με το id της + κίνηση `payment` |
-| επιστροφή (γραμμή με `amountout`, `refundid`) | `refunded_amount` στην πληρωμή + μία κίνηση `refund` ανά επιστροφή, με τη δική της ημερομηνία (η γραμμή της δεν γίνεται συναλλαγή) |
+| επιστροφή (γραμμή με `amountout`, `refundid`) | `refunded_amount` στην πληρωμή + μία κίνηση `refund` ανά επιστροφή, με τη δική της ημερομηνία (η γραμμή της δεν γίνεται συναλλαγή)· το `transid` της σε `gateway_refunds` (origin `import`), ώστε ένα αργό event του gateway να είναι replay (ADV-A4-2) |
 | επιστροφή σε πίστωση («… to Credit Balance» + «Credit from Refund of Invoice ID N») | `credited_amount` + `credit_in` (`refund_to_credit`) δεμένο στην πληρωμή, χωρίς `refund`, όπως το `refundToCredit` |
 | επιστροφή σε μετρητά υπερπληρωμής που είχε γίνει πίστωση («Removal of Credit from Invoice #N») | παίρνει πίσω το `credited_amount` της πληρωμής: `credit_out` (`overpayment`) + `refund` |
 | ό,τι έλειψε από πληρωμένο τιμολόγιο λόγω επιστροφής | σημείωση πίστωσης (`is_refund`), όπως το `ExtensionHelper::afterRefund`· πληρωμή δύο φορές με τη μία πίσω: καμία |
