@@ -47,9 +47,11 @@ server {
         fastcgi_hide_header X-Powered-By;
     }
 
-    # The customers' VPS consoles (docs/proxmox.md, B6): a websocket to the relay (deploy/mycs-console.service.example),
-    # which checks the one-time ticket and the Origin itself. Open as long as a console is.
+    # The customers' VPS consoles where the relay runs on this server (the devbox; docs/proxmox.md, B6): a websocket to
+    # it (deploy/mycs-console.service.example), which checks the signed ticket and the Origin itself. Open as long as a
+    # console is. The ticket is in the query string: not logged.
     location = /console/ws {
+        access_log off;
         proxy_pass http://127.0.0.1:8091;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

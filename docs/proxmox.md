@@ -224,6 +224,8 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
 6. [x] **PR 7, κονσόλα noVNC (υπεύθυνος 2026-10-28: PHP relay, και τις αλλαγές στον server τις κάνει το deploy):**
    - Στο panel του VPS υπάρχει «Κονσόλα», όσο η υπηρεσία είναι active και το VM τρέχει. Ανοίγει σε δική της καρτέλα,
      με noVNC (`@novnc/novnc` 1.7.0, MPL-2.0). Την ανοίγει όποιος κάνει και power (`can:update`).
+   - **2026-11-06: το εισιτήριο, το `vncproxy`, το relay και το deploy άλλαξαν**, όπως λέει το «Σχέδιο: το relay στο
+     cluster» πιο κάτω. Τα όρια και οι προστασίες αυτού του PR έμειναν ίδια, στο `packages/proxmox`. Όπως ήταν ως τότε:
    - Κάθε σύνδεση ζητά εισιτήριο (POST με CSRF, 10 το λεπτό, στο audit ως `vm_console`):
      - η MyCS ελέγχει το VM όπως για το power και φτιάχνει `vncproxy` στον κόμβο·
      - το κρατά 30'' στο cache με τυχαίο token, και ο browser το παίρνει μία φορά.
@@ -325,111 +327,131 @@ relay.
 **Τι μένει από το #506 σε κάθε περίπτωση:** τα εισιτήρια, ο έλεγχος δικαιωμάτων, η σελίδα με το noVNC, το
 `WebSocket` του package και το relay (για την 2). Αλλάζει μόνο ο τρόπος που φτάνουν τα frames.
 
-#### Σχέδιο: το relay στο cluster (2026-11-06, προς έγκριση από τον υπεύθυνο)
+#### Σχέδιο: το relay στο cluster (εγκρίθηκε 2026-11-06, σε PHP)
 Ο υπεύθυνος ρώτησε (2026-11-06) αν γίνεται ένα πολύ απλό relay σε container ή VM, με nginx, Go ή PHP. Γίνεται: είναι η
-επιλογή 2 παραπάνω. Οι λεπτομέρειες:
+επιλογή 2 παραπάνω. Ο υπεύθυνος ενέκρινε το σχέδιο την ίδια μέρα, σε PHP.
 
-**Τι δεν γίνεται με σκέτο nginx.** Το `vncwebsocket` του Proxmox θέλει, εκτός από το vncticket, και το `Authorization`
-της ίδιας ταυτότητας (token) που ζήτησε το `vncproxy` (το ticket δένεται με τον χρήστη και το path του VM· από τον κώδικα του PVE, να επιβεβαιωθεί στη vega στο PR· η
-πρόταση ισχύει και αλλιώς). Άρα:
+**Γιατί όχι σκέτο nginx.** Το `vncwebsocket` του Proxmox θέλει, εκτός από το vncticket, και το `Authorization` της ίδιας
+ταυτότητας (token) που ζήτησε το `vncproxy`: το ticket δένεται με τον χρήστη και το path του VM. Αυτό βγαίνει από τον
+κώδικα του PVE και δεν έχει δοκιμαστεί στη vega· το σχέδιο ισχύει και αν δεν ισχύει. Άρα:
 - κάτι δίπλα στο cluster πρέπει να κρατά ένα credential του Proxmox. Ένα proxy που απλώς προωθεί δεν αρκεί.
-- Αν η MyCS ζητά το `vncproxy` και το relay ανοίγει το websocket, το relay θέλει το token της MyCS. Αυτό αποκλείεται.
+- Αν η MyCS ζητούσε το `vncproxy` και το relay άνοιγε το websocket, το relay θα ήθελε το token της MyCS. Αυτό αποκλείεται.
 
-**Πρόταση: το relay έχει δικό του token, μόνο για κονσόλα, και ζητά το ίδιο το `vncproxy`.**
-- Στο cluster μπαίνει ένα ξεχωριστό token, π.χ. `mycs-console@pve!relay`, με ρόλο μόνο `VM.Console` στο `/pool/mycs`.
+**Το relay έχει δικό του token, μόνο για κονσόλα, και ζητά το ίδιο το `vncproxy`.**
+- Στο cluster μπαίνει ένα ξεχωριστό token, `mycs-console@pve!relay`, με ρόλο `MyCSConsole` (μόνο `VM.Console`) στο
+  `/pool/mycs`. Οι εντολές είναι στη φόρμα του server, «How to set it up», 3.
   - Με αυτό το token το relay ανοίγει κονσόλα σε VM του pool, και τίποτε άλλο: ούτε power, ούτε create/destroy.
-  - Το token της MyCS χάνει το `VM.Console`. Έτσι η MyCS δεν ανοίγει κονσόλα μόνη της, και το relay δεν κάνει τίποτε
-    άλλο από κονσόλα.
-- Η MyCS κάνει ό,τι κάνει και σήμερα πριν από το εισιτήριο: δικαιώματα (`can:update`), service active, VM στο pool, ίδια
-  μηχανή, VM running, rate limit, audit `vm_console`. Αντί για `vncproxy` και cache, υπογράφει ένα εισιτήριο.
-- Ο browser ανοίγει `wss://<relay>/ws?t=<εισιτήριο>`. Το relay ελέγχει το εισιτήριο, ζητά `vncproxy` για τον κόμβο και
-  το VM του εισιτηρίου, ανοίγει το `vncwebsocket` και περνά τα frames, όπως το #506.
-- Ο κωδικός VNC (το vncticket, που σήμερα δίνει η MyCS στον browser) τον στέλνει το relay: το πρώτο του frame είναι
-  ένα text frame μόνο με αυτόν, και μετά αρχίζουν τα δυαδικά. Η σελίδα το διαβάζει και δίνει το ανοιχτό WebSocket στο
-  noVNC (το `RFB` δέχεται έτοιμο WebSocket). Μία σύνδεση, χωρίς δεύτερο endpoint ή CORS.
+  - Ο ρόλος `MyCSLifecycle` της MyCS δεν θέλει πια `VM.Console` (η φόρμα δεν το γράφει). Έτσι η MyCS δεν ανοίγει
+    κονσόλα μόνη της, και το relay δεν κάνει τίποτε άλλο από κονσόλα.
+- Η MyCS κάνει ό,τι έκανε και πριν από το εισιτήριο:
+  - δικαιώματα (`can:update`), service active, VM στο pool, ίδια μηχανή, VM running·
+  - rate limit, audit `vm_console`.
+  Δεν ζητά `vncproxy` και δεν γράφει τίποτα στο cache. Υπογράφει ένα εισιτήριο (`ConsoleTicket`) και δίνει στη σελίδα
+  `{url: "<Console relay URL>?t=<εισιτήριο>"}`.
+- Ο browser ανοίγει το websocket. Το relay (`packages/proxmox`, `MyCS\Proxmox\Console\Relay`):
+  - ελέγχει το εισιτήριο·
+  - ζητά `vncproxy` από τους κόμβους του cluster με τη σειρά, χωρίς να σταματά ο βρόχος (`AsyncHttp`, curl_multi)·
+  - ανοίγει το `vncwebsocket` στον κόμβο που απάντησε και περνά τα frames, όπως το #506.
+- Ο κωδικός VNC δεν περνά πια από τη MyCS. Το relay στέλνει το vncticket ως το πρώτο του frame, ένα text frame. Η
+  σελίδα το διαβάζει και, στο ίδιο event, δίνει το ανοιχτό WebSocket στο noVNC (το `RFB` δέχεται έτοιμο WebSocket).
+  Μία σύνδεση, χωρίς δεύτερο endpoint ή CORS.
 
 **Το εισιτήριο (MyCS → browser → relay).**
-- `v1.<payload>.<υπογραφή>`, base64url. Payload: instance, service, user, κόμβος, vmid, τύπος (qemu/lxc), `iat`, `exp`
-  (`iat` + 30''), και `jti` (16 τυχαία bytes).
-- Υπογραφή HMAC-SHA256 με κλειδί ανά instance, πάνω στο `console-ticket|` + payload. Το πρόθεμα κρατά χωριστές τις
-  υπογραφές των δύο κατευθύνσεων.
+- `v1.<payload>.<υπογραφή>`, base64url. Το payload έχει:
+  - origin της MyCS, id του server (cluster), service, user, κόμβο, vmid, τύπο (qemu/lxc);
+  - `iat`, `exp` (`iat` + 30'') και `jti` (16 τυχαία bytes).
+- Υπογραφή HMAC-SHA256 με το «Console relay key» του server, πάνω στο `console-ticket|` + payload. Το πρόθεμα κρατά
+  χωριστές τις υπογραφές των δύο κατευθύνσεων.
 - Το relay δέχεται ένα εισιτήριο:
-  - μόνο από το Origin του instance του·
+  - μόνο με κλειδί του site που γράφει το ίδιο το εισιτήριο, και για cluster εκείνου του site·
+  - μόνο από σελίδα με αυτό το Origin·
   - μία φορά: κρατά τα `jti` στη μνήμη ως το `exp`·
   - όχι αν είναι πριν από την ώρα που ξεκίνησε το relay, ώστε ένα restart να μην ξανανοίγει τα παλιά·
   - με σύγκριση σταθερού χρόνου και ±5'' ανοχή στο ρολόι.
-- Δεν περιέχει κανένα μυστικό: αν διαρρεύσει, ανοίγει μία κονσόλα για 30'', στο VM που η MyCS ήδη ενέκρινε. Το
-  location του relay δεν γράφει query string στο access log.
+- Κόμβος, τύπος, vmid και origin ελέγχονται και όταν η υπογραφή είναι σωστή: ένα path δεν φτιάχνεται από το εισιτήριο.
+- Δεν περιέχει κανένα μυστικό: αν διαρρεύσει, ανοίγει μία κονσόλα για 30'', στο VM που η MyCS ήδη ενέκρινε. Τα logs
+  του nginx δεν γράφουν το query string (`deploy/console-relay/nginx.conf.example`, `access_log off` στον devbox).
 
 **Ο έλεγχος των 30'' (relay → MyCS).**
-- Το relay ρωτά τη MyCS κάθε 30'': `POST <MyCS>/proxmox/console/check` με `{jti, service, user, vmid}`.
-- Υπογράφει με το ίδιο κλειδί, πάνω στο `console-check|<ts>|<body>`, στο header `X-Console-Signature: sha256=…`. Η MyCS
-  δέχεται `ts` έως 60'' παλιό.
-- Η MyCS απαντά `{allowed}` με τη λογική του σημερινού `ConsoleRelay::allowed`: service active, ίδιο VM, ο χρήστης
-  ακόμη με `update`.
-- Όπως σήμερα, μια κονσόλα κλείνει με «όχι» ή μετά από 3 αποτυχίες στη σειρά.
+- Κάθε 30'' το relay στέλνει σε κάθε site **μία** κλήση για όλες τις κονσόλες του, χωρίς να σταματά ο βρόχος:
+  `POST <origin>/api/proxmox/console/check`, με `{ts, consoles: [{id, jti, server_id, service_id, user_id, vmid}]}`.
+- Η υπογραφή είναι με το ίδιο κλειδί, πάνω στο `console-check|<body>`, στο header `X-Console-Signature: sha256=…`.
+- Η MyCS:
+  - δέχεται μόνο υπογραφή με το κλειδί ενός server Proxmox, και `ts` έως 60'' παλιό·
+  - απαντά μόνο για τις κονσόλες εκείνου του server: `{allowed: {"<id>": bool}}`·
+  - λέει «ναι» όσο το service είναι active, στο ίδιο VM, και ο χρήστης έχει ακόμη `update`.
+- Μια κονσόλα κλείνει με «όχι». Χωρίς απάντηση κλείνει μετά από 3 αποτυχίες στη σειρά, όπως πριν.
 
 **Ο διακόπτης (console on/off).**
-- Στις ρυθμίσεις του server Proxmox μπαίνουν «Κονσόλα» (on/off, αρχικά off), «Console relay URL» και «Console relay
-  key» (με `encrypted` cast, ποτέ στο repo).
+- Στις ρυθμίσεις του server Proxmox υπάρχουν τρία πεδία:
+  - «Customer console» (on/off, αρχικά off)·
+  - «Console relay URL» (`wss://…/ws`)·
+  - «Console relay key» (`encrypted`, 32+ χαρακτήρες, ποτέ στο repo).
 - Με off, ή χωρίς URL ή key:
   - το κουμπί δεν φαίνεται στον πελάτη·
-  - το endpoint του εισιτηρίου απαντά 404·
-  - ο έλεγχος απαντά `allowed: false`, άρα όσες κονσόλες είναι ανοιχτές κλείνουν μέσα σε 30''.
+  - η σελίδα και το endpoint του εισιτηρίου απαντούν 404.
+- Με off και το key στη θέση του, ο έλεγχος απαντά «όχι» σε όλες τις κονσόλες, άρα όσες είναι ανοιχτές κλείνουν μέσα σε
+  30''. Αν σβηστεί και το key, κλείνουν μετά από 3 ελέγχους χωρίς απάντηση (90'').
 - Είναι ανά server (cluster), αφού και το relay είναι ανά cluster.
 
 **TLS και πού δείχνει ο browser.**
 - Το relay παίρνει δικό του hostname ανά εταιρεία (π.χ. `console.nixpal.gr`, `console.myip.gr`), που μπορεί να δείχνει
-  στο ίδιο LXC. Το nginx του LXC κρατά τα πιστοποιητικά Let's Encrypt και προωθεί στο relay στο `127.0.0.1`, όπως το
-  `location = /console/ws` του devbox.
-- Η MyCS στον orion απλώς γράφει το URL στο εισιτήριο που δίνει (`wss://console.nixpal.gr/ws?t=…`), και προσθέτει το
-  origin στο `connect-src` του CSP της σελίδας της κονσόλας. Στον orion δεν αλλάζει τίποτα: ούτε unit, ούτε proxy.
-- Relay → κόμβος: TLS στο 8006 όπως σήμερα (IP του κόμβου, self-signed μόνο με IP). Relay → MyCS: HTTPS με κανονικό
+  στο ίδιο LXC. Το nginx του LXC κρατά τα πιστοποιητικά Let's Encrypt και προωθεί στο relay στο `127.0.0.1`.
+- Η MyCS στον orion απλώς γράφει το URL της ρύθμισης στο εισιτήριο που δίνει. Στον orion δεν αλλάζει τίποτα: ούτε unit,
+  ούτε proxy.
+- Ο CSP της MyCS δεν έχει `connect-src`, οπότε δεν χρειάζεται αλλαγή. Αν μπει ποτέ, θα πρέπει να επιτρέπει το relay.
+- Relay → κόμβος: TLS στο 8006, όπως πριν (IP του κόμβου, self-signed μόνο με IP). Relay → MyCS: HTTPS με κανονικό
   έλεγχο πιστοποιητικού.
 
 **Πού τρέχει.**
 - Ένα unprivileged LXC (Debian, 1 vCPU, 512 MB) στη vega, **έξω** από το pool `mycs`, ώστε η MyCS να μην μπορεί να το
   πειράξει.
 - Firewall: μέσα μόνο 80 (ACME) και 443. Έξω μόνο οι κόμβοι στο 8006 και τα MyCS στο 443.
-- Ένα αρχείο ρυθμίσεων (`/etc/mycs-console-relay/config.php`, 0600, εκτός repo), με μία εγγραφή ανά instance:
-  - id, κλειδί (δύο, για rotation), Origin, URL του check·
-  - token του Proxmox και κόμβοι (IP, όπως στις ρυθμίσεις του server).
-- Με εγγραφή ανά instance, ένα κλειδί της nixpal δεν ανοίγει VM της myip: κάθε instance έχει το δικό του token και το
-  δικό του pool.
+- Τα αρχεία είναι στο `deploy/console-relay/`:
+  - `console-relay.service.example`: χρήστης `mycs-relay`, `ProtectSystem=strict`·
+  - `nginx.conf.example`·
+  - `config.php.example`.
+- Στο LXC χρειάζονται μόνο `php-cli` 8.3+ (με curl και pcntl) και ένα αντίγραφο του `packages/proxmox` στο
+  `/opt/mycs-console-relay`. Δεν χρειάζεται Composer ούτε η MyCS: το `bin/console-relay` φορτώνει μόνο του το package.
+- Το config, `/etc/mycs-console-relay/config.php`, είναι 0600 (το relay αρνείται να ξεκινήσει αλλιώς). Έχει μία εγγραφή
+  ανά site:
+  - το origin·
+  - τα κλειδιά: πρώτο αυτό που έχει τώρα η MyCS, γιατί με αυτό υπογράφει το relay τους ελέγχους· δεύτερο το παλιό, όσο
+    γίνεται rotation·
+  - το URL του check, αν δεν είναι το προεπιλεγμένο·
+  - τα clusters, με κλειδί το id του server στη MyCS: κόμβοι (base, IP), `self_signed`, και το token του relay.
+- Με εγγραφή ανά site, ένα κλειδί της nixpal δεν ανοίγει VM της myip: κάθε site έχει τα δικά του clusters και token.
+- Νέα έκδοση: αντιγράφεται ξανά το `packages/proxmox` και γίνεται `systemctl restart mycs-console-relay`. Οι κονσόλες
+  πέφτουν, και ο πελάτης ξανασυνδέεται.
 
-**Γλώσσα: PHP, το relay του #506 ως package (πρόταση).**
-- Το `ConsoleRelay` (event loop, όρια, backpressure, ping, TLS χωρίς μπλοκάρισμα) περνά τρεις γύρους adversarial
-  review. Μεταφέρεται σε `packages/proxmox-console-relay` χωρίς Laravel, με δικά του `composer.json`, tests και
-  `bin/console-relay`. Οι εξαρτήσεις από τη MyCS (εισιτήριο, έλεγχος, σύνδεση στον κόμβο) γίνονται callbacks.
-- Προστίθενται:
-  - ο έλεγχος του υπογεγραμμένου εισιτηρίου·
-  - το `vncproxy` χωρίς μπλοκάρισμα του βρόχου (ένα HTTPS request μέσα στον ίδιο βρόχο)·
-  - το text frame με τον κωδικό·
-  - ο έλεγχος προς τη MyCS με HTTP.
-- Στο LXC χρειάζεται μόνο `php-cli` (8.3+) και το package, χωρίς vendor της MyCS.
-- Ο devbox περνά στον ίδιο τρόπο: το unit `mycs-console` τρέχει το package με δικό του config. Ο κώδικας με το cache
-  (`ConsoleTickets`) φεύγει, ώστε να μένει **ένας** δρόμος, αυτός που θα τρέξει στην παραγωγή, δοκιμασμένος πρώτα στον
-  devbox.
-- **Go:** ένα στατικό binary θα ήταν μικρότερο, και οι goroutines κάνουν το backpressure απλό. Θα ήταν όμως δεύτερη
-  υλοποίηση όλων των ορίων του #506, και άλλη γλώσσα στο CI και στα reviews. Αν ο υπεύθυνος το προτιμά, το σχέδιο
-  μένει ίδιο, με μόνη διαφορά τη γλώσσα του relay.
+**Στον devbox** τρέχει ο ίδιος κώδικας, με το ίδιο config.
+- Το unit `mycs-console` (`deploy/mycs-console.service.example`) τρέχει το `packages/proxmox/bin/console-relay`.
+- Το config έχει `'path' => '/console/ws'` και
+  `'restart_file' => '/var/www/mycs/storage/framework/console-relay.restart'`.
+- Το `update.sh` αγγίζει αυτό το αρχείο στο τέλος κάθε deploy, και το relay ξεκινά με τον νέο κώδικα. Δεν μένει πια
+  τίποτα στο cache της MyCS που να το επανεκκινεί (ADV-506-R2-5 έφυγε μαζί με την αιτία του).
+- Ο παλιός δρόμος (`proxmox:console-relay`, `ConsoleTickets`) αφαιρέθηκε. Μένει **ένας** δρόμος, αυτός της παραγωγής,
+  δοκιμασμένος πρώτα στον devbox.
 
-**Τι θέλει από τον υπεύθυνο (μετά το PR):**
-- το LXC, το DNS, το token `VM.Console` στο pool·
-- την αφαίρεση του `VM.Console` από το `MyCSLifecycle`·
-- το κλειδί στη MyCS του orion.
+**Γλώσσα: PHP.**
+- Το relay του #506 (event loop, όρια, backpressure, ping, TLS χωρίς μπλοκάρισμα, τρεις γύροι adversarial review)
+  μεταφέρθηκε χωρίς Laravel στο `packages/proxmox` (`src/Console`). Μαζί πήγαν και τα tests του, στο `tests/Console`.
+- Οι εξαρτήσεις από το site είναι callbacks: εισιτήριο, `vncproxy`, σύνδεση στον κόμβο, έλεγχος.
+- Το Go θα ήταν δεύτερη υλοποίηση όλων των ορίων του #506, και άλλη γλώσσα στο CI και στα reviews.
 
-Από τη μεριά της MyCS, στον orion αλλάζουν μόνο ρυθμίσεις.
+**Τι μένει για τον υπεύθυνο (μετά το merge):**
+1. Στον devbox:
+   - το νέο unit και το config, με token `mycs-console@pve!relay` και key·
+   - τα πεδία της κονσόλας στον server της MyCS·
+   - δοκιμή: κονσόλα, «όχι» από τον έλεγχο, off → κλείσιμο σε 30''.
+2. Στη vega:
+   - το LXC και το DNS (`console.nixpal.gr`)·
+   - ο ρόλος `MyCSConsole` και το token·
+   - η αφαίρεση του `VM.Console` από το `MyCSLifecycle`, αφού δουλέψει ο devbox με το νέο token.
+3. Στη MyCS του orion μόνο ρυθμίσεις: on, URL, key. Δεν αλλάζει τίποτα άλλο στον orion.
 
-**Σειρά:**
-1. Ένα PR με το package, την αλλαγή στη MyCS (εισιτήριο, check endpoint, ρυθμίσεις, σελίδα) και tests, που
-   μεταφέρουν και τα σημερινά `ProxmoxConsole*Test`.
-2. Ο devbox δοκιμάζεται με relay στο LXC (κονσόλα, «όχι» από το check, off → κλείσιμο σε 30'').
-3. Μετά, η nixpal στον orion.
-
-**Ως τότε:** στον orion δεν μπαίνει unit ούτε proxy. Το κουμπί «Κονσόλα» φαίνεται, αλλά η σύνδεση δεν ανοίγει (το
-`/console/ws` δεν οδηγεί πουθενά). Πριν την παραγωγή χρειάζεται ρύθμιση «console on/off» που κρύβει το κουμπί: να
-μπει μαζί με την επιλογή.
+**Ως τότε:** στον orion δεν μπαίνει unit ούτε proxy. Η ρύθμιση «console on/off» υπάρχει πια, και είναι αρχικά off: χωρίς
+relay, το κουμπί δεν φαίνεται.
 
 Σειρά (ο υπεύθυνος, 2026-10-24): το Β1 τώρα, ώστε οι VPS να μπουν στον αυτόματο κύκλο από την πρώτη μέρα. Μετά
 payments tracking και importer (μαζί με το Α). Τα Β2–Β6 έρχονται μετά το cut-over.

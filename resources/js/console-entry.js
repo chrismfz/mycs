@@ -1,5 +1,6 @@
-// A VPS's console (docs/proxmox.md, B6): each connection asks the page's ticket (a POST with the CSRF token), then
-// noVNC opens the relay's websocket with it; the VNC password is the ticket Proxmox gave.
+// A VPS's console (docs/proxmox.md, B6 and «Σχέδιο: το relay στο cluster»): each connection asks the page's ticket (a
+// POST with the CSRF token), then opens the relay's websocket with it. The relay's first frame is the VNC password, as
+// text; then the open websocket is noVNC's.
 import RFB from '@novnc/novnc';
 
 const root = document.getElementById('console');
@@ -56,13 +57,30 @@ async function open(mine) {
     if (mine !== generation) {
         return;
     }
-    const current = new RFB(screen, ticket.url, { credentials: { password: ticket.password }, wsProtocols: ['binary'] });
+    const socket = new WebSocket(ticket.url, ['binary']);
+    socket.binaryType = 'arraybuffer';
+    socket.onclose = () => mine === generation && say(strings.failed);
+    socket.onmessage = (event) => {
+        // The first frame only: the password, as text. Handed over at once, in this event, so no frame of the screen
+        // arrives before noVNC listens.
+        socket.onmessage = null;
+        socket.onclose = null;
+        if (mine !== generation || typeof event.data !== 'string') {
+            socket.close();
+            return;
+        }
+        attach(mine, socket, event.data);
+    };
+}
+
+function attach(mine, socket, password) {
+    const current = new RFB(screen, socket, { credentials: { password } });
     rfb = current;
     current.scaleViewport = true;
     const ifCurrent = (handler) => () => mine === generation && handler();
     current.addEventListener('connect', ifCurrent(() => say(strings.connected)));
     current.addEventListener('disconnect', ifCurrent(() => say(strings.disconnected)));
-    current.addEventListener('credentialsrequired', ifCurrent(() => current.sendCredentials({ password: ticket.password })));
+    current.addEventListener('credentialsrequired', ifCurrent(() => current.sendCredentials({ password })));
 }
 
 root.querySelector('[data-action="ctrlaltdel"]').addEventListener('click', () => rfb && rfb.sendCtrlAltDel());

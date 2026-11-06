@@ -259,9 +259,10 @@ trap - ERR
 log "Maintenance mode OFF"
 $ART up
 start_queue_worker
-# The console relay (docs/proxmox.md, B6), told now, with the new release in place: it exits and systemd starts
-# the new code. Its consoles drop; the customer reconnects.
-$ART proxmox:console-relay --restart >/dev/null 2>&1 || true
+# The console relay, where it runs on this server (the devbox; docs/proxmox.md, B6), told now, with the new release in
+# place: it sees its `restart_file` touched, exits, and systemd starts the new code. Its consoles drop; the customer
+# reconnects. Where none runs (a cPanel host: the relay is next to the cluster), the file is only a file.
+touch storage/framework/console-relay.restart 2>/dev/null || true
 
 # The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
 _url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"

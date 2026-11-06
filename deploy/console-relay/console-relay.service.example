@@ -1,0 +1,29 @@
+# The VPS console relay next to the cluster (docs/proxmox.md, «Σχέδιο: το relay στο cluster»), in its own LXC:
+#   - php-cli (8.3+, with curl and pcntl) and this repository's packages/proxmox in /opt/mycs-console-relay
+#     (a copy of the directory: no Composer, no MyCS);
+#   - a user of its own: useradd --system --home /opt/mycs-console-relay mycs-relay
+#   - its config in /etc/mycs-console-relay/config.php (0600, owned by mycs-relay; config.php.example);
+#   - nginx in front with TLS (nginx.conf.example).
+# /etc/systemd/system/mycs-console-relay.service, then systemctl daemon-reload && systemctl enable --now mycs-console-relay
+# A new release: copy packages/proxmox again, then systemctl restart mycs-console-relay (its consoles drop).
+[Unit]
+Description=MyCS console relay (noVNC to Proxmox)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mycs-relay
+Group=mycs-relay
+Restart=always
+RestartSec=3
+WorkingDirectory=/opt/mycs-console-relay
+# Its own memory, not php-cli's 128M: 64 consoles' buffers (Relay::BUDGET).
+ExecStart=/usr/bin/php -d memory_limit=512M bin/console-relay /etc/mycs-console-relay/config.php
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/
+
+[Install]
+WantedBy=multi-user.target

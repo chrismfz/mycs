@@ -4,6 +4,7 @@ namespace App\Livewire\Services;
 
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
+use App\Http\Controllers\ServiceConsoleController;
 use App\Jobs\Server\ProxmoxSnapshotJob;
 use App\Livewire\Component;
 use App\Models\IpAddress;
@@ -208,6 +209,8 @@ class ProxmoxPanel extends Component
             'vm' => $vm,
             'pending' => $pending,
             'canPower' => $this->service->status === Service::STATUS_ACTIVE && $this->allowed('update'),
+            // Only with the console on for its cluster, and a relay to open it (docs/proxmox.md, «Σχέδιο: το relay»).
+            'console' => ServiceConsoleController::relay($this->service) !== null,
             'snapshots' => $snapshots,
             // Told once, to whoever sees the panel next (the job has no page to tell).
             'snapshotResult' => $vm === null ? null : Cache::pull(self::snapshotResultKey($this->service)),

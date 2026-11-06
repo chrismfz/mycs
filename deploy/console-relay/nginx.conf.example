@@ -1,0 +1,39 @@
+# The console relay's site (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): one server block per company's hostname,
+# all to the same relay. TLS from Let's Encrypt (certbot --nginx), port 80 only for its challenge and the redirect.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 off;
+    server_name console.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/console.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/console.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # The ticket is in the query string: the access log keeps the path only.
+    log_format console_relay '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent';
+    access_log /var/log/nginx/console-relay.log console_relay;
+
+    location = /ws {
+        proxy_pass http://127.0.0.1:8091;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name console.example.com;
+    location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+    location / { return 301 https://$host$request_uri; }
+}

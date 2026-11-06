@@ -1,0 +1,32 @@
+<?php
+
+// The console relay's config (docs/proxmox.md, «Σχέδιο: το relay στο cluster»): /etc/mycs-console-relay/config.php,
+// 0600, owned by the relay's user. It holds secrets: never in a repository, never on the MyCS host.
+return [
+    'listen' => '127.0.0.1:8091',
+    'path' => '/ws',                 // nginx's location: '/console/ws' on the devbox
+    // 'restart_file' => '/var/www/mycs/storage/framework/console-relay.restart', // the devbox only (deploy/update.sh)
+    'sites' => [
+        [
+            // The MyCS site, exactly as its pages' Origin (scheme and host, the port only if not the default).
+            'origin' => 'https://my.example.com',
+            // The «Console relay key» of the cluster's server in that MyCS (Setup → Servers). While rotating: the one
+            // MyCS has now first (it signs the checks), the old one second (tickets signed a moment before).
+            'keys' => ['PASTE-THE-SAME-KEY-AS-IN-MYCS'],
+            // 'check_url' => 'https://my.example.com/api/proxmox/console/check', // this by default
+            'clusters' => [
+                // MyCS's id of the cluster's server (Setup → Servers): a ticket names it.
+                1 => [
+                    'nodes' => [
+                        ['base' => 'https://pve1.example.com:8006', 'ip' => '10.0.0.11'],
+                        ['base' => 'https://pve2.example.com:8006', 'ip' => '10.0.0.12'],
+                    ],
+                    'self_signed' => false, // true only with each node's ip
+                    // The relay's own token: VM.Console on the pool, nothing else (the server's form, «How to set it up», 3).
+                    'token_id' => 'mycs-console@pve!relay',
+                    'token_secret' => 'PASTE-THE-TOKEN-SECRET',
+                ],
+            ],
+        ],
+    ],
+];

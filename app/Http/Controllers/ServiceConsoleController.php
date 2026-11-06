@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
-use App\Services\Proxmox\ConsoleTickets;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
+use MyCS\Proxmox\Console\ConsoleTicket;
 use MyCS\Proxmox\ProxmoxException;
 use OwenIt\Auditing\Events\AuditCustom;
 use Throwable;
@@ -17,7 +17,9 @@ use Throwable;
 /**
  * A VPS's console for the customer (docs/proxmox.md, B6): the page (noVNC, in its own tab) and the ticket it asks for
  * each connection. Who may power the VPS may open its console (`can:update`), only while the service is active and the
- * VM running; each ticket is audited. The ticket opens the relay once, within seconds (ConsoleTickets).
+ * VM running; each ticket is audited. The ticket, signed with the cluster's console key, opens the relay next to the
+ * cluster once, within seconds (ConsoleTicket; docs/proxmox.md, «Σχέδιο: το relay στο cluster»). With the console off
+ * on the server, neither the page nor a ticket exists.
  */
 class ServiceConsoleController extends Controller
 {
@@ -26,9 +28,22 @@ class ServiceConsoleController extends Controller
 
     public function show(Service $service): View
     {
-        abort_unless(ProxmoxPower::guest($service) !== null, 404);
+        abort_unless(ProxmoxPower::guest($service) !== null && self::relay($service) !== null, 404);
 
         return view('services.console', ['service' => $service]);
+    }
+
+    /**
+     * The service's console relay (its URL and key), or null when its cluster has the console off or not set up.
+     *
+     * @return array{url: string, key: string}|null
+     */
+    public static function relay(Service $service): ?array
+    {
+        $server = $service->provisioningServer();
+        $extension = $server === null ? null : ExtensionHelper::getExtension('server', $server->extension, $server->settings);
+
+        return $extension instanceof Proxmox ? $extension->consoleRelay() : null;
     }
 
     public function ticket(Service $service): JsonResponse
@@ -40,7 +55,7 @@ class ServiceConsoleController extends Controller
         $guest = ProxmoxPower::guest($service);
         $server = $service->provisioningServer();
         $extension = $guest === null || $server === null ? null : ExtensionHelper::getExtension('server', $server->extension, $server->settings);
-        if (!$extension instanceof Proxmox) {
+        if (!$extension instanceof Proxmox || ($relay = $extension->consoleRelay()) === null) {
             return $refuse('not_available', 404);
         }
         if (RateLimiter::hit('proxmox-console:' . $service->id, 60) > self::PER_MINUTE) {
@@ -49,7 +64,7 @@ class ServiceConsoleController extends Controller
         try {
             $console = $extension->lifecycle($service)->console($service);
         } catch (ProxmoxException $e) {
-            // The cluster's answer, not the VM's state: the token without VM.Console, a node down. Staff see it in
+            // The cluster's answer, not the VM's state: a node down, the token refused. Staff see it in
             // the log; the customer is not told their running VM is stopped (review of #506).
             report($e);
 
@@ -59,16 +74,18 @@ class ServiceConsoleController extends Controller
 
             return $refuse('not_opened');
         }
-        $token = ConsoleTickets::issue($server->id, $service->id, (int) auth('web')->id(), $console);
+        $parts = (array) parse_url((string) config('app.url'));
+        $origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        $token = ConsoleTicket::sign(['origin' => $origin, 'server_id' => $server->id, 'service_id' => $service->id,
+            'user_id' => (int) auth('web')->id()] + $console, $relay['key']);
         $service->auditEvent = 'vm_console';
         $service->isCustomEvent = true;
         $service->auditCustomOld = [];
         $service->auditCustomNew = ['user_id' => auth('web')->id(), 'vmid' => $console['vmid']];
         event(new AuditCustom($service));
         $service->isCustomEvent = false;
-        $base = preg_replace('#^http#', 'ws', rtrim((string) config('app.url'), '/'));
 
-        return response()->json(['url' => $base . config('services.proxmox_console.path') . '?token=' . $token, 'password' => $console['ticket']])
-            ->header('Cache-Control', 'no-store');
+        // The VNC password comes from the relay, as the websocket's first frame: the page never had it from here.
+        return response()->json(['url' => $relay['url'] . '?t=' . $token])->header('Cache-Control', 'no-store');
     }
 }

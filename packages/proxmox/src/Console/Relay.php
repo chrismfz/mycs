@@ -1,31 +1,31 @@
 <?php
 
-namespace App\Services\Proxmox;
+namespace MyCS\Proxmox\Console;
 
-use App\Admin\Resources\ServiceResource\ProxmoxPower;
-use App\Models\Service;
-use App\Models\User;
 use Closure;
 use InvalidArgumentException;
 use MyCS\Proxmox\WebSocket;
 use Throwable;
 
 /**
- * The customer's console (docs/proxmox.md, B6): a websocket from the browser, behind nginx, to a guest's VNC websocket
- * on its node, which only the token may open (the browser can send no header). One process, every console in one loop.
+ * The customers' consoles (docs/proxmox.md, B6 and «Σχέδιο: το relay στο cluster»): a websocket from the browser,
+ * behind nginx, to a guest's VNC websocket on its node, which only the relay's token may open (the browser can send no
+ * header). One process, every console in one loop; framework-free, so it runs next to the cluster, away from MyCS.
  *
- * A browser's connection opens only with a ticket ConsoleTickets gave for it a few seconds before, once, from this site
- * (its Origin); then its frames go to the node and the node's to it, each read whole and written again (a client's
- * masked, a server's not). Pings are answered where they arrive. A console ends when either side closes, after
- * IDLE without a frame, MAX_SESSION in all, or once the service is no longer active or its login may no longer power
- * it (asked again every RECHECK seconds: review of #506).
+ * A browser's connection opens only with a ticket its site signed a few seconds before (the `tickets` callback checks
+ * it and its one use), from that site's page (its Origin). The relay then asks the node for the guest's VNC proxy
+ * (`prepare`, without blocking the loop), opens its websocket, and sends the browser the VNC password as one text frame
+ * before anything else. Then the frames go to the node and the node's to the browser, each read whole and written again
+ * (a client's masked, a server's not). Pings are answered where they arrive. A console ends when either side closes,
+ * after IDLE without a frame, MAX_SESSION in all, or once its site says it is no longer the customer's (`check`, asked
+ * every RECHECK seconds for all consoles at once: review of #506).
  *
  * One customer never takes it down for the others (review of #506): nothing a browser sends is kept before its
  * console opens past a handshake's size; a side that reads nothing stops the other side's reading (MAX_PENDING), and
  * all consoles together hold at most BUDGET; the node is connected and its TLS spoken without blocking the loop; a VPS
  * has at most PER_SERVICE consoles at once; and whatever one console throws ends that console, never the loop.
  */
-final class ConsoleRelay
+final class Relay
 {
     public const MAX_CONNECTIONS = 64;
 
@@ -78,18 +78,25 @@ final class ConsoleRelay
     /** @var Closure(): float */
     private Closure $clock;
 
-    /** @var Closure(array<string, mixed>): bool */
-    private Closure $allowed;
+    /** Each console's own number: a callback that comes back after its console closed (its socket's id reused) finds none. */
+    private int $serial = 0;
 
     /**
-     * @param  Closure(array<string, mixed>): array{stream: resource, host: string, port: int, authorization: string, tls?: bool}  $connect
-     *                                                                                                                                       a ticket's node, its connection begun (TLS spoken here when `tls`)
+     * @param  list<string>  $origins  the sites whose pages may open a console (each ticket's own must be the browser's Origin)
+     * @param  Closure(string): (array<string, mixed>|null)  $tickets  a token's console (origin, service_id, user_id, vmid, …), once; null when not
+     * @param  Closure(array<string, mixed>, Closure(array{port: int, ticket: string, base: string}|null, string|null): void): void  $prepare
+     *                                                                                                                                         the guest's VNC proxy asked of its cluster; `done` called later, from `poll`
+     * @param  Closure(array<string, mixed>, array{port: int, ticket: string, base: string}): array{stream: resource, host: string, port: int, authorization: string, tls?: bool}  $connect
+     *                                                                                                                                                                                       the proxy's node, its connection begun (TLS spoken here when `tls`)
+     * @param  (Closure(array<int, array<string, mixed>>, Closure(array<int, bool|null>): void): void)|null  $check
+     *                                                                                                               whether the consoles may stay open (null: unknown), asked of their sites; `done` called later
+     * @param  (Closure(): bool)|null  $poll  the callbacks' work moved on, once a turn: true while some is under way
      * @param  Closure(string, array<string, mixed>): void|null  $log
-     * @param  (Closure(array<string, mixed>): bool)|null  $allowed  whether a ticket's console may stay open (default: self::allowed)
      * @param  int  $budget  all consoles' buffers together, at most (BUDGET; a test's smaller, to pass it with a few MB)
      */
-    public function __construct(string $listen, private readonly string $origin, private readonly string $path, private readonly Closure $connect,
-        private readonly ?Closure $log = null, ?Closure $clock = null, ?Closure $allowed = null, private readonly int $budget = self::BUDGET)
+    public function __construct(string $listen, private readonly array $origins, private readonly string $path, private readonly Closure $tickets,
+        private readonly Closure $prepare, private readonly Closure $connect, private readonly ?Closure $check = null, private readonly ?Closure $poll = null,
+        private readonly ?Closure $log = null, ?Closure $clock = null, private readonly int $budget = self::BUDGET)
     {
         $server = @stream_socket_server('tcp://' . $listen, $code, $message);
         if ($server === false) {
@@ -98,22 +105,6 @@ final class ConsoleRelay
         stream_set_blocking($server, false);
         $this->server = $server;
         $this->clock = $clock ?? fn () => microtime(true);
-        $this->allowed = $allowed ?? fn (array $ticket) => self::allowed($ticket);
-    }
-
-    /**
-     * A ticket's console may stay open: its service active, still mapped to the same VM, and its login still allowed
-     * to power it (its grant on the account not revoked).
-     *
-     * @param  array<string, mixed>  $ticket
-     */
-    public static function allowed(array $ticket): bool
-    {
-        $service = Service::query()->find($ticket['service_id'] ?? 0);
-        $user = User::query()->find($ticket['user_id'] ?? 0);
-
-        return $service !== null && $user !== null && $service->status === Service::STATUS_ACTIVE
-            && ProxmoxPower::guest($service)?->vmid === (int) ($ticket['vmid'] ?? 0) && $user->can('update', $service);
     }
 
     /** The address it listens on («127.0.0.1:8091»). */
@@ -138,6 +129,14 @@ final class ConsoleRelay
     /** One turn of the loop: what is readable read, what is pending written, what is over closed. */
     public function tick(float $timeout = 1.0): void
     {
+        // The callbacks' answers (a VNC proxy, a check) arrive here; while one is awaited, the loop waits little.
+        if ($this->poll !== null) {
+            try {
+                $timeout = ($this->poll)() ? min($timeout, 0.02) : $timeout;
+            } catch (Throwable $e) {
+                $this->say('Poll failed: ' . self::clean($e->getMessage()), 0);
+            }
+        }
         $read = count($this->consoles) < self::MAX_CONNECTIONS + 1 ? [$this->server] : [];
         $write = [];
         // Over BUDGET, only the consoles holding more than their share stop being read, not every one (ADV-506-R2-2).
@@ -248,7 +247,7 @@ final class ConsoleRelay
         $this->consoles[(int) $client] = ['client' => $client, 'upstream' => null, 'state' => 'handshake', 'cin' => '', 'uin' => '', 'cout' => '',
             'uout' => '', 'since' => $now, 'last' => $now, 'checked' => $now, 'accept' => null, 'key' => null, 'protocol' => null, 'closing' => false,
             'ticket' => null, 'node' => null, 'more' => false, 'tls_started' => false, 'closing_at' => null, 'failures' => 0, 'backed_since' => null, 'drain' => [], 'pending' => 0,
-            'heard' => $now, 'pinged' => null];
+            'heard' => $now, 'pinged' => null, 'serial' => ++$this->serial, 'proxy' => null, 'checking' => false];
     }
 
     private function readFrom(int $id, string $side): void
@@ -343,8 +342,10 @@ final class ConsoleRelay
                 return;
             }
             $c['state'] = 'open';
+            // The VNC password first, as text: the page reads it, then hands the open websocket to noVNC.
             $c['cout'] .= "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "
-                . WebSocket::accept($c['key']) . "\r\n" . ($c['protocol'] !== null ? "Sec-WebSocket-Protocol: {$c['protocol']}\r\n" : '') . "\r\n";
+                . WebSocket::accept($c['key']) . "\r\n" . ($c['protocol'] !== null ? "Sec-WebSocket-Protocol: {$c['protocol']}\r\n" : '') . "\r\n"
+                . WebSocket::encode(WebSocket::TEXT, $c['proxy']['ticket'], false);
             $this->say('Console opened', $id);
             if ($c['cin'] !== '') {
                 $this->fromClient($id);
@@ -369,8 +370,8 @@ final class ConsoleRelay
     }
 
     /**
-     * A browser's handshake: this site's page, a websocket of version 13 at the console's path with a ticket not yet
-     * taken, of a VPS with fewer than PER_SERVICE consoles; then the node's connection begun.
+     * A browser's handshake: one of the sites' pages, a websocket of version 13 at the console's path with a ticket of
+     * that site not yet used, of a VPS with fewer than PER_SERVICE consoles; then the guest's VNC proxy asked for.
      *
      * @param  array<string, string>  $headers
      */
@@ -383,22 +384,29 @@ final class ConsoleRelay
 
             return;
         }
-        if (($headers['origin'] ?? '') !== $this->origin) {
-            $this->refuse($id, 403, 'from another site: ' . self::clean($headers['origin'] ?? 'no Origin'));
+        $origin = $headers['origin'] ?? '';
+        if (!in_array($origin, $this->origins, true)) {
+            $this->refuse($id, 403, 'from another site: ' . self::clean($origin ?: 'no Origin'));
 
             return;
         }
         $path = (string) parse_url($m[1], PHP_URL_PATH);
         parse_str((string) parse_url($m[1], PHP_URL_QUERY), $query);
-        $ticket = $path === $this->path && is_string($query['token'] ?? null) ? ConsoleTickets::take($query['token']) : null;
+        $ticket = $path === $this->path && is_string($query['t'] ?? null) ? ($this->tickets)($query['t']) : null;
         if ($ticket === null) {
             $this->refuse($id, 403, 'no ticket, or one already used or too late');
 
             return;
         }
+        // Another site's ticket, even a good one, is not this page's: each site its own consoles.
+        if (($ticket['origin'] ?? null) !== $origin) {
+            $this->refuse($id, 403, 'a ticket of another site');
+
+            return;
+        }
         $c['ticket'] = $ticket;
         // Closing ones too: one that never drains holds its slot until CLOSING ends it (ADV-506-R2-3).
-        $open = count(array_filter($this->consoles, fn (array $o) => ($o['ticket']['service_id'] ?? null) === $ticket['service_id']));
+        $open = count(array_filter($this->consoles, fn (array $o) => $o['ticket'] !== null && self::vps($o['ticket']) === self::vps($ticket)));
         if ($open > self::PER_SERVICE) {
             $this->refuse($id, 429, 'service #' . $ticket['service_id'] . ' has ' . self::PER_SERVICE . ' consoles open (ADV-506-6)');
 
@@ -407,8 +415,39 @@ final class ConsoleRelay
         $c['key'] = $headers['sec-websocket-key'];
         $offered = array_map('trim', explode(',', $headers['sec-websocket-protocol'] ?? ''));
         $c['protocol'] = in_array('binary', $offered, true) ? 'binary' : null;
+        $c['state'] = 'proxy';
+        $serial = $c['serial'];
+        // Asked, not waited for: the answer comes from `poll`, a later turn (or this one, from a test's).
+        ($this->prepare)($ticket, function (?array $proxy, ?string $error) use ($id, $serial) {
+            if (($this->consoles[$id]['serial'] ?? null) !== $serial || $this->consoles[$id]['state'] !== 'proxy') {
+                return; // closed meanwhile (HANDSHAKE over, the browser gone)
+            }
+            $this->guarded($id, fn () => $this->proxied($id, $proxy, $error));
+        });
+    }
+
+    /** A site and its service: two sites' service numbers are not the same VPS. */
+    private static function vps(array $ticket): string
+    {
+        return ($ticket['origin'] ?? '') . '#' . ($ticket['service_id'] ?? '');
+    }
+
+    /**
+     * The guest's VNC proxy, made: its node's connection begun.
+     *
+     * @param  array{port: int, ticket: string, base: string}|null  $proxy
+     */
+    private function proxied(int $id, ?array $proxy, ?string $error): void
+    {
+        $c = &$this->consoles[$id];
+        if ($proxy === null) {
+            $this->refuse($id, 502, 'the cluster made no VNC proxy: ' . self::clean($error ?? 'no answer'));
+
+            return;
+        }
+        $c['proxy'] = $proxy;
         try {
-            $node = ($this->connect)($ticket);
+            $node = ($this->connect)($c['ticket'], $proxy);
         } catch (Throwable $e) {
             $this->refuse($id, 502, 'the node could not be reached: ' . self::clean($e->getMessage()));
 
@@ -447,7 +486,9 @@ final class ConsoleRelay
         $key = WebSocket::key();
         $c['accept'] = WebSocket::accept($key);
         $c['state'] = 'upstream';
-        $c['uout'] .= 'GET ' . $ticket['path'] . '?port=' . (int) $ticket['port'] . '&vncticket=' . rawurlencode($ticket['ticket']) . " HTTP/1.1\r\n"
+        $proxy = $c['proxy'];
+        $path = '/api2/json/nodes/' . rawurlencode((string) $ticket['node']) . '/' . ($ticket['type'] === 'lxc' ? 'lxc' : 'qemu') . '/' . (int) $ticket['vmid'] . '/vncwebsocket';
+        $c['uout'] .= 'GET ' . $path . '?port=' . (int) $proxy['port'] . '&vncticket=' . rawurlencode($proxy['ticket']) . " HTTP/1.1\r\n"
             . "Host: {$node['host']}:{$node['port']}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {$key}\r\n"
             . "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: binary\r\nAuthorization: {$node['authorization']}\r\n\r\n";
     }
@@ -500,8 +541,9 @@ final class ConsoleRelay
     private function expire(): void
     {
         $now = ($this->clock)();
+        $due = [];
         foreach ($this->consoles as $id => $c) {
-            $this->guarded($id, function () use ($id, $c, $now) {
+            $this->guarded($id, function () use ($id, $c, $now, &$due) {
                 $reason = match (true) {
                     $c['closing'] && $now - $c['closing_at'] > self::CLOSING => $c['why'] ?? 'closed (its last bytes not read)',
                     $c['backed_since'] !== null && $now - $c['backed_since'] > self::BACKED => 'a side reads nothing',
@@ -511,20 +553,11 @@ final class ConsoleRelay
                     $now - $c['since'] > self::MAX_SESSION => 'its time is up',
                     default => null,
                 };
-                // Still the customer's to keep (ADV-506-4, 5): asked again every RECHECK seconds.
-                if ($reason === null && $c['state'] === 'open' && $now - $c['checked'] >= self::RECHECK) {
+                // Still the customer's to keep (ADV-506-4, 5): asked of its site every RECHECK seconds, all at once.
+                if ($reason === null && $this->check !== null && $c['state'] === 'open' && !$c['checking'] && $now - $c['checked'] >= self::RECHECK) {
                     $this->consoles[$id]['checked'] = $now;
-                    try {
-                        $allowed = ($this->allowed)($c['ticket']);
-                        $this->consoles[$id]['failures'] = 0;
-                    } catch (Throwable $e) {
-                        // Unknown, not «no» (a database restarting): closed only after RECHECK_FAILURES in a row
-                        // (ADV-506-R2-6).
-                        $allowed = ++$this->consoles[$id]['failures'] < self::RECHECK_FAILURES;
-                    }
-                    if (!$allowed) {
-                        $reason = 'no longer allowed (the service not active, or its login without access)';
-                    }
+                    $this->consoles[$id]['checking'] = true;
+                    $due[$id] = $c['ticket'];
                 }
                 // A browser gone without a word (a laptop asleep) holds its slot only until it misses a ping (round 3).
                 if ($reason === null && $c['state'] === 'open' && !$c['closing'] && $c['pinged'] === null && $now - $c['heard'] > self::PING_AFTER) {
@@ -535,6 +568,42 @@ final class ConsoleRelay
                     $this->close($id, $reason);
                 }
             });
+        }
+        if ($due !== []) {
+            $this->recheck($due);
+        }
+    }
+
+    /**
+     * The sites asked whether these consoles are still their customers'. «No» closes one; no answer (a site down, a
+     * database restarting) is «unknown», and closes it only after RECHECK_FAILURES in a row (ADV-506-R2-6).
+     *
+     * @param  array<int, array<string, mixed>>  $tickets
+     */
+    private function recheck(array $tickets): void
+    {
+        $serials = array_map(fn (int $id) => $this->consoles[$id]['serial'], array_combine(array_keys($tickets), array_keys($tickets)));
+        $done = function (array $answers) use ($serials) {
+            foreach ($serials as $id => $serial) {
+                if (($this->consoles[$id]['serial'] ?? null) !== $serial) {
+                    continue;
+                }
+                $this->consoles[$id]['checking'] = false;
+                $allowed = $answers[$id] ?? null;
+                if ($allowed === null) {
+                    $allowed = ++$this->consoles[$id]['failures'] < self::RECHECK_FAILURES;
+                } else {
+                    $this->consoles[$id]['failures'] = 0;
+                }
+                if (!$allowed) {
+                    $this->close($id, 'no longer allowed (the service not active, or its login without access)');
+                }
+            }
+        };
+        try {
+            ($this->check)($tickets, $done);
+        } catch (Throwable) {
+            $done([]);
         }
     }
 

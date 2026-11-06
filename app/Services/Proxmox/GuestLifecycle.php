@@ -251,9 +251,10 @@ final class GuestLifecycle
 
     /**
      * A console for the customer (docs/proxmox.md, B6): the guest checked as for power (one VM, in the pool, the same
-     * machine), the service active and the VM running; its VNC proxy and the websocket path to it.
+     * machine), the service active and the VM running; where it is, for the relay's ticket. The relay asks the VNC
+     * proxy itself, with its own token: MyCS's needs no VM.Console.
      *
-     * @return array{vmid: int, base: string, path: string, port: int, ticket: string}
+     * @return array{vmid: int, node: string, type: string}
      */
     public function console(Service $service): array
     {
@@ -266,9 +267,7 @@ final class GuestLifecycle
             if (($status = $this->effective((string) $resource['status'])) !== 'running') {
                 throw new RuntimeException("VM {$row->vmid} is «{$status}»: a console needs it running.");
             }
-            $proxy = $this->client->vncProxy($resource);
-            $console = ['vmid' => $row->vmid, 'base' => $proxy['base'], 'path' => '/api2/json/' . ProxmoxClient::guestPath($resource) . '/vncwebsocket',
-                'port' => $proxy['port'], 'ticket' => $proxy['ticket']];
+            $console = ['vmid' => (int) $row->vmid, 'node' => (string) $resource['node'], 'type' => ($resource['type'] ?? 'qemu') === 'lxc' ? 'lxc' : 'qemu'];
         });
 
         return $console ?? throw new RuntimeException("No console of service #{$service->id}'s VM.");
