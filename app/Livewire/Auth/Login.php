@@ -32,9 +32,24 @@ class Login extends Component
         return Cache::rememberForever('login-unknown-hash:' . config('hashing.driver'), fn () => Hash::make(Str::random(40)));
     }
 
+    /**
+     * The captcha on sign-in (setting «Captcha on sign-in», owner 2026-11-06): always, never, or by default only once the
+     * address has failed to sign in (its failures, 15 minutes): a customer typing the right password never sees it.
+     */
+    public function captchaNeeded(): bool
+    {
+        return match (config('settings.captcha_login', 'after_failure')) {
+            'always' => true,
+            'never' => false,
+            default => RateLimiter::attempts('login-ip:' . CallerIp::key()) > 0,
+        };
+    }
+
     public function submit(\App\Actions\Auth\Login $loginAction)
     {
-        $this->captcha();
+        if ($this->captchaNeeded()) {
+            $this->captcha();
+        }
         $this->validate();
 
         // By the address as it reaches us (an IPv6 one by its /64), never one it names in X-Forwarded-For; and the login

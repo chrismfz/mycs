@@ -17,7 +17,9 @@
         </a>
     </div>
 
-    <x-captcha :form="'login'" />
+    @if ($this->captchaNeeded())
+        <x-captcha :form="'login'" />
+    @endif
 
     <x-button.primary class="w-full" type="submit">{{ __('auth.sign_in') }}</x-button.primary>
 
