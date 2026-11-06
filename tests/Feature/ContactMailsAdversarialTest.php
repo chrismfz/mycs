@@ -63,7 +63,7 @@ class ContactMailsAdversarialTest extends TestCase
     /** @return list<string> */
     private function mailedTo(): array
     {
-        return EmailLog::query()->orderBy('id')->pluck('to')->all();
+        return EmailLog::query()->where('status', '!=', EmailLog::STATUS_SKIPPED)->orderBy('id')->pluck('to')->all(); // mailed: not the ones held back (STATUS_SKIPPED)
     }
 
     private function invoice(): Invoice
@@ -152,7 +152,7 @@ class ContactMailsAdversarialTest extends TestCase
         NotificationHelper::invoiceCreatedNotification($this->client, $this->invoice());
 
         // Compared here, not in SQL: "to" is a column on SQLite but a string on MariaDB (CI's test-mariadb).
-        $this->assertCount(1, EmailLog::query()->pluck('to')->filter(fn ($to) => mb_strtolower((string) $to) === 'owner@example.test'),
+        $this->assertCount(1, EmailLog::query()->where('status', '!=', EmailLog::STATUS_SKIPPED)->pluck('to')->filter(fn ($to) => mb_strtolower((string) $to) === 'owner@example.test'),
             'the address that takes invoices gets the invoice once');
     }
 

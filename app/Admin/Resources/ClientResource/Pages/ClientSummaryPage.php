@@ -97,6 +97,7 @@ class ClientSummaryPage extends ViewRecord
                 'credits' => $can('admin.credits.viewAny') ? ClientResource::getUrl('credits', ['record' => $client]) : null,
                 'tickets' => $can('admin.tickets.viewAny') ? ClientResource::getUrl('tickets', ['record' => $client]) : null,
                 'email' => $can('admin.email_logs.view') ? fn (int $id) => EmailLogResource::getUrl('view', ['record' => $id]) : null,
+                'emails' => $can('admin.email_logs.viewAny') ? ClientResource::getUrl('emails', ['record' => $client]) : null,
             ],
         ];
     }

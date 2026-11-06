@@ -11,6 +11,7 @@ use App\Admin\Resources\ClientResource\Pages\ShowBillingAgreements;
 use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
 use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\ClientResource\Pages\ShowDomains;
+use App\Admin\Resources\ClientResource\Pages\ShowEmails;
 use App\Admin\Resources\ClientResource\Pages\ShowInvoices;
 use App\Admin\Resources\ClientResource\Pages\ShowNotes;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
@@ -312,6 +313,7 @@ class ClientResource extends Resource
             'credits' => ShowCredits::route('/{record}/credits'),
             'credit-history' => ShowCreditHistory::route('/{record}/credit-history'),
             'tickets' => ShowTickets::route('/{record}/tickets'),
+            'emails' => ShowEmails::route('/{record}/emails'),
             'billing-agreements' => ShowBillingAgreements::route('/{record}/billing-agreements'),
             'notes' => ShowNotes::route('/{record}/notes'),
         ];
@@ -328,6 +330,7 @@ class ClientResource extends Resource
             ShowCredits::class,
             ShowCreditHistory::class,
             ShowTickets::class,
+            ShowEmails::class,
             ShowBillingAgreements::class,
             ShowNotes::class,
         ]);
