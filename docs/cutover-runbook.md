@@ -20,10 +20,18 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   λέει σωστά («passwords all move over»).
 - **Μετά το import, από το staff:**
   - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται.
-  - **Gateways:** ενεργοποιούνται.
-  - **Stripe:** Save στο gateway, που φτιάχνει το webhook. Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
-  - **PayPal:** το `webhook_id` του app της εταιρείας.
-  - **Cardlink:** τα URLs return/notify στο vPOS της Eurobank.
+  - **Gateways (απόφαση ιδιοκτήτη 2026-11-06):** **μετά** την αλλαγή του host (τα webhooks παίρνουν το `APP_URL` της
+    στιγμής), `php artisan app:enable-imported-gateways`. Η εντολή ανοίγει όποιο ήρθε ολόκληρο και απαντά:
+    - **Stripe:** φτιάχνεται το webhook με τα κλειδιά του (έτσι ελέγχεται και ότι απαντούν· ένα restricted key θέλει το Webhook Endpoints). Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
+    - **PayPal:** το client id/secret παίρνει token, και φτιάχνεται (ή βρίσκεται) το webhook του MyCS στο app, με όλα τα
+      events· το id του γράφεται στο `webhook_id`. Το webhook του WHMCS δεν το αγγίζει: σβήνεται με το χέρι.
+    - **Bank transfer:** όταν ήρθαν οι λογαριασμοί.
+    - Ό,τι άλλο μένει κλειστό, με μήνυμα. **Cardlink:** τα κλειδιά και τα URLs return/notify στο vPOS της Eurobank, με το χέρι.
+    Test keys του Stripe και sandbox του PayPal μένουν κλειστά (μόνο με `--allow-test`, σε δοκιμαστικό site: αλλιώς μια
+    κάρτα δοκιμής θα πλήρωνε πραγματικό τιμολόγιο). Σταματά χωρίς να αλλάξει τίποτα αν η διεύθυνση δεν είναι https.
+    Δεν ανοίγει δεύτερο Stripe/PayPal δίπλα σε ένα ενεργό, ούτε ξανά ένα που άνοιξε η ίδια και έκλεισε μετά το staff.
+    Exit ≠ 0 όταν ένα gateway ήρθε ολόκληρο αλλά δεν άνοιξε.
+    Ποτέ σε βάση πρόβας: ο scheduler της θα χρέωνε πραγματικά.
   - **Proxmox (myip):**
     - ο server του cluster: το import τον φτιάχνει από την αρχή, γιατί αδειάζει τη βάση. Ό,τι είχε στηθεί πριν (π.χ. ο
       «vega-proxmox» του mycs.myip.gr) δεν περνά. Συμπληρώνονται: το API token, τα IP/self-signed των κόμβων, το pool
