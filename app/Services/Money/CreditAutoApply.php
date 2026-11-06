@@ -25,7 +25,8 @@ use Illuminate\Support\Facades\DB;
  *
  * Not on: a credit purchase (add funds); an invoice with a payment on its way (processing); an invoice of a service
  * with a gateway subscription (Stripe/PayPal charge the whole amount: credit first would be paid twice), except its
- * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e); an
+ * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e; and once
+ * it is overdue, the subscription not having paid it: ADV-A3-3); an
  * invoice of a service the customer asked to cancel; an upgrade invoice (the cron reprices it); an invoice staff took
  * a credit payment off (deleted it: the sweep would put it back); a customer who opted out (clients.credit_auto_apply).
  * Read under the payment locks, as the payment itself.
@@ -84,12 +85,33 @@ class CreditAutoApply
             if ($ledger->balanceCents($clientId, $currency) <= 0) {
                 break;
             }
-            if ($this->toInvoice($invoiceId) !== null) {
+            if ($this->toInvoice($invoiceId) !== null || $this->toOverdueSubscriptionRenewal((int) $invoiceId) !== null) {
                 $paid++;
             }
         }
 
         return $paid;
+    }
+
+    /**
+     * The renewal of a service with a gateway subscription, past its due date: the subscription did not pay it (a card
+     * failed, cancelled at the gateway), so credit that covers it all pays it, as toSubscriptionRenewal() does when it is
+     * billed, rather than the service being suspended and ended with its credit unused (ADV-A3-3). A later sale of the
+     * subscription finds no open invoice and becomes credit.
+     */
+    private function toOverdueSubscriptionRenewal(int $invoiceId): ?InvoiceTransaction
+    {
+        $invoice = Invoice::query()->find($invoiceId);
+        if ($invoice === null || $invoice->status !== Invoice::STATUS_UNPAID || $invoice->due_at === null
+            || !$invoice->due_at->copy()->startOfDay()->lessThan(today())) {
+            return null;
+        }
+        $services = $invoice->items()->where('reference_type', Service::class)->pluck('reference_id')->filter();
+        if ($services->isEmpty() || !Service::query()->whereIn('id', $services)->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->exists()) {
+            return null;
+        }
+
+        return $this->toSubscriptionRenewal($invoice);
     }
 
     /**
