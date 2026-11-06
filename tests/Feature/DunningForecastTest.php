@@ -37,7 +37,7 @@ class DunningForecastTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create([
-            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $extra['client_id'] ?? User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->startOfDay()->subDays($expiredDaysAgo)->addHours(12), 'currency_code' => 'USD', 'price' => 10.00,
         ] + $extra);
     }
@@ -88,6 +88,21 @@ class DunningForecastTest extends TestCase
             }
         }
         $this->assertSame(Service::STATUS_ACTIVE, $held->fresh()->status);
+    }
+
+    /** myip's rehearsal (2026-11-06): an addon not due itself is suspended with its parent, the day its parent is. */
+    public function test_an_addon_is_on_its_parents_day(): void
+    {
+        $parent = $this->service(1);
+        $addon = $this->service(-10, ['parent_service_id' => $parent->id, 'client_id' => $parent->client_id]);
+
+        $forecast = DunningForecast::compute(Carbon::today());
+
+        $this->assertSame([$parent->id, $addon->id], $forecast['days']['2026-11-13']['suspend']);
+        Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-11-13 09:00'));
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(Service::STATUS_SUSPENDED, $addon->fresh()->status, 'the cron does it that day');
     }
 
     public function test_a_day_out_of_the_dunning_window_moves_to_its_next_open_day(): void

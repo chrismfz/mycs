@@ -12,12 +12,16 @@ use Illuminate\Support\Facades\Cache;
  * «what is suspended tomorrow or the day after, so we can tell them first when it is urgent»). Asked of the cron's own
  * rules (DunningRules) day by day, so it never drifts from them; a service is listed on the first day it qualifies, moved
  * to the dunning window's next open day. «Now»: those that qualify today, which the cron suspends at its next run, or
- * holds back while suspensions are off (the cut-over's safety net, ROADMAP 9β-4). What it cannot know: a payment, a hold
+ * holds back while suspensions are off (the cut-over's safety net, ROADMAP 9β-4). Addons on their parent's day, as they
+ * follow it (AddonCascade). What it cannot know: a payment, a hold
  * or a date staff set before then, and a card charge on its way at that moment (the cron looks again then).
  */
 final class DunningForecast
 {
     public const DAYS = 14;
+
+    /** «Now» among the days: before any date, so the earlier of two is min(). */
+    private const NOW = '0000-00-00';
 
     /**
      * @return array{
@@ -54,17 +58,12 @@ final class DunningForecast
             }
         }
 
-        $now = ['suspend' => [], 'terminate' => []];
-        $byDay = [];
-        $place = function (string $what, int $id, Carbon $from) use (&$now, &$byDay, $today, $last) {
-            if ($from->lessThanOrEqualTo($today)) {
-                $now[$what][] = $id;
-
-                return;
-            }
-            $on = DunningWindow::firstDayFrom($from);
-            if ($on->lessThanOrEqualTo($last)) {
-                $byDay[$on->toDateString()][$what][] = $id;
+        // Each service's day: «now» (qualifies today), a day within the forecast, or none past it.
+        $dayOf = ['suspend' => [], 'terminate' => []];
+        $place = function (string $what, int $id, Carbon $from) use (&$dayOf, $today, $last) {
+            $day = $from->lessThanOrEqualTo($today) ? self::NOW : DunningWindow::firstDayFrom($from)->toDateString();
+            if ($day <= $last->toDateString()) {
+                $dayOf[$what][$id] = isset($dayOf[$what][$id]) ? min($dayOf[$what][$id], $day) : $day;
             }
         };
         foreach ($suspendFrom as $id => $from) {
@@ -86,14 +85,37 @@ final class DunningForecast
             $place('terminate', $id, $after);
         }
 
+        // Addons follow their parent (AddonCascade), on its day when that comes first: the running ones are suspended with
+        // it, the live ones end with it.
+        foreach (['suspend' => [Service::STATUS_ACTIVE], 'terminate' => Service::PAYING_STATUSES] as $what => $statuses) {
+            $parents = $dayOf[$what];
+            if ($parents === []) {
+                continue;
+            }
+            foreach (Service::query()->whereIn('parent_service_id', array_keys($parents))->whereIn('status', $statuses)->get(['id', 'parent_service_id']) as $addon) {
+                $day = $parents[(int) $addon->parent_service_id];
+                $own = $dayOf[$what][(int) $addon->id] ?? null;
+                $dayOf[$what][(int) $addon->id] = $own === null ? $day : min($own, $day);
+            }
+        }
+
+        $now = ['suspend' => [], 'terminate' => []];
+        $byDay = [];
+        foreach ($dayOf as $what => $days) {
+            ksort($days);
+            foreach ($days as $id => $day) {
+                if ($day === self::NOW) {
+                    $now[$what][] = (int) $id;
+                } else {
+                    $byDay[$day][$what][] = (int) $id;
+                }
+            }
+        }
         ksort($byDay);
         foreach ($byDay as &$lists) {
             $lists += ['suspend' => [], 'terminate' => []];
-            sort($lists['suspend']);
-            sort($lists['terminate']);
         }
-        sort($now['suspend']);
-        sort($now['terminate']);
+        unset($lists);
 
         return ['now' => $now, 'days' => $byDay,
             'suspend_on' => (bool) config('settings.cronjob_suspend_enabled', true), 'terminate_on' => (bool) config('settings.cronjob_terminate_enabled', true)];
