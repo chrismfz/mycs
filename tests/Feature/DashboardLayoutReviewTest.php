@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
+use App\Admin\Widgets\CronToday;
 use App\Admin\Widgets\EstimatedIncome;
 use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\Overview;
@@ -53,7 +54,7 @@ class DashboardLayoutReviewTest extends TestCase
 
         $this->assertSame([Overview::class], $layout['above']);
         $this->assertSame([Revenue::class, EstimatedIncome::class, StaffAndSessions::class], $layout['left']);
-        $this->assertSame([NeedsAttention::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([NeedsAttention::class, CronToday::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
         $this->assertSame([], $layout['below']);
     }
 

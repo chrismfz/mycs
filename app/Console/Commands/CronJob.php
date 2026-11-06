@@ -13,7 +13,6 @@ use App\Jobs\Server\TerminateJob;
 use App\Logging\WriteFailures;
 use App\Models\BulkMail;
 use App\Models\Cart;
-use App\Models\Client;
 use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\Domain;
@@ -48,6 +47,7 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
 use App\Services\Payment\SavedMethodCharge;
+use App\Services\Service\DunningRules;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
@@ -1116,51 +1116,16 @@ class CronJob extends Command
                 ->orWhere('status', InvoiceTransactionStatus::Processing)));
     }
 
-    /**
-     * Active services past Suspend Days, not held, not of a client exempt from it (its own setting or its group's), not on
-     * a free or one-time plan (no period to pay; a service whose
-     * plan is gone is not exempt), with no payment on its way. With $overdueInvoice: and an open invoice of theirs due
-     * and issued Suspend Days ago (a missing due date counts from its issue).
-     *
-     * @return Builder<Service>
-     */
+    /** @return Builder<Service> DunningRules::suspendable, as of today */
     private function suspendable(bool $overdueInvoice = false, ?Carbon $holdDay = null): Builder
     {
-        // Held until $holdDay: suspendable the day after it, so Suspend Days counted to that day (code review 3).
-        $asOf = $holdDay !== null ? $holdDay->copy()->addDay() : today();
-        $cutoff = $asOf->copy()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
-        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE), $holdDay)
-            ->whereDate('expires_at', '<', $cutoff)
-
-            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
-
-        return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
-            ->where('invoices.status', Invoice::STATUS_UNPAID)
-            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
-            ->whereDate('invoices.created_at', '<', $cutoff));
+        return DunningRules::suspendable(today(), $overdueInvoice, $holdDay);
     }
 
-    /**
-     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held, not of
-     * a client exempt from it,
-     * with no payment on its way (a SEPA payment would land on the invoices the termination cancels).
-     *
-     * @return Builder<Service>
-     */
+    /** @return Builder<Service> DunningRules::terminable, as of today */
     private function terminable(): Builder
     {
-        return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
-            ->whereNotNull('dunning_suspended_at')
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'))
-            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString())
-            // A later period already paid (it waits behind one unpaid or given up on): ending the service would keep that
-            // money without the period. Staff decide; the cron tells them (billRenewal), as endAsRequested does.
-            ->whereNotExists(fn ($line) => $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
-                ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
-                ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
-                ->where('invoices.status', Invoice::STATUS_PAID));
+        return DunningRules::terminable(today());
     }
 
     /**
@@ -1191,26 +1156,6 @@ class CronJob extends Command
     {
         return $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
             ->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice));
-    }
-
-    /**
-     * No hold (a hold holds through its last day), no open invoice of theirs with a processing payment (PAY-9), and no
-     * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way. And a plan: one
-     * without is never billed (BIL-6), so never dunned either.
-     *
-     * @param  Builder<Service>  $query
-     * @return Builder<Service>
-     */
-    private function unheldWithNoPaymentOnItsWay(Builder $query, ?Carbon $holdDay = null): Builder
-    {
-        // A service without a plan is never billed (staff are told, BIL-6): never suspended or terminated as unpaid.
-        // $holdDay: those held until that day instead (the notice before it ends, holdsEnding()).
-        return $query->whereNotNull('plan_id')->where(fn ($hold) => $holdDay !== null
-            ? $hold->whereDate('suspend_hold_until', $holdDay->toDateString())
-            : $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
-            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
-                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
-            ->whereNotExists(fn ($line) => RenewalBilling::paidLineToApply($line));
     }
 
     /**

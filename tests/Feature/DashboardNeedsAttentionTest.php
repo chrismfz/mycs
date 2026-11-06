@@ -8,6 +8,7 @@ use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
 use App\Admin\Resources\PaymentGatewayEventResource\Pages\ListPaymentGatewayEvents;
+use App\Admin\Widgets\CronToday;
 use App\Admin\Widgets\NeedsAttention;
 use App\Admin\Widgets\Servers;
 use App\Enums\InvoiceTransactionStatus;
@@ -295,7 +296,7 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->actAs(['*']);
         $this->invoice(['due_at' => now()->subDays(2)]);
 
-        $this->assertSame([NeedsAttention::class, Servers::class], array_slice((new Dashboard)->layout()['right'], 0, 2));
+        $this->assertSame([NeedsAttention::class, CronToday::class, Servers::class], array_slice((new Dashboard)->layout()['right'], 0, 3)); // the cron under it (2026-11-06)
         Livewire::test(NeedsAttention::class)->assertSeeHtml('wire:poll.60s')
             ->assertSee(trans_choice(':count overdue invoice|:count overdue invoices', 1));
     }

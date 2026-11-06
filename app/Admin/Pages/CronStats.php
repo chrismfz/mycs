@@ -3,6 +3,7 @@
 namespace App\Admin\Pages;
 
 use App\Admin\Concerns\ShowsLogs;
+use App\Admin\Widgets\CronStat\CronCalendar;
 use App\Admin\Widgets\CronStat\CronOverview;
 use App\Admin\Widgets\CronStat\CronStat;
 use App\Admin\Widgets\CronStat\CronTable;
@@ -48,6 +49,7 @@ class CronStats extends Dashboard
     {
         // but filter out
         return [
+            CronCalendar::class,
             CronOverview::class,
             HealthChecks::class,
             CronTable::class,
