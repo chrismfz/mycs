@@ -7,12 +7,17 @@ use App\Models\BillingAgreement;
 use App\Models\Category;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Services\Import\WhmcsParity;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\MoneyTrail;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Console\OutputStyle;
@@ -151,6 +156,7 @@ class AdvArea1Test extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'the customer paid the upgrade');
         $this->assertSame($bigger->id, (int) $service->fresh()->product_id, 'paid in WHMCS, it would be on the product it paid the upgrade to');
     }
+
     /**
      * ADV-A1-2. A Mass Pay invoice the customer started and did not finish: WHMCS applied their credit to it (auto-apply
      * credit, tblinvoices.credit 5.00, «Credit Applied to Invoice #900» −5.00 in tblcredit) and no money came. PARENTS_SQL
@@ -183,6 +189,7 @@ class AdvArea1Test extends TestCase
         $this->assertSame('20.00', number_format($owed - $credit, 2, '.', ''),
             'WHMCS: 25.00 billed, 5.00 of the customer\'s credit already on it; here they owe 25.00 and the 5.00 is gone');
     }
+
     /**
      * ADV-A1-3. WHMCS's «Payment Pending»: a SEPA debit (Stripe SEPA, myip) started and not cleared yet; WHMCS records the
      * payment when it clears, and meanwhile neither charges it again nor reminds the customer of it. docs/importer.md
@@ -250,5 +257,65 @@ class AdvArea1Test extends TestCase
         (new AutoCharge)->run(); // the first cron after the cut-over
 
         $this->assertSame([], AdvA4Pay::$charges, 'the invoice WHMCS is already collecting (Payment Pending) is debited a second time');
+    }
+
+    /** The fix of ADV-A1-1 (fixer): the upgrade it made is pending, to the new product's plan, with WHMCS's amount on its line. */
+    public function test_fix_a1_1_an_unpaid_package_upgrade_comes_as_a_pending_upgrade_and_an_options_one_is_named(): void
+    {
+        $this->service(101);
+        $this->service(102);
+        $bigger = Product::factory()->create(['name' => 'Business 20', 'category_id' => $this->product->category_id]);
+        $plan = $this->plan($bigger, 20);
+        $this->whmcs->exec("INSERT INTO tblupgrades VALUES (41, {$this->clientId}, 9, 'package', '2026-10-15', 101, '{$this->product->id},monthly',
+            '{$bigger->id},monthly', 4.00, 10.00, 'Pending', 'N'), (42, {$this->clientId}, 10, 'configoptions', '2026-10-15', 102, '7=>1', '7=>2', 3.00, 3.00, 'Pending', 'N')");
+        $this->invoice(700, 'Unpaid', 7);
+        $this->item(700, 'Upgrade', 41, 4);
+        $this->item(700, 'Upgrade', 42, 3);
+        $this->import();
+
+        $upgrade = ServiceUpgrade::query()->sole();
+        $this->assertSame([101, $bigger->id, $plan->id, 700, ServiceUpgrade::STATUS_PENDING],
+            [(int) $upgrade->service_id, (int) $upgrade->product_id, (int) $upgrade->plan_id, (int) $upgrade->invoice_id, $upgrade->status]);
+        $lines = InvoiceItem::query()->where('invoice_id', 700)->orderBy('id')->get();
+        $this->assertSame([ServiceUpgrade::class, $upgrade->id, null, '4.00'],
+            [$lines[0]->reference_type, (int) $lines[0]->reference_id, $lines[0]->kind, number_format((float) $lines[0]->price, 2, '.', '')]);
+        $this->assertSame([Service::class, 102, InvoiceItem::KIND_CHARGE], [$lines[1]->reference_type, (int) $lines[1]->reference_id, $lines[1]->kind]);
+        $this->assertStringContainsString('#42 (configoptions, service #102, invoice #700)', $this->output->fetch());
+    }
+
+    /** The fix of ADV-A1-2 (fixer): the credit goes back with its moves, no «opening balance» for it, and parity agrees. */
+    public function test_fix_a1_2_the_credit_back_is_journaled_and_parity_agrees(): void
+    {
+        $this->test_credit_applied_to_an_unfinished_mass_pay_is_not_lost();
+
+        $events = DB::table('money_events')->where('client_id', $this->clientId)->get();
+        $this->assertFalse($events->contains('cause', MoneyTrail::CAUSE_OPENING_BALANCE), 'no credit lost without a trace');
+        $this->assertSame(1, $events->where('cause', MoneyTrail::CAUSE_CANCELLATION)->where('kind', 'credit_in')->count());
+        $this->assertStringContainsString('Mass Pay #900 was never paid in WHMCS: the 5.00 EUR of credit applied to it is back', $this->output->fetch());
+
+        foreach (['CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, domainstatus TEXT)', 'CREATE TABLE tbltickets (id INTEGER PRIMARY KEY, merged_ticket_id INTEGER DEFAULT 0)',
+            'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY)'] as $sql) {
+            $this->whmcs->exec($sql);
+        }
+        $rows = collect((new WhmcsParity($this->whmcs))->rows())->keyBy('metric');
+        $this->assertSame([500, 500], [$rows['Credit balance']['whmcs'], $rows['Credit balance']['mycs']]);
+        $this->assertSame([1, 1], [$rows['Customers with credit']['whmcs'], $rows['Customers with credit']['mycs']]);
+    }
+
+    /** The fix of ADV-A1-3 (fixer): named on import, and staff complete it with its transaction id when the debit clears. */
+    public function test_fix_a1_3_staff_complete_the_imported_pending_payment(): void
+    {
+        $this->service(101);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 101, 10);
+        $this->import();
+        $this->assertStringContainsString('Payment Pending (#700)', $this->output->fetch());
+
+        $invoice = Invoice::query()->findOrFail(700);
+        (new RecordPaymentService)->recordByStaff($invoice, null, '10.00', 'whmcs-pending-700');
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame([['10.00', 'succeeded']], InvoiceTransaction::query()->where('invoice_id', 700)->get()
+            ->map(fn (InvoiceTransaction $t) => [number_format((float) $t->amount, 2, '.', ''), $t->status->value])->all());
     }
 }

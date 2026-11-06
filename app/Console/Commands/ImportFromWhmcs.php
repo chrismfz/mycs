@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -18,6 +19,7 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Billing\ClientGroupPricing;
@@ -287,7 +289,10 @@ class ImportFromWhmcs extends Command
         }
     }
 
-    /** A WHMCS invoice's status here; parity maps it the same way (anything else, e.g. «Payment Pending», is unpaid). */
+    /**
+     * A WHMCS invoice's status here; parity maps it the same way (anything else, e.g. «Payment Pending», is unpaid: its
+     * payment on its way is a processing transaction, importPendingPayments).
+     */
     public static function invoiceStatus(string $whmcs): string
     {
         return match ($whmcs) {
@@ -2286,6 +2291,13 @@ class ImportFromWhmcs extends Command
         if ($this->orphanLines > 0) {
             $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS, or not imported: not imported.");
         }
+        if ($this->upgradesAsCharges !== []) {
+            $this->warn(count($this->upgradesAsCharges) . ' unpaid WHMCS upgrade(s) imported as a charge of their service: paying it here does not apply'
+                . ' it. Settle or cancel them in WHMCS before the final dump (cutover-runbook, ADV-A1-1): ' . implode(', ', $this->upgradesAsCharges) . '.');
+        }
+        if ($this->upgradesMade !== []) {
+            $this->info(count($this->upgradesMade) . ' unpaid WHMCS upgrade(s) imported as pending upgrades: paid here, they apply (ADV-A1-1).');
+        }
     }
 
     /** Lines of an invoice WHMCS deleted, skipped. */
@@ -2323,6 +2335,10 @@ class ImportFromWhmcs extends Command
     {
         $type = (string) $record['type'];
         $relid = (int) $record['relid'];
+        // An upgrade WHMCS has not applied yet, on an open invoice: a pending upgrade here, so paying it applies it (ADV-A1-1).
+        if ($type === 'Upgrade' && ($upgrade = $this->pendingUpgrade($record)) !== null) {
+            return ['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade, 'kind' => null];
+        }
         $service = match ($type) {
             'Setup', 'PromoHosting' => $relid,
             'Addon' => $this->addonServices()[$relid] ?? null,
@@ -2371,6 +2387,80 @@ class ImportFromWhmcs extends Command
     private function upgradeServices(): array
     {
         return $this->upgradeServices ??= $this->idMap("SELECT id, relid FROM tblupgrades WHERE type IN ('package', 'configoptions')");
+    }
+
+    /** @var array<int, array<string, mixed>>|null WHMCS upgrades not applied yet (tblupgrades Pending, not paid), by id */
+    private ?array $whmcsPendingUpgrades = null;
+
+    /** @var array<int, int> WHMCS upgrade => the pending ServiceUpgrade made of it (one, on its first open invoice) */
+    private array $upgradesMade = [];
+
+    /** @var list<string> unpaid WHMCS upgrades imported as charges (no pending upgrade made of them): settled in WHMCS first */
+    private array $upgradesAsCharges = [];
+
+    /**
+     * A WHMCS upgrade ordered and not paid (tblupgrades Pending, paid N) on an open invoice, as a pending ServiceUpgrade
+     * of its service, to the product and cycle WHMCS has in `newvalue` («product id,cycle»), with that invoice (ADV-A1-1).
+     * WHMCS applies it when the invoice is paid; here the payment does the same (ProcessPaidInvoiceService →
+     * ServiceUpgradeService), and from then on it is an upgrade as any placed here (the cron prices its line for the days
+     * left and gives it up at the service's expiry). The line keeps WHMCS's amount. A change of options, or a product or
+     * plan not here: none, the line stays a charge of the service, and it is named (cutover-runbook: settle it in WHMCS).
+     *
+     * @param  array<string, mixed>  $record  a tblinvoiceitems row of type Upgrade, with its invoice's status
+     * @return int|null the ServiceUpgrade's id
+     */
+    private function pendingUpgrade(array $record): ?int
+    {
+        $relid = (int) $record['relid'];
+        $upgrade = $this->whmcsPendingUpgrades()[$relid] ?? null;
+        if ($upgrade === null || self::invoiceStatus((string) ($record['invoice_status'] ?? '')) !== Invoice::STATUS_UNPAID) {
+            return null;
+        }
+        if (isset($this->upgradesMade[$relid])) {
+            $this->upgradesAsCharges[] = "#{$relid} (service #{$upgrade['relid']}, invoice #{$record['invoiceid']}: on another invoice too)";
+
+            return null;
+        }
+        $serviceId = (int) $upgrade['relid'];
+        [$productId, $cycle] = array_pad(explode(',', (string) $upgrade['newvalue'], 2), 2, '');
+        $whmcsCycle = ['monthly' => 'Monthly', 'quarterly' => 'Quarterly', 'semiannually' => 'Semi-Annually', 'annually' => 'Annually',
+            'biennially' => 'Biennially', 'triennially' => 'Triennially', 'onetime' => 'One Time', 'free' => 'Free Account',
+            'freeaccount' => 'Free Account'][preg_replace('/[^a-z]/', '', strtolower($cycle))] ?? null;
+        $planId = $upgrade['type'] !== 'package' || $whmcsCycle === null || !ctype_digit(trim($productId)) ? null
+            : DB::table('plans')->where('priceable_id', (int) $productId)->where('priceable_type', Product::class)
+                ->where('name', self::planName($whmcsCycle))->value('id');
+        if ($planId === null || !isset($this->importedServices()[$serviceId])) {
+            $this->upgradesAsCharges[] = "#{$relid} ({$upgrade['type']}, service #{$serviceId}, invoice #{$record['invoiceid']})";
+
+            return null;
+        }
+        $at = $this->validateDate($upgrade['date'] ?? null) ?? $this->validateDate($record['invoice_date'] ?? null) ?? now();
+
+        return $this->upgradesMade[$relid] = (int) DB::table('service_upgrades')->insertGetId([
+            'service_id' => $serviceId,
+            'product_id' => (int) $productId,
+            'plan_id' => (int) $planId,
+            'invoice_id' => (int) $record['invoiceid'],
+            'status' => ServiceUpgrade::STATUS_PENDING,
+            'created_at' => $at,
+            'updated_at' => $at,
+        ]);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function whmcsPendingUpgrades(): array
+    {
+        if ($this->whmcsPendingUpgrades !== null) {
+            return $this->whmcsPendingUpgrades;
+        }
+        try {
+            $rows = $this->pdo->query("SELECT id, relid, type, newvalue, date, paid FROM tblupgrades WHERE status = 'Pending' AND type IN ('package', 'configoptions')")
+                ->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            $rows = []; // an old WHMCS, a fixture without these columns
+        }
+
+        return $this->whmcsPendingUpgrades = array_column(array_filter($rows, fn (array $row) => strtoupper((string) $row['paid']) !== 'Y'), null, 'id');
     }
 
     /** @return array<int, int> the first column => the second; none on a WHMCS without the table (an old one, a fixture) */
@@ -2432,10 +2522,53 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_transactions')->insert($data);
         });
+        $this->importPendingPayments();
         $this->reportUnmappedGateways();
         if ($this->paymentsWithoutInvoice !== []) {
             $this->warn('Payments on no imported invoice, not imported (record them by hand if they are money still owed): WHMCS tblaccounts #'
                 . implode(', #', $this->paymentsWithoutInvoice) . '.');
+        }
+    }
+
+    /**
+     * WHMCS's «Payment Pending» (a SEPA/ACH debit or a PayPal capture started, not cleared yet) comes `unpaid` with a
+     * `processing` payment of what WHMCS still has it owe (its total, net of credit, less the money in on it): the money is
+     * on its way (SavedMethodCharge::onItsWay), so the cron neither charges the saved method again nor reminds or
+     * suspends for it (ADV-A1-3, ADV-A4-1). Ids above every WHMCS payment; its transaction id is one staff type to
+     * complete it when the debit clears (RecordPaymentService: a processing payment of that id), or they delete it if it
+     * failed. Never journaled, never in parity (only succeeded money is). Named, so staff follow them up.
+     */
+    private function importPendingPayments(): void
+    {
+        $pending = [];
+        $nextId = max((int) $this->pdo->query('SELECT MAX(id) FROM tblaccounts')->fetchColumn(), (int) DB::table('invoice_transactions')->max('id')) + 1;
+        foreach ($this->pdo->query("SELECT * FROM tblinvoices WHERE status = 'Payment Pending' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $record) {
+            $id = (int) $record['id'];
+            if (isset($this->massPayParents()[$id]) || !isset($this->importedInvoices()[$id])) {
+                continue;
+            }
+            $paid = $this->row('SELECT COALESCE(SUM(amountin), 0) AS paid, MAX(date) AS date FROM tblaccounts WHERE invoiceid = ? AND amountin > 0', [$id]);
+            $cents = WhmcsMassPay::cents($record['total']) - WhmcsMassPay::cents($paid['paid'] ?? 0);
+            if ($cents <= 0) {
+                continue;
+            }
+            $at = $this->validateDate($record['duedate'] ?? null) ?? $this->validateDate($record['date'] ?? null) ?? now();
+            DB::table('invoice_transactions')->insert([
+                'id' => $nextId++,
+                'invoice_id' => $id,
+                'gateway_id' => $this->gatewayId((string) ($record['paymentmethod'] ?? '')),
+                'amount' => $cents / 100,
+                'transaction_id' => "whmcs-pending-{$id}",
+                'status' => InvoiceTransactionStatus::Processing->value,
+                'created_at' => $at,
+                'updated_at' => $at,
+            ]);
+            $pending[] = $id;
+        }
+        if ($pending !== []) {
+            $this->warn(count($pending) . ' WHMCS invoice(s) in Payment Pending (#' . implode(', #', $pending) . '): imported unpaid with a processing payment of'
+                . ' their balance, so the cron neither charges nor reminds them. When the debit clears, record it with transaction id «whmcs-pending-<invoice>»;'
+                . ' if it failed, delete that payment (ADV-A1-3).');
         }
     }
 
@@ -2906,7 +3039,8 @@ class ImportFromWhmcs extends Command
     /**
      * WHMCS Mass Pay parents (PR F3, WhmcsMassPay): not invoices here. A paid one's payment lands on its child due first,
      * the rest pays the other children as allocations of it, and what it took from account credit pays what is left; it
-     * stays a paid payment group with its WHMCS id. A cancelled one is dropped (its children are invoices on their own).
+     * stays a paid payment group with its WHMCS id. A cancelled one is dropped (its children are invoices on their own);
+     * credit WHMCS applied to one never paid goes back to the balance (WhmcsMoneyJournal::unfinishedMassPay, ADV-A1-2).
      */
     private function importMassPay(): void
     {
@@ -3033,6 +3167,10 @@ class ImportFromWhmcs extends Command
         $this->info('Writing the money journal...');
         $journal = new WhmcsMoneyJournal($this->pdo);
         $journal->creditApplied($this->massPayParents(), $this->childCredit, $this->importedInvoices(), $this->dayOnly);
+        foreach ($journal->unfinishedMassPay() as $parent) {
+            $this->warn(sprintf('Mass Pay #%d was never paid in WHMCS: the %s %s of credit applied to it is back on customer #%d\'s balance (ADV-A1-2).',
+                $parent['id'], number_format($parent['cents'] / 100, 2, '.', ''), $parent['currency_code'], $parent['client_id']));
+        }
         $journal->overpayments();
         // After the overpayments: a refund takes what the invoice kept, never the credit the payment already gave.
         $this->importRefunds();

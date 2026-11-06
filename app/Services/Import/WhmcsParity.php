@@ -153,8 +153,10 @@ final class WhmcsParity
             (int) DB::table('money_events')->where('source', MoneyTrail::SOURCE_IMPORT)->where('cause', MoneyTrail::CAUSE_INVOICE_REDUCED)
                 ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a'));
 
-        $add('Customers with credit', $this->count('SELECT COUNT(*) FROM tblclients WHERE credit > 0'), DB::table('credits')->where('amount', '>', 0)->count());
-        $add('Credit balance', $this->count('SELECT COALESCE(SUM(ROUND(credit * 100)), 0) FROM tblclients'),
+        // WHMCS's balance, plus the credit an unfinished Mass Pay parent held: the importer gives it back (ADV-A1-2).
+        $balances = self::creditBalances($this->whmcs);
+        $add('Customers with credit', count(array_filter($balances, fn (int $cents) => $cents > 0)), DB::table('credits')->where('amount', '>', 0)->count());
+        $add('Credit balance', array_sum($balances),
             (int) DB::table('credits')->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a'));
 
         // A ticket merged into another is that one's here (WhmcsTicketImport::merges): only the ones not merged count.
@@ -224,6 +226,31 @@ final class WhmcsParity
         }
 
         return $notes;
+    }
+
+    /**
+     * Each WHMCS customer's credit balance as the importer brings it, in cents: tblclients.credit, plus what an unfinished
+     * Mass Pay parent held of it (WhmcsMassPay::UNFINISHED_CREDIT_SQL, given back: ADV-A1-2). Parity's and the record
+     * parity's rule.
+     *
+     * @return array<int, int> customer id => cents
+     */
+    public static function creditBalances(PDO $whmcs): array
+    {
+        $balances = array_map('intval', $whmcs->query('SELECT id, ROUND(credit * 100) FROM tblclients')->fetchAll(PDO::FETCH_KEY_PAIR));
+        try {
+            $parents = $whmcs->query(WhmcsMassPay::UNFINISHED_CREDIT_SQL)->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            // A WHMCS without the invoice tables or their columns (an old one, a fixture): none.
+            $parents = WhmcsMoneyJournal::isMissing($e) ? [] : throw $e;
+        }
+        foreach ($parents as $parent) {
+            if (isset($balances[(int) $parent['userid']])) {
+                $balances[(int) $parent['userid']] += WhmcsMassPay::cents($parent['credit']);
+            }
+        }
+
+        return $balances;
     }
 
     /** @return array<string, array{n: int, amount: int}> by status: how many, and what their lines bill, in cents */

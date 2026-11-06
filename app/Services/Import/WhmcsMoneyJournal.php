@@ -125,6 +125,46 @@ class WhmcsMoneyJournal
     }
 
     /**
+     * A Mass Pay parent never finished (WhmcsMassPay::UNFINISHED_CREDIT_SQL) is dropped (importMassPay places only a paid
+     * one's money), so the credit WHMCS applied to it would land nowhere and the journal would book it as gone
+     * (ADV-A1-2). It goes back to the customer's balance: the move out WHMCS made («Credit Applied to Invoice #N») and the
+     * move back in (cause `cancellation`, as for an invoice cancelled here), and the balance imported is raised by it.
+     * Run before write(): the balance it reads is then WHMCS's plus this credit.
+     *
+     * @return list<array{id: int, client_id: int, currency_code: string, cents: int}> the parents whose credit went back
+     */
+    public function unfinishedMassPay(): array
+    {
+        $currencies = $this->clientCurrencies();
+        $appliedOn = $this->appliedDates();
+        $given = [];
+        foreach ($this->rows(WhmcsMassPay::UNFINISHED_CREDIT_SQL) as $row) {
+            $id = (int) $row['id'];
+            $clientId = (int) $row['userid'];
+            $currency = $currencies[$clientId] ?? null;
+            $cents = WhmcsMassPay::cents($row['credit']);
+            if ($currency === null || $cents <= 0) {
+                continue;
+            }
+            $on = ['client_id' => $clientId, 'currency_code' => $currency];
+            $this->move(MoneyEventKind::CreditOut, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, $appliedOn[$id] ?? now(), $on,
+                note: "WHMCS: Credit Applied to Mass Pay invoice #{$id} (not an invoice here)", dayOnly: true);
+            $this->move(MoneyEventKind::CreditIn, $cents, MoneyTrail::CAUSE_CANCELLATION, now(), $on,
+                note: "WHMCS: Mass Pay invoice #{$id} was never paid: the credit applied to it back to the balance (ADV-A1-2)");
+            $credit = DB::table('credits')->where('client_id', $clientId)->where('currency_code', $currency)->orderBy('id')->first(['id', 'amount']);
+            if ($credit === null) {
+                DB::table('credits')->insert(['client_id' => $clientId, 'currency_code' => $currency, 'amount' => number_format($cents / 100, 2, '.', ''),
+                    'created_at' => now(), 'updated_at' => now()]);
+            } else {
+                DB::table('credits')->where('id', $credit->id)->update(['amount' => number_format((WhmcsMassPay::cents($credit->amount) + $cents) / 100, 2, '.', '')]);
+            }
+            $given[] = ['id' => $id, 'client_id' => $clientId, 'currency_code' => $currency, 'cents' => $cents];
+        }
+
+        return $given;
+    }
+
+    /**
      * What a paid (or since refunded) invoice took over its amount (WHMCS: «Overpayment», to the customer's credit) is
      * its payments' credited_amount, newest first, as RecordPaymentService records an overpayment: as much as WHMCS
      * recorded giving to credit for it (tblcredit), else what its refunds did not take back. Run before the refunds: a

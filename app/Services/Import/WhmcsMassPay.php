@@ -27,6 +27,13 @@ final class WhmcsMassPay
             AND (p.status = 'Paid' OR NOT EXISTS (SELECT 1 FROM tblaccounts a WHERE a.invoiceid = p.id AND a.amountin > 0))";
 
     /**
+     * Mass Pay parents never finished (not Paid: no money came) that hold credit WHMCS applied to them: dropped here, so
+     * that credit goes back to the customer's balance (ADV-A1-2). The importer's journal and parity's rule alike.
+     */
+    public const UNFINISHED_CREDIT_SQL = "SELECT u.id, u.userid, u.credit FROM tblinvoices u WHERE u.status <> 'Paid' AND u.credit > 0
+            AND u.id IN (" . self::PARENTS_SQL . ') ORDER BY u.id';
+
+    /**
      * @param  array{id: int, total: int, credit: int}  $parent  the total of its lines (WHMCS keeps `total` net of credit:
      *                                                           pass total + credit) and the part paid from account credit, in cents
      * @param  list<array{child: int, amount: int}>  $lines  the parent's «Invoice» lines: each child and its share
