@@ -4,9 +4,12 @@ namespace App\Admin\Resources\GatewayResource\Pages;
 
 use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\GatewayResource;
+use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
+use App\Models\Domain;
 use App\Models\Extension;
 use App\Models\Gateway;
+use App\Models\Service;
 use App\Services\Money\GatewayBalances;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -22,7 +25,16 @@ class EditGateway extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make()->before(fn ($record) => ExtensionHelper::call($record, 'disabled', [$record], mayFail: true)),
+            // Its items become the account's (ADV-541-5): a card on the account then charges what was paid by this way,
+            // e.g. an imported bank transfer one never set up (ADV-679-2). Staff are told before, as WHMCS asks where to move them.
+            DeleteAction::make()->before(fn ($record) => ExtensionHelper::call($record, 'disabled', [$record], mayFail: true))
+                ->modalDescription(function (Gateway $record): string {
+                    $items = Service::query()->where('payment_gateway_id', $record->id)->whereIn('status', Service::PAYING_STATUSES)->count()
+                        + Domain::query()->where('payment_gateway_id', $record->id)->whereNotIn('status', DomainStatus::terminalValues())->count();
+
+                    return $items === 0 ? 'No live service or domain pays by it.'
+                        : "{$items} live service(s) and domain(s) pay by it. Deleted, they become their accounts' again: a saved method on the account charges their renewals. To keep them uncharged, set them to another way, or to «Do not charge automatically», first.";
+                }),
         ];
     }
 

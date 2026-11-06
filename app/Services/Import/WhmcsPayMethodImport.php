@@ -132,10 +132,11 @@ final class WhmcsPayMethodImport
      * with, the one most of them do (two tied: the one whose first method is the newer, R2-2), its first method by WHMCS's
      * order. Its other items keep their own payment method (the item step, owner 2026-10-29), which that method never
      * charges: one service by card and three by bank transfer is charged for the one, as in WHMCS; a second method charges
-     * those of its own gateway (#568). None of its items on a saved method's gateway, or one of another way that would
-     * still be charged here (its module has no gateway here, or the default's under another module): no default,
-     * «Auto-charge» off (as WHMCS charged it, never more; R2-1, R3-1). One another method's gateway would charge under
-     * another module: that item «Do not charge automatically», the account's others as before (ADV-568-1).
+     * those of its own gateway (#568). None of its items on a saved method's gateway, or one of a way with no gateway here
+     * (it would still be charged): no default, «Auto-charge» off (as WHMCS charged it, never more; R2-1, R3-1). One the
+     * default's or another method's gateway would charge under another module (basic PayPal beside the PayPal wallet): that
+     * item «Do not charge automatically», the account's others as before (ADV-568-1; the default's too, myip's rehearsal
+     * 2026-11-06: 15 customers were off for their old PayPal items).
      *
      * @param  list<array{id: int, module: string, whmcs_id: int}>  $imported
      */
@@ -153,12 +154,23 @@ final class WhmcsPayMethodImport
         usort($saved, fn (string $a, string $b) => [$usage[$b], $first[$b]['whmcs_id']] <=> [$usage[$a], $first[$a]['whmcs_id']]);
         $default = $saved[0] ?? null;
         $gateway = $default === null ? null : ($this->gateway)($default);
-        // Another way's items this method would charge here: their module has no payment method here, or the default's.
-        $unkept = $default === null ? [] : array_filter($usage, function (int $count, string $module) use ($default, $gateway) {
-            $own = $module === $default ? null : ($this->itemGateway ?? $this->gateway)($module);
-
-            return $module !== $default && ($own === null || $own === $gateway);
-        }, ARRAY_FILTER_USE_BOTH);
+        // Another way's items this method would charge here: their module has no payment method here (the account off, as
+        // WHMCS never charged them), or the default's gateway under another module (basic PayPal beside the PayPal wallet:
+        // those items «Do not charge automatically» each, the account charged as WHMCS did; myip's rehearsal 2026-11-06).
+        $unkept = $sameGateway = [];
+        foreach ($default === null ? [] : $usage as $module => $count) {
+            if ($module === $default) {
+                continue;
+            }
+            $own = ($this->itemGateway ?? $this->gateway)($module);
+            if ($own === null) {
+                $unkept[$module] = $count;
+            } elseif ($own === $gateway && !isset($first[$module])) {
+                // Not a saved method's own module (Stripe SEPA beside a Stripe card): its method charges it, as WHMCS
+                // did (ADV-679-1).
+                $sameGateway[$module] = $count;
+            }
+        }
         if ($default === null || $unkept !== []) {
             DB::table('clients')->where('id', $clientId)->update(['auto_charge' => false]);
             $this->counts['not_charged']++;
@@ -179,7 +191,7 @@ final class WhmcsPayMethodImport
         // It charges every item of its gateway here, WHMCS only its own module's: one of another module on that gateway
         // (basic PayPal beside the PayPal wallet, paid by hand there) would be charged too (ADV-568-1). Those services and
         // domains get their own «Do not charge automatically» (#568), listed; the account's others are charged as before.
-        $foreign = [];
+        $foreign = $sameGateway;
         foreach (array_keys($first) as $module) {
             $own = $module === $default ? null : ($this->gateway)($module);
             foreach ($usage as $item => $count) {

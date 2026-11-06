@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Models\Credit;
 use App\Models\Extension;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\NotificationTemplate;
@@ -243,6 +244,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoiceItems();
             $this->importPayments();
             $this->importMassPay();
+            $this->importPaymentWays();
             $this->importInvoicePreferences();
             $this->importItemPaymentMethods();
             $this->journalMoney();
@@ -1634,8 +1636,146 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * The gateway here of a WHMCS module, for a preferred payment method: only one already here (its payments', or set
-     * up), never installed for a label, it would be offered to everyone unconfigured (reviews of #539).
+     * WHMCS's ways of paying, each a gateway here, installed DISABLED (staff set it up and enable it) before the invoices',
+     * items' and saved methods' ways are set: on the cut-over's empty database a bank transfer or Eurobank one was no way
+     * at all, and a customer paying some items so and others by card stopped being charged (owner 2026-11-06; myip's
+     * rehearsal: 31 customers, 101 items). The ways WHMCS shows customers («visible»), and any a live service or domain
+     * still pays by (a way hidden since: review of #679). A disabled gateway is offered to no one (the concern of #539).
+     * One it installs gets the name WHMCS shows (bank transfer, the Eurobank vPOS); bank transfer's accounts come from its
+     * «Invoice Created» template (bankAccounts), also on a re-run while it has none: WHMCS keeps its own text encrypted in
+     * a scheme nothing outside it reads.
+     */
+    private function importPaymentWays(): void
+    {
+        try {
+            $rows = $this->pdo->query("SELECT gateway, setting, value FROM tblpaymentgateways WHERE setting IN ('visible', 'name')")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return;
+        }
+        $ways = [];
+        foreach ($rows as $row) {
+            $ways[strtolower(trim((string) $row['gateway']))][(string) $row['setting']] = trim((string) $row['value']);
+        }
+        $used = [];
+        foreach ([["SELECT DISTINCT paymentmethod FROM tblhosting WHERE domainstatus IN ('Active', 'Suspended')", 'tblhosting'],
+            ["SELECT DISTINCT paymentmethod FROM tbldomains WHERE status IN ('Active', 'Grace', 'Redemption', 'Pending')", 'tbldomains']] as [$sql, $table]) {
+            if ($this->sourceHas($table)) {
+                foreach ($this->pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN) as $module) {
+                    $used[strtolower(trim((string) $module))] = true;
+                }
+            }
+        }
+        foreach ($ways as $module => $settings) {
+            if (($settings['visible'] ?? '') !== 'on' && !isset($used[$module])) {
+                continue;
+            }
+            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            if ($extension === null) {
+                $this->warn("Payment way «{$module}» («" . ($settings['name'] ?? '') . '»): MyCS has no gateway for it; its invoices and items keep none.');
+
+                continue;
+            }
+            $existed = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->exists();
+            $id = $this->installedGateway($extension);
+            unset($this->itemGateways[$module]); // read again by the steps after
+            $name = mb_substr($settings['name'] ?? '', 0, 255);
+            // Its own name only on one it installed, and only for a way of its own (paypal and paypal_ppcpv share PayPal).
+            if (!$existed && $name !== '' && isset(self::PREFERRED_GATEWAYS[$module])) {
+                DB::table('extensions')->where('id', $id)->update(['name' => $name]);
+            }
+            // Its accounts once: never over what staff wrote, and again on a re-run that has none yet.
+            $gateway = Gateway::query()->find($id);
+            if ($extension === 'BankTransfer' && $gateway !== null && trim((string) $gateway->settings()->where('key', 'accounts')->value('value')) === '') {
+                $this->bankAccounts($gateway, $name);
+            }
+        }
+    }
+
+    /**
+     * Bank transfer's accounts (its required «Bank accounts»), from WHMCS's «Invoice Created» template: the block it shows
+     * for this way ({if $invoice_payment_method eq "<its name>"} … its own {elseif}/{else}/{/if}, an {if} inside it kept
+     * whole), as text: no comments, styles, scripts or hidden elements (old or preheader text, review of #679), cells and
+     * paragraphs apart; a line that is Smarty («deposit {$invoice_total} …») left out, unless it holds an IBAN (then only its
+     * Smarty goes). None found: said, staff write them.
+     */
+    private function bankAccounts(Gateway $gateway, string $name): void
+    {
+        $opening = '{if $invoice_payment_method eq "' . $name . '"}';
+        try {
+            $templates = $name === '' ? [] : $this->pdo->query("SELECT message FROM tblemailtemplates WHERE name = 'Invoice Created' ORDER BY language = '' DESC, id")
+                ->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException) {
+            $templates = [];
+        }
+        $iban = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){10,30}\b/';
+        $text = null;
+        foreach ($templates as $message) {
+            $start = mb_strpos((string) $message, $opening);
+            if ($start === false) {
+                continue;
+            }
+            $block = self::smartyBranch(mb_substr((string) $message, $start + mb_strlen($opening)));
+            // What a reader never sees.
+            $block = (string) preg_replace(['/<!--.*?-->/s', '#<(style|script|head|title)\b[^>]*>.*?</\1\s*>#is'], '', $block);
+            $block = (string) preg_replace('#<(\w+)\b[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|\bhidden\b)[^>]*>.*?</\1\s*>#is', '', $block);
+            // A paragraph, heading, row or box ends with a blank line; a <br>, an item or a cell with a new line.
+            $block = (string) preg_replace('#<\s*(/p|/div|/tr|/table|/h[1-6])\b[^>]*>#i', "\n\n", $block);
+            $block = (string) preg_replace('#<\s*(br|/li|/td|/th)\b[^>]*>#i', "\n", $block);
+            // The tags, also those split over lines, out of the whole block; a non-breaking space (&nbsp;) as a plain one.
+            $block = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($block), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            $lines = [];
+            foreach (explode("\n", $block) as $line) {
+                $line = trim($line);
+                if (str_contains($line, '{')) {
+                    if (preg_match($iban, $line) !== 1) {
+                        continue; // a Smarty line, meaningless out of its mail
+                    }
+                    $line = trim((string) preg_replace('/\s*\{[^}]*\}\s*/', ' ', $line));
+                }
+                $lines[] = $line;
+            }
+            // One blank line between its parts (the field's «a blank line between them»).
+            $text = trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", $lines)));
+            if ($text !== '' && preg_match($iban, $text) === 1) {
+                $text = mb_substr($text, 0, 5000);
+                break;
+            }
+            $text = null;
+        }
+        if ($text === null) {
+            $this->warn('Gateway «Bank transfer»: its accounts were not found in WHMCS\'s «Invoice Created» template: write them in its settings before enabling it.');
+
+            return;
+        }
+        $gateway->settings()->updateOrCreate(['key' => 'accounts'], ['value' => $text, 'type' => 'string', 'encrypted' => false]);
+        $this->info('Gateway «Bank transfer»: its accounts brought from WHMCS\'s «Invoice Created» template (' . count(explode("\n", $text)) . ' lines): check them before enabling it'
+            . ' (WHMCS\'s own bank transfer text is encrypted: paste it instead if it should be that one).');
+    }
+
+    /** A Smarty {if} branch's own text: up to its {elseif}/{else}/{/if}, an {if} … {/if} inside it kept whole. */
+    private static function smartyBranch(string $rest): string
+    {
+        $depth = 0;
+        $offset = 0;
+        while (preg_match('/\{(\/?if\b|elseif\b|else\b)[^}]*\}/', $rest, $m, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            [$tag, $at] = $m[0];
+            $kind = strtolower($m[1][0]);
+            if (str_starts_with($kind, 'if')) {
+                $depth++;
+            } elseif ($depth === 0) {
+                return substr($rest, 0, $at);
+            } elseif ($kind === '/if') {
+                $depth--;
+            }
+            $offset = $at + strlen($tag);
+        }
+
+        return $rest;
+    }
+
+    /**
+     * The gateway here of a WHMCS module, for a preferred payment method: only one here by now (its payments', set up, or
+     * installed disabled by importPaymentWays), never one installed for a label alone, enabled for everyone (#539).
      */
     private function existingGateway(string $module): ?int
     {
@@ -2493,13 +2633,14 @@ class ImportFromWhmcs extends Command
      */
     private function installedGateway(string $extension): int
     {
-        $id = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->value('id');
+        // Never a deleted one (staff removed it): a new one, as the admin's «Install» would (review of #679).
+        $id = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
         if ($id !== null) {
             return (int) $id;
         }
         $gateway = Extension::create(['name' => $extension, 'type' => 'gateway', 'extension' => $extension]);
         ExtensionHelper::call($gateway, 'installed', mayFail: true);
-        $this->warn("Gateway «{$extension}» installed for the imported payments: set it up and enable it.");
+        $this->warn("Gateway «{$extension}» installed, disabled: set it up and enable it.");
 
         return (int) $gateway->id;
     }
