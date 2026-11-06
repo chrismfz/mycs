@@ -617,7 +617,36 @@ class NotificationHelper
         // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
         // can read the password (Service::TEMPLATE_HIDDEN).
         $data['service_password'] ??= rescue(fn () => $service->password, null);
+        // Where it lives, as WHMCS's welcome mails said ({$service_server_hostname}, {$service_server_ip},
+        // {$service_dedicated_ip}, {$service_assigned_ips}): a hosting panel's address, a machine's own IPs.
+        $data += self::welcomeServer($service);
         self::toAccount($client, 'new_server_created', $data, mailOnly: $resend, gated: !$resend && !$byStaff);
+    }
+
+    /**
+     * The welcome mail's «Server»: the hosting panel's hostname and IP (cPanel, DirectAdmin: where the account is, for its
+     * DNS and login; never another module's address, a cluster's API is not the customer's), and the service's own IPs.
+     *
+     * @return array{service_server: ?bool, server_hostname: ?string, server_ip: ?string, service_ips: ?string} service_server:
+     *                                                                                                          any of them (the
+     *                                                                                                          templates have no «or»)
+     */
+    public static function welcomeServer(Service $service): array
+    {
+        $hostname = $ip = null;
+        $server = rescue(fn () => $service->provisioningServer(), null, false);
+        if ($server !== null && in_array($server->extension, ['CPanel', 'DirectAdmin'], true)) {
+            $settings = $server->settings->pluck('value', 'key');
+            $host = parse_url(trim((string) ($settings['host'] ?? '')), PHP_URL_HOST);
+            $hostname = is_string($host) && $host !== '' ? $host : null;
+            $ip = filter_var(trim((string) ($settings['ip'] ?? '')), FILTER_VALIDATE_IP) ?: null;
+        }
+        $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])
+            ->map(fn ($value) => trim((string) $value))->filter(fn (string $value) => $value !== '')->unique()->values();
+
+        $ips = $ips->isNotEmpty() ? $ips->implode(', ') : null;
+
+        return ['service_server' => $hostname !== null || $ip !== null || $ips !== null ? true : null, 'server_hostname' => $hostname, 'server_ip' => $ip, 'service_ips' => $ips];
     }
 
     /**

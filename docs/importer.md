@@ -671,7 +671,9 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   γραμμές (οδηγία, link) και το «License Key: {$service_domain}» προϊόντος άδειας ως `{{ service.license.license_key }}`.
   Γραμμή με άλλη μεταβλητή Smarty δεν έρχεται και λέγεται· snippet που υπάρχει εδώ μένει. Nixpal: τα 6 προϊόντα ZoneCloud (template
   84) παίρνουν «License key» και «Refer to https://zonecloud.io/ …». Το «ZoneCloud Controller» (87) δεν συνδέεται με προϊόν.
-  Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email.
+  Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email. Αυτό λέει πια και πού ζει η υπηρεσία,
+  όπως τα «Hosting/Reseller/Dedicated-VPS Welcome» του myip (ιδιοκτήτης 2026-11-06): hostname και IP του panel (cPanel,
+  DirectAdmin· ποτέ η διεύθυνση άλλου module, π.χ. του cluster) και οι IPs της υπηρεσίας (dedicated και assigned).
 - **Ιστορικό emails** (`WhmcsEmailHistoryImport`): το τελευταίο έτος του `tblemails` (nixpal 4.033 από 13.136) στο `email_logs`
   (το `cronjob_delete_email_logs` γίνεται 365, αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα bodies **καθαρίζονται**:
   `Password: …`, κλειδιά στα query των links (reset κωδικού) και κάθε γνωστό secret (`Redact::text`)· 2 body της nixpal είχαν.
