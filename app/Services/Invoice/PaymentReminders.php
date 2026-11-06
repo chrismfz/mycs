@@ -12,6 +12,7 @@ use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
 use App\Support\DunningWindow;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -235,7 +236,9 @@ class PaymentReminders
             return null;
         }
         $days = max(0, (int) config('settings.cronjob_order_suspend', 8));
-        $on = self::services($invoice)
+        $services = self::services($invoice);
+        EloquentCollection::make($services->all())->loadMissing('parent'); // an addon's hold is its parent's too (ADV-A3-1)
+        $on = $services
             ->filter(fn (Service $service) => $service->status === Service::STATUS_ACTIVE && $service->plan_id !== null && $service->expires_at !== null
                 && !in_array($service->plan?->type, ['free', 'one-time'], true))
             ->map(function (Service $service) use ($days, $invoice) {
@@ -251,7 +254,7 @@ class PaymentReminders
                 }
                 // On the first day the suspensions' window allows (Settings → Automation: no weekend, say).
                 $day = DunningWindow::firstDayFrom($day);
-                $held = $service->suspend_hold_until !== null && !Carbon::parse($service->suspend_hold_until)->lt($day);
+                $held = $service->holdInForce($day); // its own hold or its parent's (ADV-A3-1)
 
                 return $held || $day->lte(Carbon::today()) ? null : $day;
             })

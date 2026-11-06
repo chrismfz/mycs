@@ -112,7 +112,12 @@ jobs:
 
       # The schema is loaded from database/schema/mariadb-schema.sql by the mariadb client (the migrations squashed).
       - name: MariaDB client
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client
+        # A newer client asks for TLS by default, and the service container serves none (2026-11-06: «SSL is required,
+        # but the server does not support it» when the schema is loaded): plain TCP to the local container.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client
+          printf '[client]\nskip-ssl\n' > ~/.my.cnf
+          mariadb --version
 
       - name: Copy .env
         run: php -r "file_exists('.env') || copy('.env.example', '.env');"
