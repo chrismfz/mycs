@@ -179,6 +179,25 @@ class Review2AccountsTest extends TestCase
         $this->assertFalse($this->allowed($third), 'session gone from the store');
     }
 
+    /** Review 2 (security): a password reset closes the console; a console makes no request of its own. */
+    public function test_a1_a_changed_staff_password_closes_it(): void
+    {
+        $staff = $this->staff();
+        $binding = $this->impersonate($staff);
+        $guard = Auth::guard('staff');
+        $this->assertInstanceOf(SessionGuard::class, $guard);
+        app('session.store')->put('password_hash_staff', $guard->hashPasswordForCookie($staff->getAuthPassword()));
+        app('session.store')->save();
+        $this->assertTrue($this->allowed($binding), 'the HMAC form, the password unchanged');
+        app('session.store')->put('password_hash_staff', $staff->getAuthPassword());
+        app('session.store')->save();
+        $this->assertTrue($this->allowed($binding), "the raw form Filament's profile stores");
+
+        $staff->forceFill(['password' => bcrypt('a-new-password-after-a-reset')])->saveQuietly();
+
+        $this->assertFalse($this->allowed($binding), 'password changed');
+    }
+
     public function test_a5_staff_console_negatives(): void
     {
         $binding = $this->impersonate($without = $this->staff(['admin.users.impersonate']));

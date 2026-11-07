@@ -118,16 +118,16 @@ class ProxmoxConsoleCheckController extends Controller
         if (!is_int($staffId) || !is_string($ulid) || !is_string($nonce)) {
             return false;
         }
-        $may = self::remember($memo, 'staff:' . $staffId, function () use ($staffId) {
-            $staff = Staff::query()->with('role')->find($staffId);
-
-            return $staff instanceof Staff && $staff->hasPermission('admin.users.impersonate')
-                && Actor::staffMayAsStaff($staff, ServicePolicy::UPDATE_PERMISSION, acting: true);
-        });
+        $staff = self::remember($memo, 'staff:' . $staffId, fn () => Staff::query()->with('role')->find($staffId));
+        if (!$staff instanceof Staff) {
+            return false;
+        }
+        $may = self::remember($memo, 'may:' . $staffId, fn () => $staff->hasPermission('admin.users.impersonate')
+            && Actor::staffMayAsStaff($staff, ServicePolicy::UPDATE_PERMISSION, acting: true));
 
         return $may === true
             && self::remember($memo, "grant:{$user->id}:{$service->client_id}", fn () => ClientUser::liveGrant($user, (int) $service->client_id, includeClosed: true) !== null) === true
-            && self::remember($memo, "session:{$staffId}:{$ulid}:{$user->id}:{$nonce}", fn () => StaffSessions::stillImpersonating($staffId, $ulid, $user->id, $nonce)) === true;
+            && self::remember($memo, "session:{$staffId}:{$ulid}:{$user->id}:{$nonce}", fn () => StaffSessions::stillImpersonating($staff, $ulid, $user->id, $nonce)) === true;
     }
 
     /**

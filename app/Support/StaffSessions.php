@@ -219,13 +219,14 @@ final class StaffSessions
     }
 
     /**
-     * Whether $staff is still in the «Login as client» of $user that $nonce started, in the login whose row is $ulid:
-     * the row not ended, its session still in the store, still logged in as $staff and still impersonating $user with
-     * that nonce (Leave, the client area's «Log out» and a new «Login as client» drop or replace it). The console relay's
-     * check asks it, having no session of its own (review 2, A1).
+     * Whether $member is still in the «Login as client» of $user that $nonce started, in the login whose row is $ulid:
+     * the row not ended, its session still in the store, still logged in as $member with the same password, and still
+     * impersonating $user with that nonce (Leave, the client area's «Log out» and a new «Login as client» drop or
+     * replace it). The console relay's check asks it, having no session of its own (review 2, A1).
      */
-    public static function stillImpersonating(int $staff, string $ulid, int $user, string $nonce): bool
+    public static function stillImpersonating(Staff $member, string $ulid, int $user, string $nonce): bool
     {
+        $staff = $member->id;
         $row = StaffSession::query()->where('ulid', $ulid)->where('staff_id', $staff)->whereNull('ended_at')->first();
         if ($row === null || !is_string($row->session_id) || $row->session_id === '') {
             return false;
@@ -233,6 +234,13 @@ final class StaffSessions
         $payload = self::payloadOf($row->session_id);
         $guard = Auth::guard('staff');
         $login = $guard instanceof SessionGuard ? $payload[$guard->getName()] ?? null : null;
+        // The password the session was logged in with, as ImpersonateMiddleware checks it (its HMAC, or the raw hash
+        // Filament's profile stores): a console makes no request, so a reset password must close it here (review 2).
+        $hash = $payload['password_hash_staff'] ?? null;
+        $current = $guard instanceof SessionGuard ? $member->getAuthPassword() : null;
+        if (is_string($hash) && (!is_string($current) || (!hash_equals($guard->hashPasswordForCookie($current), $hash) && !hash_equals($current, $hash)))) {
+            return false;
+        }
 
         return (is_int($login) || is_string($login)) && (int) $login === $staff && ($payload[self::SESSION_KEY] ?? null) === $ulid
             && (is_int($payload['impersonating'] ?? null) || is_string($payload['impersonating'] ?? null)) && (int) $payload['impersonating'] === $user
@@ -241,7 +249,9 @@ final class StaffSessions
 
     /**
      * Another session's data, read from the store as the framework reads it (decrypted, unserialized), never written
-     * back; empty when it is gone or expired.
+     * back; empty when it is gone or expired. It shares the app's session handler: fine with the file, redis and cache
+     * drivers, and on the API route (no StartSession). On the database driver read() sets the handler's `$exists`, so
+     * never call it from a web route there: the request's own session would then be written as an update of a row.
      *
      * @return array<string, mixed>
      */
