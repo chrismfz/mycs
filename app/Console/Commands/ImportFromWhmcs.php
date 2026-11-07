@@ -459,8 +459,7 @@ class ImportFromWhmcs extends Command
             try {
                 $processor($records);
             } catch (Throwable $th) {
-                Log::error($th);
-                $this->fail($th->getMessage());
+                $this->failBatch($table, $th);
             }
         } else {
             $bar = $this->output->createProgressBar(round($nRows / $this->batchSize));
@@ -474,8 +473,7 @@ class ImportFromWhmcs extends Command
                 try {
                     $processor($records);
                 } catch (Throwable $th) {
-                    Log::error($th);
-                    $this->fail($th->getMessage());
+                    $this->failBatch($table, $th);
                 }
 
                 $bar->advance();
@@ -485,6 +483,20 @@ class ImportFromWhmcs extends Command
         }
 
         $this->info('Done.');
+    }
+
+    /**
+     * A batch that failed stops the import. A query's message is never printed: it is the whole statement with its values
+     * (a users batch's emails and password hashes, a clients batch's contacts and tax ids), only its SQLSTATE, as handle()
+     * does (sweep IMPORT-3). The full one goes to the application log.
+     */
+    private function failBatch(string $table, Throwable $th): void
+    {
+        Log::error($th);
+        if ($th instanceof PDOException) { // QueryException is one
+            $this->fail("Import of {$table} failed (SQLSTATE " . $th->getCode() . '): see the application log.');
+        }
+        $this->fail($th->getMessage());
     }
 
     private function count(string $table): int
@@ -500,7 +512,7 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing currencies... (' . $this->count('tblcurrencies') . ' records)');
 
-        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 $format = match ($record['format']) {
@@ -704,7 +716,7 @@ class ImportFromWhmcs extends Command
         $withTwoFactor = 0;
         $missed = [];
 
-        $this->migrateInBatch('tblusers', 'SELECT * FROM tblusers LIMIT :limit OFFSET :offset', function ($records) use ($secondFactor, &$withTwoFactor, &$missed) {
+        $this->migrateInBatch('tblusers', 'SELECT * FROM tblusers ORDER BY id LIMIT :limit OFFSET :offset', function ($records) use ($secondFactor, &$withTwoFactor, &$missed) {
             $data = [];
             foreach ($records as $record) {
                 $module = trim((string) ($record['second_factor'] ?? ''));
@@ -802,7 +814,7 @@ class ImportFromWhmcs extends Command
         $groups = $this->importClientGroups();
         $this->info('Importing accounts... (' . $this->count('tblclients') . ' records)');
 
-        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) use ($groups) {
+        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients ORDER BY id LIMIT :limit OFFSET :offset', function ($records) use ($groups) {
             $data = [];
             $clients = [];
             $contacts = [];
@@ -814,6 +826,8 @@ class ImportFromWhmcs extends Command
                 $stmt->bindValue(':client_id', $record['id'], PDO::PARAM_INT);
                 $stmt->execute();
                 if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $this->ownerless[] = (int) $record['id'];
+
                     continue;
                 }
 
@@ -881,6 +895,13 @@ class ImportFromWhmcs extends Command
                 DB::table('credits')->insert($credits);
             }
         });
+        if ($this->ownerless !== []) {
+            // WHMCS gives each account its owner (docs/accounts.md): one without is not imported, nor its orders, services
+            // and invoices (clientCurrency). Named, so it is fixed in WHMCS (an owner login) before the final import.
+            $this->warn(count($this->ownerless) . ' WHMCS account(s) without an owner login, not imported with their orders, services and invoices (#'
+                . implode(', #', $this->ownerless) . '). Give each an owner in WHMCS before the final import.');
+        }
+        $this->importedClients = null; // read again, now that they are in
         $this->reportCountries();
     }
 
@@ -983,7 +1004,7 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing admins... (' . $this->count('tbladmins') . ' records)');
 
-        $this->migrateInBatch('tbladmins', 'SELECT * FROM tbladmins LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tbladmins', 'SELECT * FROM tbladmins ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 // staff.email is unique; WHMCS may hold an old and a new admin with one email. The later one gets a
@@ -1080,15 +1101,12 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing orders... (' . $this->count('tblorders') . ' records)');
 
-        $this->migrateInBatch('tblorders', 'SELECT * FROM tblorders LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblorders', 'SELECT * FROM tblorders ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 // Get currency from user
-                $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-                $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
-                $user->execute();
-                $user = $user->fetch(PDO::FETCH_ASSOC);
-                if (!$user) {
+                $user = $this->clientCurrency((int) $record['userid']);
+                if ($user === null) {
                     continue;
                 }
 
@@ -1259,16 +1277,13 @@ class ImportFromWhmcs extends Command
         // Each account's group discount, as its services' prices hold it (ClientGroupPricing).
         $groupPercents = DB::table('clients')->join('client_groups', 'client_groups.id', '=', 'clients.client_group_id')
             ->pluck('client_groups.discount_percent', 'clients.id')->map(fn ($percent) => number_format((float) $percent, 2, '.', ''))->all();
-        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced, $groupPercents) {
+        $this->migrateInBatch('tblhosting', 'SELECT * FROM tblhosting ORDER BY id LIMIT :limit OFFSET :offset', function ($records) use ($suspendDays, $servers, $productServers, &$withoutServer, &$marked, &$freeOnPlan, &$offCycle, &$unpriced, $groupPercents) {
             $data = [];
             $marks = [];
             foreach ($records as $record) {
                 // Get currency from user
-                $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-                $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
-                $user->execute();
-                $user = $user->fetch(PDO::FETCH_ASSOC);
-                if (!$user) {
+                $user = $this->clientCurrency((int) $record['userid']);
+                if ($user === null) {
                     continue;
                 }
 
@@ -2091,17 +2106,17 @@ class ImportFromWhmcs extends Command
         // WHMCS's «Collections» (myip's auto-cancellation hook writes them on terminate) come unpaid: reminders and
         // auto-charge would chase them. The owner's call (WG-18): they are cancelled in WHMCS before the final import.
         // Only those imported below: not a Mass Pay parent, nor one whose customer has no currency (review of #665).
-        $collections = array_values(array_filter(array_map('intval', $this->pdo->query("SELECT i.id FROM tblinvoices i
-            JOIN tblclients c ON c.id = i.userid JOIN tblcurrencies cu ON cu.id = c.currency WHERE i.status = 'Collections' ORDER BY i.id")
-            ->fetchAll(PDO::FETCH_COLUMN)), fn (int $id) => !isset($this->massPayParents()[$id])));
+        $collections = array_keys(array_filter(array_map('intval', $this->pdo->query("SELECT i.id, i.userid FROM tblinvoices i
+            WHERE i.status = 'Collections' ORDER BY i.id")->fetchAll(PDO::FETCH_KEY_PAIR)),
+            fn (int $client, int $id) => !isset($this->massPayParents()[$id]) && $this->clientCurrency($client) !== null, ARRAY_FILTER_USE_BOTH));
         if ($collections !== []) {
             $this->warn(count($collections) . ' WHMCS invoice(s) in Collections (#' . implode(', #', $collections) . '): imported as unpaid, so reminders and'
                 . ' auto-charge apply to them. Cancel them in WHMCS before the final import (cutover-runbook, WG-18).');
         }
 
-        $this->migrateInBatch('tblinvoices', 'SELECT * FROM tblinvoices LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblinvoices', 'SELECT * FROM tblinvoices ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
-            $existingNumbers = DB::table('invoices')->whereNotNull('number')->pluck('number')->flip();
+            $existingNumbers = DB::table('invoices')->whereNotNull('number')->pluck('number')->mapWithKeys(fn ($number) => [self::numberKey((string) $number) => true])->all();
 
             foreach ($records as $record) {
                 // A Mass Pay parent is not an invoice here (importMassPay).
@@ -2109,21 +2124,20 @@ class ImportFromWhmcs extends Command
                     continue;
                 }
                 // Get currency from user
-                $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-                $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
-                $user->execute();
-                $user = $user->fetch(PDO::FETCH_ASSOC);
-                if (!$user) {
+                $user = $this->clientCurrency((int) $record['userid']);
+                if ($user === null) {
                     continue;
                 }
 
                 $invoiceNumber = !empty($record['invoicenum']) ? $record['invoicenum'] : null;
 
-                // If invoice number already exists, set it to null to avoid duplicate key error
-                if ($invoiceNumber && isset($existingNumbers[$invoiceNumber])) {
+                // A number another invoice has already is set to null (the unique key), and named. As the key compares them
+                // (MariaDB's case-insensitive PAD SPACE collation): «2025-0412 » is «2025-0412» there (sweep IMPORT-5).
+                if ($invoiceNumber && isset($existingNumbers[self::numberKey((string) $invoiceNumber)])) {
                     $invoiceNumber = null;
+                    $this->numbersDropped[] = (int) $record['id'];
                 } elseif ($invoiceNumber) {
-                    $existingNumbers[$invoiceNumber] = true;
+                    $existingNumbers[self::numberKey((string) $invoiceNumber)] = true;
                 }
 
                 $data[] = [
@@ -2148,6 +2162,10 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoices')->insert($data);
         });
+        if ($this->numbersDropped !== []) {
+            $this->warn(count($this->numbersDropped) . ' WHMCS invoice(s) imported without a number, theirs being an earlier invoice\'s too (#'
+                . implode(', #', $this->numbersDropped) . '). Give each its own in WHMCS before the final import.');
+        }
 
         // The counter holds the last number given (InvoiceNumberListener: +1, then used): the highest imported id, so the
         // next is one past it, none skipped (adversarial ADV-2 of #477). A Mass Pay parent (not imported, PR F3) keeps its id
@@ -2380,6 +2398,55 @@ class ImportFromWhmcs extends Command
     private ?array $importedServices = null;
 
     /** @return array<int, true> */
+    /**
+     * The currency of an account imported here (its tblcurrencies row), or null: an account WHMCS gives no currency, or
+     * one skipped (no owner login, importUsers). Its orders, services and invoices are not imported then: never a row of
+     * an account that is not here (sweep IMPORT-2: an overdue invoice of none stopped the reminders' run).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function clientCurrency(int $clientId): ?array
+    {
+        $this->importedClients ??= array_fill_keys(DB::table('clients')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
+        if (!isset($this->importedClients[$clientId])) {
+            return null;
+        }
+        if (!array_key_exists($clientId, $this->clientCurrencies)) {
+            $stmt = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
+            $stmt->bindValue(':client_id', $clientId, PDO::PARAM_INT);
+            $stmt->execute();
+            $this->clientCurrencies[$clientId] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+
+        return $this->clientCurrencies[$clientId];
+    }
+
+    /** @var list<int> WHMCS invoices imported without their number (another invoice's) */
+    private array $numbersDropped = [];
+
+    /**
+     * An invoice number as the unique key compares it: MariaDB's utf8mb4_uca1400_ai_ci is case- and accent-insensitive and
+     * ignores trailing spaces, so «ΤΊΜ-0412» is «ΤΙΜ-0412» and «NX-ÉTÉ-1» is «NX-ETE-1» to it (review of the sweep). The
+     * accents go by their decomposition; a final sigma is a sigma to the collation too.
+     */
+    private static function numberKey(string $number): string
+    {
+        $lower = mb_strtolower(rtrim($number, ' '));
+        $decomposed = \Normalizer::normalize($lower, \Normalizer::FORM_D);
+        $bare = preg_replace('/\p{Mn}+/u', '', $decomposed === false ? $lower : $decomposed) ?? $lower;
+
+        return str_replace('ς', 'σ', $bare);
+    }
+
+    /** @var array<int, true>|null the accounts imported here, read once after importUsers */
+    private ?array $importedClients = null;
+
+    /** @var array<int, array<string, mixed>|null> */
+    private array $clientCurrencies = [];
+
+    /** @var list<int> WHMCS accounts with no owner login, skipped by importUsers */
+    private array $ownerless = [];
+
     private function importedServices(): array
     {
         // WHMCS's services only: an addon's service (WhmcsAddonImport) is no WHMCS service id.
@@ -2448,7 +2515,7 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing payments... (' . $this->count('tblaccounts') . ' records)');
 
-        $this->migrateInBatch('tblaccounts', 'SELECT * FROM tblaccounts LIMIT :limit OFFSET :offset', function ($records) {
+        $this->migrateInBatch('tblaccounts', 'SELECT * FROM tblaccounts ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 // A Mass Pay parent's payment lands on its children (importMassPay).
