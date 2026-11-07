@@ -521,7 +521,23 @@ class Stripe extends Gateway
                         } catch (Exception $e) {
                             $this->cancelFailed($service, $e);
                         }
-                        rescue(fn () => $this->request('delete', '/invoices/' . $invoice->id), report: true);
+                        $deleted = rescue(function () use ($invoice) {
+                            try {
+                                $this->request('delete', '/invoices/' . $invoice->id);
+                            } catch (RequestException $e) {
+                                if ($e->response->status() !== 404) { // already gone is deleted
+                                    throw $e;
+                                }
+                            }
+
+                            return true;
+                        }, false, report: true);
+                        if (!$deleted && $service->subscription_id !== null) {
+                            // Neither went through: a 2xx would let Stripe finalise the draft in about an hour and charge
+                            // it. Not answered, Stripe holds the draft and sends the event again, when both are tried
+                            // again (sweep 3 REV3-LF-1).
+                            return response()->json(['error' => 'Subscription not cancelled, draft not deleted: try again'], 503);
+                        }
                     } elseif ($service) {
                         $this->request('post', '/invoices/' . $invoice->id . '/finalize');
                         // Pay the invoice using Stripe
