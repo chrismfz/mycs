@@ -107,6 +107,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       όνομα από το μητρώο του, με σύνδεσμο στο domain όταν είναι δικό μας, και το WHOIS όπως ήρθε· με το δικαίωμα των
       domains, 60 ανά 10 λεπτά ανά staff.
 
+### Sweep για bugs σε όλο το app (2026-11-07, [`sweeps/2026-11-07.md`](sweeps/2026-11-07.md))
+
+66 ευρήματα σε 14 περιοχές, όλα τα high και medium διορθωμένα (#708–#721). Ανοιχτά, για απόφαση: IMPORT-1 (έλεγχος στο
+runbook), PAYMENTS-4, DOMAINS-4, PROVISIONING-5, SETTINGS-OPS-4.
+
 ### Κενά από το sweep του WHMCS (2026-11-04, [`sweeps/whmcs-gaps.md`](sweeps/whmcs-gaps.md))
 Κάθε γραμμή έχει την εξήγηση και τους αριθμούς στο sweep. Ένα PR ανά γραμμή (ή ομάδα)· όσα αγγίζουν χρήματα με
 adversarial review.
