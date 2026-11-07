@@ -891,14 +891,15 @@ class CronJob extends Command
         }
         // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
         // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
-        // and a service past due with no open invoice is reported instead. Never while a payment is on its
+        // and a service past due with no open invoice (billing it: a charge alone is not one, #507, as
+        // Service::stillOverdue reads it, sweep CRON-BILLING-1) is reported instead. Never while a payment is on its
         // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
         // hold that just committed).
         $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
         if ($requiresInvoice) {
-            $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
+            $notices = $this->suspendable()->whereDoesntHave('renewalInvoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
             foreach ($notices as $id) {
-                $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
+                $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice (an open charge alone is not one): not suspended (bill it, or set its due date).");
             }
         }
         // Parents before addons, whatever their ids: an addon follows its parent's suspension (AddonCascade) rather
@@ -991,7 +992,7 @@ class CronJob extends Command
         // «Suspend only with an overdue invoice»: also its first open invoice's day, as suspendable() counts it
         // (ADV-HOLD-R2-1).
         if ($requiresInvoice) {
-            $invoiceDay = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+            $invoiceDay = $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
                 ->map(fn (Invoice $invoice) => Carbon::parse($invoice->due_at ?? $invoice->created_at)->max(Carbon::parse($invoice->created_at))
                     ->startOfDay()->addDays($days + 1))
                 ->min();
