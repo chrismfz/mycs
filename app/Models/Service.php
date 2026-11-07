@@ -1202,15 +1202,33 @@ class Service extends Model implements Auditable
         );
     }
 
-    /** Its order's own line (on its first invoice, no period yet) is still open: set up before it was paid. */
+    /**
+     * Its order's own line (on its first invoice) is still open: set up before it was paid. That line has no period yet,
+     * or, for a pro rata product, its first period from the order's day (OrderPricing::firstPeriod), on the order's own
+     * invoice (sweep2 F-ORDER-TO-ACTIVE-1: a pro rata order slipped past the A5 guard).
+     */
     public function orderUnpaid(): bool
     {
         if ($this->order_id === null) {
             return false;
         }
         $first = $this->invoiceItems()->min('invoice_id');
+        if ($first === null) {
+            return false;
+        }
+        $order = $this->order;
+        $orderDay = $order?->created_at?->toDateString();
 
-        return $first !== null && $this->invoiceItems()->where('invoice_id', $first)->whereNull('period_start')
+        return $this->invoiceItems()->where('invoice_id', $first)
+            ->where(function ($line) use ($order, $orderDay): void {
+                $line->whereNull('period_start');
+                if ($order?->invoice_id !== null) {
+                    $line->orWhere('invoice_id', $order->invoice_id);
+                }
+                if ($orderDay !== null) {
+                    $line->orWhereDate('period_start', $orderDay);
+                }
+            })
             ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists();
     }
 

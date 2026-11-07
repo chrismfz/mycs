@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -93,6 +94,36 @@ class Sweep2FOrderToActiveTest extends TestCase
         $this->assertSame(0, ServiceUpgrade::query()->count(), 'no upgrade of an unpaid order');
     }
 
+    /** The guard of F-ORDER-TO-ACTIVE-1 lasts only while the order is unpaid: paid, the pro rata service upgrades again. */
+    public function test_f1_a_pro_rata_service_whose_order_is_paid_is_upgradable(): void
+    {
+        $from = $this->product('10.00', '20.00', ['prorata_day' => 1, 'prorata_next_after_day' => null]);
+        $to = $this->product('20.00', '0.00', ['prorata_day' => 1, 'prorata_next_after_day' => null]);
+        DB::table('product_upgrades')->insert(['product_id' => $from->id, 'upgrade_id' => $to->id]);
+
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($from, $from->plans()->firstOrFail())]);
+        $service = Service::query()->latest('id')->firstOrFail();
+        $this->assertTrue($service->orderUnpaid());
+
+        (new RecordPaymentService)->handle($placed->invoice, null, (float) $placed->invoice->fresh()->total, transactionId: 'wire-f1');
+        $this->assertSame(Invoice::STATUS_PAID, $placed->invoice->fresh()->status);
+
+        $this->assertFalse($service->fresh()->orderUnpaid());
+        $this->assertTrue((bool) $service->fresh()->upgradable);
+    }
+
+    /** F-ORDER-TO-ACTIVE-2: in the default currency the fixed coupon still comes off (20.00 − 10.00). */
+    public function test_f2_a_fixed_coupon_still_comes_off_a_cart_in_the_default_currency(): void
+    {
+        config(['settings.default_currency' => 'USD']);
+        $product = $this->product('20.00', '0.00', ['autosetup' => Product::AUTOSETUP_PAYMENT]);
+        $coupon = Coupon::create(['code' => 'TENOFF', 'type' => 'fixed', 'applies_to' => 'all', 'value' => '10.00']);
+
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->firstOrFail())], $coupon);
+
+        $this->assertSame('10.00', number_format((float) $placed->invoice->items()->firstOrFail()->price, 2));
+    }
+
     /**
      * F-ORDER-TO-ACTIVE-2: a «fixed» coupon's value is in the default currency (the form says so), yet it is taken off a
      * cart in any currency as is. An «override» is refused outside the default currency (C3); a fixed one is not.
@@ -123,6 +154,11 @@ class Sweep2FOrderToActiveTest extends TestCase
         $option->products()->attach($product->id);
         $retired = ConfigOption::create(['name' => 'Old DC', 'parent_id' => $option->id, 'sort' => 0, 'hidden' => true]);
         $current = ConfigOption::create(['name' => 'Athens', 'parent_id' => $option->id, 'sort' => 1]);
+        // The visible value is priced on the product's cycle (as any orderable value; one without a price would make the
+        // product unavailable at checkout, as on the product page).
+        $currentPlan = Plan::factory()->create(['priceable_id' => $current->id, 'priceable_type' => ConfigOption::class, 'name' => 'Athens',
+            'billing_unit' => 'month', 'billing_period' => 1, 'type' => 'recurring']);
+        Price::factory()->create(['plan_id' => $currentPlan->id, 'price' => '0.00', 'setup_fee' => '0.00', 'currency_code' => 'USD']);
         $offer = Offer::query()->create(['name' => 'Kit', 'slug' => 'kit', 'active' => true]);
         $offer->items()->create(['product_id' => $product->id, 'quantity' => 1, 'sort' => 0]);
 
