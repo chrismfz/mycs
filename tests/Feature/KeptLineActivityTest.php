@@ -104,6 +104,20 @@ class KeptLineActivityTest extends TestCase
         $this->assertSame('Hosting', $this->kept($line)[1]->new_values['line']);
     }
 
+    public function test_a_change_that_turns_from_raising_to_lowering_is_told_again(): void
+    {
+        $line = $this->line();
+        $line->invoice->transactions()->create(['amount' => 5, 'status' => InvoiceTransactionStatus::Succeeded]);
+
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 12); // would owe more
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 8);  // would have overpaid
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 7);  // still down: the same
+
+        $audits = $this->kept($line);
+        $this->assertCount(2, $audits);
+        $this->assertSame('8.00', $audits[1]->new_values['price']);
+    }
+
     public function test_each_line_of_the_invoice_is_told_on_its_own(): void
     {
         $line = $this->line();

@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ServiceUpgrade;
 use App\Services\Money\PaymentsLog;
+use Brick\Math\BigDecimal;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Events\AuditCustom;
@@ -130,7 +131,9 @@ class ChangeOpenLine
             $wasFields = array_values(array_diff(array_keys($was), ['invoice_item_id', 'line', 'kept_because']));
             sort($wasFields);
             $edited = $billed->updated_at !== null && $last->created_at !== null && $billed->updated_at->greaterThan($last->created_at);
-            if (!$edited && ($was['kept_because'] ?? null) === $because && $wasFields === $fields && (array) $last->old_values == $old) {
+            $same = ($was['kept_because'] ?? null) === $because && $wasFields === $fields && (array) $last->old_values == $old
+                && self::direction((array) $last->old_values, $was) === self::direction($old, $new);
+            if (!$edited && $same) {
                 return;
             }
         }
@@ -141,6 +144,26 @@ class ChangeOpenLine
         event(new AuditCustom($invoice));
         $invoice->isCustomEvent = false;
         $invoice->auditCustomOld = $invoice->auditCustomNew = null;
+    }
+
+    /**
+     * Up or down, per amount: a change that would now lower what was raised (overpaid instead of owing more) is another
+     * outcome for staff, though its fields are the same (review of the ADV-KL fix).
+     *
+     * @param  array<string, mixed>  $old
+     * @param  array<string, mixed>  $new
+     * @return array<string, int>
+     */
+    private static function direction(array $old, array $new): array
+    {
+        $signs = [];
+        foreach ($old as $field => $value) {
+            if (is_numeric($value) && is_numeric($new[$field] ?? null)) {
+                $signs[$field] = BigDecimal::of((string) $new[$field])->compareTo(BigDecimal::of((string) $value));
+            }
+        }
+
+        return $signs;
     }
 
     /** A value as staff read it and as JSON keeps it: a date as its day (or moment), an amount as its cast gives it. */
