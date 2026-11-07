@@ -8,10 +8,12 @@ use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Exceptions\CreateRunning;
 use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
 use App\Exceptions\LeftToStaff;
 use App\Exceptions\NothingToDoOnServer;
+use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\SuspendJob;
 use App\Models\BillingAgreement;
 use App\Models\Client;
@@ -2145,9 +2147,9 @@ class ExtensionHelper
     {
         // One create of a service at a time, whoever asks (the job, its retry, staff): two would make two accounts
         // (adversarial A5). $whilePending: the job's check, read again under the lock.
-        $lock = Cache::lock("service-create:{$service->id}", 600);
+        $lock = Cache::lock("service-create:{$service->id}", CreateJob::CREATE_LOCK_SECONDS);
         if (!$lock->get()) {
-            throw new CreateSkipped("A create of service #{$service->id} is already running.");
+            throw new CreateRunning("A create of service #{$service->id} is already running.");
         }
         try {
             if ($whilePending && Service::query()->whereKey($service->id)->value('status') !== Service::STATUS_PENDING) {
