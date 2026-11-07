@@ -17,6 +17,7 @@ use App\Support\ServiceIdentifier;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -247,14 +248,19 @@ class Service extends Model implements Auditable
      */
     public function holdInForce(CarbonInterface $day, ?CarbonInterface $parentDay = null): bool
     {
-        $parentHold = $this->parent_service_id !== null ? $this->parent?->suspend_hold_until : null;
-        foreach ([[$this->suspend_hold_until, $day], [$parentHold, $parentDay ?? $day]] as [$hold, $on]) {
-            if ($hold !== null && !CarbonImmutable::parse($hold)->startOfDay()->lessThan(CarbonImmutable::instance($on)->startOfDay())) {
-                return true;
-            }
+        // Two plain checks (F7 of #692): its own hold, then its parent's. A caller looping over addons loads their
+        // parent first (F3: AddonCascade sets it).
+        if (self::holdsThrough($this->suspend_hold_until, $day)) {
+            return true;
         }
 
-        return false;
+        return $this->parent_service_id !== null && self::holdsThrough($this->parent?->suspend_hold_until, $parentDay ?? $day);
+    }
+
+    /** A hold set (Do Not Suspend Until) through $day, its last day included. */
+    private static function holdsThrough(mixed $hold, CarbonInterface $day): bool
+    {
+        return $hold !== null && !CarbonImmutable::parse($hold)->startOfDay()->lessThan(CarbonImmutable::instance($day)->startOfDay());
     }
 
     /**
@@ -775,8 +781,11 @@ class Service extends Model implements Auditable
     }
 
     /** Rebuild open renewal periods and prices from the current recurring amount. */
-    /** @param  bool  $retax  its product changed: the lines' tax is decided again (Δ1), else each keeps its rate */
-    public function refreshOpenPeriods(bool $retax = false): void
+    /**
+     * @param  bool  $retax  its product changed: the lines' tax is decided again (Δ1), else each keeps its rate
+     * @param  (Closure(InvoiceItem, InvoiceItem, Invoice): mixed)|null  $kept  told of each line kept at its price (ChangeOpenLine)
+     */
+    public function refreshOpenPeriods(bool $retax = false, ?Closure $kept = null): void
     {
         if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
             return;
@@ -797,7 +806,7 @@ class Service extends Model implements Auditable
                     'period_end' => $end,
                     'description' => $this->describeLine($locked->period_start, $end),
                     'price' => $this->priceForPeriod($locked->period_start, $end),
-                ] + ($retax ? LineTax::decide($locked) : [])));
+                ] + ($retax ? LineTax::decide($locked) : [])), $kept);
             }
         }
     }
