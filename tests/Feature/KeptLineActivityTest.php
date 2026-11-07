@@ -59,7 +59,10 @@ class KeptLineActivityTest extends TestCase
         $this->assertSame('10.00', number_format((float) $line->fresh()->price, 2, '.', ''), 'the line keeps its price');
         $audits = $this->kept($line);
         $this->assertCount(1, $audits);
-        $this->assertSame((int) $line->id, $audits[0]->old_values['invoice_item_id']);
+        $this->assertSame((int) $line->id, $audits[0]->new_values['invoice_item_id']);
+        $this->assertSame(['price' => '10.00'], $audits[0]->old_values, 'as the cast gives it');
+        $this->assertSame('12.00', $audits[0]->new_values['price']);
+        $this->assertStringContainsString('Invoice item id: ' . $line->id, AuditSummary::changes($audits[0]), 'which line, in the summary');
         $this->assertSame(ChangeOpenLine::KEPT_PAYMENT, $audits[0]->new_values['kept_because']);
         $this->assertEquals(10, $audits[0]->old_values['price']);
         $this->assertEquals(12, $audits[0]->new_values['price']);
@@ -90,9 +93,15 @@ class KeptLineActivityTest extends TestCase
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 12.0);
         $this->assertCount(1, $this->kept($line));
 
-        // Another outcome (the price moved again): told.
+        // The price the change would make moves on (an upgrade's days left): the same kept line, no new row (ADV-KL-1).
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 14);
+        $this->assertCount(1, $this->kept($line));
+
+        // Another kind of change (its period and text too, e.g. staff changed the plan): told.
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill(['price' => 14, 'description' => 'Hosting XL']));
         $this->assertCount(2, $this->kept($line));
+        $this->assertSame('Hosting XL', $this->kept($line)[1]->new_values['description']);
+        $this->assertSame('Hosting', $this->kept($line)[1]->new_values['line']);
     }
 
     public function test_each_line_of_the_invoice_is_told_on_its_own(): void
