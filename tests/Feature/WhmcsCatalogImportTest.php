@@ -123,8 +123,10 @@ class WhmcsCatalogImportTest extends TestCase
         $this->assertSame([$op->id, 40, 30], [$com->registrar_connection_id, $com->grace_days, $com->redemption_days]);
         $this->assertSame(['16.50', '33.00', '16.50', '100.30'], [$com->priceFor('register', 1, 'EUR'), $com->priceFor('renew', 2, 'EUR'), $com->priceFor('transfer', 1, 'EUR'), $com->priceFor('redemption', 1, 'EUR')]);
         $gr = DomainTld::query()->where('tld', 'gr')->sole()->load('prices');
-        $this->assertSame([null, null, null, '19.00', '38.00', '0.00'], [$gr->registrar_connection_id, $gr->grace_days, $gr->priceFor('register', 1, 'EUR'),
-            $gr->priceFor('register', 2, 'EUR'), $gr->priceFor('register', 4, 'EUR'), $gr->priceFor('transfer', 1, 'EUR')]);
+        // What landed (the fixture's .gr has no renewal, so priceFor sells none of it: review D1, D2).
+        $stored = fn (string $operation, int $years) => $gr->prices->first(fn (DomainTldPrice $p) => $p->operation === $operation && $p->years === $years)?->price;
+        $this->assertSame([null, null, null, '19.00', '38.00', '0.00'], [$gr->registrar_connection_id, $gr->grace_days, $stored('register', 1),
+            $stored('register', 2), $stored('register', 4), $stored('transfer', 1)]);
         $this->assertNotEmpty(array_filter($result['notes'], fn ($n) => str_contains($n, 'grepp')));
     }
 
@@ -312,13 +314,19 @@ class WhmcsCatalogImportTest extends TestCase
 
         $notes = $this->import()['notes'];
 
-        $this->assertContains('.com: register for 2 year(s) in EUR at 0.00 in WHMCS: not offered here.', $notes);
-        $this->assertContains('.com: renew for 2 year(s) in EUR at 0.00 in WHMCS: not offered here.', $notes);
+        // One note per TLD and operation (review D4).
+        $this->assertContains('.com: register at 0.00 in WHMCS, not offered here: 2 year(s) in EUR.', $notes);
+        $this->assertContains('.com: renew at 0.00 in WHMCS, not offered here: 2 year(s) in EUR.', $notes);
         $com = DomainTld::query()->where('tld', 'com')->sole()->load('prices');
         $rows = $com->prices->where('years', 2)->whereIn('operation', ['register', 'renew'])->pluck('price')->all();
         $this->assertSame([null, null], array_values($rows), 'withdrawn, not «free»');
         $this->assertSame([1], app(DomainOffer::class)->years($com, 'register', 'EUR')->all());
         $gr = DomainTld::query()->where('tld', 'gr')->sole()->load('prices');
+        // The fixture's .gr has no renewal: its free transfer is kept, though not sold until one is (review D1).
+        $this->assertSame('0.00', $gr->prices->firstWhere('operation', 'transfer')?->price);
+        $this->assertSame([null, []], [$gr->priceFor('transfer', 1, 'EUR'), app(DomainOffer::class)->years($gr, 'transfer', 'EUR')->all()]);
+        DomainTldPrice::query()->create(['domain_tld_id' => $gr->id, 'operation' => 'renew', 'years' => 2, 'currency_code' => 'EUR', 'price' => '24.00']);
+        $gr->load('prices');
         $this->assertSame(['0.00', [1]], [$gr->priceFor('transfer', 1, 'EUR'), app(DomainOffer::class)->years($gr, 'transfer', 'EUR')->all()]);
 
         // One set at 0.00 by hand is not sold either.
@@ -326,6 +334,20 @@ class WhmcsCatalogImportTest extends TestCase
         $com->load('prices');
         $this->assertNull($com->priceFor('register', 2, 'EUR'));
         $this->assertSame([1], app(DomainOffer::class)->years($com, 'register', 'EUR')->all());
+    }
+
+    /** Review D4: the 0.00 years WHMCS never sold are told once per TLD and operation, with their years and currencies. */
+    public function test_zero_years_are_noted_once_per_tld_and_operation(): void
+    {
+        $this->whmcs->exec("UPDATE tblpricing SET qsetupfee = 0, ssetupfee = 0 WHERE type = 'domainregister' AND relid = 31");
+        $this->whmcs->exec("INSERT INTO tblpricing (type, currency, relid, msetupfee, qsetupfee, ssetupfee, asetupfee, bsetupfee, tsetupfee, monthly, quarterly, semiannually, annually, biennially, triennially)
+            VALUES ('domainregister', 2, 31, 20, 0, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1)");
+
+        $notes = $this->import()['notes'];
+
+        $register = array_values(array_filter($notes, fn (string $note) => str_starts_with($note, '.com: register at 0.00')));
+        $this->assertSame(['.com: register at 0.00 in WHMCS, not offered here: 2, 3 year(s) in EUR; 2 year(s) in USD.'], $register);
+        $this->assertSame([], array_values(array_filter($notes, fn (string $note) => str_contains($note, 'year(s) in EUR at 0.00'))), 'never one per year');
     }
 
     /** A hidden WHMCS group is off the menu, still opened by its link; a visible one is in it (docs/admin-ux.md). */

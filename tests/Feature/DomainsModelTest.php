@@ -80,6 +80,8 @@ class DomainsModelTest extends TestCase
         DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'register', 'years' => 2, 'currency_code' => 'USD', 'price' => '19.00']);
         DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'transfer', 'years' => 1, 'currency_code' => 'USD', 'price' => '0.00']);
         DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'renew', 'years' => 10, 'currency_code' => 'USD', 'price' => null, 'cost' => '80.00', 'cost_currency' => 'EUR']);
+        // A registration and a transfer are sold only where a renewal is offered (review D1, D2).
+        DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'renew', 'years' => 2, 'currency_code' => 'USD', 'price' => '21.00']);
         $tld->load('prices');
 
         $this->assertSame('19.00', $tld->priceFor('register', 2, 'USD'));

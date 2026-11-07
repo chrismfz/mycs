@@ -186,7 +186,8 @@ class DomainOrderFulfilment
 
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
             'action' => $register ? 'register' : 'transfer', 'status' => DomainRegistrarLog::STATUS_PENDING, 'invoice_id' => $line?->invoice_id,
-            'request' => ['years' => $domain->years, 'nameservers' => $domain->nameservers->pluck('host')->all(), 'line' => $line?->id]]);
+            // A transfer asks no period (transferIn): its log says the year it adds, not its renewal period (review 2 of #696).
+            'request' => ['years' => $register ? $domain->years : 1, 'nameservers' => $domain->nameservers->pluck('host')->all(), 'line' => $line?->id]]);
         $transactions = app(RegistrarTransactions::class);
         $mark = $transactions->mark();
         try {

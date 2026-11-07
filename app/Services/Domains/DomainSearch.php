@@ -314,18 +314,16 @@ class DomainSearch
     public function priceList(string $currency): array
     {
         return $this->sold($currency)->map(function (DomainTld $tld) use ($currency) {
-            // The years of what the list shows (review R12: not a grace or redemption fee's).
-            $years = $tld->prices->where('currency_code', $currency)->whereIn('operation', ['register', 'renew', 'transfer'])
-                ->pluck('years')->unique()->sort()->values();
+            // What is sold, by DomainTld's one rule (offeredYears, priceFor: review D2), each computed once (review D6):
+            // the years of what the list shows (review R12: not a grace or redemption fee's), only those with something
+            // offered (review D5: never an all-empty row of years whose register and renew are 0.00).
+            $offered = collect(['register', 'renew', 'transfer'])->mapWithKeys(fn (string $operation) => [$operation => $tld->offeredYears($operation, $currency)]);
+            $years = $offered->flatten()->unique()->sort()->values();
 
             return [
                 'tld' => $tld->tld,
-                'years' => $years->mapWithKeys(fn (int $y) => [$y => [
-                    // Only a registration it renews for (DomainTld::offeredYears).
-                    'register' => $tld->offeredYears('register', $currency)->contains($y) ? $tld->priceFor('register', $y, $currency) : null,
-                    'renew' => $tld->priceFor('renew', $y, $currency),
-                    'transfer' => $tld->priceFor('transfer', $y, $currency),
-                ]])->all(),
+                'years' => $years->mapWithKeys(fn (int $y) => [$y => $offered->map(fn ($sold, string $operation) => $sold->contains($y)
+                    ? $tld->priceFor($operation, $y, $currency) : null)->all()])->all(),
             ];
         })->values()->all();
     }

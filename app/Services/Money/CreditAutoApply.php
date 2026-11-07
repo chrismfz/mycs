@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Service\DunningRules;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * Not on: a credit purchase (add funds); an invoice with a payment on its way (processing); an invoice of a service
  * with a gateway subscription (Stripe/PayPal charge the whole amount: credit first would be paid twice), except its
  * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e; and once
- * it is overdue, the subscription not having paid it: ADV-A3-3); an
+ * it is overdue, the subscription not having paid it, once overdue by Suspend Days: ADV-A3-3, P2); an
  * invoice of a service the customer asked to cancel; an upgrade invoice (the cron reprices it); an invoice staff took
  * a credit payment off (deleted it: the sweep would put it back); a customer who opted out (clients.credit_auto_apply).
  * Read under the payment locks, as the payment itself.
@@ -81,11 +82,20 @@ class CreditAutoApply
         $paid = 0;
         $invoices = Invoice::query()->where('client_id', $clientId)->where('currency_code', $currency)
             ->where('status', Invoice::STATUS_UNPAID)->orderBy('due_at')->orderBy('id')->pluck('id');
+        $overdueRenewals = null;
         foreach ($invoices as $invoiceId) {
-            if ($ledger->balanceCents($clientId, $currency) <= 0) {
+            $balance = $ledger->balanceCents($clientId, $currency);
+            if ($balance <= 0) {
                 break;
             }
-            if ($this->toInvoice($invoiceId) !== null || $this->toOverdueSubscriptionRenewal((int) $invoiceId) !== null) {
+            if ($this->toInvoice($invoiceId) !== null) {
+                $paid++;
+
+                continue;
+            }
+            // Read once per customer, and only when credit refused one: never three queries per invoice refused (P4).
+            $overdueRenewals ??= $this->overdueSubscriptionRenewals($clientId, $currency);
+            if (isset($overdueRenewals[(int) $invoiceId]) && $this->toOverdueSubscriptionRenewal((int) $invoiceId, $balance) !== null) {
                 $paid++;
             }
         }
@@ -94,24 +104,46 @@ class CreditAutoApply
     }
 
     /**
-     * The renewal of a service with a gateway subscription, past its due date: the subscription did not pay it (a card
-     * failed, cancelled at the gateway), so credit that covers it all pays it, as toSubscriptionRenewal() does when it is
-     * billed, rather than the service being suspended and ended with its credit unused (ADV-A3-3). A later sale of the
-     * subscription finds no open invoice and becomes credit.
+     * The customer's renewals of a service with a gateway subscription that the subscription did not pay (a card failed,
+     * cancelled at the gateway), overdue by Suspend Days (cronjob_order_suspend, from the invoice's due date, the days the
+     * cron counts): credit that covers it all pays it then, as toSubscriptionRenewal() does when it is billed, rather than
+     * the service being suspended and ended with its credit unused (ADV-A3-3). Not before: a subscription charge a day or
+     * two late (Stripe's retries, a PayPal sale) would find it paid and become credit, the customer charged twice (review
+     * of #692, P2). A plain date rule (review 2): whatever the service's hold, exemption, the dunning window or the
+     * suspension switch, and also once it is suspended for non-payment (credit that comes later brings it back).
+     *
+     * @return array<int, int> invoice id => its position
      */
-    private function toOverdueSubscriptionRenewal(int $invoiceId): ?InvoiceTransaction
+    private function overdueSubscriptionRenewals(int $clientId, string $currency): array
     {
-        $invoice = Invoice::query()->find($invoiceId);
-        if ($invoice === null || $invoice->status !== Invoice::STATUS_UNPAID || $invoice->due_at === null
-            || !$invoice->due_at->copy()->startOfDay()->lessThan(today())) {
-            return null;
-        }
-        $services = $invoice->items()->where('reference_type', Service::class)->pluck('reference_id')->filter();
-        if ($services->isEmpty() || !Service::query()->whereIn('id', $services)->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->exists()) {
+        $dueBy = today()->subDays(DunningRules::days('cronjob_order_suspend', 8))->toDateString();
+
+        return Invoice::query()->where('client_id', $clientId)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)
+            ->whereNotNull('due_at')->whereDate('due_at', '<=', $dueBy)
+            ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', Service::query()
+                ->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+                ->where(fn ($status) => $status->where('status', Service::STATUS_ACTIVE)
+                    ->orWhere(fn ($dunned) => $dunned->where('status', Service::STATUS_SUSPENDED)
+                        ->where(fn ($unpaid) => $unpaid->whereNotNull('dunning_suspended_at')->orWhere('suspend_reason', Service::SUSPEND_REASON_PARENT))))
+                ->select('services.id')))
+            ->pluck('id')->map(fn ($id) => (int) $id)->flip()->all();
+    }
+
+    /**
+     * One of overdueSubscriptionRenewals(), paid in full from the credit. Not when the balance cannot cover what is left
+     * (no locks for nothing, P4). The customer's opt-out is read again under the lock (P3): unlike a subscription's sale
+     * that became credit (toSubscriptionRenewal), this is credit the customer kept, and they may have opted out since.
+     */
+    private function toOverdueSubscriptionRenewal(int $invoiceId, int $balance): ?InvoiceTransaction
+    {
+        $invoice = Invoice::query()->with(['items', 'adjustmentNotes', 'transactions'])->find($invoiceId);
+        if ($invoice === null || $balance < RecordPaymentService::toCents($invoice->remaining)) {
             return null;
         }
 
-        return $this->toSubscriptionRenewal($invoice);
+        return (new RecordPaymentService)->payWithCredit($invoice, onlyIfCovers: true,
+            eligible: fn (Invoice $locked): bool => self::eligible($locked, subscriptionRenewal: true)
+                && self::customerAllows((int) $locked->client_id, lock: true));
     }
 
     /**

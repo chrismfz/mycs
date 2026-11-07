@@ -111,7 +111,8 @@ final class ItemPaymentMethod
     /**
      * What its page tells the customer and staff (owner 2026-11-01: no misunderstanding): charged automatically with which
      * method, or why not, by the cron's rules (AutoCharge::due and agreementFor; review 2 of #568: a suspended service, a
-     * domain not renewing, a method stopped at its failures, an open invoice held by another item on it).
+     * domain not renewing, a method stopped at its failures, an open invoice held by another item on it; C6 of #695: a
+     * cancellation requested, of it or of another service on its open invoice).
      */
     public static function autoChargeStatus(Service|Domain $item): string
     {
@@ -124,6 +125,10 @@ final class ItemPaymentMethod
         }
         if ($item instanceof Service && $item->status !== Service::STATUS_ACTIVE) {
             return $status('not_active');
+        }
+        // Its cancellation asked (ADV-A2-1, AutoCharge::cancellationLines): its renewal is never charged (C6 of #695).
+        if ($item instanceof Service && $item->cancellation()->exists()) {
+            return $status('cancellation');
         }
         if ($item instanceof Domain && (!$item->auto_renew || in_array($item->status->value, DomainStatus::terminalValues(), true))) {
             return $status('not_renewing');
@@ -141,6 +146,9 @@ final class ItemPaymentMethod
             }
             if ($open->items()->where(fn ($lines) => self::kept($lines))->exists()) {
                 return $status('held', ['invoice' => $open->id]);
+            }
+            if ($open->items()->where(fn ($lines) => AutoCharge::cancellationLines($lines))->exists()) {
+                return $status('held_cancellation', ['invoice' => $open->id]); // another service's (C7 of #695)
             }
         }
         $client = $item->client;

@@ -863,7 +863,7 @@ class ExtensionHelper
                 // The gateway answered with a refund its webhook recorded already (a retry after a lost answer, whose
                 // idempotency key gave the first refund back): nothing more to record.
                 if ($reference !== null && GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', $reference)
-                    ->whereIn('origin', [GatewayRefund::ORIGIN_GATEWAY, GatewayRefund::ORIGIN_MYCS, GatewayRefund::ORIGIN_HAND, GatewayRefund::ORIGIN_IMPORT])->lockForUpdate()->exists()) {
+                    ->whereIn('origin', GatewayRefund::RECORDED_REFUND_ORIGINS)->lockForUpdate()->exists()) {
                     return true;
                 }
                 GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', (string) $reference)
@@ -1056,10 +1056,12 @@ class ExtensionHelper
      * - A refund for a payment not recorded here yet (its webhook late or retried), or not succeeded yet, waits and is
      *   applied when the payment is (F3).
      * - A refund the gateway already reported as failed is not recorded by a late «created» (F2).
+     * - A refund WHMCS made before the cut-over, imported by the id WHMCS kept for it ($importedAs: for Stripe its balance
+     *   transaction, txn_..., not the re_... its event carries; review of #692/#694, P1), is a replay.
      *
      * @return bool whether this call recorded it on a payment
      */
-    public static function refundedAtGateway(string $gateway, string $paymentReference, string $refundReference, float $amount, ?string $currency = null): bool
+    public static function refundedAtGateway(string $gateway, string $paymentReference, string $refundReference, float $amount, ?string $currency = null, ?string $importedAs = null): bool
     {
         $cents = RecordPaymentService::toCents($amount);
         $log = fn (string $outcome, string $reason, ?InvoiceTransaction $on = null) => GatewayLog::current()->result($outcome, $reason, [
@@ -1071,8 +1073,11 @@ class ExtensionHelper
 
             return false;
         }
-        $known = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)
-            ->where('origin', '!=', GatewayRefund::ORIGIN_WAITING)->first();
+        $known = GatewayRefund::query()->where('gateway', $gateway)
+            ->where(fn ($match) => $match->where(fn ($own) => $own->where('reference', $refundReference)->where('origin', '!=', GatewayRefund::ORIGIN_WAITING))
+                ->when($importedAs !== null && $importedAs !== '' && $importedAs !== $refundReference, fn ($match) => $match
+                    ->orWhere(fn ($whmcs) => $whmcs->where('reference', $importedAs)->where('origin', GatewayRefund::ORIGIN_IMPORT))))
+            ->first();
         $payment = self::gatewayPayment($gateway, $paymentReference);
         if ($known !== null) {
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, $known->origin === GatewayRefund::ORIGIN_FAILED ? 'refund_failed' : 'replay', $payment);
@@ -1339,9 +1344,14 @@ class ExtensionHelper
      * A refund the gateway reports as failed: if MyCS recorded it, staff check it (the money may not have left), once.
      * Not recorded yet (the failure came first, F2): kept as failed, so a late «created» does not record it.
      */
-    public static function refundFailedAtGateway(string $gateway, string $refundReference, ?string $paymentReference = null, ?float $amount = null, ?string $currency = null): void
+    public static function refundFailedAtGateway(string $gateway, string $refundReference, ?string $paymentReference = null, ?float $amount = null, ?string $currency = null, ?string $importedAs = null): void
     {
         $refund = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)->first();
+        // A refund WHMCS made, imported by the id WHMCS kept (Stripe: its balance transaction): its failure is told to
+        // staff as one recorded here, never kept as a failed refund of its own (review 2 of #694, F4).
+        if (($refund === null || $refund->origin === GatewayRefund::ORIGIN_WAITING) && $importedAs !== null && $importedAs !== '' && $importedAs !== $refundReference) {
+            $refund = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $importedAs)->where('origin', GatewayRefund::ORIGIN_IMPORT)->first() ?? $refund;
+        }
         GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'refund_failed', [
             'external_id' => $refundReference, 'invoice_transaction_id' => $refund?->invoice_transaction_id,
         ]);
