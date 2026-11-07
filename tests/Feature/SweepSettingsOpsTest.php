@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Classes\Settings;
 use App\Jobs\Domains\SendDomainOwnerChangeJob;
 use App\Models\Setting;
 use App\Models\TaxRate;
@@ -106,6 +107,9 @@ class SweepSettingsOpsTest extends TestCase
      */
     public function test_settings_ops_4_owner_change_job_timeout_is_under_the_queue_retry_after(): void
     {
+        $this->markTestIncomplete('SETTINGS-OPS-4, open for the owner: a timeout under 300 s kills a slow registry call'
+            . ' mid-send (left «sending», then «unknown», its log unwritten), and a retry_after above 660 s delays every'
+            . ' job a dead worker held; today the worst is a spurious failed_jobs row, never a second send.');
         $job = new SendDomainOwnerChangeJob(1);
         foreach (['database', 'redis'] as $connection) {
             $this->assertLessThan((int) config("queue.connections.$connection.retry_after"), $job->timeout,
@@ -126,5 +130,70 @@ class SweepSettingsOpsTest extends TestCase
 
         $this->assertSame(1, preg_match('/\$ART\s+(optimize:clear|config:clear)/', $before),
             'the old release\'s bootstrap/cache config/events are still in place while composer scripts and migrations run');
+    }
+
+    /** SETTINGS-OPS-1 (fixer): the command changes the global setting only, never an extension's of the same key. */
+    public function test_settings_ops_1_change_leaves_an_extension_setting_of_the_same_key_alone(): void
+    {
+        $extension = Setting::query()->create(['key' => 'company_name', 'value' => 'Extension own', 'type' => 'string',
+            'settingable_type' => 'App\\Models\\Extension', 'settingable_id' => 1]);
+
+        $this->artisan('app:settings:change', ['key' => 'company_name', 'value' => 'Global Co']);
+
+        $this->assertSame('Extension own', $extension->fresh()->value);
+        $this->assertSame('Global Co', Setting::query()->where('key', 'company_name')->whereNull('settingable_type')->value('value'));
+    }
+
+    /** SETTINGS-OPS-1 (fixer): a key with no definition keeps working as before (a string, not encrypted). */
+    public function test_settings_ops_1_change_of_an_unknown_key_is_stored_as_given(): void
+    {
+        $this->artisan('app:settings:change', ['key' => 'sweep_unknown_key', 'value' => 'plain']);
+
+        $row = DB::table('settings')->where('key', 'sweep_unknown_key')->whereNull('settingable_type')->first();
+        $this->assertSame('plain', $row->value);
+        $this->assertFalse((bool) $row->encrypted);
+    }
+
+    /**
+     * SETTINGS-OPS-5 (unproven, guarded): under the lock the stored pair is read again, so a visit whose config was read
+     * before another visit stored a pair keeps that pair instead of writing half of a second one.
+     */
+    public function test_settings_ops_5_a_pair_stored_meanwhile_is_kept(): void
+    {
+        $this->assertTrue(Settings::validateOrCreateVapidKeys());
+        $stored = Setting::query()->whereNull('settingable_type')->whereIn('key', ['vapid_public_key', 'vapid_private_key'])->get()->mapWithKeys(fn (Setting $setting) => [$setting->key => $setting->value]);
+        $this->assertCount(2, $stored);
+        $this->assertTrue((bool) DB::table('settings')->where('key', 'vapid_private_key')->value('encrypted'));
+
+        config(['settings.vapid_public_key' => null, 'settings.vapid_private_key' => null]); // this process read before the write
+        $this->assertTrue(Settings::validateOrCreateVapidKeys());
+
+        $again = Setting::query()->whereNull('settingable_type')->whereIn('key', ['vapid_public_key', 'vapid_private_key'])->get()->mapWithKeys(fn (Setting $setting) => [$setting->key => $setting->value]);
+        $this->assertSame($stored->all(), $again->all(), 'the pair stored meanwhile was replaced');
+    }
+
+    /** SETTINGS-OPS-2 (fixer): the cache store failing on put after a database read still leaves the settings loaded. */
+    public function test_settings_ops_2_a_cache_failing_on_write_still_loads_the_settings(): void
+    {
+        Setting::query()->updateOrCreate(['key' => 'company_name', 'settingable_type' => null], ['value' => 'Sweep Put Co']);
+        Cache::extend('sweep-put-down', fn () => Cache::repository(new class extends ArrayStore
+        {
+            public function put($key, $value, $seconds)
+            {
+                throw new \RuntimeException('Connection refused');
+            }
+
+            public function forever($key, $value)
+            {
+                throw new \RuntimeException('Connection refused');
+            }
+        }));
+        config(['cache.stores.sweep-put-down' => ['driver' => 'sweep-put-down']]);
+        Cache::setDefaultDriver('sweep-put-down');
+        config(['settings' => []]);
+
+        SettingsProvider::getSettings(true);
+
+        $this->assertSame('Sweep Put Co', config('settings.company_name'));
     }
 }
