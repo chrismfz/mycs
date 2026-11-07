@@ -287,7 +287,8 @@ final class ChangeCycle
     }
 
     /**
-     * What is left of the period paid on $today, as it was paid (with its line's tax, B2): each paid line covering today,
+     * What is left of the period paid on $today, as it was paid (with its line's tax, B2; without its setup fee or what its
+     * invoice gave back, PaidForPeriod: sweep 2): each paid line covering today,
      * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
      * (imported without one): its price, with tax, for the days to its expiry. The period's part of what a downgrade gives
      * back (DowngradeCredit) and of a cycle change's credit (quote, with the upgrades): never more than was paid.
@@ -307,8 +308,8 @@ final class ChangeCycle
         }
         $total = BigDecimal::zero();
         foreach ($lines as $line) {
-            $total = $total->plus(BillingPeriod::remaining(number_format((float) $line->line_total, 2, '.', ''),
-                $line->period_start, $line->period_end, $today));
+            // What it paid for its days: not a setup fee on it, not what its invoice gave back (sweep 2, PaidForPeriod).
+            $total = $total->plus(BillingPeriod::remaining(PaidForPeriod::of($line), $line->period_start, $line->period_end, $today));
         }
 
         return (string) $total->toScale(2);

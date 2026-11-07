@@ -1272,9 +1272,27 @@ class CronJob extends Command
         $changed = 0;
         $lines = $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->orderBy('id')->get();
         [$discounts, $charges] = $lines->partition(fn (InvoiceItem $line) => $line->kind === InvoiceItem::KIND_DISCOUNT);
-        $charges->each(function (InvoiceItem $line) use ($price, &$changed) {
-            $changed += ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = $price) ? 1 : 0;
+        // A charge at another price than the one last put on it was changed by staff (a gesture on the unpaid invoice):
+        // theirs, never raised back, its discount with it (sweep 2, F-PLAN-CHANGE-3). Read under the invoice's lock.
+        $charged = $upgrade->charged === null ? null : BigDecimal::of((string) $upgrade->charged);
+        $byStaff = false;
+        $charges->each(function (InvoiceItem $line) use ($price, $charged, &$changed, &$byStaff) {
+            $changed += ChangeOpenLine::handle($line, function (InvoiceItem $locked) use ($price, $charged, &$byStaff) {
+                if ($charged !== null && BigDecimal::of(number_format((float) $locked->price, 2, '.', ''))->compareTo($charged) !== 0) {
+                    $byStaff = true;
+
+                    return;
+                }
+                $locked->price = $price;
+            }) ? 1 : 0;
         });
+        if ($byStaff) {
+            return $changed > 0 ? 1 : 0;
+        }
+        if ($changed > 0) {
+            // To the expiry now: a renewal paid before this run is in the price, not the shortfall's (REV2-PC-2).
+            $upgrade->forceFill(['charged' => number_format($price, 2, '.', ''), 'charged_until' => $service->expires_at?->toDateString()])->save();
+        }
         // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge, worked out from what it was
         // given on (no drift from a day's rounding): the same percentage, or the share an amount was (ADV-685-2: frozen, a
         // discount came to cost more than none). Never more than given: the days a renewal paid meanwhile adds are billed

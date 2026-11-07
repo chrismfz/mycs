@@ -128,6 +128,8 @@ final class PlaceOrderService
                         'reference_type' => Service::class,
                         'price' => $firstPayment,
                         'quantity' => $line->quantity,
+                        // Its setup fee, apart from its period's price: never given back as unused days (sweep 2).
+                        'setup_fee' => BigDecimal::of($price->netSetupFee)->isPositive() ? $price->netSetupFee : null,
                     ] + ($period === null ? ['description' => $service->description] : [
                         'description' => $service->describeLine($period['start'], $period['end']),
                         'period_start' => $period['start'],
