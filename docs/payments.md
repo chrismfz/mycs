@@ -354,10 +354,17 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Αν το gateway επέστρεψε αλλά η εγγραφή εδώ απέτυχε (το commit), το webhook τη γράφει: η «χαμένη» επιστροφή του 2c-1
     διορθώνεται μόνη της, και το Log::critical λέει πια στο staff να **μην** την καταγράψει και με το χέρι (δείχνει το id).
   - Gateway που δεν δίνει id (μόνο `true`): warning στο log, γιατί το webhook του δεν μπορεί να την αναγνωρίσει.
-  - Επιστροφή που έκανε το WHMCS πριν το cut-over: ο importer γράφει το id της (`tblaccounts.transid`, π.χ. `re_…`) με
-    origin `import`, για τα gateways που έχει το MyCS (όχι για επιστροφή σε πίστωση). Ένα αργό event της μετά το cut-over
-    (`refund.updated` του Stripe) είναι `replay`, ποτέ δεύτερη καταγραφή (ADV-A4-2). Επιστροφή του WHMCS χωρίς `transid`
-    δεν έχει γραμμή: ένα event της θα γραφόταν ξανά (το staff το βλέπει στο gateway log).
+  - Επιστροφή που έκανε το WHMCS πριν το cut-over: ο importer γράφει το id της (`tblaccounts.transid`) με origin
+    `import`, για τα gateways που έχει το MyCS (όχι για επιστροφή σε πίστωση). Ένα αργό event της μετά το cut-over
+    (`refund.updated` του Stripe) είναι `replay`, ποτέ δεύτερη καταγραφή (ADV-A4-2). Για το Stripe το WHMCS κρατά το
+    **balance transaction** της επιστροφής (`txn_…`, έτσι και στο αντίγραφο της nixpal), όχι το `re_…` που φέρνει το
+    event: το webhook ταιριάζει και το `balance_transaction` του event με γραμμή `import` (review P1), και στο
+    `refund.failed` (το staff ειδοποιείται, F4). Ένα event χωρίς `balance_transaction` δεν ταιριάζει και θα γραφόταν ως νέα
+    επιστροφή· για επιστροφή του WHMCS δεν αναμένεται, γιατί το Stripe το ορίζει μόλις γίνει η επιστροφή, πριν το cut-over (F5). Το PayPal: το
+    `transid` είναι το id της επιστροφής, το ίδιο με το `txn_id` του IPN. Επιστροφή του WHMCS χωρίς `transid`, ή χωρίς
+    `refundid` (παλιό WHMCS, ή γραμμένη με το χέρι: δεν δείχνει σε πληρωμή, ο importer την αναφέρει ως «money out on no
+    payment»), **δεν** έχει γραμμή: ένα αργό event της θα γραφόταν ξανά (το staff το βλέπει στο gateway log· review του
+    #694, F7).
 - **Τα χρήματα έφυγαν ήδη:** το webhook δεν αρνείται. **Πρώτα από την υπερπληρωμή** (sweep 9γ, υπεύθυνος 2026-10-30):
   ό,τι η πληρωμή πλήρωσε παραπάνω, ή το staff επέστρεψε από αυτήν σε πίστωση (`credited_amount`, όσο δεν πλήρωσε άλλα τιμολόγια
   μέσω της πληρωμής) αφαιρείται από την πίστωση· το τιμολόγιο δεν αγγίζεται, και το staff ειδοποιείται (μπορεί να ήταν
@@ -766,7 +773,12 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
     mail· αν αποτύχει, το PayPal το ξαναστέλνει.
     Χωρίς mail, μόνο γραμμή στο payments log («already recorded here (invoice #N)»), όταν η συναλλαγή είναι ήδη εδώ
     (ADV-A4-4: η ρύθμιση IPN του λογαριασμού στέλνει εδώ **κάθε** συναλλαγή, και του MyCS): πληρωμή με το `txn_id` της
-    σε τιμολόγιο· refund/reversal (όχι `Canceled_Reversal`) με το `txn_id` στο `gateway_refunds` του PayPal, ή πληρωμής
+    σε τιμολόγιο, μόνο ενός gateway PayPal (succeeded, ή processing: το webhook του την ολοκληρώνει) ή καταγεγραμμένη
+    με το χέρι χωρίς gateway (succeeded)· ποτέ γραμμή άλλου gateway με το ίδιο id (review του #694, F3)· και gateway
+    PayPal που το staff αφαίρεσε μετά (soft-deleted, F6)·
+    refund/reversal (όχι `Canceled_Reversal`) με το `txn_id` στο `gateway_refunds` του PayPal, όταν κάτι γράφτηκε
+    (`recorded_amount` > 0· γραμμή που δεν έγραψε τίποτα, άλλο νόμισμα ή τίποτα δεν έμενε, πάει στο staff· ενώ `hand`,
+    `import` του WHMCS και chargeback που κερδήθηκε είναι η εγγραφή των χρημάτων και στο 0, F8), ή πληρωμής
     που κατέγραψε το ίδιο το gateway PayPal (`parent_txn_id`, η κίνησή της με `external_reference`: την καταγράφει το
     webhook του). Reversal πληρωμής της εποχής του WHMCS, ή πληρωμής που το staff κατέγραψε με το χέρι (R4-1: ένα
     classic Standard sale δεν έχει REST webhook), πάει στο staff, όπως πριν.

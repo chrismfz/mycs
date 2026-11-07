@@ -25,6 +25,12 @@ class GatewayRefund extends Model
     /** Reported failed by the gateway before anything was recorded: a late «created» records nothing. */
     public const ORIGIN_FAILED = 'failed';
 
+    /**
+     * The origins of a refund known on its payment by its id (MyCS's own, the gateway's, matched to one by hand, WHMCS's
+     * imported): never refunded or recorded again (ExtensionHelper::refund, Mollie::refund, the legacy IPN; review of #694, F5).
+     */
+    public const RECORDED_REFUND_ORIGINS = [self::ORIGIN_MYCS, self::ORIGIN_GATEWAY, self::ORIGIN_HAND, self::ORIGIN_IMPORT];
+
     /** The gateway took the payment back for a dispute (PR 2c-2b); money_event_id is its journal event. */
     public const ORIGIN_CHARGEBACK = 'chargeback';
 

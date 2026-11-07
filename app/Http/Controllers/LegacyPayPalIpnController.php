@@ -44,6 +44,9 @@ class LegacyPayPalIpnController extends Controller
      */
     private const FORGED_PER_MINUTE = 30;
 
+    /** MyCS's PayPal gateways: their payments are recorded by their own answers and webhooks. */
+    private const GATEWAYS = ['PayPal', 'PayPal_IPN'];
+
     /**
      * The notices of a subscription or recurring profile that has ended for good: cancelled, at its end, expired. Not a
      * suspension: it may be activated again, and an IPN has no status to ask (code review of #605).
@@ -182,18 +185,31 @@ class LegacyPayPalIpnController extends Controller
     {
         $invoice = fn (?int $id) => $id === null ? null : 'invoice #' . $id;
         if ($kind === 'money') {
+            // A PayPal payment of ours (its gateways, or one staff recorded by hand, no gateway, as gatewayPayment matches),
+            // succeeded; or processing on a PayPal gateway: its own webhook completes it. Never another gateway's row with
+            // the same id, nor a hand row not succeeded (review of #694, F3). A gateway staff removed since still counts (F6).
             return $txn === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $txn)->where('is_credit_transaction', false)
-                ->where('status', '!=', InvoiceTransactionStatus::Failed)->orderBy('id')->value('invoice_id'));
+                ->where(fn ($ours) => $ours
+                    ->where(fn ($gateway) => $gateway->whereHas('gateway', fn ($gw) => $gw->withTrashed()->whereIn('extension', self::GATEWAYS))
+                        ->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing]))
+                    ->orWhere(fn ($hand) => $hand->whereNull('gateway_id')->where('status', InvoiceTransactionStatus::Succeeded)))
+                ->orderBy('id')->value('invoice_id'));
         }
-        // A refund's own id only for money that went back: a Canceled_Reversal is money coming back to us (R4-3).
+        // A refund's own id only for money that went back: a Canceled_Reversal is money coming back to us (R4-3). Recorded
+        // only when it was: a row that recorded nothing (another currency, nothing left on the payment) is staff's, as its
+        // webhook said; one matched to a refund by hand, WHMCS's own imported or a won chargeback is the money's record
+        // even at 0 (review of #694, F8).
         $refund = $txn === '' || $status === 'Canceled_Reversal' ? null : GatewayRefund::query()->where('gateway', 'PayPal')->where('reference', $txn)
-            ->whereNotIn('origin', [GatewayRefund::ORIGIN_WAITING, GatewayRefund::ORIGIN_FAILED, GatewayRefund::ORIGIN_CHARGEBACK_WAITING])->first();
+            ->whereIn('origin', [...GatewayRefund::RECORDED_REFUND_ORIGINS, GatewayRefund::ORIGIN_CHARGEBACK, GatewayRefund::ORIGIN_CHARGEBACK_WON])
+            ->where(fn ($recorded) => $recorded->where('recorded_amount', '>', 0)
+                ->orWhereIn('origin', [GatewayRefund::ORIGIN_HAND, GatewayRefund::ORIGIN_IMPORT, GatewayRefund::ORIGIN_CHARGEBACK_WON]))
+            ->first();
         if ($refund !== null) {
             return $invoice(InvoiceTransaction::query()->whereKey($refund->invoice_transaction_id)->value('invoice_id')) ?? 'refund ' . $refund->id;
         }
 
         return $parent === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $parent)->where('is_credit_transaction', false)
-            ->whereHas('gateway', fn ($gw) => $gw->where('extension', 'PayPal'))
+            ->whereHas('gateway', fn ($gw) => $gw->withTrashed()->where('extension', 'PayPal'))
             // The gateway recorded it itself: its payment event carries the provider's id, which one staff entered by hand
             // (a legacy Standard sale this controller told them to record) or the importer wrote never does (R4-1).
             ->whereExists(fn ($own) => $own->from('money_events')->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')
