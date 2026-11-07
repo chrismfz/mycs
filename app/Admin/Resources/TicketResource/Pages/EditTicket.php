@@ -138,6 +138,7 @@ class EditTicket extends EditRecord
                         ['table'],
                         ['undo', 'redo'],
                     ])
+                    ->maxLength(TicketMessage::MAX_LENGTH)
                     ->required(fn (Get $get) => count($get('attachments')) == 0),
                 FileUpload::make('attachments')
                     ->label('Attachments')

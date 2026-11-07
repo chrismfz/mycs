@@ -4,8 +4,11 @@ namespace App\Livewire\Tickets;
 
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
+use App\Models\TicketMessage;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use App\Support\Knowledgebase\KbSearch;
 use App\Support\Tickets\TicketFiles;
@@ -41,8 +44,8 @@ class Create extends Component
                 ? ['required', 'integer', Rule::in(TicketDepartment::query()->offered()->pluck('id')->all())] : 'prohibited',
             // A service of the account, named only by a login that may see the services (`products`, PR 2b).
             'service' => CurrentClient::allows('products') ? 'nullable|exists:services,id,client_id,' . CurrentClient::id() : 'prohibited',
-            'subject' => 'required|string',
-            'message' => 'required|string',
+            'subject' => 'required|string|max:255',
+            'message' => 'required|string|max:' . TicketMessage::MAX_LENGTH,
             'priority' => 'required|in:low,medium,high',
             'attachments' => 'array|max:' . Attachments::MAX_COUNT,
             'attachments.*' => ['file', 'max:' . (Attachments::MAX_BYTES / 1024), TicketFiles::rule()],
@@ -57,24 +60,31 @@ class Create extends Component
 
         RateLimiter::increment($rateLimitKey, 30);
 
-        $ticket = Ticket::create([
-            'client_id' => CurrentClient::id(),
-            'department_id' => $this->department,
-            'opened_via' => 'portal',
-            'service_id' => $this->service,
-            'subject' => $this->subject,
-            'priority' => $this->priority,
-        ]);
+        // The ticket, its first message and its files together: never a ticket left with no message (and no staff notice).
+        $ticket = TicketFiles::transaction(function () {
+            $ticket = Ticket::create([
+                'client_id' => CurrentClient::id(),
+                'department_id' => $this->department,
+                'opened_via' => 'portal',
+                'service_id' => $this->service,
+                'subject' => $this->subject,
+                'priority' => $this->priority,
+            ]);
 
-        $message = $ticket->messages()->create([
-            'user_id' => Auth::id(),
-            'message' => $this->message,
-        ]);
+            // Written by staff logged in as the client (AUTH-19): the staff member's words, not the customer's (as Show::save).
+            $actor = Actor::current();
+            $message = $ticket->messages()->create([
+                ...($actor instanceof Staff ? ['staff_id' => $actor->id] : ['user_id' => Auth::id()]),
+                'message' => $this->message,
+            ]);
 
-        // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
-        foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
-            TicketFiles::storeUpload($message, $attachment);
-        }
+            // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
+            foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
+                TicketFiles::storeUpload($message, $attachment);
+            }
+
+            return $ticket;
+        });
 
         $this->notify(__('Message sent successfully'), redirect: true);
 
