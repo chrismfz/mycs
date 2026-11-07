@@ -7,6 +7,7 @@ use App\Models\Audit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ServiceUpgrade;
 use App\Models\User;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Support\AuditSummary;
@@ -64,8 +65,6 @@ class KeptLineActivityTest extends TestCase
         $this->assertSame('12.00', $audits[0]->new_values['price']);
         $this->assertStringContainsString('Invoice item id: ' . $line->id, AuditSummary::changes($audits[0]), 'which line, in the summary');
         $this->assertSame(ChangeOpenLine::KEPT_PAYMENT, $audits[0]->new_values['kept_because']);
-        $this->assertEquals(10, $audits[0]->old_values['price']);
-        $this->assertEquals(12, $audits[0]->new_values['price']);
         $this->assertSame('Line Kept At Price', AuditSummary::verb($audits[0]->event));
         $this->assertStringContainsString('Price: ', AuditSummary::changes($audits[0]));
     }
@@ -93,15 +92,28 @@ class KeptLineActivityTest extends TestCase
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 12.0);
         $this->assertCount(1, $this->kept($line));
 
-        // The price the change would make moves on (an upgrade's days left): the same kept line, no new row (ADV-KL-1).
+        // Another figure for a line that is not an upgrade's (a domain asked for 3 years after 2): told.
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 14);
-        $this->assertCount(1, $this->kept($line));
-
-        // Another kind of change (its period and text too, e.g. staff changed the plan): told.
-        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill(['price' => 14, 'description' => 'Hosting XL']));
         $this->assertCount(2, $this->kept($line));
-        $this->assertSame('Hosting XL', $this->kept($line)[1]->new_values['description']);
-        $this->assertSame('Hosting', $this->kept($line)[1]->new_values['line']);
+
+        // Another kind of change (its text too): told.
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill(['price' => 14, 'description' => 'Hosting XL']));
+        $this->assertCount(3, $this->kept($line));
+        $this->assertSame('Hosting XL', $this->kept($line)[2]->new_values['description']);
+        $this->assertSame('Hosting', $this->kept($line)[2]->new_values['line']);
+    }
+
+    public function test_an_upgrade_line_whose_price_follows_the_days_left_is_told_once_per_direction(): void
+    {
+        $line = $this->line(27);
+        $line->forceFill(['reference_type' => ServiceUpgrade::class, 'reference_id' => 1])->save();
+        $line->invoice->transactions()->create(['amount' => 5, 'status' => InvoiceTransactionStatus::Succeeded]);
+
+        foreach (['28.50', '28.06', '27.60', '26.13', '25.70'] as $price) {
+            ChangeOpenLine::handle($line->fresh(), fn (InvoiceItem $locked) => $locked->price = $price);
+        }
+
+        $this->assertSame(['28.50', '26.13'], array_map(fn (Audit $audit) => $audit->new_values['price'], $this->kept($line)));
     }
 
     public function test_a_change_that_turns_from_raising_to_lowering_is_told_again(): void
@@ -111,7 +123,7 @@ class KeptLineActivityTest extends TestCase
 
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 12); // would owe more
         ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 8);  // would have overpaid
-        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 7);  // still down: the same
+        ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->price = 8);  // the same again: nothing
 
         $audits = $this->kept($line);
         $this->assertCount(2, $audits);

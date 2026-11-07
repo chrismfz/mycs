@@ -100,8 +100,10 @@ class AdvKeptLineActivityTest extends TestCase
         $this->assertNotSame([], $this->kept($invoice->id), 'told at least once (setup check)');
         // At most one more: here the days-left price falls below the billed 27 once, from «would owe more» to «overpaid»,
         // which staff are told of (review of the ADV-KL fix). Never a row a day.
-        $this->assertLessThanOrEqual(2, count($this->kept($invoice->id)),
-            'one waiting upgrade on a part-paid invoice: a row a day in its activity (' . count($this->kept($invoice->id)) . ' rows in 4 days)');
+        $kept = $this->kept($invoice->id);
+        $this->assertCount(2, $kept, 'one waiting upgrade on a part-paid invoice: a row a day in its activity (' . count($kept) . ' rows in 4 days)');
+        $this->assertSame('2026-10-14', $kept[1]->created_at->toDateString(), 'the second row is the turn to lowering, not a later day');
+        $this->assertLessThan(27, (float) $kept[1]->new_values['price']);
     }
 
     /**

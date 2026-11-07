@@ -10,6 +10,7 @@ use App\Models\ServiceUpgrade;
 use App\Services\Money\PaymentsLog;
 use Brick\Math\BigDecimal;
 use Closure;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Events\AuditCustom;
 
@@ -105,8 +106,8 @@ class ChangeOpenLine
 
     /**
      * In the invoice's activity: old = the line as billed (what stays), new = what the change would have made of it, the
-     * line and why it was kept. Once per line, reason and fields until the line itself changes: an upgrade's price follows
-     * the days left, so the cron would otherwise add a row a day for one kept line (ADV-KL-1); a line edited since its
+     * line and why it was kept. Once per line and outcome until the line itself changes; an upgrade's line once per reason,
+     * fields and direction, since its price follows the days left and the cron would add a row a day (ADV-KL-1); a line edited since its
      * last row is told again (ADV-KL-2). Only where the audit is on (the cron, jobs, web; not tinker or the importer,
      * config/audit.php): a custom event skips that check of its own (ADV-KL-3).
      */
@@ -124,15 +125,17 @@ class ChangeOpenLine
             $new[$field] = self::plain($wouldBe->getAttributeValue($field));
         }
         $last = Audit::query()->where('auditable_type', $invoice->getMorphClass())->where('auditable_id', $invoice->getKey())
-            ->where('event', self::AUDIT_EVENT)->orderByDesc('id')->limit(50)->get()
-            ->first(fn (Audit $audit) => (int) (((array) $audit->new_values)['invoice_item_id'] ?? 0) === (int) $billed->getKey());
+            ->where('event', self::AUDIT_EVENT)->where('new_values->invoice_item_id', (int) $billed->getKey())->orderByDesc('id')->first();
         if ($last !== null) {
             $was = (array) $last->new_values;
             $wasFields = array_values(array_diff(array_keys($was), ['invoice_item_id', 'line', 'kept_because']));
             sort($wasFields);
             $edited = $billed->updated_at !== null && $last->created_at !== null && $billed->updated_at->greaterThan($last->created_at);
             $same = ($was['kept_because'] ?? null) === $because && $wasFields === $fields && (array) $last->old_values == $old
-                && self::direction((array) $last->old_values, $was) === self::direction($old, $new);
+                && self::direction((array) $last->old_values, $was) === self::direction($old, $new)
+                // Only an upgrade's line drifts by itself (its price follows the days left); any other line's new figures
+                // (a domain asked for 3 years after 2) are another outcome (final review).
+                && ($billed->reference_type === ServiceUpgrade::class || Arr::only($was, $fields) == Arr::only($new, $fields));
             if (!$edited && $same) {
                 return;
             }
