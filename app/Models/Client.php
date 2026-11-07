@@ -261,6 +261,12 @@ class Client extends Model implements Auditable
         return $this->hasMany(Ticket::class);
     }
 
+    /** @return HasMany<LiveChat, $this> the account's live chats (docs/livechat.md §6α), read in the admin's «Chats» tab */
+    public function liveChats(): HasMany
+    {
+        return $this->hasMany(LiveChat::class);
+    }
+
     /** @return HasMany<Credit, $this> */
     public function credits(): HasMany
     {

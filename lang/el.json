@@ -1720,5 +1720,12 @@
     "Cron summary :period": "Σύνοψη cron :period",
     ":count service due|:count services due": ":count υπηρεσία λήγει|:count υπηρεσίες λήγουν",
     "Terminations are off (Settings → Cron): what is due to be terminated waits until «Enable Termination» is on again.": "Οι τερματισμοί είναι κλειστοί (Settings → Cron): ό,τι λήγει για τερματισμό περιμένει μέχρι να ξαναγίνει on το «Enable Termination».",
-    "not sent to: inactive or no access": "δεν το λαμβάνει: ανενεργός ή χωρίς πρόσβαση"
+    "not sent to: inactive or no access": "δεν το λαμβάνει: ανενεργός ή χωρίς πρόσβαση",
+    "Chats": "Chats",
+    "Started by": "Ξεκίνησε από",
+    "Messages": "Μηνύματα",
+    "Operator": "Operator",
+    "No chats": "Κανένα chat",
+    "Chat #:id": "Chat #:id",
+    "No messages": "Κανένα μήνυμα"
 }

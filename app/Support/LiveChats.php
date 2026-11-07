@@ -8,6 +8,7 @@ use App\Models\LiveChatMessage;
 use App\Models\Staff;
 use App\Models\TicketDepartment;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -162,6 +163,21 @@ class LiveChats
     public static function canSee(?Staff $staff, LiveChat $chat): bool
     {
         return self::isOperator($staff) && $chat->department_id !== null && in_array($chat->department_id, self::departmentsOf($staff), true);
+    }
+
+    /**
+     * The chats of a query a member may see, as canSee() decides one by one (F3): none for who is not an operator, else
+     * only those of the departments that list them. Applied to the query itself, on every request (F7).
+     *
+     * @param  Builder<LiveChat>  $query
+     * @return Builder<LiveChat>
+     */
+    public static function seenBy(Builder $query, ?Staff $staff): Builder
+    {
+        $departments = $staff !== null && self::isOperator($staff) ? self::departmentsOf($staff) : [];
+        $departments === [] ? $query->whereRaw('1 = 0') : $query->whereIn('department_id', $departments);
+
+        return $query;
     }
 
     /** A member may take, write in and close a chat they see. */
@@ -367,6 +383,16 @@ class LiveChats
     public static function messages(LiveChat $chat): \Illuminate\Support\Collection
     {
         return $chat->messages()->with(['staff:id,first_name,last_name,email', 'user:id,first_name,last_name,email'])->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
+    }
+
+    /**
+     * The whole conversation, oldest first, staff notes included: the admin's read-only history (§6α). Reads only.
+     *
+     * @return \Illuminate\Support\Collection<int, LiveChatMessage>
+     */
+    public static function history(LiveChat $chat): \Illuminate\Support\Collection
+    {
+        return $chat->messages()->with(['staff:id,first_name,last_name,email', 'user:id,first_name,last_name,email'])->orderBy('id')->get();
     }
 
     /**
