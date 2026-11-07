@@ -1146,13 +1146,14 @@ class ExtensionHelper
 
     /**
      * The extensions whose payments are on the same account at the gateway as $gateway's: a PayPal_IPN payment is the
-     * PayPal account's, told under «PayPal» (its refunds, chargebacks and disputes; F-GATEWAY-WEBHOOKS-2).
+     * PayPal account's, told under «PayPal» (its refunds, chargebacks and disputes; F-GATEWAY-WEBHOOKS-2), and either
+     * one's replay is the other's (RecordPaymentService; REV2-FGW-2).
      *
      * @return list<string>
      */
-    private static function accountExtensions(string $gateway): array
+    public static function accountExtensions(string $gateway): array
     {
-        return $gateway === 'PayPal' ? ['PayPal', 'PayPal_IPN'] : [$gateway];
+        return in_array($gateway, ['PayPal', 'PayPal_IPN'], true) ? ['PayPal', 'PayPal_IPN'] : [$gateway];
     }
 
     /** A payment was recorded (succeeded): the refunds that waited for it are recorded now (F3). */
@@ -1608,14 +1609,15 @@ class ExtensionHelper
     }
 
     /**
-     * A dispute opened on the payment after the won-early marker $early and not closed (no resolution kept for it):
-     * its id, else null. A reversal then may be that dispute's, not the late one of the dispute already won.
+     * A dispute on the payment other than the won-early marker $early's and not closed (no resolution kept for it),
+     * wherever it was opened (before the win too: overlapping disputes, REV2-FGW-1): its id, else null. A reversal then
+     * may be that dispute's, not the late one of the dispute already won.
      */
     private static function laterOpenDispute(string $gateway, int $paymentId, GatewayRefund $early): ?string
     {
         $opened = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $paymentId)
             ->where('origin', GatewayRefund::ORIGIN_DISPUTE)->where('reference', 'like', 'opened:%')
-            ->where('id', '>', $early->id)->orderBy('id')->pluck('reference');
+            ->orderBy('id')->pluck('reference');
         foreach ($opened as $reference) {
             $dispute = substr((string) $reference, strlen('opened:'));
             if ($dispute !== $early->reference && !GatewayRefund::query()->where('gateway', $gateway)->where('reference', $dispute)->exists()) {
