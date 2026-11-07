@@ -8,6 +8,7 @@ return [
         'credit_payment' => 'πληρωμή από πίστωση',
         'purchase' => 'αγορά πίστωσης',
         'purchase_refunded' => 'επιστροφή αγοράς πίστωσης',
+        'purchase_reopened' => 'αγορά πίστωσης ανοιχτή ξανά (επιστρέφει όταν εξοφληθεί)',
         'transaction_deleted' => 'διαγραφή συναλλαγής',
         'cancellation' => 'ακύρωση',
         'staff_adjustment' => 'προσαρμογή από staff',

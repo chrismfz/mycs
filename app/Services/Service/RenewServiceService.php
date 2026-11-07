@@ -50,6 +50,8 @@ class RenewServiceService
                 // A server job the commit that applied it decided and the queue never took (predeploy S4): its marker
                 // brought this replay, and the row its failed push wrote asks for it again.
                 ModuleAction::askAgainNotQueued($locked);
+                $this->paidAgain($locked, $item);
+                $service->setRawAttributes($locked->getAttributes(), true);
 
                 return;
             }
@@ -145,6 +147,28 @@ class RenewServiceService
             $this->activate($locked, $paidUntil, $item->period_start ? CarbonImmutable::parse($item->period_start) : null); // never earlier than $current: the chain starts there
             $service->setRawAttributes($locked->getAttributes(), true);
         });
+    }
+
+    /**
+     * A line applied before, on an invoice paid again since (set back to unpaid, or charged back, then paid; the dispute
+     * won): not a replay. Its period was renewed then and is not renewed again, but a service suspended for non-payment
+     * meanwhile is treated as on any payment: back when nothing else is overdue, else kept suspended and staff told; and
+     * the line counts as paid since the suspension, so the cron bills its next period (sweep3 L-SERVICE-STATE-1: else
+     * never billed, and terminated with nothing open to pay). A replay of the same payment (the cron's, BIL-9) applied
+     * the line after the invoice became paid, and changes nothing.
+     */
+    private function paidAgain(Service $service, InvoiceItem $item): void
+    {
+        $paidSince = Invoice::query()->whereKey($item->invoice_id)->where('status', Invoice::STATUS_PAID)->value('apply_pending_since');
+        if ($paidSince === null || !$item->applied_at->lessThan(CarbonImmutable::parse($paidSince))) {
+            return;
+        }
+        if ($service->isEnded() || $service->status !== Service::STATUS_SUSPENDED || $service->dunning_suspended_at === null
+            || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true) || $service->expires_at === null) {
+            return;
+        }
+        $item->forceFill(['applied_at' => now()])->save();
+        $this->activate($service, CarbonImmutable::parse($service->expires_at)->startOfDay());
     }
 
     private function activate(Service $service, ?CarbonImmutable $paidUntil, ?CarbonImmutable $periodStart = null): void
