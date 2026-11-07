@@ -26,6 +26,9 @@ final class QuarantineActions
     public function attach(TicketQuarantine $quarantine, Ticket $ticket, Staff $staff): TicketMessage
     {
         return $this->handle($quarantine, $staff, function (TicketQuarantine $quarantine, InboundEmail $email) use ($ticket) {
+            // A ticket merged meanwhile (its number still suggested, still found): to the one it was merged into, as
+            // the router does (§6κ). On the merged one the mail would be seen by no one and reopen it.
+            $ticket = Ticket::query()->findOrFail($ticket->id)->survivor();
             $author = $this->router->owner($ticket, $email->fromEmail);
             $text = ReplyText::clean($email->body);
             // Not the owner's: kept as its address (shown as its author, §6λ), a stranger's also said in the text.

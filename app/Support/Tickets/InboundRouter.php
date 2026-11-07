@@ -188,7 +188,9 @@ class InboundRouter
         if ($user === null) {
             return null;
         }
-        $grants = ClientUser::query()->where('user_id', $user->id)->whereNull('revoked_at')->get()->filter(fn (ClientUser $grant) => $grant->allows('tickets'));
+        // Open accounts only, as every client-area check counts them: a ticket in a closed one is one its login cannot open.
+        $grants = ClientUser::query()->where('user_id', $user->id)->whereNull('revoked_at')->onOpenAccount()->get()
+            ->filter(fn (ClientUser $grant) => $grant->allows('tickets'));
 
         return $grants->count() === 1 ? ['client_id' => (int) $grants->first()->client_id, 'user' => $user] : null;
     }

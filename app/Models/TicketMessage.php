@@ -42,6 +42,12 @@ class TicketMessage extends Model implements Auditable
     /** Came in by email (docs/tickets.md A2): its email_message_id is the sender's, never a thread key. */
     public const VIA_EMAIL = 'email';
 
+    /**
+     * The most a message typed in a form may hold, in characters: 15,000 even of 4-byte characters stays under the
+     * 60,000 bytes the mail paths keep, inside the TEXT column (65,535 bytes) MariaDB refuses to overflow.
+     */
+    public const MAX_LENGTH = 15_000;
+
     protected $casts = [
         'is_internal' => 'boolean',
     ];
