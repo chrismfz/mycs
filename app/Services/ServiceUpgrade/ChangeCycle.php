@@ -277,10 +277,11 @@ final class ChangeCycle
         $invoice->refresh();
         $agreement = AutoCharge::agreementFor($invoice->setRelation('client', $invoice->client?->fresh()));
         if ($agreement !== null && $invoice->status === Invoice::STATUS_UNPAID) {
-            // One charge at a time, with its idempotency key (PR H); a declined one tells the customer.
+            // One charge at a time, with its idempotency key (PR H); a declined one tells the customer. One of unknown
+            // outcome (maybe taken, held and sent again with its key) does not, as AutoCharge (sweep 3, L-FAILURES-3).
             try {
                 $attempt = (new SavedMethodCharge)->charge($invoice, $agreement, ChargeAttempt::SOURCE_CHANGE);
-                if ($attempt->status !== ChargeAttempt::STATUS_SUCCEEDED) {
+                if (in_array($attempt->status, [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED], true)) {
                     NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
                 }
             } catch (DisplayException) {

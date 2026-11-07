@@ -79,6 +79,7 @@ class Stripe extends Gateway
                 try {
                     $this->updateSubscription($event->service, $event->changes);
                 } catch (Exception $e) {
+                    report($e);
                 }
             }
             // Check if the service is canceled (by this save, and still is at commit)
@@ -86,7 +87,7 @@ class Stripe extends Gateway
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
-                    // Ignore exception
+                    $this->cancelFailed($event->service, $e);
                 }
             }
         });
@@ -101,9 +102,31 @@ class Stripe extends Gateway
             try {
                 $this->cancelSubscription($service);
             } catch (Exception $e) {
-                // Ignore exception
+                $this->cancelFailed($service, $e);
             }
         });
+    }
+
+    /**
+     * The subscription of a service that ended (or is to be cancelled) could not be cancelled at Stripe: it still bills.
+     * Reported, and staff told (once a day for the same subscription); its next invoice is not paid but cancelled again
+     * (invoice.created, sweep 3 L-FAILURES-1).
+     */
+    private function cancelFailed(Service $service, Throwable $e): void
+    {
+        report($e);
+        $message = sprintf('The Stripe subscription %s of service #%d could not be cancelled at Stripe (%s). It may still bill the customer. Its next invoice is not paid here and its cancel is tried again then; cancel it in the Stripe dashboard to be sure.',
+            (string) $service->subscription_id, $service->id, Str::limit($e->getMessage(), 200));
+        PaymentsLog::warning($message, ['gateway' => 'Stripe', 'service_id' => $service->id]);
+        if (Cache::add('stripe-cancel-failed:' . $service->subscription_id, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('Stripe subscription not cancelled', e($message));
+        }
+    }
+
+    /** The service no longer bills: ended, or a cancellation asked for (its subscription is cancelled with it). */
+    private static function noLongerBills(Service $service): bool
+    {
+        return in_array($service->status, Service::ENDED_STATUSES, true) || $service->cancellation()->exists();
     }
 
     public function getConfig($values = [])
@@ -490,7 +513,16 @@ class Stripe extends Gateway
                 if ($invoice->status === 'draft' && $invoice->parent->type === 'subscription_details') {
                     $service = Service::where('subscription_id', $invoice->parent->subscription_details->subscription)->first();
 
-                    if ($service) {
+                    if ($service && self::noLongerBills($service)) {
+                        // Its cancel failed when it ended (cancelFailed): never paid here. Cancelled again, and the
+                        // draft deleted so Stripe does not finalise and charge it by itself.
+                        try {
+                            $this->cancelSubscription($service);
+                        } catch (Exception $e) {
+                            $this->cancelFailed($service, $e);
+                        }
+                        rescue(fn () => $this->request('delete', '/invoices/' . $invoice->id), report: true);
+                    } elseif ($service) {
                         $this->request('post', '/invoices/' . $invoice->id . '/finalize');
                         // Pay the invoice using Stripe
                         $this->request('post', '/invoices/' . $invoice->id . '/pay');

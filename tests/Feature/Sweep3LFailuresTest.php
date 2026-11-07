@@ -19,6 +19,7 @@ use App\Services\Payment\AutoCharge;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -110,7 +111,7 @@ class Sweep3LFailuresTest extends TestCase
         $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
         $this->assertSame('sub_1', $service->fresh()->subscription_id, 'the subscription still bills at Stripe');
         // Fails: the exception is caught with «// Ignore exception», never reported, logged, or put before staff.
-        Exceptions::assertReported(fn (\Throwable $e) => true);
+        Exceptions::assertReported(fn (RequestException $e) => $e->response->status() === 500);
     }
 
     /**
@@ -135,7 +136,71 @@ class Sweep3LFailuresTest extends TestCase
         Http::assertNotSent(fn (Request $request) => $request->method() === 'POST' && str_ends_with($request->url(), '/invoices/in_next/pay'));
     }
 
-    /** A client with a Stripe saved card and one renewal invoice due today. */
+    /**
+     * L-FAILURES-1, the fix: staff are told the subscription still bills, and its next draft invoice is cancelled again
+     * and deleted (never finalised or paid). Once the cancel goes through, the service no longer carries it.
+     */
+    public function test_l1_staff_are_told_and_the_next_invoice_retries_the_cancel_and_deletes_the_draft(): void
+    {
+        Carbon::setTestNow('2026-11-10 09:00:00');
+        Cache::flush();
+        MailFacade::fake();
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->stripeGateway();
+        $deletes = 0;
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://api.stripe.com/v1/subscriptions/*' => function (Request $request) use (&$deletes) {
+                if ($request->method() !== 'DELETE') {
+                    return Http::response(['id' => 'sub_1', 'status' => 'active']);
+                }
+
+                return ++$deletes === 1 ? Http::response(['error' => ['type' => 'api_error', 'message' => 'internal']], 500)
+                    : Http::response(['id' => 'sub_1', 'status' => 'canceled']);
+            },
+            'https://api.stripe.com/v1/invoices/*' => Http::response(['id' => 'in_next', 'deleted' => true]),
+        ]);
+        (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
+        $service = $this->subscribedService(User::factory()->create()->client());
+        Exceptions::fake();
+
+        $service->markTerminated();
+
+        $this->assertSame('sub_1', $service->fresh()->subscription_id);
+        $this->assertSame(1, DB::table('email_logs')->where('subject', 'Stripe subscription not cancelled')->count(), 'staff are told');
+
+        $this->event('invoice.created', ['id' => 'in_next', 'object' => 'invoice', 'status' => 'draft',
+            'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]])->assertOk();
+
+        $this->assertSame(2, $deletes, 'the cancel is tried again on its next invoice');
+        Http::assertSent(fn (Request $request) => $request->method() === 'DELETE' && str_ends_with($request->url(), '/invoices/in_next'));
+        Http::assertNotSent(fn (Request $request) => $request->method() === 'POST' && str_contains($request->url(), '/invoices/in_next/'));
+        $this->assertNull($service->fresh()->subscription_id, 'cancelled at last');
+        Exceptions::assertReportedCount(1);
+    }
+
+    /** L-FAILURES-1: a live service's subscription invoice is still finalised and paid, as before. */
+    public function test_l1_a_live_service_subscription_invoice_is_still_paid(): void
+    {
+        Carbon::setTestNow('2026-11-10 09:00:00');
+        Cache::flush();
+        $this->stripeGateway();
+        $this->fakeStripeCancelFails();
+        $this->subscribedService(User::factory()->create()->client());
+
+        $this->event('invoice.created', ['id' => 'in_next', 'object' => 'invoice', 'status' => 'draft',
+            'parent' => ['type' => 'subscription_details', 'subscription_details' => ['subscription' => 'sub_1']]])->assertOk();
+
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST' && str_ends_with($request->url(), '/invoices/in_next/finalize'));
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST' && str_ends_with($request->url(), '/invoices/in_next/pay'));
+    }
+
+    /**
+     * A client with a Stripe saved card and one renewal invoice due today.
+     *
+     * @return array{Invoice, BillingAgreement}
+     */
+    // @phpstan-ignore method.unused (its test is incomplete: L-FAILURES-2 is fixed in l-no-double-charge)
     private function stripeCustomerWithDueInvoice(): array
     {
         $gateway = $this->stripeGateway();
@@ -166,6 +231,8 @@ class Sweep3LFailuresTest extends TestCase
      */
     public function test_l2_a_stripe_outage_before_the_charge_is_not_counted_as_a_decline(): void
     {
+        $this->markTestIncomplete('L-FAILURES-2 is fixed in the l-no-double-charge lens (fix/sweep3-l-no-double-charge), not here.');
+        // @phpstan-ignore deadCode.unreachable
         config(['settings.credits_auto_use' => false, 'settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false,
             'settings.autocharge_days_before' => 0, 'settings.autocharge_retry_days' => '', 'settings.autocharge_max_failures' => 0,
             'settings.cronjob_order_suspend' => 8, 'settings.cronjob_suspend_enabled' => true]);
@@ -228,7 +295,7 @@ class Sweep3LFailuresTest extends TestCase
 
         $invoice = ChangeCycle::apply($service->fresh(), $plans['Monthly'], ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
 
-        $this->assertSame(1, Sweep3TimeoutPay::$calls, 'precondition: charged once');
+        $this->assertSame(1, Sweep3TimeoutPay::$calls, 'precondition: charged once'); // @phpstan-ignore class.notFound
         $attempt = ChargeAttempt::query()->where('invoice_id', $invoice->id)->sole();
         $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, $attempt->status, 'precondition: no answer about the money');
         // Fails: the customer is told the payment failed for money that may be taken.
