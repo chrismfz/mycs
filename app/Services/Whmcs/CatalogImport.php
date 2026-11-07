@@ -566,7 +566,9 @@ final class CatalogImport
             foreach ($this->rows('SELECT * FROM tblproductconfigoptionssub WHERE configid = ? ORDER BY sortorder, id', [$row['id']]) as $sub) {
                 [$env, $name] = $this->envName((string) $sub['optionname']);
                 $value = $this->byWhmcs(ConfigOption::class, 'whmcs_ref', 'value:' . $sub['id']);
-                $value->forceFill(['parent_id' => $option->id, 'name' => $name, 'env_variable' => $env, 'sort' => (int) ($sub['sortorder'] ?? 0)])->save();
+                // WHMCS's «Hide» on a sub-option (a legacy or staff-only value): kept for the services that hold it, never ordered.
+                $value->forceFill(['parent_id' => $option->id, 'name' => $name, 'env_variable' => $env, 'sort' => (int) ($sub['sortorder'] ?? 0),
+                    'hidden' => (bool) ($sub['hidden'] ?? false)])->save();
                 $this->prices($value, $this->rows("SELECT * FROM tblpricing WHERE type = 'configoptions' AND relid = ?", [$sub['id']]), 'recurring');
             }
         }

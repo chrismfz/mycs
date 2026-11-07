@@ -122,7 +122,10 @@ class Checkout extends Component
 
             $value = $this->configOptions[$option->id] ?? null;
 
-            return [$option->id => $option->children->contains('id', $value) ? $value : $option->children->first()->id];
+            // A hidden value is not ordered (a WHMCS «Hide»): an item in the cart that holds one moves to the first that may be.
+            $values = $option->orderableChildren();
+
+            return [$option->id => $values->contains('id', $value) ? $value : $values->first()?->id];
         })->toArray();
 
         // Update the pricing
@@ -265,7 +268,7 @@ class Checkout extends Component
             } else {
                 $rules["configOptions.{$option->id}"] = [
                     'required',
-                    Rule::in($option->children->pluck('id')->toArray()),
+                    Rule::in($option->orderableChildren()->pluck('id')->toArray()),
                 ];
             }
         }
