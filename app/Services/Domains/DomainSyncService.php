@@ -357,7 +357,8 @@ class DomainSyncService
 
     /**
      * A transfer's end, as its registrar shows it (mail check of 2026-10-21, ROADMAP 6γ), for one sent from here only
-     * (meta.sent_at: never one imported, or never sent: reviews of #293):
+     * (meta.sent_at: never one imported done, or never sent: reviews of #293; one WHMCS had sent, «Pending Transfer», comes
+     * marked sent, and WHMCS no longer tells its end: F-CUTOVER-DAY-3):
      * - done (pending → active): the customer is told, when its order is still paid (one refunded while it was sent is
      *   staff's: their row stays open); staff's rows are never closed from here;
      * - failed: its own record, by the id stored before this sync (never a tombstone found by name), dead (Openprovider's

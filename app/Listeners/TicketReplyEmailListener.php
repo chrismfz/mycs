@@ -60,9 +60,13 @@ class TicketReplyEmailListener
         }
 
         // Replies go to the department's mailbox; the From stays ours (a submission server refuses another sender).
+        // Without an address of its own, the mailbox we read (its login, when it is one): never the From, which no one
+        // reads (sweep 2, F-SUPPORT-3).
         $department = $ticket->department;
-        if (filled($department?->email) && filter_var($department->email, FILTER_VALIDATE_EMAIL)) {
-            $event->message->replyTo($department->email);
+        $replyTo = collect([$department?->email, $department?->polling ? $department->imap_username : null])
+            ->first(fn ($address) => filled($address) && filter_var(trim((string) $address), FILTER_VALIDATE_EMAIL));
+        if ($replyTo !== null) {
+            $event->message->replyTo(trim((string) $replyTo));
         }
         $headers->remove('X-MyCS-Ticket');
         $headers->addTextHeader('X-MyCS-Ticket', (string) $ticket->reference);

@@ -60,6 +60,8 @@ class InvoiceItem extends Model implements Auditable
         'payment_gateway_id',
         'taxed',
         'tax_rate',
+        // The setup fee (net, per unit) its price holds with its first period (an order's, an addon's line): sweep 2.
+        'setup_fee',
     ];
 
     protected $casts = [
@@ -68,6 +70,7 @@ class InvoiceItem extends Model implements Auditable
         'tax_rate' => 'decimal:4',
         'tax_amount' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'setup_fee' => 'decimal:2',
         'period_start' => 'immutable_date',
         'period_end' => 'immutable_date',
         'applied_at' => 'immutable_datetime',
