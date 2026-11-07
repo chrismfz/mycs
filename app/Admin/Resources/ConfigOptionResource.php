@@ -136,6 +136,10 @@ class ConfigOptionResource extends Resource
                                             ->required()
                                             ->maxLength(255)
                                             ->placeholder('Enter the environment variable name'),
+                                        // A value kept for the services that hold it, not offered to new orders (WHMCS's «Hide»).
+                                        Checkbox::make('hidden')
+                                            ->label('Hidden')
+                                            ->helperText('Not offered to new orders; services that have it keep it.'),
                                         // if the type is select, radio or checkbox then allow unlimited children (otherwise only allow 1)
                                         ProductResource::plan()->columnSpanFull()->label('Pricing')->reorderable(false)->deleteAction(null),
                                     ]),

@@ -12,6 +12,7 @@ use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
 use App\Admin\Search\SearchTitle;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketMessage;
 use App\Support\AdminBadge;
 use App\Support\Tickets\TicketPresence;
 use Filament\Actions\BulkActionGroup;
@@ -100,6 +101,8 @@ class TicketResource extends Resource
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
+                    // The column is a varchar(255): longer is a 500 on MariaDB, not a form error.
+                    ->maxLength(255)
                     ->required(),
                 Select::make('status')
                     ->label(__('Status'))
@@ -157,6 +160,8 @@ class TicketResource extends Resource
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
+                    // As the portal and the replies: what the TEXT column holds in any script.
+                    ->maxLength(TicketMessage::MAX_LENGTH)
                     ->required(),
             ]);
     }

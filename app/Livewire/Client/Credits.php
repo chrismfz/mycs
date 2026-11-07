@@ -116,7 +116,7 @@ class Credits extends Component
             })->exists();
 
             if ($unpaidInvoiceItems) {
-                throw new DisplayException('You have an unpaid invoice for credits. Please pay the invoice before adding more credits.');
+                throw new DisplayException(__('You have an unpaid invoice for credits. Please pay the invoice before adding more credits.'));
             }
 
             $invoice = Invoice::create([

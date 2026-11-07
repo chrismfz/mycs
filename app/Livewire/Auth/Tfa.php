@@ -59,7 +59,7 @@ class Tfa extends Component
         if (!Totp::accept($user, $user->tfa_secret, (string) $this->code)) {
             LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::FAILED_2FA);
 
-            return $this->addError('code', 'Invalid code.');
+            return $this->addError('code', __('Invalid code.'));
         }
 
         return $this->finish($loginAction, $user, $session);

@@ -139,7 +139,10 @@ class LegacyWhmcsRedirectTest extends TestCase
         $this->assertGoes("/clients/viewinvoice.php?id={$guestInvoice->id}", route('invoices'));
         $this->actingAs($user)->withSession($this->loginUser($user));
         $service = Service::factory()->create(['client_id' => $client->id]);
-        $invoice = Invoice::factory()->create(['client_id' => $client->id]);
+        // Issued: a draft is the staff's, its page refused to the customer, so the redirect goes to the list (EKDOSI-ZLIC-API-5).
+        $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID]);
+        $draft = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_DRAFT]);
+        $this->assertGoes("/clients/viewinvoice.php?id={$draft->id}", route('invoices'));
         $ticket = Ticket::factory()->create(['client_id' => $client->id]);
 
         $this->assertGoes("/clients/clientarea.php?action=productdetails&id={$service->id}", route('services.show', $service->id));

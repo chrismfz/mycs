@@ -499,6 +499,12 @@ class Client extends Model implements Auditable
             throw new DisplayException(__('The owner cannot be removed: make another user the owner first.'));
         }
         $grant->forceFill(['revoked_at' => now()])->save();
+        // Left with closed accounts only (WG-8): signed out now, sessions and «Remember me» gone, as when an account is
+        // closed (ClientObserver), not worked on through a closed account until the session expires (sweep AUTH-SECURITY-4).
+        $user = $grant->user()->first();
+        if ($user instanceof User && $user->closedOut()) {
+            UserSession::query()->where('user_id', $user->id)->delete();
+        }
     }
 
     /**

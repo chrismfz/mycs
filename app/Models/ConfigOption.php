@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class ConfigOption extends Model implements Auditable
@@ -49,6 +50,17 @@ class ConfigOption extends Model implements Auditable
     public function children(): HasMany
     {
         return $this->hasMany(ConfigOption::class, 'parent_id')->orderBy('sort');
+    }
+
+    /**
+     * The values a new order may choose: not those hidden (a WHMCS sub-option marked «Hide», a legacy or staff-only
+     * value). A service that holds one keeps it; staff still see and give every value. Uses the loaded children.
+     *
+     * @return Collection<int, ConfigOption>
+     */
+    public function orderableChildren(): Collection
+    {
+        return $this->children->reject(fn (ConfigOption $value) => (bool) $value->getAttribute('hidden'))->values()->toBase();
     }
 
     /**

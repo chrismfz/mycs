@@ -100,6 +100,7 @@ final class ChangePackage
                     PlaceUpgrade::UNCHANGED => 'It already has this product.',
                     PlaceUpgrade::NEEDS_STAFF => 'The catalog has no price for it in the service\'s currency: change it by hand.',
                     PlaceUpgrade::NOT_NOW => 'The service no longer runs.',
+                    PlaceUpgrade::OUT_OF_STOCK => 'The new product is out of stock (pending upgrades to it included).',
                     PlaceUpgrade::DISCOUNT_REFUSED => self::refusalText($placed->refusal),
                     default => null,
                 };

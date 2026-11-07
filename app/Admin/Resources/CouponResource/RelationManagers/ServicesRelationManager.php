@@ -3,6 +3,8 @@
 namespace App\Admin\Resources\CouponResource\RelationManagers;
 
 use App\Admin\Resources\ServiceResource;
+use App\Models\Service;
+use App\Services\Service\RemoveCoupon;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -44,7 +46,15 @@ class ServicesRelationManager extends RelationManager
                         // It changes what the services renew at: the services' own permission, not the coupon's (SA-7).
                         ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update'))
                         ->requiresConfirmation()
-                        ->action(fn (Collection $records) => $records->each(fn ($service) => $service->update(['coupon_id' => null])))
+                        ->modalDescription('A coupon still running gives the full price back: the services renew at it from their next invoice.')
+                        // Not a plain coupon_id = null: a running coupon's discount is in the price (sweep ADMIN-4).
+                        ->action(function (Collection $records) {
+                            foreach ($records as $service) {
+                                if ($service instanceof Service) {
+                                    RemoveCoupon::handle($service);
+                                }
+                            }
+                        })
                         ->deselectRecordsAfterCompletion(),
                 ]),
             ]);
