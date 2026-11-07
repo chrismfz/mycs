@@ -22,7 +22,6 @@ use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\MoneyEvent;
@@ -1525,20 +1524,19 @@ class ExtensionHelper
                         $staff = $e->getMessage() . ' ';
                     }
                     if ($boughtCredit) {
+                        // Only the credit the purchase still holds: a debit note on it bought none (sweep2
+                        // F-REFUND-CHARGEBACK-2, as refundedAtGateway: MONEY-LEDGER-3).
+                        $bought = min($record, (new RecordPaymentService)->boughtCreditLeftCents($invoice));
                         $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
-                        $take = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+                        $take = min($bought, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+                        // Its lines stay applied: what this takes is given back, once, when the invoice is paid again (a
+                        // new payment, or the dispute won: GrantBoughtCreditService), never the whole purchase again
+                        // (code review H1 / adversarial F6, sweep2 F-REFUND-CHARGEBACK-1).
                         if ($take > 0) {
                             (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $take, MoneyTrail::CAUSE_CHARGEBACK, $source, $invoice, $payment);
                         }
-                        // All the credit it bought taken back: not bought any more, so paying the invoice again (or the
-                        // dispute won) buys it again (code review H1 / adversarial F6). Part of it: staff.
-                        $bought = (int) $invoice->items()->where('reference_type', Credit::class)->get()
-                            ->sum(fn (InvoiceItem $line) => $line->totalCents());
-                        if ($take === $record && $take === $bought) {
-                            $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
-                        }
-                        if ($take < $record) {
-                            $staff = ($staff ?? '') . 'The credit this payment bought was spent: ' . self::cents($record - $take) . " {$invoice->currency_code} of it could not be taken back. ";
+                        if ($take < $bought) {
+                            $staff = ($staff ?? '') . 'The credit this payment bought was spent: ' . self::cents($bought - $take) . " {$invoice->currency_code} of it could not be taken back. ";
                         }
                     }
                     $payment->increment('refunded_amount', $record / 100);

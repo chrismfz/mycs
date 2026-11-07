@@ -2,11 +2,14 @@
 
 namespace App\Services\Money;
 
+use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\MoneyEvent;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -14,6 +17,8 @@ use LogicException;
  * Account credit goes up or down only here (docs/money-trail.md §2, MT-1b): the row is locked after its customer
  * (the payments' lock order: customer → invoice → transaction → lines → credit), changed, and the move journaled in
  * the same transaction. The credits table is the cache of Σ credit_in − Σ credit_out (mycs:credits-check).
+ *
+ * giveBack undoes one credit-out event (its reversal), under the same rules.
  *
  * The one exception is RecordPaymentService::deleteTransaction: it undoes a payment's own events step by step
  * (reversals) under the same locks.
@@ -71,6 +76,34 @@ class CreditLedger
             return $difference > 0
                 ? $this->add($clientId, $currency, $difference, $cause, $source, note: $note)
                 : $this->remove($clientId, $currency, -$difference, $cause, $source, note: $note);
+        });
+    }
+
+    /**
+     * Give back what a credit-out event took (> 0): the credit up by its amount, journaled as its reversal (so it is
+     * given back once: a reversed event is not reversed again). Under the caller's locks, or locks the customer first.
+     */
+    public function giveBack(MoneyEvent $out, string $cause): Credit
+    {
+        $cents = RecordPaymentService::toCents($out->amount);
+        if ($out->kind !== MoneyEventKind::CreditOut || $out->client_id === null || $cents <= 0) {
+            throw new LogicException('Only a credit-out event of a customer is given back.');
+        }
+
+        return DB::transaction(function () use ($out, $cents, $cause) {
+            $credit = $this->lock((int) $out->client_id, $out->currency_code)
+                ?? Credit::query()->create(['client_id' => $out->client_id, 'currency_code' => $out->currency_code, 'amount' => 0]);
+            $balance = self::cents($credit) + $cents;
+            if (abs($balance) > self::MAX_CENTS) {
+                throw new DisplayException(__('Account credit cannot go past :max.', [
+                    'max' => number_format(self::MAX_CENTS / 100, 2, '.', '') . ' ' . $out->currency_code,
+                ]));
+            }
+            $credit->amount = $balance / 100;
+            $credit->save();
+            (new MoneyTrail)->reverse($out, $cause, $credit);
+
+            return $credit;
         });
     }
 
