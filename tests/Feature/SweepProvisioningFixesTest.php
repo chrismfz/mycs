@@ -98,6 +98,29 @@ class SweepProvisioningFixesTest extends TestCase
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/suspendacct'));
     }
 
+    /**
+     * PROVISIONING-3, after review: a pending service counts by the account its module recorded (cpanel_username), not by
+     * its username alone (RevProvisioningTest): one created and then put back to pending still holds the account.
+     */
+    public function test_cpanel_suspend_is_refused_while_a_pending_service_has_the_account_recorded(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([self::WHM . '/*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']])]);
+        $server = $this->whmServer();
+        $pending = $this->serviceOn($server, ['username' => 'otherna', 'status' => Service::STATUS_PENDING]);
+        $pending->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'sharedex']);
+        $live = $this->serviceOn($server, ['username' => 'sharedex', 'status' => Service::STATUS_SUSPENDED]);
+        $live->product->settings()->create(['key' => 'package', 'value' => 'basic']);
+
+        try {
+            ExtensionHelper::suspendServer($live->fresh());
+            $this->fail('suspended an account a pending service has recorded');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString("#{$pending->id}", $e->getMessage());
+        }
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/suspendacct'));
+    }
+
     /** PROVISIONING-3: an ended service with the same name does not hold the account: the terminate goes ahead. */
     public function test_cpanel_terminate_goes_ahead_when_the_other_service_has_ended(): void
     {

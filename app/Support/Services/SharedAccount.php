@@ -8,7 +8,9 @@ use App\Models\Service;
  * Another live service on the same server with the same account name (an imported second row of one account, a
  * username typed by staff): a module never suspends or removes an account from one service while another still lives on
  * it (sweep PROVISIONING-3; as Centova's and ngm's claimants). Names compared trimmed, in any case, as the service's
- * username or one of $keys among its properties; on the other's own server or, with none, its product's.
+ * username or one of $keys among its properties; on the other's own server or, with none, its product's. A pending service
+ * counts only by $keys, an account the module made for it: by its username alone it holds none (WHMCS names an order
+ * from its domain when it is placed, so a never-created order carries the live account's name; review of the sweep).
  */
 final class SharedAccount
 {
@@ -28,6 +30,7 @@ final class SharedAccount
                 ->orWhere(fn ($query) => $query->whereNull('server_id')->whereHas('product', fn ($product) => $product->where('server_id', $serverId))))
             ->with(['properties' => fn ($property) => $property->whereIn('key', $keys)])
             ->orderBy('id')->get()
-            ->first(fn (Service $other) => $same($other->username) || $other->properties->contains(fn ($property) => $same($property->value)));
+            ->first(fn (Service $other) => ($other->status !== Service::STATUS_PENDING && $same($other->username))
+                || $other->properties->contains(fn ($property) => $same($property->value)));
     }
 }
