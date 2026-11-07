@@ -75,7 +75,9 @@ final class EkdosiPayments
             }
             // Only for an invoice Ekdosi issued an active document from (review of #464): with none, or one cancelled,
             // Ekdosi would hold money for a sale MyCS would offer it again to issue.
-            if (!$invoice->ekdosiDocuments()->where('state', EkdosiDocument::ACTIVE)->exists()) {
+            // Read locked, as every other path (EKDOSI-ZLIC-API-2): a plain read keeps the snapshot taken before the
+            // locks, and would miss a mark that issued or cancelled the document while this waited on them.
+            if (!EkdosiDocument::activeOn($invoice->id, lock: true)) {
                 return [409, ['error' => 'no_active_document', 'message' => 'The invoice has no active fiscal document from Ekdosi.']];
             }
             if ($invoice->status === Invoice::STATUS_PAID) {
