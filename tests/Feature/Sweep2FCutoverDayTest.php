@@ -245,4 +245,115 @@ class Sweep2FCutoverDayTest extends TestCase
         $this->assertSame(0, $sent, 'the expired notice WHMCS sent yesterday is not sent again');
         $this->assertFalse(DB::table('domain_reminders')->where('domain_id', 91)->where('days', -3)->where('sent_at', '>=', '2026-11-05 00:00:00')->exists());
     }
+
+    // ---- the fixes' own tests -----------------------------------------------------------------------------------------
+
+    /** F-CUTOVER-DAY-1: while an import runs (or after one that failed), no cron mode does anything; once it ends, as before. */
+    public function test_fix_f1_no_cron_run_while_an_import_is_running_and_the_catch_up_as_before_once_a_run_is_recorded(): void
+    {
+        config(['settings.cronjob_time' => '09:00', 'settings.credits_auto_use' => false, 'settings.autocharge_days_before' => 0,
+            'settings.autocharge_retry_days' => '', 'settings.autocharge_max_failures' => 0]);
+        Carbon::setTestNow('2026-11-09 10:35:00');
+        Setting::query()->where('settingable_type', CronStat::class)->delete();
+        Setting::query()->create(['key' => ImportFromWhmcs::RUNNING, 'settingable_type' => CronStat::class, 'value' => '2026-11-09 10:00:00', 'type' => 'string']);
+        Setting::query()->create(['key' => 'last_cron_run', 'settingable_type' => CronStat::class, 'value' => '2026-11-08 09:00:40', 'type' => 'string']);
+        $this->assertSame('2026-11-09 10:00:00', ImportFromWhmcs::running());
+
+        foreach ([[], ['--dunning-only' => true], ['--catch-up' => true]] as $options) {
+            Artisan::call('app:cron-job', $options);
+            $this->assertNull(Setting::query()->where('key', CronJob::STARTED)->where('settingable_type', CronStat::class)->value('value'),
+                'nothing runs over a database an import is filling: ' . json_encode($options));
+        }
+
+        // The import ended: with a run of its own recorded, the catch-up starts the day's missed run as before.
+        Setting::query()->where('key', ImportFromWhmcs::RUNNING)->delete();
+        $this->assertNull(ImportFromWhmcs::running());
+        Artisan::call('app:cron-job', ['--catch-up' => true]);
+        $this->assertSame('2026-11-09 10:35:00', Setting::query()->where('key', CronJob::STARTED)->where('settingable_type', CronStat::class)->value('value'));
+    }
+
+    /** F-CUTOVER-DAY-1: the import's reset writes its marker; its own settings come back, others as seeded. */
+    public function test_fix_f2_the_reset_marks_the_import_running_and_keeps_only_the_instances_settings(): void
+    {
+        Setting::query()->updateOrCreate(['key' => 'timezone', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'Europe/Athens', 'type' => 'string']);
+        Setting::query()->updateOrCreate(['key' => 'cronjob_time', 'settingable_type' => null, 'settingable_id' => null], ['value' => '03:00', 'type' => 'string']);
+
+        $command = app(ImportFromWhmcs::class);
+        $command->setLaravel($this->app);
+        $kernel = $this->app->make(Kernel::class);
+        $command->setApplication((new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel));
+        $command->setInput(new ArrayInput(['dbname' => 'whmcs_copy'], $command->getDefinition()));
+        $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput));
+        (new ReflectionMethod($command, 'prepareDatabase'))->invoke($command);
+
+        $this->assertNotNull(ImportFromWhmcs::running(), 'the cron stays off until the import ends');
+        $this->assertSame(1, Setting::query()->where('key', 'timezone')->whereNull('settingable_type')->count());
+        $this->assertNotSame('03:00', Setting::query()->where('key', 'cronjob_time')->whereNull('settingable_type')->value('value'),
+            'not an instance setting: the import brings it (or its default)');
+    }
+
+    /**
+     * F-CUTOVER-DAY-3 / F-DOMAIN-LIFE-2: «Pending Registration» comes sent (the sync reads it); a plain «Pending», never
+     * sent by WHMCS, is still sent from here once paid.
+     */
+    public function test_fix_f3_pending_registration_comes_sent_and_a_plain_pending_order_is_still_sent(): void
+    {
+        $this->domainFixture();
+        Carbon::setTestNow('2026-11-09 10:00:00');
+        DB::table('orders')->insert(['id' => 880, 'client_id' => $this->client->id, 'currency_code' => 'USD', 'created_at' => '2026-11-02 10:00:00', 'updated_at' => '2026-11-02 10:00:00']);
+        $dates = ['orderid' => 880, 'registrationdate' => '2026-11-02', 'expirydate' => '0000-00-00', 'nextduedate' => '2027-11-02',
+            'created_at' => '2026-11-02 10:00:00', 'updated_at' => '2026-11-02 10:05:00'];
+        $this->whmcsDomain(82, 'awaiting.com', 'Pending Registration', $dates);
+        $this->whmcsDomain(83, 'not-sent.com', 'Pending', $dates);
+
+        $import = new WhmcsDomainImport($this->whmcs);
+        $import->run();
+        $this->assertSame(DomainStatus::PendingRegister, Domain::query()->findOrFail(82)->status);
+        $this->assertNotEmpty(Domain::query()->findOrFail(82)->meta['sent_at'] ?? null);
+        $this->assertEmpty(Domain::query()->findOrFail(83)->meta['sent_at'] ?? null);
+
+        foreach ([82 => 7002, 83 => 7003] as $id => $invoiceId) {
+            $line = $import->line(['id' => $invoiceId + 2000, 'invoiceid' => $invoiceId, 'type' => 'DomainRegister', 'relid' => $id, 'description' => 'Domain Registration',
+                'amount' => 10, 'duedate' => '2026-11-02', 'invoice_status' => 'Paid', 'invoice_datepaid' => '2026-11-02 10:01:00']);
+            $this->assertNotNull($line);
+            $id === 82 ? $this->assertNotNull($line['applied_at'], 'sent by WHMCS: done') : $this->assertNull($line['applied_at'], 'never sent: left to be sent');
+            $invoice = Invoice::factory()->create(['id' => $invoiceId, 'client_id' => $this->client->id, 'currency_code' => 'USD']);
+            InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'description' => 'Domain Registration', 'price' => '10.00', 'quantity' => 1,
+                'reference_type' => $line['reference_type'], 'reference_id' => $line['reference_id'], 'kind' => $line['kind'], 'applied_at' => $line['applied_at']]);
+            DB::table('invoices')->where('id', $invoiceId)->update(['status' => Invoice::STATUS_PAID]);
+        }
+
+        $this->assertSame([83], DomainOrderFulfilment::due()->whereIn('id', [82, 83])->pluck('id')->map(fn ($id) => (int) $id)->all());
+    }
+
+    /** F-CUTOVER-DAY-4: before WHMCS's notice day, or with its notices off, nothing is marked: the notice goes here. */
+    public function test_fix_f4_a_card_is_marked_notified_only_once_whmcs_notice_day_came(): void
+    {
+        $stripe = (int) DB::table('extensions')->insertGetId(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway',
+            'enabled' => true, 'created_at' => now(), 'updated_at' => now()]);
+        $c = $this->client->id;
+        foreach ([['2026-11-20 10:00:00', '25', false], ['2026-11-27 10:00:00', '0', false], ['2026-11-27 10:00:00', '25', true], ['2026-11-26 10:00:00', '26', true]] as [$now, $day, $marked]) {
+            Carbon::setTestNow($now);
+            DB::table('billing_agreements')->delete();
+            $whmcs = new PDO('sqlite::memory:');
+            $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $whmcs->exec('CREATE TABLE tblpaymethods (id INTEGER PRIMARY KEY, userid INT, description TEXT, contact_id INT, contact_type TEXT, payment_id INT,
+                payment_type TEXT, gateway_name TEXT, order_preference INT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+            $whmcs->exec('CREATE TABLE tblcreditcards (id INTEGER PRIMARY KEY, pay_method_id INT, card_type TEXT, last_four TEXT, expiry_date TEXT,
+                card_data TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+            $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, domainstatus TEXT, paymentmethod TEXT)');
+            $whmcs->exec('CREATE TABLE tbldomains (id INTEGER PRIMARY KEY, userid INT, status TEXT, paymentmethod TEXT)');
+            $whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT, value TEXT)');
+            $whmcs->exec("INSERT INTO tblconfiguration VALUES ('CCDaySendExpiryNotices', '{$day}')");
+            $whmcs->exec("INSERT INTO tblpaymethods (id, userid, payment_type, gateway_name, order_preference, deleted_at) VALUES (41, {$c}, 'RemoteCreditCard', 'stripe', 0, NULL)");
+            Http::fake(['https://whmcs.example.test/includes/api.php' => Http::response(['result' => 'success', 'clientid' => $c, 'paymethods' => [
+                ['id' => 41, 'remote_token' => json_encode(['customer' => 'cus_Delta1', 'method' => 'pm_Card4']), 'expiry_date' => '11/26', 'card_last_four' => '4242', 'card_type' => 'Visa'],
+            ]])]);
+            $map = fn (string $module) => in_array($module, ['stripe', 'stripe_sepa'], true) ? $stripe : null;
+            (new WhmcsPayMethodImport($whmcs, new WhmcsApi('https://whmcs.example.test', 'id-1', 'secret-1'), $map, $map))->run();
+
+            $notified = BillingAgreement::query()->where('client_id', $c)->firstOrFail()->expiry_notified_at;
+            $this->assertSame($marked, $notified !== null, "{$now}, WHMCS day {$day}");
+        }
+    }
 }
