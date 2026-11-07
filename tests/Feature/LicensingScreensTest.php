@@ -152,6 +152,14 @@ class LicensingScreensTest extends TestCase
             ->callAction('editLicense', data: ['status' => License::STATUS_ACTIVE, 'valid_ip' => '203.0.113.9', 'valid_domain' => '', 'valid_directory' => '']);
         $this->assertSame([License::STATUS_ACTIVE, '203.0.113.9', null], [$this->license->fresh()->status, $this->license->fresh()->valid_ip, $this->license->fresh()->valid_domain]);
 
+        // EKDOSI-ZLIC-API-1: the Textarea's line breaks and blanks are stored as zlic reads them, a blank list as unbound.
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->callAction('editLicense', data: ['status' => License::STATUS_ACTIVE, 'valid_ip' => " 203.0.113.9\n198.51.100.7, \n", 'valid_domain' => '', 'valid_directory' => '']);
+        $this->assertSame('203.0.113.9,198.51.100.7', $this->license->fresh()->valid_ip);
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->callAction('editLicense', data: ['status' => License::STATUS_ACTIVE, 'valid_ip' => "\n", 'valid_domain' => '', 'valid_directory' => '']);
+        $this->assertNull($this->license->fresh()->valid_ip);
+
         $this->livewireAs($staff)->test(LicenseAccessLogsRelationManager::class, ['ownerRecord' => $this->service, 'pageClass' => EditService::class])
             ->assertCanSeeTableRecords(LicenseAccessLog::query()->get());
     }

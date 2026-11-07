@@ -627,6 +627,9 @@ class EditService extends EditRecord
                         Textarea::make('valid_directory')->label('Valid directory')->rows(1),
                     ])
                     ->action(function (Service $record, array $data) {
+                        // Valid IPs as zlic reads them: comma separated, no blanks; one per line is accepted too (EKDOSI-ZLIC-API-1).
+                        $ips = preg_split('/[\s,]+/', (string) ($data['valid_ip'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                        $data['valid_ip'] = implode(',', $ips);
                         $record->license->update(array_map(fn ($value) => $value === '' ? null : $value, $data)); // audited
                         Notification::make()->success()->title('License saved')->send();
                         $this->refreshFormData(['license']);
