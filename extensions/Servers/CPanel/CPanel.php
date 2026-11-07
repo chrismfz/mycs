@@ -13,6 +13,7 @@ use App\Models\ServiceHostedDomain;
 use App\Rules\Domain;
 use App\Support\PanelConnection;
 use App\Support\Services\ServiceUsageRead;
+use App\Support\Services\SharedAccount;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -400,6 +401,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        self::notAnotherLiveServicesAccount($service, $properties['cpanel_username']);
 
         // Why, as WHM shows it (WHMCS sends its reason too: «Overdue on Payment»; owner's live test 2026-11-03 saw «Unknown»).
         // One line, no control characters (a reason imported from WHMCS may carry a newline into WHM's file).
@@ -433,6 +435,14 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return true;
     }
 
+    /** Another live service here has the same account: never suspended or removed from this one (sweep PROVISIONING-3). */
+    private static function notAnotherLiveServicesAccount(Service $service, string $username): void
+    {
+        if (($other = SharedAccount::otherLive($service, $username, ['cpanel_username'])) !== null) {
+            throw new Exception("cPanel: service #{$other->id} has the account «{$username}» on this server too: check both before anything is done to it (by hand)");
+        }
+    }
+
     /**
      * Terminate a server
      *
@@ -456,6 +466,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         }
 
         $username = $properties['cpanel_username'];
+        self::notAnotherLiveServicesAccount($service, $username);
         // What WHM has, whatever its product or record says (an imported reseller on a product not flagged yet: A1 of
         // #315): with a root login, the accounts it owns are always read first. A reseller's login owns no resellers.
         $owned = strtolower(trim((string) $this->config('username'))) === 'root' ? $this->ownedAccounts($username) : [];
