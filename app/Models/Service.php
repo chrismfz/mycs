@@ -12,6 +12,7 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Order\OrderPricing;
+use App\Services\Service\RemoveCoupon;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\ServiceIdentifier;
 use Brick\Math\BigDecimal;
@@ -643,7 +644,15 @@ class Service extends Model implements Auditable
                     (clone $locked)->setRawAttributes(array_merge($locked->getAttributes(), $changes)))) !== null) {
                 throw new DisplayException($refusal);
             }
+            // The Coupon cleared (the service page, the API): a running coupon's discount is in the price, the full price
+            // comes back as with «Remove coupon» (sweep ADMIN-4, review REV-ADMIN-1). A price staff send with it is theirs.
+            $fullPrice = array_key_exists('coupon_id', $changes) && $changes['coupon_id'] === null
+                && !array_key_exists('price', $changes) && RemoveCoupon::discountInPrice($locked);
             $locked->setRawAttributes(array_merge($locked->getAttributes(), $changes));
+            if ($fullPrice) {
+                $locked->unsetRelations();
+                $locked->price = $locked->calculatePrice(applyCoupon: false);
+            }
             if (($changes['status'] ?? null) === self::STATUS_SUSPENDED) {
                 $locked->dunning_suspended_at = null;
             }
@@ -1293,7 +1302,7 @@ class Service extends Model implements Auditable
 
         return $line !== null && $line->period_start->lessThan($line->period_end)
             ? CarbonImmutable::instance($line->period_start)->startOfDay()
-            : BillingPeriod::start($this->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period));
+            : BillingPeriod::start($this->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period), $this->billingDay($this->expires_at));
     }
 
     /**

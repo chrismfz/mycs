@@ -83,8 +83,10 @@ final class AddAddon
         $count = max(1, (int) $plan->billing_period);
         // Counted back from the parent's date itself, k cycles at once: a 31st stays the 31st where the month has one, never
         // drifting to the 28th step by step (code review 2 of #637).
+        // On its billing day too: 28 February on the 31st steps back to 31 January (sweep CRON-BILLING-3).
+        $anchor = $parent->billingDay($due);
         $end = $due;
-        for ($k = 1; ($back = BillingPeriod::start($due, $plan->billing_unit, $count * $k))->greaterThan($today); $k++) {
+        for ($k = 1; ($back = BillingPeriod::start($due, $plan->billing_unit, $count * $k, $anchor))->greaterThan($today); $k++) {
             $end = $back;
         }
 
@@ -105,7 +107,7 @@ final class AddAddon
         $count = max(1, (int) $plan->billing_period);
         if ($start === self::PRORATED) {
             $end = self::alignedEnd($parent, $plan) ?? throw new DisplayException(__('services.addons.add.no_due_date'));
-            $full = BillingPeriod::start($end, $plan->billing_unit, $count);
+            $full = self::fullStart($parent, $plan, $end);
 
             return [$today, $end, self::plusSetupFee(BillingPeriod::remaining($price, $full, $end, $today), $plan, $parent->currency_code)];
         }
@@ -115,6 +117,14 @@ final class AddAddon
         }
 
         return [$from, BillingPeriod::end($from, $plan->billing_unit, $count), self::plusSetupFee($price, $plan, $parent->currency_code)];
+    }
+
+    /** Start of the whole cycle of $plan that ends on $end, on its parent's billing day (sweep CRON-BILLING-3). */
+    public static function fullStart(Service $parent, Plan $plan, CarbonInterface $end): CarbonImmutable
+    {
+        $due = $parent->expires_at !== null ? CarbonImmutable::parse($parent->expires_at)->startOfDay() : $end;
+
+        return BillingPeriod::start($end, $plan->billing_unit, max(1, (int) $plan->billing_period), $parent->billingDay($due));
     }
 
     /** Its first invoice charges the plan's setup fee too, on the same line, as an order's first invoice does (code review 5). */

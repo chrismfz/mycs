@@ -23,7 +23,6 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
-use MyCS\BillingPeriod\BillingPeriod;
 use Throwable;
 
 /**
@@ -159,7 +158,7 @@ class AddAddonAction extends Action
         [$from, $until, $amount] = $quote;
         $due = (string) BigDecimal::of($amount)->multipliedBy($quantity)->toScale(2) . ' ' . $parent->currency_code;
         if ($start === AddAddon::PRORATED) {
-            $full = BillingPeriod::start($until, $plan->billing_unit, max(1, (int) $plan->billing_period));
+            $full = AddAddon::fullStart($parent, $plan, $until);
 
             return __('services.addons.add.summary_line', ['days' => (int) $from->diffInDays($until), 'of' => (int) $full->diffInDays($until), 'amount' => $due]);
         }
