@@ -147,10 +147,9 @@ final class WhmcsCustomFieldImport
             // A foreign EU VAT number (its own prefix, not EL: 16 on myip) is the VIES one too, which MyCS's VIES check and
             // reverse charge read (code review 3 of #544): from the ΑΦΜ written, only when it is the one kept (R2, R3-544-3).
             unset($set['vat_number']);
-            $afm = $set['tax_id'] ?? null;
-            $vies = $afm !== null && blank($contact->tax_id) && ctype_alpha(substr($afm, 0, 2)) ? EuVat::parse($afm) : null;
-            if ($vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50) {
-                $set['vat_number'] = $vies->full();
+            $vies = blank($contact->tax_id) ? self::foreignVatNumber($set['tax_id'] ?? null) : null;
+            if ($vies !== null) {
+                $set['vat_number'] = $vies;
             }
             // A value the account already has (tblclients' own) stays.
             $set = array_filter($set, fn ($value, string $column) => blank($contact->{$column}), ARRAY_FILTER_USE_BOTH);
@@ -265,5 +264,13 @@ final class WhmcsCustomFieldImport
     {
         $this->counts['skipped']++;
         $this->notes[] = $why . '.';
+    }
+
+    /** A foreign EU VAT number (its own prefix, not EL) in its VIES form, or null: what an ΑΦΜ field gives vat_number. */
+    public static function foreignVatNumber(?string $afm): ?string
+    {
+        $vies = $afm !== null && ctype_alpha(substr($afm, 0, 2)) ? EuVat::parse($afm) : null;
+
+        return $vies !== null && $vies->country !== 'GR' && mb_strlen($vies->full()) <= 50 ? $vies->full() : null;
     }
 }

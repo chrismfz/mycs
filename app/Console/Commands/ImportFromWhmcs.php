@@ -859,6 +859,9 @@ class ImportFromWhmcs extends Command
                     'type' => $value('companyname') !== null ? 'business' : 'individual',
                     'first_name' => $value('firstname'), 'last_name' => $value('lastname'), 'company_name' => $value('companyname'),
                     'tax_id' => $value('tax_id'), 'email' => $value('email'), 'phone' => $value('phonenumber'),
+                    // A foreign EU VAT number there (nixpal's EU businesses) is the VIES one too, which vat:recheck and the
+                    // reverse charge read (sweep 2, F-TAX-DOCUMENTS-4); the ΑΦΜ field keeps it as WHMCS had it.
+                    'vat_number' => WhmcsCustomFieldImport::foreignVatNumber($value('tax_id')),
                     'address1' => $value('address1'), 'address2' => $value('address2'), 'city' => $value('city'),
                     'state' => $value('state'), 'postcode' => $value('postcode'),
                     // A country the app knows (EuVat::iso: a code, a name, EL → GR), else none: never the first two letters of
@@ -2169,8 +2172,19 @@ class ImportFromWhmcs extends Command
 
         // The counter holds the last number given (InvoiceNumberListener: +1, then used): the highest imported id, so the
         // next is one past it, none skipped (adversarial ADV-2 of #477). A Mass Pay parent (not imported, PR F3) keeps its id
-        // too: a new invoice never takes the number a customer quotes for one.
-        $highestInvoiceNumber = max((int) DB::table('invoices')->max('id'), (int) $this->pdo->query('SELECT MAX(id) FROM tblinvoices')->fetchColumn());
+        // too: a new invoice never takes the number a customer quotes for one. Nor one WHMCS deleted at the top of its ids:
+        // its counter (tblinvoices' AUTO_INCREMENT) and the invoice ids lines, payments and orders still name, as
+        // firstFreeServiceId does for services (sweep 2, F-TAX-DOCUMENTS-2).
+        $highestInvoiceNumber = (int) DB::table('invoices')->max('id');
+        foreach (['SELECT MAX(id) FROM tblinvoices', 'SELECT MAX(invoiceid) FROM tblinvoiceitems', 'SELECT MAX(invoiceid) FROM tblaccounts',
+            'SELECT MAX(invoiceid) FROM tblorders',
+            "SELECT AUTO_INCREMENT - 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblinvoices'"] as $sql) {
+            try {
+                $highestInvoiceNumber = max($highestInvoiceNumber, (int) $this->pdo->query($sql)->fetchColumn());
+            } catch (PDOException) {
+                // Not in this source (a partial copy, SQLite in tests): nothing it names.
+            }
+        }
         // DDL commits an open transaction (MySQL/MariaDB): only outside one, as the importer runs.
         if ((DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') && DB::transactionLevel() === 0) {
             DB::statement('ALTER TABLE invoices AUTO_INCREMENT = ' . ($highestInvoiceNumber + 1));

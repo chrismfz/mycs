@@ -68,7 +68,14 @@ class InvoiceNumberListener
         }
     }
 
-    /** The next number of its counter, under the counter's row lock; one already taken is passed over, never given twice. */
+    /**
+     * The next number of its counter, under the counter's row lock; one already taken is passed over, never given twice.
+     *
+     * A number for another period than today's (a proforma paid by a transfer of 31/12, recorded in January) whose
+     * sequence the counter no longer follows (set back to 0 for the new {year}, as Settings allows) takes the next number
+     * of that period, and the counter, today's sequence, is left as it is: no gap in the new year, never a number taken
+     * (sweep 2, F-TAX-DOCUMENTS-1). A counter that runs on across the years gives its next number, as before.
+     */
     private function setNumber(Invoice|AdjustmentNote $model, string $prefix, ?CarbonInterface $date = null): void
     {
         $formattedNumber = DB::transaction(function () use ($model, $prefix, $date) {
@@ -78,13 +85,41 @@ class InvoiceNumberListener
             Setting::query()->insertOrIgnore(['key' => $settingKey, 'settingable_type' => null, 'value' => '0', 'type' => 'string',
                 'created_at' => now(), 'updated_at' => now()]);
             $setting = Setting::where('key', $settingKey)->whereNull('settingable_type')->lockForUpdate()->first();
-            $number = (int) ($setting->value ?? 0);
+            $counter = (int) ($setting->value ?? 0);
+            $number = $counter + 1;
+            $formatted = self::formatInvoiceNumber($number, $prefix, $date);
+            if (!self::taken($model, $formatted)) {
+                $setting->update(['value' => $number]);
+
+                return $formatted;
+            }
+
+            $otherPeriod = $date !== null && self::formatInvoiceNumber(1, $prefix, $date) !== self::formatInvoiceNumber(1, $prefix);
+            if ($otherPeriod) {
+                $periodMax = self::highestOfPeriod($model, $prefix, $date);
+                $number = max($periodMax, $counter) + 1;
+                while (self::taken($model, $formatted = self::formatInvoiceNumber($number, $prefix, $date))) {
+                    $number++;
+                }
+                // Its period's sequence, apart from the counter's (its candidate was taken, so the counter was set
+                // back): the counter stays.
+                if ($periodMax <= $counter) {
+                    $setting->update(['value' => $number]);
+                }
+
+                return $formatted;
+            }
+
             // Taken already (the number = id of another mode, a counter set back by hand, an import): the next one, so a
-            // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238).
-            for ($tries = 0; $tries < 1000; $tries++) {
+            // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238). Past many
+            // taken in a row, one past the highest of the period.
+            for ($tries = 0; $tries < 1000 && self::taken($model, $formatted); $tries++) {
                 $formatted = self::formatInvoiceNumber(++$number, $prefix, $date);
-                if (!$model::query()->where('number', $formatted)->exists()) {
-                    break;
+            }
+            if (self::taken($model, $formatted)) {
+                $number = max($number, self::highestOfPeriod($model, $prefix, $date)) + 1;
+                while (self::taken($model, $formatted = self::formatInvoiceNumber($number, $prefix, $date))) {
+                    $number++;
                 }
             }
             $setting->update(['value' => $number]);
@@ -93,6 +128,35 @@ class InvoiceNumberListener
         });
 
         $model->number = $formattedNumber;
+    }
+
+    private static function taken(Invoice|AdjustmentNote $model, string $formatted): bool
+    {
+        return $model::query()->where('number', $formatted)->exists();
+    }
+
+    /** The highest {number} given in $date's period (its year, month or day as the format has them), 0 when none. */
+    private static function highestOfPeriod(Invoice|AdjustmentNote $model, string $prefix, ?CarbonInterface $date): int
+    {
+        $marker = "\u{0}";
+        $pattern = str_replace('{number}', $marker, (string) config("settings.{$prefix}_number_format", '{number}'));
+        $date ??= now();
+        $pattern = str_replace(['{year}', '{month}', '{day}'], [$date->format('Y'), $date->format('m'), $date->format('d')], $pattern);
+        $parts = explode($marker, $pattern);
+        if (count($parts) !== 2) {
+            return 0;
+        }
+        [$before, $after] = $parts;
+        $regex = '/^' . preg_quote($before, '/') . '(\d+)' . preg_quote($after, '/') . '$/';
+        $highest = 0;
+        // LIKE on what comes before the number narrows it (its wildcards only widen it); the pattern decides.
+        $model::query()->where('number', 'like', $before . '%')->pluck('number')->each(function ($number) use ($regex, &$highest) {
+            if (preg_match($regex, (string) $number, $match) === 1) {
+                $highest = max($highest, (int) $match[1]);
+            }
+        });
+
+        return $highest;
     }
 
     /**

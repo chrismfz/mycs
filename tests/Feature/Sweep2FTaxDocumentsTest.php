@@ -135,6 +135,42 @@ class Sweep2FTaxDocumentsTest extends TestCase
     }
 
     /**
+     * F-TAX-DOCUMENTS-1, today's period: a counter set back past more than 1000 taken numbers of this year gives one past
+     * the highest of the year, never a taken one, and the counter follows it.
+     */
+    public function test_f1_a_counter_set_back_past_many_taken_numbers_of_this_year_never_fails(): void
+    {
+        $this->settings(['invoice_proforma' => [true, 'boolean'], 'invoice_number_format' => ['{year}-{number}', 'string'],
+            'invoice_number' => [0, 'string']]);
+        $this->numbered2026(1005);
+        Carbon::setTestNow('2026-12-30 10:00:00');
+        $invoice = $this->invoice();
+
+        (new RecordPaymentService)->recordByStaff($invoice, null, 10, 'tx-many');
+
+        $this->assertSame('2026-1006', $invoice->fresh()->number);
+        $this->assertSame(1006, $this->counter());
+    }
+
+    /** F-TAX-DOCUMENTS-1: a counter that runs on across the years (not set back) still numbers a backdated one next. */
+    public function test_f1_a_counter_running_across_years_numbers_a_backdated_proforma_next(): void
+    {
+        $this->settings(['invoice_proforma' => [true, 'boolean'], 'invoice_number_format' => ['{year}-{number}', 'string'],
+            'invoice_number' => [5, 'string']]);
+        $this->numbered2026(4);
+        Carbon::setTestNow('2026-12-30 10:00:00');
+        $backdated = $this->invoice();
+        Carbon::setTestNow('2027-01-02 09:00:00');
+        $paid = $this->invoice();
+        (new RecordPaymentService)->recordByStaff($paid, null, 10, 'tx-2027');
+        $this->assertSame('2027-6', $paid->fresh()->number);
+
+        (new RecordPaymentService)->recordByStaff($backdated, null, 10, 'bank-3112', paidAt: Carbon::parse('2026-12-31 15:00:00'));
+
+        $this->assertSame(['2026-7', 7], [$backdated->fresh()->number, $this->counter()]);
+    }
+
+    /**
      * F-TAX-DOCUMENTS-2. WHMCS deleted its top invoice(s): an orphan line and a payment still name invoice 12, while
      * MAX(tblinvoices.id) is 10. The importer takes 10 as the highest number given (the counter and, on MariaDB, the
      * AUTO_INCREMENT both come from it), so 11 and 12 are given again to new invoices (number = id on myip).
