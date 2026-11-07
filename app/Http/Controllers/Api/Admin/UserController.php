@@ -72,6 +72,10 @@ class UserController extends ApiController
     {
         // Validate and update the user
         $user->update($request->validated());
+        // A new password ends the customer's sessions and «Remember me», as the admin page and the reset do (AUTH-18).
+        if ($user->wasChanged('password')) {
+            $user->sessions()->delete();
+        }
 
         // Return the updated user as a JSON response
         return new UserResource($this->loadAllowedIncludes($user, self::INCLUDES));
