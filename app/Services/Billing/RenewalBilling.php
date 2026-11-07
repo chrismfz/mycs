@@ -155,7 +155,13 @@ final class RenewalBilling
                 && !$service->client?->dunningExempt() // nothing ends an exempt account's service (adversarial of #455)
                 && !$service->holdInForce(CarbonImmutable::today()) // its own hold or its parent's, as terminable() asks (ADV-A3-2)
                 && $service->paidUntilBase()->lessThan(CarbonImmutable::today()->subDays(max(0, (int) config('settings.cronjob_order_terminate', 60)))));
-        if ($service->status === 'suspended' && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+        // An addon suspended only with its parent (AddonCascade, no dunning of its own) renews on its own date as any addon
+        // (docs/addons.md, «κάθε addon ανανεώνεται μόνο του»): its period is billed, so that once its parent is back and it
+        // is overdue on its own, it has an invoice to pay before it is suspended or terminated for it (F-RENEWAL-CYCLE-1).
+        // A staff hold drops that reason (placeOnHold), and an open invoice of it stops a second one above.
+        $withParent = $service->parent_service_id !== null && $service->suspend_reason === Service::SUSPEND_REASON_PARENT
+            && $service->dunning_suspended_at === null;
+        if ($service->status === 'suspended' && !$withParent && !$paidSinceSuspended && !$reissued && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->period_start->greaterThan($service->paidUntilBase()))) {
             return 0;
         }
