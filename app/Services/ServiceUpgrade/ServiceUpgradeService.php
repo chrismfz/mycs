@@ -149,7 +149,7 @@ class ServiceUpgradeService
             // at its price (R9) is reported by it, under its locks, for staff (review C1/C2 of #695).
             $kept = [];
             $onKept = function (InvoiceItem $billed, InvoiceItem $wouldBe) use (&$kept) {
-                $kept[] = ['line' => $billed, 'price' => (string) $wouldBe->price];
+                $kept[] = ['line' => $billed, 'price' => (string) $wouldBe->price, 'tax_rate' => $wouldBe->tax_rate, 'tax_reason' => $wouldBe->tax_reason];
             };
             $service->refreshOpenPeriods(retax: $productChanged, kept: $onKept);
             // Legacy manual lines without a period retain their whole-cycle allocation on payment. Under the payment
@@ -221,46 +221,64 @@ class ServiceUpgradeService
      * invoice of its own outlived a cancellation or a downgrade, review 2): they are told, once it commits, the service,
      * the invoice, the period and the exact difference: the price the upgrade would have given the line less the price
      * it is billed at (× quantity; review C3 of #695: its actual price, a staff price change included), negative for a
-     * downgrade. The lines are those ChangeOpenLine kept (C1), with or without a period (C2).
+     * downgrade, net (before VAT) as lines store it. A tax the new product would change (Δ1 retax) is told too, even with
+     * no net difference (review 3 of #695). The lines are those ChangeOpenLine kept (C1), with or without a period (C2).
      *
-     * @param  list<array{line: InvoiceItem, price: string}>  $periods
+     * @param  list<array{line: InvoiceItem, price: string, tax_rate: mixed, tax_reason: mixed}>  $periods
      */
     private function tellOfKeptPeriods(ServiceUpgrade $upgrade, Service $service, array $periods): void
     {
         $lines = [];
-        foreach ($periods as ['line' => $line, 'price' => $price]) {
+        $currency = $service->currency_code;
+        foreach ($periods as $period) {
+            $line = $period['line'];
             $kept = InvoiceItem::query()->with('invoice')->find($line->id);
             if ($kept === null || $kept->invoice === null || !in_array($kept->invoice->status, Invoice::OPEN_STATUSES, true)
                 || (string) $kept->price !== (string) $line->price) {
                 continue; // paid or given up later in this transaction, or repriced after all
             }
-            $difference = BigDecimal::of((string) $price)->minus(BigDecimal::of((string) $kept->price))
+            $difference = BigDecimal::of((string) $period['price'])->minus(BigDecimal::of((string) $kept->price))
                 ->multipliedBy(max(1, (int) $kept->quantity))->toScale(2, RoundingMode::HalfUp);
-            if ($difference->isZero()) {
+            $taxNow = self::taxOf($kept->tax_rate, $kept->tax_reason);
+            $taxNew = self::taxOf($period['tax_rate'], $period['tax_reason']);
+            if ($difference->isZero() && $taxNow === $taxNew) {
                 continue;
             }
-            $period = $kept->period_start !== null && $kept->period_end !== null
+            $dates = $kept->period_start !== null && $kept->period_end !== null
                 ? $kept->period_start->format('d/m/Y') . ' - ' . $kept->period_end->format('d/m/Y')
                 : 'no period (an imported line)';
             PaymentsLog::warning('Upgrade of a service whose open renewal keeps its price (a payment or an Ekdosi document on it): staff settle the difference.',
                 ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $kept->invoice_id,
-                    'invoice_item_id' => $kept->id, 'period' => $period, 'difference' => (string) $difference]);
-            $lines[] = "invoice #{$kept->invoice_id}, period {$period}: {$difference} {$service->currency_code}";
+                    'invoice_item_id' => $kept->id, 'period' => $dates, 'difference' => (string) $difference, 'tax' => $taxNow, 'new_tax' => $taxNew]);
+            $text = "invoice #{$kept->invoice_id}, period {$dates}: {$difference} {$currency} net (before VAT), its billed price "
+                . number_format((float) $kept->price, 2, '.', '') . " {$currency} to its new price {$period['price']} {$currency}";
+            if ($taxNow !== $taxNew) {
+                $text .= ", and its tax would be {$taxNew} instead of {$taxNow}";
+            }
+            $lines[] = $text;
         }
         if ($lines === []) {
             return;
         }
-        $body = "Upgrade #{$upgrade->id} of service #{$service->id} changed its price, but its open renewal invoice keeps the old "
-            . 'price (a payment or an Ekdosi document is on it). Settle the difference by hand (bill it, or credit it if negative): '
-            . implode('; ', $lines) . '.';
+        $body = "Upgrade #{$upgrade->id} of service #{$service->id} changed its price, but its open renewal invoice keeps each line at "
+            . 'its billed price (a payment or an Ekdosi document is on it). Settle the difference to the new price by hand (bill it, '
+            . 'or credit it if negative): ' . implode('; ', $lines) . '.';
         // As the customer's notice below (EVT-2, review C4 of #695): a mail that fails is reported, stops nothing.
         DB::afterCommit(function () use ($body) {
             try {
-                NotificationHelper::sendSystemEmailNotification('Upgraded service\'s renewal kept its old price: needs staff attention', e($body));
+                NotificationHelper::sendSystemEmailNotification('Upgraded service\'s renewal kept its billed price: needs staff attention', e($body));
             } catch (Throwable $e) {
                 report($e);
             }
         });
+    }
+
+    /** A line's tax as staff read it: its rate (0 when none), and the reason of a zero rate. */
+    private static function taxOf(mixed $rate, mixed $reason): string
+    {
+        $percent = (string) BigDecimal::of(is_numeric($rate) ? (string) $rate : '0')->strippedOfTrailingZeros() . '%';
+
+        return $reason === null || $reason === '' ? $percent : "{$percent} ({$reason})";
     }
 
     /** The rest of an upgrade on an invoice of its own, as the upgrade's (`Livewire\Services\Upgrade`). */

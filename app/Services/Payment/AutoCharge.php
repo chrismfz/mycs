@@ -94,11 +94,29 @@ final class AutoCharge
         }
         $cancelled = ServiceCancellation::query()->whereIn('service_id', $held->flatMap(fn (Invoice $invoice) => $invoice->items
             ->where('reference_type', Service::class)->pluck('reference_id'))->filter()->unique()->values())->pluck('service_id')->map(fn ($id) => (int) $id)->all();
-        NotificationHelper::sendSystemEmailNotification('Automatic charges held by a cancellation request: needs staff attention', e(sprintf(
+        self::tellOnce($held->map(fn (Invoice $invoice) => "autocharge-held-by-cancellation:{$invoice->id}")->values()->all(), fn () => NotificationHelper::sendSystemEmailNotification('Automatic charges held by a cancellation request: needs staff attention', e(sprintf(
             "These invoices are not charged automatically: a service on each has a cancellation request (its period is not charged), and the invoice also bills other services or domains, which go overdue unless it is split or paid another way.\n%s",
             $held->map(fn (Invoice $invoice) => sprintf('Invoice #%d, customer #%d: cancellation requested for service #%s', $invoice->id, $invoice->client_id,
                 $invoice->items->where('reference_type', Service::class)->pluck('reference_id')->map(fn ($id) => (int) $id)
-                    ->filter(fn (int $id) => in_array($id, $cancelled, true))->unique()->implode(', #')))->implode("\n"))));
+                    ->filter(fn (int $id) => in_array($id, $cancelled, true))->unique()->implode(', #')))->implode("\n")))));
+    }
+
+    /**
+     * A notice to staff whose items were claimed once ($keys, Cache::add): a mail that fails is reported, its claims
+     * dropped so the next run tells it again, and nothing escapes the run (review 3 of #695).
+     *
+     * @param  list<string>  $keys
+     */
+    private static function tellOnce(array $keys, callable $send): void
+    {
+        try {
+            $send();
+        } catch (Throwable $e) {
+            report($e);
+            foreach ($keys as $key) {
+                Cache::forget($key);
+            }
+        }
     }
 
     /**
@@ -428,9 +446,9 @@ final class AutoCharge
             ->where('sent_at', '<=', now()->subHour()))->orderBy('id')->get()
             ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS)));
         if ($unsettled->isNotEmpty()) {
-            NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
+            self::tellOnce($unsettled->map(fn (ChargeAttempt $attempt) => "autocharge-unrecorded:{$attempt->id}")->values()->all(), fn () => NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
                 "These charges are not settled: taken with no payment recorded since (check the gateway's webhooks), or of unknown outcome (check at the gateway). Each invoice is held, never charged or paid again, until staff record its payment, or settle it with «Resolve charge» on it (not taken, or its payment recorded another way).\n%s",
-                $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n"))));
+                $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n")))));
         }
     }
 

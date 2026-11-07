@@ -161,7 +161,7 @@ class AdvArea2Test extends TestCase
         $owed = Invoice::query()->where('client_id', $this->client->id)->where('status', Invoice::STATUS_UNPAID)->get()
             ->sum(fn (Invoice $invoice) => (float) $invoice->remaining);
         $this->assertSame('6.00', number_format($owed, 2), 'nothing billed on top of the part-paid renewal');
-        $notice = EmailLog::query()->where('to', 'staff@example.test')->where('subject', 'like', '%kept its old price%')->sole();
+        $notice = EmailLog::query()->where('to', 'staff@example.test')->where('subject', 'like', '%kept its billed price%')->sole();
         $this->assertStringContainsString("invoice #{$renewal->id}, period 17/11/2026 - 17/12/2026: 10.00 USD", $notice->body,
             'the month 11-17 → 12-17 of the 20.00 package is 10.00 short: staff are told, with the invoice and the period');
     }

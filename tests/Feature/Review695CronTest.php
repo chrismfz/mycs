@@ -134,7 +134,7 @@ class Review695CronTest extends TestCase
 
     private function notice(): ?EmailLog
     {
-        return EmailLog::query()->where('to', 'staff@example.test')->where('subject', 'like', '%kept its old price%')->first();
+        return EmailLog::query()->where('to', 'staff@example.test')->where('subject', 'like', '%kept its billed price%')->first();
     }
 
     /** The cron bills the small service's renewal (10.00, 17/11 - 17/12) on 11-10. */
@@ -268,7 +268,7 @@ class Review695CronTest extends TestCase
         [$service, $renewal, , $large] = $this->billedSmall();
         ExtensionHelper::addPayment($renewal->id, null, '4.00', null, 'bank-1', currency: 'USD');
         EmailLog::creating(function (EmailLog $log) {
-            if (str_contains((string) $log->subject, 'kept its old price')) {
+            if (str_contains((string) $log->subject, 'kept its billed price')) {
                 throw new RuntimeException('SMTP down');
             }
         });
@@ -401,5 +401,87 @@ class Review695CronTest extends TestCase
         };
 
         $this->assertSame([1, 1], $count(), 'one query reads the items, their «Do not charge automatically» and their cancellation');
+    }
+
+    /** Review 3, point 3: each line says it is net, its billed price (a staff price) and its new price. */
+    public function test_r3_the_notice_says_net_billed_and_new_price(): void
+    {
+        [$service, $renewal, , $large] = $this->billedSmall();
+        $renewal->items()->sole()->update(['price' => 8]);
+        ExtensionHelper::addPayment($renewal->id, null, '4.00', null, 'bank-1', currency: 'USD');
+
+        $this->upgrade($service, $large);
+
+        $body = (string) $this->notice()?->body;
+        $this->assertStringContainsString('12.00 USD net (before VAT), its billed price 8.00 USD to its new price 20.00 USD', $body);
+        $this->assertStringContainsString('keeps each line at its billed price', $body);
+    }
+
+    /** Review 3, point 1: a product change that would retax a kept line is told, with no net difference. */
+    public function test_r3_a_kept_line_whose_tax_would_change_is_told_with_no_net_difference(): void
+    {
+        [$service, $renewal, $small] = $this->billedSmall();
+        $untaxed = $this->product(10);
+        $untaxed->forceFill(['taxable' => false])->save();
+        DB::table('product_upgrades')->insert(['product_id' => $small->id, 'upgrade_id' => $untaxed->id]);
+        ExtensionHelper::addPayment($renewal->id, null, '4.00', null, 'bank-1', currency: 'USD');
+        config(['settings.tax_enabled' => true]);
+
+        $this->upgrade($service, $untaxed);
+
+        $this->assertSame($untaxed->id, (int) $service->fresh()->product_id, 'precondition: moved to the untaxed product');
+        $body = (string) $this->notice()?->body;
+        $this->assertStringContainsString("invoice #{$renewal->id}, period 17/11/2026 - 17/12/2026: 0.00 USD net (before VAT)", $body);
+        $this->assertStringContainsString('its tax would be 0%', $body);
+    }
+
+    /** Review 3, point 2: a failing «held by a cancellation» mail breaks no run and is sent on the next one. */
+    public function test_r3_a_failing_held_notice_is_retried_and_breaks_nothing(): void
+    {
+        $this->sharedHeld();
+        $held = fn () => EmailLog::query()->where('subject', 'like', '%held by a cancellation request%')->count();
+        $fail = true;
+        EmailLog::creating(function (EmailLog $log) use (&$fail) {
+            if ($fail && str_contains((string) $log->subject, 'held by a cancellation request')) {
+                throw new RuntimeException('SMTP down');
+            }
+        });
+        Carbon::setTestNow('2026-11-17 09:00:00');
+
+        (new AutoCharge)->run(); // never throws
+        $this->assertSame(0, $held());
+
+        $fail = false;
+        (new AutoCharge)->run();
+        $this->assertSame(1, $held(), 'told on the next run');
+    }
+
+    /** Review 3, point 2: the same for «Automatic charges not settled». */
+    public function test_r3_a_failing_not_settled_notice_is_retried_and_breaks_nothing(): void
+    {
+        $service = $this->serviceOf($this->product(10));
+        $this->cronAt('2026-11-10 09:00:00');
+        $this->client->forceFill(['auto_charge' => true])->save();
+        AcPay::$answer = fn () => throw new RuntimeException('timeout');
+        Carbon::setTestNow('2026-11-17 09:00:00');
+        (new AutoCharge)->run();
+        $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::query()->latest('id')->value('status'), 'precondition: of unknown outcome');
+        $told = fn () => EmailLog::query()->where('subject', 'Automatic charges not settled')->count();
+        $fail = true;
+        EmailLog::creating(function (EmailLog $log) use (&$fail) {
+            if ($fail && $log->subject === 'Automatic charges not settled') {
+                throw new RuntimeException('SMTP down');
+            }
+        });
+
+        Carbon::setTestNow('2026-11-17 10:30:00');
+        (new AutoCharge)->run();
+        $this->assertSame(0, $told());
+
+        $fail = false;
+        Carbon::setTestNow('2026-11-17 11:30:00');
+        (new AutoCharge)->run();
+        $this->assertSame(1, $told(), 'told on the next run');
+        $this->assertNotNull($service);
     }
 }
