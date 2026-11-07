@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\TicketMessage;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 
 /** The mail audit's helpers (docs/mail.md): what a mail is about, and staff's resend. */
@@ -58,7 +59,8 @@ class MailAudit
 
     /**
      * Why a logged mail is no longer true, or null: one asking to pay an invoice that is paid, cancelled or settled since
-     * (or gone), a suspension notice of a service no longer suspended, a hold's warning of one no longer active. The
+     * (or gone), or an overdue notice of one not overdue now (given more time), a suspension notice of a service no longer
+     * suspended, a hold's warning of one no longer active, past due or held. The
      * batch resend leaves those out (app:mail-resend-failed); staff's own Resend is staff's to judge.
      */
     public static function stale(EmailLog $log): ?string
@@ -74,14 +76,30 @@ class MailAudit
                 $invoice === null => 'its invoice is gone',
                 $invoice->status !== Invoice::STATUS_UNPAID => "its invoice is {$invoice->status} now",
                 $invoice->remaining <= 0 => 'its invoice has nothing left to pay',
+                // An overdue notice of one given more time since (its due date moved past today): not overdue now (REV3-LN-2).
+                $log->template_key === 'invoice_overdue' && !Carbon::parse($invoice->due_at ?? $invoice->created_at)->startOfDay()->lessThan(Carbon::today()) => 'its invoice is not overdue now',
                 default => null,
             };
         }
         $wants = ['server_suspended' => Service::STATUS_SUSPENDED, 'service_hold_ending' => Service::STATUS_ACTIVE][$log->template_key] ?? null;
         if ($wants !== null && $class === Service::class) {
-            $status = Service::query()->whereKey($log->related_id)->value('status');
+            $service = Service::query()->find($log->related_id);
+            if ($service === null || $service->status !== $wants) {
+                return 'its service is ' . ($service->status ?? 'gone') . ' now';
+            }
+            // A hold's warning («pay, or it is suspended on D, the day after the hold») of one paid since (its due date
+            // moved on, Suspend Days after it no longer ending by its hold, as the cron's heldBack counts it) or whose hold
+            // staff took off: no longer true (REV3-LN-1).
+            if ($log->template_key === 'service_hold_ending') {
+                $days = max(0, (int) config('settings.cronjob_order_suspend', 8));
 
-            return $status === $wants ? null : 'its service is ' . ($status ?? 'gone') . ' now';
+                return match (true) {
+                    $service->suspend_hold_until === null => 'its service is no longer held',
+                    $service->expires_at === null
+                        || Carbon::parse($service->expires_at)->startOfDay()->addDays($days)->greaterThan(Carbon::parse($service->suspend_hold_until)->startOfDay()) => 'its service is no longer past due',
+                    default => null,
+                };
+            }
         }
 
         return null;
