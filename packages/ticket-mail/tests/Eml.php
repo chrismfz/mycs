@@ -2,6 +2,8 @@
 
 namespace MyCS\TicketMail\Tests;
 
+use Carbon\Carbon;
+
 /** Raw RFC 822 for the tests: headers as given, a text body, files as base64 parts. */
 final class Eml
 {
@@ -13,7 +15,7 @@ final class Eml
     {
         $lines = [];
         $headers += ['From' => 'Maria <maria@example.com>', 'To' => 'support@myip.test', 'Subject' => 'Help',
-            'Message-ID' => '<m1@example.com>', 'Date' => 'Tue, 20 Oct 2026 10:00:00 +0300'];
+            'Message-ID' => '<m1@example.com>', 'Date' => self::now()];
         foreach ($headers as $name => $value) {
             $lines[] = is_int($name) ? $value : "{$name}: {$value}";
         }
@@ -37,6 +39,12 @@ final class Eml
         $body .= "--{$boundary}--\r\n";
 
         return implode("\r\n", $lines) . "\r\n\r\n" . $body;
+    }
+
+    /** Sent now (the test's clock when Carbon is there): a department reads only mail sent since it began (F-SUPPORT-2). */
+    private static function now(): string
+    {
+        return class_exists(Carbon::class) ? Carbon::now()->toRfc2822String() : date(DATE_RFC2822);
     }
 
     public static function pdf(): string

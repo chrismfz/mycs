@@ -25,7 +25,8 @@ use MyCS\TicketMail\ReplyText;
 /**
  * One inbound mail into a ticket, or into the quarantine (docs/tickets.md §3). In this order:
  *   1. a mail seen before (its Message-ID) is skipped; a blocked sender is dropped;
- *   2. no sender, two senders, our own address, automated mail, a giant: quarantine (§3 Ε);
+ *   2. no sender, two senders, our own address, automated mail, a giant, a mail sent before the department's
+ *      `mail_since`: quarantine (§3 Ε);
  *   3. a reply joins a ticket ONLY by one of our Message-IDs (§3 Α), ONLY from its owner (the guest's address, or a login
  *      of its account with the tickets permission), and with «Require DMARC» ONLY when our server vouches for the From
  *      (§3 Β); otherwise quarantine, the ticket suggested to staff;
@@ -73,6 +74,11 @@ class InboundRouter
         }
         if ($email->tooLarge) {
             return $this->quarantine($department, $email, $raw, 'too_large', $messageId);
+        }
+        // Sent before the department began reading its mailbox (F-SUPPORT-2): old unread mail WHMCS already piped. Never a
+        // ticket of today nor a «we received it»; staff decide in the quarantine.
+        if ($department->predatesMail($email->date)) {
+            return $this->quarantine($department, $email, $raw, 'before_mail_since', $messageId);
         }
 
         $verdict = AuthenticationResults::verdict($email->authenticationResults, (string) $department->authserv_id, $from);

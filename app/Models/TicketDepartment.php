@@ -18,7 +18,7 @@ class TicketDepartment extends Model implements Auditable
     use Traits\Auditable;
 
     protected $fillable = ['name', 'sort', 'hidden', 'clients_only', 'email', 'imap_host', 'imap_port', 'imap_encryption', 'imap_username',
-        'imap_password', 'imap_folder', 'authserv_id', 'require_dmarc', 'polling'];
+        'imap_password', 'imap_folder', 'authserv_id', 'require_dmarc', 'polling', 'mail_since'];
 
     protected $hidden = ['imap_password'];
 
@@ -33,7 +33,25 @@ class TicketDepartment extends Model implements Auditable
         'imap_password' => 'encrypted',
         'require_dmarc' => 'boolean',
         'polling' => 'boolean',
+        'mail_since' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // The first time its mailbox is read, it reads from now on (F-SUPPORT-2): the unread mail of before (WHMCS piped
+        // it) waits in the quarantine. Staff may move it back; turned off and on again it keeps the date it had.
+        static::saving(function (TicketDepartment $department) {
+            if ($department->polling && $department->mail_since === null && ($department->isDirty('polling') || !$department->exists)) {
+                $department->mail_since = now();
+            }
+        });
+    }
+
+    /** A mail sent before the department began reading its mailbox: none when it has no such date, or the mail none. */
+    public function predatesMail(?\DateTimeInterface $sent): bool
+    {
+        return $sent !== null && $this->mail_since !== null && $sent < $this->mail_since;
+    }
 
     /** Its mailbox can be read: a host, a login and a password. */
     public function hasMailbox(): bool
