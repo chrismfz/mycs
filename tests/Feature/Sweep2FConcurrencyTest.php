@@ -137,7 +137,7 @@ class Sweep2FConcurrencyTest extends TestCase
         $inRefund = [];
         $afterCommit = [];
         DB::listen(function (QueryExecuted $query) use (&$refundOpen, &$inRefund, &$afterCommit) {
-            if (str_contains($query->sql, '"settings"') && in_array('credit_note_number', $query->bindings, true)) {
+            if (preg_match('/[`"]settings[`"]/', $query->sql) === 1 && in_array('credit_note_number', $query->bindings, true)) {
                 if ($refundOpen && DB::transactionLevel() > 1) {
                     $inRefund[] = (SwConcPay::$refunded ? 'after the gateway: ' : 'before the gateway: ') . $query->sql;
                 } else {
@@ -168,7 +168,7 @@ class Sweep2FConcurrencyTest extends TestCase
         Log::spy();
         // As a lock wait timeout on the counter would: the first read of the row after the gateway refunded throws.
         DB::listen(function (QueryExecuted $query) {
-            if (SwConcPay::$refunded && str_contains($query->sql, '"settings"') && in_array('credit_note_number', $query->bindings, true)) {
+            if (SwConcPay::$refunded && preg_match('/[`"]settings[`"]/', $query->sql) === 1 && in_array('credit_note_number', $query->bindings, true)) {
                 throw new \RuntimeException('Lock wait timeout exceeded');
             }
         });
