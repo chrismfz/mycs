@@ -687,7 +687,11 @@ class RecordPaymentService
     public function boughtCreditLeftCents(Invoice $invoice): int
     {
         $given = $this->boughtCreditCents($invoice);
-        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)->max('id');
+        // The grant itself (its credit-in, or credit-out for a negative line), never a reversal journaled under the same
+        // cause: a chargeback's credit given back (GrantBoughtCreditService) must not hide the refunds before it
+        // (review REV2-FRC-1).
+        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)
+            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value])->max('id');
         $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
             ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
             ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));

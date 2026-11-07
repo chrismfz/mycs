@@ -9,6 +9,7 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -84,7 +85,7 @@ class CreditLedger
      */
     public function giveBack(MoneyEvent $out, string $cause): Credit
     {
-        $cents = (int) round((float) $out->amount * 100);
+        $cents = RecordPaymentService::toCents($out->amount);
         if ($out->kind !== MoneyEventKind::CreditOut || $out->client_id === null || $cents <= 0) {
             throw new LogicException('Only a credit-out event of a customer is given back.');
         }
