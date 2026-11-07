@@ -114,4 +114,39 @@ class SweepImportTest extends TestCase
         $this->assertStringNotContainsString('same@example.test', $printed, 'a login\'s email printed to the console');
         $this->assertStringNotContainsString($hash, $printed, 'a password hash printed to the console');
     }
+
+    /** IMPORT-2, the fixer's: the skipped account is named, so it is fixed in WHMCS before the final import. */
+    public function test_an_account_without_owner_is_named(): void
+    {
+        $this->whmcs->exec("INSERT INTO tblclients (id, currency, firstname, lastname, email) VALUES (7, 1, 'B', 'Two', 'two@example.test')");
+
+        $this->import(['importUsers']);
+
+        $printed = $this->output->fetch();
+        $this->assertStringContainsString('without an owner login', $printed);
+        $this->assertStringContainsString('#7', $printed);
+        $this->assertStringNotContainsString('two@example.test', $printed);
+    }
+
+    /**
+     * IMPORT-5. Two numbers the unique key takes for one (MariaDB: case-insensitive, trailing spaces ignored) never both
+     * come: the later one is imported without, and named.
+     */
+    public function test_numbers_the_unique_key_takes_for_one_keep_the_first_and_are_named(): void
+    {
+        $this->whmcs->exec("INSERT INTO tblusers (id, first_name, last_name, email, password) VALUES (1, 'A', 'One', 'one@example.test', 'x')");
+        $this->whmcs->exec("INSERT INTO tblclients (id, currency, firstname, lastname, email) VALUES (6, 1, 'A', 'One', 'one@example.test')");
+        $this->whmcs->exec('INSERT INTO tblusers_clients (auth_user_id, client_id, owner) VALUES (1, 6, 1)');
+        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, invoicenum, date, duedate, datepaid, status, total) VALUES
+            (100, 6, 'NX-0412', '2026-10-01', '2026-10-10', '2026-10-02 00:00:00', 'Paid', 10),
+            (101, 6, 'NX-0412 ', '2026-10-01', '2026-10-10', '2026-10-02 00:00:00', 'Paid', 10),
+            (102, 6, 'nx-0412', '2026-10-01', '2026-10-10', '2026-10-02 00:00:00', 'Paid', 10),
+            (103, 6, 'NX-0413', '2026-10-01', '2026-10-10', '2026-10-02 00:00:00', 'Paid', 10)");
+
+        $this->import(['importUsers', 'importInvoices']);
+
+        $this->assertSame(['100' => 'NX-0412', '101' => null, '102' => null, '103' => 'NX-0413'],
+            DB::table('invoices')->orderBy('id')->pluck('number', 'id')->mapWithKeys(fn ($number, $id) => [(string) $id => $number])->all());
+        $this->assertStringContainsString('#101, #102', $this->output->fetch());
+    }
 }
