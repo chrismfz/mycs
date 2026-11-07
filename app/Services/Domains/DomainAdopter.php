@@ -50,9 +50,12 @@ class DomainAdopter
             throw new DisplayException(__('No currency :code.', ['code' => $currency]));
         }
 
+        $tldModel = DomainTld::query()->where('tld', $tld)->first();
         $domain = new Domain(['client_id' => $client->id, 'registrar_connection_id' => $connection->id, 'sld' => $sld, 'tld' => $tld,
-            'fqdn' => $fqdn, 'status' => DomainStatus::Active, 'currency_code' => $currency,
-            'domain_tld_id' => DomainTld::query()->where('tld', $tld)->value('id')]);
+            'fqdn' => $fqdn, 'status' => DomainStatus::Active, 'currency_code' => $currency, 'domain_tld_id' => $tldModel?->id]);
+        // Its renewal period (sweep DOMAINS-5): never the column's 1 year where its registrar renews in steps (the .gr
+        // registry: 2), which is never billed; its TLD's shortest renewal in those steps, else one step.
+        $domain->years = self::renewalYears($connection, $tldModel, $currency);
         // The registrar first, then anything here: only a live record of this very name, with its expiry.
         try {
             $result = $this->sync->read($domain);
@@ -74,5 +77,18 @@ class DomainAdopter
 
             return $domain->fresh() ?? $domain;
         });
+    }
+
+    /** The shortest period its TLD renews for in $currency within its registrar's renewal steps; one step when none. */
+    private static function renewalYears(DomainRegistrarConnection $connection, ?DomainTld $tld, string $currency): int
+    {
+        try {
+            $step = max(1, app(DomainRegistrarFactory::class)->for($connection)->capabilities()->renewYearStep);
+        } catch (Throwable) {
+            $step = 1;
+        }
+        $priced = $tld?->offeredYears('renew', $currency)->filter(fn (int $y) => $y >= 1 && $y % $step === 0)->min();
+
+        return $priced === null ? $step : (int) $priced;
     }
 }

@@ -8,10 +8,12 @@ use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Exceptions\CreateRunning;
 use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
 use App\Exceptions\LeftToStaff;
 use App\Exceptions\NothingToDoOnServer;
+use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\SuspendJob;
 use App\Models\BillingAgreement;
 use App\Models\Client;
@@ -850,7 +852,7 @@ class ExtensionHelper
             return DB::transaction(function () use ($transaction, $gatewayInstance, $amount, $notify, &$refundedAtGateway, &$reference) {
                 // Every lock and check happens BEFORE the gateway call: nothing after the money left can wait
                 // for a lock, deadlock, or be refused.
-                [$transaction, $credit] = self::prepareRefund($transaction, $amount);
+                [$transaction, $credit, $creditCents] = self::prepareRefund($transaction, $amount);
 
                 // The rounded amount, the same the transaction, the note and the journal record.
                 $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
@@ -869,7 +871,7 @@ class ExtensionHelper
                 GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', (string) $reference)
                     ->whereIn('origin', [GatewayRefund::ORIGIN_WAITING, GatewayRefund::ORIGIN_FAILED])->delete();
 
-                self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway));
+                self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway), $creditCents);
                 // The gateway's own id for it (PR 2c-2): its webhook telling the same refund is not recorded twice.
                 // The webhook waits on the locks held here and reads this row with a locking read.
                 if (!is_string($success)) {
@@ -910,7 +912,10 @@ class ExtensionHelper
      * A refund of a credit purchase that gave its credit takes that credit back: refused when it was already
      * spent, and for an invoice that mixes it with other lines (RecordPaymentService::lockBoughtCredit).
      *
-     * @return array{0: InvoiceTransaction, 1: ?Credit} the locked transaction, and the credit to take back from
+     * Only the credit it still holds is taken back (RecordPaymentService::boughtCreditLeftCents): the rest of a payment,
+     * a debit note staff wrote on it, bought none (sweep MONEY-LEDGER-3).
+     *
+     * @return array{0: InvoiceTransaction, 1: ?Credit, 2: int} the locked transaction, the credit to take back from, and how much
      */
     private static function prepareRefund(InvoiceTransaction $transaction, float $amount): array
     {
@@ -931,16 +936,18 @@ class ExtensionHelper
         }
 
         // Only credit the invoice gave (once paid) is taken back: a partial payment of an unpaid one bought nothing.
-        if (!(new RecordPaymentService)->lockBoughtCredit($invoice)) {
-            return [$transaction, null];
+        $payments = new RecordPaymentService;
+        if (!$payments->lockBoughtCredit($invoice)) {
+            return [$transaction, null, 0];
         }
+        $creditCents = min(RecordPaymentService::toCents($amount), $payments->boughtCreditLeftCents($invoice));
         $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()->first();
-        if (RecordPaymentService::toCents($credit === null ? 0 : $credit->amount) < RecordPaymentService::toCents($amount)) {
+        if (RecordPaymentService::toCents($credit === null ? 0 : $credit->amount) < $creditCents) {
             throw new \InvalidArgumentException('The account credit this payment bought was already used: it cannot be refunded.');
         }
 
-        return [$transaction, $credit];
+        return [$transaction, $credit, $creditCents];
     }
 
     /**
@@ -959,9 +966,9 @@ class ExtensionHelper
         }
 
         DB::transaction(function () use ($transaction, $amount, $notify) {
-            [$transaction, $credit] = self::prepareRefund($transaction, $amount);
+            [$transaction, $credit, $creditCents] = self::prepareRefund($transaction, $amount);
 
-            self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
+            self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL, $creditCents);
             if ($notify) {
                 self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: false, byStaff: true);
             }
@@ -1228,10 +1235,12 @@ class ExtensionHelper
             $staff = trim(($staff ?? '') . " {$gateway} refunded {$refundReference} on invoice #{$invoice->id}: " . $e->getMessage());
         }
         if ($boughtCredit) {
+            // Only the credit it still holds: a debit note on it bought none (sweep MONEY-LEDGER-3).
+            $bought = min($record, (new RecordPaymentService)->boughtCreditLeftCents($invoice));
             $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
-            $creditCents = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
-            if ($creditCents < $record) {
-                $staff = trim(($staff ?? '') . " {$gateway} refunded {$refundReference} for a credit purchase whose credit was spent: " . self::cents($record - $creditCents)
+            $creditCents = min($bought, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+            if ($creditCents < $bought) {
+                $staff = trim(($staff ?? '') . " {$gateway} refunded {$refundReference} for a credit purchase whose credit was spent: " . self::cents($bought - $creditCents)
                     . " {$invoice->currency_code} of it could not be taken back from the customer's credit (invoice #{$invoice->id}).");
             }
         }
@@ -2145,9 +2154,9 @@ class ExtensionHelper
     {
         // One create of a service at a time, whoever asks (the job, its retry, staff): two would make two accounts
         // (adversarial A5). $whilePending: the job's check, read again under the lock.
-        $lock = Cache::lock("service-create:{$service->id}", 600);
+        $lock = Cache::lock("service-create:{$service->id}", CreateJob::CREATE_LOCK_SECONDS);
         if (!$lock->get()) {
-            throw new CreateSkipped("A create of service #{$service->id} is already running.");
+            throw new CreateRunning("A create of service #{$service->id} is already running.");
         }
         try {
             if ($whilePending && Service::query()->whereKey($service->id)->value('status') !== Service::STATUS_PENDING) {

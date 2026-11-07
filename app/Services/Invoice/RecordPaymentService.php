@@ -422,9 +422,7 @@ class RecordPaymentService
             // Refunded to credit (PR 2c): its refund note stays on the invoice, so without the payment it would be a
             // discount (code review and adversarial review of 2c). Its other credited part (an overpayment, a
             // settle) is no refund and is taken back as before.
-            if (MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
-                ->whereNotExists(fn ($reversal) => $reversal->from('money_events as reversals')->whereColumn('reversals.reverses_id', 'money_events.id'))
-                ->exists()) {
+            if (self::refundedToCredit($transaction)) {
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
 
@@ -438,14 +436,26 @@ class RecordPaymentService
 
             // Credit to give back (+) or take back (-). A payment made with credit: what is still on the invoice
             // goes back (its credited part is already back). Any other payment: what became credit is taken back.
-            // On a credit purchase that gave its credit, what is on the invoice bought credit: taken back too.
+            // On a credit purchase that gave its credit, what is on the invoice bought credit: taken back too. When the
+            // invoice is open again without it, it bought nothing (credit is given once paid): all the credit it still
+            // holds goes back and its lines give it again when it is paid again (sweep MONEY-LEDGER-1, as a chargeback).
             $change = 0;
+            $unbuy = false;
             if ($transaction->status === InvoiceTransactionStatus::Succeeded) {
                 $credited = self::toCents($transaction->credited_amount);
                 $onInvoice = self::toCents($transaction->amount) - self::toCents($transaction->refunded_amount) - $credited;
                 $change = $transaction->is_credit_transaction ? $onInvoice : -$credited;
                 if ($this->lockBoughtCredit($invoice)) {
-                    $change -= $onInvoice;
+                    $unbuy = $onInvoice > 0 && $invoice->status === Invoice::STATUS_PAID
+                        && self::toCents($invoice->withLockedBalance()->remaining) + $onInvoice > 0;
+                    $left = $unbuy ? $this->boughtCreditLeftCents($invoice) : 0;
+                    // A refund already took part of its credit back (its refund note stays): paid again, its lines would
+                    // give their whole total for less money, which the invoice refuses, so it could never be paid again
+                    // (review REV-ML-1). Staff refund this payment instead, which takes its credit back as well.
+                    if ($unbuy && $left < $this->boughtCreditCents($invoice)) {
+                        throw new DisplayException(__('Part of the credit this invoice bought was already refunded: its other payments are not deleted, refund them instead.'));
+                    }
+                    $change -= $unbuy ? $left : $onInvoice;
                 }
             }
             $credit = null;
@@ -486,6 +496,9 @@ class RecordPaymentService
             $credit?->save();
 
             $transaction->delete();
+            if ($unbuy) {
+                $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
+            }
 
             // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
@@ -663,6 +676,37 @@ class RecordPaymentService
         }
 
         return true;
+    }
+
+    /**
+     * The account credit a credit purchase that gave it (lockBoughtCredit) still holds: what its lines gave, less what
+     * refunds took back since they gave it. A refund or a deletion takes back no more than that: money paid on it for
+     * anything else (a debit note staff wrote) bought no credit (sweep MONEY-LEDGER-3). Under the payments' locks.
+     */
+    public function boughtCreditLeftCents(Invoice $invoice): int
+    {
+        $given = $this->boughtCreditCents($invoice);
+        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)->max('id');
+        $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
+            ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
+            ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
+
+        return max(0, $given - $taken);
+    }
+
+    /** What the credit lines of a credit purchase give when it is paid (their totals). Under the payments' locks. */
+    public function boughtCreditCents(Invoice $invoice): int
+    {
+        return (int) $invoice->items()->where('reference_type', Credit::class)->lockForUpdate()->get()
+            ->sum(fn (InvoiceItem $item) => $item->totalCents());
+    }
+
+    /** Whether staff refunded part of this payment to account credit (PR 2c), and that refund still stands. */
+    public static function refundedToCredit(InvoiceTransaction $transaction): bool
+    {
+        return MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
+            ->whereNotExists(fn ($reversal) => $reversal->from('money_events as reversals')->whereColumn('reversals.reverses_id', 'money_events.id'))
+            ->exists();
     }
 
     /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */

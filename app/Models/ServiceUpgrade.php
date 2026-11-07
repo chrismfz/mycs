@@ -33,9 +33,9 @@ use OwenIt\Auditing\Contracts\Auditable;
 class ServiceUpgrade extends Model implements Auditable
 {
     /**
-     * Its invoice's due date: within the week, but never after the service's expiry (sweep 2026-10-24). Past the expiry
-     * the cron gives the upgrade up (its price is for the days left), so a later due date told the customer to pay
-     * what would be cancelled before then.
+     * Its invoice's due date: within the week, but never on or after the service's expiry (sweep 2026-10-24). From the
+     * expiry day on the cron gives the upgrade up (its price is for the days left, none on that day), so the last day to
+     * pay is the day before it (sweep UPGRADES-4: due on the expiry day, it was cancelled at that day's cron).
      */
     public static function invoiceDueAt(Service $service): \Illuminate\Support\Carbon
     {
@@ -43,9 +43,9 @@ class ServiceUpgrade extends Model implements Auditable
         if ($service->expires_at === null) {
             return $week;
         }
-        $expiry = \Illuminate\Support\Carbon::parse($service->expires_at)->startOfDay();
+        $lastDay = \Illuminate\Support\Carbon::parse($service->expires_at)->startOfDay()->subDay();
 
-        return $expiry->lt($week) ? $expiry->max(\Illuminate\Support\Carbon::today()) : $week;
+        return $lastDay->lt($week) ? $lastDay->max(\Illuminate\Support\Carbon::today()) : $week;
     }
 
     use HasFactory, Traits\Auditable;

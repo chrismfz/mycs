@@ -19,8 +19,8 @@ final class DunningRules
     /**
      * Active services past Suspend Days, not held, not of a client exempt from it (its own setting or its group's), not on
      * a free or one-time plan (no period to pay; a service whose plan is gone is not exempt), with no payment on its way.
-     * With $overdueInvoice: and an open invoice of theirs due and issued Suspend Days ago (a missing due date counts from
-     * its issue). With $holdDay: those held until that day instead, suspendable the day after it (code review 3).
+     * With $overdueInvoice: and an open invoice billing them (a charge alone is not one, #507: as Service::stillOverdue
+     * reads it, sweep CRON-BILLING-1) due and issued Suspend Days ago (a missing due date counts from its issue). With $holdDay: those held until that day instead, suspendable the day after it (code review 3).
      *
      * @return Builder<Service>
      */
@@ -33,7 +33,7 @@ final class DunningRules
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
             ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
 
-        return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
+        return !$overdueInvoice ? $query : $query->whereHas('renewalInvoices', fn ($invoices) => $invoices
             ->where('invoices.status', Invoice::STATUS_UNPAID)
             ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
             ->whereDate('invoices.created_at', '<', $cutoff));
