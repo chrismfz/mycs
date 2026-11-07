@@ -5,9 +5,9 @@
     Without localStorage it remembers in the tab, so it still rings (review of #382). «Away» is a hidden tab or a window
     without focus (PuTTY in front, the page on another screen); a Live chat page in front and focused, in any tab of
     this browser, keeps the others quiet.
-    A customer waiting rings three tones, and again every 30 seconds while a customer still waits in the member's
-    departments (a chat whose operator left too) and the member is «Available» (owner 2026-10-27: one tone is lost in a noisy room); the last reminder's time is shared
-    by the tabs, so two tabs do not double it. The count goes to the «Customers waiting» link in the sidebar.
+    A customer waiting rings three tones, and again every 15 seconds while a customer still waits in the member's
+    departments (a chat whose operator left too) and the member is «Available» (owner 2026-10-27: one tone is lost in a
+    noisy room; 15 seconds since 2026-11-07); the last reminder's time is shared by the tabs, so two tabs do not double it. The count goes to the «Customers waiting» link in the sidebar.
 --}}
 <div wire:poll.10s.keep-alive hidden
     data-staff="{{ $staffId }}" data-total="{{ $news['total'] }}" data-latest="{{ $news['latest'] }}"
@@ -109,7 +109,7 @@
             const d = this.$el.dataset;
             if (!(Number(d.waiting) > 0) || d.available !== '1' || this.reading()) return;
             const key = this.key() + '-reminded';
-            if (Date.now() - Number(this.store(key) ?? 0) < 30000) return;
+            if (Date.now() - Number(this.store(key) ?? 0) < 15000) return;
             this.store(key, String(Date.now()));
             // Sound only, never a notification: the member was told of the chat by its first ring.
             window.mycsChatAlert?.(d.chatTitle, d.chatUrl, false, 3);
