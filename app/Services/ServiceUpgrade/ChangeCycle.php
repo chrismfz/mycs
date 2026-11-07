@@ -168,11 +168,15 @@ final class ChangeCycle
         }
 
         $today = CarbonImmutable::today();
+        // The days left as they were paid: the period's lines, and the upgrades paid within it, less what a downgrade in it
+        // gave back already (sweep UPGRADES-1, as DowngradeCredit counts them).
+        [$upgrades, $given] = DowngradeCredit::withinPeriod($service, $today);
+        $credit = BigDecimal::max(BigDecimal::of(self::unused($service, $today))->plus($upgrades)->minus($given), BigDecimal::zero())->toScale(2);
 
         return [
             'price' => $price,
             'gross' => $gross,
-            'credit' => self::unused($service, $today),
+            'credit' => (string) $credit,
             'start' => $today,
             'end' => $after->periodEnd($today),
             'charge' => $gross,
@@ -284,8 +288,8 @@ final class ChangeCycle
     /**
      * What is left of the period paid on $today, as it was paid (with its line's tax, B2): each paid line covering today,
      * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
-     * (imported without one): its price, with tax, for the days to its expiry. Also the most a downgrade gives back
-     * (Livewire\Services\Upgrade): never more than was paid.
+     * (imported without one): its price, with tax, for the days to its expiry. The period's part of what a downgrade gives
+     * back (DowngradeCredit) and of a cycle change's credit (quote, with the upgrades): never more than was paid.
      */
     public static function unused(Service $service, CarbonImmutable $today): string
     {
