@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\Service\RenewalTaxChanged;
 use App\Events\Setting\Retrieved;
 use App\Events\Setting\Saved;
 use App\Events\Setting\Saving;
@@ -9,6 +10,7 @@ use App\Redactors\FullRedactor;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 use Throwable;
 
@@ -19,6 +21,9 @@ class Setting extends Model implements Auditable
      * the database, never from the settings cache, so saving one does not flush that cache (EVT-13).
      */
     public const COUNTERS = ['invoice_number', 'credit_note_number'];
+
+    /** What a renewal charges with tax depends on these (Settings::tax, EuVat, the gateways' amounts). */
+    public const TAX = ['tax_enabled', 'tax_type', 'tax_home_country', 'eu_vat_enabled', 'eu_vat_home_country'];
 
     use HasFactory, Traits\Auditable;
 
@@ -93,5 +98,30 @@ class Setting extends Model implements Auditable
         // The secrets the logs take out (Redact) are read again after a change.
         static::saved(fn () => Redact::forget());
         static::deleted(fn () => Redact::forget());
+        // A tax setting changed: the gateway subscriptions that bill by themselves are repriced (sweep TAX-REPORTS-1),
+        // with this process's settings read again first (they are reloaded only when the app terminates, and the
+        // listeners run once committed): all the tax settings, as one save may change several.
+        static::created(fn (self $setting) => $setting->taxChanged());
+        static::updated(function (self $setting) {
+            if ($setting->wasChanged('value')) {
+                $setting->taxChanged();
+            }
+        });
+    }
+
+    private function taxChanged(): void
+    {
+        if ($this->settingable_type === null && in_array($this->key, self::TAX, true)) {
+            DB::afterCommit(fn () => self::reloadTax());
+            RenewalTaxChanged::forEverySubscribed();
+        }
+    }
+
+    /** The tax settings as committed, into this process's config. */
+    private static function reloadTax(): void
+    {
+        foreach (self::query()->whereNull('settingable_type')->whereIn('key', self::TAX)->get() as $setting) {
+            config(['settings.' . $setting->key => $setting->value]);
+        }
     }
 }

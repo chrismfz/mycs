@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\Service\RenewalTaxChanged;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -20,5 +21,15 @@ class TaxRate extends Model implements Auditable
                 $rate->whmcs_rate = null;
             }
         });
+        // A rate added, changed or removed changes what renewals charge, so the gateway subscriptions that bill by
+        // themselves (Stripe, PayPal) are repriced (sweep TAX-REPORTS-1). Which accounts a rate reaches depends on the
+        // «all» rule and the home-country fallback (Settings::tax), so all of them are.
+        static::created(fn () => RenewalTaxChanged::forEverySubscribed());
+        static::updated(function (TaxRate $rate) {
+            if ($rate->wasChanged(['rate', 'country'])) {
+                RenewalTaxChanged::forEverySubscribed();
+            }
+        });
+        static::deleted(fn () => RenewalTaxChanged::forEverySubscribed());
     }
 }
