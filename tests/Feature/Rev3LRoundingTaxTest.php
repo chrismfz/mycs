@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
@@ -81,5 +82,43 @@ class Rev3LRoundingTaxTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $line->invoice->status);
         $this->assertSame('0.0000', number_format((float) $line->tax_rate, 4, '.', ''),
             'the open order line of a service moved to an untaxed product keeps 24% VAT, silently (no staff report)');
+    }
+
+    /**
+     * Fixer: an upgrade at another price keeps the stub (its price and period, as a plan change by staff does), and staff
+     * are told of the stub's price at the new recurring amount, with the invoice; the line is retaxed only on a product change.
+     */
+    public function test_fix_an_upgrade_at_another_price_keeps_the_order_stub_and_tells_staff(): void
+    {
+        $this->storeSettings(['system_email_address' => 'staff@example.test', 'mail_disable' => false]);
+        $user = User::factory()->create();
+        $user->client()->primaryContact->update(['country' => 'GR']);
+        /** @var Product $product */
+        $product = $this->createProduct(['prorata_day' => 1, 'prorata_next_after_day' => 20])->product;
+        $plan = $product->plans()->firstOrFail();
+        Price::query()->where('plan_id', $plan->id)->update(['price' => 30.00, 'setup_fee' => 0]);
+        $pricier = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'Pricier',
+            'billing_unit' => 'month', 'billing_period' => 1, 'type' => 'recurring']);
+        Price::factory()->create(['plan_id' => $pricier->id, 'price' => 40.00, 'setup_fee' => 0, 'currency_code' => 'USD']);
+
+        Carbon::setTestNow('2026-01-10 10:00:00');
+        $placed = (new PlaceOrderService)->place($user->client(), 'USD', [new OrderLine($product, $plan)]);
+        $line = $placed->invoice->fresh('items')->items->sole();
+        // 22 of 31 days: 21.29 of 30.00, 28.39 of 40.00.
+        $this->assertSame(['21.29', '24.0000'], [number_format((float) $line->price, 2, '.', ''), number_format((float) $line->tax_rate, 4, '.', '')]);
+        $service = Service::query()->sole();
+        $service->forceFill(['status' => Service::STATUS_ACTIVE])->save();
+
+        $upgrade = (new ServiceUpgrade)->forceFill(['service_id' => $service->id, 'product_id' => $product->id,
+            'plan_id' => $pricier->id, 'status' => ServiceUpgrade::STATUS_PENDING]);
+        $upgrade->save();
+        $this->assertTrue((new ServiceUpgradeService)->handle($upgrade));
+
+        $line->refresh();
+        $this->assertSame(['21.29', '2026-02-01', '24.0000'],
+            [number_format((float) $line->price, 2, '.', ''), $line->period_end->toDateString(), number_format((float) $line->tax_rate, 4, '.', '')]);
+        $told = EmailLog::query()->where('subject', 'like', '%needs staff attention%')->get();
+        $this->assertCount(1, $told);
+        $this->assertStringContainsString("invoice #{$placed->invoice->id}, period 10/01/2026 - 01/02/2026: 7.10 USD", (string) $told->sole()->body);
     }
 }
