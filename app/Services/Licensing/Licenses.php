@@ -92,9 +92,10 @@ class Licenses
     {
         $license = License::query()->where('service_id', $service->id)->first();
         // Expired is final, and Active needs a running service (review ADV-L2): an «Unsuspend» of a cancelled service
-        // does not revive its license.
+        // does not revive its license. A suspended one counts: staff's «Unsuspend» asks the server before it saves the
+        // service active, and nothing resyncs the license after (sweep PROVISIONING-1).
         if ($license !== null && ($license->status === License::STATUS_EXPIRED
-            || ($status === License::STATUS_ACTIVE && $service->fresh()?->status !== Service::STATUS_ACTIVE))) {
+            || ($status === License::STATUS_ACTIVE && !in_array($service->fresh()?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)))) {
             return $license;
         }
         if ($license !== null && $license->status !== $status) {
