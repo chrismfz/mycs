@@ -153,7 +153,8 @@ class SweepTicketsMailTest extends TestCase
     public function test_a_ticket_opened_while_logged_in_as_client_is_the_staff_members(): void
     {
         $customer = User::factory()->create();
-        $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
+        // With the ticket permission: without it staff may not open one as the client at all (sweep AUTH-SECURITY-2).
+        $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate', 'admin.tickets.create'])->create();
         $this->withSession($this->loginUser($customer, [Auth::guard('staff')->getName() => $staff->id, 'impersonating' => $customer->id]));
 
         Livewire::actingAs($customer)->test(ClientTicketCreate::class)
