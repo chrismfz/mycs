@@ -69,4 +69,19 @@ class RevTaxReportsTest extends TestCase
         $this->assertGreaterThan(1, TaxRate::query()->count());
         Event::assertDispatchedTimes(RenewalTaxChanged::class, 1);
     }
+
+    /** The same for --update-imported: every imported rate brought to the list in one commit, one repricing. */
+    public function test_updating_the_imported_rates_reprices_each_subscription_once(): void
+    {
+        $this->subscribed('EE', 'sub_rev_2');
+        foreach (['EE', 'DE', 'FR'] as $iso) {
+            TaxRate::query()->create(['name' => "VAT {$iso}", 'rate' => '1.00', 'country' => $iso])->forceFill(['whmcs_rate' => '1.00'])->save();
+        }
+        Event::fake([RenewalTaxChanged::class]);
+
+        $result = app(EuVatRates::class)->updateImported();
+
+        $this->assertCount(3, $result['updated']);
+        Event::assertDispatchedTimes(RenewalTaxChanged::class, 1);
+    }
 }
