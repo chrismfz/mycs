@@ -163,6 +163,18 @@ class CronJob extends Command
      */
     private function inMaintenance(): ?int
     {
+        if (($import = ImportFromWhmcs::running()) !== null) {
+            // A WHMCS import is filling the database (or one failed half way): nothing is billed, charged or suspended
+            // over it (sweep F-CUTOVER-DAY-1). The import's end clears it.
+            $this->error("A WHMCS import started at {$import} has not ended: not started.");
+            if (!$this->option('dunning-only')) {
+                NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', e(sprintf(
+                    'The daily run found a WHMCS import that started at %s and has not ended (still running, or it failed half way) and did nothing. Once an import ends, the cron runs again; after one that failed, run the import again.',
+                    $import)));
+            }
+
+            return self::FAILURE;
+        }
         if (!app()->isDownForMaintenance()) {
             return null;
         }
@@ -183,7 +195,8 @@ class CronJob extends Command
      * staff to read the mail (2026-11-04: a deploy from 23:59 skipped the 00:00 run). Nothing before its time (and the
      * daily run's own wait for the lock, with a margin: review of #624), once a run started today (ended, still running past
      * its lock, or killed: that one is staff's, not run again; ADV-624-2), while the app is down, read again under the lock
-     * (the next hour then; ADV-624-1), or while a run holds the lock. A run at 23:25 or later that did not start is not
+     * (the next hour then; ADV-624-1), or while a run holds the lock. Nor over a database with no run of its own yet
+     * (installed, or just filled by the WHMCS import: ranBefore). A run at 23:25 or later that did not start is not
      * caught up: the next day is the next run's.
      */
     private function catchUp(): int
@@ -194,7 +207,7 @@ class CronJob extends Command
             return self::SUCCESS;
         }
         $margin = max(10, intdiv(self::$lockWait, 60) + 5);
-        if (Carbon::now()->lt($time->copy()->addMinutes($margin)) || self::startedToday() || self::down()) {
+        if (Carbon::now()->lt($time->copy()->addMinutes($margin)) || self::startedToday() || self::down() || !self::ranBefore()) {
             return self::SUCCESS;
         }
         $lock = Cache::lock('app:cron-job', 7200);
@@ -203,7 +216,7 @@ class CronJob extends Command
         }
         try {
             // Read again under the lock: a run that started meanwhile, a deploy that went down. Once a day, whatever it ends with.
-            if (self::startedToday() || self::down() || !Cache::add('cron-catch-up:' . Carbon::today()->toDateString(), true, 86400)) {
+            if (self::startedToday() || self::down() || !self::ranBefore() || !Cache::add('cron-catch-up:' . Carbon::today()->toDateString(), true, 86400)) {
                 return self::SUCCESS;
             }
             $this->warn("Today's daily run did not start at {$time->format('H:i')}: starting it now.");
@@ -215,6 +228,20 @@ class CronJob extends Command
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * A daily run ran here before (any trace of one), and no WHMCS import is running or failed half way. A database with
+     * none is new: installed, or just emptied and filled by the import (its migrate:fresh), while staff still do what comes
+     * «before the first cron» (cutover-runbook.md). Nothing was missed there: its first run is at its daily time, never
+     * started by the catch-up an hour later (sweep F-CUTOVER-DAY-1).
+     *
+     * @phpstan-impure it reads the database
+     */
+    private static function ranBefore(): bool
+    {
+        return ImportFromWhmcs::running() === null && Setting::query()->where('settingable_type', CronStat::class)
+            ->whereIn('key', [self::STARTED, self::DUNNING_READY, 'last_cron_run'])->exists();
     }
 
     /**
