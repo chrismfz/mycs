@@ -5,6 +5,7 @@ namespace App\Services\Invoice;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
@@ -101,12 +102,15 @@ class RecordPaymentService
         return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup) {
             $invoice = $this->lockInvoice($invoiceId);
 
-            // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
-            // without a gateway match any gateway's id (re-entering what a webhook already recorded).
+            // Same id on the same gateway account (PayPal and PayPal_IPN are one: REV2-FGW-2), or recorded by staff
+            // without a gateway: the same money. Staff without a gateway match any gateway's id (re-entering what a
+            // webhook already recorded).
+            $sameAccount = $gateway === null ? [] : Gateway::query()
+                ->whereIn('extension', ExtensionHelper::accountExtensions((string) $gateway->extension))->pluck('id')->push($gateway->id)->unique()->all();
             $existing = $transactionId === null ? null : InvoiceTransaction::query()
                 ->where('transaction_id', $transactionId)
                 ->when($gateway !== null, fn ($query) => $query->where(
-                    fn ($query) => $query->where('gateway_id', $gateway->id)->orWhereNull('gateway_id')
+                    fn ($query) => $query->whereIn('gateway_id', $sameAccount)->orWhereNull('gateway_id')
                 ))
                 ->orderByRaw('case when status = ? then 0 else 1 end', [InvoiceTransactionStatus::Succeeded->value])
                 ->whereHas('invoice', fn ($query) => $query->where('client_id', $invoice->client_id))
