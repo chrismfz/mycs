@@ -15,6 +15,8 @@ use App\Exceptions\LeftToStaff;
 use App\Exceptions\NothingToDoOnServer;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\SuspendJob;
+use App\Listeners\InvoiceNumberListener;
+use App\Models\AdjustmentNote;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Credit;
@@ -853,6 +855,9 @@ class ExtensionHelper
                 // Every lock and check happens BEFORE the gateway call: nothing after the money left can wait
                 // for a lock, deadlock, or be refused.
                 [$transaction, $credit, $creditCents] = self::prepareRefund($transaction, $amount);
+                // A paid invoice's refund is a credit note: its counter (shared by every credit note) is locked now, not
+                // after the gateway refunded (sweep 2, F-CONCURRENCY-3). A number is only taken if the note is written.
+                $counter = $transaction->invoice->status === Invoice::STATUS_PAID ? InvoiceNumberListener::lockCounter('credit_note') : null;
 
                 // The rounded amount, the same the transaction, the note and the journal record.
                 $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
@@ -871,7 +876,7 @@ class ExtensionHelper
                 GatewayRefund::query()->where('gateway', $transaction->gateway->extension)->where('reference', (string) $reference)
                     ->whereIn('origin', [GatewayRefund::ORIGIN_WAITING, GatewayRefund::ORIGIN_FAILED])->delete();
 
-                self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway), $creditCents);
+                self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway), $creditCents, $counter);
                 // The gateway's own id for it (PR 2c-2): its webhook telling the same refund is not recorded twice.
                 // The webhook waits on the locks held here and reads this row with a locking read.
                 if (!is_string($success)) {
@@ -1028,18 +1033,23 @@ class ExtensionHelper
      * total; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is settled by its
      * cancellation note already (the whole total), and reopened it is to pay in full again (adversarial review of 2c,
      * R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as they are.
-     * The rows are locked already (prepareRefund): nothing here waits for a lock after a gateway refund.
+     * The rows are locked already (prepareRefund), and so is the credit notes' counter ($counter, refund()): nothing here
+     * waits for a lock after a gateway refund.
      */
-    private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description): void
+    private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description, ?Setting $counter = null): void
     {
         $invoice = $transaction->invoice;
         if ($invoice->status === Invoice::STATUS_PAID) {
-            $invoice->adjustmentNotes()->create([
+            $note = $invoice->adjustmentNotes()->make([
                 'type' => AdjustmentNoteType::Credit->value,
                 'amount' => -1 * $cents / 100,
                 'description' => $description,
                 'is_refund' => true, // follows refunded_amount / credited_amount: never voided by hand (MT-1c)
             ]);
+            if ($counter !== null) {
+                $note->number = InvoiceNumberListener::takeNumber($counter, 'credit_note', AdjustmentNote::class);
+            }
+            $note->save();
         }
         if ($invoice->status === Invoice::STATUS_PAID) {
             $kept = (int) $invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded->value)->lockForUpdate()->get()
@@ -1863,7 +1873,7 @@ class ExtensionHelper
      * Record a refund by updating the transaction and creating an adjustment note; a credit purchase also
      * gives back the credit it bought. Both are journaled (docs/money-trail.md §1).
      */
-    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit, string $source, ?int $creditCents = null): bool
+    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit, string $source, ?int $creditCents = null, ?Setting $counter = null): bool
     {
         $cents = RecordPaymentService::toCents($amount);
         $creditCents ??= $cents;
@@ -1875,7 +1885,7 @@ class ExtensionHelper
         // One rounded amount for the transaction, the note and the journal.
         $transaction->increment('refunded_amount', $cents / 100);
         $trail->refund($transaction, $transaction->invoice, $cents, $source);
-        self::afterRefund($transaction, $cents, 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')');
+        self::afterRefund($transaction, $cents, 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')', $counter);
 
         return true;
     }

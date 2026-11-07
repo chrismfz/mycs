@@ -7,7 +7,9 @@ use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Credit;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
@@ -49,9 +51,11 @@ class Sweep2FConcurrencyTest extends TestCase
                 public function cancelBillingAgreement($agreement): bool { return true; }
                 public function charge($invoice, $amount, $agreement) { return true; }
                 public function supportsRefunds() { return true; }
-                public function refund($transaction, $amount) { self::$refunded = true; return "re_sweep2_1"; } }');
+                public static int $refunds = 0;
+                public function refund($transaction, $amount) { self::$refunded = true; return "re_sweep2_" . ++self::$refunds; } }');
         }
         SwConcPay::$refunded = false;
+        SwConcPay::$refunds = 0;
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $this->user = User::factory()->create();
         $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'SwConcPay'], ['name' => 'SwConcPay', 'type' => 'gateway', 'enabled' => true]);
@@ -133,5 +137,42 @@ class Sweep2FConcurrencyTest extends TestCase
 
         $this->assertTrue(SwConcPay::$refunded);
         $this->assertSame([], $after, 'after the gateway refunded, refund() read/locked the global counter row: ' . implode(' | ', $after));
+    }
+
+    /** F-CONCURRENCY-3 fix: the note still takes the next credit-note number, the counter moves by one, in the set format. */
+    public function test_a_gateway_refund_note_takes_the_next_credit_note_number(): void
+    {
+        config(['settings.credit_note_number_format' => 'CN-{number}', 'settings.credit_note_number_padding' => 3]);
+        Setting::query()->updateOrCreate(['key' => 'credit_note_number', 'settingable_type' => null], ['value' => '6', 'type' => 'string']);
+        $invoice = $this->invoice(100);
+        ExtensionHelper::addPayment($invoice->id, 'SwConcPay', 100, transactionId: 'ch_sweep2_2', currency: 'USD');
+        $payment = $invoice->fresh()->transactions()->sole();
+
+        ExtensionHelper::refund($payment, 30.00, notify: false);
+        ExtensionHelper::refund($payment->fresh(), 10.00, notify: false);
+
+        $this->assertSame(['CN-007', 'CN-008'], $invoice->fresh()->adjustmentNotes()->orderBy('id')->pluck('number')->all());
+        $this->assertSame('8', (string) Setting::query()->where('key', 'credit_note_number')->whereNull('settingable_type')->value('value'));
+        $this->assertSame('8', (string) config('settings.credit_note_number'));
+        // A credit note written another way (a staff refund to credit) goes on from the same counter.
+        ExtensionHelper::refundToCredit($payment->fresh(), 5.00, notify: false);
+        $this->assertSame('CN-009', $invoice->fresh()->adjustmentNotes()->orderByDesc('id')->value('number'));
+    }
+
+    /** F-CONCURRENCY-3 fix: a refund its webhook recorded already writes no note, and the counter locked for it takes no number. */
+    public function test_a_gateway_refund_already_recorded_leaves_no_gap_in_the_credit_notes(): void
+    {
+        Setting::query()->updateOrCreate(['key' => 'credit_note_number', 'settingable_type' => null], ['value' => '6', 'type' => 'string']);
+        $invoice = $this->invoice(100);
+        ExtensionHelper::addPayment($invoice->id, 'SwConcPay', 100, transactionId: 'ch_sweep2_3', currency: 'USD');
+        $payment = $invoice->fresh()->transactions()->sole();
+        GatewayRefund::query()->create(['invoice_transaction_id' => $payment->id, 'gateway' => 'SwConcPay', 'reference' => 're_sweep2_1',
+            'payment_reference' => 'ch_sweep2_3', 'amount' => 30, 'currency_code' => 'USD', 'recorded_amount' => 30,
+            'origin' => GatewayRefund::ORIGIN_GATEWAY]);
+
+        ExtensionHelper::refund($payment, 30.00, notify: false);
+
+        $this->assertSame(0, $invoice->fresh()->adjustmentNotes()->count());
+        $this->assertSame('6', (string) Setting::query()->where('key', 'credit_note_number')->whereNull('settingable_type')->value('value'));
     }
 }

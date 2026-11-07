@@ -392,7 +392,10 @@ class Show extends Component
     private function payWithCredit()
     {
         // Read and spend the credit under the payment locks (RecordPaymentService): never a stale copy.
-        $transaction = (new RecordPaymentService)->payWithCredit($this->invoice);
+        // The hold read again under the same lock as the payment (sweep 2, F-CONCURRENCY-1): a charge started between
+        // processPayment's check and here holds the invoice too.
+        $transaction = (new RecordPaymentService)->payWithCredit($this->invoice,
+            eligible: fn (Invoice $locked): bool => !SavedMethodCharge::onItsWay($locked));
         $this->invoice = $this->invoice->fresh();
         $this->statusMemo = null;
         if ($transaction === null) {

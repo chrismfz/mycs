@@ -30,7 +30,11 @@ class InvoiceNumberListener
     public function handle(Creating|Created|Updating|AdjustmentNoteCreating $event): void
     {
         if ($event instanceof AdjustmentNoteCreating) {
-            $this->setNumber($event->adjustmentNote, 'credit_note');
+            // Numbered already from a counter its caller locked earlier (takeNumber: a gateway refund, which locks nothing
+            // after the money left).
+            if (!$event->adjustmentNote->number) {
+                $this->setNumber($event->adjustmentNote, 'credit_note');
+            }
 
             return;
         }
@@ -71,28 +75,54 @@ class InvoiceNumberListener
     /** The next number of its counter, under the counter's row lock; one already taken is passed over, never given twice. */
     private function setNumber(Invoice|AdjustmentNote $model, string $prefix, ?CarbonInterface $date = null): void
     {
-        $formattedNumber = DB::transaction(function () use ($model, $prefix, $date) {
-            $settingKey = $prefix . '_number';
-            // The row first, so that the lock holds from the very first number (no row: nothing to lock, two first
-            // numbers alike; adversarial review of #238).
-            Setting::query()->insertOrIgnore(['key' => $settingKey, 'settingable_type' => null, 'value' => '0', 'type' => 'string',
-                'created_at' => now(), 'updated_at' => now()]);
-            $setting = Setting::where('key', $settingKey)->whereNull('settingable_type')->lockForUpdate()->first();
-            $number = (int) ($setting->value ?? 0);
-            // Taken already (the number = id of another mode, a counter set back by hand, an import): the next one, so a
-            // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238).
-            for ($tries = 0; $tries < 1000; $tries++) {
-                $formatted = self::formatInvoiceNumber(++$number, $prefix, $date);
-                if (!$model::query()->where('number', $formatted)->exists()) {
-                    break;
-                }
+        $model->number = DB::transaction(fn () => self::takeNumber(self::lockCounter($prefix), $prefix, $model::class, $date));
+    }
+
+    /**
+     * The counter's row ($prefix_number), locked for the rest of the caller's transaction. Taken before a gateway call
+     * whose answer needs a number (ExtensionHelper::refund), so nothing after the money left waits for it (sweep 2,
+     * F-CONCURRENCY-3).
+     */
+    public static function lockCounter(string $prefix): Setting
+    {
+        $settingKey = $prefix . '_number';
+        // The row first, so that the lock holds from the very first number (no row: nothing to lock, two first
+        // numbers alike; adversarial review of #238).
+        Setting::query()->insertOrIgnore(['key' => $settingKey, 'settingable_type' => null, 'value' => '0', 'type' => 'string',
+            'created_at' => now(), 'updated_at' => now()]);
+
+        return Setting::where('key', $settingKey)->whereNull('settingable_type')->lockForUpdate()->firstOrFail();
+    }
+
+    /**
+     * The next number from a counter locked by lockCounter() in this transaction. Nothing is taken until it is called,
+     * so a counter locked and then not used leaves no gap.
+     *
+     * @param  class-string<Invoice|AdjustmentNote>  $model
+     */
+    public static function takeNumber(Setting $counter, string $prefix, string $model, ?CarbonInterface $date = null): string
+    {
+        $number = (int) ($counter->value ?? 0);
+        // Taken already (the number = id of another mode, a counter set back by hand, an import): the next one, so a
+        // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238).
+        for ($tries = 0; $tries < 1000; $tries++) {
+            $formatted = self::formatInvoiceNumber(++$number, $prefix, $date);
+            if (!$model::query()->where('number', $formatted)->exists()) {
+                break;
             }
-            $setting->update(['value' => $number]);
+        }
+        // By its key, without the model's events: Setting\Saved reads the row again by its name, after a gateway refund too
+        // (F-CONCURRENCY-3). What that event did for a counter is the config value (no override, no cache flush:
+        // FlushCacheListener), kept here.
+        $counter->value = (string) $number;
+        Setting::query()->whereKey($counter->getKey())->update(['value' => $counter->value, 'updated_at' => now()]);
+        $counter->syncOriginalAttribute('value');
+        // As Setting\Saved does: config('settings') may be a collection (SettingsProvider), which a dotted key would replace.
+        $settings = config('settings', []);
+        $settings[$counter->key] = $counter->value;
+        config(['settings' => $settings]);
 
-            return $formatted;
-        });
-
-        $model->number = $formattedNumber;
+        return $formatted;
     }
 
     /**

@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Payment\SavedMethodCharge;
 use App\Services\Service\DunningRules;
 use Illuminate\Support\Facades\DB;
 
@@ -236,6 +237,12 @@ class CreditAutoApply
             return false;
         }
         if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Processing->value)->lockForUpdate()->exists()) {
+            return false;
+        }
+        // A saved-method charge not settled (on its way, of unknown outcome, taken and its payment not recorded yet) holds the
+        // invoice for every way of paying: credit paying it now would leave that charge's money as a second payment (sweep 2,
+        // F-CONCURRENCY-1). Read under the invoice's payment lock, as SavedMethodCharge::charge reads it.
+        if (SavedMethodCharge::onItsWay($invoice)) {
             return false;
         }
         // Staff took a credit payment off this invoice: the credit stays where they put it. One made here (source credit)
