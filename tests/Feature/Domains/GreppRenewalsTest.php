@@ -99,9 +99,10 @@ class GreppRenewalsTest extends TestCase
         $line = InvoiceItem::query()->where('reference_id', $domain->id)->sole();
         $this->assertSame(['2026-11-01', '2028-11-01', '30.00'], [$line->period_start->toDateString(), $line->period_end->toDateString(), number_format((float) $line->price, 2, '.', '')]);
 
-        // A TLD with a one-year price keeps one year in grace (Openprovider's, D-13).
+        // A one-year price on a registrar that renews in steps of two is not a period it renews for (REV-DOMAINS-2): two
+        // years still, never one, which RenewalBilling refuses («steps of 2, not 1»). A one-year step keeps one (D-13).
         DomainTldPrice::query()->create(['domain_tld_id' => $domain->domain_tld_id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => '15.00']);
-        $this->assertSame(1, $domain->fresh()->stageRenewalYears());
+        $this->assertSame(2, $domain->fresh()->stageRenewalYears());
     }
 
     public function test_in_its_grace_it_is_renewed_not_restored(): void
