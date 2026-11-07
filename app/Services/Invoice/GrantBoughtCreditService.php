@@ -49,5 +49,11 @@ class GrantBoughtCreditService
             }
             $item->forceFill(['applied_at' => now()])->save();
         }
+        // Paid again after a chargeback took part of its credit (paid anew, or the dispute won): what it took comes back,
+        // once (its credit-out reversed). Its lines stay applied through a chargeback, so they give nothing twice
+        // (sweep2 F-REFUND-CHARGEBACK-1).
+        foreach (RecordPaymentService::chargebackTakes($invoice) as $taken) {
+            (new CreditLedger)->giveBack($taken, MoneyTrail::CAUSE_PURCHASE);
+        }
     }
 }
