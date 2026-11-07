@@ -247,7 +247,25 @@ class DirectAdmin extends Server
             return false;
         }
 
-        return is_array($config) && $domain !== '' && strtolower(trim((string) ($config['domain'] ?? ''))) === strtolower(trim($domain));
+        $theirs = self::comparableDomain((string) ($config['domain'] ?? ''));
+
+        return is_array($config) && $theirs !== '' && $theirs === self::comparableDomain($domain);
+    }
+
+    /**
+     * A domain in the form DirectAdmin keeps it: punycode and lower-case (REV2-FPO-1). An IDN domain (a Greek .gr) is
+     * stored in unicode on the service, but DirectAdmin shows it as xn--…, and strtolower() leaves non-ASCII letters as
+     * they are.
+     */
+    private static function comparableDomain(string $domain): string
+    {
+        $domain = rtrim(mb_strtolower(trim($domain)), '.');
+        if ($domain === '') {
+            return '';
+        }
+        $ascii = idn_to_ascii($domain, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+
+        return is_string($ascii) && $ascii !== '' ? strtolower($ascii) : $domain;
     }
 
     /** @return array<string, mixed> */
