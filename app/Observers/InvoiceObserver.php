@@ -128,6 +128,14 @@ class InvoiceObserver
             if (self::receivedCents($invoice->withLockedBalance()) > 0) {
                 throw new DisplayException(__('This invoice holds payments: refund them (back, or to account credit) before cancelling it.'));
             }
+            // A saved card charged and its outcome not here yet (sweep2 F-STAFF-ADMIN-MONEY-2), as delete, merge and a move
+            // refuse it: cancelled, the money that lands becomes credit while the period is billed again and charged again.
+            // A cancellation as a consequence of its service goes on (CancelOpenInvoices: the money becomes credit). Only a
+            // saved-card charge whose outcome is not here: a gateway payment recorded as processing (a customer's SEPA) does
+            // not keep the invoice open, and becomes credit when it settles (PaymentGuardsAdversarialTest).
+            if (!$invoice->cancelled_as_consequence && SavedMethodCharge::holding($invoice)->isNotEmpty()) {
+                throw new DisplayException(__('A card payment of this invoice is on its way or not settled: wait for it before cancelling the invoice.'));
+            }
         }
         // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
         // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone

@@ -6,6 +6,7 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
 use App\Http\Controllers\LegacyPayPalIpnController;
+use App\Models\Gateway as GatewayModel;
 use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
 use App\Services\Money\GatewayLog;
@@ -166,7 +167,10 @@ class PayPal_IPN extends Gateway
 
             return response('');
         }
-        ExtensionHelper::addPayment($invoice, 'PayPal', $field('mc_gross'), $field('mc_fee'), transactionId: $field('txn_id'),
+        // Recorded under the PayPal gateway when it is installed (the same account: its refunds and disputes find it),
+        // else under this one: never with no gateway, as if staff had entered it, so a Mass Pay is spread (F-GATEWAY-WEBHOOKS-2).
+        $recordAs = GatewayModel::query()->where('extension', 'PayPal')->exists() ? 'PayPal' : 'PayPal_IPN';
+        ExtensionHelper::addPayment($invoice, $recordAs, $field('mc_gross'), $field('mc_fee'), transactionId: $field('txn_id'),
             currency: $field('mc_currency'), paymentGroup: $field('custom'));
         // A refund or chargeback told before this payment waits for it: addPayment applies those only for a gateway with
         // its own row named so, which this extension is not (review of #349, F1).

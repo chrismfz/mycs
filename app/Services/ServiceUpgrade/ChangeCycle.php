@@ -114,6 +114,11 @@ final class ChangeCycle
             && !self::sharedWithCreditOnly($invoice, $service))) {
             return __('An open invoice of this service has a payment on it.');
         }
+        // A saved-card charge of an open invoice of it, its outcome not here yet: cancelled for the new cycle, the period
+        // would be billed and charged again while the money that lands becomes credit (sweep2 REV2-SAM-1).
+        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id')->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice))) {
+            return __('A card payment of an open invoice of this service is on its way or not settled: wait for it first.');
+        }
         // An open invoice of it kept from the automatic charge (the customer's «I'll pay another way», or staff's «Do not
         // auto-charge»: a payment agreed another way, a transfer maybe on its way) would go, and the period it bills come
         // back on an invoice the cron charges to the saved method: paid twice (ADV-623-1). Pay it, or settle it, first.
@@ -287,7 +292,8 @@ final class ChangeCycle
     }
 
     /**
-     * What is left of the period paid on $today, as it was paid (with its line's tax, B2): each paid line covering today,
+     * What is left of the period paid on $today, as it was paid (with its line's tax, B2; without its setup fee or what its
+     * invoice gave back, PaidForPeriod: sweep 2): each paid line covering today,
      * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
      * (imported without one): its price, with tax, for the days to its expiry. The period's part of what a downgrade gives
      * back (DowngradeCredit) and of a cycle change's credit (quote, with the upgrades): never more than was paid.
@@ -307,8 +313,8 @@ final class ChangeCycle
         }
         $total = BigDecimal::zero();
         foreach ($lines as $line) {
-            $total = $total->plus(BillingPeriod::remaining(number_format((float) $line->line_total, 2, '.', ''),
-                $line->period_start, $line->period_end, $today));
+            // What it paid for its days: not a setup fee on it, not what its invoice gave back (sweep 2, PaidForPeriod).
+            $total = $total->plus(BillingPeriod::remaining(PaidForPeriod::of($line), $line->period_start, $line->period_end, $today));
         }
 
         return (string) $total->toScale(2);

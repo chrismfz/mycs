@@ -98,6 +98,12 @@ class InvoiceItemObserver
         if ($invoice->isDirty('taxed') && !$invoice->isDirty('tax_rate')) {
             $invoice->forceFill(LineTax::decide($invoice));
         }
+        // A line repriced (staff waiving its setup fee, a period rebuilt without it) no longer holds the setup fee it
+        // recorded: what is in it is not known, so all of it counts as paid for its days, as before the column
+        // (PaidForPeriod; review REV2-PC-1). One given with the price stays.
+        if ($invoice->isDirty('price') && !$invoice->isDirty('setup_fee') && $invoice->setup_fee !== null) {
+            $invoice->setup_fee = null;
+        }
         if ($invoice->isDirty(['price', 'quantity', 'taxed', 'tax_rate'])) {
             LineTax::apply($invoice);
         }
