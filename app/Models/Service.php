@@ -800,8 +800,15 @@ class Service extends Model implements Auditable
             return;
         }
         $lines = $this->livePeriodLines();
+        $orderInvoice = $this->order_id === null ? null : $this->order?->invoice_id;
         foreach ($lines as $line) {
             if (!in_array($line->invoice?->status, Invoice::OPEN_STATUSES, true)) {
+                continue;
+            }
+            // The order's own line (a pro rata stub to the product's day, its setup fee, a first-cycle coupon: sweep 3,
+            // L-ROUNDING-TAX-1) is not a renewal: rebuilt as one, its setup fee, its coupon and its day would be lost. It
+            // keeps its price and period, as the order line of any other product (no period) does; the service's first period only.
+            if ($orderInvoice !== null && (int) $line->invoice_id === (int) $orderInvoice && $line->is($lines->first())) {
                 continue;
             }
             $end = $this->periodEnd($line->period_start, $lines);

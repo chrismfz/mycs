@@ -80,4 +80,35 @@ class Sweep3LRoundingTaxTest extends TestCase
             'the first order line (pro rata stub + setup fee, ending on the pro rata day) is repriced as a full renewal',
         );
     }
+
+    /** The order's line is kept, a later open renewal of the same service is still repriced to the new plan's price. */
+    public function test_a_plan_change_still_reprices_an_open_renewal_after_the_order_line(): void
+    {
+        $user = User::factory()->create();
+        /** @var Product $product */
+        $product = $this->createProduct(['prorata_day' => 1, 'prorata_next_after_day' => 20])->product;
+        $plan = $product->plans()->firstOrFail();
+        Price::query()->where('plan_id', $plan->id)->update(['price' => 30.00, 'setup_fee' => 5.00]);
+        $other = Plan::factory()->create([
+            'priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'Other Plan',
+            'billing_unit' => 'month', 'billing_period' => 1, 'type' => 'recurring',
+        ]);
+        Price::factory()->create(['plan_id' => $other->id, 'price' => 40.00, 'setup_fee' => 0, 'currency_code' => 'USD']);
+
+        Carbon::setTestNow('2026-01-10 10:00:00');
+        $placed = (new PlaceOrderService)->place($user->client(), 'USD', [new OrderLine($product, $plan)]);
+        $line = $placed->invoice->fresh('items')->items->sole();
+        $service = Service::query()->sole();
+        // The next period, billed on its own invoice before the order is paid.
+        $renewal = Invoice::query()->create(['client_id' => $user->client()->id, 'due_at' => now()->addDays(7), 'currency_code' => 'USD',
+            'status' => Invoice::STATUS_UNPAID]);
+        $next = $renewal->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'price' => '30.00',
+            'quantity' => 1, 'description' => 'renewal', 'period_start' => '2026-02-01', 'period_end' => '2026-03-01']);
+
+        $service->update(['plan_id' => $other->id, 'price' => '40.00']);
+
+        $this->assertSame(['26.29', '5.00', '2026-02-01'],
+            [$this->money($line->fresh()->price), $this->money($line->fresh()->setup_fee), $line->fresh()->period_end->toDateString()]);
+        $this->assertSame(['40.00', '2026-03-01'], [$this->money($next->fresh()->price), $next->fresh()->period_end->toDateString()]);
+    }
 }
