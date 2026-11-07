@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
+use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\User;
@@ -16,6 +18,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\PayPal\PayPal;
 use MyCS\Extensions\Gateways\PayPal_IPN\PayPal_IPN;
 use Tests\TestCase;
@@ -182,5 +185,48 @@ class SweepPaymentsFixTest extends TestCase
         $this->ipn(['txn_id' => 'TXN-N-1', 'item_number' => '999999', 'receiver_email' => 'biz@example.test'])->assertOk();
 
         $this->assertSame(1, $this->staffMails());
+    }
+
+    private function vaultAttempt(Invoice $invoice, Gateway $paypal, string $amount = '10.00'): ChargeAttempt
+    {
+        $agreement = BillingAgreement::query()->firstOrCreate(['client_id' => $this->user->client()->id, 'gateway_id' => $paypal->id,
+            'external_reference' => 'vault-token-1'], ['name' => 'PayPal', 'type' => 'paypal']);
+
+        return ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $this->user->client()->id,
+            'billing_agreement_id' => $agreement->id, 'amount' => $amount, 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CRON,
+            'status' => ChargeAttempt::STATUS_SUCCEEDED, 'started_at' => now(), 'sent_at' => now(), 'finished_at' => now()]);
+    }
+
+    /** REV-PAYMENTS-1: a charge whose payment is another one, still succeeded, is not the denied capture's: it stays. */
+    public function test_rev_payments_1_a_charge_recorded_by_another_payment_is_kept(): void
+    {
+        $paypal = $this->paypal();
+        $invoice = $this->invoice('20.00');
+        Carbon::setTestNow('2026-11-10 07:00:00');
+        $attempt = $this->vaultAttempt($invoice, $paypal);
+        ExtensionHelper::addPayment($invoice->id, 'PayPal', '10.00', null, 'CAP-OK-1', InvoiceTransactionStatus::Succeeded, currency: 'USD');
+        ExtensionHelper::addPayment($invoice->id, 'PayPal', '10.00', null, 'CAP-PEND-1', InvoiceTransactionStatus::Processing, currency: 'USD');
+        Carbon::setTestNow('2026-11-10 09:00:00');
+
+        $this->captureEvent('PAYMENT.CAPTURE.DENIED', 'CAP-PEND-1', 'WH-EV-KEEP-1')->assertOk();
+
+        $this->assertSame(ChargeAttempt::STATUS_SUCCEEDED, $attempt->fresh()->status, 'its money is the succeeded payment');
+    }
+
+    /** REV-PAYMENTS-1: two charges the denied capture could be: neither is known to be it, both are left to staff. */
+    public function test_rev_payments_1_two_charges_the_capture_could_be_are_left_to_staff(): void
+    {
+        $paypal = $this->paypal();
+        $invoice = $this->invoice('20.00');
+        Carbon::setTestNow('2026-11-10 07:00:00');
+        $first = $this->vaultAttempt($invoice, $paypal);
+        $second = $this->vaultAttempt($invoice, $paypal);
+        ExtensionHelper::addPayment($invoice->id, 'PayPal', '10.00', null, 'CAP-PEND-2', InvoiceTransactionStatus::Processing, currency: 'USD');
+        Carbon::setTestNow('2026-11-10 09:00:00');
+
+        $this->captureEvent('PAYMENT.CAPTURE.DENIED', 'CAP-PEND-2', 'WH-EV-TWO-1')->assertOk();
+
+        $this->assertSame(InvoiceTransactionStatus::Failed, $invoice->transactions()->sole()->status);
+        $this->assertSame([ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_SUCCEEDED], [$first->fresh()->status, $second->fresh()->status]);
     }
 }
