@@ -28,14 +28,21 @@ final class EkdosiPayments
     public const PREFIX = 'ekdosi:';
 
     /**
+     * An invoice id the bridge was sent: an int, or a string of digits; never `true` or `1.0` read as invoice 1 (ADV-4
+     * of #464, and EKDOSI-ZLIC-API-3 for mark, invoice and resolve). False for anything else.
+     */
+    public static function invoiceId(mixed $sent): int|false
+    {
+        return (is_int($sent) && $sent > 0) || (is_string($sent) && preg_match('/^[1-9]\d{0,18}$/D', $sent)) ? (int) $sent : false;
+    }
+
+    /**
      * @param  array<string, mixed>  $body
      * @return array{0: int, 1: array<string, mixed>} the HTTP status and the answer
      */
     public function record(array $body): array
     {
-        // An int, or a string of digits: never `true` or `1.0` read as invoice 1 (ADV-4 of #464).
-        $sent = $body['invoice_id'] ?? null;
-        $invoiceId = is_int($sent) || (is_string($sent) && preg_match('/^[1-9]\d{0,18}$/D', $sent)) ? (int) $sent : false;
+        $invoiceId = self::invoiceId($body['invoice_id'] ?? null);
         $amount = is_string($body['amount'] ?? null) || is_int($body['amount'] ?? null) || is_float($body['amount'] ?? null) ? trim((string) $body['amount']) : '';
         $transId = is_string($body['transid'] ?? null) || is_int($body['transid'] ?? null) ? trim((string) $body['transid']) : '';
         if ($invoiceId === false || $invoiceId < 1 || !preg_match('/^\d{1,13}(\.\d{1,2})?$/', $amount) || bccomp($amount, '0', 2) <= 0
