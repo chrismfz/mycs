@@ -412,8 +412,9 @@ class Review2PaymentsTest extends TestCase
         DB::enableQueryLog();
         $this->stripeEvent('charge.updated', ['id' => 'ch_fee_review2', 'object' => 'charge', 'payment_intent' => 'pi_fee_review2',
             'balance_transaction' => 'txn_fee_review2', 'amount' => 5000, 'currency' => 'eur'])->assertOk();
-        $lookups = collect(DB::getQueryLog())->filter(fn (array $query) => str_contains($query['query'], 'from "invoice_transactions"')
-            && str_contains($query['query'], '"transaction_id" = ?'))->count();
+        // Either quoting: "col" on SQLite, `col` on MariaDB.
+        $lookups = collect(DB::getQueryLog())->filter(fn (array $query) => preg_match('/from [`"]invoice_transactions[`"]/', $query['query'])
+            && preg_match('/[`"]transaction_id[`"] = \?/', $query['query']))->count();
         DB::disableQueryLog();
 
         $this->assertSame('2.90', number_format((float) $payment->fresh()->fee, 2, '.', ''));
