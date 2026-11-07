@@ -93,6 +93,16 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   Ακριβώς πριν από το dump: `SELECT COUNT(*) FROM tblhosting WHERE qty > 1 AND domainstatus IN ('Active','Suspended')` και
   `SELECT COUNT(*) FROM tblhostingaddons WHERE qty > 1 AND status IN ('Active','Suspended')` = 0. Αν βγει κάποιο, συγκρίνουμε
   ένα με την τελευταία γραμμή ανανέωσής του (`tblinvoiceitems.amount`) πριν από το import.
+- **Addons με άλλη λήξη από τη γονική (απόφαση ιδιοκτήτη 2026-11-07): με το χέρι, πριν από το τελικό dump.** Ένα addon που
+  λήγει άλλη μέρα από τη γονική του έρχεται με τη δική του ημερομηνία. Αποφασίστηκε να παίρνει τη λήξη της γονικής, με το χέρι
+  στο WHMCS (`nextduedate` του addon = της γονικής), χωρίς συμψηφισμό για τις μέρες που χάνονται ή χαρίζονται. Έλεγχος
+  2026-11-06: 3 στο myip (#160, #169, #170· το #160 είναι Suspended ενώ η γονική του είναι Active: να δει κάποιος γιατί), κανένα
+  στη nixpal. Ακριβώς πριν από το dump: `SELECT a.id FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE
+  a.status IN ('Active','Suspended') AND a.billingcycle NOT IN ('Free Account','One Time','Free') AND a.nextduedate <>
+  h.nextduedate` = καμία γραμμή.
+- **Παλιά ανοιχτά τιμολόγια (sweep 2, F-RENEWAL-CYCLE-2):** ένα ανοιχτό τιμολόγιο του WHMCS με γραμμή της υπηρεσίας χωρίς
+  περίοδο μετράει στο MyCS ως ανανέωση ήδη τιμολογημένη, και οι επόμενες δεν βγαίνουν ώσπου να πληρωθεί ή να ακυρωθεί. Πριν από
+  το dump: τα ανοιχτά τιμολόγια που δεν θα πληρωθούν πια (παλιά, ξεχασμένα) ακυρώνονται στο WHMCS.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**
