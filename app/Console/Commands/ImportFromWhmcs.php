@@ -2424,10 +2424,18 @@ class ImportFromWhmcs extends Command
     /** @var list<int> WHMCS invoices imported without their number (another invoice's) */
     private array $numbersDropped = [];
 
-    /** An invoice number as the unique key compares it (MariaDB's collation: case-insensitive, trailing spaces ignored). */
+    /**
+     * An invoice number as the unique key compares it: MariaDB's utf8mb4_uca1400_ai_ci is case- and accent-insensitive and
+     * ignores trailing spaces, so «ΤΊΜ-0412» is «ΤΙΜ-0412» and «NX-ÉTÉ-1» is «NX-ETE-1» to it (review of the sweep). The
+     * accents go by their decomposition; a final sigma is a sigma to the collation too.
+     */
     private static function numberKey(string $number): string
     {
-        return mb_strtolower(rtrim($number, ' '));
+        $lower = mb_strtolower(rtrim($number, ' '));
+        $decomposed = \Normalizer::normalize($lower, \Normalizer::FORM_D);
+        $bare = preg_replace('/\p{Mn}+/u', '', $decomposed === false ? $lower : $decomposed) ?? $lower;
+
+        return str_replace('ς', 'σ', $bare);
     }
 
     /** @var array<int, true>|null the accounts imported here, read once after importUsers */
