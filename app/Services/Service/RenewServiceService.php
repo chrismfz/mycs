@@ -10,7 +10,6 @@ use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
-use App\Models\Order;
 use App\Models\Service;
 use App\Observers\ServiceObserver;
 use App\Services\Money\PaymentsLog;
@@ -183,8 +182,10 @@ class RenewServiceService
         // An addon never waits for an Accept: its setup is staff's task anyway, and a later start would move its date off its
         // parent's (code review of #637). Nor one its order's Accept left waiting for this payment (a one-time plan not
         // paid: AcceptOrder::waitsForPayment, sweep L-SERVICE-STATE-2): staff looked already, and no second Accept comes.
-        $acceptedWaitingForPayment = $service->started_unpaid_at === null && $service->order_id !== null
-            && Order::query()->whereKey($service->order_id)->whereNotNull('accepted_at')->exists();
+        // It starts as staff chose on that Accept: the module create only if they ran it, their welcome email (REV3-LSS-1).
+        $acceptedWaitingForPayment = $service->status === Service::STATUS_PENDING && $service->accepted_run_create !== null;
+        $acceptedByHand = $acceptedWaitingForPayment && (!$service->accepted_run_create || !$service->hasServerActions());
+        $acceptedSendEmail = (bool) ($service->accepted_send_email ?? true);
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment()
             && $service->parent_service_id === null && !$acceptedWaitingForPayment;
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
@@ -206,6 +207,10 @@ class RenewServiceService
                         report($e);
                     }
                 });
+            } elseif ($service->status == Service::STATUS_PENDING && !$waitsForStaff && $acceptedWaitingForPayment) {
+                if (!$acceptedByHand) {
+                    AfterCommit::job(new CreateJob($service, $acceptedSendEmail, byStaff: true));
+                }
             } elseif ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
                 AfterCommit::job(new CreateJob($service));
             }
@@ -224,9 +229,20 @@ class RenewServiceService
         }
         // A pending one with a server turns active once its account is made (CreateJob, Σ1): paid now, it may still
         // fail on the server and wait in Pending Module Actions. Without a server there is nothing to make.
-        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions() && !$service->isAddon();
+        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->hasServerActions() && !$service->isAddon()
+            && !$acceptedByHand;
         if (!$manualHold && !$awaitsCreate && !$waitsForStaff) {
+            if ($acceptedByHand && $acceptedSendEmail) {
+                // Built by hand on that Accept: staff's «Send welcome email», as AcceptOrder sends it (review R5).
+                $id = $service->id;
+                DB::afterCommit(fn () => ($started = Service::query()->find($id)) && $started->client
+                    ? NotificationHelper::serverCreatedNotification($started->client, $started, byStaff: true) : null);
+            }
             $service->status = Service::STATUS_ACTIVE;
+        }
+        if ($acceptedWaitingForPayment) {
+            $service->accepted_run_create = null; // its Accept's choices used: a later payment is a plain one
+            $service->accepted_send_email = null;
         }
         ServiceObserver::$renewing = true;
         try {
