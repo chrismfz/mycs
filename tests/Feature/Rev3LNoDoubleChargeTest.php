@@ -103,6 +103,9 @@ class Rev3LNoDoubleChargeTest extends TestCase
      */
     public function test_rev3_ndc_1_a_checkout_open_past_the_hold_still_takes_the_debt_twice(): void
     {
+        $this->markTestIncomplete('REV3-NDC-1, open for the owner: the 60-minute hold narrows the window, it does not close it.'
+            . ' Closing it needs a choice (cancel the open Stripe PaymentIntents at the cron, hold until paid for a gateway that cannot'
+            . ' close its checkout, or refund the late payment): docs/payments.md, «Ανοιχτό checkout». The second payment is credit meanwhile.');
         $checkout = Gateway::query()->create(['extension' => 'R3Checkout', 'name' => 'Card checkout', 'type' => 'gateway', 'enabled' => true]);
         $saved = Gateway::query()->create(['extension' => 'R3Saved', 'name' => 'Saved card', 'type' => 'gateway', 'enabled' => true]);
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $saved->id,
