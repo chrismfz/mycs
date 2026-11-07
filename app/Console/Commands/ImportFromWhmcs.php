@@ -169,6 +169,17 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
+        // A Mass Pay whose debit is still on its way: refused, as the other pre-dump conditions (cutover-runbook.md), never
+        // placed over its children by a rule of the importer's own (owner's decision after review 2 of #697, «never bill
+        // wrongly»). Checked on a dry run too, so a rehearsal names them.
+        if (($pending = $this->pendingMassPay()) !== []) {
+            $this->error('WHMCS Mass Pay invoice(s) in «Payment Pending»: ' . implode('; ', array_map(fn (int $parent, array $children) => "#{$parent}"
+                . ($children === [] ? ' (no child)' : ' (children #' . implode(', #', $children) . ')'), array_keys($pending), $pending))
+                . '. Their debit is still on its way: wait for it to clear (or fail) in WHMCS and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
         $target = (string) DB::connection()->getDatabaseName();
         if ($target === '') {
             $this->error('This instance has no database name to confirm: nothing done.');
@@ -2486,89 +2497,46 @@ class ImportFromWhmcs extends Command
      * WHMCS's «Payment Pending» (a SEPA/ACH debit or a PayPal capture started, not cleared yet) comes `unpaid` with a
      * `processing` payment of what WHMCS still has it owe (its total, net of credit, less the money in on it): the money is
      * on its way (SavedMethodCharge::onItsWay), so the cron neither charges the saved method again nor reminds or
-     * suspends for it (ADV-A1-3, ADV-A4-1). A Mass Pay parent in it is no invoice here: as WhmcsMassPay::plan places a
-     * paid one, its debit holds its open children in due order and what it took from account credit pays the rest as
-     * credit payments (journaled with their credit_out): the holds add up to its total, the credit stays the customer's
-     * (R1-3, R1b-1). Dated by the invoice's day (the parent's for a child), before the cut-over: never taken for MyCS's own
-     * (R1-6); its updated_at is the import's time, from which the cron counts a week before telling staff of one still
-     * processing (R1-5, R1b-3). Ids above every WHMCS payment; its transaction id is one staff type to complete it when
-     * the debit clears (RecordPaymentService: a processing payment of that id), or they delete it if it failed. Never
-     * journaled, never in parity (only succeeded money is). Named, so staff follow them up.
+     * suspends for it (ADV-A1-3, ADV-A4-1). A Mass Pay parent in it never gets here: the import refuses to run on one
+     * (handle, pendingMassPay; owner's decision after review 2 of #697). Dated by the invoice's day, before the
+     * cut-over: never taken for MyCS's own (R1-6); its updated_at is the import's time, from which the cron counts a week
+     * before telling staff of one still processing (R1-5, R1b-3). Ids above every WHMCS payment; its transaction id is one
+     * staff type to complete it when the debit clears (RecordPaymentService: a processing payment of that id), or they
+     * delete it if it failed. Never journaled, never in parity (only succeeded money is). Named, so staff follow them up.
      */
     private function importPendingPayments(): void
     {
         $pending = [];
-        $parents = [];
-        $held = [];
         $nextId = max((int) $this->pdo->query('SELECT MAX(id) FROM tblaccounts')->fetchColumn(), (int) DB::table('invoice_transactions')->max('id')) + 1;
-        $hold = function (int $id, int $cents, ?string $module, mixed $at) use (&$nextId, &$held): bool {
-            if ($cents <= 0 || isset($held[$id])) {
-                return false;
+        foreach ($this->pdo->query("SELECT * FROM tblinvoices WHERE status = 'Payment Pending' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $record) {
+            $id = (int) $record['id'];
+            // A Mass Pay parent is no invoice here (and refused before the import: pendingMassPay).
+            if (!isset($this->importedInvoices()[$id])) {
+                continue;
             }
+            // What WHMCS has it still owe: its total (net of credit) less the money in on it.
+            $cents = WhmcsMassPay::cents($record['total'])
+                - WhmcsMassPay::cents($this->row('SELECT COALESCE(SUM(amountin), 0) AS paid FROM tblaccounts WHERE invoiceid = ? AND amountin > 0', [$id])['paid'] ?? 0);
+            if ($cents <= 0) {
+                continue;
+            }
+            $at = $this->validateDate($record['date'] ?? null) ?? now();
             DB::table('invoice_transactions')->insert([
                 'id' => $nextId++,
                 'invoice_id' => $id,
-                'gateway_id' => $this->gatewayId((string) $module),
+                'gateway_id' => $this->gatewayId((string) ($record['paymentmethod'] ?? '')),
                 'amount' => $cents / 100,
                 'transaction_id' => "whmcs-pending-{$id}",
                 'status' => InvoiceTransactionStatus::Processing->value,
                 'created_at' => $at,
                 'updated_at' => now(), // when it was imported (the cron's week, R1b-3)
             ]);
-
-            return $held[$id] = true;
-        };
-        // What WHMCS has an invoice still owe: its total (net of credit) less the money in on it.
-        $owed = fn (array $invoice) => WhmcsMassPay::cents($invoice['total'])
-            - WhmcsMassPay::cents($this->row('SELECT COALESCE(SUM(amountin), 0) AS paid FROM tblaccounts WHERE invoiceid = ? AND amountin > 0', [$invoice['id']])['paid'] ?? 0);
-        foreach ($this->pdo->query("SELECT * FROM tblinvoices WHERE status = 'Payment Pending' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $record) {
-            $id = (int) $record['id'];
-            $at = $this->validateDate($record['date'] ?? null) ?? now();
-            if (isset($this->massPayParents()[$id])) {
-                // Only an open child of the same customer imported here (as importMassPay places a parent's money), in the
-                // order MyCS pays a group in: due date, then id.
-                $children = array_values(array_filter($this->rows("SELECT c.id, c.userid, c.total, c.duedate FROM tblinvoiceitems ii
-                    JOIN tblinvoices c ON c.id = ii.relid WHERE ii.invoiceid = ? AND ii.type = 'Invoice' ORDER BY ii.id", [$id]),
-                    fn (array $child) => (int) $child['userid'] === (int) $record['userid'] && isset($this->importedInvoices()[(int) $child['id']])
-                        && !isset($held[(int) $child['id']]) && DB::table('invoices')->where('id', $child['id'])->value('status') === Invoice::STATUS_UNPAID));
-                usort($children, fn (array $a, array $b) => [$this->validateDate($a['duedate']) ?? '9999-12-31', (int) $a['id']]
-                    <=> [$this->validateDate($b['duedate']) ?? '9999-12-31', (int) $b['id']]);
-                $debit = WhmcsMassPay::cents($record['total']) - WhmcsMassPay::cents($this->row('SELECT COALESCE(SUM(amountin), 0) AS paid FROM tblaccounts WHERE invoiceid = ? AND amountin > 0', [$id])['paid'] ?? 0);
-                $credit = max(0, WhmcsMassPay::cents($record['credit'] ?? 0));
-                $creditAt = $this->sourceRows("SELECT MAX(date) AS date FROM tblcredit WHERE amount < 0 AND description = 'Credit Applied to Invoice #{$id}'")[0]['date'] ?? null;
-                $creditAt = $this->validateDate($creditAt) ?? $at;
-                $names = [];
-                foreach ($children as $child) {
-                    $childId = (int) $child['id'];
-                    $left = $owed($child);
-                    $take = min($left, max(0, $debit));
-                    $debit -= $take;
-                    $fromCredit = min($left - $take, $credit);
-                    $credit -= $fromCredit;
-                    if ($fromCredit > 0) {
-                        DB::table('invoice_transactions')->insert(['id' => $nextId, 'invoice_id' => $childId, 'amount' => $fromCredit / 100,
-                            'is_credit_transaction' => true, 'created_at' => $creditAt, 'updated_at' => $creditAt]);
-                        $this->dayOnly[] = $nextId++; // WHMCS dates its «Credit Applied» by the day only
-                    }
-                    if ($hold($childId, $take, $record['paymentmethod'] ?? null, $at) || $fromCredit > 0) {
-                        $names[] = $childId;
-                    }
-                }
-                $parents[] = "Mass Pay #{$id}" . ($names === [] ? ' (no open child here)' : ' on #' . implode(', #', $names))
-                    . ($debit > 0 || $credit > 0 ? sprintf(' (%s of its debit and %s of its credit on no child: check it)',
-                        number_format(max(0, $debit) / 100, 2, '.', ''), number_format($credit / 100, 2, '.', '')) : '');
-
-                continue;
-            }
-            if (isset($this->importedInvoices()[$id]) && $hold($id, $owed($record), $record['paymentmethod'] ?? null, $at)) {
-                $pending[] = $id;
-            }
+            $pending[] = $id;
         }
-        if ($pending !== [] || $parents !== []) {
-            $this->warn(count($pending) + count($parents) . ' WHMCS invoice(s) in Payment Pending (' . implode(', ', [...array_map(fn (int $id) => "#{$id}", $pending), ...$parents])
-                . '): imported unpaid with a processing payment of their balance (a Mass Pay\'s on each of its children), so the cron neither charges nor'
-                . ' reminds them. When the debit clears, record it with transaction id «whmcs-pending-<invoice>», through the same gateway or none;'
-                . ' if it failed, delete that payment (ADV-A1-3, R1-3).');
+        if ($pending !== []) {
+            $this->warn(count($pending) . ' WHMCS invoice(s) in Payment Pending (#' . implode(', #', $pending) . '): imported unpaid with a processing'
+                . ' payment of their balance, so the cron neither charges nor reminds them. When the debit clears, record it with transaction id'
+                . ' «whmcs-pending-<invoice>», through the same gateway or none; if it failed, delete that payment (ADV-A1-3).');
         }
     }
 
@@ -3077,6 +3045,32 @@ class ImportFromWhmcs extends Command
     private function massPayParents(): array
     {
         return $this->massPayParents ??= array_fill_keys(array_map('intval', $this->pdo->query(WhmcsMassPay::PARENTS_SQL)->fetchAll(PDO::FETCH_COLUMN)), true);
+    }
+
+    /**
+     * Every WHMCS invoice in «Payment Pending» with an «Invoice» line (a Mass Pay, whatever massPayParents makes of it:
+     * one that took some money, has a child of another customer or another kind of line would otherwise come as an
+     * ordinary invoice billing its children again, held, while the children are dunned: review of 142fbee1), each with
+     * its children: the import refuses to run on them (handle). The runbook's pre-dump query, the same set. A source
+     * without the invoice tables (an old WHMCS, a test's): none.
+     *
+     * @return array<int, list<int>> invoice => its children (its «Invoice» lines), by id
+     */
+    private function pendingMassPay(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems')) {
+            return [];
+        }
+        $pending = [];
+        foreach ($this->pdo->query("SELECT p.id, ii.relid FROM tblinvoices p JOIN tblinvoiceitems ii ON ii.invoiceid = p.id AND ii.type = 'Invoice'"
+            . " WHERE p.status = 'Payment Pending' ORDER BY p.id, ii.relid")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $pending[(int) $row['id']] ??= [];
+            if (!in_array((int) $row['relid'], $pending[(int) $row['id']], true)) {
+                $pending[(int) $row['id']][] = (int) $row['relid'];
+            }
+        }
+
+        return $pending;
     }
 
     /**

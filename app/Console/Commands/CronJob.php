@@ -90,6 +90,9 @@ class CronJob extends Command
     /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
     private array $notices = [];
 
+    /** @var array<string, \DateTimeInterface> cache key => until when: set once the notices mail is queued (review 2 of #697, I5) */
+    private array $noticeMarks = [];
+
     /** @var list<int> services suspended for non-payment in this run (committed): the staff digest */
     private array $suspended = [];
 
@@ -338,7 +341,7 @@ class CronJob extends Command
         Setting::updateOrCreate(['key' => self::STARTED, 'settingable_type' => CronStat::class], ['value' => now()->toDateTimeString(), 'type' => 'string']);
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
-        $this->failures = $this->notices = $this->suspended = $this->terminated = [];
+        $this->failures = $this->notices = $this->noticeMarks = $this->suspended = $this->terminated = [];
         WriteFailures::forget();
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
@@ -645,13 +648,15 @@ class CronJob extends Command
 
             // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
             // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
-            // R1b-3), staff are told, once a week (R1-5). Nothing changes by itself.
+            // R1b-3), staff are told, once a week (R1-5): marked told only once the notices mail is queued, so one that
+            // could not be queued is told again the next day (review 2 of #697, I5). Nothing changes by itself.
             $this->runCronJob('imported_pending_payments', function () {
                 $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
                     ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
                     ->with('invoice:id,client_id')->orderBy('id')->get();
                 foreach ($stale as $payment) {
-                    if (Cache::add("imported-pending-told:{$payment->id}", true, now()->addDays(7))) {
+                    if (!Cache::has($mark = "imported-pending-told:{$payment->id}")) {
+                        $this->noticeMarks[$mark] = now()->addDays(7);
                         $this->notices["imported_pending_payments #{$payment->invoice_id}"] = new DisplayException(sprintf(
                             'Invoice #%d (client #%d): the payment WHMCS had on its way at the cut-over (%s, %s) is still processing. Confirm the debit in the gateway,'
                             . ' then record it with that transaction id (the same gateway or none), or delete the payment if it failed.',
@@ -783,6 +788,10 @@ class CronJob extends Command
                     The cron job left these for staff:<br>
                     <pre>{$notices}</pre>
                     HTML);
+            }
+            // Queued (or no mail to send it with; an SMTP failure in the worker later is not seen here): the notices told once a week are told.
+            foreach ($this->noticeMarks as $mark => $until) {
+                Cache::put($mark, true, $until);
             }
 
             if ($this->failures !== []) {
