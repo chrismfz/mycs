@@ -3031,21 +3031,25 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * The Mass Pay parents (massPayParents) in WHMCS's «Payment Pending», each with its children: the import refuses to
-     * run on them (handle). A source without the invoice tables (an old WHMCS, a test's): none.
+     * Every WHMCS invoice in «Payment Pending» with an «Invoice» line (a Mass Pay, whatever massPayParents makes of it:
+     * one that took some money, has a child of another customer or another kind of line would otherwise come as an
+     * ordinary invoice billing its children again, held, while the children are dunned: review of 142fbee1), each with
+     * its children: the import refuses to run on them (handle). The runbook's pre-dump query, the same set. A source
+     * without the invoice tables (an old WHMCS, a test's): none.
      *
-     * @return array<int, list<int>> parent => its children (its «Invoice» lines), by id
+     * @return array<int, list<int>> invoice => its children (its «Invoice» lines), by id
      */
     private function pendingMassPay(): array
     {
-        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblaccounts')) {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems')) {
             return [];
         }
         $pending = [];
-        foreach ($this->pdo->query("SELECT id FROM tblinvoices WHERE status = 'Payment Pending' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN) as $id) {
-            if (isset($this->massPayParents()[(int) $id])) {
-                $pending[(int) $id] = array_map('intval', array_column($this->rows('SELECT DISTINCT relid FROM tblinvoiceitems WHERE invoiceid = ?'
-                    . " AND type = 'Invoice' ORDER BY relid", [(int) $id]), 'relid'));
+        foreach ($this->pdo->query("SELECT p.id, ii.relid FROM tblinvoices p JOIN tblinvoiceitems ii ON ii.invoiceid = p.id AND ii.type = 'Invoice'"
+            . " WHERE p.status = 'Payment Pending' ORDER BY p.id, ii.relid")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $pending[(int) $row['id']] ??= [];
+            if (!in_array((int) $row['relid'], $pending[(int) $row['id']], true)) {
+                $pending[(int) $row['id']][] = (int) $row['relid'];
             }
         }
 

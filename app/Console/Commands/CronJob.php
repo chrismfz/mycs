@@ -90,7 +90,7 @@ class CronJob extends Command
     /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
     private array $notices = [];
 
-    /** @var array<string, \DateTimeInterface> cache key => until when: set once the notices mail went out (review 2 of #697, I5) */
+    /** @var array<string, \DateTimeInterface> cache key => until when: set once the notices mail is queued (review 2 of #697, I5) */
     private array $noticeMarks = [];
 
     /** @var list<int> services suspended for non-payment in this run (committed): the staff digest */
@@ -648,8 +648,8 @@ class CronJob extends Command
 
             // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
             // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
-            // R1b-3), staff are told, once a week (R1-5): marked told only once the notices mail went out, so one that
-            // failed is told again the next day (review 2 of #697, I5). Nothing changes by itself.
+            // R1b-3), staff are told, once a week (R1-5): marked told only once the notices mail is queued, so one that
+            // could not be queued is told again the next day (review 2 of #697, I5). Nothing changes by itself.
             $this->runCronJob('imported_pending_payments', function () {
                 $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
                     ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
@@ -789,7 +789,7 @@ class CronJob extends Command
                     <pre>{$notices}</pre>
                     HTML);
             }
-            // Sent (or no mail to send it with): the notices told once a week are told.
+            // Queued (or no mail to send it with; an SMTP failure in the worker later is not seen here): the notices told once a week are told.
             foreach ($this->noticeMarks as $mark => $until) {
                 Cache::put($mark, true, $until);
             }

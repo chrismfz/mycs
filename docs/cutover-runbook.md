@@ -71,14 +71,14 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   `whmcs-pending-<τιμολόγιο>`, με την ημέρα του τιμολογίου): ούτε χρέωση της αποθηκευμένης μεθόδου ούτε υπενθυμίσεις.
   Ο importer τα ονομάζει (`grep 'Payment Pending' <log>`). Όταν περάσει η χρέωση (το webhook της θα είναι «ξένο»), το staff καταγράφει την πληρωμή με αυτό το
   transaction id, **με το ίδιο gateway ή χωρίς gateway**· αν απέτυχε, σβήνει την πληρωμή `processing`. Όσες μείνουν
-  7 μέρες μετά το import τις θυμίζει το cron («needs staff attention», μία φορά την εβδομάδα· αν το mail δεν φύγει, ξανά την
-  επόμενη μέρα).
+  7 μέρες μετά το import τις θυμίζει το cron («needs staff attention», μία φορά την εβδομάδα· αν το mail δεν μπορεί να μπει
+  στην ουρά, ξανά την επόμενη μέρα· μια αποτυχία SMTP αργότερα, στον worker, δεν το ξαναστέλνει πριν περάσει η εβδομάδα).
 - **Mass Pay σε «Payment Pending» (απόφαση ιδιοκτήτη, review 2 του #697): κανένα πριν από το τελικό dump.** Ο importer
-  **αρνείται να τρέξει** αν βρει γονικό Mass Pay σε Payment Pending (το ονομάζει με τα παιδιά του), και με `--dry-run`.
+  **αρνείται να τρέξει** αν βρει τιμολόγιο σε Payment Pending με γραμμή «Invoice» (γονικό Mass Pay) (το ονομάζει με τα παιδιά του), και με `--dry-run`.
   Έλεγχος 2026-11-06: κανένα σε καμία εταιρεία (ούτε κανένα Payment Pending).
   1. Ακριβώς πριν από το dump: `SELECT p.id FROM tblinvoices p WHERE p.status = 'Payment Pending' AND EXISTS (SELECT 1
-     FROM tblinvoiceitems ii WHERE ii.invoiceid = p.id AND ii.type = 'Invoice')` = καμία γραμμή (υπερσύνολο του κανόνα
-     του importer, `WhmcsMassPay::PARENTS_SQL`). Όσα βγουν: περιμένουμε να περάσει (ή να αποτύχει) η χρέωση στο WHMCS
+     FROM tblinvoiceitems ii WHERE ii.invoiceid = p.id AND ii.type = 'Invoice')` = καμία γραμμή (ο ίδιος κανόνας με του
+     importer, `pendingMassPay`: και ένα που πήρε μέρος των χρημάτων, έχει παιδί άλλου πελάτη ή άλλη γραμμή). Όσα βγουν: περιμένουμε να περάσει (ή να αποτύχει) η χρέωση στο WHMCS
      και παίρνουμε ξανά dump.
   2. Αν το import αρνηθεί («WHMCS Mass Pay invoice(s) in «Payment Pending»»): το ίδιο, και ξανά import. Τίποτα δεν έχει
      αδειάσει.

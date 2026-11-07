@@ -402,6 +402,42 @@ class AdvArea1Test extends TestCase
     }
 
     /**
+     * Review of 142fbee1: a Payment Pending Mass Pay that massPayParents() does not count (it took some money, has a
+     * child of another customer, or a line that is no «Invoice»: a late fee) is refused too, not imported as an ordinary
+     * invoice billing its children again while they are dunned. The runbook's pre-dump query, the same set.
+     */
+    public function test_review2_i1_every_payment_pending_invoice_with_invoice_lines_is_refused(): void
+    {
+        $other = User::factory()->create()->client()->id;
+        $this->whmcs->exec("INSERT INTO tblclients (id, currency) VALUES ({$other}, 1)");
+        foreach ([[801, 10], [802, 15], [803, 5], [804, 7]] as [$id, $amount]) {
+            $this->invoice($id, 'Unpaid', $amount);
+            $this->item($id, 'Hosting', 0, $amount);
+        }
+        $this->whmcs->exec("UPDATE tblinvoices SET userid = {$other} WHERE id = 803");
+        // 900 took 5.00 of its 25.00; 901's child is another customer's; 902 a late fee; 700 is a single invoice.
+        foreach ([900 => 25, 901 => 5, 902 => 9] as $id => $total) {
+            $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, invoicenum, date, duedate, datepaid, status, total, credit, taxrate, subtotal)
+                VALUES ({$id}, {$this->clientId}, '', '2026-10-16', '2026-10-16', '0000-00-00 00:00:00', 'Payment Pending', {$total}, 0, 0, {$total})");
+        }
+        $this->item(900, 'Invoice', 801, 10);
+        $this->item(900, 'Invoice', 802, 15);
+        $this->whmcs->exec("INSERT INTO tblaccounts (id, userid, invoiceid, gateway, date, amountin, amountout, fees, transid)
+            VALUES (7001, {$this->clientId}, 900, 'stripe', '2026-10-16', 5, 0, 0, 'ch_1')");
+        $this->item(901, 'Invoice', 803, 5);
+        $this->item(902, 'Invoice', 804, 7);
+        $this->item(902, 'LateFee', 0, 2);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 0, 10);
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $this->assertSame([], array_intersect([900, 901, 902], array_keys((new ReflectionMethod($command, 'massPayParents'))->invoke($command))),
+            'precondition: none of them is a parent by PARENTS_SQL');
+        $this->assertSame([900 => [801, 802], 901 => [803], 902 => [804]], (new ReflectionMethod($command, 'pendingMassPay'))->invoke($command));
+    }
+
+    /**
      * Review 2 of #697, I3: WHMCS lowers a Mass Pay parent's `credit` when credit is taken off it («Credit Removed from
      * Invoice #N», +amount back in the balance; checked read-only on the 2026-11-06 copies). So an unfinished parent
      * gives back only what is still on it, and parity agrees with WHMCS's balance.
@@ -465,8 +501,9 @@ class AdvArea1Test extends TestCase
     }
 
     /**
-     * Review 2 of #697, I5: the weekly marker of the stale-pending notice is set only once the notices mail went out: a
-     * run whose mail failed tells staff again the next day, not a week later.
+     * Review 2 of #697, I5: the weekly marker of the stale-pending notice is set only once the notices mail is queued: a
+     * run whose mail could not be queued tells staff again the next day, not a week later (an SMTP failure in the worker
+     * later is not seen: the marker stays).
      */
     public function test_review2_i5_a_failed_notices_mail_is_retried_the_next_day(): void
     {

@@ -31,10 +31,10 @@ final class WhmcsMassPay
      * that credit goes back to the customer's balance (ADV-A1-2). `credit` is what is still on it: WHMCS lowers it when
      * credit is taken off an invoice («Credit Removed from Invoice #N», and on its order's cancellation; read-only check
      * of the 2026-11-06 copies: every such invoice of myip's still there has `credit` = applied − removed, nixpal has
-     * none), so nothing is netted here. Not one in Payment Pending: the import refuses to run on it
+     * none), so nothing is netted here. One in Payment Pending never comes: the import refuses to run on it
      * (ImportFromWhmcs::pendingMassPay). The importer's journal and parity's rule alike.
      */
-    public const UNFINISHED_CREDIT_SQL = "SELECT u.id, u.userid, u.credit FROM tblinvoices u WHERE u.status NOT IN ('Paid', 'Payment Pending') AND u.credit > 0
+    public const UNFINISHED_CREDIT_SQL = "SELECT u.id, u.userid, u.credit FROM tblinvoices u WHERE u.status <> 'Paid' AND u.credit > 0
             AND u.id IN (" . self::PARENTS_SQL . ') ORDER BY u.id';
 
     /**
