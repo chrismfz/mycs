@@ -587,8 +587,12 @@ class PayPal extends Gateway
         }
 
         // Captured here, on our server: never on an invoice a saved method's charge of unsettled outcome holds (it may be
-        // paid already: adversarial ADV-UNRES-2). Nothing is taken: the order is left uncaptured.
-        if (SavedMethodCharge::onItsWay($invoice)) {
+        // paid already: adversarial ADV-UNRES-2). Nothing is taken: the order is left uncaptured. A Mass Pay group's order
+        // (custom_id) pays every invoice of the group: a charge of any of them holds it, not only of its lead (PAYMENTS-2).
+        $custom = $order->purchase_units[0]->custom_id ?? null;
+        $group = is_string($custom) && $custom !== ''
+            ? PaymentGroup::query()->where('ulid', $custom)->where('client_id', $invoice->client_id)->first() : null;
+        if (SavedMethodCharge::onItsWay($invoice, $group)) {
             abort(409, 'A payment for this invoice is already on its way.');
         }
 
