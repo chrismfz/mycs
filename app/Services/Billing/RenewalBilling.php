@@ -625,7 +625,8 @@ final class RenewalBilling
     {
         // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
         // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
-        // A gateway subscription's renewal only in full: a subscription sale that became credit pays it.
+        // A gateway subscription's renewal only in full: a subscription sale that became credit pays it, also with
+        // "Automatically use credits" off (only Credits Enabled stops it: sweep 3, L-SETTINGS-MATRIX-1).
         if ($subscription) {
             (new CreditAutoApply)->toSubscriptionRenewal($invoice);
 

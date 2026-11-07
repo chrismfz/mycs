@@ -8,7 +8,9 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -100,5 +102,39 @@ class Sweep3LSettingsMatrixTest extends TestCase
         Carbon::setTestNow('2026-11-18 10:00:00'); // Suspend Days (2) after its due date
         $this->cron();
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'not suspended while its own subscription payment sits as credit');
+    }
+
+    /**
+     * The fix's limits: with «Automatically use credits» off, credit still does not pay a renewal of a service without a
+     * subscription, and with Credits Enabled off it pays no subscription renewal either.
+     */
+    public function test_l_settings_matrix_1_limits_auto_use_off_still_skips_plain_renewals_and_credits_off_skips_all(): void
+    {
+        $product = $this->createProduct();
+        $make = function (?string $subscription) use ($product): Invoice {
+            $service = Service::factory()->create([
+                'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+                'status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-11-15', 'currency_code' => 'USD', 'price' => 10.00,
+                'quantity' => 1, 'subscription_id' => $subscription,
+            ]);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID,
+                'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+            $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
+                'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-11-15', 'period_end' => '2026-12-15']);
+
+            return $invoice->fresh();
+        };
+        $ledger = new CreditLedger;
+        $ledger->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'test credit');
+
+        $plain = $make(null);
+        $this->assertNull((new CreditAutoApply)->toInvoice($plain), 'auto-use off: a plain renewal is left for the customer');
+        $this->assertSame(Invoice::STATUS_UNPAID, $plain->fresh()->status);
+
+        $this->settings(['credits_enabled' => [false, 'boolean']]);
+        $subscribed = $make('I-SUBSCRIPTIONSWEEP3B');
+        $this->assertNull((new CreditAutoApply)->toSubscriptionRenewal($subscribed), 'credits off: no credit pays anything');
+        $this->assertSame(Invoice::STATUS_UNPAID, $subscribed->fresh()->status);
+        $this->assertSame(1000, $ledger->balanceCents($this->user->client()->id, 'USD'));
     }
 }
