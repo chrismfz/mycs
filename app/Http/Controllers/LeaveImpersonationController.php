@@ -7,6 +7,7 @@ use App\Admin\Resources\UserResource;
 use App\Models\Client;
 use App\Models\User;
 use App\Providers\Filament\AdminPanelProvider;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class LeaveImpersonationController extends Controller
         }
         $user = User::query()->find($session->get('impersonating'));
         $client = Client::query()->find($session->get(CurrentClient::IMPERSONATING_KEY));
-        $session->forget(['impersonating', CurrentClient::IMPERSONATING_KEY]);
+        $session->forget(['impersonating', CurrentClient::IMPERSONATING_KEY, Actor::IMPERSONATION_NONCE]);
         Auth::guard('web')->forgetUser();
 
         return redirect()->to(match (true) {

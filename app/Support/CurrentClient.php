@@ -89,6 +89,8 @@ class CurrentClient
     {
         $key = $user->id . '|' . $client->id;
         if ($this->grantFor !== $key) {
+            // Not ClientUser::liveGrant on purpose (review 2, A3): get() already refused a closed account to the customer
+            // and lets staff in «Login as client» have one; this only memoizes the grant of the account it chose.
             $this->grant = $client->grants()->where('user_id', $user->id)->whereNull('revoked_at')->first();
             $this->grantFor = $key;
         }

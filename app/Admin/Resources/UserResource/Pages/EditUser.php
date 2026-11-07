@@ -7,6 +7,7 @@ use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\UserResource;
 use App\Models\Client;
 use App\Models\User;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use App\Support\StaffLink;
 use Filament\Actions\Action;
@@ -14,6 +15,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use OwenIt\Auditing\Events\AuditCustom;
 
 class EditUser extends EditRecord
@@ -53,6 +55,8 @@ class EditUser extends EditRecord
     public static function impersonate(User $user, ?Client $client = null): void
     {
         session()->put('impersonating', $user->id);
+        // A new nonce each «Login as client»: a console staff open names it, and closes once it is gone (review 2, A1).
+        session()->put(Actor::IMPERSONATION_NONCE, Str::random(32));
         if ($client !== null) {
             session()->put(CurrentClient::IMPERSONATING_KEY, $client->id);
         } else {

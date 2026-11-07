@@ -190,10 +190,14 @@ class StandaloneRelayTest extends TestCase
     {
         $relay = $this->relay();
         $staff = $relay->ticket(ConsoleTicket::sign(['origin' => 'https://my.nixpal.test', 'server_id' => 7, 'service_id' => 42, 'user_id' => 3,
-            'node' => 'vega', 'type' => 'qemu', 'vmid' => 101, 'staff_id' => 9], self::KEY, $this->now));
+            'node' => 'vega', 'type' => 'qemu', 'vmid' => 101, 'staff_id' => 9, 'staff_session' => '01jc0000000000000000000000',
+            'impersonation' => str_repeat('n', 32)], self::KEY, $this->now));
         $relay->check([11 => $staff], fn () => null);
 
-        $this->assertSame(9, json_decode($this->requests[0]['body'], true)['consoles'][0]['staff_id'] ?? null);
+        $console = json_decode($this->requests[0]['body'], true)['consoles'][0];
+        $this->assertSame(9, $console['staff_id'] ?? null);
+        // Review 2, A1: with its session and nonce, for the check to bind it to that «Login as client».
+        $this->assertSame(['01jc0000000000000000000000', str_repeat('n', 32)], [$console['staff_session'] ?? null, $console['impersonation'] ?? null]);
     }
 
     public function test_a_config_not_sound_is_refused_at_the_start(): void

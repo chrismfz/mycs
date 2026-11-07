@@ -189,7 +189,8 @@ final class StandaloneRelay
             $key = $site['clusters'][(int) $first['server_id']]['keys'][0];
             $body = (string) json_encode(['ts' => $this->now(), 'consoles' => array_map(fn (int $id, array $t) => ['id' => $id,
                 'jti' => $t['jti'], 'server_id' => $t['server_id'], 'service_id' => $t['service_id'], 'user_id' => $t['user_id'], 'vmid' => $t['vmid']]
-                + (isset($t['staff_id']) ? ['staff_id' => $t['staff_id']] : []), // opened by staff in «Login as client» (ADV-A6-1)
+                // Opened by staff in «Login as client» (ADV-A6-1), with their session and its nonce (review 2, A1).
+                + array_intersect_key($t, array_flip(['staff_id', 'staff_session', 'impersonation'])),
                 array_keys($consoles), $consoles)], JSON_UNESCAPED_SLASHES);
             $this->http->request('POST', $site['check_url'], ['Content-Type: application/json', 'Accept: application/json',
                 'X-Console-Signature: ' . ConsoleTicket::checkSignature($body, $key)], $body, [],

@@ -153,7 +153,8 @@ class InboundRouter
         if ($user === null) {
             return false;
         }
-        $grant = ClientUser::query()->where('user_id', $user->id)->where('client_id', $ticket->client_id)->whereNull('revoked_at')->first();
+        // A reply by mail to a ticket of a closed account still threads to it (review 2, A3: deliberately includeClosed).
+        $grant = ClientUser::liveGrant($user, (int) $ticket->client_id, includeClosed: true);
 
         return $grant !== null && $grant->allows('tickets') ? $user : false;
     }

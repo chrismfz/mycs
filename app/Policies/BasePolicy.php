@@ -29,14 +29,14 @@ class BasePolicy
             return false;
         }
         // A closed account's records are not reached by id (ADV-A6-1): staff in «Login as client» may, as CurrentClient.
-        $grant = ClientUser::query()->where('user_id', $user->id)->where('client_id', (int) $clientId)->whereNull('revoked_at')
-            ->when(!Actor::impersonating(), fn ($open) => $open->onOpenAccount())->first();
+        $impersonating = Actor::impersonating(); // once (review 2, A8)
+        $grant = ClientUser::liveGrant($user, (int) $clientId, includeClosed: $impersonating);
 
         if ($grant === null) {
             return false;
         }
         // Staff in «Login as client»: as far as their admin permissions go, never the customer's own (SA-5).
-        if (Actor::impersonating()) {
+        if ($impersonating) {
             return Actor::staffMayAs($permission);
         }
 

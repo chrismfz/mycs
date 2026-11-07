@@ -10,7 +10,9 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Policies\ServicePolicy;
 use App\Support\Actor;
+use App\Support\StaffSessions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
@@ -60,12 +62,13 @@ class ProxmoxConsoleCheckController extends Controller
             return response()->json(['message' => 'Not a check, or too old.'], 422);
         }
         $allowed = [];
+        $memo = []; // one body's lookups, asked once (review 2, A7)
         foreach ($consoles as $console) {
             if (!is_array($console) || !is_int($console['id'] ?? null)) {
                 continue;
             }
             $server = $console['server_id'] ?? null;
-            $allowed[(string) $console['id']] = is_int($server) && ($servers[$server] ?? false) && self::allowed($console);
+            $allowed[(string) $console['id']] = is_int($server) && ($servers[$server] ?? false) && self::allowed($console, $memo);
         }
 
         return response()->json(['allowed' => (object) $allowed])->header('Cache-Control', 'no-store');
@@ -73,11 +76,13 @@ class ProxmoxConsoleCheckController extends Controller
 
     /**
      * A console may stay open: its service on the same cluster and active, still mapped to the same VM, and its login
-     * still allowed to power it (its grant on the account not revoked).
+     * still allowed to power it (its grant on the account not revoked). $memo keeps one body's lookups (staff, logins,
+     * grants, staff sessions: up to 256 consoles a body every 30 s, review 2, A7).
      *
      * @param  array<string, mixed>  $console
+     * @param  array<string, mixed>  $memo
      */
-    public static function allowed(array $console): bool
+    public static function allowed(array $console, array &$memo = []): bool
     {
         foreach (['server_id', 'service_id', 'user_id', 'vmid'] as $key) {
             if (!is_int($console[$key] ?? null)) {
@@ -85,32 +90,56 @@ class ProxmoxConsoleCheckController extends Controller
             }
         }
         $service = Service::query()->find($console['service_id']);
-        $user = User::query()->find($console['user_id']);
+        $user = self::remember($memo, 'user:' . $console['user_id'], fn () => User::query()->find($console['user_id']));
 
-        return $service !== null && $user !== null && $service->status === Service::STATUS_ACTIVE
+        return $service !== null && $user instanceof User && $service->status === Service::STATUS_ACTIVE
             && $service->provisioningServer()?->id === $console['server_id']
             && ProxmoxPower::guest($service)?->vmid === $console['vmid']
-            && (array_key_exists('staff_id', $console) ? self::staffMay($console['staff_id'], $user, $service) : $user->can('update', $service));
+            && (array_key_exists('staff_id', $console) ? self::staffMay($console, $user, $service, $memo) : $user->can('update', $service));
     }
 
     /**
      * A console staff opened in «Login as client» (its ticket names them): open while they may still log in as the
-     * client and power the VPS there (active, `admin.users.impersonate`, `manageproducts` as SA-5) and the login they
-     * look through still has its grant, the account closed or not (ADV-A6-1, review 6). The check has no session, so
-     * owns() would ask about the customer's own login and close it.
+     * client and power the VPS there (active, `admin.users.impersonate`, and what ServicePolicy::update takes in
+     * «Login as client», Actor::staffMayAsStaff, SA-5), the login they look through still has its grant, the account
+     * closed or not (ADV-A6-1, review 6), and that «Login as client» is still on: the staff login's row not ended, its
+     * session still impersonating the same user with the ticket's nonce (review 2, A1: Leave, logout or an ended
+     * session close it). A console without the binding (a ticket from before it, a relay not redeployed) is refused.
+     * The check has no session, so owns() would ask about the customer's own login and close it.
+     *
+     * @param  array<string, mixed>  $console
+     * @param  array<string, mixed>  $memo
      */
-    private static function staffMay(mixed $staffId, User $user, Service $service): bool
+    private static function staffMay(array $console, User $user, Service $service, array &$memo): bool
     {
-        $staff = is_int($staffId) ? Staff::query()->find($staffId) : null;
-        if (!$staff instanceof Staff || !$staff->hasPermission('admin.users.impersonate')) {
+        $staffId = $console['staff_id'];
+        $ulid = $console['staff_session'] ?? null;
+        $nonce = $console['impersonation'] ?? null;
+        if (!is_int($staffId) || !is_string($ulid) || !is_string($nonce)) {
             return false;
         }
-        foreach ((array) Actor::STAFF_PERMISSION_AS['manageproducts'] as $admin) {
-            if (!$staff->hasPermission($admin)) {
-                return false;
-            }
+        $may = self::remember($memo, 'staff:' . $staffId, function () use ($staffId) {
+            $staff = Staff::query()->with('role')->find($staffId);
+
+            return $staff instanceof Staff && $staff->hasPermission('admin.users.impersonate')
+                && Actor::staffMayAsStaff($staff, ServicePolicy::UPDATE_PERMISSION, acting: true);
+        });
+
+        return $may === true
+            && self::remember($memo, "grant:{$user->id}:{$service->client_id}", fn () => ClientUser::liveGrant($user, (int) $service->client_id, includeClosed: true) !== null) === true
+            && self::remember($memo, "session:{$staffId}:{$ulid}:{$user->id}:{$nonce}", fn () => StaffSessions::stillImpersonating($staffId, $ulid, $user->id, $nonce)) === true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $memo
+     * @param  callable(): mixed  $fetch
+     */
+    private static function remember(array &$memo, string $key, callable $fetch): mixed
+    {
+        if (!array_key_exists($key, $memo)) {
+            $memo[$key] = $fetch();
         }
 
-        return ClientUser::query()->where('user_id', $user->id)->where('client_id', $service->client_id)->whereNull('revoked_at')->exists();
+        return $memo[$key];
     }
 }

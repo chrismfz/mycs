@@ -72,17 +72,32 @@ class Actor
             return false;
         }
         $staff = Auth::guard('staff')->user();
+
+        return $staff instanceof Staff && self::staffMayAsStaff($staff, $permission);
+    }
+
+    /**
+     * The same answer for a given member of staff, with no session to ask (the console relay's check, review 2, A2):
+     * one mapping, so the route's policy and the check never drift. $acting: the permission must name an admin one,
+     * so an entry listed as null («seeing», any staff) fails closed instead of passing (A2b).
+     */
+    public static function staffMayAsStaff(?Staff $staff, ?string $permission, bool $acting = false): bool
+    {
         if (!$staff instanceof Staff) {
             return false;
         }
         if ($permission === null) {
-            return true;
+            return !$acting;
         }
         if (!array_key_exists($permission, self::STAFF_PERMISSION_AS)) {
             return false; // none listed: not theirs to use
         }
+        $needs = (array) self::STAFF_PERMISSION_AS[$permission];
+        if ($acting && $needs === []) {
+            return false;
+        }
         // One admin permission, or all of a list.
-        foreach ((array) self::STAFF_PERMISSION_AS[$permission] as $admin) {
+        foreach ($needs as $admin) {
             if (!$staff->hasPermission($admin)) {
                 return false;
             }
@@ -90,6 +105,9 @@ class Actor
 
         return true;
     }
+
+    /** The session key of «Login as client»'s nonce: a new one each time it starts (review 2, A1: the console's binding). */
+    public const IMPERSONATION_NONCE = 'impersonating_nonce';
 
     /**
      * What giving a login each permission takes from staff, where «Login as client» needs less (STAFF_PERMISSION_AS
