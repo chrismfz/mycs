@@ -205,7 +205,12 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
             ServiceCancellation::query()->create(['service_id' => $s->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
         }
         $invoice = $this->openInvoiceFor($bad);
-        $invoice->transactions()->create(['amount' => 2, 'refunded_amount' => 1, 'status' => InvoiceTransactionStatus::Succeeded, 'is_credit_transaction' => true]);
+        // Its cancellation fails (it used to be a refunded credit payment, which giveBack now handles: sweep MONEY-LEDGER-2).
+        Invoice::updating(function (Invoice $changed) use ($invoice) {
+            if ((int) $changed->id === (int) $invoice->id && $changed->status === Invoice::STATUS_CANCELLED) {
+                throw new \RuntimeException('this invoice cannot be cancelled');
+            }
+        });
 
         $this->cron();
 
