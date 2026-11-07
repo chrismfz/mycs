@@ -677,6 +677,20 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - **Ποσό:** το gateway χρεώνεται το ποσό που διαβάστηκε κάτω από τα locks, όχι αυτό που κρατούσε ο caller (ADV-4).
 - **Stripe:** διαβάζεται η κατάσταση του PaymentIntent. `succeeded` και `processing` είναι χρέωση. Το
   `authentication_required` / `requires_action` είναι `ChargeNeedsAction`, χωρίς retry, και ο πελάτης το βλέπει.
+  - Ένα `processing` (SEPA, άλλη τραπεζική χρέωση) που μετά αποτυγχάνει (`payment_intent.payment_failed`): η χρέωση
+    γίνεται `failed` (`SavedMethodCharge::failedAtGateway`, με το key της στο metadata `charge_attempt`, αλλιώς με τη
+    μέθοδο του metadata `billing_agreement_id`), το τιμολόγιο ξαναπληρώνεται και ξαναχρεώνεται, και το staff ειδοποιείται.
+    Αλλιώς έμενε «πάρθηκε, δεν καταγράφηκε» και κρατούσε το τιμολόγιο για πάντα (sweep 3 L-NO-DOUBLE-CHARGE-1· όπως το
+    denied capture του PayPal, REV-PAYMENTS-1).
+- **Δεν στάλθηκε (`not_sent`, `ChargeNotSent`, sweep 3 L-FAILURES-2):** το gateway δεν απάντησε πριν τη χρέωση (Stripe:
+  timeout, 5xx ή 429 στο `GET /customers`, 429 στη χρέωση· PayPal: 401/429). Δεν πάρθηκε και δεν απορρίφθηκε τίποτα: δεν
+  κρατά το τιμολόγιο, δεν μετρά στο `failed_count`, ο πελάτης δεν παίρνει «η πληρωμή απέτυχε»· μπαίνει στο mail του staff
+  και το cron ξαναδοκιμάζει όπως ορίζεται.
+- **Ανοιχτό checkout (sweep 3 L-NO-DOUBLE-CHARGE-2):** όταν ο πελάτης ανοίγει ένα checkout gateway στη σελίδα του
+  τιμολογίου ή του Mass Pay (Stripe, Cardlink, Mollie, PayPal), γράφεται `invoices.checkout_opened_at` κάτω από τα ίδια
+  locks με τον έλεγχο του `onItsWay` (`SavedMethodCharge::openCheckout`, σε όλα τα τιμολόγια του group). Το cron δεν
+  χρεώνει αποθηκευμένη μέθοδο του τιμολογίου για 60 λεπτά μετά (`CHECKOUT_HOLD_MINUTES`): το checkout μπορεί ακόμα να
+  πάρει τα ίδια χρήματα. Ο πελάτης μπορεί να πληρώσει αλλιώς κανονικά· το επόμενο run του cron χρεώνει, αν μένει ανοιχτό.
 - **Ειδοποιήσεις:**
   - Ο πελάτης παίρνει «η πληρωμή απέτυχε» στην πρώτη απόρριψη, στην τελευταία προσπάθεια πριν την αναστολή (η τελευταία
     μέρα retry ως τη μέρα `cronjob_order_suspend`, ADV-8) και όταν η τράπεζα ζητά επιβεβαίωση. Όχι σε κάθε ημερήσιο retry,
