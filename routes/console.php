@@ -44,6 +44,8 @@ Schedule::command(CronJob::class, ['--catch-up'])->description('Starts today\'s 
 Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
 // A frequent task's withoutOverlapping() is given an expiry near its interval: with none (1440 min), a run killed with
 // its parent (SIGKILL, a hard reset) leaves a mutex that skips it, without a word, for a day (sweep 2, F-SCHEDULER-QUEUE-2).
+// Every task's withoutOverlapping() has one (≤ 2 h): app:cron-wait holds the deploy back while a mutex is held, so a
+// dead daily or weekly run's would otherwise fail every deploy for a day (sweep 2 review, REV2-FSQ-2).
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping(30)->onOneServer();
 // The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. In the morning,
 // after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
@@ -62,9 +64,9 @@ Schedule::command(SyncCpanelAccounts::class)->description('Reads the accounts of
 Schedule::command(SyncCpanelLve::class)->description('Reads what each cPanel account uses of its CloudLinux limits (read-only)')->hourlyAt(12)->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncSslOrders::class)->description('Reads every Openprovider SSL order again: status, dates, certificate, validation')->cron('41 * * * *')->withoutOverlapping(30)->onOneServer();
 Schedule::command(ReadBalances::class)->description('Reads what is left with each registrar (the dashboard\'s «Registrar credit»; staff mailed when low)')->hourlyAt(7)->withoutOverlapping(30)->onOneServer();
-Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping()->onOneServer();
-Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping()->onOneServer();
-Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping()->onOneServer();
+Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping(60)->onOneServer();
+Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping(30)->onOneServer();
+Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping(30)->onOneServer();
 // The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
 Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
 // A paid service still pending with no create recorded (predeploy S4): staff are told (OwedCreates).
@@ -72,4 +74,4 @@ Schedule::command(OwedCreatesCommand::class)->description('Tells staff of paid s
 // EU VAT (PR G, docs/eu-vat.md): pending numbers until VIES answers, the others monthly. Nothing when EU VAT is off.
 Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping(60)->onOneServer();
 // The EU standard VAT rates against TEDB (docs/eu-vat.md): staff told of a difference, nothing changed. Off by default.
-Schedule::command(EuVatRatesCheck::class)->description('Compares Tax Rates with the EU standard VAT rates in TEDB (changes nothing)')->weeklyOn(1, '05:45')->withoutOverlapping()->onOneServer();
+Schedule::command(EuVatRatesCheck::class)->description('Compares Tax Rates with the EU standard VAT rates in TEDB (changes nothing)')->weeklyOn(1, '05:45')->withoutOverlapping(30)->onOneServer();

@@ -90,8 +90,37 @@ class DeployQueueWaitTest extends TestCase
         $this->assertLessThan(10, $seconds, $out);
     }
 
+    /**
+     * REV2-FSQ-1's other side: a worker of this checkout whose cwd cannot be read (another user running it) is still
+     * waited for when its command line names this checkout's artisan by its path.
+     */
+    public function test_restart_path_waits_for_this_checkouts_worker_named_by_path_when_its_cwd_is_unreadable(): void
+    {
+        [$out] = $this->runStop(workerSeconds: 60, cwd: sys_get_temp_dir(), waitSeconds: 1,
+            name: '/usr/bin/php ' . getcwd() . '/artisan queue:work', hideCwd: true);
+
+        $this->assertStringContainsString('RC=1', $out, $out);
+        $this->assertStringContainsString('still on a job', $out, $out);
+    }
+
+    /**
+     * REV2-FSQ-2: app:cron-wait holds the deploy back while any withoutOverlapping mutex is held, so none may keep the
+     * 1440-minute default: a dead run's would fail every deploy for a day.
+     */
+    public function test_every_overlapping_task_has_an_expiry_of_two_hours_at_most(): void
+    {
+        $long = [];
+        foreach ($this->app->make(Schedule::class)->events() as $event) {
+            if ($event->withoutOverlapping && $event->expiresAt > 120) {
+                $long[] = (string) $event->command;
+            }
+        }
+
+        $this->assertSame([], $long);
+    }
+
     /** @return array{0: string, 1: float} the harness's output, and how long stop_queue_worker took */
-    private function runStop(int $workerSeconds, ?string $cwd, int $waitSeconds): array
+    private function runStop(int $workerSeconds, ?string $cwd, int $waitSeconds, string $name = 'php artisan queue:work', bool $hideCwd = false): array
     {
         $this->dir = sys_get_temp_dir() . '/mycs-deploy-qw-' . uniqid();
         File::makeDirectory($this->dir . '/bin', 0700, true);
@@ -107,13 +136,19 @@ class DeployQueueWaitTest extends TestCase
         chmod($this->dir . '/bin/fake-artisan', 0700);
         File::put($this->dir . '/fake-worker', "#!/bin/sh\nsleep {$workerSeconds}\n");
         chmod($this->dir . '/fake-worker', 0700);
+        if ($hideCwd) {
+            // readlink /proc/<worker>/cwd refused (exit 1), as for another user's process.
+            File::put($this->dir . '/bin/readlink', "#!/bin/sh\ncase \"\$1\" in /proc/\$(cat " . escapeshellarg($this->dir . '/worker.pid') . ")/cwd) exit 1 ;; esac\nexec /usr/bin/readlink \"\$@\"\n");
+            chmod($this->dir . '/bin/readlink', 0700);
+        }
 
         $harness = "set -Eeuo pipefail\n"
             . "log() { :; }; warn() { :; }; ok() { :; }; fail() { echo \"FAIL: \$*\"; }\n"
             . "QUEUE_SERVICE=mycs-queue\nQUEUE_WAIT_SECONDS={$waitSeconds}\nART=" . escapeshellarg($this->dir . '/bin/fake-artisan') . "\n"
             . substr($script, $start, $end - $start) . "\n"
             . '(' . ($cwd !== null ? 'cd ' . escapeshellarg($cwd) . ' && ' : '')
-            . 'exec -a ' . escapeshellarg('php artisan queue:work') . ' sh ' . escapeshellarg($this->dir . '/fake-worker') . ") >/dev/null 2>&1 &\nWORKER=\$!\nsleep 0.5\n"
+            . 'exec -a ' . escapeshellarg($name) . ' sh ' . escapeshellarg($this->dir . '/fake-worker') . ") >/dev/null 2>&1 &\nWORKER=\$!\n"
+            . 'echo $WORKER > ' . escapeshellarg($this->dir . '/worker.pid') . "\nsleep 0.5\n"
             . "rc=0; stop_queue_worker || rc=\$?\necho \"RC=\$rc via \$_stopped_by\"\nkill \$WORKER 2>/dev/null || true\n";
         File::put($this->dir . '/harness.sh', $harness);
 

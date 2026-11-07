@@ -124,13 +124,20 @@ stop_queue_worker() {
   _stopped_by="restart"
   [[ -z "$_pids" ]] || _wait_queue_workers "$_pids"
 }
-# This checkout's queue workers (their cwd here; one whose cwd cannot be read counts, never skipping a live one).
+# This checkout's queue workers: their cwd here, or (a cwd this user cannot read) this checkout's artisan named by its
+# path on their command line. Another user's worker on the host (Ekdosi's `php artisan queue:work`, its cwd unreadable
+# to mycs) never sees this checkout's queue:restart: waiting for it failed the deploy (sweep 2 review, REV2-FSQ-1).
 _queue_worker_pids() {
-  local pid cwd here
+  local pid cwd here cmd
   here="$(pwd -P)"
   for pid in $(pgrep -f "${QUEUE_WORKER_MATCH:-[a]rtisan( .*)? queue:(work|listen)}" 2>/dev/null || true); do
     cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
-    if [[ -z "$cwd" || "$cwd" == "$here" ]]; then echo "$pid"; fi
+    if [[ -n "$cwd" ]]; then
+      [[ "$cwd" == "$here" ]] && echo "$pid"
+      continue
+    fi
+    cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+    if [[ "$cmd" == *"$here/artisan "* ]]; then echo "$pid"; fi
   done
   return 0
 }

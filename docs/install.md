@@ -90,7 +90,7 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 maintenance και ξανά αμέσως μετά (ο scheduler δεν ξεκινά νέο σε maintenance), ως 15 λεπτά (`CRON_WAIT_SECONDS`). Αν δεν
 τελειώσει, το deploy σταματά χωρίς να έχει αλλάξει τίποτα: το ξανατρέχεις όταν τελειώσει. Lock τρεξίματος που
 κόπηκε (OOM, reboot· μένει ως 2 ώρες): `php artisan app:cron-wait --release-stale`, μόνο όταν δεν τρέχει κανένα
-`app:cron-job`. Ένα τρέξιμο του cron που παίρνει το lock ενώ το site είναι σε maintenance δεν κάνει τίποτα (το
+`app:cron-job`. Περιμένει και τις άλλες προγραμματισμένες εργασίες που τρέχουν (το mutex του `withoutOverlapping`, sweep 2): μιας που κόπηκε, το mutex λήγει μόνο του (κάθε εργασία έχει λήξη ως 2 ώρες)· νωρίτερα, όταν δεν τρέχει καμία, `php artisan schedule:clear-cache`. Στο `queue:restart` περιμένει μόνο τους workers αυτού του checkout (όχι άλλου χρήστη, π.χ. του Ekdosi), ως 15 λεπτά (`QUEUE_WAIT_SECONDS`). Ένα τρέξιμο του cron που παίρνει το lock ενώ το site είναι σε maintenance δεν κάνει τίποτα (το
 ημερήσιο ειδοποιεί το staff να ξανατρέξει)· και αν η ώρα του ημερήσιου πέσει μέσα σε deploy, ο scheduler το
 παραλείπει, και μια εργασία στην ίδια ώρα (τρέχει και σε maintenance) ειδοποιεί το staff να το τρέξει. Αν δεν μπει σε
 maintenance (`down` απέτυχε), το deploy σταματά χωρίς αλλαγές.
