@@ -182,6 +182,9 @@ pveum acl modify /pool/mycs --roles MyCSLifecycle --users mycs@pve --tokens 'myc
      abuse το staff κάνει suspend την υπηρεσία, και τότε δεν υπάρχουν κουμπιά.
    - **Create (υπεύθυνος 2026-10-28):** χωρίς cloud-init templates (εγκατάσταση από .iso), και το πρώτο create γίνεται
      χειροκίνητα, γιατί η MAC μπαίνει στο MikroTik (gw1-snc) κατά των αλλαγών IP. Το Β4 ξανασυζητιέται.
+     Ως τότε το create και η αλλαγή πακέτου (πλάνο ή options που πλήρωσε ο πελάτης) γίνονται task «by hand» στα
+     Pending Module Actions, με mail στο staff, όπως σε μηχάνημα χωρίς API (sweep2 F-PROVISIONING-OPS-1). Η υπηρεσία
+     ξεκινά όπως μετά από create.
 3. [x] **PR 4, IP pools στη MyCS (Utilities → IP Pools):**
    - Pool = δίκτυο, gateway, μάσκα (prefix), DNS και cluster. IPv4: διευθύνσεις (ένα δίκτυο, ένα εύρος ή μία μία).
      Ποτέ το gateway, η διεύθυνση δικτύου ή το broadcast. Η μάσκα είναι πάντα του δικτύου.

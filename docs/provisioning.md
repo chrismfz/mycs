@@ -117,6 +117,9 @@
 - **Κανένα μυστικό σε property.** Ο κωδικός ενός λογαριασμού πάει στο `services.password` (encrypted, `$hidden`, εκτός
   audit) και τα modules τον διαβάζουν ως `password` (`getServiceProperties`). Το DirectAdmin έγραφε το
   `directadmin_password` καθαρό· το migration `2026_11_06_000000` τα μεταφέρει και σβήνει την τιμή από τα audits.
+  Το create του DirectAdmin κρατά username (`directadmin_pending_username`) και κωδικό **πριν** τη ζήτηση, όπως το
+  cPanel: ένα retry μετά από χαμένη απάντηση ζητά τον ίδιο λογαριασμό και τον υιοθετεί αν υπάρχει με το ίδιο domain
+  (sweep2 F-PROVISIONING-OPS-3). Μόνο μια ρητή άρνηση στην πρώτη προσπάθεια τα σβήνει.
   Κωδικοί λογαριασμών με CSPRNG (`Str::password`).
 - **Logs:** `App\Support\Redact`: κλειδιά που ονομάζουν μυστικό (pass, secret, token, key, authorization, cookie,
   session) σε κάθε βάθος και στο query του URL, τα cPanel `cpsess…`, και κάθε αποθηκευμένο μυστικό (τα encrypted

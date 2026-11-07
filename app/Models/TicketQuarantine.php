@@ -36,6 +36,7 @@ class TicketQuarantine extends Model
         'clients_only' => 'Clients only department, from someone who is not a client',
         'rate_limited' => 'Too many new tickets from this sender',
         'too_large' => 'Too large to fetch',
+        'before_mail_since' => 'Sent before the department began reading its mailbox',
         'unparseable' => 'Could not be read',
         'failed' => 'Failed three times (the error is in its text)',
     ];

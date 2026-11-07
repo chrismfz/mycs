@@ -161,6 +161,7 @@ final class CancelOpenInvoices
             // A consequence of its service (it ends, changes cycle), not the invoice given up on: a service that goes on
             // is billed again (Δ3a).
             $invoice->keep_periods_billable = true;
+            $invoice->cancelled_as_consequence = true;
             $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => $reason]);
 
             return null;

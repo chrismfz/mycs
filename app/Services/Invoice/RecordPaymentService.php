@@ -5,6 +5,7 @@ namespace App\Services\Invoice;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
@@ -22,6 +23,7 @@ use App\Services\Money\MoneyTrail;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -100,12 +102,15 @@ class RecordPaymentService
         return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup) {
             $invoice = $this->lockInvoice($invoiceId);
 
-            // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
-            // without a gateway match any gateway's id (re-entering what a webhook already recorded).
+            // Same id on the same gateway account (PayPal and PayPal_IPN are one: REV2-FGW-2), or recorded by staff
+            // without a gateway: the same money. Staff without a gateway match any gateway's id (re-entering what a
+            // webhook already recorded).
+            $sameAccount = $gateway === null ? [] : Gateway::query()
+                ->whereIn('extension', ExtensionHelper::accountExtensions((string) $gateway->extension))->pluck('id')->push($gateway->id)->unique()->all();
             $existing = $transactionId === null ? null : InvoiceTransaction::query()
                 ->where('transaction_id', $transactionId)
                 ->when($gateway !== null, fn ($query) => $query->where(
-                    fn ($query) => $query->where('gateway_id', $gateway->id)->orWhereNull('gateway_id')
+                    fn ($query) => $query->whereIn('gateway_id', $sameAccount)->orWhereNull('gateway_id')
                 ))
                 ->orderByRaw('case when status = ? then 0 else 1 end', [InvoiceTransactionStatus::Succeeded->value])
                 ->whereHas('invoice', fn ($query) => $query->where('client_id', $invoice->client_id))
@@ -686,12 +691,32 @@ class RecordPaymentService
     public function boughtCreditLeftCents(Invoice $invoice): int
     {
         $given = $this->boughtCreditCents($invoice);
-        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)->max('id');
+        // The grant itself (its credit-in, or credit-out for a negative line), never a reversal journaled under the same
+        // cause: a chargeback's credit given back (GrantBoughtCreditService) must not hide the refunds before it
+        // (review REV2-FRC-1).
+        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)
+            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value])->max('id');
         $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
             ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
             ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
+        // A chargeback took part of it and has not given it back yet (sweep2 F-REFUND-CHARGEBACK-2).
+        $chargedBack = (int) self::chargebackTakes($invoice)->when($granted !== null, fn ($takes) => $takes->where('id', '>', $granted))
+            ->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
 
-        return max(0, $given - $taken);
+        return max(0, $given - $taken - $chargedBack);
+    }
+
+    /**
+     * The bought credit chargebacks took from a credit purchase (ExtensionHelper::chargebackAtGateway, its credit-out
+     * events) and not given back yet: given back when the invoice is paid again (GrantBoughtCreditService), by a new
+     * payment or the dispute won (sweep2 F-REFUND-CHARGEBACK-1). Read locked, under the payments' locks.
+     *
+     * @return Collection<int, MoneyEvent>
+     */
+    public static function chargebackTakes(Invoice $invoice): Collection
+    {
+        return MoneyEvent::query()->where('invoice_id', $invoice->id)->where('kind', MoneyEventKind::CreditOut->value)
+            ->where('cause', MoneyTrail::CAUSE_CHARGEBACK)->whereDoesntHave('reversal')->orderBy('id')->lockForUpdate()->get();
     }
 
     /** What the credit lines of a credit purchase give when it is paid (their totals). Under the payments' locks. */
