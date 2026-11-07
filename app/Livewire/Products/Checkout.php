@@ -94,8 +94,11 @@ class Checkout extends Component
             }
             $this->checkoutConfig = (array) $item->checkout_config;
         } else {
-            // Set the first plan as default
-            $this->plan = $this->plan_id ? $this->product->plans->findOrFail($this->plan_id) : $this->product->plans->first();
+            // Default to the first plan it can be ordered on, as the product page shows it: a plan without a price in
+            // this currency (a cycle withdrawn, #628) is refused by rules() and, with one choice left, no select is drawn.
+            $this->plan = $this->plan_id
+                ? $this->product->plans->findOrFail($this->plan_id)
+                : ($this->product->availablePlans()->first() ?? $this->product->plans->first());
             $this->plan_id = $this->plan->id;
 
             foreach ($this->getCheckoutConfig() as $config) {
@@ -119,7 +122,10 @@ class Checkout extends Component
 
             $value = $this->configOptions[$option->id] ?? null;
 
-            return [$option->id => $option->children->contains('id', $value) ? $value : $option->children->first()->id];
+            // A hidden value is not ordered (a WHMCS «Hide»): an item in the cart that holds one moves to the first that may be.
+            $values = $option->orderableChildren();
+
+            return [$option->id => $values->contains('id', $value) ? $value : $values->first()?->id];
         })->toArray();
 
         // Update the pricing
@@ -262,7 +268,7 @@ class Checkout extends Component
             } else {
                 $rules["configOptions.{$option->id}"] = [
                     'required',
-                    Rule::in($option->children->pluck('id')->toArray()),
+                    Rule::in($option->orderableChildren()->pluck('id')->toArray()),
                 ];
             }
         }
@@ -339,13 +345,17 @@ class Checkout extends Component
         // Change configOptions so they also contain the name of the option (resulting in less database calls = faster speeds)
         $configOptions = $this->product->configOptions->map(function ($option) {
             if ($option->type == 'checkbox') {
+                $value = $option->orderableChildren()->first();
+                $ticked = $value !== null && isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true);
+
                 return (object) [
                     'option_id' => $option->id,
                     'option_name' => $option->name,
                     'option_type' => $option->type,
                     'option_env_variable' => $option->env_variable,
-                    'value' => isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true) ? $option->children->first()->id : null,
-                    'value_name' => isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true) ? 'Yes' : 'No',
+                    // Its one value, unless hidden (REV-CP-1): then it is not offered, nor ticked.
+                    'value' => $ticked ? $value->id : null,
+                    'value_name' => $ticked ? 'Yes' : 'No',
                 ];
             }
             if (in_array($option->type, ['text', 'number'])) {

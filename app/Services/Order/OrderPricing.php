@@ -54,7 +54,9 @@ final class OrderPricing
                 continue;
             }
             // A checkbox costs its one child's price when ticked; the other types choose a child.
-            $child = $option->type === 'checkbox' ? $option->children->first() : $option->children->firstWhere('id', $value);
+            // A hidden value is no choice of a new order (CLIENT-PORTAL-4): not priced, as the service is not given it,
+            // a checkbox's one value included (REV-CP-1).
+            $child = $option->type === 'checkbox' ? $option->orderableChildren()->first() : $option->orderableChildren()->firstWhere('id', $value);
             if ($child === null) {
                 continue;
             }

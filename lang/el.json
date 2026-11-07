@@ -1728,5 +1728,7 @@
     "Operator": "Operator",
     "No chats": "Κανένα chat",
     "Chat #:id": "Chat #:id",
-    "No messages": "Κανένα μήνυμα"
+    "No messages": "Κανένα μήνυμα",
+    "Invalid code.": "Λάθος κωδικός.",
+    "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση."
 }
