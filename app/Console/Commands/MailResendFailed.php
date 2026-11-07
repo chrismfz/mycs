@@ -8,7 +8,8 @@ use Illuminate\Console\Command;
 
 /**
  * After a mail outage (docs/mail.md): the customer mails that failed since a day, not resent yet, sent again (batch),
- * up to a limit. By hand only, never scheduled: a mass resend is staff's decision.
+ * up to a limit. By hand only, never scheduled: a mass resend is staff's decision. Not one that is no longer true
+ * (MailAudit::stale: an overdue notice of an invoice paid since).
  */
 class MailResendFailed extends Command
 {
@@ -26,13 +27,21 @@ class MailResendFailed extends Command
             ->whereNotExists(fn ($query) => $query->from('email_logs as resends')->whereColumn('resends.resent_from_id', 'email_logs.id'))
             ->orderBy('id')->limit(max(1, (int) $this->option('limit')))->get();
 
+        $resent = 0;
         foreach ($failed as $log) {
+            // No longer true (an invoice paid since, a service unsuspended): not sent again (L-NOTIFICATIONS-4).
+            if (($why = MailAudit::stale($log)) !== null) {
+                $this->line("#{$log->id} {$log->to}: {$log->subject} (left out: {$why})");
+
+                continue;
+            }
             $this->line("#{$log->id} {$log->to}: {$log->subject}");
             if (!$this->option('dry-run')) {
                 MailAudit::resend($log, $log->to, trigger: EmailLog::TRIGGER_BATCH);
             }
+            $resent++;
         }
-        $this->info(($this->option('dry-run') ? 'Would resend ' : 'Resent ') . $failed->count() . '.');
+        $this->info(($this->option('dry-run') ? 'Would resend ' : 'Resent ') . $resent . '.');
 
         return self::SUCCESS;
     }

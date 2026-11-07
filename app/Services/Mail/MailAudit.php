@@ -49,6 +49,44 @@ class MailAudit
      * Staff send a logged mail again, to its address or another, with or without its Cc/Bcc: a new row (manual or
      * batch), linked to the original, with the body the log keeps.
      */
+    /**
+     * Mails that ask the customer to pay their invoice (or to renew by it), or tell of a state their service is in: after
+     * a while (a mail outage) they may no longer be true (L-NOTIFICATIONS-4).
+     */
+    public const STALE_WHEN_SETTLED = ['new_invoice_created', 'invoice_payment_reminder', 'card_payment_due', 'invoice_overdue',
+        'invoice_payment_failed', 'domain_renewal_notice', 'domain_expired_notice'];
+
+    /**
+     * Why a logged mail is no longer true, or null: one asking to pay an invoice that is paid, cancelled or settled since
+     * (or gone), a suspension notice of a service no longer suspended, a hold's warning of one no longer active. The
+     * batch resend leaves those out (app:mail-resend-failed); staff's own Resend is staff's to judge.
+     */
+    public static function stale(EmailLog $log): ?string
+    {
+        if ($log->related_id === null || $log->related_type === null) {
+            return null;
+        }
+        $class = Model::getActualClassNameForMorph($log->related_type);
+        if (in_array($log->template_key, self::STALE_WHEN_SETTLED, true) && $class === Invoice::class) {
+            $invoice = Invoice::query()->find($log->related_id);
+
+            return match (true) {
+                $invoice === null => 'its invoice is gone',
+                $invoice->status !== Invoice::STATUS_UNPAID => "its invoice is {$invoice->status} now",
+                $invoice->remaining <= 0 => 'its invoice has nothing left to pay',
+                default => null,
+            };
+        }
+        $wants = ['server_suspended' => Service::STATUS_SUSPENDED, 'service_hold_ending' => Service::STATUS_ACTIVE][$log->template_key] ?? null;
+        if ($wants !== null && $class === Service::class) {
+            $status = Service::query()->whereKey($log->related_id)->value('status');
+
+            return $status === $wants ? null : 'its service is ' . ($status ?? 'gone') . ' now';
+        }
+
+        return null;
+    }
+
     public static function resend(EmailLog $original, string $to, bool $withCopies = true, ?Staff $staff = null, string $trigger = EmailLog::TRIGGER_MANUAL): EmailLog
     {
         $cc = $withCopies ? ($original->cc ?? []) : [];

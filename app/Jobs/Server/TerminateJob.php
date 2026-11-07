@@ -36,11 +36,13 @@ class TerminateJob implements ShouldQueue
         }
         $data = [];
 
-        try {
-            $data = ExtensionHelper::terminateServer($this->service);
-        } catch (NothingToDoOnServer) {
-            // No module, or a module without this action: nothing to do (not retried).
-        }
+        $this->keepingOptions(function () use (&$data) {
+            try {
+                $data = ExtensionHelper::terminateServer($this->service);
+            } catch (NothingToDoOnServer) {
+                // No module, or a module without this action: nothing to do (not retried).
+            }
+        });
 
         if (!$this->sendNotification) {
             return;
@@ -56,6 +58,12 @@ class TerminateJob implements ShouldQueue
         $requested === 'end_of_period'
             ? NotificationHelper::serviceCancelledNotification($this->service->client, $this->service, is_array($data) ? $data : [])
             : NotificationHelper::serverTerminatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
+    }
+
+    /** @return array<string, bool> */
+    protected function jobOptions(): array
+    {
+        return ['send_notification' => (bool) $this->sendNotification];
     }
 
     protected function moduleAction(): string

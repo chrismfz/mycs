@@ -2,11 +2,6 @@
 
 namespace App\Services\Service;
 
-use App\Jobs\Server\CreateJob;
-use App\Jobs\Server\SuspendJob;
-use App\Jobs\Server\TerminateJob;
-use App\Jobs\Server\UnsuspendJob;
-use App\Jobs\Server\UpgradeJob;
 use App\Models\ModuleAction;
 use App\Services\Domains\ContactPush;
 use App\Services\Domains\DomainRenewalService;
@@ -41,15 +36,8 @@ final class RetryModuleAction
         if ($action->action === ModuleAction::DOMAIN_CONTACT) {
             return ContactPush::retryDomain((int) $action->domain_id) > 0;
         }
-        $service = $action->service;
-        $job = match ($action->action) {
-            'create' => new CreateJob($service),
-            'suspend' => new SuspendJob($service),
-            'unsuspend' => new UnsuspendJob($service),
-            'terminate' => new TerminateJob($service),
-            'upgrade' => new UpgradeJob($service),
-            default => throw new \InvalidArgumentException("Unknown module action {$action->action}"),
-        };
+        // As the failed job was asked (job_options): a silent terminate or create stays silent (L-NOTIFICATIONS-2).
+        $job = $action->lifecycleJob();
         $attempts = $action->attempts;
         $job->handle();
         $action->refresh();

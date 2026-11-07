@@ -31,7 +31,8 @@ class SuspendJob implements ShouldQueue
     public function handle(): void
     {
         $this->taken();
-        $this->serialized(fn () => $this->suspend()); // one suspension or unsuspension of it at a time (predeploy R2)
+        // One suspension or unsuspension of it at a time (predeploy R2); a failure keeps whether it mails (keepOptions).
+        $this->keepingOptions(fn () => $this->serialized(fn () => $this->suspend()));
     }
 
     private function suspend(): void
@@ -63,6 +64,12 @@ class SuspendJob implements ShouldQueue
     public static function neverSuspendedKey(int $serviceId): string
     {
         return "service-suspension-skipped:{$serviceId}";
+    }
+
+    /** @return array<string, bool> */
+    protected function jobOptions(): array
+    {
+        return ['send_notification' => (bool) $this->sendNotification];
     }
 
     protected function moduleAction(): string
