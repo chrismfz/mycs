@@ -68,7 +68,8 @@ final class DunningForecast
             // «Only with an overdue invoice»: a renewal the cron bills before then counts too (ADV-681-3). Its invoice is
             // due on the due date and issued «invoice days» before it, so it is overdue as soon as the service is.
             if ($requiresInvoice) {
-                $unbilled = DunningRules::suspendable($day)->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID))
+                // An open charge is not a bill (renewalInvoices, as suspendable() reads it: review REV-CB-1).
+                $unbilled = DunningRules::suspendable($day)->whereDoesntHave('renewalInvoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID))
                     ->whereKeyNot(array_keys($suspendFrom))->with(['plan', 'nextPlan'])->get();
                 foreach ($unbilled as $service) {
                     $billedOn = Carbon::parse($service->expires_at)->startOfDay()->subDays(RenewalBilling::serviceInvoiceDays(RenewalBilling::billedPlan($service) ?? $service->plan));

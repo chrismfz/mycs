@@ -16,7 +16,7 @@ class EditCoupon extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make(),
+            DeleteAction::make()->modalDescription('Services still on a running coupon get their full price back: they renew at it from their next invoice.'),
         ];
     }
 }

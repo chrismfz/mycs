@@ -81,6 +81,21 @@ final class BillingPeriodTest extends TestCase
         $this->assertSame('2026-08-15', BillingPeriod::start(CarbonImmutable::parse('2026-11-15'), 'month', 3)->toDateString());
     }
 
+    public function test_period_start_keeps_the_billing_day(): void
+    {
+        // On the 31st: 28 February started on 31 January, 30 April on 31 March, end() going forward from either.
+        $this->assertSame('2027-01-31', BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'month', 1, 31)->toDateString());
+        $this->assertSame('2027-03-31', BillingPeriod::start(CarbonImmutable::parse('2027-04-30'), 'month', 1, 31)->toDateString());
+        $this->assertSame('2027-02-28', BillingPeriod::end(BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'month', 1, 31), 'month', 1, 31)->toDateString());
+        $this->assertSame('2027-02-28', BillingPeriod::start(CarbonImmutable::parse('2027-03-31'), 'month', 1, 31)->toDateString());
+        $this->assertSame('2026-02-28', BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'year', 1, 31)->toDateString());
+        $this->assertSame('2026-11-30', BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'month', 3, 30)->toDateString());
+        // An end not on its day (the day moved): one cycle back, as without it. Days and weeks have none.
+        $this->assertSame('2027-02-15', BillingPeriod::start(CarbonImmutable::parse('2027-03-15'), 'month', 1, 31)->toDateString());
+        $this->assertSame('2027-01-28', BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'month', 1, 28)->toDateString());
+        $this->assertSame('2027-02-21', BillingPeriod::start(CarbonImmutable::parse('2027-02-28'), 'week', 1, 31)->toDateString());
+    }
+
     public function test_the_remaining_part_counts_whole_days_left(): void
     {
         $start = CarbonImmutable::parse('2026-01-01');
