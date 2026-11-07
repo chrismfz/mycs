@@ -493,8 +493,7 @@ class Show extends Component
         }
         $user = Auth::guard('web')->user();
 
-        return $user instanceof User && (bool) ClientUser::query()->where('client_id', $this->domain->client_id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->onOpenAccount()->first()?->allows('invoices'); // never a closed account (ADV-A6-1)
+        return $user instanceof User && (bool) ClientUser::liveGrant($user, $this->domain->client_id)?->allows('invoices'); // never a closed account (ADV-A6-1)
     }
 
     private function limited(string $key): bool

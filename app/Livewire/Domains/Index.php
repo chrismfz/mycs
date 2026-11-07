@@ -202,8 +202,8 @@ class Index extends Component
         }
         $user = Auth::guard('web')->user();
 
-        return $user instanceof User && (bool) ClientUser::query()->where('client_id', CurrentClient::model()->id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->first()?->allows('invoices');
+        // CurrentClient is an open account here (staff returned above); the helper's filter is defence in depth (review 2, A3).
+        return $user instanceof User && (bool) ClientUser::liveGrant($user, CurrentClient::id())?->allows('invoices');
     }
 
     /**

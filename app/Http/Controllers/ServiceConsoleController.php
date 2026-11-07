@@ -6,6 +6,7 @@ use App\Admin\Resources\ServiceResource\ProxmoxPower;
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
 use App\Support\Actor;
+use App\Support\StaffSessions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -50,13 +51,23 @@ class ServiceConsoleController extends Controller
 
     /**
      * Staff in «Login as client» opening it: named in the ticket, so the relay's check (no session) asks about them, not
-     * the customer's login (ADV-A6-1, review 6: a closed account's console stays open for staff only).
+     * the customer's login (ADV-A6-1, review 6: a closed account's console stays open for staff only); with their
+     * login's row and this «Login as client»'s nonce, so it closes once they leave it, log out or the session is ended
+     * (review 2, A1). Nothing for the customer's own console.
+     *
+     * @return array{staff_id?: int, staff_session?: string, impersonation?: string}
      */
-    private static function staffId(): ?int
+    private static function staff(): array
     {
         $staff = Actor::impersonating() ? Auth::guard('staff')->id() : null;
+        if ($staff === null) {
+            return [];
+        }
+        $session = session()->get(StaffSessions::SESSION_KEY);
+        $nonce = session()->get(Actor::IMPERSONATION_NONCE);
 
-        return $staff === null ? null : (int) $staff;
+        return ['staff_id' => (int) $staff] + (is_string($session) ? ['staff_session' => $session] : [])
+            + (is_string($nonce) ? ['impersonation' => $nonce] : []);
     }
 
     public function ticket(Service $service): JsonResponse
@@ -89,12 +100,14 @@ class ServiceConsoleController extends Controller
         }
         $parts = (array) parse_url((string) config('app.url'));
         $origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        $staff = self::staff();
         $token = ConsoleTicket::sign(['origin' => $origin, 'server_id' => $server->id, 'service_id' => $service->id,
-            'user_id' => (int) auth('web')->id(), 'staff_id' => self::staffId()] + $console, $relay['key']);
+            'user_id' => (int) auth('web')->id()] + $staff + $console, $relay['key']);
         $service->auditEvent = 'vm_console';
         $service->isCustomEvent = true;
         $service->auditCustomOld = [];
-        $service->auditCustomNew = ['user_id' => auth('web')->id(), 'vmid' => $console['vmid']];
+        // Who opened it: staff in «Login as client» too (review 2, info), not only the login they look through.
+        $service->auditCustomNew = ['user_id' => auth('web')->id(), 'vmid' => $console['vmid']] + (isset($staff['staff_id']) ? ['staff_id' => $staff['staff_id']] : []);
         event(new AuditCustom($service));
         $service->isCustomEvent = false;
 

@@ -579,9 +579,13 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   έχει κι άλλον, ανοιχτό, μπαίνει σε εκείνον και ο κλειστός δεν επιλέγεται (`CurrentClient`).
 - **Δεν φαίνεται τίποτα του κλειστού στους logins του**, ούτε με id: τιμολόγια (και τα παλιά, και τα PDF τους),
   υπηρεσίες, κωδικοί, domains, tickets, panel/SSO, κονσόλα, upgrade, κύκλος, ακύρωση. Ο έλεγχος είναι στο
-  `BasePolicy::owns()` (`ClientUser::onOpenAccount()`) και στα σημεία με δικό τους grant query (`Services\Show::loginMay`,
-  `ItemPaymentAccess`, `Domains\Show`). Ό,τι χρειαστεί ο πελάτης (π.χ. ένα παλιό τιμολόγιο) του το στέλνει το staff.
+  `ClientUser::liveGrant($user, $clientId, includeClosed: false)` (review 2, A3), που το ρωτούν όλοι οι by-id έλεγχοι:
+  `BasePolicy::owns()`, `Services\Show::loginMay` (και το panel login), `ItemPaymentAccess`, `Domains\Show`,
+  `Domains\Index`. Εξαιρέσεις, ρητά με `includeClosed: true`: το «Login as client», ο έλεγχος της κονσόλας του staff και
+  οι απαντήσεις με mail (`InboundRouter`). Το `CurrentClient` κρατά το δικό του query: έχει ήδη διαλέξει ανοιχτό
+  λογαριασμό. Ό,τι χρειαστεί ο πελάτης (π.χ. ένα παλιό τιμολόγιο) του το στέλνει το staff.
 - Το staff τον βλέπει και τον δουλεύει με το «Login as client», όσο του επιτρέπει ο ρόλος του (SA-5). Μια κονσόλα VPS που
   ανοίγει έτσι γράφει στο εισιτήριο το μέλος του staff (`staff_id`), και ο έλεγχος των 30'' τη ρωτά για εκείνο (ενεργό,
-  `admin.users.impersonate`, `admin.services.update`) αντί για τον login του πελάτη (`docs/proxmox.md`).
+  `admin.users.impersonate`, `admin.services.update`) αντί για τον login του πελάτη, και μόνο όσο το ίδιο «Login as
+  client» είναι ανοιχτό (session και nonce στο εισιτήριο· review 2, A1· `docs/proxmox.md`).
 - Οι απαντήσεις με mail στα tickets του φτάνουν κανονικά στο staff (`InboundRouter`): η υποστήριξη δεν κόβεται.

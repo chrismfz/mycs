@@ -37,6 +37,17 @@ class ConsoleTicketTest extends TestCase
         $this->assertNull(ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE + ['staff_id' => 0], self::KEY, 1000), [self::KEY], 1010));
     }
 
+    /** Review 2, A1: with the staff login's row and that «Login as client»'s nonce; malformed ones are refused. */
+    public function test_a_staff_ticket_carries_its_session_and_nonce(): void
+    {
+        $bound = self::CONSOLE + ['staff_id' => 9, 'staff_session' => '01jc0000000000000000000000', 'impersonation' => str_repeat('aB3', 10) . 'xy'];
+        $ticket = ConsoleTicket::verify(ConsoleTicket::sign($bound, self::KEY, 1000), [self::KEY], 1010);
+        $this->assertSame(['01jc0000000000000000000000', str_repeat('aB3', 10) . 'xy'], [$ticket['staff_session'] ?? null, $ticket['impersonation'] ?? null]);
+        $this->assertArrayNotHasKey('staff_session', ConsoleTicket::verify(ConsoleTicket::sign(self::CONSOLE, self::KEY, 1000), [self::KEY], 1010));
+        $this->assertNull(ConsoleTicket::verify(ConsoleTicket::sign(['staff_session' => 'short'] + $bound, self::KEY, 1000), [self::KEY], 1010));
+        $this->assertNull(ConsoleTicket::verify(ConsoleTicket::sign(['impersonation' => 'not/a-nonce'] + $bound, self::KEY, 1000), [self::KEY], 1010));
+    }
+
     public function test_a_changed_payload_or_signature_is_refused(): void
     {
         $token = ConsoleTicket::sign(self::CONSOLE, self::KEY, 1000);

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Actions\Auth\Logout;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Actor;
 use Closure;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Http\Request;
@@ -28,7 +29,7 @@ class ImpersonateMiddleware
         $staff = Auth::guard('staff')->user();
         $customer = User::query()->find($request->session()->get('impersonating'));
         if (!$staff instanceof Staff || !$staff->hasPermission('admin.users.impersonate') || $customer === null) {
-            $request->session()->forget('impersonating');
+            $request->session()->forget(['impersonating', Actor::IMPERSONATION_NONCE]);
 
             return $next($request);
         }

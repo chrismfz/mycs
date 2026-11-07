@@ -8,6 +8,9 @@ use App\Models\User;
 
 class ServicePolicy extends BasePolicy
 {
+    /** The account permission updating (and powering, the console) a service takes; the relay's check asks it too (review 2, A2). */
+    public const UPDATE_PERMISSION = 'manageproducts';
+
     /**
      * Determine whether the user can view any models.
      */
@@ -37,7 +40,7 @@ class ServicePolicy extends BasePolicy
      */
     public function update(User|Staff $user, Service $service): bool
     {
-        return $this->adminPermission($user, 'admin.services.update', $this->owns($user, $service->client_id, 'manageproducts'));
+        return $this->adminPermission($user, 'admin.services.update', $this->owns($user, $service->client_id, self::UPDATE_PERMISSION));
     }
 
     /**

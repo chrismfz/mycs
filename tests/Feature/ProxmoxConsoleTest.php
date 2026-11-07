@@ -9,10 +9,14 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\StaffSessions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use MyCS\Proxmox\Console\ConsoleTicket;
 use Tests\TestCase;
@@ -124,10 +128,18 @@ class ProxmoxConsoleTest extends TestCase
         $this->assertArrayNotHasKey('staff_id', $mine);
 
         $staff = Staff::factory()->withPermissions(['*'])->create();
+        $ulid = strtolower((string) Str::ulid());
+        $nonce = Str::random(32);
         $this->actingAs($staff, 'staff')->actingAs($owner)->withSession($this->loginUser($owner, ['impersonating' => $owner->id,
-            CurrentClient::SESSION_KEY => $service->client_id, CurrentClient::IMPERSONATING_KEY => $service->client_id]));
+            CurrentClient::SESSION_KEY => $service->client_id, CurrentClient::IMPERSONATING_KEY => $service->client_id,
+            StaffSessions::SESSION_KEY => $ulid, Actor::IMPERSONATION_NONCE => $nonce]));
         $theirs = ConsoleTicket::verify(substr($this->postJson(route('services.console.ticket', $service))->json('url'), strlen(self::RELAY . '?t=')), [self::KEY]);
         $this->assertSame([$owner->id, $staff->id], [$theirs['user_id'], $theirs['staff_id'] ?? null]);
+        // Review 2, A1: bound to that «Login as client» (its staff session row and nonce); the audit names the staff member.
+        $this->assertSame([$ulid, $nonce], [$theirs['staff_session'] ?? null, $theirs['impersonation'] ?? null]);
+        $this->assertArrayNotHasKey('staff_session', $mine);
+        $audit = DB::table('audits')->where('auditable_id', $service->id)->where('event', 'vm_console')->latest('id')->first();
+        $this->assertSame($staff->id, json_decode((string) $audit->new_values, true)['staff_id'] ?? null);
     }
 
     public function test_never_another_customers_never_while_suspended_never_a_stopped_vm_and_not_in_a_loop(): void

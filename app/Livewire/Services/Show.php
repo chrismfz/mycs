@@ -870,8 +870,7 @@ class Show extends Component
         }
 
         // Never on a closed account (ADV-A6-1).
-        return (bool) ClientUser::query()->where('client_id', $service->client_id)->where('user_id', $user->id)
-            ->whereNull('revoked_at')->onOpenAccount()->first()?->allows($permission);
+        return (bool) ClientUser::liveGrant($user, $service->client_id)?->allows($permission);
     }
 
     public function render()

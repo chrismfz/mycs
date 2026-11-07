@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
 use App\Providers\Filament\AdminPanelProvider;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 
 class Logout extends Component
@@ -12,7 +13,7 @@ class Logout extends Component
     {
         // Staff logged in as a client (AUTH-19) leave the client's view, back to the admin, still logged in there.
         if (session()->has('impersonating')) {
-            session()->forget(['impersonating', CurrentClient::IMPERSONATING_KEY]);
+            session()->forget(['impersonating', CurrentClient::IMPERSONATING_KEY, Actor::IMPERSONATION_NONCE]);
 
             return redirect('/' . AdminPanelProvider::PATH);
         }

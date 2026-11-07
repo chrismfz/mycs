@@ -2,14 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Helpers\ExtensionHelper;
 use App\Http\Controllers\Api\ProxmoxConsoleCheckController;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
+use App\Models\StaffSession;
 use App\Models\User;
+use App\Support\Actor;
+use App\Support\StaffSessions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use MyCS\Proxmox\Console\ConsoleTicket;
 use Tests\TestCase;
@@ -47,14 +52,25 @@ class Review6Test extends TestCase
         // The relay's check (no session) for the same console: refused, so the staff console closes within 30 s.
         // The fix names the staff member in the ticket (ServiceConsoleController), which the relay echoes in its check.
         $staff = Staff::factory()->withPermissions(['admin.users.impersonate', 'admin.services.update'])->create();
-        $body = (string) json_encode(['ts' => time(), 'consoles' => [$console + ['staff_id' => $staff->id]]]);
+        // Review 2, A1: the console is also bound to that live «Login as client» (its session row and nonce), so the
+        // body carries them; without them it is refused (Review2AccountsTest).
+        $this->actingAs($staff, 'staff');
+        $store = app('session.store');
+        $row = StaffSession::query()->create(['staff_id' => $staff->id, 'session_id' => $store->getId(), 'created_at' => now(), 'last_seen_at' => now()]);
+        $store->put([Auth::guard('staff')->getName() => $staff->id, StaffSessions::SESSION_KEY => $row->ulid]);
+        EditUser::impersonate($user, $client);
+        $store->save();
+        $binding = ['staff_id' => $staff->id, 'staff_session' => $row->ulid, 'impersonation' => $store->get(Actor::IMPERSONATION_NONCE)];
+        $body = (string) json_encode(['ts' => time(), 'consoles' => [$console + $binding]]);
         $answer = $this->call('POST', route('api.proxmox.console.check'), [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
             'HTTP_X_CONSOLE_SIGNATURE' => ConsoleTicket::checkSignature($body, 'the-cluster-console-key-of-32-chars-or-more')], $body)->json('allowed');
         $this->assertSame(['1' => true], $answer, 'staff console on a closed account cut by the relay check');
 
         // The customer's own console on the now closed account still closes; so does staff's, once they may no longer.
+        // (The check has no session: this test's own store must not make the customer's path staff's.)
+        $store->forget(['impersonating', Actor::IMPERSONATION_NONCE]);
         $this->assertFalse(ProxmoxConsoleCheckController::allowed($console), "the customer's console on a closed account");
         $staff->forceFill(['active' => false])->save();
-        $this->assertFalse(ProxmoxConsoleCheckController::allowed($console + ['staff_id' => $staff->id]), 'a disabled staff member');
+        $this->assertFalse(ProxmoxConsoleCheckController::allowed($console + $binding), 'a disabled staff member');
     }
 }

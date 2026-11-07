@@ -25,9 +25,11 @@ final class ConsoleTicket
     private const MAX_LENGTH = 1024;
 
     /**
-     * `staff_id`: the staff member who opened it in «Login as client», when one did (ADV-A6-1, review 6).
+     * `staff_id`: the staff member who opened it in «Login as client», when one did (ADV-A6-1, review 6); with it
+     * `staff_session` (their login's row) and `impersonation` (that «Login as client»'s nonce), so the relay's check
+     * closes it once they leave, log out or have the session ended (review 2, A1).
      *
-     * @param  array{origin: string, server_id: int, service_id: int, user_id: int, node: string, type: string, vmid: int, staff_id?: int|null}  $console
+     * @param  array{origin: string, server_id: int, service_id: int, user_id: int, node: string, type: string, vmid: int, staff_id?: int|null, staff_session?: string|null, impersonation?: string|null}  $console
      */
     public static function sign(array $console, string $key, ?int $now = null): string
     {
@@ -37,7 +39,9 @@ final class ConsoleTicket
             'o' => $console['origin'], 'sv' => $console['server_id'], 's' => $console['service_id'], 'u' => $console['user_id'],
             'n' => $console['node'], 't' => $console['type'], 'v' => $console['vmid'], 'iat' => $now, 'exp' => $now + self::TTL,
             'j' => self::encode(random_bytes(16)),
-        ] + (isset($console['staff_id']) ? ['a' => $console['staff_id']] : []), JSON_UNESCAPED_SLASHES));
+        ] + (isset($console['staff_id']) ? ['a' => $console['staff_id']] : [])
+            + (isset($console['staff_session']) ? ['as' => $console['staff_session']] : [])
+            + (isset($console['impersonation']) ? ['ai' => $console['impersonation']] : []), JSON_UNESCAPED_SLASHES));
 
         return 'v1.' . $payload . '.' . self::encode(hash_hmac('sha256', 'console-ticket|' . $payload, $key, true));
     }
@@ -47,7 +51,7 @@ final class ConsoleTicket
      * one use is the caller's to keep (the relay remembers its `jti` until it expires).
      *
      * @param  list<string>  $keys
-     * @return array{origin: string, server_id: int, service_id: int, user_id: int, node: string, type: string, vmid: int, iat: int, exp: int, jti: string, staff_id?: int}|null
+     * @return array{origin: string, server_id: int, service_id: int, user_id: int, node: string, type: string, vmid: int, iat: int, exp: int, jti: string, staff_id?: int, staff_session?: string, impersonation?: string}|null
      */
     public static function verify(string $token, array $keys, ?int $now = null): ?array
     {
@@ -76,13 +80,17 @@ final class ConsoleTicket
             || !is_string($claims['j'] ?? null) || preg_match('/^[A-Za-z0-9_-]{22}$/', $claims['j']) !== 1
             || 2 * self::TTL < $claims['exp'] - $claims['iat'] || $claims['exp'] < $claims['iat']
             || $now > $claims['exp'] + self::SKEW || $claims['iat'] > $now + self::SKEW
-            || (array_key_exists('a', $claims) && (!is_int($claims['a']) || $claims['a'] < 1))) {
+            || (array_key_exists('a', $claims) && (!is_int($claims['a']) || $claims['a'] < 1))
+            || (array_key_exists('as', $claims) && (!is_string($claims['as']) || preg_match('/^[0-9A-Za-z]{26}$/', $claims['as']) !== 1))
+            || (array_key_exists('ai', $claims) && (!is_string($claims['ai']) || preg_match('/^[A-Za-z0-9]{32}$/', $claims['ai']) !== 1))) {
             return null;
         }
 
         return ['origin' => $claims['o'], 'server_id' => $claims['sv'], 'service_id' => $claims['s'], 'user_id' => $claims['u'],
             'node' => $claims['n'], 'type' => $claims['t'], 'vmid' => $claims['v'], 'iat' => $claims['iat'], 'exp' => $claims['exp'], 'jti' => $claims['j']]
-            + (isset($claims['a']) ? ['staff_id' => $claims['a']] : []);
+            + (isset($claims['a']) ? ['staff_id' => $claims['a']] : [])
+            + (isset($claims['as']) ? ['staff_session' => $claims['as']] : [])
+            + (isset($claims['ai']) ? ['impersonation' => $claims['ai']] : []);
     }
 
     /**

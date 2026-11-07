@@ -55,6 +55,18 @@ class ClientUser extends Pivot
         return $query->whereHas('client', fn (Builder $client) => $client->whereNull('closed_at'));
     }
 
+    /**
+     * The login's live grant on this account, as every by-id check of the client area asks it (review 2, A3): not
+     * revoked, and on an open account unless $includeClosed (staff in «Login as client», the relay's check of a console
+     * staff opened, a mail reply to a ticket). One place, so no caller drops the closed filter by hand (A4: callers
+     * behind a policy gate keep it as defence in depth).
+     */
+    public static function liveGrant(User|int $user, int $clientId, bool $includeClosed = false): ?self
+    {
+        return self::query()->where('user_id', $user instanceof User ? $user->id : $user)->where('client_id', $clientId)
+            ->whereNull('revoked_at')->when(!$includeClosed, fn (Builder $open) => $open->onOpenAccount())->first();
+    }
+
     /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {
