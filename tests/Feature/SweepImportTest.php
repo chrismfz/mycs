@@ -84,7 +84,7 @@ class SweepImportTest extends TestCase
             (101, 7, '', '2026-10-01', '2026-10-10', '0000-00-00 00:00:00', 'Unpaid', 20)");
 
         // As the importer runs (SET foreign_key_checks=0); inside the test transaction SQLite takes only a deferral.
-        DB::statement('PRAGMA defer_foreign_keys = ON');
+        DB::statement(DB::getDriverName() === 'sqlite' ? 'PRAGMA defer_foreign_keys = ON' : 'SET foreign_key_checks = 0');
         $this->import(['importUsers', 'importInvoices']);
 
         $this->assertSame([6], DB::table('clients')->pluck('id')->map(fn ($id) => (int) $id)->all(), 'account #7 skipped');
