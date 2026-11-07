@@ -17,6 +17,7 @@ use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use MyCS\BillingPeriod\BillingPeriod;
 
 /**
  * What is coming in (ROADMAP 6, owner 2026-10-20: «how much we expect this month from renewals, and what we made last
@@ -104,8 +105,13 @@ final class RevenueForecast
             $first = true;
             while ($month->lessThan($until)) {
                 $priced = RenewalPrice::for($service, $month, $first);
-                $every = self::months($priced->plan?->billing_unit, (int) $priced->plan?->billing_period, $priced->plan?->type);
-                if ($every === null) {
+                $unit = $priced->plan?->billing_unit;
+                $period = (int) $priced->plan?->billing_period;
+                $type = $priced->plan?->type;
+                $every = self::months($unit, $period, $type);
+                // By the week or day too, as the billing renews them (sweep TAX-REPORTS-2, as ClientIncome's ADV-503-6).
+                $inDays = $every === null && in_array($unit, ['week', 'day'], true) && ClientIncome::timesAYear($unit, $period, $type) !== null;
+                if ($every === null && !$inDays) {
                     break; // free, one time, no plan
                 }
                 $state = self::invoiced($invoiced, $date, false);
@@ -113,15 +119,21 @@ final class RevenueForecast
                     break;
                 }
                 if ($state === null && $month->greaterThanOrEqualTo($from)) {
-                    $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(1, (int) $priced->quantity)));
-                    $column = in_array($every, self::CYCLES, true) ? $every : 'other';
+                    // The quantity as the billing puts it on the line: 0 bills nothing (sweep TAX-REPORTS-2, ADV-503-5).
+                    $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(0, (int) $priced->quantity)));
+                    $column = $every !== null && in_array($every, self::CYCLES, true) ? $every : 'other';
                     $key = $month->format('Y-m');
                     $cells[$key]['cycles'][$column] = ($cells[$key]['cycles'][$column] ?? 0) + $amount;
                 }
                 $service = $priced; // on its next plan from here on
                 $first = false;
-                $date = $date->addMonthsNoOverflow($every);
-                $month = $month->addMonths($every);
+                if ($every !== null) {
+                    $date = $date->addMonthsNoOverflow($every);
+                    $month = $month->addMonths($every);
+                } else {
+                    $date = BillingPeriod::end($date, $unit, $period);
+                    $month = $date->startOfMonth();
+                }
             }
         }
 
@@ -156,17 +168,19 @@ final class RevenueForecast
         $out = [];
         foreach (Service::query()->with('plan')->where('status', Service::STATUS_ACTIVE)->get() as $service) {
             $every = self::months($service->plan?->billing_unit, (int) $service->plan?->billing_period, $service->plan?->type);
-            if ($every === null) {
+            // By the week or day too, and quantity 0 bills nothing, as ClientIncome (sweep TAX-REPORTS-2).
+            $times = ClientIncome::timesAYear($service->plan?->billing_unit, (int) $service->plan?->billing_period, $service->plan?->type);
+            if ($times === null) {
                 continue;
             }
             $currency = (string) $service->currency_code;
-            $column = in_array($every, self::CYCLES, true) ? $every : 'other';
-            $amount = self::cents(BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->multipliedBy(max(1, (int) $service->quantity)));
+            $column = $every !== null && in_array($every, self::CYCLES, true) ? $every : 'other';
+            $amount = self::cents(BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->multipliedBy(max(0, (int) $service->quantity)));
             $out[$currency]['cycles'][$column]['amount'] = ($out[$currency]['cycles'][$column]['amount'] ?? 0) + $amount;
             $out[$currency]['cycles'][$column]['count'] = ($out[$currency]['cycles'][$column]['count'] ?? 0) + 1;
-            // A year of it: its amount × 12 / its months, in cents, rounded once at the end.
+            // A year of it: its amount × times a year (12 / its months, 52 / its weeks…), in cents, rounded once at the end.
             $out[$currency]['annual_exact'] = ($out[$currency]['annual_exact'] ?? BigDecimal::zero())
-                ->plus(BigDecimal::of($amount)->multipliedBy(12)->dividedBy($every, 6, RoundingMode::HalfUp));
+                ->plus(BigDecimal::of($amount)->multipliedBy($times[0])->dividedBy($times[1], 6, RoundingMode::HalfUp));
         }
         $result = [];
         foreach ($out as $currency => $data) {
@@ -298,7 +312,8 @@ final class RevenueForecast
             $gross = self::cents(number_format((float) $row->gross, 2, '.', ''));
             $note = self::cents(number_format((float) ($notes[$id] ?? 0), 2, '.', ''));
             // The notes are gross amounts on its total: their net part in the lines' proportion.
-            $out[(int) $id] = $gross === 0 ? $net : $net + (int) round($note * $net / $gross);
+            // An invoice of nothing takes its notes as net, no tax, as IncomeReport (F5 of #280; sweep TAX-REPORTS-4).
+            $out[(int) $id] = $gross === 0 ? $net + $note : $net + (int) round($note * $net / $gross);
         }
 
         return $out;

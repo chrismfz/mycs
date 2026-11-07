@@ -218,7 +218,7 @@ final class ClientIncome
      *
      * @return array{0: int, 1: int}|null
      */
-    private static function timesAYear(?string $unit, int $period, ?string $type): ?array
+    public static function timesAYear(?string $unit, int $period, ?string $type): ?array
     {
         if ($type !== 'recurring' || $period < 1) {
             return null;
