@@ -83,6 +83,7 @@ class Rev2FTaxDocumentsTest extends TestCase
         Carbon::setTestNow('2027-01-05 09:00:00');
 
         (new RecordPaymentService)->recordByStaff($backdated, null, 10, 'bank-3112', paidAt: Carbon::parse('2026-12-31 15:00:00'));
+        $this->assertSame(5, $this->counter(), "2026's own sequence: the counter, 2027's, stays at 5");
         $next = $this->invoice();
         (new RecordPaymentService)->recordByStaff($next, null, 10, 'tx-2027-6');
 

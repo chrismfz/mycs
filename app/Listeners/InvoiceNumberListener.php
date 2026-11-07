@@ -88,22 +88,26 @@ class InvoiceNumberListener
             $counter = (int) ($setting->value ?? 0);
             $number = $counter + 1;
             $formatted = self::formatInvoiceNumber($number, $prefix, $date);
-            if (!self::taken($model, $formatted)) {
+            $otherPeriod = $date !== null && self::formatInvoiceNumber(1, $prefix, $date) !== self::formatInvoiceNumber(1, $prefix);
+            // The counter set back for today's period: its first number given already (2027-1), or the counter's
+            // candidate in $date's period taken. Then $date's period goes on by its own sequence, whether or not the
+            // new period has passed the old one's total (review REV2-F-TAX-DOCUMENTS-1).
+            $restarted = $otherPeriod && self::taken($model, self::formatInvoiceNumber(1, $prefix));
+            if (!$restarted && !self::taken($model, $formatted)) {
                 $setting->update(['value' => $number]);
 
                 return $formatted;
             }
 
-            $otherPeriod = $date !== null && self::formatInvoiceNumber(1, $prefix, $date) !== self::formatInvoiceNumber(1, $prefix);
             if ($otherPeriod) {
                 $periodMax = self::highestOfPeriod($model, $prefix, $date);
-                $number = max($periodMax, $counter) + 1;
+                $own = $restarted || $periodMax > $counter;
+                $number = ($own ? $periodMax : max($periodMax, $counter)) + 1;
                 while (self::taken($model, $formatted = self::formatInvoiceNumber($number, $prefix, $date))) {
                     $number++;
                 }
-                // Its period's sequence, apart from the counter's (its candidate was taken, so the counter was set
-                // back): the counter stays.
-                if ($periodMax <= $counter) {
+                // Its period's own sequence, apart from the counter's (the counter was set back): the counter stays.
+                if (!$own) {
                     $setting->update(['value' => $number]);
                 }
 
