@@ -230,6 +230,7 @@ final class ChangeCycle
             $locked->next_plan_id = null;
             $locked->setRelation('plan', $plan);
             $locked->price = (float) $quote['price'];
+            $locked->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
             $locked->expires_at = $start->toMutable();
             $locked->rememberBillingDay($start);
             $locked->save();
