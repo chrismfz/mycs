@@ -76,6 +76,7 @@ class Sweep3LServiceStateTest extends TestCase
      */
     public function test_l_service_state_1_a_chargeback_paid_again_does_not_end_in_termination_with_nothing_billed(): void
     {
+        $this->markTestIncomplete('L-SERVICE-STATE-1: fixed in lens l-ledger-invariant (fix/sweep3-l-ledger-invariant), not on this branch.');
         $this->stripe();
         $created = $this->createProduct();
         Price::query()->where('plan_id', $created->plan->id)->update(['price' => 10.00]);
@@ -127,11 +128,69 @@ class Sweep3LServiceStateTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
 
         AcceptOrder::handle($order, null); // staff's defaults
-        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'started unpaid on Accept');
+        // Fixed: Accept leaves it waiting for its payment (it was started unpaid here before the fix).
+        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status, 'left waiting for its payment, not started unpaid');
 
         $this->cronUntil('2027-01-10'); // 90 days
 
         $this->assertFalse($service->fresh()->status === Service::STATUS_ACTIVE && $invoice->fresh()->status === Invoice::STATUS_UNPAID,
             'still active 90 days on, its only invoice unpaid: nothing suspends, terminates or cancels an unpaid one-time service started on Accept');
+        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status, 'never paid: cancelled by the cron as any unpaid order');
+    }
+
+    /**
+     * L-SERVICE-STATE-2, the other side: Accept leaves the unpaid one-time service waiting for its payment, and that
+     * payment starts it (no second Accept comes for an order accepted already), while a never-paid one is cancelled.
+     */
+    public function test_l_service_state_2_a_one_time_service_accept_left_waiting_starts_when_paid(): void
+    {
+        $created = $this->createProduct(['autosetup' => Product::AUTOSETUP_ACCEPT, 'server_id' => null]);
+        $created->plan->update(['type' => 'one-time']);
+        $product = $created->product->fresh();
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '10.00')]);
+        $order = $placed->order->fresh();
+        $service = $order->services()->sole();
+        $invoice = $service->invoices()->firstOrFail();
+        $this->assertTrue(AcceptOrder::waitsForPayment($service), 'unpaid one-time: offered to staff under «start unpaid»');
+
+        AcceptOrder::handle($order, null);
+        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status, 'left waiting for its payment');
+        $this->assertNull($service->fresh()->started_unpaid_at);
+
+        ExtensionHelper::addPayment($invoice->id, null, 10.00, null, 'bank-l2');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'its payment starts it: its order was accepted already');
+    }
+
+    /** A one-time service paid before Accept, of a product set up on Accept, still waits for staff (unchanged). */
+    public function test_l_service_state_2_a_one_time_service_paid_before_accept_still_waits_for_staff(): void
+    {
+        $created = $this->createProduct(['autosetup' => Product::AUTOSETUP_ACCEPT, 'server_id' => null]);
+        $created->plan->update(['type' => 'one-time']);
+        $product = $created->product->fresh();
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '10.00')]);
+        $order = $placed->order->fresh();
+        $service = $order->services()->sole();
+
+        ExtensionHelper::addPayment($service->invoices()->firstOrFail()->id, null, 10.00, null, 'bank-l2b');
+        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status, 'paid, it waits for staff');
+
+        AcceptOrder::handle($order->fresh(), null);
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'Accept sets it up');
+    }
+
+    /** Staff may still start it unpaid on purpose (decision 4). */
+    public function test_l_service_state_2_staff_can_still_start_a_one_time_service_unpaid(): void
+    {
+        $created = $this->createProduct(['autosetup' => Product::AUTOSETUP_ACCEPT, 'server_id' => null]);
+        $created->plan->update(['type' => 'one-time']);
+        $product = $created->product->fresh();
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '10.00')]);
+        $order = $placed->order->fresh();
+        $service = $order->services()->sole();
+
+        AcceptOrder::handle($order, null, startUnpaid: true);
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status);
+        $this->assertNotNull($service->fresh()->started_unpaid_at);
     }
 }

@@ -10,6 +10,7 @@ use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
+use App\Models\Order;
 use App\Models\Service;
 use App\Observers\ServiceObserver;
 use App\Services\Money\PaymentsLog;
@@ -180,9 +181,12 @@ class RenewServiceService
         }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         // An addon never waits for an Accept: its setup is staff's task anyway, and a later start would move its date off its
-        // parent's (code review of #637).
+        // parent's (code review of #637). Nor one its order's Accept left waiting for this payment (a one-time plan not
+        // paid: AcceptOrder::waitsForPayment, sweep L-SERVICE-STATE-2): staff looked already, and no second Accept comes.
+        $acceptedWaitingForPayment = $service->started_unpaid_at === null && $service->order_id !== null
+            && Order::query()->whereKey($service->order_id)->whereNotNull('accepted_at')->exists();
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment()
-            && $service->parent_service_id === null;
+            && $service->parent_service_id === null && !$acceptedWaitingForPayment;
         // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
         // only mails then), behind the cron's suspension still queued, so a suspension the worker never did is told
         // nothing either (combined review of #411 and #418). With this transaction: nothing runs on a rollback, and the

@@ -73,12 +73,16 @@ final class AcceptOrder
     }
 
     /**
-     * Set up on its first payment, by its product, and not paid yet: an open invoice of its own. One set up on the order
-     * that is still pending had its create fail: it waits for staff, and Accept tries it again (code review, 2026-10-19).
+     * Not paid yet (an open invoice of its own) and set up on its first payment: by its product, or because it is a
+     * one-time plan. A one-time plan has no due date, so once running nothing would chase its unpaid invoice (no
+     * suspension, and the unpaid-order cancellation takes pending services only): it waits for its payment whatever its
+     * product's Auto Setup, as SetUpOnOrder keeps it (review R1, sweep L-SERVICE-STATE-2), and its payment starts it
+     * (RenewServiceService: its order accepted, staff looked). One set up on the order that is still pending had its
+     * create fail: it waits for staff, and Accept tries it again (code review, 2026-10-19).
      */
     public static function waitsForPayment(Service $service): bool
     {
-        return ($service->product->autosetup ?? Product::AUTOSETUP_PAYMENT) === Product::AUTOSETUP_PAYMENT
+        return (($service->product->autosetup ?? Product::AUTOSETUP_PAYMENT) === Product::AUTOSETUP_PAYMENT || $service->plan?->type === 'one-time')
             && $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists();
     }
 }
