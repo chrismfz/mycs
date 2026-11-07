@@ -163,7 +163,9 @@ class WhmcsCatalogImportAdversarialTest extends TestCase
         $this->import();
 
         $com->refresh()->load('prices');
-        $this->assertSame(['9.99', false, 10, 99], [$com->priceFor('register', 1, 'EUR'), $com->epp_code_required, $com->grace_days, (int) $com->sort],
+        // The stored price: priceFor sells no registration without a renewal (review D2), which this TLD never had.
+        $register = $com->prices->first(fn (DomainTldPrice $p) => $p->operation === 'register' && $p->years === 1 && $p->currency_code === 'EUR');
+        $this->assertSame(['9.99', false, 10, 99], [$register?->price, $com->epp_code_required, $com->grace_days, (int) $com->sort],
             'what was here before stays untouched (docs/importer.md «Κατάλογος»)');
     }
 

@@ -910,6 +910,8 @@ final class CatalogImport
 
             /** @var array<string, string> $offered "operation:years:currency" => price */
             $offered = [];
+            /** @var array<string, array<string, list<int>>> $zero operation => currency => years at 0.00 (review D4) */
+            $zero = [];
             foreach (self::DOMAIN_OPERATIONS as $type => $operation) {
                 // The default price only: a client group's has its id in tsetupfee (WHMCS 7.10+, review 2).
                 foreach ($this->rows('SELECT * FROM tblpricing WHERE type = ? AND relid = ? AND tsetupfee = 0', [$type, $row['id']]) as $pricing) {
@@ -923,14 +925,20 @@ final class CatalogImport
                             continue; // not offered in WHMCS; a transfer is one year here (D-5)
                         }
                         if (!DomainTldPrice::offered($operation, $amount)) {
-                            // A registration or renewal year at 0.00: one WHMCS never sold, not offered (ADV-A5-1); told.
-                            $this->notes[] = ".{$name}: {$operation} for {$years} year(s) in {$code} at 0.00 in WHMCS: not offered here.";
+                            // A registration or renewal year at 0.00: one WHMCS never sold, not offered (ADV-A5-1); told
+                            // once per TLD and operation below (review D4).
+                            $zero[$operation][$code][] = $years;
 
                             continue;
                         }
                         $offered["{$operation}:{$years}:{$code}"] = $amount;
                     }
                 }
+            }
+            // One note per TLD and operation, with its years and currencies (review D4: never one per year and currency).
+            foreach ($zero as $operation => $byCurrency) {
+                $where = implode('; ', array_map(fn (string $code, array $years) => implode(', ', $years) . " year(s) in {$code}", array_keys($byCurrency), $byCurrency));
+                $this->notes[] = ".{$name}: {$operation} at 0.00 in WHMCS, not offered here: {$where}.";
             }
             // The grace and redemption fees, in WHMCS's default currency (it keeps them in that one only): 0.00 is
             // free and offered (D-6, review 8), -1 not offered.

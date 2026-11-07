@@ -218,13 +218,20 @@ final class PlaceOrderService
             throw new DisplayException(__('domains.order.not_offered'));
         }
         [$sld] = explode('.', $fqdn, 2);
+        // Its renewal period (review 2 of #696, D1 follow-up): a registration renews for the years ordered; a transfer adds
+        // its registrar's year and renews for a period its TLD renews for, the shortest offered in its currency (two for
+        // .gr: one year there would never be billed, «steps of 2»). The line still bills the transfer as ordered.
+        $years = $line->years;
+        if ($line->operation === DomainOrderLine::TRANSFER && !$tld->offeredYears('renew', $currency)->contains($years)) {
+            $years = $tld->shortestYears('renew', $currency) ?? $years;
+        }
         try {
             $domain = Domain::query()->create([
                 'client_id' => $client->id, 'order_id' => $order->id, 'domain_tld_id' => $tld->id,
                 'registrar_connection_id' => $tld->registrar_connection_id,
                 'sld' => $sld, 'tld' => $tld->tld, 'fqdn' => $fqdn,
                 'status' => $line->operation === DomainOrderLine::REGISTER ? DomainStatus::PendingRegister : DomainStatus::PendingTransfer,
-                'years' => $line->years, 'currency_code' => $currency,
+                'years' => $years, 'currency_code' => $currency,
                 'auto_renew' => (bool) config('settings.domain_default_auto_renew', true), // Settings → Domains
                 // The owner as chosen; the account's own details for the other roles (D-20, code review L6).
                 'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $client->ensurePrimaryContact()->id,

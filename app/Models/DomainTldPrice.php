@@ -51,12 +51,20 @@ class DomainTldPrice extends Model implements Auditable
      */
     public static function offered(string $operation, mixed $price): bool
     {
+        $free = self::free($price);
+
+        return $free === false || ($free === true && !in_array($operation, ['register', 'renew'], true));
+    }
+
+    /** What a price is (the one zero check, review D8): null none (empty, not a number, below zero), true 0.00, false more. */
+    private static function free(mixed $price): ?bool
+    {
         if ($price === null || !is_numeric($price)) {
-            return false;
+            return null;
         }
         $compare = bccomp((string) $price, '0', 2);
 
-        return $compare > 0 || ($compare === 0 && !in_array($operation, ['register', 'renew'], true));
+        return $compare < 0 ? null : $compare === 0;
     }
 
     public function isOffered(): bool
@@ -71,7 +79,8 @@ class DomainTldPrice extends Model implements Auditable
      */
     public function freeOrClosed(): bool
     {
-        return $this->price === null || (bccomp((string) $this->price, '0', 2) === 0 && $this->isOffered());
+        // Through offered() and its one zero check (review D8): free is kept only where offered() sells it free.
+        return $this->price === null || (self::free($this->price) === true && $this->isOffered());
     }
 
     /** @return BelongsTo<DomainTld, $this> */

@@ -44,6 +44,9 @@ class Review5Test extends TestCase
             $this->page($tld)->callTableAction('create', data: ['operation' => $operation, 'years' => 1, 'currency_code' => 'EUR', 'price' => '0'])
                 ->assertHasNoTableActionErrors();
         }
+        // A registration and a transfer are sold only where a renewal is offered (review D1, D2).
+        $this->page($tld)->callTableAction('create', data: ['operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.01'])
+            ->assertHasNoTableActionErrors();
         $tld->load('prices');
         $this->assertSame(['0.01', '0.00', '0.00', '0.00'], [$tld->priceFor('register', 1, 'EUR'), $tld->priceFor('transfer', 1, 'EUR'),
             $tld->priceFor('grace', 1, 'EUR'), $tld->priceFor('redemption', 1, 'EUR')]);

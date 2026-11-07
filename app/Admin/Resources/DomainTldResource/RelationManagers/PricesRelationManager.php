@@ -45,6 +45,12 @@ class PricesRelationManager extends RelationManager
         ];
     }
 
+    /** Whether $operation may be free (a transfer, a fee) or not (a registration or renewal: DomainTldPrice::offered). */
+    private static function mayBeFree(mixed $operation): bool
+    {
+        return DomainTldPrice::offered((string) $operation, '0');
+    }
+
     public function form(Schema $schema): Schema
     {
         return $schema->columns(2)->components([
@@ -56,10 +62,14 @@ class PricesRelationManager extends RelationManager
                     ->where('operation', $get('operation'))->where('currency_code', $get('currency_code'))),
             Select::make('currency_code')->label(__('Currency'))->required()
                 ->options(fn () => Currency::query()->orderBy('code')->pluck('code', 'code')),
-            // Only a transfer or a fee may be free: a registration or renewal at 0.00 is never sold (ADV-A5-1).
+            // Only a transfer or a fee may be free: a registration or renewal at 0.00 is never sold (ADV-A5-1). One left
+            // at 0.00 (from WHMCS) says so and how to save it: cleared (not offered) or priced (review D7).
             TextInput::make('price')->label(__('Price'))->numeric()->maxValue(99999)->rule('decimal:0,2')
-                ->minValue(fn (Get $get) => in_array($get('operation'), ['register', 'renew'], true) ? 0.01 : 0)
-                ->helperText(__('Empty: not offered. 0.00: free and offered (transfers and fees only).')),
+                ->minValue(fn (Get $get) => self::mayBeFree($get('operation')) ? 0 : 0.01)
+                ->validationMessages(['min' => __('A registration or renewal is not offered at 0.00. Clear the price (not offered) or give it a price.')])
+                ->helperText(fn (Get $get) => !self::mayBeFree($get('operation')) && is_numeric($get('price')) && bccomp((string) $get('price'), '0', 2) === 0
+                    ? __('0.00 is not offered for a registration or renewal: clear it (not offered) or give it a price.')
+                    : __('Empty: not offered. 0.00: free and offered (transfers and fees only).')),
         ]);
     }
 
@@ -72,9 +82,14 @@ class PricesRelationManager extends RelationManager
                 TextColumn::make('operation')->label(__('Operation'))->formatStateUsing(fn (string $state) => self::operations()[$state] ?? $state),
                 TextColumn::make('years')->label(__('Years')),
                 TextColumn::make('currency_code')->label(__('Currency')),
-                // A registration or renewal left at 0.00 (from WHMCS) is not offered: shown so, never as free (ADV-A5-1).
+                // A registration or renewal left at 0.00 (from WHMCS) is not offered: shown so, never as free (ADV-A5-1),
+                // and apart from an empty one (review D7): the form shows 0.00 and wants it cleared or priced.
                 TextColumn::make('price')->label(__('Price'))->placeholder(__('Not offered'))
-                    ->getStateUsing(fn (DomainTldPrice $record) => $record->isOffered() ? $record->price : null),
+                    ->getStateUsing(fn (DomainTldPrice $record) => match (true) {
+                        $record->isOffered() => $record->price,
+                        $record->price !== null => __('0.00 — not offered: clear or price it'),
+                        default => null,
+                    }),
                 TextColumn::make('cost')->label(__('Cost'))
                     ->formatStateUsing(fn (DomainTldPrice $record) => $record->cost === null ? '—' : $record->cost . ' ' . $record->cost_currency),
             ])

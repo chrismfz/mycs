@@ -100,7 +100,8 @@ class DomainOffer
     {
         // A transfer adds one year at its registrar (transferIn has no period): never sold for more (adversarial note of
         // #180), else the customer pays years they never get.
-        // Offered only (DomainTldPrice::offered): never a registration or renewal year at 0.00 (ADV-A5-1).
+        // Offered only (DomainTld::offeredYears): never a registration or renewal year at 0.00 (ADV-A5-1), a registration
+        // only for years it renews for, a transfer only where a renewal is offered (review D1).
         return $tld->offeredYears($operation, $currency)
             ->reject(fn (int $y) => $operation === DomainOrderLine::TRANSFER && $y !== 1)->sort()->values();
     }

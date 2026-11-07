@@ -180,7 +180,10 @@ class DomainTldsTest extends TestCase
             ->callAction('delete')->assertNotified(__('domains.tld_in_use', ['tld' => 'com']));
         $this->assertNotNull($tld->fresh());
 
+        // A transfer is sold only where a renewal is offered (review D1): one in USD first.
         $this->livewireAs($this->staff())->test(PricesRelationManager::class, ['ownerRecord' => $tld, 'pageClass' => EditDomainTld::class])
+            ->callTableAction('create', data: ['operation' => 'renew', 'years' => 1, 'currency_code' => 'USD', 'price' => '12'])
+            ->assertHasNoTableActionErrors()
             ->callTableAction('create', data: ['operation' => 'transfer', 'years' => 1, 'currency_code' => 'USD', 'price' => '0'])
             ->assertHasNoTableActionErrors();
         $this->assertSame('0.00', $tld->load('prices')->priceFor('transfer', 1, 'USD'), 'free and offered');
@@ -194,7 +197,8 @@ class DomainTldsTest extends TestCase
         $transfer = DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'transfer', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
 
         $this->livewireAs($this->staff())->test(PricesRelationManager::class, ['ownerRecord' => $tld, 'pageClass' => EditDomainTld::class])
-            ->assertTableColumnStateSet('price', null, $renew)->assertTableColumnStateSet('price', '0.00', $transfer)
+            // Not offered, and apart from an empty price (review D7): to be cleared or priced.
+            ->assertTableColumnStateSet('price', __('0.00 — not offered: clear or price it'), $renew)->assertTableColumnStateSet('price', '0.00', $transfer)
             ->callTableAction('create', data: ['operation' => 'register', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0'])
             ->assertHasTableActionErrors(['price']);
 
