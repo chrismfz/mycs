@@ -9,8 +9,10 @@ use App\Http\Controllers\LegacyPayPalIpnController;
 use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 #[ExtensionMeta(
@@ -117,8 +119,14 @@ class PayPal_IPN extends Gateway
         // The fields as PayPal sent them (the app's middleware trims and nulls the parsed ones).
         parse_str($raw, $fields);
         $field = fn (string $key): ?string => is_string($fields[$key] ?? null) ? $fields[$key] : null;
-        // Validate owner and amount
-        if (strtolower((string) $field('receiver_email')) !== strtolower((string) $this->config('email'))) {
+        // Paid to our account: the configured email as PayPal names the receiver (receiver_email, its primary email) or as
+        // pay() sent it (business: a secondary email of the account is named so, the primary one as receiver_email), as
+        // the WHMCS-era IPN checks it (LegacyPayPalIpnController::receiver, PAYMENTS-3). Another's is never recorded.
+        $ours = strtolower(trim((string) $this->config('email')));
+        $named = array_map(fn (string $key) => strtolower(trim((string) $field($key))), ['receiver_email', 'business']);
+        if ($ours === '' || !in_array($ours, $named, true)) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'foreign_receiver');
+
             return response('');
         }
         // Money given or taken back on a payment of ours (security audit PAY-SEC-5): recorded as Stripe's are, once by
@@ -151,6 +159,11 @@ class PayPal_IPN extends Gateway
         // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
         $invoice = Invoice::find($field('item_number'));
         if (!$invoice) {
+            // Money to our account for no invoice of ours (deleted, or a button made elsewhere): never lost without staff
+            // knowing (PAYMENTS-3).
+            GatewayReference::foreign('PayPal', 'IPN Completed for invoice ' . Str::limit((string) $field('item_number'), 20, ''), $reference ?: null,
+                $field('mc_gross'), $field('mc_currency'));
+
             return response('');
         }
         ExtensionHelper::addPayment($invoice, 'PayPal', $field('mc_gross'), $field('mc_fee'), transactionId: $field('txn_id'),

@@ -199,7 +199,8 @@ class SweepCodeAuditTest extends TestCase
         Carbon::setTestNow('2026-10-24 12:00:00');
 
         // Fixed by its due date (the cron still gives up a pending upgrade at the expiry: its price is for the days left).
-        $this->assertSame('2026-10-26', ServiceUpgrade::invoiceDueAt($service->fresh())->toDateString());
+        // The day before it: from the expiry day the cron gives it up (sweep UPGRADES-4).
+        $this->assertSame('2026-10-25', ServiceUpgrade::invoiceDueAt($service->fresh())->toDateString());
         $service->forceFill(['expires_at' => '2026-12-01'])->save();
         $this->assertSame('2026-10-31', ServiceUpgrade::invoiceDueAt($service->fresh())->toDateString());
     }

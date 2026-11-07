@@ -63,8 +63,12 @@ final class BillingPeriod
     /**
      * Start of the period that ends on $end (one cycle back), for a period known only by its end (a service's expiry).
      * A month or year back keeps the day where it can (31 March → 28 February, not 3 March).
+     *
+     * @param  int|null  $anchorDay  day of month the service bills on; applied only to a period that ends on it (or on the
+     *                               day it was clamped to in a short month), so the start is the one end() goes forward
+     *                               from (28 February on the 31st → 31 January, not 28 January)
      */
-    public static function start(CarbonInterface $end, ?string $unit, int $count): CarbonImmutable
+    public static function start(CarbonInterface $end, ?string $unit, int $count, ?int $anchorDay = null): CarbonImmutable
     {
         if (!in_array($unit, self::UNITS, true)) {
             throw new InvalidArgumentException('Unsupported billing unit «' . ($unit ?? 'null') . '»: periods are whole days.');
@@ -74,11 +78,19 @@ final class BillingPeriod
         }
         $end = CarbonImmutable::instance($end)->startOfDay();
 
-        return match ($unit) {
-            'day' => $end->subDays($count),
-            'week' => $end->subWeeks($count),
-            default => $end->subMonthsNoOverflow($unit === 'year' ? 12 * $count : $count),
-        };
+        if ($unit === 'day') {
+            return $end->subDays($count);
+        }
+        if ($unit === 'week') {
+            return $end->subWeeks($count);
+        }
+
+        $start = $end->subMonthsNoOverflow($unit === 'year' ? 12 * $count : $count);
+        if ($anchorDay === null || $end->day !== min($anchorDay, $end->daysInMonth)) {
+            return $start;
+        }
+
+        return $start->setDay(min($anchorDay, $start->daysInMonth));
     }
 
     /**
