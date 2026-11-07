@@ -22,6 +22,7 @@ use App\Services\Money\MoneyTrail;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -690,8 +691,24 @@ class RecordPaymentService
         $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
             ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
             ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
+        // A chargeback took part of it and has not given it back yet (sweep2 F-REFUND-CHARGEBACK-2).
+        $chargedBack = (int) self::chargebackTakes($invoice)->when($granted !== null, fn ($takes) => $takes->where('id', '>', $granted))
+            ->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
 
-        return max(0, $given - $taken);
+        return max(0, $given - $taken - $chargedBack);
+    }
+
+    /**
+     * The bought credit chargebacks took from a credit purchase (ExtensionHelper::chargebackAtGateway, its credit-out
+     * events) and not given back yet: given back when the invoice is paid again (GrantBoughtCreditService), by a new
+     * payment or the dispute won (sweep2 F-REFUND-CHARGEBACK-1). Read locked, under the payments' locks.
+     *
+     * @return Collection<int, MoneyEvent>
+     */
+    public static function chargebackTakes(Invoice $invoice): Collection
+    {
+        return MoneyEvent::query()->where('invoice_id', $invoice->id)->where('kind', MoneyEventKind::CreditOut->value)
+            ->where('cause', MoneyTrail::CAUSE_CHARGEBACK)->whereDoesntHave('reversal')->orderBy('id')->lockForUpdate()->get();
     }
 
     /** What the credit lines of a credit purchase give when it is paid (their totals). Under the payments' locks. */

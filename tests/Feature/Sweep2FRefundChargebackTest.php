@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -133,5 +134,72 @@ class Sweep2FRefundChargebackTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertEqualsWithDelta(110, (float) $invoice->fresh()->remaining, 0.001);
         $this->assertEqualsWithDelta(50, $this->credit(), 0.001, 'only the 100 the purchase gave is taken back');
+    }
+
+    // ------------------------------------------------------------ the fix's guards
+
+    private function assertMoneyCheckClean(): void
+    {
+        $findings = (new MoneyCheck)->run();
+        $this->assertSame([], $findings, json_encode($findings));
+    }
+
+    /**
+     * F-REFUND-CHARGEBACK-1 (a). Paid again by the customer instead of a won dispute: the 40 the chargeback took comes
+     * back, not the whole 100; the dispute then won makes the money given back the customer's credit, and nothing is
+     * given twice.
+     */
+    public function test_paid_again_after_a_chargeback_gives_back_only_what_it_took_and_once(): void
+    {
+        $invoice = $this->buyCredit('pi_again');
+        $this->spend(60);
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_again', 'dp_again', 100, 'usd');
+        $this->assertEqualsWithDelta(0, $this->credit(), 0.001);
+
+        (new RecordPaymentService)->handle($invoice->fresh(), null, 100, transactionId: 'bank-again');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertEqualsWithDelta(40, $this->credit(), 0.001, 'paid 100 net for 100 of credit, 60 spent');
+
+        ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_again', 'dp_again', 100, 'usd');
+        $this->assertEqualsWithDelta(140, $this->credit(), 0.001, 'the 100 given back is over the invoice: credit');
+        $this->assertSame([], RecordPaymentService::chargebackTakes($invoice)->all());
+        $this->assertMoneyCheckClean();
+    }
+
+    /** A whole chargeback with the credit intact, then won: the 100 comes back once, the journal balances. */
+    public function test_whole_chargeback_won_gives_the_credit_back_once(): void
+    {
+        $invoice = $this->buyCredit('pi_whole');
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_whole', 'dp_whole', 100, 'usd');
+        $this->assertEqualsWithDelta(0, $this->credit(), 0.001);
+        $this->assertNotNull($invoice->items()->sole()->applied_at, 'its line stays applied: given back, not bought again');
+
+        ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_whole', 'dp_whole', 100, 'usd');
+        ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_whole', 'dp_whole', 100, 'usd'); // replay
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertEqualsWithDelta(100, $this->credit(), 0.001);
+        $this->assertMoneyCheckClean();
+    }
+
+    /**
+     * Two chargebacks of a credit purchase with a debit note (paid 110, credit 100) take no more than the 100 it gave:
+     * the second sees what the first took (boughtCreditLeftCents counts chargebacks not given back).
+     */
+    public function test_two_chargebacks_take_no_more_credit_than_the_purchase_gave(): void
+    {
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_SYSTEM, note: 'Earlier goodwill');
+        $invoice = $this->openInvoice('credit', 100);
+        $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Debit->value, 'status' => AdjustmentNoteStatus::Active->value,
+            'amount' => 10, 'description' => 'Fee']);
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 110, transactionId: 'pi_two', currency: 'usd');
+        $this->assertEqualsWithDelta(150, $this->credit(), 0.001);
+
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_two', 'dp_two_a', 60, 'usd');
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_two', 'dp_two_b', 50, 'usd');
+
+        $this->assertEqualsWithDelta(50, $this->credit(), 0.001, 'only the 100 the purchase gave is taken back');
+        $this->assertEqualsWithDelta(110, (float) $invoice->fresh()->remaining, 0.001);
+        $this->assertMoneyCheckClean();
     }
 }
