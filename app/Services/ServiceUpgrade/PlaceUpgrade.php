@@ -281,6 +281,8 @@ final class PlaceUpgrade
         $upgrade->invoice_id = $invoice->id;
         // The price put on its charge line: one at another price later was changed by staff (sweep 2, F-PLAN-CHANGE-3).
         $upgrade->charged = number_format((float) $price->price, 2, '.', '');
+        // The end of the days that price pays for (its expiry now): a renewal paid later is the shortfall's (REV2-PC-2).
+        $upgrade->charged_until = $service->expires_at?->copy()->startOfDay();
         $upgrade->save();
 
         $invoice->items()->create([

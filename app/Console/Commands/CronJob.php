@@ -1263,7 +1263,8 @@ class CronJob extends Command
             return $changed > 0 ? 1 : 0;
         }
         if ($changed > 0) {
-            $upgrade->forceFill(['charged' => number_format($price, 2, '.', '')])->save();
+            // To the expiry now: a renewal paid before this run is in the price, not the shortfall's (REV2-PC-2).
+            $upgrade->forceFill(['charged' => number_format($price, 2, '.', ''), 'charged_until' => $service->expires_at?->toDateString()])->save();
         }
         // Staff's discount under it (owner 2026-11-06) keeps its share of the repriced charge, worked out from what it was
         // given on (no drift from a day's rounding): the same percentage, or the share an amount was (ADV-685-2: frozen, a

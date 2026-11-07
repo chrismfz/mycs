@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Schema;
  *   was changed by staff: the cron leaves it, and what a renewal paid meanwhile adds is worked out from this (F-PLAN-CHANGE-3).
  * - `service_upgrades.paid_until`: the service's expiry when the upgrade was applied, the end of the days its money paid
  *   for (a renewal paid ahead included; F-PLAN-CHANGE-2).
+ * - `service_upgrades.charged_until`: the service's expiry when `charged` was put on the charge line, the end of the days
+ *   that charge paid for; a renewal paid after it is the shortfall's, from there to `paid_until` (review REV2-PC-2).
  *
  * Rows from before this have none of it, and are read as before.
  */
@@ -26,13 +28,14 @@ return new class extends Migration
         Schema::table('service_upgrades', function (Blueprint $table) {
             $table->decimal('charged', 17, 2)->nullable();
             $table->date('paid_until')->nullable();
+            $table->date('charged_until')->nullable();
         });
     }
 
     public function down(): void
     {
         Schema::table('service_upgrades', function (Blueprint $table) {
-            $table->dropColumn(['charged', 'paid_until']);
+            $table->dropColumn(['charged', 'paid_until', 'charged_until']);
         });
         Schema::table('invoice_items', function (Blueprint $table) {
             $table->dropColumn('setup_fee');

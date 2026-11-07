@@ -70,7 +70,7 @@ class ServiceUpgrade extends Model implements Auditable
         // A downgrade's credit and the day it was given for (DowngradeCredit).
         return ['credit_cents' => 'integer', 'credit_until' => 'date', 'from_price' => 'decimal:2', 'to_price' => 'decimal:2',
             'applied_at' => 'datetime', 'discount' => 'decimal:2', 'discount_percent' => 'decimal:2',
-            'discount_base' => 'decimal:2', 'charged' => 'decimal:2', 'paid_until' => 'date'];
+            'discount_base' => 'decimal:2', 'charged' => 'decimal:2', 'paid_until' => 'date', 'charged_until' => 'date'];
     }
 
     /** @return BelongsTo<Service, $this> */
