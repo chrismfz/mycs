@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Livewire\Services\Upgrade;
+use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
+use App\Services\Service\AddAddon;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -192,8 +194,112 @@ class Sweep2FPlanChangeTest extends TestCase
         $this->pay($invoice, 'upg-1');
 
         $this->assertSame(ServiceUpgrade::STATUS_COMPLETED, ServiceUpgrade::query()->where('service_id', $service->id)->sole()->status);
-        $billed = InvoiceItem::query()->where('description', 'like', '%renewal paid meanwhile%')->get(['price'])->pluck('price')->all();
+        $billed = InvoiceItem::query()->where('description', 'like', '%renewal paid meanwhile%')->pluck('price')->all();
         $this->assertSame([], $billed, 'no renewal was paid: nothing more to bill');
         $this->assertSame($before, Invoice::query()->count());
+    }
+
+    // ------------------------------------------------------------------ the fixer's tests (what else the fixes changed)
+
+    private function upgraded(Service $service, Product $to): ServiceUpgrade
+    {
+        $this->change($service, $to);
+
+        return ServiceUpgrade::query()->where('service_id', $service->id)->latest('id')->firstOrFail();
+    }
+
+    private function monthlyService(Product $product, string $expires): Service
+    {
+        return Service::factory()->create([
+            'client_id' => $this->user->client()->id, 'product_id' => $product->id, 'plan_id' => $product->plans()->first()->id,
+            'status' => 'active', 'price' => '10.00', 'quantity' => 1, 'currency_code' => 'USD', 'expires_at' => $expires,
+        ]);
+    }
+
+    /** F-PLAN-CHANGE-3, the cron half: a line staff priced stays theirs; one at the price the system put on it follows the days. */
+    public function test_the_cron_leaves_a_staff_priced_upgrade_line_and_reprices_its_own(): void
+    {
+        $p10 = $this->monthlyProduct('10.00');
+        $p20 = $this->monthlyProduct('20.00');
+        DB::table('product_upgrades')->insert(['product_id' => $p10->id, 'upgrade_id' => $p20->id]);
+        Carbon::setTestNow('2026-11-16 10:00:00');
+        $mine = $this->monthlyService($p10, '2026-12-01');
+        $theirs = $this->monthlyService($p10, '2026-12-01');
+        $own = $this->upgraded($mine, $p20);
+        $staff = $this->upgraded($theirs, $p20);
+        $this->assertSame('5.00', (string) $own->charged, 'the price put on its line is kept with it');
+        $staffLine = $staff->invoice->items()->where('reference_type', ServiceUpgrade::class)->sole();
+        $staffLine->update(['price' => '3.00']);
+
+        Carbon::setTestNow('2026-11-21 03:00:00');
+        $this->artisan('app:cron-job');
+
+        $ownLine = $own->invoice->items()->where('reference_type', ServiceUpgrade::class)->sole();
+        $this->assertLessThan(5.00, (float) $ownLine->price, 'its own line follows the days left');
+        $this->assertSame((string) $ownLine->price, (string) $own->fresh()->charged, 'and what it was put at follows it');
+        $this->assertSame('3.00', (string) $staffLine->fresh()->price, 'a staff price is never raised back');
+        $this->assertSame('5.00', (string) $staff->fresh()->charged);
+    }
+
+    /** F-PLAN-CHANGE-3: with a staff-lowered line, a renewal really paid meanwhile still bills its days, and only them. */
+    public function test_a_renewal_paid_meanwhile_still_bills_its_days_after_a_staff_lowered_line(): void
+    {
+        $p10 = $this->monthlyProduct('10.00');
+        $p20 = $this->monthlyProduct('20.00');
+        DB::table('product_upgrades')->insert(['product_id' => $p10->id, 'upgrade_id' => $p20->id]);
+        Carbon::setTestNow('2026-11-16 10:00:00');
+        $service = $this->monthlyService($p10, '2026-12-01');
+        $this->paidLine($service, '10.00', '2026-11-01', '2026-12-01');
+        $upgrade = $this->upgraded($service, $p20);
+        $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->sole()->update(['price' => '3.00']);
+        // The renewal Dec 1 → Jan 1 paid before the upgrade's invoice (its 10.00): the expiry moves on.
+        $this->paidLine($service, '10.00', '2026-12-01', '2027-01-01');
+        DB::table('services')->where('id', $service->id)->update(['expires_at' => '2027-01-01']);
+
+        $this->pay($upgrade->invoice()->firstOrFail(), 'upg-2');
+
+        $billed = InvoiceItem::query()->where('description', 'like', '%renewal paid meanwhile%')->pluck('price')->all();
+        $this->assertCount(1, $billed, 'the renewal paid meanwhile is billed');
+        // December at about +10 (the days counted as the upgrade counts them), never with the 2.00 staff took off November.
+        $this->assertEqualsWithDelta(10.00, (float) $billed[0], 0.25);
+        $this->assertSame('2027-01-01', $upgrade->fresh()->paid_until->toDateString(), 'its money paid up to the expiry then');
+    }
+
+    /** F-PLAN-CHANGE-1: an addon's first line holds its setup fee too; it is kept apart from the period's price. */
+    public function test_an_addons_first_line_keeps_its_setup_fee_apart(): void
+    {
+        $parent = $this->monthlyService($this->monthlyProduct('10.00'), '2026-12-01');
+        $product = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true, 'server_id' => null, 'stock' => null]);
+        $plan = $this->plan($product, 'month', '3.00', '2.00');
+
+        $made = (new AddAddon)->handle($parent->fresh(), $product->fresh(), $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2026-01-01'));
+
+        $line = $made['invoice']->items()->sole();
+        $this->assertSame(['5.00', '2.00'], [(string) $line->price, (string) $line->setup_fee]);
+    }
+
+    /** F-STAFF-ADMIN-MONEY-1, the downgrade half: a staff credit note on the period's invoice is not given back again. */
+    public function test_a_downgrade_does_not_give_back_what_a_credit_note_took_off_the_period(): void
+    {
+        $p10 = $this->monthlyProduct('10.00');
+        $p20 = $this->monthlyProduct('20.00');
+        DB::table('product_upgrades')->insert(['product_id' => $p20->id, 'upgrade_id' => $p10->id]);
+        Carbon::setTestNow('2026-11-16 10:00:00');
+        $service = Service::factory()->create([
+            'client_id' => $this->user->client()->id, 'product_id' => $p20->id, 'plan_id' => $p20->plans()->first()->id,
+            'status' => 'active', 'price' => '20.00', 'quantity' => 1, 'currency_code' => 'USD', 'expires_at' => '2026-12-01',
+        ]);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice->items()->create(['description' => 'Period', 'price' => '20.00', 'quantity' => 1, 'reference_id' => $service->id,
+            'reference_type' => Service::class, 'period_start' => '2026-11-01', 'period_end' => '2026-12-01']);
+        AdjustmentNote::query()->create(['invoice_id' => $invoice->id, 'type' => 'credit', 'amount' => '-10.00', 'description' => 'Goodwill']);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->assertSame('10.00', number_format((float) $invoice->fresh()->total, 2, '.', ''), 'precondition: 10.00 paid for the month');
+
+        $this->change($service, $p10);
+
+        // 10.00 paid for 30 days: 5.00 left, and the 15 days kept cost 5.00 on the new plan. Nothing comes back.
+        $this->assertSame((int) $p10->id, (int) $service->fresh()->product_id, 'precondition: downgraded');
+        $this->assertSame(0.0, $this->credit());
     }
 }

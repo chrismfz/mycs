@@ -279,6 +279,8 @@ final class PlaceUpgrade
         $invoice->save();
 
         $upgrade->invoice_id = $invoice->id;
+        // The price put on its charge line: one at another price later was changed by staff (sweep 2, F-PLAN-CHANGE-3).
+        $upgrade->charged = number_format((float) $price->price, 2, '.', '');
         $upgrade->save();
 
         $invoice->items()->create([
