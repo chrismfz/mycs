@@ -2,13 +2,17 @@
 
 namespace App\Services\Invoice;
 
+use App\Models\Audit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ServiceUpgrade;
 use App\Services\Money\PaymentsLog;
+use Brick\Math\BigDecimal;
 use Closure;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use OwenIt\Auditing\Events\AuditCustom;
 
 /**
  * A change to a line of an open invoice made by the app (a new recurring amount, an upgrade's price), under the
@@ -16,6 +20,9 @@ use Illuminate\Support\Facades\DB;
  * paid, cancelled, or with a payment on it (processing too) keeps its line: a lower price would leave a payment above
  * what is owed, a higher one would reopen what was paid (audit sweep R9 of #68). A caller that must tell staff of a line
  * kept that way passes $kept: told here, under the same locks, so no other place guesses the decision (review C1 of #695).
+ * Every kept line is also in its invoice's activity (event «line_kept_at_price»: the line as billed, and what the change
+ * would have made of it), whoever the caller: staff see it in the admin, not only in payments.log (owner 2026-11-07).
+ * Once per line, reason and fields until the line changes (audit()): the cron's daily retry adds no row a day.
  */
 class ChangeOpenLine
 {
@@ -39,7 +46,7 @@ class ChangeOpenLine
                 PaymentsLog::warning('A line of an invoice with a fiscal document from Ekdosi keeps its price: the app would have changed it.', [
                     'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
                 ]);
-                self::tellKept($line, $change, $invoice, $kept);
+                self::tellKept($line, $change, $invoice, $kept, self::KEPT_EKDOSI);
 
                 return false;
             }
@@ -48,7 +55,7 @@ class ChangeOpenLine
                 PaymentsLog::warning('A line of an invoice with a payment on it keeps its price: the app would have changed it.', [
                     'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
                 ]);
-                self::tellKept($line, $change, $invoice, $kept);
+                self::tellKept($line, $change, $invoice, $kept, self::KEPT_PAYMENT);
 
                 return false;
             }
@@ -73,20 +80,103 @@ class ChangeOpenLine
         });
     }
 
+    public const AUDIT_EVENT = 'line_kept_at_price';
+
+    public const KEPT_PAYMENT = 'payment';
+
+    public const KEPT_EKDOSI = 'ekdosi_document';
+
     /** The kept line, locked after its invoice (docs/money-trail.md §2), and what the change would have made of it. */
-    private static function tellKept(InvoiceItem $line, Closure $change, Invoice $invoice, ?Closure $kept): void
+    private static function tellKept(InvoiceItem $line, Closure $change, Invoice $invoice, ?Closure $kept, string $because): void
     {
-        if ($kept === null) {
-            return;
-        }
         $billed = InvoiceItem::query()->whereKey($line->getKey())->lockForUpdate()->first();
         if ($billed === null || (int) $billed->invoice_id !== (int) $invoice->id) {
             return;
         }
         $wouldBe = clone $billed;
         $change($wouldBe);
-        if ($wouldBe->isDirty()) {
+        if (!$wouldBe->isDirty()) {
+            return;
+        }
+        self::audit($billed, $wouldBe, $invoice, $because);
+        if ($kept !== null) {
             $kept($billed, $wouldBe, $invoice);
         }
+    }
+
+    /**
+     * In the invoice's activity: old = the line as billed (what stays), new = what the change would have made of it, the
+     * line and why it was kept. Once per line and outcome until the line itself changes; an upgrade's line once per reason,
+     * fields and direction, since its price follows the days left and the cron would add a row a day (ADV-KL-1); a line edited since its
+     * last row is told again (ADV-KL-2). Only where the audit is on (the cron, jobs, web; not tinker or the importer,
+     * config/audit.php): a custom event skips that check of its own (ADV-KL-3).
+     */
+    private static function audit(InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice, string $because): void
+    {
+        if (!Invoice::isAuditingEnabled()) {
+            return;
+        }
+        $fields = array_keys($wouldBe->getDirty());
+        sort($fields);
+        $old = [];
+        $new = ['invoice_item_id' => (int) $billed->getKey(), 'line' => (string) $billed->description, 'kept_because' => $because];
+        foreach ($fields as $field) {
+            $old[$field] = self::plain($billed->getAttributeValue($field));
+            $new[$field] = self::plain($wouldBe->getAttributeValue($field));
+        }
+        $last = Audit::query()->where('auditable_type', $invoice->getMorphClass())->where('auditable_id', $invoice->getKey())
+            ->where('event', self::AUDIT_EVENT)->where('new_values->invoice_item_id', (int) $billed->getKey())->orderByDesc('id')->first();
+        if ($last !== null) {
+            $was = (array) $last->new_values;
+            $wasFields = array_values(array_diff(array_keys($was), ['invoice_item_id', 'line', 'kept_because']));
+            sort($wasFields);
+            $edited = $billed->updated_at !== null && $last->created_at !== null && $billed->updated_at->greaterThan($last->created_at);
+            $same = ($was['kept_because'] ?? null) === $because && $wasFields === $fields && (array) $last->old_values == $old
+                && self::direction((array) $last->old_values, $was) === self::direction($old, $new)
+                // Only an upgrade's line drifts by itself (its price follows the days left); any other line's new figures
+                // (a domain asked for 3 years after 2) are another outcome (final review).
+                && ($billed->reference_type === ServiceUpgrade::class || Arr::only($was, $fields) == Arr::only($new, $fields));
+            if (!$edited && $same) {
+                return;
+            }
+        }
+        $invoice->auditEvent = self::AUDIT_EVENT;
+        $invoice->isCustomEvent = true;
+        $invoice->auditCustomOld = $old;
+        $invoice->auditCustomNew = $new;
+        event(new AuditCustom($invoice));
+        $invoice->isCustomEvent = false;
+        $invoice->auditCustomOld = $invoice->auditCustomNew = null;
+    }
+
+    /**
+     * Up or down, per amount: a change that would now lower what was raised (overpaid instead of owing more) is another
+     * outcome for staff, though its fields are the same (review of the ADV-KL fix).
+     *
+     * @param  array<string, mixed>  $old
+     * @param  array<string, mixed>  $new
+     * @return array<string, int>
+     */
+    private static function direction(array $old, array $new): array
+    {
+        $signs = [];
+        foreach ($old as $field => $value) {
+            if (is_numeric($value) && is_numeric($new[$field] ?? null)) {
+                $signs[$field] = BigDecimal::of((string) $new[$field])->compareTo(BigDecimal::of((string) $value));
+            }
+        }
+
+        return $signs;
+    }
+
+    /** A value as staff read it and as JSON keeps it: a date as its day (or moment), an amount as its cast gives it. */
+    private static function plain(mixed $value): mixed
+    {
+        return match (true) {
+            $value instanceof \DateTimeInterface => $value->format('H:i:s') === '00:00:00' ? $value->format('Y-m-d') : $value->format('Y-m-d H:i:s'),
+            is_float($value), is_int($value) => (string) $value,
+            $value instanceof \BackedEnum => $value->value,
+            default => $value,
+        };
     }
 }
