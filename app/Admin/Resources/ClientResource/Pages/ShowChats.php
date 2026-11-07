@@ -50,7 +50,7 @@ class ShowChats extends ManageRelatedRecords
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query) => LiveChats::seenBy($query, self::me())
-                ->with(['department:id,name', 'operator:id,first_name,last_name', 'user:id,first_name,last_name'])
+                ->with(['department:id,name', 'operator:id,first_name,last_name,email', 'user:id,first_name,last_name'])
                 ->withCount('messages'))
             ->defaultSort('id', 'desc')
             ->columns([
@@ -74,6 +74,18 @@ class ShowChats extends ManageRelatedRecords
             ])
             ->emptyStateHeading(__('No chats'))
             ->paginated([25, 50, 100]);
+    }
+
+    /**
+     * Only the sizes the table offers (ADV-707-1): Filament takes `tableRecordsPerPage` from the browser as it comes, so
+     * a forged «all» or 100000 would load the whole history in one request.
+     */
+    public function getTableRecordsPerPage(): int|string|null
+    {
+        $options = $this->getTable()->getPaginationPageOptions();
+
+        return in_array($this->tableRecordsPerPage, $options, false) && $this->tableRecordsPerPage !== 'all'
+            ? (int) $this->tableRecordsPerPage : $this->getDefaultTableRecordsPerPageSelectOption();
     }
 
     private function chatUrl(LiveChat $chat): string

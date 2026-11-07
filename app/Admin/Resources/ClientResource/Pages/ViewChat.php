@@ -29,6 +29,9 @@ class ViewChat extends Page
     #[Locked]
     public int $chatId;
 
+    /** The chat checked in this request (mount or hydrate), so the render does not load it again. */
+    private ?LiveChat $checked = null;
+
     public function mount(int|string $record, int|string $chat): void
     {
         $this->record = $this->resolveRecord($record);
@@ -77,7 +80,7 @@ class ViewChat extends Page
     /** @return array<string, mixed> */
     protected function getViewData(): array
     {
-        $chat = $this->liveChat();
+        $chat = $this->checked ?? $this->liveChat();
 
         return ['liveChat' => $chat, 'messages' => LiveChats::history($chat)];
     }
@@ -85,11 +88,11 @@ class ViewChat extends Page
     /** This account's chat, when the member may see it; else 404. */
     private function liveChat(): LiveChat
     {
-        $chat = LiveChat::query()->with(['department:id,name', 'operator:id,first_name,last_name', 'user:id,first_name,last_name,email'])
+        $chat = LiveChat::query()->with(['department:id,name', 'operator:id,first_name,last_name,email', 'user:id,first_name,last_name,email'])
             ->whereKey($this->chatId)->where('client_id', $this->getRecord()->getKey())->first();
         abort_unless($chat !== null && LiveChats::canSee(self::me(), $chat), 404);
 
-        return $chat;
+        return $this->checked = $chat;
     }
 
     private static function me(): ?Staff

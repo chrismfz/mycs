@@ -252,6 +252,21 @@ class LiveChatHistoryAdminTest extends TestCase
         $this->assertSame($before, [Audit::query()->count(), $chat->fresh()?->toArray(), LiveChatMessage::query()->get()->toArray()]);
     }
 
+    /** ADV-707-1's cap keeps the sizes the table offers. */
+    public function test_an_offered_page_size_still_applies(): void
+    {
+        $support = $this->department();
+        [$client, $user] = $this->account();
+        foreach (range(1, 30) as $i) {
+            $this->chat($client, $user, $support);
+        }
+
+        $this->asStaff($this->staff(self::READER, $support));
+        $list = Livewire::test(ShowChats::class, ['record' => $client->getKey()]);
+        $this->assertSame(25, $list->instance()->getTableRecords()->count());
+        $this->assertSame(30, $list->set('tableRecordsPerPage', 50)->instance()->getTableRecords()->count());
+    }
+
     public function test_the_tab_label_says_itself_in_english_and_greek(): void
     {
         $this->assertTrue(Lang::has('Chats', 'el', false));
