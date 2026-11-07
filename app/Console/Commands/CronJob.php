@@ -718,8 +718,9 @@ class CronJob extends Command
                 if ($days <= 0) {
                     return 0;
                 }
-                // Answered by us and silent since: WHMCS «Close Inactive Tickets».
-                Ticket::where('status', Ticket::STATUS_ANSWERED)->each(function (Ticket $ticket) use (&$number, $days) {
+                // Answered by us and silent since: WHMCS «Close Inactive Tickets». By id, not by offset: closing takes
+                // a ticket out of the set, and an offset would then skip as many of the next page.
+                Ticket::where('status', Ticket::STATUS_ANSWERED)->lazyById()->each(function (Ticket $ticket) use (&$number, $days) {
                     $lastReply = $ticket->publicMessages()->max('created_at'); // a note to ourselves is no reply
                     if ($lastReply !== null && Carbon::parse($lastReply)->lt(now()->subDays($days))) {
                         $ticket->update(['status' => Ticket::STATUS_CLOSED]);
