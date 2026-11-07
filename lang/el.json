@@ -1571,6 +1571,7 @@
     "The account's (its saved method)": "Του λογαριασμού (ο αποθηκευμένος τρόπος)",
     "This change needs our staff: please contact us.": "Αυτή η αλλαγή χρειάζεται το staff μας: επικοινωνήστε μαζί μας.",
     "A card payment of this invoice is on its way: wait for it before moving the invoice.": "Μια πληρωμή με κάρτα αυτού του τιμολογίου είναι σε εξέλιξη: περιμένετε να ολοκληρωθεί πριν το μεταφέρετε.",
+    "A card payment of this invoice is on its way or not settled: wait for it before cancelling the invoice.": "Μια πληρωμή με κάρτα αυτού του τιμολογίου είναι σε εξέλιξη ή δεν έχει ολοκληρωθεί: περιμένετε να ολοκληρωθεί πριν το ακυρώσετε.",
     "A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).": "Ένα κλειστό τιμολόγιο κρατά τον πελάτη του: επαναφέρετέ το σε απλήρωτο πρώτα (ένα επιστραμμένο δεν μεταφέρεται ποτέ).",
     "This invoice has a credit or debit note: void it before moving the invoice.": "Το τιμολόγιο έχει πιστωτικό ή χρεωστικό σημείωμα: ακυρώστε το πριν μεταφέρετε το τιμολόγιο.",
     "Price mismatches": "Αναντιστοιχίες τιμών",
