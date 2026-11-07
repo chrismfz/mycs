@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Models\Credit;
+use App\Models\CronStat;
 use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
@@ -268,6 +269,9 @@ class ImportFromWhmcs extends Command
 
             DB::statement('SET foreign_key_checks=1');
 
+            // Done: the cron may run again (its first daily run at its time; the catch-up never starts one over a database
+            // with no run of its own: CronJob::catchUp).
+            DB::table('settings')->where('key', self::RUNNING)->where('settingable_type', CronStat::class)->delete();
             SettingsProvider::flushCache();
         } catch (PDOException $e) {
             // The SQL state only: a query's message carries its values (emails, hashes); the whole in the log.
@@ -390,12 +394,50 @@ class ImportFromWhmcs extends Command
         $this->line("Dry run: nothing written. To import: --confirm-database={$target} (it empties «{$target}» first).");
     }
 
+    /**
+     * This instance's own settings, as mycs:install stored them (Install::saveSettings): kept over the import's reset. The
+     * seed would put them back to the code's defaults (UTC, http://localhost), which then override .env (SettingsProvider:
+     * app.timezone, app.url, date_default_timezone_set): sweep F-CUTOVER-DAY-2. What the import brings of them (the default
+     * currency) is written after, and wins.
+     */
+    public const INSTANCE_SETTINGS = ['company_name', 'app_url', 'app_language', 'allowed_languages', 'admin_language', 'timezone', 'default_currency'];
+
+    /**
+     * While an import runs (from its reset to its end), and after one that failed: the cron does nothing over a database
+     * half imported (CronJob, sweep F-CUTOVER-DAY-1). A CronStat setting, in the database the import fills: written right
+     * after its reset, removed when it ends.
+     */
+    public const RUNNING = 'whmcs_import_running_at';
+
+    /** When the import that is running (or failed) started; null when none. */
+    public static function running(): ?string
+    {
+        try {
+            $value = DB::table('settings')->where('key', self::RUNNING)->where('settingable_type', CronStat::class)->value('value');
+        } catch (Throwable) {
+            return null; // not migrated yet
+        }
+
+        return $value !== null ? (string) $value : null;
+    }
+
     private function prepareDatabase()
     {
+        $kept = Schema::hasTable('settings')
+            ? DB::table('settings')->whereNull('settingable_type')->whereNull('settingable_id')->whereIn('key', self::INSTANCE_SETTINGS)
+                ->get(['key', 'value', 'type', 'encrypted'])->all()
+            : [];
         // Rerun migrations
         $this->call('migrate:fresh', ['--force' => true]);
         // Seed default data
         $this->call('db:seed', ['--force' => true]);
+        foreach ($kept as $setting) {
+            DB::table('settings')->updateOrInsert(['key' => $setting->key, 'settingable_type' => null, 'settingable_id' => null],
+                ['value' => $setting->value, 'type' => $setting->type, 'encrypted' => $setting->encrypted, 'updated_at' => now()]);
+        }
+        DB::table('settings')->updateOrInsert(['key' => self::RUNNING, 'settingable_type' => CronStat::class, 'settingable_id' => null],
+            ['value' => now()->toDateTimeString(), 'type' => 'string', 'created_at' => now(), 'updated_at' => now()]);
+        SettingsProvider::flushCache();
     }
 
     /** A service's recurring amount, never below zero (ADV-551-3: a negative one renewed free); staff are told. */
