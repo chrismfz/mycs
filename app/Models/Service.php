@@ -1293,7 +1293,7 @@ class Service extends Model implements Auditable
 
         return $line !== null && $line->period_start->lessThan($line->period_end)
             ? CarbonImmutable::instance($line->period_start)->startOfDay()
-            : BillingPeriod::start($this->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period));
+            : BillingPeriod::start($this->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period), $this->billingDay($this->expires_at));
     }
 
     /**
