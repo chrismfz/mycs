@@ -135,17 +135,17 @@ final class WhmcsRecordParity
         $clients = DB::table('clients')->pluck('id', 'id');
 
         // As the importer brings it: plus an unfinished Mass Pay parent's credit, given back (ADV-A1-2).
+        // Every WHMCS customer once (creditBalances reads tblclients), by id.
         $credits = WhmcsParity::creditBalances($this->whmcs);
-        foreach ($this->whmcs->query('SELECT id, ROUND(credit * 100) credit FROM tblclients ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $row['credit'] = $credits[(int) $row['id']] ?? (int) $row['credit'];
-            $id = (int) $row['id'];
+        ksort($credits);
+        foreach ($credits as $id => $credit) {
             $client = $clients->get($id);
             $this->check('Accounts', $id, $client !== null, "account #{$id}: not here");
             if ($client === null) {
                 continue;
             }
             $currency = (string) ($currencies[$id] ?? ''); // an account's money is in its WHMCS currency: told with it
-            $this->money('Account credit', $id, (int) $row['credit'], (int) ($hereCredit[$id] ?? 0), $currency);
+            $this->money('Account credit', $id, $credit, (int) ($hereCredit[$id] ?? 0), $currency);
             $this->money('Account billed', $id, (int) ($billed[$id] ?? 0), (int) ($hereBilled[$id] ?? 0), $currency);
             $this->money('Account paid', $id, $in[$id] ?? 0, (int) ($hereIn[$id] ?? 0), $currency);
             $this->money('Account refunded', $id, $out[$id] ?? 0, (int) ($hereOut[$id] ?? 0) + (int) ($hereToCredit[$id] ?? 0), $currency);

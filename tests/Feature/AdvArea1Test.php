@@ -359,11 +359,12 @@ class AdvArea1Test extends TestCase
     }
 
     /**
-     * R1-3, R1b-1 (fixer): a Payment Pending Mass Pay (20 of debit, 5 of credit) holds its open children in due order for
-     * its debit, its credit pays the rest as a credit payment, and the parent is named. (Its first version held each child
-     * for its full remaining, 10 and 15: the 5 of credit landed nowhere, R1b-1.)
+     * Review 2 of #697, I1 (owner's decision, «never bill wrongly»): a Mass Pay parent in «Payment Pending» (its debit on
+     * its way) is not placed over its children by a rule of the importer's own (its first versions, R1-3 and R1b-1, lost or
+     * doubled money: review 2's F1, F2, F4): the import refuses to run, naming each parent and its children, before
+     * anything is emptied, on a dry run too.
      */
-    public function test_fix_r1_3_a_payment_pending_mass_pay_holds_its_children_for_its_debit_and_its_credit_pays_the_rest(): void
+    public function test_review2_i1_the_import_refuses_a_payment_pending_mass_pay(): void
     {
         foreach ([[801, 10], [802, 15]] as [$id, $amount]) {
             $this->invoice($id, 'Unpaid', $amount);
@@ -373,24 +374,178 @@ class AdvArea1Test extends TestCase
             VALUES (900, {$this->clientId}, '', '2026-10-16', '2026-10-16', '0000-00-00 00:00:00', 'Payment Pending', 20, 5, 0, 25)");
         $this->item(900, 'Invoice', 801, 10);
         $this->item(900, 'Invoice', 802, 15);
+        // A single Payment Pending invoice is no reason to refuse (it keeps its hold, ADV-A1-3).
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 0, 10);
+        $this->whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT, value TEXT)');
+        ImportFromWhmcs::$connect = fn () => $this->whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $refused = 'WHMCS Mass Pay invoice(s) in «Payment Pending»: #900 (children #801, #802). Their debit is still on its way:'
+                . ' wait for it to clear (or fail) in WHMCS and dump again. Nothing done.';
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
+            // Before the database is even asked for (a confirmed run would empty it first).
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertSame(1, DB::table('clients')->where('id', $this->clientId)->count(), 'nothing emptied');
+
+        // Paid since in WHMCS (the debit cleared): no longer refused.
+        $this->whmcs->exec("UPDATE tblinvoices SET status = 'Paid' WHERE id = 900");
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $this->assertSame([], (new ReflectionMethod($command, 'pendingMassPay'))->invoke($command));
+    }
+
+    /**
+     * Review of 142fbee1: a Payment Pending Mass Pay that massPayParents() does not count (it took some money, has a
+     * child of another customer, or a line that is no «Invoice»: a late fee) is refused too, not imported as an ordinary
+     * invoice billing its children again while they are dunned. The runbook's pre-dump query, the same set.
+     */
+    public function test_review2_i1_every_payment_pending_invoice_with_invoice_lines_is_refused(): void
+    {
+        $other = User::factory()->create()->client()->id;
+        $this->whmcs->exec("INSERT INTO tblclients (id, currency) VALUES ({$other}, 1)");
+        foreach ([[801, 10], [802, 15], [803, 5], [804, 7]] as [$id, $amount]) {
+            $this->invoice($id, 'Unpaid', $amount);
+            $this->item($id, 'Hosting', 0, $amount);
+        }
+        $this->whmcs->exec("UPDATE tblinvoices SET userid = {$other} WHERE id = 803");
+        // 900 took 5.00 of its 25.00; 901's child is another customer's; 902 a late fee; 700 is a single invoice.
+        foreach ([900 => 25, 901 => 5, 902 => 9] as $id => $total) {
+            $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, invoicenum, date, duedate, datepaid, status, total, credit, taxrate, subtotal)
+                VALUES ({$id}, {$this->clientId}, '', '2026-10-16', '2026-10-16', '0000-00-00 00:00:00', 'Payment Pending', {$total}, 0, 0, {$total})");
+        }
+        $this->item(900, 'Invoice', 801, 10);
+        $this->item(900, 'Invoice', 802, 15);
+        $this->whmcs->exec("INSERT INTO tblaccounts (id, userid, invoiceid, gateway, date, amountin, amountout, fees, transid)
+            VALUES (7001, {$this->clientId}, 900, 'stripe', '2026-10-16', 5, 0, 0, 'ch_1')");
+        $this->item(901, 'Invoice', 803, 5);
+        $this->item(902, 'Invoice', 804, 7);
+        $this->item(902, 'LateFee', 0, 2);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 0, 10);
+
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $this->whmcs);
+        $this->assertSame([], array_intersect([900, 901, 902], array_keys((new ReflectionMethod($command, 'massPayParents'))->invoke($command))),
+            'precondition: none of them is a parent by PARENTS_SQL');
+        $this->assertSame([900 => [801, 802], 901 => [803], 902 => [804]], (new ReflectionMethod($command, 'pendingMassPay'))->invoke($command));
+    }
+
+    /**
+     * Review 2 of #697, I3: WHMCS lowers a Mass Pay parent's `credit` when credit is taken off it («Credit Removed from
+     * Invoice #N», +amount back in the balance; checked read-only on the 2026-11-06 copies). So an unfinished parent
+     * gives back only what is still on it, and parity agrees with WHMCS's balance.
+     */
+    public function test_review2_i3_an_unfinished_mass_pay_gives_back_only_the_credit_still_on_it(): void
+    {
+        foreach ([[801, 10], [802, 15]] as [$id, $amount]) {
+            $this->invoice($id, 'Unpaid', $amount);
+            $this->item($id, 'Hosting', 0, $amount);
+        }
+        // 5.00 applied, 2.00 of it removed since: WHMCS keeps 3.00 on it, its total 22.00, and the customer's balance 2.00.
+        $this->whmcs->exec("INSERT INTO tblinvoices (id, userid, invoicenum, date, duedate, datepaid, status, total, credit, taxrate, subtotal)
+            VALUES (900, {$this->clientId}, '', '2026-10-16', '2026-10-16', '0000-00-00 00:00:00', 'Unpaid', 22, 3, 0, 25)");
+        $this->item(900, 'Invoice', 801, 10);
+        $this->item(900, 'Invoice', 802, 15);
+        $this->whmcs->exec("INSERT INTO tblcredit (clientid, date, description, amount, relid) VALUES
+            ({$this->clientId}, '2026-09-01', 'Goodwill credit', 5, 0),
+            ({$this->clientId}, '2026-10-16', 'Credit Applied to Invoice #900', -5, 900),
+            ({$this->clientId}, '2026-10-17', 'Credit Removed from Invoice #900', 2, 900)");
+        $this->whmcs->exec("UPDATE tblclients SET credit = 2 WHERE id = {$this->clientId}");
+        DB::table('credits')->insert(['client_id' => $this->clientId, 'currency_code' => 'EUR', 'amount' => 2, 'created_at' => now(), 'updated_at' => now()]);
+
         $this->import();
 
-        $this->assertSame([[801, '10.00', 'whmcs-pending-801', '2026-10-16', false], [802, '10.00', 'whmcs-pending-802', '2026-10-16', false],
-            [802, '5.00', null, '2026-10-16', true]],
-            InvoiceTransaction::query()->orderBy('invoice_id')->orderBy('is_credit_transaction')->get()->map(fn (InvoiceTransaction $t) => [(int) $t->invoice_id,
-                number_format((float) $t->amount, 2, '.', ''), $t->transaction_id, $t->created_at->toDateString(), (bool) $t->is_credit_transaction])->all());
-        $this->assertStringContainsString('Mass Pay #900 on #801, #802)', $this->output->fetch());
-        $this->assertSame(['5.00'], DB::table('money_events')->where('kind', 'credit_out')->where('cause', MoneyTrail::CAUSE_CREDIT_PAYMENT)
-            ->where('invoice_id', 802)->pluck('amount')->map(fn ($a) => number_format((float) $a, 2, '.', ''))->all(), 'its credit_out');
-        $this->assertFalse(DB::table('money_events')->where('cause', MoneyTrail::CAUSE_CANCELLATION)->exists(), 'its credit is not «unfinished»');
+        $this->assertSame('5.00', number_format((float) DB::table('credits')->where('client_id', $this->clientId)->sum('amount'), 2, '.', ''),
+            'the 2.00 WHMCS gave back, and the 3.00 still on the parent: never the 5.00 applied again');
+        $this->assertSame(['3.00'], DB::table('money_events')->where('client_id', $this->clientId)->where('cause', MoneyTrail::CAUSE_CANCELLATION)
+            ->where('kind', 'credit_in')->pluck('amount')->map(fn ($a) => number_format((float) $a, 2, '.', ''))->all());
 
-        // Parity: WHMCS's credit applied counts the parent's, here on the child.
         foreach (['CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, domainstatus TEXT)', 'CREATE TABLE tbltickets (id INTEGER PRIMARY KEY, merged_ticket_id INTEGER DEFAULT 0)',
             'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY)'] as $sql) {
             $this->whmcs->exec($sql);
         }
         $rows = collect((new WhmcsParity($this->whmcs))->rows())->keyBy('metric');
-        $this->assertSame([500, 500], [$rows['Credit applied to invoices']['whmcs'], $rows['Credit applied to invoices']['mycs']]);
+        $this->assertSame([500, 500], [$rows['Credit balance']['whmcs'], $rows['Credit balance']['mycs']]);
+    }
+
+    /**
+     * Review 2 of #697, I4: the upgrades the importer names (and the runbook's pre-dump query selects) are those on an
+     * invoice it makes unpaid (invoiceStatus): WHMCS's Unpaid, Payment Pending, Collections; never Draft, Paid,
+     * Cancelled or Refunded.
+     */
+    public function test_review2_i4_unpaid_upgrades_are_those_on_an_invoice_imported_unpaid(): void
+    {
+        $this->service(101);
+        $statuses = [700 => 'Unpaid', 701 => 'Payment Pending', 702 => 'Collections', 703 => 'Draft', 704 => 'Paid', 705 => 'Cancelled', 706 => 'Refunded'];
+        foreach ($statuses as $invoice => $status) {
+            $upgrade = $invoice - 659; // 41..47
+            $this->whmcs->exec("INSERT INTO tblupgrades VALUES ({$upgrade}, {$this->clientId}, 9, 'configoptions', '2026-10-15', 101, '7=>1', '7=>2', 1.00, 1.00, 'Pending', 'N')");
+            $this->invoice($invoice, $status, 1);
+            $this->item($invoice, 'Upgrade', $upgrade, 1);
+        }
+        $this->import(['importInvoices', 'importInvoiceItems']);
+
+        $output = $this->output->fetch();
+        $this->assertStringContainsString('3 unpaid WHMCS upgrade(s)', $output);
+        foreach ([700 => 41, 701 => 42, 702 => 43] as $invoice => $upgrade) {
+            $this->assertStringContainsString("invoice #{$invoice} service #101 WHMCS upgrade #{$upgrade} (configoptions)", $output);
+        }
+        $this->assertSame([700, 701, 702], Invoice::query()->where('no_auto_charge', true)->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all());
+    }
+
+    /**
+     * Review 2 of #697, I5: the weekly marker of the stale-pending notice is set only once the notices mail is queued: a
+     * run whose mail could not be queued tells staff again the next day, not a week later (an SMTP failure in the worker
+     * later is not seen: the marker stays).
+     */
+    public function test_review2_i5_a_failed_notices_mail_is_retried_the_next_day(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->service(101);
+        $this->invoice(700, 'Payment Pending', 10);
+        $this->item(700, 'Hosting', 101, 10);
+        $this->import();
+        $told = fn () => EmailLog::query()->where('subject', 'like', '%needs staff attention%')
+            ->where('body', 'like', '%Invoice #700 (client #%')->count();
+
+        $fail = true;
+        EmailLog::creating(function (EmailLog $log) use (&$fail) {
+            if ($fail && str_contains((string) $log->subject, 'needs staff attention')) {
+                throw new \RuntimeException('mail down');
+            }
+        });
+        Carbon::setTestNow('2026-10-28 10:00:00');
+        try {
+            $this->artisan('app:cron-job')->run();
+        } catch (\RuntimeException) {
+            // the run fails with it
+        }
+        $this->assertSame(0, $told(), 'not sent');
+
+        $fail = false;
+        Carbon::setTestNow('2026-10-29 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(1, $told(), 'told the next day, not a week later');
+        Carbon::setTestNow('2026-10-30 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(1, $told(), 'then once a week');
+    }
+
+    /** Review 2 of #697, I2: importedPending binds its ids inline, as changed() does (ADV-690b-S-7). */
+    public function test_review2_i2_imported_pending_binds_no_placeholder_per_id(): void
+    {
+        DB::enableQueryLog();
+        (new ReflectionMethod(RollbackReport::class, 'importedPending'))->invoke(new RollbackReport(now()), range(1, 70_000));
+        $max = collect(DB::getQueryLog())->max(fn ($q) => count($q['bindings']));
+        DB::disableQueryLog();
+        $this->assertLessThan(10, $max);
     }
 
     /** R1b-2 (fixer): the rollback report says a completed imported pending payment has no payment in WHMCS. */

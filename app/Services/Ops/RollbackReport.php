@@ -483,7 +483,7 @@ final class RollbackReport
      */
     private function importedPending(array $ids): array
     {
-        $pending = InvoiceTransaction::query()->whereKey($ids)->where('transaction_id', 'like', 'whmcs-pending-%')->pluck('id')
+        $pending = InvoiceTransaction::query()->whereIntegerInRaw('id', $ids)->where('transaction_id', 'like', 'whmcs-pending-%')->pluck('id')
             ->merge(Audit::query()->where('auditable_type', (new InvoiceTransaction)->getMorphClass())->whereIntegerInRaw('auditable_id', $ids)
                 ->where('old_values', 'like', '%whmcs-pending-%')->pluck('auditable_id'))
             ->map(fn ($id) => (int) $id)->unique();

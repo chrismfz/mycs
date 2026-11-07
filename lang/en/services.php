@@ -436,6 +436,8 @@ return [
         'held' => 'No for its open invoice #:invoice: it also bills one set not to be charged automatically',
         'invoice_off' => 'No for its open invoice #:invoice: set not to be charged automatically',
         'open_manual' => 'No for its open invoice #:invoice: pay it from the invoice',
+        'cancellation' => 'No: a cancellation was requested',
+        'held_cancellation' => 'No for its open invoice #:invoice: it also bills a service whose cancellation was requested',
     ],
     'auto_charge_turn_on' => 'Turn on',
     'auto_charge_turn_off' => 'Turn off',
