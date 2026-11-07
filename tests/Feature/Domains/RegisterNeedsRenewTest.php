@@ -64,7 +64,9 @@ class RegisterNeedsRenewTest extends TestCase
 
         $this->assertSame([1, 2], app(DomainOffer::class)->years($org, 'register', 'EUR')->all());
         $list = app(DomainSearch::class)->priceList('EUR');
-        $this->assertSame(['20.00', null], [$list[0]['years'][2]['register'], $list[0]['years'][3]['register']]);
+        $this->assertSame('20.00', $list[0]['years'][2]['register']);
+        // Nothing offered for three years (register not renewable, renew 0.00): no all-empty row (review D5).
+        $this->assertArrayNotHasKey(3, $list[0]['years']);
         $refused = null;
         try {
             app(DomainOffer::class)->check('mybusiness.org', 'register', 3, 'EUR', availability: false);
