@@ -240,7 +240,8 @@ class Review2AccountsTest extends TestCase
         DB::enableQueryLog();
         $answer = $this->call('POST', route('api.proxmox.console.check'), [], [], [], ['CONTENT_TYPE' => 'application/json',
             'HTTP_X_CONSOLE_SIGNATURE' => ConsoleTicket::checkSignature($body, self::KEY)], $body)->json('allowed');
-        $queries = collect(DB::getQueryLog())->pluck('query');
+        // One quoting for both drivers: SQLite's "col", MariaDB's `col`.
+        $queries = collect(DB::getQueryLog())->pluck('query')->map(fn (string $sql) => str_replace('`', '"', $sql));
         DB::disableQueryLog();
 
         $this->assertCount(20, array_filter($answer));
