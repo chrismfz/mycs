@@ -4,8 +4,6 @@ namespace App\Models;
 
 use App\Classes\Price;
 use App\Observers\InvoiceItemObserver;
-use Brick\Math\BigDecimal;
-use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -62,6 +60,8 @@ class InvoiceItem extends Model implements Auditable
         'payment_gateway_id',
         'taxed',
         'tax_rate',
+        // The setup fee (net, per unit) its price holds with its first period (an order's, an addon's line): sweep 2.
+        'setup_fee',
     ];
 
     protected $casts = [
@@ -70,6 +70,7 @@ class InvoiceItem extends Model implements Auditable
         'tax_rate' => 'decimal:4',
         'tax_amount' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'setup_fee' => 'decimal:2',
         'period_start' => 'immutable_date',
         'period_end' => 'immutable_date',
         'applied_at' => 'immutable_datetime',
@@ -105,29 +106,6 @@ class InvoiceItem extends Model implements Auditable
     public function totalCents(): int
     {
         return (int) round((float) $this->line_total * 100);
-    }
-
-    /**
-     * What the customer kept paid for this line, tax included, as a decimal string: its line_total, less its share of
-     * what came off the invoice after (a refund, back or to credit, and a staff credit note: an active credit note each,
-     * MT-1c), spread over the lines by their totals. Never more than line_total (a debit note adds nothing to a line).
-     * What a cycle change «now» and a downgrade give back the unused days from (sweep2 F-STAFF-ADMIN-MONEY-1).
-     */
-    public function keptTotal(): string
-    {
-        $line = $this->totalCents();
-        $invoice = $this->invoice;
-        if ($invoice === null || $line <= 0) {
-            return number_format($line / 100, 2, '.', '');
-        }
-        $lines = (int) $invoice->items->sum(fn (InvoiceItem $item) => $item->totalCents());
-        $total = (int) round((float) $invoice->total * 100);
-        if ($lines <= 0 || $total >= $lines) {
-            return number_format($line / 100, 2, '.', '');
-        }
-
-        return (string) BigDecimal::of(max(0, $total))->multipliedBy($line)->dividedBy($lines, 0, RoundingMode::HalfUp)
-            ->dividedBy(100, 2);
     }
 
     /** The line without tax (net × quantity), as shown on the invoice. */

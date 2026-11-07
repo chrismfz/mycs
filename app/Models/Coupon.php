@@ -122,6 +122,13 @@ class Coupon extends Model implements Auditable
             || ($currency !== null && $currency !== config('settings.default_currency')))) {
             return false;
         }
+        // A fixed amount is in the default currency too (the form says so): there are no rates to convert it, so it is
+        // not taken off another currency's cart as is (sweep2 F-ORDER-TO-ACTIVE-2). A percentage has no currency. With
+        // no default set, nothing to compare with: as before.
+        $default = config('settings.default_currency');
+        if ($this->type === 'fixed' && $currency !== null && $default !== null && $currency !== $default) {
+            return false;
+        }
 
         return $plan === null || empty($this->billing_cycles) || in_array(self::cycleKey($plan), $this->billing_cycles, true);
     }

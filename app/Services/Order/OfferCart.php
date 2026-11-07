@@ -68,14 +68,20 @@ final class OfferCart
 
                 continue;
             }
-            $configOptions = $product->configOptions->map(fn ($option) => (object) [
-                'option_id' => $option->id,
-                'option_name' => $option->name,
-                'option_type' => $option->type,
-                'option_env_variable' => $option->env_variable,
-                'value' => $option->type === 'checkbox' ? null : $option->children->first()?->id,
-                'value_name' => $option->type === 'checkbox' ? 'No' : $option->children->first()?->name,
-            ]);
+            // Each option at its first value the order form offers: never a hidden one (WHMCS «Hide», a retired value),
+            // which checkout neither prices nor gives the service (sweep2 F-ORDER-TO-ACTIVE-3).
+            $configOptions = $product->configOptions->map(function ($option) {
+                $first = $option->type === 'checkbox' ? null : $option->orderableChildren()->first();
+
+                return (object) [
+                    'option_id' => $option->id,
+                    'option_name' => $option->name,
+                    'option_type' => $option->type,
+                    'option_env_variable' => $option->env_variable,
+                    'value' => $first?->id,
+                    'value_name' => $option->type === 'checkbox' ? 'No' : $first?->name,
+                ];
+            });
             // More than one only where the product page lets the customer choose it (ADV-3).
             $quantity = $product->allow_quantity === 'combined' ? max(1, (int) $item->quantity) : 1;
             try {
