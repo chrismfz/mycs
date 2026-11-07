@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Throwable;
 
 class SettingsProvider extends ServiceProvider
 {
@@ -67,12 +68,27 @@ class SettingsProvider extends ServiceProvider
         try {
             // The cache keeps the rows as stored (secrets still encrypted, it lands in storage/ and its backups);
             // decrypted only into this process's config.
-            $rows = Cache::get(self::CACHE_KEY);
+            // The cache store down (Redis not up yet at a reboot) is no reason to run on code defaults: the rows are
+            // read from the database, which is the truth, and the cache is left alone (sweep SETTINGS-OPS-2).
+            $cacheUp = true;
+            try {
+                $rows = Cache::get(self::CACHE_KEY);
+            } catch (Throwable $e) {
+                report($e);
+                $cacheUp = false;
+                $rows = null;
+            }
             if (!is_array($rows) || $rows === []) { // empty: the table may have been empty at the first boot
-                Cache::forget('settings'); // the old cache held decrypted values
                 $rows = Setting::query()->whereNull('settingable_type')->toBase()->get(['key', 'value', 'type', 'encrypted'])
                     ->map(fn ($row) => (array) $row)->all();
-                Cache::put(self::CACHE_KEY, $rows);
+                if ($cacheUp) {
+                    try {
+                        Cache::forget('settings'); // the old cache held decrypted values
+                        Cache::put(self::CACHE_KEY, $rows);
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
             }
             $settings = collect($rows)->mapWithKeys(fn (array $row) => [
                 $row['key'] => Setting::decodeValue($row['value'], $row['type'], (bool) $row['encrypted']),

@@ -16,7 +16,7 @@
 #   2. fetch, resolve the target, refuse a downgrade / a checkout that would fail
 #   3. a cron run in progress waited for, maintenance mode ON, queue worker drained
 #   4. DB snapshot (rollback point) → storage/app/db-snapshots/ (keeps $SNAPSHOT_KEEP)
-#   5. checkout the target
+#   5. the old cached config/events/routes cleared, checkout the target
 #   6. composer install (--no-dev unless COMPOSER_DEV=1, e.g. on the devbox)
 #   7. migrate --force (and the old Passport keys removed)
 #   8. npm ci && npm run build
@@ -214,6 +214,14 @@ if [[ "${SKIP_SNAPSHOT:-0}" != "1" ]]; then
 fi
 
 # --- 5. checkout -------------------------------------------------------------
+# The old release's cached config, events and routes out first: composer's artisan scripts (step 6) and the migrations
+# (step 7) must boot the new release as it is, not with a config key or a listener map it no longer matches (sweep
+# SETTINGS-OPS-6). Cleared by the old release (its code and vendor still agree), before the checkout. Not optimize:clear:
+# that also empties the cache store (locks, the settings, rate limits). Rebuilt at step 9.
+log "Clearing the cached config / events / routes"
+$ART config:clear
+$ART event:clear
+$ART route:clear
 log "Checkout $REF (${TARGET_SHA:0:8})"
 if [[ "$ON_BRANCH" == "1" ]]; then
   git checkout --force -B "$REF" "$TARGET_REF"

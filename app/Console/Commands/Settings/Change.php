@@ -61,9 +61,17 @@ class Change extends Command
             $value = $form[0] ?? $form[1];
         }
 
-        Setting::updateOrCreate(
-            ['key' => $key],
-            ['value' => $value]
-        );
+        // Type and encryption from the setting's definition, as the admin page does: a row created here (a setting
+        // with no default, or one a later release added) must not become a 'string' that keeps 'false' as true, nor
+        // a secret stored, cached and audited in clear (sweep SETTINGS-OPS-1). Only the global row: an extension or
+        // product setting with the same key is not this one.
+        $definition = collect(Settings::settings())->flatten(1)->firstWhere('name', $key);
+        $attributes = ['value' => $value];
+        if (is_array($definition)) {
+            $attributes['type'] = $definition['database_type'] ?? 'string';
+            $attributes['encrypted'] = (bool) ($definition['encrypted'] ?? false);
+        }
+
+        Setting::updateOrCreate(['key' => $key, 'settingable_type' => null], $attributes);
     }
 }
