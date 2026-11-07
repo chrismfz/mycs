@@ -20,6 +20,12 @@ class AdjustmentNote extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
+    /**
+     * Not a column: a gateway refund's note, numbered after the refund's commit (InvoiceNumberListener::numberAfterCommit),
+     * not by the Creating listener.
+     */
+    public bool $numberAfterCommit = false;
+
     protected $fillable = [
         'invoice_id',
         'type',
