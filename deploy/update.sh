@@ -33,6 +33,7 @@
 #   SNAPSHOT_KEEP=10        snapshots to keep
 #   QUEUE_SERVICE=mycs-queue  systemd unit of the worker
 #   QUEUE_STOP_CMD / QUEUE_START_CMD  explicit hooks (win over systemd)
+#   QUEUE_WAIT_SECONDS=900  on the queue:restart path, how long to wait for a worker's current job
 #   ALLOW_DOWNGRADE=1
 #
 # Run from a private copy, under bash: the checkout below replaces this very
@@ -113,9 +114,41 @@ stop_queue_worker() {
     log "Stopped queue worker (systemd: ${QUEUE_SERVICE})"
     _stopped_by="systemd"; return 0
   fi
+  # queue:restart only sets a flag: a worker exits after its current job (a domain renewal, a mail batch: minutes).
+  # Its job must be over before the snapshot and the migrations (sweep 2, F-SCHEDULER-QUEUE-1): this checkout's
+  # workers, as they are now, are waited for (their supervisor may bring new ones back; those sleep in maintenance).
+  local _pids
+  _pids="$(_queue_worker_pids)"
   log "Asking queue workers to exit (queue:restart)"
-  $ART queue:restart
+  $ART queue:restart || { fail "queue:restart failed."; return 1; }
   _stopped_by="restart"
+  [[ -z "$_pids" ]] || _wait_queue_workers "$_pids"
+}
+# This checkout's queue workers (their cwd here; one whose cwd cannot be read counts, never skipping a live one).
+_queue_worker_pids() {
+  local pid cwd here
+  here="$(pwd -P)"
+  for pid in $(pgrep -f "${QUEUE_WORKER_MATCH:-[a]rtisan( .*)? queue:(work|listen)}" 2>/dev/null || true); do
+    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+    if [[ -z "$cwd" || "$cwd" == "$here" ]]; then echo "$pid"; fi
+  done
+  return 0
+}
+_wait_queue_workers() {
+  local pid left waited=0 limit="${QUEUE_WAIT_SECONDS:-900}"
+  log "Waiting for the queue workers to finish their current job (up to ${limit}s)"
+  while :; do
+    left=""
+    for pid in $1; do
+      if kill -0 "$pid" 2>/dev/null || [[ -d "/proc/$pid" ]]; then left="$left $pid"; fi
+    done
+    [[ -z "$left" ]] && return 0
+    if (( waited >= limit )); then
+      fail "Queue workers still on a job after ${limit}s (PIDs:${left}) — QUEUE_WAIT_SECONDS=… to wait longer."
+      return 1
+    fi
+    sleep 1; waited=$((waited + 1))
+  done
 }
 start_queue_worker() {
   case "$_stopped_by" in
@@ -199,7 +232,11 @@ cron_wait || {
   exit 1
 }
 trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
-stop_queue_worker
+stop_queue_worker || {
+  [[ $_was_down == 0 ]] && { $ART up || true; }
+  fail "The queue workers did not stop (a job still running?) — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
+  exit 1
+}
 
 # --- 4. DB snapshot ----------------------------------------------------------
 if [[ "${SKIP_SNAPSHOT:-0}" != "1" ]]; then

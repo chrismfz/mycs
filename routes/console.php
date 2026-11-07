@@ -42,12 +42,14 @@ Schedule::call(function () {
 Schedule::command(CronJob::class, ['--catch-up'])->description('Starts today\'s daily run if it did not start at its time')->hourlyAt(35)->withoutOverlapping(120)->onOneServer();
 // Suspensions and terminations on their days and from their hour (Settings → Automation): the daily run may be at night.
 Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
-Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+// A frequent task's withoutOverlapping() is given an expiry near its interval: with none (1440 min), a run killed with
+// its parent (SIGKILL, a hard reset) leaves a mutex that skips it, without a word, for a day (sweep 2, F-SCHEDULER-QUEUE-2).
+Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping(30)->onOneServer();
 // The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. In the morning,
 // after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
 // The daily summary email (Settings → Automation → Daily Summary Email; off by default): it checks the mode and the day.
 Schedule::command(CronSummaryCommand::class)->description('Emails staff the daily summary of the cron and what it suspends next')->dailyAt(config('settings.cron_summary_time', '10:00'))->withoutOverlapping(30)->onOneServer();
-Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
+Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncDomains::class, ['--scheduled'])->description('Syncs a batch of domains with their registrars (its hours and size in Settings → Domains) and moves them by their dates')->everyTenMinutes()->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncServiceUsage::class)->description('Reads every live service\'s disk and bandwidth usage from its server (cPanel)')->cron('17 */4 * * *')->withoutOverlapping(60)->onOneServer();
 Schedule::command(ReadBankAlerts::class)->description('Reads the banks\' alert emails into Payments tracking (the mailbox untouched)')->everyThreeMinutes()->withoutOverlapping(15)->onOneServer();
@@ -64,10 +66,10 @@ Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs f
 Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping()->onOneServer();
 Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping()->onOneServer();
 // The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
-Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
 // A paid service still pending with no create recorded (predeploy S4): staff are told (OwedCreates).
-Schedule::command(OwedCreatesCommand::class)->description('Tells staff of paid services still waiting for their account')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command(OwedCreatesCommand::class)->description('Tells staff of paid services still waiting for their account')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
 // EU VAT (PR G, docs/eu-vat.md): pending numbers until VIES answers, the others monthly. Nothing when EU VAT is off.
-Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping()->onOneServer();
+Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping(60)->onOneServer();
 // The EU standard VAT rates against TEDB (docs/eu-vat.md): staff told of a difference, nothing changed. Off by default.
 Schedule::command(EuVatRatesCheck::class)->description('Compares Tax Rates with the EU standard VAT rates in TEDB (changes nothing)')->weeklyOn(1, '05:45')->withoutOverlapping()->onOneServer();

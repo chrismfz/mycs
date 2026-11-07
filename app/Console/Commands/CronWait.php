@@ -3,8 +3,11 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Console\Scheduling\Event;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Sleep;
 
 /**
  * Waits for a run of the cron in progress (its lock, CronJob::handle) before a deploy changes the code and the database
@@ -42,25 +45,76 @@ class CronWait extends Command
 
             return self::SUCCESS;
         }
+        $started = time();
         if ($lock->get()) {
             $lock->release();
+        } else {
+            $this->line("A cron run is in progress: waiting for it (up to {$timeout}s)…");
+            try {
+                $lock->block($timeout);
+                $lock->release();
+                $this->info('The cron run is over.');
+            } catch (LockTimeoutException) {
+                $this->error("A cron run is still in progress after {$timeout}s (or the lock of one that crashed, for up to two hours).");
+                $this->line((self::cronAlive() ? 'A cron process is running: wait for it.' : 'No cron process is running: the lock is a crashed run\'s.')
+                    . ' A crashed run\'s lock is cleared with: php artisan app:cron-wait --release-stale (refused while a cron process runs).');
+
+                return self::FAILURE;
+            }
+        }
+
+        return $this->waitForScheduledTasks(max(0, $timeout - (time() - $started)), $timeout);
+    }
+
+    /**
+     * The other scheduled commands already running (sweep 2, F-SCHEDULER-QUEUE-1): bank:alerts records payments,
+     * ssl:sync charges at the registrar, domains:sync writes the domains. `down` stops only new starts, so one that
+     * began before it would go on in the old code over the migrations. Each holds its withoutOverlapping mutex while it
+     * runs: waited for, in the time --timeout leaves.
+     */
+    private function waitForScheduledTasks(int $seconds, int $timeout): int
+    {
+        $busy = $this->runningTasks();
+        if ($busy === []) {
+            return self::SUCCESS;
+        }
+        $this->line('Scheduled tasks in progress: ' . implode(', ', $busy) . ": waiting for them (up to {$seconds}s)…");
+        for ($i = 0; $i < $seconds && $busy !== []; $i++) {
+            Sleep::for(1)->second();
+            $busy = $this->runningTasks();
+        }
+        if ($busy === []) {
+            $this->info('The scheduled tasks are over.');
 
             return self::SUCCESS;
         }
-        $this->line("A cron run is in progress: waiting for it (up to {$timeout}s)…");
-        try {
-            $lock->block($timeout);
-            $lock->release();
-            $this->info('The cron run is over.');
+        $this->error("Scheduled tasks still in progress after {$timeout}s: " . implode(', ', $busy) . '.');
+        $this->line('A task killed mid-way leaves its mark until its withoutOverlapping expiry. When none of them is running'
+            . ' (no such artisan process), it is cleared with: php artisan schedule:clear-cache');
 
-            return self::SUCCESS;
-        } catch (LockTimeoutException) {
-            $this->error("A cron run is still in progress after {$timeout}s (or the lock of one that crashed, for up to two hours).");
-            $this->line((self::cronAlive() ? 'A cron process is running: wait for it.' : 'No cron process is running: the lock is a crashed run\'s.')
-                . ' A crashed run\'s lock is cleared with: php artisan app:cron-wait --release-stale (refused while a cron process runs).');
+        return self::FAILURE;
+    }
 
-            return self::FAILURE;
+    /** @return list<string> the scheduled commands whose withoutOverlapping mutex is held (a run in progress) */
+    private function runningTasks(): array
+    {
+        $busy = [];
+        foreach (app(Schedule::class)->events() as $event) {
+            if ($event->withoutOverlapping && $event->mutex->exists($event)) {
+                $busy[] = self::taskName($event);
+            }
         }
+
+        return array_values(array_unique($busy));
+    }
+
+    private static function taskName(Event $event): string
+    {
+        if (is_string($event->command) && preg_match("/artisan['\"]?\\s+(\\S+(?:\\s+--\\S+)*)/", $event->command, $m)) {
+            return str_replace(["'", '"'], '', $m[1]);
+        }
+
+        return (string) ($event->description ?? $event->command);
     }
 
     /** A process of the cron's command alive on this host (pgrep; unknown counts as alive, never clearing a live run's). */

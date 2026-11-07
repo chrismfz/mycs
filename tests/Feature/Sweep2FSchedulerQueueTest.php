@@ -67,7 +67,8 @@ class Sweep2FSchedulerQueueTest extends TestCase
             . "log() { :; }; warn() { :; }; ok() { :; }; fail() { :; }\n"
             . "QUEUE_SERVICE=mycs-queue\nART=" . escapeshellarg($this->dir . '/bin/fake-artisan') . "\n"
             . $functions . "\n"
-            . 'sh ' . escapeshellarg($this->dir . '/fake-worker') . " &\nWORKER=\$!\nsleep 0.5\n"
+            // Named as a worker is in the process table (`php artisan queue:work`), in this checkout (its cwd).
+            . '(exec -a ' . escapeshellarg('php artisan queue:work') . ' sh ' . escapeshellarg($this->dir . '/fake-worker') . ") &\nWORKER=\$!\nsleep 0.5\n"
             . "stop_queue_worker\n"
             // Here the script starts mariadb-dump and, a few steps on, migrate --force.
             . "if kill -0 \$WORKER 2>/dev/null; then echo \"SNAPSHOT-WITH-JOB-RUNNING via \$_stopped_by\"; else echo \"WORKER-GONE via \$_stopped_by\"; fi\n";
@@ -105,6 +106,9 @@ class Sweep2FSchedulerQueueTest extends TestCase
     public function test_bug_a_dead_runs_mutex_silences_frequent_tasks_for_a_day(): void
     {
         $this->freezeTime();
+        // Production's store (CACHE_STORE=file), whose lock honours its expiry; the tests' array lock does not
+        // (ArrayLock::isLocked ignores expiresAt), so a mutex there would never expire, whatever its minutes.
+        config(['cache.default' => 'file']);
         $skipped = [];
         foreach ([FetchTicketMail::class, MailSweep::class, OwedCreatesCommand::class] as $command) {
             $event = $this->event($command);
