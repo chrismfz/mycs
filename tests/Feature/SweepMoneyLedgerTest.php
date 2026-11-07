@@ -3,12 +3,16 @@
 namespace Tests\Feature;
 
 use App\Enums\AdjustmentNoteType;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -60,7 +64,11 @@ class SweepMoneyLedgerTest extends TestCase
         $this->assertSame('50.00', $this->balance(), 'Paid 50 for 50 of credit, but the line still says it gave its credit');
     }
 
-    /** MONEY-LEDGER-1, partial: 30 + 20, delete the 30, pay 30 again: 50 paid in total, 20 of credit. */
+    /**
+     * MONEY-LEDGER-1, partial: 30 + 20, delete the 30, pay 30 again: 50 paid in total, 20 of credit.
+     * Fixer: open again, the purchase bought nothing (credit is given once paid, as a partly paid one gives none): all
+     * 50 goes back and the 20 stays on the invoice; paid again, it gives its 50.
+     */
     public function test_deleted_part_payment_of_credit_purchase_then_paid_again_gives_all_the_credit(): void
     {
         $invoice = $this->creditPurchase(50);
@@ -69,7 +77,9 @@ class SweepMoneyLedgerTest extends TestCase
         $this->assertSame('50.00', $this->balance());
 
         (new RecordPaymentService)->deleteTransaction($first);
-        $this->assertSame('20.00', $this->balance());
+        $this->assertSame('unpaid', $invoice->fresh()->status);
+        $this->assertSame('30.00', number_format((float) $invoice->fresh()->remaining, 2, '.', ''));
+        $this->assertSame('0.00', $this->balance());
 
         ExtensionHelper::addPayment($invoice->id, null, 30, transactionId: 'SWEEP-P3');
 
@@ -142,5 +152,79 @@ class SweepMoneyLedgerTest extends TestCase
 
         $this->assertNull($payment->fresh());
         $this->assertSame('0.00', $this->balance());
+    }
+
+    /** Fixer, MONEY-LEDGER-1: paid again after the deletion, the journal and the balances add up. */
+    public function test_credit_purchase_deleted_and_paid_again_leaves_a_clean_money_check(): void
+    {
+        $invoice = $this->creditPurchase(50);
+        $first = ExtensionHelper::addPayment($invoice->id, null, 30, transactionId: 'SWEEP-C1');
+        ExtensionHelper::addPayment($invoice->id, null, 20, transactionId: 'SWEEP-C2');
+        (new RecordPaymentService)->deleteTransaction($first);
+        ExtensionHelper::addPayment($invoice->id, null, 30, transactionId: 'SWEEP-C3');
+
+        $this->assertSame('50.00', $this->balance());
+        $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
+    }
+
+    /** Fixer, MONEY-LEDGER-1: the credit it bought already spent, the deletion is refused unless staff confirm the debt. */
+    public function test_deleting_part_payment_of_spent_credit_purchase_needs_the_negative_credit_confirmed(): void
+    {
+        $invoice = $this->creditPurchase(50);
+        $first = ExtensionHelper::addPayment($invoice->id, null, 30, transactionId: 'SWEEP-S1');
+        ExtensionHelper::addPayment($invoice->id, null, 20, transactionId: 'SWEEP-S2');
+        Credit::where('client_id', $this->user->client()->id)->update(['amount' => 10]); // 40 of it spent
+
+        try {
+            (new RecordPaymentService)->deleteTransaction($first);
+            $this->fail('Deleted while the credit it bought was spent');
+        } catch (DisplayException) {
+        }
+        $this->assertNotNull($first->fresh());
+
+        (new RecordPaymentService)->deleteTransaction($first, allowNegativeCredit: true);
+        $this->assertSame('-40.00', $this->balance());
+        $this->assertSame('unpaid', $invoice->fresh()->status);
+    }
+
+    /** Fixer, MONEY-LEDGER-2: refunded to credit in part, the rest still on the invoice goes back when it is cancelled. */
+    public function test_cancelled_invoice_gives_back_the_rest_of_a_credit_payment_refunded_in_part(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create([
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 100.00, 'quantity' => 1,
+        ]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
+            'quantity' => 1, 'price' => 100]);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'test');
+        $payment = (new RecordPaymentService)->payWithCredit($invoice->id);
+        ExtensionHelper::refundToCredit($payment, 10, notify: false);
+        $this->assertSame('10.00', $this->balance());
+
+        $service->markTerminated();
+
+        $this->assertSame('terminated', $service->fresh()->status);
+        $this->assertSame('cancelled', $invoice->fresh()->status);
+        $this->assertSame('40.00', $this->balance());
+        $this->assertSame('40.00', number_format((float) $payment->fresh()->credited_amount, 2, '.', ''));
+        $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
+    }
+
+    /** Fixer, MONEY-LEDGER-3: refunded in two parts, all the credit it bought goes back, and no more. */
+    public function test_credit_purchase_with_debit_note_refunded_in_parts_takes_back_the_credit_once(): void
+    {
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'test');
+        $invoice = $this->creditPurchase(50);
+        $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Debit->value, 'amount' => 5, 'description' => 'Fee']);
+        $payment = ExtensionHelper::addPayment($invoice->id, null, 55, transactionId: 'SWEEP-DN3');
+
+        ExtensionHelper::refundLocally($payment, 30, notify: false);
+        $this->assertSame('25.00', $this->balance());
+        ExtensionHelper::refundLocally($payment->fresh(), 25, notify: false);
+
+        $this->assertSame('5.00', $this->balance());
+        $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
     }
 }
