@@ -114,6 +114,11 @@ final class ChangeCycle
             && !self::sharedWithCreditOnly($invoice, $service))) {
             return __('An open invoice of this service has a payment on it.');
         }
+        // A saved-card charge of an open invoice of it, its outcome not here yet: cancelled for the new cycle, the period
+        // would be billed and charged again while the money that lands becomes credit (sweep2 REV2-SAM-1).
+        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id')->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice))) {
+            return __('A card payment of an open invoice of this service is on its way or not settled: wait for it first.');
+        }
         // An open invoice of it kept from the automatic charge (the customer's «I'll pay another way», or staff's «Do not
         // auto-charge»: a payment agreed another way, a transfer maybe on its way) would go, and the period it bills come
         // back on an invoice the cron charges to the saved method: paid twice (ADV-623-1). Pay it, or settle it, first.
