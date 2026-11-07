@@ -283,7 +283,7 @@ class Upgrade extends Component
         }
         if ($option->type === 'checkbox') {
             return in_array($given, [true, 1, '1', 'true'], true) || $option->children->contains('id', (int) $given)
-                ? $option->children->first()?->id
+                ? $this->choosableValues($option)->first()?->id // not a hidden value the service does not hold (REV-CP-1)
                 : null;
         }
 

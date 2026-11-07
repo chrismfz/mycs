@@ -29,6 +29,10 @@
         @foreach ($product->configOptions as $configOption)
             @php
                 $values = $configOption->orderableChildren();
+                // A checkbox whose one value is hidden is no choice of a new order (REV-CP-2): not drawn.
+                if ($configOption->type === 'checkbox' && $values->isEmpty()) {
+                    continue;
+                }
                 $showPriceTag = $values->filter(fn ($value) => !$value->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->is_free)->count() > 0;
             @endphp
             <x-form.configoption :config="$configOption" :name="'configOptions.' . $configOption->id" :showPriceTag="$showPriceTag" :plan="$plan" :values="$values">

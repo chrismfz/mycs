@@ -345,13 +345,17 @@ class Checkout extends Component
         // Change configOptions so they also contain the name of the option (resulting in less database calls = faster speeds)
         $configOptions = $this->product->configOptions->map(function ($option) {
             if ($option->type == 'checkbox') {
+                $value = $option->orderableChildren()->first();
+                $ticked = $value !== null && isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true);
+
                 return (object) [
                     'option_id' => $option->id,
                     'option_name' => $option->name,
                     'option_type' => $option->type,
                     'option_env_variable' => $option->env_variable,
-                    'value' => isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true) ? $option->children->first()->id : null,
-                    'value_name' => isset($this->configOptions[$option->id]) && in_array($this->configOptions[$option->id], [true, 'true'], true) ? 'Yes' : 'No',
+                    // Its one value, unless hidden (REV-CP-1): then it is not offered, nor ticked.
+                    'value' => $ticked ? $value->id : null,
+                    'value_name' => $ticked ? 'Yes' : 'No',
                 ];
             }
             if (in_array($option->type, ['text', 'number'])) {

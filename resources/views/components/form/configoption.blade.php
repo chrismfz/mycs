@@ -89,7 +89,8 @@
         @break
 
         @case('checkbox')
-            <x-form.checkbox name="{{ $name }}" type="checkbox" :label="__($config->label ?? $config->name) . (($showPriceTag && $config->children->first()->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? ' - ' . $config->children->first()->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : '')"
+            @php($checkboxValue = ($values ?? $config->children)->first())
+            <x-form.checkbox name="{{ $name }}" type="checkbox" :label="__($config->label ?? $config->name) . (($showPriceTag && $checkboxValue?->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? ' - ' . $checkboxValue->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : '')"
                 :required="$config->required ?? false" wire:model.live="{{ $name }}" />
         @break
 

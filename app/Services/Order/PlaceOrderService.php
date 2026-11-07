@@ -380,7 +380,7 @@ final class PlaceOrderService
                 continue;
             }
             $valueId = $option->type === 'checkbox'
-                ? (OrderPricing::ticked($chosen->value) ? $option->children->first()?->id : null)
+                ? (OrderPricing::ticked($chosen->value) ? $option->orderableChildren()->first()?->id : null) // REV-CP-1
                 : $option->orderableChildren()->firstWhere('id', $chosen->value)?->id; // never a hidden value (CLIENT-PORTAL-4)
             if ($valueId === null) {
                 continue;
