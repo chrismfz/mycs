@@ -531,5 +531,7 @@ class LiveChatCustomerTest extends TestCase
         // Review of #480: the reminder follows the same count as the link, a chat whose operator left included.
         $this->assertStringContainsString("if (!(Number(d.waiting) > 0) || d.available !== '1' || this.reading()) return;", $notifier);
         $this->assertStringContainsString('if (Date.now() - reminded < 5000) times = 0;', $notifier);
+        // Owner 2026-11-07: every 15 seconds.
+        $this->assertStringContainsString('if (Date.now() - Number(this.store(key) ?? 0) < 15000) return;', $notifier);
     }
 }
