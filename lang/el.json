@@ -256,6 +256,7 @@
     "An upgrade of this service is waiting for payment.": "Μια αλλαγή πακέτου αυτής της υπηρεσίας περιμένει πληρωμή.",
     "This service is to be cancelled.": "Η υπηρεσία πρόκειται να ακυρωθεί.",
     "An open invoice of this service has a payment on it.": "Ένα ανοιχτό τιμολόγιο αυτής της υπηρεσίας έχει πληρωμή.",
+    "A card payment of an open invoice of this service is on its way or not settled: wait for it first.": "Μια πληρωμή με κάρτα ενός ανοιχτού τιμολογίου αυτής της υπηρεσίας είναι σε εξέλιξη ή δεν έχει ολοκληρωθεί: περιμένετε να ολοκληρωθεί πρώτα.",
     "Account credit is off: change it from the next renewal.": "Η πίστωση λογαριασμού είναι κλειστή: αλλάξτε τον από την επόμενη ανανέωση.",
     "The billing cycle changes from your next renewal.": "Ο κύκλος χρέωσης αλλάζει από την επόμενη ανανέωση.",
     "Choose": "Επιλέξτε",

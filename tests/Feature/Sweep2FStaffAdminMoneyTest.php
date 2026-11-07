@@ -42,9 +42,6 @@ class Sweep2FStaffAdminMoneyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if ($this->name() === 'test_cycle_change_now_credits_from_line_total_ignoring_a_partial_refund') {
-            $this->markTestIncomplete('F-STAFF-ADMIN-MONEY-1: fixed in the f-plan-change flow (sweep 2), not on this branch.');
-        }
         Carbon::setTestNow('2026-01-01 10:00:00');
         Queue::fake();
         $this->settings(['credits_enabled' => [true, 'boolean'], 'credits_auto_use' => [false, 'boolean'], 'default_currency' => ['USD', 'string']]);

@@ -50,7 +50,7 @@ final class DowngradeCredit
         } else {
             $period = BigDecimal::zero();
             foreach ($lines as $line) {
-                $period = $period->plus(self::left((string) $line->line_total, $line->period_start, $line->period_end, $today));
+                $period = $period->plus(self::left($line->keptTotal(), $line->period_start, $line->period_end, $today));
             }
         }
 
@@ -95,7 +95,7 @@ final class DowngradeCredit
             $paidLines = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
                 ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_PAID))->get();
             foreach ($paidLines as $line) {
-                $upgrades = $upgrades->plus(self::left((string) $line->line_total, $upgrade->created_at, $end, $today));
+                $upgrades = $upgrades->plus(self::left($line->keptTotal(), $upgrade->created_at, $end, $today));
             }
             // What an earlier downgrade gave back for these days (F2).
             if ($upgrade->credit_cents !== null && $upgrade->credit_until !== null) {
