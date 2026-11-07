@@ -13,6 +13,8 @@ use App\Models\Setting;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * An invoice's number (Δ2, a setting per company, `settings-map.md`):
@@ -30,9 +32,9 @@ class InvoiceNumberListener
     public function handle(Creating|Created|Updating|AdjustmentNoteCreating $event): void
     {
         if ($event instanceof AdjustmentNoteCreating) {
-            // Numbered already from a counter its caller locked earlier (takeNumber: a gateway refund, which locks nothing
-            // after the money left).
-            if (!$event->adjustmentNote->number) {
+            // A gateway refund's note is numbered after its commit (numberAfterCommit): nothing after the money left
+            // waits for the counter.
+            if (!$event->adjustmentNote->number && !$event->adjustmentNote->numberAfterCommit) {
                 $this->setNumber($event->adjustmentNote, 'credit_note');
             }
 
@@ -79,10 +81,35 @@ class InvoiceNumberListener
     }
 
     /**
-     * The counter's row ($prefix_number), locked for the rest of the caller's transaction. Taken before a gateway call
-     * whose answer needs a number (ExtensionHelper::refund), so nothing after the money left waits for it (sweep 2,
-     * F-CONCURRENCY-3).
+     * A gateway refund's credit note (ExtensionHelper::refund): numbered once the refund is committed, in a short
+     * transaction of its own. The counter row is shared by every credit note, so it is neither locked over the gateway
+     * call (every other credit note would wait for that HTTP call, REV2-FCONC-1) nor waited for after it, inside the
+     * refund's transaction (a lock timeout would roll back a refund the gateway made, F-CONCURRENCY-3). If this fails the
+     * refund stays recorded and the note unnumbered: logged for staff. Written by its key: a note is never edited
+     * through the model (AdjustmentNoteObserver::updating), and its number was never given.
      */
+    public static function numberAfterCommit(AdjustmentNote $note): void
+    {
+        $id = $note->getKey();
+        DB::afterCommit(function () use ($id) {
+            try {
+                DB::transaction(function () use ($id) {
+                    $counter = self::lockCounter('credit_note');
+                    if (!AdjustmentNote::query()->whereKey($id)->whereNull('number')->lockForUpdate()->exists()) {
+                        return;
+                    }
+                    AdjustmentNote::query()->whereKey($id)->whereNull('number')
+                        ->update(['number' => self::takeNumber($counter, 'credit_note', AdjustmentNote::class)]);
+                });
+            } catch (Throwable $e) {
+                Log::critical('A refund\'s credit note was recorded without its number: number it by hand.', [
+                    'adjustment_note_id' => $id, 'error' => $e->getMessage(),
+                ]);
+            }
+        });
+    }
+
+    /** The counter's row ($prefix_number), locked for the rest of the caller's transaction. */
     public static function lockCounter(string $prefix): Setting
     {
         $settingKey = $prefix . '_number';

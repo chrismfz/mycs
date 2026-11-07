@@ -16,8 +16,11 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\SwConcPay\SwConcPay;
@@ -52,10 +55,12 @@ class Sweep2FConcurrencyTest extends TestCase
                 public function charge($invoice, $amount, $agreement) { return true; }
                 public function supportsRefunds() { return true; }
                 public static int $refunds = 0;
-                public function refund($transaction, $amount) { self::$refunded = true; return "re_sweep2_" . ++self::$refunds; } }');
+                public static int $level = 0;
+                public function refund($transaction, $amount) { self::$refunded = true; self::$level = \\Illuminate\\Support\\Facades\\DB::transactionLevel(); return "re_sweep2_" . ++self::$refunds; } }');
         }
         SwConcPay::$refunded = false;
         SwConcPay::$refunds = 0;
+        SwConcPay::$level = 0;
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $this->user = User::factory()->create();
         $this->gateway = Gateway::query()->firstOrCreate(['extension' => 'SwConcPay'], ['name' => 'SwConcPay', 'type' => 'gateway', 'enabled' => true]);
@@ -117,7 +122,8 @@ class Sweep2FConcurrencyTest extends TestCase
     /**
      * F-CONCURRENCY-3: after the gateway call, refund() reads the global credit_note_number row (lockForUpdate on
      * MariaDB; SQLite drops FOR UPDATE, so the read itself is what is seen here). Any other credit note held open makes
-     * the refund wait or fail after the money left.
+     * the refund wait or fail after the money left. REV2-FCONC-1: nor is the row locked before the call, held over the
+     * gateway's HTTP call. The note is numbered after the refund's commit, in a transaction of its own.
      */
     public function test_a_gateway_refund_reads_no_global_counter_after_the_money_left(): void
     {
@@ -126,17 +132,52 @@ class Sweep2FConcurrencyTest extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $payment = $invoice->fresh()->transactions()->sole();
 
-        $after = [];
-        DB::listen(function (QueryExecuted $query) use (&$after) {
-            if (SwConcPay::$refunded && str_contains($query->sql, '"settings"') && in_array('credit_note_number', $query->bindings, true)) {
-                $after[] = $query->sql;
+        // The refund's transaction ends when a transaction opens at its level again (the one that numbers the note).
+        $refundOpen = true;
+        $inRefund = [];
+        $afterCommit = [];
+        DB::listen(function (QueryExecuted $query) use (&$refundOpen, &$inRefund, &$afterCommit) {
+            if (str_contains($query->sql, '"settings"') && in_array('credit_note_number', $query->bindings, true)) {
+                if ($refundOpen && DB::transactionLevel() > 1) {
+                    $inRefund[] = (SwConcPay::$refunded ? 'after the gateway: ' : 'before the gateway: ') . $query->sql;
+                } else {
+                    $afterCommit[] = $query->sql;
+                }
+            }
+        });
+        Event::listen(TransactionBeginning::class, function () use (&$refundOpen) {
+            if (SwConcPay::$refunded && DB::transactionLevel() <= SwConcPay::$level) {
+                $refundOpen = false;
             }
         });
 
         ExtensionHelper::refund($payment, 30.00, notify: false);
 
         $this->assertTrue(SwConcPay::$refunded);
-        $this->assertSame([], $after, 'after the gateway refunded, refund() read/locked the global counter row: ' . implode(' | ', $after));
+        $this->assertSame([], $inRefund, 'the refund\'s transaction read/locked the global counter row: ' . implode(' | ', $inRefund));
+        $this->assertNotSame([], $afterCommit, 'the note is numbered after the refund\'s commit');
+        $this->assertNotNull($invoice->fresh()->adjustmentNotes()->sole()->number);
+    }
+
+    /** REV2-FCONC-1: the numbering failing after the commit leaves the refund recorded, the note unnumbered, and a log for staff. */
+    public function test_a_gateway_refund_stays_recorded_when_its_note_cannot_be_numbered(): void
+    {
+        $invoice = $this->invoice(100);
+        ExtensionHelper::addPayment($invoice->id, 'SwConcPay', 100, transactionId: 'ch_sweep2_4', currency: 'USD');
+        $payment = $invoice->fresh()->transactions()->sole();
+        Log::spy();
+        // As a lock wait timeout on the counter would: the first read of the row after the gateway refunded throws.
+        DB::listen(function (QueryExecuted $query) {
+            if (SwConcPay::$refunded && str_contains($query->sql, '"settings"') && in_array('credit_note_number', $query->bindings, true)) {
+                throw new \RuntimeException('Lock wait timeout exceeded');
+            }
+        });
+
+        $this->assertTrue(ExtensionHelper::refund($payment, 30.00, notify: false));
+
+        $this->assertSame('30.00', number_format((float) $payment->fresh()->refunded_amount, 2, '.', ''));
+        $this->assertNull($invoice->fresh()->adjustmentNotes()->sole()->number);
+        Log::shouldHaveReceived('critical')->withArgs(fn ($message) => str_contains($message, 'without its number'))->once();
     }
 
     /** F-CONCURRENCY-3 fix: the note still takes the next credit-note number, the counter moves by one, in the set format. */
