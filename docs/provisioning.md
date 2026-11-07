@@ -48,6 +48,13 @@
 - Το terminate τρέχει μόνο σε υπηρεσία που έχει τελειώσει (cancelled/terminated): retry ή Retry του staff δεν σβήνει
   λογαριασμό που ξαναζωντάνεψε. «upgrade» = το ChangePackage του WHMCS (ετικέτα «Change Package»)· module χωρίς αυτό
   (DirectAdmin, Plesk, Virtfusion) = τίποτα να γίνει, όχι αποτυχία.
+- **Delete υπηρεσίας με ανοιχτή εργασία (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5, F-PROVISIONING-OPS-2, απόφαση του
+  owner 2026-11-08, χωρίς migration):** το `module_actions.service_id` είναι ON DELETE CASCADE, άρα ένα delete θα έσβηνε
+  μαζί και τον τερματισμό που δεν έγινε. Όσο η υπηρεσία έχει ανοιχτό terminate (αποτυχία ή βήμα του staff) ή εργασία
+  «by hand», το `DeleteService` αρνείται («close the task first»). Αν το ίδιο το «Also trigger deletion of server»
+  αφήνει εργασία (OfflineVm/Dedicated, Proxmox «Terminate: stop», πρόσθετο), η υπηρεσία δεν σβήνεται: μένει
+  `terminated` με την εργασία ανοιχτή, και σβήνεται αφού την κλείσει το staff. Μια ανοιχτή αποτυχία άλλης ενέργειας
+  (π.χ. create) δεν κρατά το delete.
 - Admin: Services → Pending Module Actions (top menu: Utilities), Retry (τρέχει το ίδιο job τώρα, με το mail του) και
   Mark resolved· δικαιώματα των υπηρεσιών (`admin.services.viewAny` / `update`).
 - Μένει: domains (RegisterDomain/RenewDomain του Openprovider/FORTH) με τα domains· τα «πληρωμένα που δεν εφαρμόστηκαν»

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UpgradeJob;
@@ -58,13 +59,32 @@ class Sweep2FProvisioningOpsTest extends TestCase
     }
 
     /**
-     * F-PROVISIONING-OPS-2 is left open (low): a by-hand task that outlives its deleted service needs
-     * module_actions.service_id ON DELETE SET NULL and a Pending Module Actions page for rows with no service, or a
-     * delete held back until staff close it (a product decision); the staff mail keeps the instruction meanwhile.
+     * The delete of a service whose termination leaves a task for staff (owner's call, no migration): not deleted, kept
+     * terminated with the task open; a later Delete is refused until staff close it.
      */
-    private function skipWhileLeftOpen(): void
+    private function deleteKeepsTheTask(Service $service): void
     {
-        $this->markTestSkipped('F-PROVISIONING-OPS-2 left open: the by-hand task goes with its deleted service (the staff mail stays).');
+        try {
+            app(DeleteService::class)->handle($service, true);
+            $this->fail('the delete should keep the service while its by-hand task is open');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString(__('services.delete_open_task'), $e->getMessage());
+        }
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()?->status, 'kept, terminated');
+        $this->assertSame(1, ModuleAction::query()->open()->where('service_id', $service->id)->where('subject', ModuleAction::SUBJECT_BY_HAND)
+            ->where('action', 'terminate')->count(), 'the by-hand terminate task staff need is still in Pending Module Actions');
+
+        try {
+            app(DeleteService::class)->handle($service->fresh());
+            $this->fail('a later Delete is refused while the task is open');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('services.delete_open_task'), $e->getMessage());
+        }
+        $this->assertNotNull($service->fresh());
+
+        ModuleAction::query()->open()->where('service_id', $service->id)->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => now()]);
+        app(DeleteService::class)->handle($service->fresh());
+        $this->assertNull(Service::query()->find($service->id), 'deleted once staff closed the task');
     }
 
     /**
@@ -98,27 +118,21 @@ class Sweep2FProvisioningOpsTest extends TestCase
 
     /**
      * F-PROVISIONING-OPS-2. Delete with «Also trigger deletion of server» on Proxmox «Terminate: stop»: the by-hand
-     * «destroy it» task is created, then cascaded away with the service (module_actions.service_id ON DELETE CASCADE).
+     * «destroy it» task is created, and the service is kept (terminated) so the task is not cascaded away with it.
      */
     public function test_f2_the_by_hand_destroy_task_survives_the_delete_of_its_proxmox_service(): void
     {
-        $this->skipWhileLeftOpen();
         $service = $this->proxmoxService('active');
         ProxmoxGuest::query()->create(['server_id' => $service->provisioningServer()->id, 'vmid' => 101, 'node' => 'vega', 'name' => 'vps1',
             'status' => 'running', 'pool' => 'mycs', 'macs' => ['BC:24:11:00:00:01'], 'service_id' => $service->id]);
 
-        app(DeleteService::class)->handle($service, true);
-
-        $this->assertNull(Service::query()->find($service->id), 'deleted');
-        $this->assertNull(ProxmoxGuest::query()->sole()->service_id, 'its VM, stopped and not destroyed, is now unmapped');
-        $this->assertSame(1, ModuleAction::query()->open()->where('subject', ModuleAction::SUBJECT_BY_HAND)->where('action', 'terminate')->count(),
-            'the «destroy it by hand» task staff need is still in Pending Module Actions');
+        $this->deleteKeepsTheTask($service);
+        $this->assertNull(ProxmoxGuest::query()->sole()->service_id, 'its VM, stopped and not destroyed, is unmapped once deleted');
     }
 
-    /** The same for a machine with no API (OfflineVm): its terminate task goes with the service. */
+    /** The same for a machine with no API (OfflineVm): its terminate task stays, and so does the service. */
     public function test_f2_the_by_hand_terminate_task_survives_the_delete_of_an_offline_vm_service(): void
     {
-        $this->skipWhileLeftOpen();
         $server = Server::query()->create(['name' => 'OfflineVm', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $server->id]);
@@ -126,11 +140,7 @@ class Sweep2FProvisioningOpsTest extends TestCase
             'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1,
             'domain' => 'vm.example.test', 'dedicated_ip' => '203.0.113.21']);
 
-        app(DeleteService::class)->handle($service, true);
-
-        $this->assertNull(Service::query()->find($service->id), 'deleted');
-        $this->assertSame(1, ModuleAction::query()->open()->where('subject', ModuleAction::SUBJECT_BY_HAND)->where('action', 'terminate')->count(),
-            'the «terminate by hand» task staff need is still in Pending Module Actions');
+        $this->deleteKeepsTheTask($service);
     }
 
     /**

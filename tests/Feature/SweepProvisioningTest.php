@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ServiceResource\Pages\EditService;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\CreateJob;
 use App\Models\License;
@@ -143,12 +144,11 @@ class SweepProvisioningTest extends TestCase
 
     /**
      * PROVISIONING-5. Delete with terminate on a module with no API: terminateServer writes the open «by hand» terminate
-     * task, then the delete removes the service and module_actions.service_id ON DELETE CASCADE removes the task with it.
-     * The machine still to be released by hand is no longer in Pending Module Actions (only the one mail is left).
+     * task; the delete would take it with it (module_actions.service_id ON DELETE CASCADE), so the service is kept,
+     * terminated, with the task open (owner's call, no migration).
      */
     public function test_delete_with_terminate_on_an_offline_module_keeps_the_by_hand_task(): void
     {
-        $this->markTestSkipped('PROVISIONING-5 left open (low): keeping the task needs module_actions.service_id to outlive its service (a schema and screens change), or a product call on deleting such a service.');
         Queue::fake();
         Mail::fake();
         $server = Server::query()->create(['name' => 'Offline', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
@@ -159,12 +159,18 @@ class SweepProvisioningTest extends TestCase
             $made[] = [$row->action, $row->subject];
         });
 
-        (new DeleteService)->handle($service, true);
+        $refused = null;
+        try {
+            (new DeleteService)->handle($service, true);
+        } catch (DisplayException $e) {
+            $refused = $e->getMessage();
+        }
 
         $this->assertContains(['terminate', ModuleAction::SUBJECT_BY_HAND], $made, 'precondition: the by-hand task was written');
-        $this->assertNull(Service::query()->find($service->id), 'precondition: deleted');
+        $this->assertNotNull($refused, 'staff are told it was kept');
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()?->status, 'kept, terminated');
         $this->assertTrue(ModuleAction::query()->open()->where('action', 'terminate')->where('subject', ModuleAction::SUBJECT_BY_HAND)
-            ->where('last_error', 'like', '%mars.example.test%')->exists(), 'the by-hand terminate task went with the service (cascade)');
+            ->where('last_error', 'like', '%mars.example.test%')->exists(), 'the by-hand terminate task is still open');
     }
 
     /**

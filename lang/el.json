@@ -167,6 +167,7 @@
     "Its status changed meanwhile: reload it.": "Το status του άλλαξε στο μεταξύ: φόρτωσέ το ξανά.",
     "This plan is used by services or upgrades: hide it instead of deleting it.": "Το πλάνο χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
     "This product is used by services or upgrades: hide it instead of deleting it.": "Το προϊόν χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
+    "This product is named in coupons (:codes): take it out of them first, or hide it.": "Το προϊόν αναφέρεται σε κουπόνια (:codes): αφαιρέστε το από αυτά πρώτα, ή κρύψτε το.",
     "Product not saved": "Το προϊόν δεν αποθηκεύτηκε",
     "Invoice not cancelled": "Το τιμολόγιο δεν ακυρώθηκε",
     "A refunded invoice stays refunded: bill the customer on a new invoice.": "Ένα τιμολόγιο που επιστράφηκε μένει επιστραμμένο: χρέωσε τον πελάτη σε νέο τιμολόγιο.",

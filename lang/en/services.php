@@ -5,6 +5,7 @@ return [
     'product' => 'Product',
     'price' => 'Price',
     'status' => 'Status',
+    'delete_open_task' => 'This service has an open task in Pending Module Actions (its termination, or a step by hand): it is kept, terminated, until the task is done. Close the task first, then delete it.',
     'name' => 'Name',
     'actions' => 'Actions',
     'view' => 'View',

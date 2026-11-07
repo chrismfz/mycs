@@ -5,6 +5,7 @@ namespace App\Services\Service;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Money\PaymentsLog;
@@ -25,6 +26,9 @@ use Illuminate\Support\Facades\DB;
  * Then, under the service's lock (service → upgrade → customer → invoice, docs/money-trail.md §2): its unpaid lines and
  * pending upgrades are cancelled, also one the cron billed a moment ago; its options and properties go; a service that
  * had not ended gives its stock back. Paid lines stay, as the history of what was paid.
+ *
+ * Not while an open termination or task for staff is in Pending Module Actions (it would go with the service by cascade):
+ * staff close it first. One its own termination leaves (by hand) keeps the service, terminated, with the task open.
  */
 class DeleteService
 {
@@ -40,6 +44,11 @@ class DeleteService
         // ones stay as services of their own (the foreign key clears their parent).
         if (Service::query()->where('parent_service_id', $service->id)->whereIn('status', Service::PAYING_STATUSES)->exists()) {
             throw new DisplayException(__('services.addons.delete_parent'));
+        }
+        // An open termination or task for staff would go with it by cascade, and nobody would see the account still on
+        // the server (sweep3 L-DATA-INTEGRITY-2): staff close it first.
+        if (ModuleAction::openTaskKeeps($service->id)) {
+            throw new DisplayException(__('services.delete_open_task'));
         }
         if ($left !== []) {
             throw new DisplayException(__('This service cannot be deleted yet: :reasons', [
@@ -83,6 +92,11 @@ class DeleteService
             $locked = $this->cancelUnderLock($service);
             if ($locked === null) {
                 return;
+            }
+            // Its termination just left a task for staff (a machine with no API, Proxmox «Terminate: stop», an addon), or
+            // one opened meanwhile: kept, terminated, with the task open (PROVISIONING-5, F-PROVISIONING-OPS-2).
+            if (ModuleAction::openTaskKeeps($locked->id)) {
+                throw new DisplayException(__('services.delete_open_task'));
             }
             if (!$locked->isEnded() && $locked->product?->stock !== null) {
                 $locked->product->increment('stock', $locked->quantity);

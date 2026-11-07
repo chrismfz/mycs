@@ -75,10 +75,11 @@ class EditProduct extends EditRecord
                 }),
             DeleteAction::make()
                 ->before(function (Product $record, DeleteAction $action) {
-                    if ($record->inUse()) {
+                    $refusal = $record->deleteRefusal();
+                    if ($refusal !== null) {
                         Notification::make()
                             ->title('Whoops!')
-                            ->body(__('This product is used by services or upgrades: hide it instead of deleting it.'))
+                            ->body($refusal)
                             ->danger()
                             ->send();
                         $action->cancel();
