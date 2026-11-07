@@ -145,10 +145,7 @@ final class WhmcsParity
             ->whereIn('invoice_transaction_id', $parentPayments)->where('kind', $kind)->where('cause', $cause)
             ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a');
         $onChildren += $moved('credit_in', MoneyTrail::CAUSE_REFUND_TO_CREDIT) - $moved('credit_out', MoneyTrail::CAUSE_OVERPAYMENT);
-        // A Payment Pending parent's credit pays its children here (ImportFromWhmcs::importPendingPayments, R1b-1).
-        $pendingParents = $parents === [] ? 0 : $this->count('SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit > 0'
-            . " AND i.status = 'Payment Pending' AND i.id IN (" . implode(',', $parents) . ')');
-        $add('Credit applied to invoices', $this->count("SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit > 0 AND {$notParent}") + $pendingParents,
+        $add('Credit applied to invoices', $this->count("SELECT COALESCE(SUM(ROUND(i.credit * 100)), 0) FROM tblinvoices i WHERE i.credit > 0 AND {$notParent}"),
             (int) DB::table('invoice_transactions')->where('is_credit_transaction', true)->where('status', 'succeeded')
                 ->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) a')->value('a') + $onChildren);
         // A negative invoice gave its customer credit (WHMCS: a negative «credit» on it).
