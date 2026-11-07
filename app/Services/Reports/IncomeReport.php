@@ -146,6 +146,12 @@ final class IncomeReport
         return [$net + $noteNet, $gross + $note];
     }
 
+    /** The country an issued invoice's tax rule was for, null when none or the rule is for every country. */
+    private static function issuedCountry(?string $country): ?string
+    {
+        return $country === null || $country === '' || strtolower($country) === 'all' ? null : $country;
+    }
+
     /** @return array<string, mixed> */
     private static function row(Invoice $invoice, CarbonImmutable $when, int $net, int $total, string $paidWith): array
     {
@@ -156,7 +162,9 @@ final class IncomeReport
             'number' => (string) ($invoice->number ?: $invoice->id),
             'client' => (string) $invoice->user_name,
             // As issued where the invoice kept it (its snapshot's country, F4 of #280); the VAT number is the customer's now.
-            'country' => (string) ($invoice->snapshot->tax_country ?? $contact->country ?? ''),
+            // A rule for every country ('all', as WhmcsTaxImport maps WHMCS's «any») says nothing of the customer's: the
+            // customer's country now then (sweep TAX-REPORTS-3).
+            'country' => (string) (self::issuedCountry($invoice->snapshot?->tax_country) ?? $contact->country ?? ''),
             'vat' => (string) ($contact->vat_number ?? ''),
             'net' => self::money($net),
             'tax' => self::money($total - $net),
