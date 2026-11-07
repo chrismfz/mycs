@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
+use App\Models\EmailLog;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
 use App\Models\User;
@@ -102,5 +104,62 @@ class Sweep2FGatewayWebhooksTest extends TestCase
         $this->assertSame([Invoice::STATUS_PAID, PaymentGroup::STATUS_PAID, 0.0], [$b->fresh()->status, $group->fresh()->status, $credit],
             'the IPN payment has no gateway, so the Mass Pay is not spread and B\'s share becomes credit');
         $this->assertNotNull($a->transactions()->sole()->gateway_id, 'recorded as if staff had entered it (MoneyTrail source «manual»)');
+    }
+
+    /** F-GATEWAY-WEBHOOKS-1, the fix: staff are told the reversal might be the won dispute's late one, to undo by hand. */
+    public function test_a_reversal_taken_as_the_later_dispute_s_tells_staff(): void
+    {
+        Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $invoice = $this->invoice('50.00');
+        ExtensionHelper::addPayment($invoice->id, 'PayPal', 50.00, transactionId: 'CAP1', currency: 'EUR');
+        ExtensionHelper::chargebackOpened('PayPal', 'CAP1', 'D1', 50.00, 'EUR');
+        ExtensionHelper::chargebackReversedAtGateway('PayPal', 'CAP1', null, 50.00, 'EUR', 'D1');
+        ExtensionHelper::chargebackOpened('PayPal', 'CAP1', 'D2', 50.00, 'EUR');
+
+        $this->assertTrue(ExtensionHelper::chargebackAtGateway('PayPal', 'CAP1', 'REV-2', 50.00, 'EUR'));
+        $this->assertTrue(EmailLog::query()->where('subject', 'Chargeback needs staff attention')->where('body', 'like', '%the dispute D2 was opened after it%')->exists());
+        // D1's marker is kept for its own late reversal.
+        $this->assertTrue(GatewayRefund::query()->where('reference', 'D1')->where('origin', GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)->exists());
+    }
+
+    /** F-GATEWAY-WEBHOOKS-1, the fix: a later dispute already closed leaves the won-early marker in use (nothing recorded). */
+    public function test_a_later_dispute_already_closed_keeps_the_early_win(): void
+    {
+        Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $invoice = $this->invoice('50.00');
+        ExtensionHelper::addPayment($invoice->id, 'PayPal', 50.00, transactionId: 'CAP1', currency: 'EUR');
+        ExtensionHelper::chargebackOpened('PayPal', 'CAP1', 'D1', 50.00, 'EUR');
+        ExtensionHelper::chargebackReversedAtGateway('PayPal', 'CAP1', null, 50.00, 'EUR', 'D1');
+        ExtensionHelper::chargebackOpened('PayPal', 'CAP1', 'D2', 20.00, 'EUR');
+        ExtensionHelper::chargebackReversedAtGateway('PayPal', 'CAP1', null, 20.00, 'EUR', 'D2');
+
+        $this->assertFalse(ExtensionHelper::chargebackAtGateway('PayPal', 'CAP1', 'REV-1', 50.00, 'EUR'));
+        $this->assertSame('0.00', (string) $invoice->transactions()->sole()->refunded_amount);
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+    }
+
+    /** F-GATEWAY-WEBHOOKS-2, the fix: a payment recorded under PayPal_IPN is still found by PayPal's refunds and chargebacks. */
+    public function test_ipn_only_payment_is_refunded_and_charged_back_by_ipn(): void
+    {
+        $gateway = Gateway::query()->create(['extension' => 'PayPal_IPN', 'name' => 'PayPal_IPN', 'type' => 'gateway', 'enabled' => true]);
+        foreach (['email' => 'biz@example.test', 'test_mode' => '1'] as $key => $value) {
+            $gateway->settings()->updateOrCreate(['key' => $key], ['value' => $value]);
+        }
+        Http::fake([self::IPN_VERIFY => Http::response('VERIFIED')]);
+        (new PayPal_IPN(['email' => 'biz@example.test', 'test_mode' => '1']))->boot();
+        $invoice = $this->invoice('50.00');
+        $ipn = fn (array $fields) => $this->call('POST', '/extensions/paypal_ipn/notify', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'],
+            http_build_query($fields + ['mc_currency' => 'EUR', 'receiver_email' => 'biz@example.test']))->assertOk();
+
+        $ipn(['payment_status' => 'Completed', 'txn_id' => 'TXN-P', 'item_number' => (string) $invoice->id, 'mc_gross' => '50.00']);
+        $payment = $invoice->transactions()->sole();
+        $this->assertSame($gateway->id, (int) $payment->gateway_id);
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+
+        $ipn(['payment_status' => 'Refunded', 'txn_id' => 'TXN-R', 'parent_txn_id' => 'TXN-P', 'mc_gross' => '-10.00']);
+        $this->assertSame('10.00', (string) $payment->fresh()->refunded_amount);
+        $ipn(['payment_status' => 'Reversed', 'txn_id' => 'TXN-CB', 'parent_txn_id' => 'TXN-P', 'mc_gross' => '-40.00']);
+        $this->assertSame('50.00', (string) $payment->fresh()->refunded_amount);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 }
