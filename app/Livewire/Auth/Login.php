@@ -144,6 +144,10 @@ class Login extends Component
             return;
         }
 
+        // The password was right: not counted towards the login's own limit, with 2FA too (its codes have their own,
+        // Totp::limitKey), or correct sign-ins of a 2FA login would lock it out (sweep AUTH-SECURITY-6).
+        RateLimiter::clear('login:' . $user->id . ':' . $ip);
+
         // Check 2FA
         if ($user->tfa_secret) {
             Session::put('2fa', [
@@ -154,8 +158,6 @@ class Login extends Component
 
             return $this->redirect(route('2fa'), true);
         }
-
-        RateLimiter::clear('login:' . $user->id . ':' . $ip);
 
         $loginAction->execute($user, $this->remember);
 
