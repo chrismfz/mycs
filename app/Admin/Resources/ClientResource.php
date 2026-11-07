@@ -8,6 +8,7 @@ use App\Admin\Resources\ClientResource\Pages\CreateClient;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\Pages\ListClients;
 use App\Admin\Resources\ClientResource\Pages\ShowBillingAgreements;
+use App\Admin\Resources\ClientResource\Pages\ShowChats;
 use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
 use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\ClientResource\Pages\ShowDomains;
@@ -16,6 +17,7 @@ use App\Admin\Resources\ClientResource\Pages\ShowInvoices;
 use App\Admin\Resources\ClientResource\Pages\ShowNotes;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
 use App\Admin\Resources\ClientResource\Pages\ShowTickets;
+use App\Admin\Resources\ClientResource\Pages\ViewChat;
 use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
@@ -313,6 +315,8 @@ class ClientResource extends Resource
             'credits' => ShowCredits::route('/{record}/credits'),
             'credit-history' => ShowCreditHistory::route('/{record}/credit-history'),
             'tickets' => ShowTickets::route('/{record}/tickets'),
+            'chats' => ShowChats::route('/{record}/chats'),
+            'chat' => ViewChat::route('/{record}/chats/{chat}'),
             'emails' => ShowEmails::route('/{record}/emails'),
             'billing-agreements' => ShowBillingAgreements::route('/{record}/billing-agreements'),
             'notes' => ShowNotes::route('/{record}/notes'),
@@ -330,6 +334,7 @@ class ClientResource extends Resource
             ShowCredits::class,
             ShowCreditHistory::class,
             ShowTickets::class,
+            ShowChats::class,
             ShowEmails::class,
             ShowBillingAgreements::class,
             ShowNotes::class,
