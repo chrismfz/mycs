@@ -21,6 +21,8 @@ use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Minishlink\WebPush\VAPID;
 use MyCS\Vies\VatCountry;
 
@@ -1695,23 +1697,35 @@ class Settings
     {
         $publicKey = config('settings.vapid_public_key');
         $privateKey = config('settings.vapid_private_key');
-        if ($publicKey && $privateKey && strlen($publicKey) > 80 && strlen($privateKey) > 40) {
+        if (self::validVapidPair($publicKey, $privateKey)) {
             return true;
         }
         try {
-            $vapid = VAPID::createVapidKeys();
-            Setting::updateOrCreate(
-                ['key' => 'vapid_public_key', 'encrypted' => true],
-                ['value' => $vapid['publicKey']]
-            );
-            Setting::updateOrCreate(
-                ['key' => 'vapid_private_key', 'encrypted' => true],
-                ['value' => $vapid['privateKey']]
-            );
+            // One pair, once: two first visits at the same time could otherwise store the public key of one pair and
+            // the private key of the other, which both look valid and are never made again (sweep SETTINGS-OPS-5).
+            // Under the lock, the stored pair is read again: the other visit may have just written it.
+            return Cache::lock('settings:vapid-keys', 30)->block(10, function () {
+                $stored = Setting::query()->whereNull('settingable_type')->whereIn('key', ['vapid_public_key', 'vapid_private_key'])
+                    ->get()->mapWithKeys(fn (Setting $setting) => [$setting->key => $setting->value]);
+                if (self::validVapidPair($stored['vapid_public_key'] ?? null, $stored['vapid_private_key'] ?? null)) {
+                    return true;
+                }
+                $vapid = VAPID::createVapidKeys();
+                DB::transaction(function () use ($vapid) {
+                    foreach (['vapid_public_key' => $vapid['publicKey'], 'vapid_private_key' => $vapid['privateKey']] as $key => $value) {
+                        Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => 'string', 'encrypted' => true]);
+                    }
+                });
 
-            return true;
+                return true;
+            });
         } catch (Exception $e) {
             return false;
         }
+    }
+
+    private static function validVapidPair(mixed $publicKey, mixed $privateKey): bool
+    {
+        return is_string($publicKey) && is_string($privateKey) && strlen($publicKey) > 80 && strlen($privateKey) > 40;
     }
 }
