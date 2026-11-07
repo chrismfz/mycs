@@ -71,7 +71,9 @@ final class EuVatRates
         }
         if ($implied !== null && $added !== [] && !$dryRun) {
             Setting::query()->updateOrCreate(['key' => 'tax_home_country', 'settingable_type' => null], ['value' => $implied, 'type' => 'string']);
-            SettingsProvider::reload();
+            // Read again here and in the queue workers (restarted): reload() is for tests, it cancels the workers'
+            // restart, and they kept no home country while there are now many rates (sweep SETTINGS-OPS-3).
+            SettingsProvider::flushCache();
             $this->keptHomeCountry = $implied;
         }
 
