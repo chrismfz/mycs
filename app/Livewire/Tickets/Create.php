@@ -4,8 +4,11 @@ namespace App\Livewire\Tickets;
 
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
+use App\Policies\TicketPolicy;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use App\Support\Knowledgebase\KbSearch;
 use App\Support\Tickets\TicketFiles;
@@ -34,6 +37,9 @@ class Create extends Component
 
     public function create()
     {
+        // Opening a ticket in «Login as client» takes the admin's own right to open one (SA-5, sweep AUTH-SECURITY-2).
+        abort_if(Actor::impersonating() && !TicketPolicy::impersonatorMay('admin.tickets.create'), 403);
+
         // Add rules for the department
         $this->validate([
             // One the customer is offered (not hidden), when there are any (docs/tickets.md §5).
@@ -66,8 +72,10 @@ class Create extends Component
             'priority' => $this->priority,
         ]);
 
+        // Opened by staff logged in as the client (AUTH-19): the staff member's words, never the customer's (as Show::save).
+        $actor = Actor::current();
         $message = $ticket->messages()->create([
-            'user_id' => Auth::id(),
+            ...($actor instanceof Staff ? ['staff_id' => $actor->id] : ['user_id' => Auth::id()]),
             'message' => $this->message,
         ]);
 

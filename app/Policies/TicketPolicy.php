@@ -5,6 +5,8 @@ namespace App\Policies;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\Actor;
+use Illuminate\Support\Facades\Auth;
 
 class TicketPolicy extends BasePolicy
 {
@@ -37,6 +39,12 @@ class TicketPolicy extends BasePolicy
      */
     public function update(User|Staff $user, Ticket $ticket): bool
     {
+        // Replying or closing in «Login as client» is acting on the ticket, where `tickets` there is only seeing it: the
+        // admin's own right to do the same (SA-5, sweep AUTH-SECURITY-2).
+        if ($user instanceof User && Actor::impersonating() && !self::impersonatorMay('admin.tickets.update')) {
+            return false;
+        }
+
         return $this->adminPermission($user, 'admin.tickets.update', $this->owns($user, $ticket->client_id, 'tickets'));
     }
 
@@ -54,5 +62,13 @@ class TicketPolicy extends BasePolicy
     public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.tickets.deleteAny');
+    }
+
+    /** Staff in «Login as client» hold this admin permission (false when not staff). */
+    public static function impersonatorMay(string $permission): bool
+    {
+        $staff = Auth::guard('staff')->user();
+
+        return $staff instanceof Staff && $staff->hasPermission($permission);
     }
 }
