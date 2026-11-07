@@ -403,7 +403,8 @@ class Stripe extends Gateway
                 // A charge with no payment intent (the Charges API: WHMCS's older module, another app on the account) is
                 // no payment of ours: `transaction_id = null` would find one staff entered with none (ADV-A4-3).
                 $paymentIntent = is_string($charge->payment_intent ?? null) ? $charge->payment_intent : '';
-                if ($paymentIntent === '' || ExtensionHelper::feePayment($paymentIntent, 'Stripe') === null) {
+                $payment = $paymentIntent === '' ? null : ExtensionHelper::feePayment($paymentIntent, 'Stripe');
+                if ($payment === null) {
                     break;
                 }
                 // Get fee from charge
@@ -412,7 +413,9 @@ class Stripe extends Gateway
                     $balanceTransaction = $this->request('get', '/balance_transactions/' . $charge->balance_transaction);
                     $fee = $balanceTransaction->fee / 100;
                 }
-                ExtensionHelper::addPaymentFee($paymentIntent, $fee, 'Stripe');
+                // The payment found above, once: no second lookup that a row changed meanwhile could miss (review of #694, F4).
+                $payment->fee = $fee;
+                $payment->save();
 
                 break;
             case 'refund.created':
@@ -424,7 +427,11 @@ class Stripe extends Gateway
                     break;
                 }
                 if (in_array($refund->status ?? null, ['succeeded', 'pending'], true)) {
-                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null);
+                    // WHMCS kept a refund it made by its balance transaction (txn_...): a late event of it is a replay (P1).
+                    $balanceTransaction = $refund->balance_transaction ?? null;
+                    $balanceTransaction = is_string($balanceTransaction) ? $balanceTransaction : (is_object($balanceTransaction) ? ($balanceTransaction->id ?? null) : null);
+                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null,
+                        is_string($balanceTransaction) ? $balanceTransaction : null);
                 } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
                     ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null);
                 }

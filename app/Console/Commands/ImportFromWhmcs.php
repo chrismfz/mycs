@@ -1674,7 +1674,7 @@ class ImportFromWhmcs extends Command
             if (($settings['visible'] ?? '') !== 'on' && !isset($used[$module])) {
                 continue;
             }
-            $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            $extension = self::extensionFor($module, preferred: true);
             if ($extension === null) {
                 $this->warn("Payment way «{$module}» («" . ($settings['name'] ?? '') . '»): MyCS has no gateway for it; its invoices and items keep none.');
 
@@ -1789,7 +1789,7 @@ class ImportFromWhmcs extends Command
         if (array_key_exists($module, $this->itemGateways)) {
             return $this->itemGateways[$module];
         }
-        $extension = self::GATEWAYS[$module] ?? self::PREFERRED_GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+        $extension = self::extensionFor($module, preferred: true);
         $id = $extension === null ? null : DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->whereNull('deleted_at')->value('id');
 
         return $this->itemGateways[$module] = $id === null ? null : (int) $id;
@@ -2613,7 +2613,7 @@ class ImportFromWhmcs extends Command
         foreach ($refunds as $refund) {
             $cents = WhmcsMassPay::cents($refund['amountout']);
             $payment = (int) ($refund['refundid'] ?? 0) > 0
-                ? DB::table('invoice_transactions')->where('id', (int) $refund['refundid'])->first(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount'])
+                ? DB::table('invoice_transactions')->where('id', (int) $refund['refundid'])->first(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount', 'transaction_id'])
                 : null;
             if ($payment === null) {
                 $this->refundsWithoutPayment[] = (int) $refund['id'];
@@ -2668,8 +2668,9 @@ class ImportFromWhmcs extends Command
                 $this->warn("Refund #{$refund['id']} gives back " . number_format($cents / 100, 2, '.', '') . " of payment #{$payment->id}, more than is left of it: "
                     . number_format(max(0, $take) / 100, 2, '.', '') . ' recorded. Check it by hand.');
             }
-            // The gateway's id of a cash refund (tblaccounts.transid, Stripe's re_...): its late event after the cut-over
-            // (a `refund.updated`) is then a replay, never booked a second time (ADV-A4-2).
+            // The gateway's id of a cash refund (tblaccounts.transid: PayPal's refund transaction, Stripe's balance
+            // transaction txn_..., which its event carries as balance_transaction): its late event after the cut-over (a
+            // `refund.updated`) is then a replay, never booked a second time (ADV-A4-2, review P1).
             if (!$credit) {
                 $this->keepGatewayRefund($refund, $payment, $cents, max(0, $take));
             }
@@ -2690,21 +2691,28 @@ class ImportFromWhmcs extends Command
     /** @var array<int, array{gateway: string, transid: string}>|null WHMCS refund rows (tblaccounts) and the gateway they went through */
     private ?array $refundGateways = null;
 
-    /** A WHMCS refund at a gateway MyCS has an extension for, kept by its id there: its late event is a replay (ADV-A4-2). */
+    /** @var array<int, string> invoice id => its currency, for the refunds' gateway rows */
+    private array $refundCurrencies = [];
+
+    /**
+     * A WHMCS refund at a gateway MyCS has an extension for, kept by its id there: its late event is a replay (ADV-A4-2).
+     * A refund WHMCS has no refundid for (an old version, typed by hand) is on no payment here, so it gets no row either.
+     */
     private function keepGatewayRefund(array $refund, object $payment, int $cents, int $recorded): void
     {
         $this->refundGateways ??= collect($this->sourceRows('SELECT id, gateway, transid FROM tblaccounts WHERE amountout > 0') ?? [])
             ->mapWithKeys(fn (array $row) => [(int) $row['id'] => ['gateway' => (string) ($row['gateway'] ?? ''), 'transid' => trim((string) ($row['transid'] ?? ''))]])->all();
         $row = $this->refundGateways[(int) $refund['id']] ?? null;
         $module = strtolower(trim($row['gateway'] ?? ''));
-        $gateway = self::GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+        $gateway = self::extensionFor($module);
         if ($gateway === null || $row['transid'] === '') {
             return;
         }
         // Once per id (WHMCS may write a refund's id twice): the first is the one recorded.
+        // The payment's id read with it, its invoice's currency once per invoice (review of #694, F9).
+        $currency = $this->refundCurrencies[(int) $payment->invoice_id] ??= (string) DB::table('invoices')->where('id', $payment->invoice_id)->value('currency_code');
         DB::table('gateway_refunds')->insertOrIgnore(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $row['transid'],
-            'payment_reference' => DB::table('invoice_transactions')->where('id', $payment->id)->value('transaction_id'), 'amount' => $cents / 100,
-            'currency_code' => (string) DB::table('invoices')->where('id', $payment->invoice_id)->value('currency_code'), 'recorded_amount' => $recorded / 100,
+            'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $currency, 'recorded_amount' => $recorded / 100,
             'origin' => GatewayRefund::ORIGIN_IMPORT, 'created_at' => $this->validateDate($refund['date']), 'updated_at' => now()]);
     }
 
@@ -2745,6 +2753,15 @@ class ImportFromWhmcs extends Command
         'cardlink' => 'Cardlink', 'cardlink_eurobank' => 'Cardlink', 'eurobank' => 'Cardlink',
     ];
 
+    /**
+     * The MyCS gateway extension of a WHMCS module (lower case): its payments' (GATEWAYS, any mollie*), and with $preferred
+     * also a way only a preference or a label names (PREFERRED_GATEWAYS). One place (review of #694, F6).
+     */
+    private static function extensionFor(string $module, bool $preferred = false): ?string
+    {
+        return self::GATEWAYS[$module] ?? ($preferred ? self::PREFERRED_GATEWAYS[$module] ?? null : null) ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+    }
+
     /** @var array<int, true>|null WHMCS payments with a refund row (tblaccounts.refundid) */
     private ?array $refundedPayments = null;
 
@@ -2776,7 +2793,7 @@ class ImportFromWhmcs extends Command
     {
         $module = strtolower(trim($module));
         if (!array_key_exists($module, $this->gatewayIds)) {
-            $extension = self::GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            $extension = self::extensionFor($module);
             $this->gatewayIds[$module] = $extension === null ? null : $this->installedGateway($extension);
         }
         if ($this->gatewayIds[$module] === null && $module !== '') {
