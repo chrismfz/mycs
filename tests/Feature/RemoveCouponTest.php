@@ -81,4 +81,25 @@ class RemoveCouponTest extends TestCase
         $this->assertSame(['10.00', '10.00'], [self::price($a), self::price($b)]);
         $this->assertSame([null, null], [$a->fresh()->coupon_id, $b->fresh()->coupon_id]);
     }
+
+    public function test_cleared_on_the_service_page_with_a_price_staff_send_keeps_their_price(): void
+    {
+        $service = $this->placed(Coupon::create(['code' => 'OWN', 'type' => 'percentage', 'applies_to' => 'all', 'value' => 50, 'recurring' => 3]));
+
+        $service->fresh()->applyStaffChanges(['coupon_id' => null, 'price' => '6.00']);
+
+        $this->assertNull($service->fresh()->coupon_id);
+        $this->assertSame('6.00', self::price($service));
+    }
+
+    public function test_cleared_on_the_service_page_a_first_cycle_coupon_keeps_the_price(): void
+    {
+        $service = $this->placed(Coupon::create(['code' => 'FIRST', 'type' => 'percentage', 'applies_to' => 'all', 'value' => 50, 'recurring' => 1]));
+        $before = self::price($service);
+
+        $service->fresh()->applyStaffChanges(['coupon_id' => null]);
+
+        $this->assertNull($service->fresh()->coupon_id);
+        $this->assertSame($before, self::price($service));
+    }
 }

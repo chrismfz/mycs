@@ -26,8 +26,7 @@ class RemoveCoupon
             if ($locked === null || $locked->coupon_id === null) {
                 return;
             }
-            $coupon = $locked->coupon;
-            if ($coupon !== null && $coupon->cycles() !== 1 && $locked->coupon_expired_at === null) {
+            if (self::discountInPrice($locked)) {
                 $locked->price = $locked->calculatePrice(applyCoupon: false);
             }
             $locked->coupon_id = null;
@@ -35,6 +34,17 @@ class RemoveCoupon
             $service->setRawAttributes($locked->getAttributes(), true);
             $service->unsetRelation('coupon');
         });
+    }
+
+    /**
+     * The service's coupon is still running and in its renewal price: taken off, the full price comes back. Also for
+     * staff clearing the Coupon on the service page or through the API (Service::applyStaffChanges, review REV-ADMIN-1).
+     */
+    public static function discountInPrice(Service $locked): bool
+    {
+        $coupon = $locked->coupon_id === null ? null : $locked->coupon;
+
+        return $coupon !== null && $coupon->cycles() !== 1 && $locked->coupon_expired_at === null;
     }
 
     /** Before the coupon is deleted: the foreign key would set coupon_id null with no model event, its discount kept. */
