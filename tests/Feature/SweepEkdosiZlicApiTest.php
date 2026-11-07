@@ -63,10 +63,10 @@ class SweepEkdosiZlicApiTest extends TestCase
         $this->assertSame('198.51.100.7', License::query()->sole()->valid_ip);
     }
 
-    /** @param array<string, mixed> $body */
-    private function bridge(array $body): TestResponse
+    /** @param array<string, mixed>|string $body the body, or its raw JSON (json_encode writes 7.0 as «7» under serialize_precision) */
+    private function bridge(array|string $body): TestResponse
     {
-        $raw = json_encode($body, JSON_THROW_ON_ERROR);
+        $raw = is_string($body) ? $body : json_encode($body, JSON_THROW_ON_ERROR);
 
         return $this->call('POST', '/api/ekdosi', [], [], [], $this->transformHeadersToServerVars([
             'X-Webhook-Signature' => 'sha256=' . hash_hmac('sha256', $raw, self::SECRET), 'Content-Type' => 'application/json']), $raw);
@@ -85,12 +85,18 @@ class SweepEkdosiZlicApiTest extends TestCase
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '100.00']);
         ExtensionHelper::addPayment($invoice->fresh(), 'BankTransfer', '100.00', transactionId: 'TX-1');
         // The id as a float of the same value (7.0 for 7): JSON keeps the «.0».
-        $float = json_decode('{"op":"mark","invoice_id":' . $invoice->id . '.0,"mark":"400001234567890"}', true);
-        $this->assertIsFloat($float['invoice_id']);
+        $float = '{"op":"mark","invoice_id":' . $invoice->id . '.0,"mark":"400001234567890"}';
+        $this->assertIsFloat(json_decode($float, true)['invoice_id']);
 
         $this->bridge($float)->assertStatus(400);
         $this->bridge(['op' => 'mark', 'invoice_id' => true, 'mark' => '400001234567891'])->assertStatus(400);
         $this->assertSame(0, EkdosiDocument::query()->count(), 'no MARK on an invoice the caller never named');
+        // invoice and resolve read the id the same way.
+        foreach (['invoice', 'resolve'] as $op) {
+            $this->bridge(['op' => $op, 'invoice_id' => true])->assertStatus(400);
+            $this->bridge('{"op":"' . $op . '","invoice_id":' . $invoice->id . '.0}')->assertStatus(400);
+            $this->bridge(['op' => $op, 'invoice_id' => (string) $invoice->id])->assertOk();
+        }
     }
 
     /**
