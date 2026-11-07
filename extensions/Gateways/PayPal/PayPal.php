@@ -12,11 +12,13 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Client;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGatewayEvent;
+use App\Models\PaymentGroup;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
@@ -586,8 +588,12 @@ class PayPal extends Gateway
         }
 
         // Captured here, on our server: never on an invoice a saved method's charge of unsettled outcome holds (it may be
-        // paid already: adversarial ADV-UNRES-2). Nothing is taken: the order is left uncaptured.
-        if (SavedMethodCharge::onItsWay($invoice)) {
+        // paid already: adversarial ADV-UNRES-2). Nothing is taken: the order is left uncaptured. A Mass Pay group's order
+        // (custom_id) pays every invoice of the group: a charge of any of them holds it, not only of its lead (PAYMENTS-2).
+        $custom = $order->purchase_units[0]->custom_id ?? null;
+        $group = is_string($custom) && $custom !== ''
+            ? PaymentGroup::query()->where('ulid', $custom)->where('client_id', $invoice->client_id)->first() : null;
+        if (SavedMethodCharge::onItsWay($invoice, $group)) {
             abort(409, 'A payment for this invoice is already on its way.');
         }
 
@@ -789,6 +795,8 @@ class PayPal extends Gateway
             // A subscription sale refunded (PR 2c-2). The total is negative in some payloads: its size is the refund.
             ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
                 abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
+        } elseif (in_array($body['event_type'], ['PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.DECLINED'], true) && isset($body['resource']['id'])) {
+            return $this->captureDenied((string) $body['resource']['id'], $body['event_type']);
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
             try {
@@ -821,6 +829,66 @@ class PayPal extends Gateway
         }
 
         return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * A PENDING capture of ours (recorded as processing: review, eCheck, a currency the account does not hold) that PayPal
+     * then denied or declined: no money came. The payment is failed, so the invoice is payable again (a processing payment
+     * holds it from every way of paying), and staff are told (PAYMENTS-1). The saved method's charge that made it (the
+     * cron's vault charge, answered PENDING) is settled as failed too: PayPal's signed answer for this very capture says no
+     * money came, and left «succeeded» with no payment it would read as taken and not recorded, holding the invoice
+     * (REV-PAYMENTS-1). Only our processing capture: a succeeded one is never undone here, and an id we have no processing
+     * record of is nothing to change.
+     */
+    private function captureDenied(string $captureId, string $event)
+    {
+        $payment = $captureId === '' ? null : InvoiceTransaction::query()->where('transaction_id', $captureId)
+            ->where('is_credit_transaction', false)->where('status', InvoiceTransactionStatus::Processing)
+            ->whereHas('gateway', fn ($gateway) => $gateway->where('extension', 'PayPal'))
+            ->orderBy('id')->first();
+        if ($payment === null) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'capture_not_processing', ['external_id' => $captureId ?: null]);
+
+            return response()->json(['status' => 'ignored']);
+        }
+        // Through RecordPaymentService, under its locks: a payment completed meanwhile stays succeeded (a replay there).
+        $failed = ExtensionHelper::addFailedPayment($payment->invoice_id, 'PayPal', $payment->amount, null, $captureId);
+        if ($failed instanceof InvoiceTransaction && $failed->status === InvoiceTransactionStatus::Failed) {
+            $message = sprintf('PayPal %s the pending capture %s on invoice #%d: no money came, and the payment is marked failed. The invoice can be paid again. If it was a saved method\'s charge, resolve that charge on the invoice\'s page.',
+                $event === 'PAYMENT.CAPTURE.DENIED' ? 'denied' : 'declined', $captureId, $payment->invoice_id);
+            $attempt = self::deniedChargeAttempt($payment);
+            if ($attempt !== null) {
+                $message .= sprintf(' The saved method\'s charge #%d that made it is marked failed.', $attempt);
+            }
+            PaymentsLog::warning($message, ['capture_id' => $captureId, 'invoice_id' => $payment->invoice_id, 'charge_attempt_id' => $attempt]);
+            NotificationHelper::sendSystemEmailNotification('PayPal capture denied', e($message));
+        }
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * The saved method's charge whose payment was the denied capture, settled as failed: the one «succeeded» attempt on its
+     * invoice, through its gateway, of at most its amount, sent by the day it was recorded, that no other payment records
+     * now (SavedMethodCharge::notRecorded). None or more than one such attempt is not known to be this capture's: left to
+     * staff (ResolveCharge). Only from «succeeded», so a charge staff settled meanwhile is kept. @return int|null its id
+     */
+    private static function deniedChargeAttempt(InvoiceTransaction $payment): ?int
+    {
+        $candidates = ChargeAttempt::query()->where('invoice_id', $payment->invoice_id)
+            ->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('amount', '<=', $payment->amount)
+            ->whereHas('billingAgreement', fn ($agreement) => $agreement->where('gateway_id', $payment->gateway_id))
+            ->get()
+            ->filter(fn (ChargeAttempt $attempt) => $attempt->sent_at->copy()->startOfDay()->lte($payment->created_at)
+                && !SavedMethodCharge::recordedSince($attempt));
+        if ($candidates->count() !== 1) {
+            return null;
+        }
+        $attempt = $candidates->sole();
+        $updated = ChargeAttempt::query()->whereKey($attempt->id)->where('status', ChargeAttempt::STATUS_SUCCEEDED)
+            ->update(['status' => ChargeAttempt::STATUS_FAILED, 'error' => mb_substr('PayPal denied the capture ' . $payment->transaction_id, 0, 250)]);
+
+        return $updated === 1 ? (int) $attempt->id : null;
     }
 
     /** A subscription that bills no more: cancelled (by the customer, in PayPal), expired, suspended (failed payments). */

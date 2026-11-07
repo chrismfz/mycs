@@ -8,6 +8,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
+use App\Policies\TicketPolicy;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use App\Support\Knowledgebase\KbSearch;
@@ -37,6 +38,9 @@ class Create extends Component
 
     public function create()
     {
+        // Opening a ticket in «Login as client» takes the admin's own right to open one (SA-5, sweep AUTH-SECURITY-2).
+        abort_if(Actor::impersonating() && !TicketPolicy::impersonatorMay('admin.tickets.create'), 403);
+
         // Add rules for the department
         $this->validate([
             // One the customer is offered (not hidden), when there are any (docs/tickets.md §5).

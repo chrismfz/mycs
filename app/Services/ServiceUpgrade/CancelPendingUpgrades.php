@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * A pending upgrade given up on: its service ended (audit sweep SVC-6, as WHMCS), or its period passed unpaid (BIL-11).
+ * On an end, also the open invoices of its completed upgrades (UPGRADES-3).
  *
  * Locks: service, upgrade, then customer and invoice (docs/money-trail.md §2, the order ServiceUpgradeService takes),
  * and the decision is made under them: a payment that lands meanwhile is either seen (paid: left to
@@ -28,7 +29,32 @@ class CancelPendingUpgrades
             $left += self::one((int) $id, $reason)[1];
         }
 
-        return $left;
+        return $left + self::shortfalls($service, $reason);
+    }
+
+    /**
+     * The open invoices of its completed upgrades (billShortfall: the rest an upgrade owed after a renewal paid before
+     * it): they name the upgrade, not the service, so the service's own invoices never held them, and they outlived the
+     * service it ended (sweep UPGRADES-3). They go as its own do on an end, «keep overdue invoices» included.
+     *
+     * @return array<string, \Throwable>
+     */
+    private static function shortfalls(Service $service, string $reason): array
+    {
+        return DB::transaction(function () use ($service, $reason) {
+            Service::query()->whereKey($service->getKey())->lockForUpdate()->first();
+            $left = [];
+            foreach (ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_COMPLETED)->orderBy('id')->get() as $upgrade) {
+                $open = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                    ->whereHas('items', fn ($line) => $line->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id))
+                    ->orderBy('id')->get();
+                if ($open->isNotEmpty()) {
+                    $left += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($open), $reason, $upgrade);
+                }
+            }
+
+            return $left;
+        });
     }
 
     /** @return array{0: bool, 1: array<string, \Throwable>} whether it was cancelled, and what was left open */

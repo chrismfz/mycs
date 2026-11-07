@@ -228,24 +228,32 @@ class CronJob extends Command
     }
 
     /**
-     * A daily run started today: its start (STARTED), its reaching the suspensions (DUNNING_READY) or its end
-     * (last_cron_run) is of today, whatever the daily time is now (staff may move it later: ADV-624-3). An unreadable or
+     * A daily run started today: its start (STARTED) is of today (with none recorded, its reaching the suspensions,
+     * DUNNING_READY, or its end, last_cron_run), whatever the daily time is now (staff may move it later: ADV-624-3). An unreadable or
      * future time counts as none.
      *
      * @phpstan-impure it reads the database: a run may have started since the last call
      */
     private static function startedToday(): bool
     {
-        return Setting::query()->whereIn('key', [self::STARTED, self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)
-            ->pluck('value')->contains(function ($value) {
-                try {
-                    $at = Carbon::parse((string) $value);
-                } catch (Throwable) {
-                    return false;
-                }
+        $times = Setting::query()->whereIn('key', [self::STARTED, self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)
+            ->pluck('value', 'key');
+        // Every run writes its start first: once one has, the start alone says it. The end of a run that started before
+        // midnight (last_cron_run, DUNNING_READY of today) is not today's start (sweep CRON-BILLING-2); they count only
+        // for runs from before STARTED was written.
+        if ($times->has(self::STARTED)) {
+            $times = $times->only([self::STARTED]);
+        }
 
-                return $at->isToday() && $at->lte(Carbon::now());
-            });
+        return $times->contains(function ($value) {
+            try {
+                $at = Carbon::parse((string) $value);
+            } catch (Throwable) {
+                return false;
+            }
+
+            return $at->isToday() && $at->lte(Carbon::now());
+        });
     }
 
     /**
@@ -892,14 +900,15 @@ class CronJob extends Command
         }
         // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
         // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
-        // and a service past due with no open invoice is reported instead. Never while a payment is on its
+        // and a service past due with no open invoice (billing it: a charge alone is not one, #507, as
+        // Service::stillOverdue reads it, sweep CRON-BILLING-1) is reported instead. Never while a payment is on its
         // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
         // hold that just committed).
         $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
         if ($requiresInvoice) {
-            $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
+            $notices = $this->suspendable()->whereDoesntHave('renewalInvoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
             foreach ($notices as $id) {
-                $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
+                $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice (an open charge alone is not one): not suspended (bill it, or set its due date).");
             }
         }
         // Parents before addons, whatever their ids: an addon follows its parent's suspension (AddonCascade) rather
@@ -992,7 +1001,7 @@ class CronJob extends Command
         // «Suspend only with an overdue invoice»: also its first open invoice's day, as suspendable() counts it
         // (ADV-HOLD-R2-1).
         if ($requiresInvoice) {
-            $invoiceDay = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+            $invoiceDay = $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
                 ->map(fn (Invoice $invoice) => Carbon::parse($invoice->due_at ?? $invoice->created_at)->max(Carbon::parse($invoice->created_at))
                     ->startOfDay()->addDays($days + 1))
                 ->min();
