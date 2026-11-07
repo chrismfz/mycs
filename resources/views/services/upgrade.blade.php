@@ -104,19 +104,20 @@
             <div class="col-span-2 flex flex-col gap-4">
                 @foreach ($upgradeProduct->upgradableConfigOptions as $configOption)
                 @php
-                    $showPriceTag = $configOption->children->filter(fn ($value) => !$value->price(billing_period: $service->plan->billing_period, billing_unit: $service->plan->billing_unit)->is_free)->count() > 0;
+                    $values = $this->choosableValues($configOption);
+                    $showPriceTag = $values->filter(fn ($value) => !$value->price(billing_period: $service->plan->billing_period, billing_unit: $service->plan->billing_unit)->is_free)->count() > 0;
                 @endphp
-                <x-form.configoption :config="$configOption" :name="'configOptions.' . $configOption->id" :showPriceTag="$showPriceTag" :plan="$service->plan">
+                <x-form.configoption :config="$configOption" :name="'configOptions.' . $configOption->id" :showPriceTag="$showPriceTag" :plan="$service->plan" :values="$values">
                     {{-- If the config option is a select, show the options --}}
                     @if ($configOption->type == 'select')
-                        @foreach ($configOption->children as $configOptionValue)
+                        @foreach ($values as $configOptionValue)
                             <option value="{{ $configOptionValue->id }}">
                                 {{ $configOptionValue->name }}
                                 {{ ($showPriceTag && $configOptionValue->price(billing_period: $service->billing_period, billing_unit: $service->billing_unit)->available) ? ' - ' . $configOptionValue->price(billing_period: $service->billing_period, billing_unit: $service->billing_unit) : '' }}
                             </option>
                         @endforeach
                     @elseif($configOption->type == 'radio')
-                        @foreach ($configOption->children as $configOptionValue)
+                        @foreach ($values as $configOptionValue)
                             <div class="flex items-center gap-2">
                                 <input type="radio" id="{{ $configOptionValue->id }}" name="{{ $configOption->id }}"
                                     wire:model.live="configOptions.{{ $configOption->id }}"

@@ -44,9 +44,7 @@ final class TicketMailer
             // subject, their name), only our words (no spam relayed by us, signed as ours).
             // Their way to the ticket (PR Γ): a new link in every mail, to this address only.
             $data = ['ticketMessage' => $message, 'ticket_url' => GuestLinks::issue($ticket)];
-            if ($ticket->sender_vouched === false) {
-                $data['ticket'] = ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')];
-            }
+            $data += $this->unvouched($ticket);
             NotificationHelper::guestTicketNotification($ticket, 'guest_ticket_message', $data, $id);
 
             return;
@@ -70,9 +68,7 @@ final class TicketMailer
             }
             $id = $this->newId($ticket, $message, TicketMailId::REPLY, $email);
             $data = ['ticketMessage' => $message];
-            if ($ticket->sender_vouched === false) {
-                $data['ticket'] = ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')];
-            }
+            $data += $this->unvouched($ticket);
             NotificationHelper::guestTicketNotification($ticket, 'ticket_cc_message', $data, $id, $email);
         }
     }
@@ -89,7 +85,7 @@ final class TicketMailer
         $id = $this->newId($ticket, null, TicketMailId::RECEIVED, $to);
         // A guest's link only to the ticket's own address; an account's ticket is seen in the client area.
         $url = $ticket->isGuest() && strcasecmp($to, (string) $ticket->guest_email) === 0 ? GuestLinks::issue($ticket) : route('tickets.show', $ticket);
-        NotificationHelper::guestTicketNotification($ticket, 'ticket_received', ['ticket_url' => $url], $id, $to);
+        NotificationHelper::guestTicketNotification($ticket, 'ticket_received', ['ticket_url' => $url] + $this->unvouched($ticket), $id, $to);
     }
 
     /** A new link to a guest's ticket, to its own address (an expired link asked for again, PR Γ). */
@@ -99,7 +95,20 @@ final class TicketMailer
             return;
         }
         $id = $this->newId($ticket, null, TicketMailId::RECEIVED, (string) $ticket->guest_email);
-        NotificationHelper::guestTicketNotification($ticket, 'ticket_link', ['ticket_url' => GuestLinks::issue($ticket)], $id);
+        NotificationHelper::guestTicketNotification($ticket, 'ticket_link', ['ticket_url' => GuestLinks::issue($ticket)] + $this->unvouched($ticket), $id);
+    }
+
+    /**
+     * For a ticket whose address our server did not vouch for (a form, a forged From): the ticket as its mails show it,
+     * our words only, never what the sender typed (their subject, their name), whatever the template names.
+     *
+     * @return array<string, mixed>
+     */
+    private function unvouched(Ticket $ticket): array
+    {
+        return $ticket->sender_vouched === false
+            ? ['ticket' => ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')]]
+            : [];
     }
 
     /**

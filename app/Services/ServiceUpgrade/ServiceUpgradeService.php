@@ -137,8 +137,10 @@ class ServiceUpgradeService
             // Options only: the price it had and the options' difference (a staff price stays). Another product or
             // plan: its catalog price for the next renewal.
             $service->price = $optionsOnly ? $newPrice : $service->calculatePrice();
-            if ($fromCatalog) {
-                $service->price_locked = false; // the catalog's now, not staff's (code review 3 of #551)
+            if (!$optionsOnly || $fromCatalog) {
+                // The catalog's now, not staff's (code review 3 of #551): also on another product or plan, priced by
+                // the catalog, or the group's later prices would skip it (sweep UPGRADES-5).
+                $service->price_locked = false;
             }
             $service->save();
             $serviceUpgrade->forceFill($before + ['to_price' => number_format((float) $service->price, 2, '.', ''), 'applied_at' => Carbon::now()])->save();

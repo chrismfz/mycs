@@ -33,7 +33,7 @@ final class DomainRenewalYears
 
     private const CHANGEABLE = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
 
-    /** @return list<int> the periods it may renew for: its TLD's renew prices in its currency, 1 to 10 years */
+    /** @return list<int> the periods it may renew for: its TLD's renew prices in its currency, 1 to 10 years, in its registrar's steps */
     public static function options(Domain $domain): array
     {
         $tld = $domain->domainTld?->loadMissing('prices');
@@ -41,8 +41,12 @@ final class DomainRenewalYears
             return [];
         }
 
-        // Offered only: never a year at 0.00 WHMCS never sold, renewed free (ADV-A5-1).
-        return $tld->offeredYears('renew', (string) $domain->currency_code)->filter(fn (int $y) => $y >= 1 && $y <= 10)->sort()->values()->all();
+        // Offered only: never a year at 0.00 WHMCS never sold, renewed free (ADV-A5-1). Only in its registrar's renewal
+        // steps (sweep DOMAINS-3: an odd .gr period is never billed, RenewalBilling refuses it).
+        $step = $domain->renewYearStep();
+
+        return $tld->offeredYears('renew', (string) $domain->currency_code)
+            ->filter(fn (int $y) => $y >= 1 && $y <= 10 && $y % $step === 0)->sort()->values()->all();
     }
 
     /**
