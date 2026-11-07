@@ -82,6 +82,12 @@ credentials. Το import της ημέρας τα φέρνει όλα:
      και παίρνουμε ξανά dump.
   2. Αν το import αρνηθεί («WHMCS Mass Pay invoice(s) in «Payment Pending»»): το ίδιο, και ξανά import. Τίποτα δεν έχει
      αδειάσει.
+- **Ποσότητα > 1 (sweep IMPORT-1, `sweeps/2026-11-07.md`): καμία πριν από το τελικό dump, αλλιώς έλεγχος.** Ο importer
+  γράφει τιμή = `amount` (addon: `recurring`) και ποσότητα = `qty`, και η ανανέωση χρεώνει το γινόμενο. Αν στο WHMCS το
+  `amount` είναι ήδη το σύνολο, κάθε ανανέωση χρεώνει `qty` φορές. Έλεγχος 2026-11-06: καμία σε καμία εταιρεία.
+  Ακριβώς πριν από το dump: `SELECT COUNT(*) FROM tblhosting WHERE qty > 1 AND domainstatus IN ('Active','Suspended')` και
+  `SELECT COUNT(*) FROM tblhostingaddons WHERE qty > 1 AND status IN ('Active','Suspended')` = 0. Αν βγει κάποιο, συγκρίνουμε
+  ένα με την τελευταία γραμμή ανανέωσής του (`tblinvoiceitems.amount`) πριν από το import.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**
