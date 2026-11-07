@@ -53,7 +53,7 @@ class EkdosiBridgeController extends Controller
             return response()->json(['error' => 'bad_request', 'message' => 'Body must be JSON.'], 400);
         }
 
-        $id = fn () => (int) (filter_var($body['invoice_id'] ?? null, FILTER_VALIDATE_INT) ?: 0);
+        $id = fn () => (int) EkdosiPayments::invoiceId($body['invoice_id'] ?? null);
         try {
             switch ($body['op'] ?? null) {
                 case 'ping':
