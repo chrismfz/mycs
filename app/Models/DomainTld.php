@@ -109,13 +109,15 @@ class DomainTld extends Model implements Auditable
         $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)
             ->filter(fn (DomainTldPrice $row) => $row->isOffered())->pluck('years')->map(fn ($y) => (int) $y)->unique()->values();
 
-        $step = $operation === 'register' ? $this->renewYearStep() : 1;
+        $step = $operation === 'renew' ? $this->renewYearStep() : 1;
 
         return match ($operation) {
             // Only in its registrar's renewal steps (sweep DOMAINS-2: the .gr registry registers 2, 4… years and refuses
-            // an odd period, so a 1-year .gr price is never sold as a paid order only staff can fulfil).
-            'register' => $years->intersect($this->offeredYears('renew', $currency))
-                ->filter(fn (int $y) => $y % $step === 0)->values(),
+            // an odd period, so a 1-year .gr price is never sold as a paid order only staff can fulfil). A renewal too
+            // (review of the sweep, REV-DOMAINS-1/2): a transfer's period, a renewal in grace and every other path that
+            // picks from the renew years then never lands on a period RenewalBilling refuses («steps of 2, not 1»).
+            'register' => $years->intersect($this->offeredYears('renew', $currency))->values(),
+            'renew' => $years->filter(fn (int $y) => $y % $step === 0)->values(),
             'transfer' => $this->offeredYears('renew', $currency)->isEmpty() ? collect() : $years,
             default => $years,
         };
