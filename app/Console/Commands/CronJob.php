@@ -755,16 +755,27 @@ class CronJob extends Command
                 }
                 // Answered by us and silent since: WHMCS «Close Inactive Tickets». By id, not by offset: closing takes
                 // a ticket out of the set, and an offset would then skip as many of the next page.
-                Ticket::where('status', Ticket::STATUS_ANSWERED)->lazyById()->each(function (Ticket $ticket) use (&$number, $days) {
-                    $lastReply = $ticket->publicMessages()->max('created_at'); // a note to ourselves is no reply
-                    if ($lastReply !== null && Carbon::parse($lastReply)->lt(now()->subDays($days))) {
+                // Each ticket in a short transaction of its own, read again under its lock (sweep 2, F-SUPPORT-1): a
+                // customer's reply that came in since the list was read keeps it open, never closed under it.
+                Ticket::where('status', Ticket::STATUS_ANSWERED)->lazyById()->each(function (Ticket $listed) use (&$number, $days) {
+                    $closed = DB::transaction(function () use ($listed, $days) {
+                        $ticket = Ticket::query()->whereKey($listed->id)->lockForUpdate()->first();
+                        if ($ticket === null || $ticket->status !== Ticket::STATUS_ANSWERED) {
+                            return false;
+                        }
+                        $lastReply = $ticket->publicMessages()->max('created_at'); // a note to ourselves is no reply
+                        if ($lastReply === null || !Carbon::parse($lastReply)->lt(now()->subDays($days))) {
+                            return false;
+                        }
                         $ticket->update(['status' => Ticket::STATUS_CLOSED]);
-                        $number++;
-                    }
+
+                        return true;
+                    });
+                    $number += $closed ? 1 : 0;
                 });
 
                 return $number;
-            });
+            }, transaction: false);
 
             // MCP proposals not decided within their day expire; decided ones are kept 90 days (docs/mcp.md).
             $this->runCronJob('mcp_proposals_expired', fn () => Proposals::expire()
