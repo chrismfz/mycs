@@ -80,13 +80,19 @@ final class MycsLicenseRepository implements LicenseRepository
         LicenseRow::query()->whereKey($license->id)->update(['last_access' => Carbon::createFromTimestamp($now)]);
     }
 
-    /** As WhmcsLicenseRepository::bind: only a license still unbound or Reissued, and never over staff's suspend. */
+    /**
+     * As WhmcsLicenseRepository::bind: only a license still unbound or Reissued, and never over staff's suspend.
+     * «Unbound» as License::validIps() reads it (PHP's trim): commas, spaces, tabs and line breaks only. SQL's TRIM
+     * strips spaces alone, so a Valid IPs left as a newline would count as bound here and never bind (EKDOSI-ZLIC-API-1).
+     */
     public function bind(License $license, $now)
     {
+        $blank = "TRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(valid_ip, ',', ''), ?, ''), ?, ''), ?, ''), ?, '')) = ''";
+
         return LicenseRow::query()->whereKey($license->id)
             ->whereIn('status', [LicenseRow::STATUS_ACTIVE, LicenseRow::STATUS_REISSUED])
             ->where(fn ($query) => $query->where('status', LicenseRow::STATUS_REISSUED)
-                ->orWhereNull('valid_ip')->orWhereRaw("TRIM(REPLACE(valid_ip, ',', '')) = ''"))
+                ->orWhereNull('valid_ip')->orWhereRaw($blank, ["\n", "\r", "\t", "\x0B"]))
             ->update([
                 'valid_domain' => $license->validDomain,
                 'valid_ip' => $license->validIp,

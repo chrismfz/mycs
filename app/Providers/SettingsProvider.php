@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Classes\Settings;
+use App\Events\Service\RenewalTaxChanged;
 use App\Models\Setting;
 use App\Support\BootFailure;
 use Exception;
@@ -29,6 +30,7 @@ class SettingsProvider extends ServiceProvider
         // Settings::tax() per country: reset for every request and every queued job (scoped), so a rate changed
         // meanwhile is seen.
         $this->app->scoped('settings.tax-rates', fn () => new \ArrayObject);
+        $this->app->scoped(RenewalTaxChanged::EVERY_DUE, fn () => new \ArrayObject);
     }
 
     /**

@@ -150,7 +150,7 @@ class Upgrade extends Component
             return [
                 $option->id => $currentConfigOptions[$option->id]
                     ?? $this->configOptions[$option->id]
-                    ?? $option->children->first()?->id,
+                    ?? $this->choosableValues($option)->first()?->id,
             ];
         })->toArray();
 
@@ -179,7 +179,7 @@ class Upgrade extends Component
             } else {
                 $rules["configOptions.{$option->id}"] = [
                     'required',
-                    Rule::in($option->children->pluck('id')->toArray()),
+                    Rule::in($this->choosableValues($option)->pluck('id')->toArray()),
                 ];
             }
         }
@@ -233,6 +233,8 @@ class Upgrade extends Component
                 return $this->notify(__('You have not changed anything. Please select a different product or change the configuration options.'), 'error');
             case PlaceUpgrade::NEEDS_STAFF:
                 return $this->notify(__('This change needs our staff: please contact us.'), 'error');
+            case PlaceUpgrade::OUT_OF_STOCK:
+                return $this->notify(__('product.out_of_stock', ['product' => $this->upgradeProduct->name]), 'error');
             case PlaceUpgrade::NOT_NOW:
                 return $this->notify(__('This service cannot be upgraded right now.'), 'error');
             case PlaceUpgrade::APPLIED:
@@ -283,10 +285,23 @@ class Upgrade extends Component
         }
         if ($option->type === 'checkbox') {
             return in_array($given, [true, 1, '1', 'true'], true) || $option->children->contains('id', (int) $given)
-                ? $option->children->first()?->id
+                ? $this->choosableValues($option)->first()?->id // not a hidden value the service does not hold (REV-CP-1)
                 : null;
         }
 
-        return $option->children->contains('id', (int) $given) ? (int) $given : null;
+        return $this->choosableValues($option)->contains('id', (int) $given) ? (int) $given : null;
+    }
+
+    /**
+     * The values an upgrade may move an option to: those a new order may choose, and the one the service has (a hidden
+     * value, WHMCS's «Hide», is kept but never newly taken: CLIENT-PORTAL-4).
+     *
+     * @return Collection<int, ConfigOption>
+     */
+    public function choosableValues(ConfigOption $option): Collection
+    {
+        $held = (int) $this->service->configs->firstWhere('config_option_id', $option->id)?->config_value_id;
+
+        return $option->children->filter(fn (ConfigOption $value) => !$value->getAttribute('hidden') || (int) $value->id === $held)->values()->toBase();
     }
 }

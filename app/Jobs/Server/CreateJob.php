@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\CreateRunning;
 use App\Exceptions\CreateSkipped;
 use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
@@ -27,6 +28,9 @@ class CreateJob implements ShouldQueue
 
     public $timeout = 120;
 
+    /** How long createServer's lock lives (ExtensionHelper::createServer). */
+    public const CREATE_LOCK_SECONDS = 600;
+
     /**
      * Create a new job instance.
      */
@@ -50,8 +54,16 @@ class CreateJob implements ShouldQueue
         } catch (NothingToDoOnServer) {
             // No module to make an account on (its server detached since the payment): nothing to wait for.
             ExtensionHelper::startCreated($service);
+        } catch (CreateRunning) {
+            // Its lock is held: another create of it runs (that one sends what is due), or an attempt killed by the
+            // worker's timeout left it behind (no finally ran). Tried again once the lock has surely gone: read pending
+            // then, it is made; started meanwhile, nothing to do. Never ended as done here, or a killed create leaves the
+            // service pending for ever with nobody told (sweep PROVISIONING-2); out of tries, failed() gives it to staff.
+            $this->release(self::CREATE_LOCK_SECONDS);
+
+            return;
         } catch (CreateSkipped) {
-            return; // another create of it is running, or it moved on: that one sends what is due
+            return; // it moved on (no longer pending): whoever moved it sends what is due
         }
 
         // Ended while the account was being made (an immediate cancellation saw it pending and queued no terminate):

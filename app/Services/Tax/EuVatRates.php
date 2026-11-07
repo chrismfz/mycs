@@ -11,6 +11,7 @@ use App\Providers\SettingsProvider;
 use App\Services\Chat\ChatCard;
 use App\Services\Chat\ChatNotifier;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use MyCS\EuVatRates\Rate;
@@ -51,6 +52,13 @@ final class EuVatRates
      */
     public function seed(bool $dryRun = false): array
     {
+        // One transaction: the subscriptions are repriced once, on its commit, not once per rate (review REV-TAX-REPORTS-1).
+        return DB::transaction(fn () => $this->seedRates($dryRun));
+    }
+
+    /** @return array<string, string> */
+    private function seedRates(bool $dryRun): array
+    {
         // The company's country found as the only rate's (Settings::homeCountry, #524) is lost once there are more: kept
         // as Company country, so an account without a country pays what it did, never 0% (adversarial ADV-525-1).
         $implied = Settings::configuredHomeCountry() === null ? Settings::onlyRateCountry() : null;
@@ -62,7 +70,8 @@ final class EuVatRates
             }
             if (!$dryRun) {
                 try {
-                    TaxRate::query()->create(['name' => 'VAT ' . (config('app.countries')[$iso] ?? $iso), 'rate' => $rate, 'country' => $iso]);
+                    // A savepoint: a row written meanwhile undoes only itself, not the rates before it.
+                    DB::transaction(fn () => TaxRate::query()->create(['name' => 'VAT ' . (config('app.countries')[$iso] ?? $iso), 'rate' => $rate, 'country' => $iso]));
                 } catch (UniqueConstraintViolationException) {
                     continue; // written meanwhile (staff, another run): theirs stays
                 }
@@ -88,6 +97,13 @@ final class EuVatRates
      * @return array{updated: array<string, array{from: string, to: string}>, kept: array<string, array{ours: string, list: string}>}
      */
     public function updateImported(bool $dryRun = false): array
+    {
+        // One transaction, as seed(): the subscriptions are repriced once on its commit (review REV-TAX-REPORTS-1).
+        return DB::transaction(fn () => $this->updateImportedRates($dryRun));
+    }
+
+    /** @return array{updated: array<string, array{from: string, to: string}>, kept: array<string, array{ours: string, list: string}>} */
+    private function updateImportedRates(bool $dryRun): array
     {
         $updated = [];
         $kept = [];

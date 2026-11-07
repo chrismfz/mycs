@@ -29,7 +29,7 @@ final class EkdosiDocuments
      */
     public function record(array $body): array
     {
-        $invoiceId = filter_var($body['invoice_id'] ?? $body['whmcs_invoice_id'] ?? null, FILTER_VALIDATE_INT);
+        $invoiceId = EkdosiPayments::invoiceId($body['invoice_id'] ?? $body['whmcs_invoice_id'] ?? null);
         // AADE's MARK is a number: «0400…» is «400…», never a second one (ADV-5); «0» is none.
         // A string or a number only: «true» is no MARK «1» (R2-7).
         $sent = $body['mark'] ?? null;

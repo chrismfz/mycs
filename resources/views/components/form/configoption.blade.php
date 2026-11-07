@@ -10,7 +10,7 @@
 
         @case('slider')
             <div x-data="{
-                options: @js($config->children->map(fn($child) => ['option' => $child->name, 'value' => $child->id, 'price' => ($showPriceTag && $child->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? (string)$child->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : ''])),
+                options: @js(($values ?? $config->children)->map(fn($child) => ['option' => $child->name, 'value' => $child->id, 'price' => ($showPriceTag && $child->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? (string)$child->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : ''])),
                 showPriceTag: @js($showPriceTag),
                 selectedOption: 0,
                 backendOption: $wire.entangle('{{ $name }}').live,
@@ -58,7 +58,7 @@
                 </div>
                 <!-- Options -->
                 <ul class="flex justify-between text-xs font-medium text-light px-2.5">
-                    @foreach($config->children as $child)
+                    @foreach(($values ?? $config->children) as $child)
                         <li class="relative @if($showPriceTag) pb-7 @else pb-2 @endif">
                             <button @click="setOptionValue({{ $loop->index }})" class="absolute flex flex-col items-center -translate-x-1/2">
                                 <span class="text-sm font-semibold">
@@ -89,7 +89,8 @@
         @break
 
         @case('checkbox')
-            <x-form.checkbox name="{{ $name }}" type="checkbox" :label="__($config->label ?? $config->name) . (($showPriceTag && $config->children->first()->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? ' - ' . $config->children->first()->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : '')"
+            @php($checkboxValue = ($values ?? $config->children)->first())
+            <x-form.checkbox name="{{ $name }}" type="checkbox" :label="__($config->label ?? $config->name) . (($showPriceTag && $checkboxValue?->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit)->available) ? ' - ' . $checkboxValue->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit) : '')"
                 :required="$config->required ?? false" wire:model.live="{{ $name }}" />
         @break
 

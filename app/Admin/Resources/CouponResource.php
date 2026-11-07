@@ -23,6 +23,7 @@ use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 class CouponResource extends Resource
 {
@@ -113,8 +114,11 @@ class CouponResource extends Resource
                 DatePicker::make('starts_at')
                     ->label('Starts At'),
 
+                // A date: the coupon is valid all that day (as the WHMCS import reads it, endOfDay), not until its
+                // 00:00. Saving an imported coupon keeps its 23:59:59 instead of cutting the last day off.
                 DatePicker::make('expires_at')
-                    ->label('Expires At'),
+                    ->label('Expires At')
+                    ->dehydrateStateUsing(fn ($state) => filled($state) ? Carbon::parse($state)->endOfDay()->format('Y-m-d H:i:s') : null),
 
                 Select::make('products')
                     ->label('Products')
@@ -179,7 +183,7 @@ class CouponResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()->modalDescription('Services still on a running coupon get their full price back: they renew at it from their next invoice.'),
                 ]),
             ]);
     }

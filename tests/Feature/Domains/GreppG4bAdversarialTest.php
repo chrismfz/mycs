@@ -178,23 +178,26 @@ class GreppG4bAdversarialTest extends TestCase
         $this->assertSame([InvoiceItem::KIND_REGISTER, '24.00'], [$line->kind, $line->price]);
     }
 
-    /** A2 (held): the shortest period is per currency: USD priced for one year is shown and carted for one. */
+    /**
+     * A2 (held): the shortest period is per currency: USD renewed for four years only is shown and carted for four.
+     * (Was one year in USD: an odd .gr period the registry refuses, never sold since sweep DOMAINS-2.)
+     */
     public function test_a2_a_currency_with_another_shortest_period(): void
     {
         Currency::query()->firstOrCreate(['code' => 'USD'], ['name' => 'Dollar', 'prefix' => '$', 'format' => '1,000.00']);
-        $this->price($this->tld, 'register', 1, '15.00', 'USD');
         $this->price($this->tld, 'register', 2, '28.00', 'USD');
-        $this->price($this->tld, 'renew', 1, '15.00', 'USD'); // a registration is sold for years it renews for
+        $this->price($this->tld, 'register', 4, '54.00', 'USD');
+        $this->price($this->tld, 'renew', 4, '54.00', 'USD'); // a registration is sold for years it renews for
         $this->cached('free-example.gr', DomainSearch::FREE);
 
         $usd = collect(app(DomainSearch::class)->search('free-example.gr', 'USD'))->firstWhere('fqdn', 'free-example.gr');
         $eur = collect(app(DomainSearch::class)->search('free-example.gr', 'EUR'))->firstWhere('fqdn', 'free-example.gr');
-        $this->assertSame([1, '15.00'], [$usd['years'], $usd['price']]);
+        $this->assertSame([4, '54.00'], [$usd['years'], $usd['price']]);
         $this->assertSame([2, '24.00'], [$eur['years'], $eur['price']]);
 
         session(['currency' => 'USD']);
         ClassesCart::addDomain('free-example.gr', 'register');
-        $this->assertSame(1, \App\Models\Cart::query()->sole()->items()->sole()->domain['years']);
+        $this->assertSame(4, \App\Models\Cart::query()->sole()->items()->sole()->domain['years']);
     }
 
     /** A3 (held): a TLD priced only for four years is shown and carted for four, at that price. */

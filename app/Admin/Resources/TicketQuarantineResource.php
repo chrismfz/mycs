@@ -94,7 +94,9 @@ class TicketQuarantineResource extends Resource
                         ->authorize(fn (TicketQuarantine $record) => self::staff()->can('update', $record) && self::staff()->hasPermission('admin.tickets.update'))
                         ->schema([
                             Select::make('ticket_id')->label('Ticket')->required()->searchable()
-                                ->default(fn (TicketQuarantine $record) => $record->suggested_ticket_id)
+                                // A suggested ticket merged since: the one it was merged into (attach() leads there too).
+                                ->default(fn (TicketQuarantine $record) => $record->suggested_ticket_id === null ? null
+                                    : Ticket::query()->find($record->suggested_ticket_id)?->survivor()->id)
                                 ->getSearchResultsUsing(fn (string $search) => Ticket::query()->where('reference', 'like', "{$search}%")
                                     ->orWhere('subject', 'like', "%{$search}%")->latest('id')->limit(20)->get()
                                     ->mapWithKeys(fn (Ticket $ticket) => [$ticket->id => "#{$ticket->reference} · {$ticket->subject} ({$ticket->requesterName()})"])->all())

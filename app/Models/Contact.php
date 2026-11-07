@@ -121,7 +121,8 @@ class Contact extends Model implements Auditable
             $contact->vatCheckDue = false;
         });
         // The account's country is its primary contact's (PR 3a): a new country, or another contact made primary,
-        // changes what its subscriptions bill (Δ1).
+        // changes what its subscriptions bill (Δ1). So does business/individual, or the checked number (reverse
+        // charge, EuVat::reverseCharged; sweep TAX-REPORTS-1).
         // Its address, phone or email changed: sent to the registrars of the domains that use it (P1b-2), once committed.
         static::updated(function (self $contact) {
             if ($contact->wasChanged(ContactPush::DETAILS)) {
@@ -129,7 +130,7 @@ class Contact extends Model implements Auditable
             }
         });
         static::updated(function (self $contact) {
-            if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged(['country', 'vat_number', 'vat_status']))) {
+            if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged(['country', 'vat_number', 'vat_status', 'vat_checked_number', 'type']))) {
                 RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $contact->client_id));
             }
         });

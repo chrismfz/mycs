@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Category;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Ticket;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -127,8 +130,9 @@ class LegacyWhmcsController
     }
 
     /**
-     * clientarea.php?action=…: the page here (one service, domain or invoice by its id: WHMCS's ids are kept). Whether an
-     * id exists is looked up for someone logged in only: a guest's redirect never tells it (review of #676).
+     * clientarea.php?action=…: the page here (one service, domain or invoice by its id: WHMCS's ids are kept). Only to a
+     * page the one logged in may view: a guest's redirect, or a customer's for another's id, never tells whether the id
+     * exists (review of #676, EKDOSI-ZLIC-API-5).
      */
     private function clientArea(string $action, int $id): string
     {
@@ -136,9 +140,9 @@ class LegacyWhmcsController
 
         return match ($action) {
             'products', 'services' => route('services'),
-            'productdetails' => $id > 0 && Service::query()->whereKey($id)->exists() ? route('services.show', $id) : route('services'),
+            'productdetails' => self::viewable(Service::class, $id) ? route('services.show', $id) : route('services'),
             'domains' => route('domains'),
-            'domaindetails' => $id > 0 && DB::table('domains')->where('id', $id)->exists() ? route('domains.show', $id) : route('domains'),
+            'domaindetails' => self::viewable(Domain::class, $id) ? route('domains.show', $id) : route('domains'),
             'invoices', 'masspay', 'addfunds' => route('invoices'),
             'details', 'contacts', 'changepw', 'security' => route('account'),
             'emails' => route('account.emails'),
@@ -149,7 +153,19 @@ class LegacyWhmcsController
 
     private function invoice(int $id): string
     {
-        return auth()->check() && $id > 0 && Invoice::query()->whereKey($id)->exists() ? route('invoices.show', $id) : route('invoices');
+        return self::viewable(Invoice::class, $id) ? route('invoices.show', $id) : route('invoices');
+    }
+
+    /**
+     * Whether the one logged in may view this record (the page's own `can:view`).
+     *
+     * @param  class-string<Model>  $model
+     */
+    private static function viewable(string $model, int $id): bool
+    {
+        $record = auth()->check() && $id > 0 ? $model::query()->find($id) : null;
+
+        return $record !== null && Gate::allows('view', $record);
     }
 
     /** viewticket.php?tid=…: the ticket of that number (its own page checks who may see it), else the list. */

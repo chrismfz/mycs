@@ -47,6 +47,9 @@ final class PlaceUpgrade
     /** The catalog cannot price it in the service's currency (ADV-551-1). */
     public const NEEDS_STAFF = 'needs_staff';
 
+    /** Another product with too few left in stock, counting those its pending upgrades hold (sweep UPGRADES-6). */
+    public const OUT_OF_STOCK = 'out_of_stock';
+
     /** Refused when applied: the service stopped running meanwhile. */
     public const NOT_NOW = 'not_now';
 
@@ -154,6 +157,15 @@ final class PlaceUpgrade
         }
     }
 
+    /** The units of $product its pending upgrades from other products will take when paid. */
+    private static function heldStock(Product $product): int
+    {
+        return (int) ServiceUpgrade::query()->join('services', 'services.id', '=', 'service_upgrades.service_id')
+            ->where('service_upgrades.product_id', $product->id)->where('service_upgrades.status', ServiceUpgrade::STATUS_PENDING)
+            ->whereColumn('services.product_id', '!=', 'service_upgrades.product_id')
+            ->sum('services.quantity');
+    }
+
     /** @param  array<int, int>  $chosen */
     private static function place(Service $service, Product $product, array $chosen, string $source, ?int $staffId,
         ?string $discountMode, string $discountValue): self
@@ -163,6 +175,20 @@ final class PlaceUpgrade
         // Validate upgradable again after locking the service
         if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->count() != 0) {
             return new self(self::NOT_UPGRADABLE);
+        }
+
+        // Another product, read again under its lock (sweep UPGRADES-6): what the page listed may have changed since. Not
+        // retired; for the customer, still an upgrade of theirs; and stock for it, less what pending upgrades to it hold
+        // (stock is taken when one is paid, ServiceUpgradeService): two paid upgrades never take more than there was.
+        if ((int) $product->id !== (int) $service->product_id) {
+            $product = Product::query()->whereKey($product->id)->lockForUpdate()->first();
+            if ($product === null || $product->retired
+                || ($source === ServiceUpgrade::SOURCE_CLIENT && !$service->productUpgrades()->contains('id', $product->id))) {
+                return new self(self::INVALID);
+            }
+            if ($product->stock !== null && (int) $product->stock - self::heldStock($product) - (int) $service->quantity < 0) {
+                return new self(self::OUT_OF_STOCK);
+            }
         }
 
         $upgradePlan = self::targetPlan($service, $product);

@@ -182,15 +182,40 @@ class CreditAutoApply
     /**
      * Credit payments on an invoice that is about to be cancelled go back to the customer's credit (journaled as a
      * deletion), so credit applied in part is not lost with the invoice. Returns how many it gave back.
+     *
+     * One with refunds (staff refunded it to credit, PR 2c) is never deleted (its refund history stays): what is still
+     * on the invoice goes back to credit as its credited part, and the row stays (sweep MONEY-LEDGER-2). Under the
+     * caller's payment locks (customer, invoice).
      */
     public function giveBack(Invoice $invoice): int
     {
-        $payments = $invoice->transactions()->where('is_credit_transaction', true)->get();
+        $payments = $invoice->transactions()->where('is_credit_transaction', true)->orderBy('id')->lockForUpdate()->get();
         foreach ($payments as $payment) {
+            if (RecordPaymentService::toCents($payment->refunded_amount) > 0 || RecordPaymentService::refundedToCredit($payment)) {
+                $this->creditBack($invoice, $payment);
+
+                continue;
+            }
             (new RecordPaymentService)->deleteTransaction($payment, cause: MoneyTrail::CAUSE_CANCELLATION);
         }
 
         return $payments->count();
+    }
+
+    /** What a refunded credit payment still has on the invoice becomes credit again (credited_amount), journaled. */
+    private function creditBack(Invoice $invoice, InvoiceTransaction $payment): void
+    {
+        if ($payment->status !== InvoiceTransactionStatus::Succeeded || $invoice->client_id === null) {
+            return;
+        }
+        $cents = RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
+            - RecordPaymentService::toCents($payment->credited_amount);
+        if ($cents <= 0) {
+            return;
+        }
+        $payment->increment('credited_amount', $cents / 100);
+        (new CreditLedger)->add((int) $invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_CANCELLATION,
+            MoneyTrail::SOURCE_CREDIT, $invoice, $payment);
     }
 
     /**
