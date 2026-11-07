@@ -197,8 +197,10 @@ class SweepUpgradesTest extends TestCase
     }
 
     /**
-     * UPGRADES-4: expiry 2026-11-10, upgrade placed on 11-07: its invoice is due 11-10. The cron on 11-10 (03:00) gives the
+     * UPGRADES-4: expiry 2026-11-10, upgrade placed on 11-07: its invoice was due 11-10. The cron on 11-10 (03:00) gives the
      * upgrade up (expires_at, a date at 00:00, is already past): the customer paying on the due date shown finds it cancelled.
+     * Fixed by the due date, the day before the expiry (corrected by the fixer: the test asserted the due date stays on the
+     * expiry day, a fix in the cron; on that day the upgrade prices no days left, so the cron is right to give it up).
      */
     public function test_upgrades_4_an_upgrade_is_still_payable_on_its_invoice_due_date(): void
     {
@@ -213,7 +215,7 @@ class SweepUpgradesTest extends TestCase
         $up = PlaceUpgrade::handle($service->fresh(), $large->fresh(), [], ServiceUpgrade::SOURCE_STAFF);
         $this->assertSame(PlaceUpgrade::INVOICED, $up->outcome);
         $due = CarbonImmutable::instance($up->invoice->fresh()->due_at)->toDateString();
-        $this->assertSame('2026-11-10', $due);
+        $this->assertSame('2026-11-09', $due, 'due the last day the upgrade still prices');
 
         Carbon::setTestNow($due . ' 03:00:00');
         // The step of the cron that gives up an upgrade whose period ended (CronJob::refreshUpgrade).
