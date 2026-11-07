@@ -1537,12 +1537,6 @@ parameters:
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method MyCS\\Extensions\\Servers\\DirectAdmin\\DirectAdmin\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
-			identifier: return.type
-			count: 1
-			path: extensions/Servers/DirectAdmin/DirectAdmin.php
-
-		-
 			message: '#^Parameter \#2 \$times of function str_repeat expects int, float given\.$#'
 			identifier: argument.type
 			count: 2

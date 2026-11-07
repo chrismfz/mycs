@@ -143,7 +143,10 @@ class ServiceUpgradeService
                 $service->price_locked = false;
             }
             $service->save();
-            $serviceUpgrade->forceFill($before + ['to_price' => number_format((float) $service->price, 2, '.', ''), 'applied_at' => Carbon::now()])->save();
+            // The end of the days its money paid for (sweep 2, F-PLAN-CHANGE-2): its expiry now, a renewal paid ahead
+            // included (calculatePrice charged to it, and a shortfall below bills the rest), read by DowngradeCredit.
+            $serviceUpgrade->forceFill($before + ['to_price' => number_format((float) $service->price, 2, '.', ''), 'applied_at' => Carbon::now(),
+                'paid_until' => $service->expires_at?->toDateString()])->save();
             $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product
@@ -207,6 +210,13 @@ class ServiceUpgradeService
             return null;
         }
         $invoiced = BigDecimal::zero();
+        if ($upgrade->charged !== null) {
+            // What the days invoiced were priced at, not the line's price: staff may have lowered it on the unpaid invoice
+            // (a gesture), and that is not a renewal paid meanwhile (sweep 2, F-PLAN-CHANGE-3).
+            $owed = BigDecimal::of(number_format((float) $upgrade->calculatePrice()->price, 2, '.', ''))->minus((string) $upgrade->charged);
+
+            return $owed->isGreaterThan(0) ? (string) $owed->toScale(2) : null;
+        }
         // The charge, not staff's discount on it (owner 2026-11-06): the discount was on the days invoiced, not on more.
         foreach (InvoiceItem::query()->where('invoice_id', $upgrade->invoice_id)->where('reference_type', ServiceUpgrade::class)
             ->where('reference_id', $upgrade->id)->where(fn ($line) => $line->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_DISCOUNT))

@@ -33,7 +33,8 @@ final class DowngradeCredit
     }
 
     /**
-     * What is left after $today of: the paid period lines (one paid ahead whole), the upgrades paid within them, and
+     * What is left after $today of: the paid period lines (one paid ahead whole; what each paid for its days, PaidForPeriod:
+     * not a setup fee, not what its invoice gave back), the upgrades paid within them, and
      * the credits earlier downgrades gave for them.
      *
      * @return array{BigDecimal, BigDecimal, BigDecimal}
@@ -50,7 +51,7 @@ final class DowngradeCredit
         } else {
             $period = BigDecimal::zero();
             foreach ($lines as $line) {
-                $period = $period->plus(self::left((string) $line->line_total, $line->period_start, $line->period_end, $today));
+                $period = $period->plus(self::left(PaidForPeriod::of($line), $line->period_start, $line->period_end, $today));
             }
         }
 
@@ -63,7 +64,8 @@ final class DowngradeCredit
      * What is left after $today of the upgrades paid within the service's period, and of what earlier downgrades gave back
      * for it: also counted by a cycle change «now» (sweep UPGRADES-1), which credits the days left as they were paid. Each
      * upgrade's money is spread to the end of the period it was made in (any live period line holding its moment, paid or
-     * not); one of an earlier period was spent there and counts nothing (UPGRADES-2). A service with no line holding it
+     * not), or on to the expiry it was applied at, a renewal paid ahead included (paidEnd, sweep 2); one of an earlier
+     * period was spent there and counts nothing (UPGRADES-2). Each line counts what its invoice kept (PaidForPeriod). A service with no line holding it
      * (imported without its lines) counts one made in its current period to its expiry, as before.
      *
      * @return array{BigDecimal, BigDecimal}
@@ -81,7 +83,7 @@ final class DowngradeCredit
             if ($line !== null && self::billedAgainAfter($line, $at)) {
                 continue; // a cycle change «now» after it counted it in its credit and billed its days again (REV-UPG-1)
             }
-            $end = $line === null ? null : CarbonImmutable::instance($line->period_end);
+            $end = $line === null ? null : self::paidEnd($upgrade, $periods, $line, $at);
             if ($end === null && $service->expires_at !== null) {
                 if ($currentStart === false) {
                     $currentStart = $service->currentPeriodStart();
@@ -91,11 +93,19 @@ final class DowngradeCredit
             if ($end === null || !$end->startOfDay()->greaterThan($today)) {
                 continue; // an earlier period's: its money and any credit for it were for days gone
             }
-            // What it paid (its lines name the upgrade, not a period: F4), to the end of the period it was made in.
-            $paidLines = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
-                ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_PAID))->get();
-            foreach ($paidLines as $line) {
-                $upgrades = $upgrades->plus(self::left((string) $line->line_total, $upgrade->created_at, $end, $today));
+            // What it paid (its lines name the upgrade, not a period: F4), each for its own days: its invoice's from its
+            // moment to the end of the days its charge was priced for, a shortfall's (a renewal paid meanwhile) from
+            // there on (review REV2-PC-2: an unpaid shortfall's days were never paid, the charge's money never spread
+            // over them).
+            $lines = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get();
+            $chargeEnd = self::chargeEnd($upgrade, $lines, $line, $end);
+            foreach ($lines as $paid) {
+                if ($paid->invoice?->status !== Invoice::STATUS_PAID) {
+                    continue;
+                }
+                $upgrades = (int) $paid->invoice_id === (int) $upgrade->invoice_id
+                    ? $upgrades->plus(self::left(PaidForPeriod::of($paid), $upgrade->created_at, $chargeEnd, $today))
+                    : $upgrades->plus(self::left(PaidForPeriod::of($paid), $chargeEnd, $end, $today));
             }
             // What an earlier downgrade gave back for these days (F2).
             if ($upgrade->credit_cents !== null && $upgrade->credit_until !== null) {
@@ -119,6 +129,53 @@ final class DowngradeCredit
         $left = min($days, (int) $today->max($start)->diffInDays($end));
 
         return BigDecimal::of($amount)->multipliedBy($left)->dividedBy($days, 2, RoundingMode::HalfUp);
+    }
+
+    /**
+     * The end of the days an upgrade's money paid for: the end of the period line it was made in, or, when it was applied
+     * later than that (`paid_until`, its expiry then: a renewal paid ahead, sweep 2 F-PLAN-CHANGE-2), that day, over the
+     * live lines that follow on from it. One billed again after it (a cycle change «now») ends them: those days were
+     * credited and billed again (REV-UPG-1).
+     *
+     * @param  Collection<int, InvoiceItem>  $periods
+     */
+    private static function paidEnd(ServiceUpgrade $upgrade, Collection $periods, InvoiceItem $line, CarbonImmutable $at): CarbonImmutable
+    {
+        $end = CarbonImmutable::instance($line->period_end)->startOfDay();
+        if ($upgrade->paid_until === null) {
+            return $end;
+        }
+        $until = CarbonImmutable::instance($upgrade->paid_until)->startOfDay();
+        while ($end->lessThan($until)) {
+            $next = $periods->first(fn (InvoiceItem $other) => $other->period_start->startOfDay()->equalTo($end) && !self::billedAgainAfter($other, $at));
+            if ($next === null) {
+                break;
+            }
+            $end = CarbonImmutable::instance($next->period_end)->startOfDay()->min($until);
+        }
+
+        return $end;
+    }
+
+    /**
+     * The end of the days the upgrade's own charge paid for, at most $end: the expiry it was priced to (`charged_until`).
+     * One from before that column with a shortfall billed (on another invoice) was priced to the end of the period line
+     * it was made in, the renewal paid meanwhile being the shortfall's; without one, to $end, as before.
+     *
+     * @param  Collection<int, InvoiceItem>  $lines  the upgrade's lines
+     */
+    private static function chargeEnd(ServiceUpgrade $upgrade, Collection $lines, ?InvoiceItem $at, CarbonImmutable $end): CarbonImmutable
+    {
+        $end = $end->startOfDay();
+        if ($upgrade->charged_until !== null) {
+            return CarbonImmutable::instance($upgrade->charged_until)->startOfDay()->min($end);
+        }
+        $shortfall = $lines->contains(fn (InvoiceItem $line) => (int) $line->invoice_id !== (int) $upgrade->invoice_id);
+        if (!$shortfall || $at === null) {
+            return $end;
+        }
+
+        return CarbonImmutable::instance($at->period_end)->startOfDay()->min($end);
     }
 
     /** @param  Collection<int, InvoiceItem>  $lines */

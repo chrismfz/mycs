@@ -179,11 +179,14 @@ class DomainOwnerChanges
                 return $refused === 1 ? DomainOwnerChange::STATUS_REFUSED : (string) DomainOwnerChange::query()->whereKey($change->id)->value('status');
             }
         }
-        $claimed = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_DUE)
-            ->update(['status' => DomainOwnerChange::STATUS_SENDING, 'sent_at' => now(), 'updated_at' => now()]);
+        $claim = ['status' => DomainOwnerChange::STATUS_SENDING, 'sent_at' => now(), 'updated_at' => now()];
+        $claimed = DomainOwnerChange::query()->whereKey($change->id)->where('status', DomainOwnerChange::STATUS_DUE)->update($claim);
         if ($claimed !== 1) {
             return DomainOwnerChange::query()->whereKey($change->id)->value('status');
         }
+        // The model as the row now is (sweep2 F-DOMAIN-LIFE-1): else end() back to «due» with no sent_at finds nothing
+        // dirty against the copy read before the claim, writes nothing, and the row stays «sending» (later «unknown»).
+        $change->forceFill($claim)->syncOriginal();
         try {
             $result = $this->manage->changeOwner($change->domain, $change->contact, $change->kind, $change->staff);
         } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {

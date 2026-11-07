@@ -4,6 +4,7 @@ namespace MyCS\Extensions\Servers\Proxmox;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Exceptions\LeftToStaff;
 use App\Models\Service;
 use App\Services\Proxmox\GuestLifecycle;
 use App\Support\PanelConnection;
@@ -144,6 +145,38 @@ class Proxmox extends Server
         $key = (string) $this->config('console_key');
 
         return strlen($key) >= ConsoleTicket::MIN_KEY ? $key : null;
+    }
+
+    /**
+     * Create = staff's, by hand (owner 2026-10-28, docs/proxmox.md: from an .iso, its MAC set on the router; PR 5 brings
+     * the create from a plan): a task in Pending Module Actions and a mail, as an offline machine's, never a paid VPS
+     * started with nobody told (sweep2 F-PROVISIONING-OPS-1). The service starts as for a done create.
+     */
+    public function createServer(Service $service, $settings, $properties)
+    {
+        throw new LeftToStaff('By hand: create the VM' . self::what($service) . ' (no create from a plan yet), add it to the pool and map it '
+            . 'to this service in Utilities → Proxmox Guests, then mark this done.');
+    }
+
+    /**
+     * An upgrade (a plan or an option the customer paid for: cores, RAM, disk) is staff's too, until PR 5: the VM is
+     * changed by hand, never a paid change that reaches nobody (sweep2 F-PROVISIONING-OPS-1).
+     */
+    public function upgradeServer(Service $service, $settings, $properties)
+    {
+        throw new LeftToStaff('By hand: change the VM' . self::what($service) . ' to its new plan and options (see the service), then mark this done.');
+    }
+
+    /** The service's product, plan and name, for staff's task. */
+    private static function what(Service $service): string
+    {
+        $parts = array_filter([
+            $service->product?->name !== null ? "«{$service->product->name}»" : null,
+            $service->plan?->name !== null ? "plan «{$service->plan->name}»" : null,
+            filled($service->domain) ? (string) $service->domain : null,
+        ]);
+
+        return " of service #{$service->id}" . ($parts !== [] ? ' (' . implode(', ', $parts) . ')' : '');
     }
 
     /** Suspend = stop (owner 2026-10-24): a clean shutdown, then a hard stop; not started again by a node's reboot. */

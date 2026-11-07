@@ -54,6 +54,12 @@ final class WhmcsDomainImport
             : null);
     }
 
+    /** A WHMCS pending status that its registrar module set once its call went through: the order is at the registrar. */
+    public static function sentByWhmcs(string $status): bool
+    {
+        return in_array(strtolower(trim($status)), ['pending registration', 'pending transfer'], true);
+    }
+
     /**
      * Still «Pending» in WHMCS, but registered (an order has no expiry until it is) or renewed and paid there: live, never
      * an order the cron cancels as unpaid (review of #535). Not a pending transfer carrying the losing registrar's expiry
@@ -115,7 +121,7 @@ final class WhmcsDomainImport
     /** @var array<string, DomainRegistrarConnection> WHMCS registrar module => its connection here */
     private array $connections = [];
 
-    /** @var array<int, array{expires: ?string, years: int, ended: bool, pending: bool}>|null the domains imported, by id */
+    /** @var array<int, array{expires: ?string, years: int, ended: bool, pending: bool}>|null the domains imported, by id (pending: and never sent) */
 
     /** @var array<int, list<string>>|null each domain's paid or open WHMCS renewal lines, by their period's start */
     private ?array $standing = null;
@@ -204,8 +210,9 @@ final class WhmcsDomainImport
             return ['applied_at' => $short ? null : $applied, 'forgone_at' => $forgone ? now()->toDateTimeString() : null] + $renewal;
         }
 
-        // Paid, but the domain still pending (never registered, or its transfer not done): not done, so the order is sent
-        // to its registrar here (DomainOrderFulfilment), listed (R3-2 of #535).
+        // Paid, but the domain still pending and never sent (WHMCS «Pending»: never registered, or its transfer never asked):
+        // not done, so the order is sent to its registrar here (DomainOrderFulfilment), listed (R3-2 of #535). One WHMCS sent
+        // («Pending Registration» / «Pending Transfer», meta.sent_at) is done: never sent again (F-CUTOVER-DAY-3).
         $order = in_array($type, ['DomainRegister', 'DomainTransfer'], true);
         if ($order && $done && $domain['pending']) {
             $applied = null;
@@ -370,6 +377,16 @@ final class WhmcsDomainImport
             $migration = $migrations[$id] ?? null;
             if ($migration !== null) {
                 $meta['whmcs_migration'] = $migration;
+            }
+            // WHMCS sets «Pending Registration» / «Pending Transfer» once its registrar module's Register / Transfer went
+            // through: the order is at the registrar (a .gr awaiting approval, a transfer waiting at the registry). Sent,
+            // never sent again here (DomainOrderFulfilment), its paid line done (line()); the sync reads how it ends. Only
+            // a plain «Pending» (never sent) is sent from here (sweep F-CUTOVER-DAY-3, F-DOMAIN-LIFE-2).
+            if (self::sentByWhmcs((string) $row['status']) && in_array($status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)) {
+                $meta['sent_at'] = Carbon::parse($this->date($row['updated_at'] ?? null) ?? now()->toDateTimeString())->toIso8601String();
+                $meta['whmcs']['sent'] = true;
+                $this->notes[] = "Domain #{$id} {$fqdn}: «{$row['status']}» in WHMCS (sent to its registrar there): imported as sent, never sent again;"
+                    . ' the sync reads it once its connection is set up (check it is there).';
             }
             $currency = $currencies[(int) $row['userid']] ?? $default;
             $amount = number_format((float) ($row['recurringamount'] ?? 0), 2, '.', '');
@@ -676,13 +693,14 @@ final class WhmcsDomainImport
         if (!$this->has('tbldomainreminders')) {
             return;
         }
-        $ours = array_values(array_filter(DomainReminders::days(), fn (int $day) => $day >= 0));
+        // Both sides of the expiry: an after-expiry notice WHMCS sent (days < 0) is not sent again either (F-CUTOVER-DAY-5).
+        $ours = DomainReminders::days();
         $sent = [];
         foreach ($this->rows('SELECT domain_id, date, days_before_expiry FROM tbldomainreminders ORDER BY id') as $row) {
             $domain = $this->imported()[(int) $row['domain_id']] ?? null;
             $date = $this->date($row['date'] ?? null, dateOnly: true);
             $days = (int) $row['days_before_expiry'];
-            if ($domain === null || $domain['expires'] === null || $date === null || $days < 0) {
+            if ($domain === null || $domain['expires'] === null || $date === null) {
                 continue;
             }
             $for = Carbon::parse($date)->addDays($days);
@@ -762,10 +780,13 @@ final class WhmcsDomainImport
     {
         $ended = [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value, DomainStatus::Deleted->value];
         $pending = [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value];
+        // Pending and never sent to its registrar: one WHMCS sent (meta.sent_at, sentByWhmcs) is not sent again here.
+        $unsent = fn ($domain) => in_array($domain->status, $pending, true)
+            && empty((is_string($domain->meta) ? json_decode($domain->meta, true) : null)['sent_at'] ?? null);
 
-        return $this->imported ??= DB::table('domains')->get(['id', 'expires_at', 'years', 'status'])
+        return $this->imported ??= DB::table('domains')->get(['id', 'expires_at', 'years', 'status', 'meta'])
             ->mapWithKeys(fn ($domain) => [(int) $domain->id => ['expires' => $domain->expires_at !== null ? substr((string) $domain->expires_at, 0, 10) : null,
-                'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true), 'pending' => in_array($domain->status, $pending, true)]])->all();
+                'years' => max(1, (int) $domain->years), 'ended' => in_array($domain->status, $ended, true), 'pending' => $unsent($domain)]])->all();
     }
 
     private static function date(mixed $value, bool $dateOnly = false): ?string
