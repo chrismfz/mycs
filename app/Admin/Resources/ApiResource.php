@@ -99,7 +99,8 @@ class ApiResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // deleteAny alone would skip ApiKeyPolicy::delete (no removing a key that does more than the actor could grant).
+                    DeleteBulkAction::make()->authorizeIndividualRecords('delete'),
                 ]),
             ]);
     }

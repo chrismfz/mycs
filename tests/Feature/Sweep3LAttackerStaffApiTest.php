@@ -87,9 +87,38 @@ class Sweep3LAttackerStaffApiTest extends TestCase
         // ViewInvoice holds.
         $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])->assertActionHidden('cancel');
 
+        // The list's row Cancel is authorized per record now, so it is hidden (and refused) like ViewInvoice's.
+        $this->livewireAs($staff)->test(ListInvoices::class)->assertTableActionHidden('cancel', $invoice);
+
+        $this->assertNotSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'the list cancelled an immutable invoice');
+    }
+
+    /** The fix keeps the bulk delete for a key the actor could have granted. */
+    public function test_bulk_delete_still_removes_a_key_the_actor_could_grant(): void
+    {
+        $owner = Staff::factory()->admin()->create();
+        $key = $this->key($owner, ['admin.api_keys.viewAny']);
+        $actor = Staff::factory()->withPermissions(['admin.api_keys.viewAny', 'admin.api_keys.delete', 'admin.api_keys.deleteAny'])->create();
+
+        $this->assertTrue($actor->can('delete', $key));
+
+        $this->livewireAs($actor)->test(ManageApis::class)->callTableBulkAction('delete', [$key]);
+
+        $this->assertNull(ApiKey::query()->find($key->id));
+    }
+
+    /** With immutable invoices off, the list Cancel still cancels an issued invoice. */
+    public function test_list_cancel_still_works_without_immutable_invoices(): void
+    {
+        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
+
+        $customer = User::factory()->create();
+        $invoice = Invoice::query()->create(['client_id' => $customer->client()->id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now(), 'currency_code' => 'EUR']);
+        $staff = Staff::factory()->admin()->create();
+
         $this->livewireAs($staff)->test(ListInvoices::class)
             ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => 'x', 'periods' => 'give_up']);
 
-        $this->assertNotSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'the list cancelled an immutable invoice');
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
     }
 }
