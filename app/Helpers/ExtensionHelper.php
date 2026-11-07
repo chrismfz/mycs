@@ -23,7 +23,6 @@ use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\MoneyEvent;
@@ -1145,13 +1144,26 @@ class ExtensionHelper
      */
     private static function gatewayPayment(string $gateway, string $paymentReference): ?InvoiceTransaction
     {
+        $extensions = self::accountExtensions($gateway);
         $rows = InvoiceTransaction::query()->where('transaction_id', $paymentReference)->where('is_credit_transaction', false)
-            ->where(fn ($query) => $query->whereNull('gateway_id')->orWhereHas('gateway', fn ($gw) => $gw->where('extension', $gateway)))
+            ->where(fn ($query) => $query->whereNull('gateway_id')->orWhereHas('gateway', fn ($gw) => $gw->whereIn('extension', $extensions)))
             ->with('gateway')->orderBy('id')->get();
 
-        return $rows->first(fn (InvoiceTransaction $row) => $row->gateway?->extension === $gateway && $row->status === InvoiceTransactionStatus::Succeeded)
+        return $rows->first(fn (InvoiceTransaction $row) => in_array($row->gateway?->extension, $extensions, true) && $row->status === InvoiceTransactionStatus::Succeeded)
             ?? $rows->first(fn (InvoiceTransaction $row) => $row->status === InvoiceTransactionStatus::Succeeded)
             ?? $rows->first();
+    }
+
+    /**
+     * The extensions whose payments are on the same account at the gateway as $gateway's: a PayPal_IPN payment is the
+     * PayPal account's, told under «PayPal» (its refunds, chargebacks and disputes; F-GATEWAY-WEBHOOKS-2), and either
+     * one's replay is the other's (RecordPaymentService; REV2-FGW-2).
+     *
+     * @return list<string>
+     */
+    public static function accountExtensions(string $gateway): array
+    {
+        return in_array($gateway, ['PayPal', 'PayPal_IPN'], true) ? ['PayPal', 'PayPal_IPN'] : [$gateway];
     }
 
     /** A payment was recorded (succeeded): the refunds that waited for it are recorded now (F3). */
@@ -1489,6 +1501,16 @@ class ExtensionHelper
                 // Won before its money was taken (PayPal told the win first): this chargeback is already undone.
                 $early = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
                     ->where('origin', GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)->where('amount', $cents / 100)->orderBy('id')->lockForUpdate()->first();
+                // A dispute opened after that win and not closed yet: the money taken may be that dispute's, so it is
+                // recorded and staff decide (F-GATEWAY-WEBHOOKS-1); the win's marker stays for its own late reversal.
+                $earlyNote = null;
+                $later = $early !== null ? self::laterOpenDispute($gateway, $payment->id, $early) : null;
+                if ($early !== null && $later !== null) {
+                    $earlyNote = "The dispute {$early->reference} was won before its money was taken, but the dispute "
+                        . $later . ' was opened after it: this was recorded as that one\'s chargeback.'
+                        . " If it was the late reversal of {$early->reference} (money taken and already given back), undo it by hand. ";
+                    $early = null;
+                }
                 if ($early !== null) {
                     // Money was taken after all, then given back with the win: the card disputed, the charging stops (R3-1).
                     $stoppedEarly = self::stopAutoCharge($invoice->client_id);
@@ -1513,7 +1535,7 @@ class ExtensionHelper
                 if ($currency !== null && strtoupper($currency) !== strtoupper((string) $invoice->currency_code)) {
                     GatewayRefund::create(['recorded_amount' => 0, 'currency_code' => strtoupper($currency)] + $row);
                     $staff = "{$gateway} chargeback {$chargebackReference} is in {$currency}, invoice #{$invoice->id} in {$invoice->currency_code}: not recorded, record it by hand. "
-                        . self::autoChargeNote($invoice->client_id, $stopped);
+                        . self::autoChargeNote($invoice->client_id, $stopped) . ($earlyNote ?? '');
                     $log(PaymentGatewayEvent::OUTCOME_REJECTED, 'currency_mismatch');
 
                     return 0;
@@ -1536,20 +1558,19 @@ class ExtensionHelper
                         $staff = $e->getMessage() . ' ';
                     }
                     if ($boughtCredit) {
+                        // Only the credit the purchase still holds: a debit note on it bought none (sweep2
+                        // F-REFUND-CHARGEBACK-2, as refundedAtGateway: MONEY-LEDGER-3).
+                        $bought = min($record, (new RecordPaymentService)->boughtCreditLeftCents($invoice));
                         $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
-                        $take = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+                        $take = min($bought, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+                        // Its lines stay applied: what this takes is given back, once, when the invoice is paid again (a
+                        // new payment, or the dispute won: GrantBoughtCreditService), never the whole purchase again
+                        // (code review H1 / adversarial F6, sweep2 F-REFUND-CHARGEBACK-1).
                         if ($take > 0) {
                             (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $take, MoneyTrail::CAUSE_CHARGEBACK, $source, $invoice, $payment);
                         }
-                        // All the credit it bought taken back: not bought any more, so paying the invoice again (or the
-                        // dispute won) buys it again (code review H1 / adversarial F6). Part of it: staff.
-                        $bought = (int) $invoice->items()->where('reference_type', Credit::class)->get()
-                            ->sum(fn (InvoiceItem $line) => $line->totalCents());
-                        if ($take === $record && $take === $bought) {
-                            $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
-                        }
-                        if ($take < $record) {
-                            $staff = ($staff ?? '') . 'The credit this payment bought was spent: ' . self::cents($record - $take) . " {$invoice->currency_code} of it could not be taken back. ";
+                        if ($take < $bought) {
+                            $staff = ($staff ?? '') . 'The credit this payment bought was spent: ' . self::cents($bought - $take) . " {$invoice->currency_code} of it could not be taken back. ";
                         }
                     }
                     $payment->increment('refunded_amount', $record / 100);
@@ -1575,6 +1596,7 @@ class ExtensionHelper
                         . ($allocated > 0 ? 'refunded already, or the credit it left paid other invoices: ' . self::cents($allocated) . ' did' : 'refunded already')
                         . '): settle it by hand. ' : '')
                     . self::autoChargeNote($invoice->client_id, $stopped)
+                    . ($earlyNote ?? '')
                     . ($staff ?? '');
                 $log($record + $fromCredit + $spent > 0 ? PaymentGatewayEvent::OUTCOME_RECORDED : PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback');
 
@@ -1593,6 +1615,26 @@ class ExtensionHelper
         }
 
         return $recorded > 0;
+    }
+
+    /**
+     * A dispute on the payment other than the won-early marker $early's and not closed (no resolution kept for it),
+     * wherever it was opened (before the win too: overlapping disputes, REV2-FGW-1): its id, else null. A reversal then
+     * may be that dispute's, not the late one of the dispute already won.
+     */
+    private static function laterOpenDispute(string $gateway, int $paymentId, GatewayRefund $early): ?string
+    {
+        $opened = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $paymentId)
+            ->where('origin', GatewayRefund::ORIGIN_DISPUTE)->where('reference', 'like', 'opened:%')
+            ->orderBy('id')->pluck('reference');
+        foreach ($opened as $reference) {
+            $dispute = substr((string) $reference, strlen('opened:'));
+            if ($dispute !== $early->reference && !GatewayRefund::query()->where('gateway', $gateway)->where('reference', $dispute)->exists()) {
+                return $dispute;
+            }
+        }
+
+        return null;
     }
 
     /**

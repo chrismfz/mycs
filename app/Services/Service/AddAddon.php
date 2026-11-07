@@ -130,9 +130,15 @@ final class AddAddon
     /** Its first invoice charges the plan's setup fee too, on the same line, as an order's first invoice does (code review 5). */
     private static function plusSetupFee(string $amount, Plan $plan, ?string $currency): string
     {
+        return (string) BigDecimal::of($amount)->plus(self::setupFee($plan, $currency))->toScale(2, RoundingMode::HalfUp);
+    }
+
+    /** Its plan's setup fee in $currency, per unit, as its first line adds it. */
+    private static function setupFee(Plan $plan, ?string $currency): string
+    {
         $fee = $plan->prices->firstWhere('currency_code', $currency)->setup_fee ?? null;
 
-        return (string) BigDecimal::of($amount)->plus(BigDecimal::of(blank($fee) ? '0' : (string) $fee))->toScale(2, RoundingMode::HalfUp);
+        return (string) BigDecimal::of(blank($fee) ? '0' : (string) $fee)->toScale(2, RoundingMode::HalfUp);
     }
 
     /** Its price per unit for one cycle as the catalog and the account have it (group discount), for the form. */
@@ -239,6 +245,8 @@ final class AddAddon
                 'period_start' => $from,
                 'period_end' => $until,
                 'payment_gateway_id' => ItemPaymentMethod::live($addon),
+                // Its setup fee, apart from its period's price: never given back as unused days (sweep 2).
+                'setup_fee' => BigDecimal::of($fee = self::setupFee($plan, $addon->currency_code))->isPositive() ? $fee : null,
             ]);
 
             return ['service' => $addon, 'invoice' => $invoice];

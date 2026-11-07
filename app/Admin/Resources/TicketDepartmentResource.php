@@ -10,6 +10,7 @@ use App\Models\TicketDepartment;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -47,7 +48,7 @@ class TicketDepartmentResource extends Resource
                 Section::make(__('Department'))->columns(2)->schema([
                     TextInput::make('name')->label('Name')->required()->maxLength(255),
                     TextInput::make('email')->label('Email')->email()->maxLength(255)
-                        ->helperText('The department\'s address (e.g. support@…): its mails come from it, and a mail from it is never a ticket.'),
+                        ->helperText('The department\'s address (e.g. support@…): customers\' answers to its mails go to it (Reply-To; empty, to its mailbox login when that is an address), and a mail from it is never a ticket.'),
                     TextInput::make('sort')->label('Order')->integer()->minValue(0)->maxValue(65535)->default(0),
                     Toggle::make('hidden')->label('Hidden')->helperText('Not offered to customers; staff still use it.'),
                     Toggle::make('clients_only')->label('Clients only')
@@ -85,6 +86,9 @@ class TicketDepartmentResource extends Resource
                                 : '⚠ Less protected: a reply joins by our Message-ID and the owner\'s From alone, which can be forged by anyone who has seen our mail. For a server that writes no Authentication-Results.'),
                         Toggle::make('polling')->label('Read the mailbox')->default(false)->live()
                             ->helperText(fn (?TicketDepartment $record) => self::lastRun($record)),
+                        // Old unread mail (WHMCS piped it) is no new ticket (sweep 2, F-SUPPORT-2).
+                        DateTimePicker::make('mail_since')->label('Read mail sent since')->seconds(false)
+                            ->helperText('Set when «Read the mailbox» is first turned on. A mail sent before it waits in the quarantine, never a new ticket or a «we received it». Empty: every unread mail.'),
                     ]),
             ]);
     }

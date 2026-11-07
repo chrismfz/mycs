@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Models\Client;
+use App\Services\Payment\CardExpiryNotices;
 use Closure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -435,7 +436,8 @@ final class WhmcsPayMethodImport
         [$name, $type] = self::describe($extension, $module, $cardType, $lastFour);
         // PayPal's vault has no expiry (WHMCS writes one 30 years on): none, as the PayPal gateway keeps it.
         $expiry = $extension === 'PayPal' ? null : self::expiry($api['expiry'] !== '' ? $api['expiry'] : (string) ($method['expiry_date'] ?? ''));
-        $id = DB::transaction(function () use ($clientId, $gatewayId, $name, $type, $reference, $expiry) {
+        $notified = $this->expiryNotifiedAt($expiry);
+        $id = DB::transaction(function () use ($clientId, $gatewayId, $name, $type, $reference, $expiry, $notified) {
             if (isset($reference['customer']) && $this->clientStripeCustomer($clientId) === null) {
                 DB::table('properties')->insert(['model_type' => Client::class, 'model_id' => $clientId, 'key' => 'stripe_id', 'name' => 'Stripe customer',
                     'value' => $reference['customer'], 'created_at' => now(), 'updated_at' => now()]);
@@ -443,7 +445,7 @@ final class WhmcsPayMethodImport
 
             return (int) DB::table('billing_agreements')->insertGetId(['ulid' => (string) Str::ulid(), 'client_id' => $clientId, 'gateway_id' => $gatewayId,
                 'name' => mb_substr($name, 0, 255), 'type' => $type, 'expiry' => $expiry, 'external_reference' => $reference['method'],
-                'created_at' => now(), 'updated_at' => now()]);
+                'expiry_notified_at' => $notified, 'created_at' => now(), 'updated_at' => now()]);
         });
         $this->counts['imported']++;
 
@@ -541,6 +543,33 @@ final class WhmcsPayMethodImport
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /** @var int|null WHMCS's day of the month for card expiry notices (CCDaySendExpiryNotices; 0: off), read once */
+    private ?int $noticeDay = null;
+
+    /**
+     * A card expiring this month whose notice WHMCS already sent (its day of the month, CCDaySendExpiryNotices, reached
+     * today): marked notified that day, so the first cron here does not send it again (sweep F-CUTOVER-DAY-4). Without the
+     * setting in the source: this instance's day (CardExpiryNotices::day). Null otherwise.
+     */
+    private function expiryNotifiedAt(?string $expiry): ?string
+    {
+        if ($this->noticeDay === null) {
+            try {
+                $value = $this->whmcs->query("SELECT value FROM tblconfiguration WHERE setting = 'CCDaySendExpiryNotices'")->fetchColumn();
+            } catch (PDOException) {
+                $value = false;
+            }
+            $this->noticeDay = $value === false ? CardExpiryNotices::day() : min(28, max(0, (int) $value));
+        }
+        $today = Carbon::today();
+        if ($expiry === null || $this->noticeDay === 0 || $today->day < $this->noticeDay
+            || $expiry < $today->copy()->startOfMonth()->toDateString() || $expiry > $today->copy()->endOfMonth()->toDateString()) {
+            return null;
+        }
+
+        return $today->copy()->day($this->noticeDay)->toDateTimeString();
     }
 
     private function skip(int $count, string $why): void

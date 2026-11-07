@@ -245,6 +245,13 @@ class Invoice extends Model implements Auditable
     public ?bool $keep_periods_billable = null;
 
     /**
+     * Cancelled as a consequence of its service (CancelOpenInvoices: it ends, changes cycle), not by staff. Not stored. Such
+     * a cancellation goes on while a saved-card charge of it is unsettled (a payment that lands becomes credit); staff's own
+     * is refused until it settles (sweep2 F-STAFF-ADMIN-MONEY-2).
+     */
+    public bool $cancelled_as_consequence = false;
+
+    /**
      * The first day of a period the cron would not bill yet, as a date string: it bills a period starting before now plus
      * its days before (services: Invoice Generation days, a month's period the farthest of those and the monthly ones,
      * WG-14; domains: their own, RenewalBilling::domainInvoiceDays), so up to that day itself (review A4-1).

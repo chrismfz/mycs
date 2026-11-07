@@ -125,22 +125,69 @@ class InvoiceNumberListener
      * The next number from a counter locked by lockCounter() in this transaction. Nothing is taken until it is called,
      * so a counter locked and then not used leaves no gap.
      *
+     * A number for another period than today's (a proforma paid by a transfer of 31/12, recorded in January) whose
+     * sequence the counter no longer follows (set back to 0 for the new {year}, as Settings allows) takes the next number
+     * of that period, and the counter, today's sequence, is left as it is: no gap in the new year, never a number taken
+     * (sweep 2, F-TAX-DOCUMENTS-1). A counter that runs on across the years gives its next number, as before.
+     *
      * @param  class-string<Invoice|AdjustmentNote>  $model
      */
     public static function takeNumber(Setting $counter, string $prefix, string $model, ?CarbonInterface $date = null): string
     {
-        $number = (int) ($counter->value ?? 0);
+        $m = new $model;
+        $current = (int) ($counter->value ?? 0);
+        $number = $current + 1;
+        $formatted = self::formatInvoiceNumber($number, $prefix, $date);
+        $otherPeriod = $date !== null && self::formatInvoiceNumber(1, $prefix, $date) !== self::formatInvoiceNumber(1, $prefix);
+        // The counter set back for today's period: its first number given already (2027-1), or the counter's
+        // candidate in $date's period taken. Then $date's period goes on by its own sequence, whether or not the
+        // new period has passed the old one's total (review REV2-F-TAX-DOCUMENTS-1).
+        $restarted = $otherPeriod && self::taken($m, self::formatInvoiceNumber(1, $prefix));
+        if (!$restarted && !self::taken($m, $formatted)) {
+            self::store($counter, $number);
+
+            return $formatted;
+        }
+
+        if ($otherPeriod) {
+            $periodMax = self::highestOfPeriod($m, $prefix, $date);
+            $own = $restarted || $periodMax > $current;
+            $number = ($own ? $periodMax : max($periodMax, $current)) + 1;
+            while (self::taken($m, $formatted = self::formatInvoiceNumber($number, $prefix, $date))) {
+                $number++;
+            }
+            // Its period's own sequence, apart from the counter's (the counter was set back): the counter stays.
+            if (!$own) {
+                self::store($counter, $number);
+            }
+
+            return $formatted;
+        }
+
         // Taken already (the number = id of another mode, a counter set back by hand, an import): the next one, so a
-        // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238).
-        for ($tries = 0; $tries < 1000; $tries++) {
+        // payment never fails on the unique key after its gateway charged (adversarial ADV-4 of #238). Past many
+        // taken in a row, one past the highest of the period.
+        for ($tries = 0; $tries < 1000 && self::taken($m, $formatted); $tries++) {
             $formatted = self::formatInvoiceNumber(++$number, $prefix, $date);
-            if (!$model::query()->where('number', $formatted)->exists()) {
-                break;
+        }
+        if (self::taken($m, $formatted)) {
+            $number = max($number, self::highestOfPeriod($m, $prefix, $date)) + 1;
+            while (self::taken($m, $formatted = self::formatInvoiceNumber($number, $prefix, $date))) {
+                $number++;
             }
         }
-        // By its key, without the model's events: Setting\Saved reads the row again by its name, after a gateway refund too
-        // (F-CONCURRENCY-3). What that event did for a counter is the config value (no override, no cache flush:
-        // FlushCacheListener), kept here.
+        self::store($counter, $number);
+
+        return $formatted;
+    }
+
+    /**
+     * The counter's new value, by its key, without the model's events: Setting\Saved reads the row again by its name,
+     * after a gateway refund too (F-CONCURRENCY-3). What that event did for a counter is the config value (no override,
+     * no cache flush: FlushCacheListener), kept here.
+     */
+    private static function store(Setting $counter, int $number): void
+    {
         $counter->value = (string) $number;
         Setting::query()->whereKey($counter->getKey())->update(['value' => $counter->value, 'updated_at' => now()]);
         $counter->syncOriginalAttribute('value');
@@ -148,8 +195,35 @@ class InvoiceNumberListener
         $settings = config('settings', []);
         $settings[$counter->key] = $counter->value;
         config(['settings' => $settings]);
+    }
 
-        return $formatted;
+    private static function taken(Invoice|AdjustmentNote $model, string $formatted): bool
+    {
+        return $model::query()->where('number', $formatted)->exists();
+    }
+
+    /** The highest {number} given in $date's period (its year, month or day as the format has them), 0 when none. */
+    private static function highestOfPeriod(Invoice|AdjustmentNote $model, string $prefix, ?CarbonInterface $date): int
+    {
+        $marker = "\u{0}";
+        $pattern = str_replace('{number}', $marker, (string) config("settings.{$prefix}_number_format", '{number}'));
+        $date ??= now();
+        $pattern = str_replace(['{year}', '{month}', '{day}'], [$date->format('Y'), $date->format('m'), $date->format('d')], $pattern);
+        $parts = explode($marker, $pattern);
+        if (count($parts) !== 2) {
+            return 0;
+        }
+        [$before, $after] = $parts;
+        $regex = '/^' . preg_quote($before, '/') . '(\d+)' . preg_quote($after, '/') . '$/';
+        $highest = 0;
+        // LIKE on what comes before the number narrows it (its wildcards only widen it); the pattern decides.
+        $model::query()->where('number', 'like', $before . '%')->pluck('number')->each(function ($number) use ($regex, &$highest) {
+            if (preg_match($regex, (string) $number, $match) === 1) {
+                $highest = max($highest, (int) $match[1]);
+            }
+        });
+
+        return $highest;
     }
 
     /**

@@ -11,6 +11,7 @@ use App\Support\Services\SharedAccount;
 use Exception;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Str;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'DirectAdmin',
@@ -21,6 +22,9 @@ use Illuminate\Support\Str;
 )]
 class DirectAdmin extends Server
 {
+    /** The username a create asked for, kept until the account is made (sweep2 F-PROVISIONING-OPS-3). */
+    public const PENDING = 'directadmin_pending_username';
+
     /** DirectAdmin over HTTPS, to its server's IP when set (App\Support\PanelConnection). */
     private function panel(): PendingRequest
     {
@@ -169,14 +173,23 @@ class DirectAdmin extends Server
      *
      * @param  array  $settings  (product settings)
      * @param  array  $properties  (checkout options)
-     * @return bool
+     * @return array<string, mixed>
      */
     public function createServer(Service $service, $settings, $properties)
     {
-        // A CSPRNG (str_shuffle is not one: sweep §6 #16); the symbols DirectAdmin accepts.
-        $password = Str::password(16, symbols: false) . '!';
-        $username = chr(random_int(97, 122)) . Str::lower(Str::random(7)); // a letter first, as DirectAdmin wants
+        // Idempotent (sweep2 F-PROVISIONING-OPS-3, as cPanel's): the username, and the password DirectAdmin mails with
+        // notify=yes, are kept before the account is asked for. A retry after a lost answer (a timeout once DirectAdmin
+        // made it) asks again for that same account and adopts it when it is there, instead of a second name for the
+        // same domain that DirectAdmin refuses for ever. «Pending» until made: suspend/terminate never act on it.
+        $pending = $service->properties()->where('key', self::PENDING)->value('value');
+        $retry = is_string($pending) && $pending !== '';
+        $username = $retry ? $pending : chr(random_int(97, 122)) . Str::lower(Str::random(7)); // a letter first, as DirectAdmin wants
+        // A CSPRNG (str_shuffle is not one: sweep §6 #16); the symbols DirectAdmin accepts. Kept in the service's own
+        // encrypted field (never a property: sweep §6 #2), so an adopted account keeps the password it was mailed with.
+        $kept = $retry ? $service->password : null;
+        $password = is_string($kept) && $kept !== '' ? $kept : Str::password(16, symbols: false) . '!';
         $settings = array_merge($settings, $properties);
+        $domain = (string) ($properties['domain'] ?? '');
 
         if (isset($settings['ip'])) {
             $ip = $settings['ip'];
@@ -188,6 +201,9 @@ class DirectAdmin extends Server
             }
         }
 
+        $service->properties()->updateOrCreate(['key' => self::PENDING], ['name' => 'DirectAdmin username (being created)', 'value' => $username]);
+        $service->forceFill(['password' => $password])->save();
+
         $response = $this->request('/CMD_API_ACCOUNT_USER', 'post', [
             'action' => 'create',
             'add' => 'Submit',
@@ -197,14 +213,65 @@ class DirectAdmin extends Server
             'passwd2' => $password,
             'package' => $settings['package'],
             'ip' => $ip,
-            'domain' => $properties['domain'] ?? '',
+            'domain' => $domain,
             'notify' => 'yes',
         ], parse: true);
 
-        if ($response['error'] != '0') {
-            throw new Exception('Error creating DirectAdmin account: ' . $response['text']);
+        if (($response['error'] ?? null) !== '0') {
+            if ($retry && $this->ownsDomain($username, $domain)) {
+                return $this->made($service, $username, $password, $domain, $ip); // made by the attempt whose answer was lost
+            }
+            $text = $response['text'] ?? 'no answer';
+            if (isset($response['error']) && !$retry) {
+                // Refused on its first try (not lost): nothing was made under that name, nothing to keep.
+                $service->properties()->where('key', self::PENDING)->delete();
+                $service->forceFill(['password' => null])->save();
+
+                throw new Exception('Error creating DirectAdmin account: ' . $text);
+            }
+
+            // An odd answer, or a retry refused: the account may be on DirectAdmin under that name. Kept, so the next
+            // try (or staff, in DirectAdmin) finds it, never a second account under a new name.
+            throw new Exception("Error creating DirectAdmin account {$username} (it may exist from an earlier attempt: check DirectAdmin): {$text}");
         }
 
+        return $this->made($service, $username, $password, $domain, $ip);
+    }
+
+    /** Whether DirectAdmin has the account $username, for $domain (a lookup that fails: no). */
+    private function ownsDomain(string $username, string $domain): bool
+    {
+        try {
+            $config = $this->request('/CMD_API_SHOW_USER_CONFIG', 'get', ['user' => $username], parse: true);
+        } catch (Throwable) {
+            return false;
+        }
+
+        $theirs = self::comparableDomain((string) ($config['domain'] ?? ''));
+
+        return is_array($config) && $theirs !== '' && $theirs === self::comparableDomain($domain);
+    }
+
+    /**
+     * A domain in the form DirectAdmin keeps it: punycode and lower-case (REV2-FPO-1). An IDN domain (a Greek .gr) is
+     * stored in unicode on the service, but DirectAdmin shows it as xn--…, and strtolower() leaves non-ASCII letters as
+     * they are.
+     */
+    private static function comparableDomain(string $domain): string
+    {
+        $domain = rtrim(mb_strtolower(trim($domain)), '.');
+        if ($domain === '') {
+            return '';
+        }
+        $ascii = idn_to_ascii($domain, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+
+        return is_string($ascii) && $ascii !== '' ? strtolower($ascii) : $domain;
+    }
+
+    /** @return array<string, mixed> */
+    private function made(Service $service, string $username, string $password, string $domain, mixed $ip): array
+    {
+        $service->properties()->where('key', self::PENDING)->delete();
         $service->properties()->updateOrCreate([
             'key' => 'directadmin_username',
         ], [
@@ -219,7 +286,7 @@ class DirectAdmin extends Server
         return [
             'username' => $username,
             'password' => $password,
-            'domain' => $properties['domain'] ?? '',
+            'domain' => $domain,
             'ip' => $ip,
         ];
     }
