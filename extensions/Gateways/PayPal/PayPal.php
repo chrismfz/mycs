@@ -17,6 +17,7 @@ use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGatewayEvent;
+use App\Models\PaymentGroup;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
@@ -789,6 +790,8 @@ class PayPal extends Gateway
             // A subscription sale refunded (PR 2c-2). The total is negative in some payloads: its size is the refund.
             ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
                 abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
+        } elseif (in_array($body['event_type'], ['PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.DECLINED'], true) && isset($body['resource']['id'])) {
+            return $this->captureDenied((string) $body['resource']['id'], $body['event_type']);
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
             try {
@@ -818,6 +821,36 @@ class PayPal extends Gateway
                     ExtensionHelper::addPayment($invoiceId, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
                 }
             }
+        }
+
+        return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * A PENDING capture of ours (recorded as processing: review, eCheck, a currency the account does not hold) that PayPal
+     * then denied or declined: no money came. The payment is failed, so the invoice is payable again (a processing payment
+     * holds it from every way of paying), and staff are told: a saved method's charge of it still holds the invoice until
+     * they resolve it (PAYMENTS-1). Only our processing capture: a succeeded one is never undone here, and an id we have no
+     * processing record of is nothing to change.
+     */
+    private function captureDenied(string $captureId, string $event)
+    {
+        $payment = $captureId === '' ? null : InvoiceTransaction::query()->where('transaction_id', $captureId)
+            ->where('is_credit_transaction', false)->where('status', InvoiceTransactionStatus::Processing)
+            ->whereHas('gateway', fn ($gateway) => $gateway->where('extension', 'PayPal'))
+            ->orderBy('id')->first();
+        if ($payment === null) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'capture_not_processing', ['external_id' => $captureId ?: null]);
+
+            return response()->json(['status' => 'ignored']);
+        }
+        // Through RecordPaymentService, under its locks: a payment completed meanwhile stays succeeded (a replay there).
+        $failed = ExtensionHelper::addFailedPayment($payment->invoice_id, 'PayPal', $payment->amount, null, $captureId);
+        if ($failed instanceof InvoiceTransaction && $failed->status === InvoiceTransactionStatus::Failed) {
+            $message = sprintf('PayPal %s the pending capture %s on invoice #%d: no money came, and the payment is marked failed. The invoice can be paid again. If it was a saved method\'s charge, resolve that charge on the invoice\'s page.',
+                $event === 'PAYMENT.CAPTURE.DENIED' ? 'denied' : 'declined', $captureId, $payment->invoice_id);
+            PaymentsLog::warning($message, ['capture_id' => $captureId, 'invoice_id' => $payment->invoice_id]);
+            NotificationHelper::sendSystemEmailNotification('PayPal capture denied', e($message));
         }
 
         return response()->json(['status' => 'success']);
