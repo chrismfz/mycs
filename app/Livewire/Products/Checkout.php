@@ -94,8 +94,11 @@ class Checkout extends Component
             }
             $this->checkoutConfig = (array) $item->checkout_config;
         } else {
-            // Set the first plan as default
-            $this->plan = $this->plan_id ? $this->product->plans->findOrFail($this->plan_id) : $this->product->plans->first();
+            // Default to the first plan it can be ordered on, as the product page shows it: a plan without a price in
+            // this currency (a cycle withdrawn, #628) is refused by rules() and, with one choice left, no select is drawn.
+            $this->plan = $this->plan_id
+                ? $this->product->plans->findOrFail($this->plan_id)
+                : ($this->product->availablePlans()->first() ?? $this->product->plans->first());
             $this->plan_id = $this->plan->id;
 
             foreach ($this->getCheckoutConfig() as $config) {
