@@ -61,6 +61,7 @@ final class AddonCascade
     private static function unsuspend(Service $parent): void
     {
         foreach (self::locked($parent, [Service::STATUS_SUSPENDED]) as $addon) {
+            $addon->setRelation('parent', $parent); // its hold is read without a query per addon (F3 of #692)
             self::bringBack($addon);
         }
     }
@@ -96,6 +97,7 @@ final class AddonCascade
             $parent = $parentId === null ? null : Service::query()->whereKey($parentId)->lockForUpdate()->first();
             $addon = Service::query()->whereKey($addonId)->lockForUpdate()->first();
             if ($parent?->status === Service::STATUS_ACTIVE && $addon !== null) {
+                $addon->setRelation('parent', $parent); // locked, read once (F3 of #692)
                 self::bringBack($addon);
             }
         });

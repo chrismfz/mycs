@@ -74,8 +74,49 @@ final class AutoCharge
                 . implode('</li><li>', $declined) . '</li></ul>');
         }
         $this->tellOfTakenNotRecorded();
+        $this->tellOfHeldByCancellation($today);
 
         return $charged;
+    }
+
+    /**
+     * A shared invoice held whole by a service of it with a cancellation request (ADV-A2-1; left open by CancelOpenInvoices,
+     * with transfer money on it, say): its other services and domains are not charged either and go overdue (review C7 of
+     * #695). Who is charged stays as is; staff are told once of each invoice, the day it is due for a charge, to split it
+     * or settle it with the customer.
+     */
+    private function tellOfHeldByCancellation(CarbonImmutable $today): void
+    {
+        $held = $this->due($today, heldByCancellation: true)->with('items:id,invoice_id,reference_type,reference_id')->get()
+            ->filter(fn (Invoice $invoice) => Cache::add("autocharge-held-by-cancellation:{$invoice->id}", true, now()->addDays(90)));
+        if ($held->isEmpty()) {
+            return;
+        }
+        $cancelled = ServiceCancellation::query()->whereIn('service_id', $held->flatMap(fn (Invoice $invoice) => $invoice->items
+            ->where('reference_type', Service::class)->pluck('reference_id'))->filter()->unique()->values())->pluck('service_id')->map(fn ($id) => (int) $id)->all();
+        self::tellOnce($held->map(fn (Invoice $invoice) => "autocharge-held-by-cancellation:{$invoice->id}")->values()->all(), fn () => NotificationHelper::sendSystemEmailNotification('Automatic charges held by a cancellation request: needs staff attention', e(sprintf(
+            "These invoices are not charged automatically: a service on each has a cancellation request (its period is not charged), and the invoice also bills other services or domains, which go overdue unless it is split or paid another way.\n%s",
+            $held->map(fn (Invoice $invoice) => sprintf('Invoice #%d, customer #%d: cancellation requested for service #%s', $invoice->id, $invoice->client_id,
+                $invoice->items->where('reference_type', Service::class)->pluck('reference_id')->map(fn ($id) => (int) $id)
+                    ->filter(fn (int $id) => in_array($id, $cancelled, true))->unique()->implode(', #')))->implode("\n")))));
+    }
+
+    /**
+     * A notice to staff whose items were claimed once ($keys, Cache::add): a mail that fails is reported, its claims
+     * dropped so the next run tells it again, and nothing escapes the run (review 3 of #695).
+     *
+     * @param  list<string>  $keys
+     */
+    private static function tellOnce(array $keys, callable $send): void
+    {
+        try {
+            $send();
+        } catch (Throwable $e) {
+            report($e);
+            foreach ($keys as $key) {
+                Cache::forget($key);
+            }
+        }
     }
 
     /**
@@ -92,10 +133,9 @@ final class AutoCharge
             return null; // staff keep it from being charged automatically (PR H2b), or WHMCS made it of another way (#541)
         }
         if (self::itemKeptFromIt($invoice)) {
-            return null; // a service or domain of it set «Do not charge automatically», now (#568)
-        }
-        if (self::cancellationAsked($invoice)) {
-            return null; // the customer asked to cancel a service of it (ADV-A2-1): read again under the charge's lock
+            // A service or domain of it set «Do not charge automatically», now (#568), or a service of it the customer
+            // asked to cancel (ADV-A2-1): read again under the charge's lock.
+            return null;
         }
         $client = $invoice->client;
         $way = $client === null ? false : self::wayOf($invoice, $client->autoChargeMethod());
@@ -217,22 +257,27 @@ final class AutoCharge
      * A line of a service or domain set «Do not charge automatically» (#568, by the customer, staff or the import): read
      * as it is now, not as billed, so turning it off stops the charge of its open invoice too. Such an item is billed on an
      * invoice apart, and turned off it leaves a shared open one (ItemPaymentMethod::keepApart); one it could not leave is
-     * held whole, safer than taking money against the customer's choice.
+     * held whole, safer than taking money against the customer's choice. Or a line of a service with a cancellation
+     * request (cancellationLines), in the same query (review C8 of #695).
      */
     private static function itemKeptFromIt(Invoice $invoice): bool
     {
-        return $invoice->items()->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists();
+        return $invoice->items()->where(fn ($lines) => $lines->where(fn ($kept) => ItemPaymentMethod::kept($kept))
+            ->orWhere(fn ($cancelled) => self::cancellationLines($cancelled)))->exists();
     }
 
     /**
-     * A service of it has a cancellation request (ADV-A2-1, as CreditAutoApply::eligible): its renewal left open (part
-     * paid, an Ekdosi document, kept as debt, or before CancellationCreatedListener ran) is not charged for a period the
-     * customer cancelled, which would renew the service against the request.
+     * The lines of a service with a cancellation request (ADV-A2-1, as CreditAutoApply::eligible): its renewal left open
+     * (part paid, an Ekdosi document, kept as debt, or before CancellationCreatedListener ran) is not charged for a period
+     * the customer cancelled, which would renew the service against the request. A shared invoice is held whole: staff
+     * are told (tellOfHeldByCancellation).
+     *
+     * @param  Builder<InvoiceItem>  $lines
+     * @return Builder<InvoiceItem>
      */
-    private static function cancellationAsked(Invoice $invoice): bool
+    public static function cancellationLines(Builder $lines): Builder
     {
-        return ServiceCancellation::query()->whereIn('service_id', $invoice->items()->select('reference_id')
-            ->where('reference_type', Service::class)->whereNotNull('reference_id'))->exists();
+        return $lines->where('reference_type', Service::class)->whereIn('reference_id', ServiceCancellation::query()->select('service_id'));
     }
 
     /** Lines of two ways (a merge, an item's way changed on a shared open invoice): no method charges it. */
@@ -270,13 +315,17 @@ final class AutoCharge
         return $way === null || $way === 'account' ? null : (int) $way;
     }
 
-    /** @return Builder<Invoice> open renewal invoices due in the window (any day, not $dated), of customers with «Auto-charge» on */
-    private function due(CarbonImmutable $today, bool $dated = true): Builder
+    /**
+     * @return Builder<Invoice> open renewal invoices due in the window (any day, not $dated), of customers with «Auto-charge»
+     *                          on. $heldByCancellation: instead, those it would pick but for a service of them with a cancellation request,
+     *                          that also bill another service or a domain (C7 of #695: for staff)
+     */
+    private function due(CarbonImmutable $today, bool $dated = true, bool $heldByCancellation = false): Builder
     {
         $notCharged = Service::query()->select('id')->where(fn ($query) => $query->where('status', '!=', Service::STATUS_ACTIVE)
             ->orWhere(fn ($subscribed) => $subscribed->whereNotNull('subscription_id')->where('subscription_id', '!=', ''))
             // One the customer asked to cancel (ADV-A2-1, as CreditAutoApply::eligible): not charged for the period after.
-            ->orWhereIn('id', ServiceCancellation::query()->select('service_id')));
+            ->when(!$heldByCancellation, fn ($cancelled) => $cancelled->orWhereIn('id', ServiceCancellation::query()->select('service_id'))));
 
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')->where('no_auto_charge', false)
             ->when($dated, fn (Builder $dates) => $dates->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
@@ -297,6 +346,11 @@ final class AutoCharge
             // service's (pending services are not charged either); unpaid it is cancelled.
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
                 ->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER]))
+            ->when($heldByCancellation, fn (Builder $held) => $held->whereHas('items', fn ($items) => self::cancellationLines($items))
+                ->whereHas('items', fn ($items) => $items->where(fn ($other) => $other->where('reference_type', Domain::class)
+                    ->orWhere(fn ($service) => $service->where('reference_type', Service::class)->whereNotNull('reference_id')
+                        ->whereNotIn('reference_id', ServiceCancellation::query()->select('service_id')))))
+                ->whereDoesntHave('items', fn ($items) => ItemPaymentMethod::kept($items)))
             ->orderBy('due_at')->orderBy('id');
     }
 
@@ -392,9 +446,9 @@ final class AutoCharge
             ->where('sent_at', '<=', now()->subHour()))->orderBy('id')->get()
             ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS)));
         if ($unsettled->isNotEmpty()) {
-            NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
+            self::tellOnce($unsettled->map(fn (ChargeAttempt $attempt) => "autocharge-unrecorded:{$attempt->id}")->values()->all(), fn () => NotificationHelper::sendSystemEmailNotification('Automatic charges not settled', e(sprintf(
                 "These charges are not settled: taken with no payment recorded since (check the gateway's webhooks), or of unknown outcome (check at the gateway). Each invoice is held, never charged or paid again, until staff record its payment, or settle it with «Resolve charge» on it (not taken, or its payment recorded another way).\n%s",
-                $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n"))));
+                $unsettled->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, {$attempt->status}, attempt {$attempt->key}")->implode("\n")))));
         }
     }
 

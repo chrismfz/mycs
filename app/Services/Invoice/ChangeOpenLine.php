@@ -14,16 +14,24 @@ use Illuminate\Support\Facades\DB;
  * A change to a line of an open invoice made by the app (a new recurring amount, an upgrade's price), under the
  * payment locks (docs/money-trail.md §2: service, if the caller holds it, then customer, invoice, lines). An invoice
  * paid, cancelled, or with a payment on it (processing too) keeps its line: a lower price would leave a payment above
- * what is owed, a higher one would reopen what was paid (audit sweep R9 of #68).
+ * what is owed, a higher one would reopen what was paid (audit sweep R9 of #68). A caller that must tell staff of a line
+ * kept that way passes $kept: told here, under the same locks, so no other place guesses the decision (review C1 of #695).
  */
 class ChangeOpenLine
 {
-    /** @param  Closure(InvoiceItem): mixed  $change  fills the locked line (its return is ignored); saved if anything changed */
-    public static function handle(InvoiceItem $line, Closure $change): bool
+    /**
+     * $change fills the locked line (its return is ignored); saved if anything changed. $kept is told of an open invoice's
+     * line kept at its price (a payment or an Ekdosi document on it) that the change would have changed: the line as
+     * billed (locked), as the change would have made it (never saved), and its invoice.
+     *
+     * @param  Closure(InvoiceItem): mixed  $change
+     * @param  (Closure(InvoiceItem, InvoiceItem, Invoice): mixed)|null  $kept
+     */
+    public static function handle(InvoiceItem $line, Closure $change, ?Closure $kept = null): bool
     {
-        return DB::transaction(function () use ($line, $change) {
+        return DB::transaction(function () use ($line, $change, $kept) {
             $invoice = (new RecordPaymentService)->lockInvoice($line->invoice_id);
-            if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+            if (!in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
                 return false;
             }
             // Ekdosi issued its fiscal document: the line stays as issued (R2-2 of #459).
@@ -31,6 +39,7 @@ class ChangeOpenLine
                 PaymentsLog::warning('A line of an invoice with a fiscal document from Ekdosi keeps its price: the app would have changed it.', [
                     'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
                 ]);
+                self::tellKept($line, $change, $invoice, $kept);
 
                 return false;
             }
@@ -39,6 +48,7 @@ class ChangeOpenLine
                 PaymentsLog::warning('A line of an invoice with a payment on it keeps its price: the app would have changed it.', [
                     'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
                 ]);
+                self::tellKept($line, $change, $invoice, $kept);
 
                 return false;
             }
@@ -61,5 +71,22 @@ class ChangeOpenLine
 
             return true;
         });
+    }
+
+    /** The kept line, locked after its invoice (docs/money-trail.md §2), and what the change would have made of it. */
+    private static function tellKept(InvoiceItem $line, Closure $change, Invoice $invoice, ?Closure $kept): void
+    {
+        if ($kept === null) {
+            return;
+        }
+        $billed = InvoiceItem::query()->whereKey($line->getKey())->lockForUpdate()->first();
+        if ($billed === null || (int) $billed->invoice_id !== (int) $invoice->id) {
+            return;
+        }
+        $wouldBe = clone $billed;
+        $change($wouldBe);
+        if ($wouldBe->isDirty()) {
+            $kept($billed, $wouldBe, $invoice);
+        }
     }
 }
