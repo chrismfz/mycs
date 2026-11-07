@@ -176,7 +176,8 @@ class StaffSplitAdversarialTest extends TestCase
     public function test_a_ticket_reply_written_while_logged_in_as_client_is_the_staff_members(): void
     {
         $customer = User::factory()->create();
-        $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
+        // Replying in «Login as client» takes the admin's own ticket right (SA-5, sweep AUTH-SECURITY-2).
+        $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate', 'admin.tickets.update'])->create();
         $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id]);
 
         // A browser with the staff login and «Login as client»; the component's requests go through the web group

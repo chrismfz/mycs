@@ -306,8 +306,11 @@ class Domain extends Model implements Auditable
         if ($this->recurring_amount !== null) {
             return max(1, (int) $this->years);
         }
-        // Its shortest period offered: never a year at 0.00 WHMCS never sold, restored free (ADV-A5-2).
-        $years = $this->domainTld?->shortestYears('renew', (string) $this->currency_code);
+        // Its shortest period offered: never a year at 0.00 WHMCS never sold, restored free (ADV-A5-2), and only in its own
+        // registrar's steps (REV-DOMAINS-2: a .gr domain in grace never renews for one year, which billing refuses).
+        $step = $this->renewYearStep();
+        $years = $this->domainTld?->offeredYears('renew', (string) $this->currency_code)
+            ->filter(fn (int $y) => $y >= 1 && $y % $step === 0)->min();
 
         return max(1, (int) ($years ?? $this->years ?? 1));
     }

@@ -100,6 +100,24 @@ class AddAddonTest extends TestCase
         $this->assertSame('2026-12-01', AddAddon::alignedEnd($parent, $plan)->toDateString());
     }
 
+    /** Sweep CRON-BILLING-3: a parent on the 31st whose date is a clamped month end steps back on the 31st. */
+    public function test_a_parent_on_the_31st_prorates_on_the_31st(): void
+    {
+        Carbon::setTestNow('2027-02-14 10:00:00');
+        $parent = $this->parent('2027-02-28');
+        $parent->forceFill(['billing_day' => 31])->save();
+        [, $plan] = $this->addonProduct();
+
+        $quote = AddAddon::quote($parent, $plan, '3.00', AddAddon::PRORATED);
+        $this->assertSame('2027-02-28', $quote[1]->toDateString());
+        $this->assertSame('1.50', $quote[2], '3.00 × 14 of the 28 days from 31 January, not 14 of 31 from 28 January');
+
+        Carbon::setTestNow('2027-03-20 10:00:00');
+        $yearly = $this->parent('2027-04-30', 'year');
+        $yearly->forceFill(['billing_day' => 31])->save();
+        $this->assertSame('2027-03-31', AddAddon::alignedEnd($yearly, $plan)->toDateString(), 'the 31st of March, not the 30th');
+    }
+
     public function test_a_yearly_addon_of_a_monthly_service_is_prorated_to_the_parents_date(): void
     {
         $parent = $this->parent('2026-12-01');

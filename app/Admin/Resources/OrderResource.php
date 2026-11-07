@@ -23,7 +23,6 @@ use Brick\Math\BigDecimal;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -36,7 +35,6 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
-use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -110,19 +108,16 @@ class OrderResource extends Resource
                 Section::make('Order Items')->visibleOn('edit')->columnSpanFull()->schema([
                     View::make('admin.orders.items'),
                 ]),
+                // Fixed once the order exists (sweep ADMIN-3): its services and invoices are the client's, and only
+                // MoveToClient (the service's «Move to another client», admin.services.move) moves them, with their
+                // unpaid invoices, and the order along when it is only theirs. A new currency would keep the old figures.
                 ClientComponent::make('client_id')
-                    ->afterStateUpdated(function (Set $set, Get $get) {
-                        // the services are the order's account's
-                        $set('services', collect($get('services'))->map(fn ($service) => array_merge($service, ['client_id' => $get('client_id')]))->toArray());
-                    }),
+                    ->disabledOn('edit'),
                 Select::make('currency_code')
                     ->label('Currency')
                     ->required()
                     ->live()
-                    ->afterStateUpdated(function (Set $set, Get $get) {
-                        // update all the services currency_code
-                        $set('services', collect($get('services'))->map(fn ($service) => array_merge($service, ['currency_code' => $get('currency_code')]))->toArray());
-                    })
+                    ->disabledOn('edit')
                     ->options(Currency::query()->pluck('code', 'code'))
                     ->helperText('Does not convert the price, only displays the currency symbol')
                     ->placeholder('Select the currency'),
@@ -174,70 +169,47 @@ class OrderResource extends Resource
                             // A pro rata product's first invoice is this price for the days to its day (PR D).
                             ->helperText('The price it renews at, before tax: the invoice adds the client\'s tax. Empty: the catalog price. A pro rata product\'s first invoice is this price for the days up to its day. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
                     ]),
+                // Read only (sweep ADMIN-1/2): the order page shows its services and never writes them. Saving the
+                // order wrote every row back as loaded (undoing an upgrade, the cron's repricing, a cleared
+                // subscription), and a removed row was a plain delete() without DeleteService and its permission.
+                // Changes are made on the service's own page. The subscription's «Cancel» hint stays: it acts by itself.
                 Repeater::make('services')
                     ->visibleOn('edit')
                     ->relationship('services')
+                    ->saveRelationshipsUsing(null)
+                    ->dehydrated(false)
+                    ->addable(false)
+                    ->deletable(false)
+                    ->reorderable(false)
                     ->label('Services')
+                    ->helperText('Change a service on its own page.')
                     ->columnSpanFull()
                     ->columns(2)
                     ->schema([
-                        Hidden::make('client_id')
-                            ->default(fn (Get $get) => $get('../../client_id')),
-                        Hidden::make('currency_code')
-                            ->default(fn (Get $get) => $get('../../currency_code')),
                         Select::make('product_id')
                             ->label('Product')
-                            ->required()
+                            ->disabled()
                             ->relationship(
                                 name: 'product',
                                 titleAttribute: 'name',
                                 modifyQueryUsing: fn (Builder $query) => $query->with('category')
                             )
-                            ->getOptionLabelFromRecordUsing(fn (Product $product) => "{$product->name} - {$product->category->name} (#{$product->id})")
-                            ->searchable()
-                            ->preload()
-                            ->live()
-                            ->afterStateUpdated(fn (Set $set) => $set('plan_id', null))
-                            ->placeholder('Select the product'),
+                            ->getOptionLabelFromRecordUsing(fn (Product $product) => "{$product->name} - {$product->category->name} (#{$product->id})"),
                         Select::make('plan_id')
                             ->label('Plan')
-                            ->required()
-                            ->relationship('plan', 'name', fn (Builder $query, Get $get) => $query->where('priceable_type', Product::class)->where('priceable_id', $get('product_id')))
-                            ->searchable()
-                            ->preload()
-                            ->live()
-                            ->disabled(fn (Get $get) => (!$get('product_id') || !$get('../../currency_code')))
-                            ->afterStateUpdated(function (Set $set, Get $get) {
-                                if (!$get('product_id') || !$get('plan_id') || !$get('../../currency_code')) {
-                                    return;
-                                }
-                                // Update the price when the plan changes
-                                $plan = Product::find($get('product_id'))->plans->find($get('plan_id'))->prices->where('currency_code', $get('../../currency_code'))->first();
-                                if (!$plan) {
-                                    return;
-                                }
-                                $set('price', $plan->price);
-                            })
-                            ->placeholder('Select the plan'),
+                            ->disabled()
+                            ->relationship('plan', 'name'),
                         TextInput::make('quantity')
                             ->label('Quantity')
-                            ->required()
-                            ->placeholder('Enter the quantity'),
+                            ->disabled(),
                         TextInput::make('price')
-                            ->suffix(fn (Component $component, Get $get) => $component->getRecord()?->currency->suffix ?? Currency::where('code', $get('../../currency_code'))->first()?->suffix)
-                            ->prefix(fn (Component $component, Get $get) => $component->getRecord()?->currency->prefix ?? Currency::where('code', $get('../../currency_code'))->first()?->prefix)
+                            ->suffix(fn (Component $component) => $component->getRecord()?->currency?->suffix)
+                            ->prefix(fn (Component $component) => $component->getRecord()?->currency?->prefix)
                             ->label('Price')
-                            ->required()
-                            ->mask(RawJs::make(
-                                <<<'JS'
-                                    $money($input, '.', '', 2)
-                                JS
-                            ))
-                            ->placeholder('Enter the price'),
+                            ->disabled(),
                         TextInput::make('subscription_id')
                             ->label('Subscription ID')
-                            ->nullable()
-                            ->placeholder('Enter the subscription ID')
+                            ->disabled()
                             ->hintActions([
                                 CancelSubscriptionAction::make(),
                             ]),

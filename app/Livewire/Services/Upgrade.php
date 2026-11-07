@@ -233,6 +233,8 @@ class Upgrade extends Component
                 return $this->notify(__('You have not changed anything. Please select a different product or change the configuration options.'), 'error');
             case PlaceUpgrade::NEEDS_STAFF:
                 return $this->notify(__('This change needs our staff: please contact us.'), 'error');
+            case PlaceUpgrade::OUT_OF_STOCK:
+                return $this->notify(__('product.out_of_stock', ['product' => $this->upgradeProduct->name]), 'error');
             case PlaceUpgrade::NOT_NOW:
                 return $this->notify(__('This service cannot be upgraded right now.'), 'error');
             case PlaceUpgrade::APPLIED:

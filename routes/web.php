@@ -35,7 +35,7 @@ use App\Models\SslVersion;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
-use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Support\Facades\Route;
@@ -168,7 +168,7 @@ Route::get('offer/{offer}', OfferController::class)->name('offers.show')->middle
 Route::get('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeController::class, 'show'])->name('announcements.unsubscribe')->middleware(['signed', 'throttle:20,1']);
 // Its signature is its proof (no session: a mail provider's one-click, RFC 8058, or a page left open past the session).
 Route::post('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeController::class, 'store'])->middleware(['signed', 'throttle:20,1'])
-    ->withoutMiddleware([ValidateCsrfToken::class]);
+    ->withoutMiddleware([PreventRequestForgery::class]);
 
 Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
     // «Show all» (WHMCS's «Εμφάνιση όλων»): every category of the menu on one page.

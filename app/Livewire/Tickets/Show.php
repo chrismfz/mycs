@@ -6,6 +6,7 @@ use App\Attributes\DisabledIf;
 use App\Livewire\Component;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketMessage;
 use App\Support\Actor;
 use App\Support\Tickets\TicketFiles;
 use Illuminate\Support\Facades\Auth;
@@ -34,7 +35,7 @@ class Show extends Component
         ];
     }
 
-    #[Rule('required', 'string')]
+    #[Rule(['required', 'string', 'max:' . TicketMessage::MAX_LENGTH])]
     public string $message;
 
     /** A merged ticket's page leads to the one it was merged into (same owner: docs/tickets.md §6κ). */

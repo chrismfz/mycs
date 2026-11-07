@@ -7,6 +7,7 @@ use App\Classes\Extension\Server;
 use App\Models\Service;
 use App\Rules\Domain;
 use App\Support\PanelConnection;
+use App\Support\Services\SharedAccount;
 use Exception;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Str;
@@ -232,9 +233,7 @@ class DirectAdmin extends Server
      */
     public function suspendServer(Service $service, $settings, $properties)
     {
-        if (!isset($properties['directadmin_username'])) {
-            throw new Exception('Service has not been created');
-        }
+        $properties = self::account($service, $properties);
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'location' => 'CMD_SELECT_USERS',
@@ -258,9 +257,8 @@ class DirectAdmin extends Server
      */
     public function unsuspendServer(Service $service, $settings, $properties)
     {
-        if (!isset($properties['directadmin_username'])) {
-            throw new Exception('Service has not been created');
-        }
+        // Not refused for an account another service shares (as cPanel's): an unsuspension never takes one away.
+        $properties = self::account($service, $properties, shared: true);
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'location' => 'CMD_SELECT_USERS',
@@ -284,9 +282,7 @@ class DirectAdmin extends Server
      */
     public function terminateServer(Service $service, $settings, $properties)
     {
-        if (!isset($properties['directadmin_username'])) {
-            throw new Exception('Service has not been created');
-        }
+        $properties = self::account($service, $properties);
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'confirmed' => 'Confirm',
@@ -298,15 +294,17 @@ class DirectAdmin extends Server
             throw new Exception('Error terminating DirectAdmin account: ' . $response['text']);
         }
 
-        // Delete the properties, and the login with them
+        // Delete the properties, and the login with them; the native username too (as cPanel's, review R2): the account is
+        // gone, a later action must not name it (the name may be another customer's account by then).
         $service->properties()->whereIn('key', ['directadmin_username', 'directadmin_password'])->delete();
-        $service->forceFill(['password' => null])->save();
+        $service->forceFill(['username' => null, 'password' => null])->save();
 
         return true;
     }
 
     public function getActions(Service $service, $settings, $properties): array
     {
+        $properties = self::withNativeUsername($properties);
         if (!isset($properties['directadmin_username']) || self::password($properties) === null) {
             return [];
         }
@@ -324,6 +322,7 @@ class DirectAdmin extends Server
 
     public function ssoLink(Service $service, $settings, $properties): string
     {
+        $properties = self::withNativeUsername($properties);
         if (!isset($properties['directadmin_username']) || self::password($properties) === null) {
             return '';
         }
@@ -349,6 +348,41 @@ class DirectAdmin extends Server
     }
 
     /** The account's password: the service's own (encrypted) field; a property only on accounts made before. */
+    /**
+     * Its account name: the module's own property or, for an account imported from WHMCS, the service's native username
+     * (tblhosting.username; the importer sets no directadmin_username: sweep PROVISIONING-6).
+     */
+    private static function withNativeUsername(array $properties): array
+    {
+        $name = $properties['directadmin_username'] ?? null;
+        if (!is_string($name) || trim($name) === '') {
+            $native = $properties['username'] ?? null;
+            unset($properties['directadmin_username']);
+            if (is_string($native) && trim($native) !== '') {
+                $properties['directadmin_username'] = trim($native);
+            }
+        }
+
+        return $properties;
+    }
+
+    /**
+     * The service's account, to suspend, unsuspend or remove: named and, unless $shared is allowed, no other live service
+     * here has the same one (sweep PROVISIONING-3).
+     */
+    private static function account(Service $service, array $properties, bool $shared = false): array
+    {
+        $properties = self::withNativeUsername($properties);
+        if (!isset($properties['directadmin_username'])) {
+            throw new Exception('Service has not been created');
+        }
+        if (!$shared && ($other = SharedAccount::otherLive($service, $properties['directadmin_username'], ['directadmin_username'])) !== null) {
+            throw new Exception("DirectAdmin: service #{$other->id} has the account «{$properties['directadmin_username']}» on this server too: check both before anything is done to it (by hand)");
+        }
+
+        return $properties;
+    }
+
     private static function password(array $properties): ?string
     {
         $password = $properties['password'] ?? $properties['directadmin_password'] ?? null;

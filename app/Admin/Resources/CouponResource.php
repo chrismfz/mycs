@@ -183,7 +183,7 @@ class CouponResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()->modalDescription('Services still on a running coupon get their full price back: they renew at it from their next invoice.'),
                 ]),
             ]);
     }

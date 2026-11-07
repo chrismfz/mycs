@@ -134,7 +134,7 @@ class DomainSearch
 
     /**
      * Whether each name is free: from the cache, else its TLD's registrar (all of one registrar's in one request), else
-     * RDAP for TLDs without one.
+     * RDAP for TLDs without a usable one (none, manual, or off: staff register those by hand).
      *
      * @param  array<string, DomainTld>  $names  fqdn => its TLD
      * @return array<string, string> fqdn => status
@@ -148,7 +148,9 @@ class DomainSearch
             $connection = $tld->registrarConnection;
             if (($cached = Cache::get(self::cacheKey($fqdn))) !== null) {
                 $statuses[$fqdn] = $cached;
-            } elseif ($connection !== null && $connection->is_active) {
+            } elseif ($connection !== null && $connection->isUsable()) {
+                // Only a connection with an API that is on (sweep DOMAINS-1): a manual one cannot check (always «could
+                // not check», never orderable), and one set «off» would answer the live shop with sandbox credentials.
                 $byConnection[$connection->id]['connection'] = $connection;
                 $byConnection[$connection->id]['names'][] = $fqdn;
             } else {
