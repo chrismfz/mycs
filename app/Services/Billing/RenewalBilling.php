@@ -192,6 +192,7 @@ final class RenewalBilling
                 $service->plan_id = $next->id;
                 $service->setRelation('plan', $next);
                 $service->price = (float) $service->calculatePrice();
+                $service->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
             }
             $service->next_plan_id = null;
             $service->save();

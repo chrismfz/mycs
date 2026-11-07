@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Exceptions\DisplayException;
+use App\Services\Service\RemoveCoupon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -44,6 +45,11 @@ class Coupon extends Model implements Auditable
                     throw new DisplayException(__('Unknown billing cycle.'));
                 }
             }
+        });
+        // services.coupon_id is ON DELETE SET NULL, with no model event: a running coupon's discount would stay in the
+        // services' price for ever (sweep ADMIN-4). Taken off first, with the full price back.
+        static::deleting(function (Coupon $coupon) {
+            RemoveCoupon::fromAll($coupon);
         });
     }
 
