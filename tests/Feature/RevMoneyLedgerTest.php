@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
@@ -41,10 +42,13 @@ class RevMoneyLedgerTest extends TestCase
 
     /**
      * REV-ML-1 (MONEY-LEDGER-1 fix): a credit purchase of 50 paid 30 + 20 gives 50. Staff refund 10 of the first
-     * payment (10 of credit goes, 40 left). Then the second payment is deleted: the fix takes back all 40 left and
-     * clears applied_at. The reopened invoice owes 20, but paying those 20 is refused (InvoiceObserver: the line
-     * would grant 50 for 40 received net), so the customer's payment of exactly what the invoice says it owes throws
-     * and the invoice can never be paid again. Before the fix the 20 was taken and the invoice became paid.
+     * payment (10 of credit goes, 40 left). Then the second payment is deleted: the fix took back all 40 left and
+     * cleared applied_at. The reopened invoice owed 20, but paying those 20 was refused (InvoiceObserver: the line
+     * would grant 50 for 40 received net), so the invoice could never be paid again.
+     *
+     * Fixed by refusing that deletion (its lines cannot give their whole total again for less money): staff refund the
+     * payment instead, which takes its credit back and leaves the invoice paid for what it kept. Test corrected from
+     * «deleted, then paid again» to «refused, nothing changes; the refund keeps credit = money kept».
      */
     public function test_credit_purchase_refunded_in_part_then_payment_deleted_can_be_paid_again(): void
     {
@@ -57,22 +61,39 @@ class RevMoneyLedgerTest extends TestCase
         ExtensionHelper::refundLocally($first->fresh(), 10, notify: false);
         $this->assertSame('40.00', $this->balance());
 
-        (new RecordPaymentService)->deleteTransaction($second);
-        $owed = (float) $invoice->fresh()->remaining;
-        $this->assertSame('unpaid', $invoice->fresh()->status);
-        $this->assertSame('20.00', number_format($owed, 2, '.', ''));
-
         $error = null;
         try {
-            ExtensionHelper::addPayment($invoice->id, null, $owed, transactionId: 'REV-T3');
-        } catch (\Throwable $e) {
+            (new RecordPaymentService)->deleteTransaction($second);
+        } catch (DisplayException $e) {
             $error = $e;
         }
-        $this->assertNull($error, 'Paying what the reopened invoice owes was refused: ' . ($error?->getMessage() ?? ''));
+        $this->assertNotNull($error, 'Deleting a payment of a credit purchase refunded in part reopened it unpayable');
+        $this->assertNotNull($second->fresh(), 'The refused payment stays');
         $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('40.00', $this->balance());
+        $this->assertSame(0, $invoice->items()->where('reference_type', Credit::class)->whereNull('applied_at')->count());
 
-        $paid = 30 - 10 + $owed;
-        $this->assertSame(number_format($paid, 2, '.', ''), $this->balance(), 'Credit granted is more than the customer paid net');
+        // What staff do instead: refund it, which takes its credit back too.
+        ExtensionHelper::refundLocally($second->fresh(), 20, notify: false);
+        $this->assertSame('20.00', $this->balance(), 'Credit left is the money the invoice kept (30 - 10)');
+        $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
+    }
+
+    /** The same deletion with no refund before it still reopens the invoice, and paying it again gives the credit again. */
+    public function test_credit_purchase_payment_deleted_without_refunds_can_be_paid_again(): void
+    {
+        $invoice = $this->creditPurchase(50);
+        ExtensionHelper::addPayment($invoice->id, null, 30, transactionId: 'REV-T4');
+        $second = ExtensionHelper::addPayment($invoice->id, null, 20, transactionId: 'REV-T5');
+        $this->assertSame('50.00', $this->balance());
+
+        (new RecordPaymentService)->deleteTransaction($second);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
+        $this->assertSame('0.00', $this->balance());
+
+        ExtensionHelper::addPayment($invoice->id, null, (float) $invoice->fresh()->remaining, transactionId: 'REV-T6');
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('50.00', $this->balance());
         $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
     }
 }

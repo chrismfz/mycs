@@ -448,7 +448,14 @@ class RecordPaymentService
                 if ($this->lockBoughtCredit($invoice)) {
                     $unbuy = $onInvoice > 0 && $invoice->status === Invoice::STATUS_PAID
                         && self::toCents($invoice->withLockedBalance()->remaining) + $onInvoice > 0;
-                    $change -= $unbuy ? $this->boughtCreditLeftCents($invoice) : $onInvoice;
+                    $left = $unbuy ? $this->boughtCreditLeftCents($invoice) : 0;
+                    // A refund already took part of its credit back (its refund note stays): paid again, its lines would
+                    // give their whole total for less money, which the invoice refuses, so it could never be paid again
+                    // (review REV-ML-1). Staff refund this payment instead, which takes its credit back as well.
+                    if ($unbuy && $left < $this->boughtCreditCents($invoice)) {
+                        throw new DisplayException(__('Part of the credit this invoice bought was already refunded: its other payments are not deleted, refund them instead.'));
+                    }
+                    $change -= $unbuy ? $left : $onInvoice;
                 }
             }
             $credit = null;
@@ -678,14 +685,20 @@ class RecordPaymentService
      */
     public function boughtCreditLeftCents(Invoice $invoice): int
     {
-        $given = (int) $invoice->items()->where('reference_type', Credit::class)->lockForUpdate()->get()
-            ->sum(fn (InvoiceItem $item) => $item->totalCents());
+        $given = $this->boughtCreditCents($invoice);
         $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)->max('id');
         $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
             ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
             ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
 
         return max(0, $given - $taken);
+    }
+
+    /** What the credit lines of a credit purchase give when it is paid (their totals). Under the payments' locks. */
+    public function boughtCreditCents(Invoice $invoice): int
+    {
+        return (int) $invoice->items()->where('reference_type', Credit::class)->lockForUpdate()->get()
+            ->sum(fn (InvoiceItem $item) => $item->totalCents());
     }
 
     /** Whether staff refunded part of this payment to account credit (PR 2c), and that refund still stands. */
