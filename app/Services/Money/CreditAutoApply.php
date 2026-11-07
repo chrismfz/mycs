@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * Not on: a credit purchase (add funds); an invoice with a payment on its way (processing); an invoice of a service
  * with a gateway subscription (Stripe/PayPal charge the whole amount: credit first would be paid twice), except its
  * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e; and once
- * it is overdue, the subscription not having paid it, on the day the cron would suspend its service: ADV-A3-3, P2); an
+ * it is overdue, the subscription not having paid it, once overdue by Suspend Days: ADV-A3-3, P2); an
  * invoice of a service the customer asked to cancel; an upgrade invoice (the cron reprices it); an invoice staff took
  * a credit payment off (deleted it: the sweep would put it back); a customer who opted out (clients.credit_auto_apply).
  * Read under the payment locks, as the payment itself.
@@ -104,27 +104,28 @@ class CreditAutoApply
     }
 
     /**
-     * The customer's renewals of a service with a gateway subscription, past due, that the subscription did not pay (a
-     * card failed, cancelled at the gateway) and whose service the cron suspends in this run (DunningRules::suspendable,
-     * as of today: its suspend step runs after the credit sweep, daily and hourly). Credit that covers it all pays it then,
-     * as toSubscriptionRenewal() does when it is billed, rather than the service being suspended and ended with its credit
-     * unused (ADV-A3-3). Not before: a subscription charge a day or two late (Stripe's retries, a PayPal sale) would find
-     * it paid and become credit, the customer charged twice (review of #692, P2). Suspension off, a hold, a customer
-     * exempt: never suspended, so never paid from credit; the subscription pays it.
+     * The customer's renewals of a service with a gateway subscription that the subscription did not pay (a card failed,
+     * cancelled at the gateway), overdue by Suspend Days (cronjob_order_suspend, from the invoice's due date, the days the
+     * cron counts): credit that covers it all pays it then, as toSubscriptionRenewal() does when it is billed, rather than
+     * the service being suspended and ended with its credit unused (ADV-A3-3). Not before: a subscription charge a day or
+     * two late (Stripe's retries, a PayPal sale) would find it paid and become credit, the customer charged twice (review
+     * of #692, P2). A plain date rule (review 2): whatever the service's hold, exemption, the dunning window or the
+     * suspension switch, and also once it is suspended for non-payment (credit that comes later brings it back).
      *
      * @return array<int, int> invoice id => its position
      */
     private function overdueSubscriptionRenewals(int $clientId, string $currency): array
     {
-        if (!config('settings.cronjob_suspend_enabled', true)) {
-            return [];
-        }
-        $suspendedNow = DunningRules::suspendable(today(), (bool) config('settings.cronjob_suspend_requires_invoice', false))
-            ->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->select('services.id');
+        $dueBy = today()->subDays(DunningRules::days('cronjob_order_suspend', 8))->toDateString();
 
         return Invoice::query()->where('client_id', $clientId)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)
-            ->whereDate('due_at', '<', today()->toDateString())
-            ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', $suspendedNow))
+            ->whereNotNull('due_at')->whereDate('due_at', '<=', $dueBy)
+            ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', Service::query()
+                ->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+                ->where(fn ($status) => $status->where('status', Service::STATUS_ACTIVE)
+                    ->orWhere(fn ($dunned) => $dunned->where('status', Service::STATUS_SUSPENDED)
+                        ->where(fn ($unpaid) => $unpaid->whereNotNull('dunning_suspended_at')->orWhere('suspend_reason', Service::SUSPEND_REASON_PARENT))))
+                ->select('services.id')))
             ->pluck('id')->map(fn ($id) => (int) $id)->flip()->all();
     }
 

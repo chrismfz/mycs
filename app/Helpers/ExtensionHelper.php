@@ -1344,9 +1344,14 @@ class ExtensionHelper
      * A refund the gateway reports as failed: if MyCS recorded it, staff check it (the money may not have left), once.
      * Not recorded yet (the failure came first, F2): kept as failed, so a late «created» does not record it.
      */
-    public static function refundFailedAtGateway(string $gateway, string $refundReference, ?string $paymentReference = null, ?float $amount = null, ?string $currency = null): void
+    public static function refundFailedAtGateway(string $gateway, string $refundReference, ?string $paymentReference = null, ?float $amount = null, ?string $currency = null, ?string $importedAs = null): void
     {
         $refund = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)->first();
+        // A refund WHMCS made, imported by the id WHMCS kept (Stripe: its balance transaction): its failure is told to
+        // staff as one recorded here, never kept as a failed refund of its own (review 2 of #694, F4).
+        if (($refund === null || $refund->origin === GatewayRefund::ORIGIN_WAITING) && $importedAs !== null && $importedAs !== '' && $importedAs !== $refundReference) {
+            $refund = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $importedAs)->where('origin', GatewayRefund::ORIGIN_IMPORT)->first() ?? $refund;
+        }
         GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'refund_failed', [
             'external_id' => $refundReference, 'invoice_transaction_id' => $refund?->invoice_transaction_id,
         ]);

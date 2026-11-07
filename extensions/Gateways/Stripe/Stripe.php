@@ -426,14 +426,14 @@ class Stripe extends Gateway
                 if (!isset($refund->payment_intent, $refund->id)) {
                     break;
                 }
+                // WHMCS kept a refund it made by its balance transaction (txn_...): a late event of it is that refund (P1, F4).
+                $balanceTransaction = $refund->balance_transaction ?? null;
+                $balanceTransaction = is_string($balanceTransaction) ? $balanceTransaction : (is_object($balanceTransaction) ? ($balanceTransaction->id ?? null) : null);
+                $balanceTransaction = is_string($balanceTransaction) ? $balanceTransaction : null;
                 if (in_array($refund->status ?? null, ['succeeded', 'pending'], true)) {
-                    // WHMCS kept a refund it made by its balance transaction (txn_...): a late event of it is a replay (P1).
-                    $balanceTransaction = $refund->balance_transaction ?? null;
-                    $balanceTransaction = is_string($balanceTransaction) ? $balanceTransaction : (is_object($balanceTransaction) ? ($balanceTransaction->id ?? null) : null);
-                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null,
-                        is_string($balanceTransaction) ? $balanceTransaction : null);
+                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null, $balanceTransaction);
                 } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
-                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null);
+                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null, $balanceTransaction);
                 }
                 break;
             case 'charge.dispute.created':

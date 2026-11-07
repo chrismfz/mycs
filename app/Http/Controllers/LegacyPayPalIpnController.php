@@ -187,10 +187,10 @@ class LegacyPayPalIpnController extends Controller
         if ($kind === 'money') {
             // A PayPal payment of ours (its gateways, or one staff recorded by hand, no gateway, as gatewayPayment matches),
             // succeeded; or processing on a PayPal gateway: its own webhook completes it. Never another gateway's row with
-            // the same id, nor a hand row not succeeded (review of #694, F3).
+            // the same id, nor a hand row not succeeded (review of #694, F3). A gateway staff removed since still counts (F6).
             return $txn === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $txn)->where('is_credit_transaction', false)
                 ->where(fn ($ours) => $ours
-                    ->where(fn ($gateway) => $gateway->whereHas('gateway', fn ($gw) => $gw->whereIn('extension', self::GATEWAYS))
+                    ->where(fn ($gateway) => $gateway->whereHas('gateway', fn ($gw) => $gw->withTrashed()->whereIn('extension', self::GATEWAYS))
                         ->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing]))
                     ->orWhere(fn ($hand) => $hand->whereNull('gateway_id')->where('status', InvoiceTransactionStatus::Succeeded)))
                 ->orderBy('id')->value('invoice_id'));
@@ -209,7 +209,7 @@ class LegacyPayPalIpnController extends Controller
         }
 
         return $parent === '' ? null : $invoice(InvoiceTransaction::query()->where('transaction_id', $parent)->where('is_credit_transaction', false)
-            ->whereHas('gateway', fn ($gw) => $gw->where('extension', 'PayPal'))
+            ->whereHas('gateway', fn ($gw) => $gw->withTrashed()->where('extension', 'PayPal'))
             // The gateway recorded it itself: its payment event carries the provider's id, which one staff entered by hand
             // (a legacy Standard sale this controller told them to record) or the importer wrote never does (R4-1).
             ->whereExists(fn ($own) => $own->from('money_events')->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')

@@ -201,30 +201,60 @@ class Review2PaymentsTest extends TestCase
     }
 
     /**
-     * P2. An overdue subscription renewal is paid from credit only on the day the cron would suspend its service (the
-     * credit sweep runs before the suspend step): the day before, a late subscription charge (Stripe's retries, a PayPal
-     * sale) may still pay it, and credit first would make that charge credit, the customer paying twice.
+     * P2 (review 2). An overdue subscription renewal is paid from credit once it is overdue by Suspend Days (from its due
+     * date, the days the cron counts), not before: the days before, a late subscription charge (Stripe's retries, a
+     * PayPal sale) may still pay it, and credit first would make that charge credit, the customer paying twice.
      */
-    public function test_p2_credit_pays_an_overdue_subscription_renewal_only_on_its_suspension_day(): void
+    public function test_p2_credit_pays_an_overdue_subscription_renewal_once_overdue_by_suspend_days(): void
     {
         $this->enableCredit();
-        // Suspend Days 8: expired on 2026-11-02, suspended on 2026-11-11 (expires_at before today - 8 days).
-        $service = $this->service('2026-11-02 00:00:00', ['subscription_id' => 'sub_review2']);
-        $invoice = $this->openInvoiceFor($service, '2026-11-02');
+        // Suspend Days 8, due on 2026-11-03: overdue by 7 days on 2026-11-10, by 8 on 2026-11-11.
+        $service = $this->service('2026-11-03 00:00:00', ['subscription_id' => 'sub_review2']);
+        $invoice = $this->openInvoiceFor($service, '2026-11-03');
         Credit::query()->create(['client_id' => $this->clientId, 'currency_code' => 'EUR', 'amount' => '50.00']);
 
-        // 2026-11-10, the day before: overdue, but not paid from credit, nor suspended.
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'paid from credit while the subscription may still pay it');
         $this->assertSame('50.00', number_format((float) Credit::query()->where('client_id', $this->clientId)->value('amount'), 2, '.', ''));
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status);
 
-        // 2026-11-11, its suspension day: the credit pays it before the suspend step.
         Carbon::setTestNow('2026-11-11 09:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'the credit covering it pays it on the day it would be suspended');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'the credit covering it pays it once overdue by Suspend Days');
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'not suspended while credit covering it sits unused');
         $this->assertSame('40.00', number_format((float) Credit::query()->where('client_id', $this->clientId)->value('amount'), 2, '.', ''));
+    }
+
+    /** P2 (review 2). A subscription service already suspended for non-payment is paid from credit that comes later. */
+    public function test_p2_a_suspended_subscription_service_is_paid_from_credit_that_comes_later(): void
+    {
+        $this->enableCredit();
+        $service = $this->service('2026-10-25 00:00:00', ['subscription_id' => 'sub_review2_suspended']);
+        $invoice = $this->openInvoiceFor($service, '2026-10-25');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'precondition: suspended for non-payment');
+
+        // The credit comes days later (a staff adjustment, a downgrade).
+        Carbon::setTestNow('2026-11-12 09:00:00');
+        Credit::query()->create(['client_id' => $this->clientId, 'currency_code' => 'EUR', 'amount' => '50.00']);
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'the credit sits unused while the service goes on to termination');
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'paid, brought back');
+    }
+
+    /** P2 (review 2). Suspension switched off (the cut-over's safety net): the date rule alone, still paid. */
+    public function test_p2_suspension_switched_off_still_pays_from_credit(): void
+    {
+        $this->enableCredit();
+        config(['settings.cronjob_suspend_enabled' => false]);
+        $service = $this->service('2026-11-01 00:00:00', ['subscription_id' => 'sub_review2_off']);
+        $invoice = $this->openInvoiceFor($service, '2026-11-01');
+        Credit::query()->create(['client_id' => $this->clientId, 'currency_code' => 'EUR', 'amount' => '50.00']);
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'never paid from credit while suspensions are off');
     }
 
     /**
@@ -332,6 +362,41 @@ class Review2PaymentsTest extends TestCase
 
         $this->legacyIpn(['txn_type' => 'web_accept', 'payment_status' => 'Refunded', 'txn_id' => '6AB23456CD789012E', 'parent_txn_id' => 'NOPARENT1', 'mc_gross' => '-20.00'])->assertOk();
         $this->assertSame(1, $this->mails('PayPal refund or reversal not recorded'), 'WHMCS\'s imported refund told to staff again');
+    }
+
+    /**
+     * F4 (review 2). A `refund.failed` of a refund WHMCS made (imported by its balance transaction): staff are told, as of
+     * one recorded here; it is not kept as a failed refund of its own.
+     */
+    public function test_f4_a_failed_event_of_an_imported_whmcs_stripe_refund_tells_staff(): void
+    {
+        $this->stripeGateway();
+        $service = $this->service('2026-12-01');
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (9303, {$this->clientId}, '', '2026-10-25', '2026-11-01', '2026-11-01 10:00:00', 'Paid', 100, 0, 0, 'stripe')");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES (5, 9303, {$this->clientId}, 'Hosting', {$service->id}, 'Hosting', 100, 0)");
+        $this->whmcs->exec("INSERT INTO tblaccounts VALUES (7321, {$this->clientId}, 9303, 'stripe', '2026-11-01 10:00:00', 'Invoice Payment', 100, 0, 3.2, 'pi_3QfailedAAAA', 0)");
+        $this->whmcs->exec("INSERT INTO tblaccounts VALUES (7322, {$this->clientId}, 9303, 'stripe', '2026-11-08 12:00:00', 'Refund of Transaction ID pi_3QfailedAAAA', 0, 40, 0, 'txn_3QfailedBBBB', 7321)");
+        $this->import(['importInvoices', 'importInvoiceItems', 'importPayments', 'importRefunds']);
+
+        $this->stripeEvent('refund.failed', ['id' => 're_3QfailedCCCC', 'object' => 'refund', 'payment_intent' => 'pi_3QfailedAAAA', 'amount' => 4000,
+            'currency' => 'eur', 'status' => 'failed', 'balance_transaction' => 'txn_3QfailedBBBB', 'failure_balance_transaction' => 'txn_3QfailedDDDD'])->assertOk();
+
+        $this->assertSame(1, $this->mails('Gateway refund failed after it was recorded'), 'staff not told that WHMCS\'s refund failed');
+        $this->assertFalse(GatewayRefund::query()->where('reference', 're_3QfailedCCCC')->exists(), 'kept as a failed refund of its own');
+    }
+
+    /** F6 (review 2). A PayPal payment on a gateway staff removed since is still recorded here for the legacy IPN. */
+    public function test_f6_the_legacy_ipn_sees_payments_of_a_removed_paypal_gateway(): void
+    {
+        $paypal = Gateway::query()->create(['extension' => 'PayPal', 'name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->clientId, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => '2026-11-10']);
+        $invoice->items()->create(['description' => 'Line', 'price' => '20.00', 'quantity' => 1]);
+        $invoice->transactions()->create(['amount' => 20, 'status' => InvoiceTransactionStatus::Succeeded, 'gateway_id' => $paypal->id, 'transaction_id' => '7AB23456CD789012E']);
+        $paypal->delete();
+
+        $this->legacyIpn(['txn_type' => 'web_accept', 'payment_status' => 'Completed', 'txn_id' => '7AB23456CD789012E', 'mc_gross' => '20.00'])->assertOk();
+
+        $this->assertSame(0, $this->mails('PayPal payment not recorded'), 'staff told to record a payment recorded here again');
     }
 
     /** P7 (review of #694 F4). Stripe's charge.updated finds its payment once and sets its fee on it. */
