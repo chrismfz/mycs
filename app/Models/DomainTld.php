@@ -109,11 +109,32 @@ class DomainTld extends Model implements Auditable
         $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)
             ->filter(fn (DomainTldPrice $row) => $row->isOffered())->pluck('years')->map(fn ($y) => (int) $y)->unique()->values();
 
+        $step = $operation === 'register' ? $this->renewYearStep() : 1;
+
         return match ($operation) {
-            'register' => $years->intersect($this->offeredYears('renew', $currency))->values(),
+            // Only in its registrar's renewal steps (sweep DOMAINS-2: the .gr registry registers 2, 4… years and refuses
+            // an odd period, so a 1-year .gr price is never sold as a paid order only staff can fulfil).
+            'register' => $years->intersect($this->offeredYears('renew', $currency))
+                ->filter(fn (int $y) => $y % $step === 0)->values(),
             'transfer' => $this->offeredYears('renew', $currency)->isEmpty() ? collect() : $years,
             default => $years,
         };
+    }
+
+    /**
+     * Its registrar's renewal step (the .gr registry: 2), 1 with no usable connection: as Domain::renewYearStep for a
+     * domain on its TLD's connection.
+     */
+    public function renewYearStep(): int
+    {
+        try {
+            $connection = $this->registrarConnection;
+
+            return $connection !== null && $connection->isUsable()
+                ? max(1, app(DomainRegistrarFactory::class)->for($connection)->capabilities()->renewYearStep) : 1;
+        } catch (\Throwable) {
+            return 1;
+        }
     }
 
     /**
