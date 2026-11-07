@@ -77,7 +77,11 @@ final class DowngradeCredit
         $given = BigDecimal::zero();
         foreach (ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_COMPLETED)->orderBy('id')->get() as $upgrade) {
             $at = CarbonImmutable::instance($upgrade->created_at);
-            $end = self::endOfPeriodAt($periods, $at);
+            $line = self::lineAt($periods, $at);
+            if ($line !== null && self::billedAgainAfter($line, $at)) {
+                continue; // a cycle change «now» after it counted it in its credit and billed its days again (REV-UPG-1)
+            }
+            $end = $line === null ? null : CarbonImmutable::instance($line->period_end);
             if ($end === null && $service->expires_at !== null) {
                 if ($currentStart === false) {
                     $currentStart = $service->currentPeriodStart();
@@ -118,10 +122,20 @@ final class DowngradeCredit
     }
 
     /** @param  Collection<int, InvoiceItem>  $lines */
-    private static function endOfPeriodAt($lines, CarbonImmutable $at): ?CarbonImmutable
+    private static function lineAt(Collection $lines, CarbonImmutable $at): ?InvoiceItem
     {
-        $line = $lines->first(fn (InvoiceItem $line) => !$line->period_start->greaterThan($at) && $line->period_end->greaterThan($at));
+        return $lines->first(fn (InvoiceItem $line) => !$line->period_start->greaterThan($at) && $line->period_end->greaterThan($at));
+    }
 
-        return $line === null ? null : CarbonImmutable::instance($line->period_end);
+    /**
+     * Whether $line was billed after the moment $at it holds, from the day it was billed: what a cycle change «now» bills
+     * (its period starts on its day; a renewal is billed ahead of its period). That change credited the upgrade's days
+     * left, or took a downgrade's credit for them off, already (sweep UPGRADES-1): counting it again in the new line
+     * would give it twice, or take it twice (REV-UPG-1).
+     */
+    private static function billedAgainAfter(InvoiceItem $line, CarbonImmutable $at): bool
+    {
+        return $line->created_at !== null && $line->created_at->greaterThan($at)
+            && $line->period_start->startOfDay()->equalTo($line->created_at->copy()->startOfDay());
     }
 }
