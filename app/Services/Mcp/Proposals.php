@@ -284,7 +284,8 @@ final class Proposals
                 : "Mark {$what} fixed at the registrar by hand, without sending anything."];
         }
         // A staff task (OptionTasks, or a machine with no API): done by hand, nothing to run; marked done.
-        if ($action->action === OptionTasks::ACTION || $action->subject === ModuleAction::SUBJECT_BY_HAND) {
+        // A check (StrayAccounts: a stray account, a domain sync's warning) is the same: staff look, nothing to run.
+        if ($action->action === OptionTasks::ACTION || $action->subject === ModuleAction::SUBJECT_BY_HAND || in_array($action->action, ModuleAction::CHECKS, true)) {
             if ($type === self::RETRY_MODULE_ACTION) {
                 throw new InvalidArgumentException("Module action #{$action->id} is a staff task: nothing to retry, mark it done once it is done by hand.");
             }

@@ -277,13 +277,17 @@ final class Health
 
     private static function module_actions(): array
     {
-        $open = ModuleAction::query()->where('status', ModuleAction::STATUS_OPEN);
+        // The «check this» tasks are not failures (owner 2026-11-08): counted on their own, never a warning.
+        $open = ModuleAction::query()->where('status', ModuleAction::STATUS_OPEN)->failures();
         $givenUp = (clone $open)->whereNotNull('given_up_at')->count();
         // A paid domain renewal waiting for staff (D5b-2, adversarial ADV-8): no automatic give-up, always theirs.
         $domains = (clone $open)->whereIn('action', ModuleAction::DOMAIN_ACTIONS)->count();
+        $checks = ModuleAction::openChecks();
 
-        return ['status' => $givenUp + $domains > 0 ? self::WARN : self::OK, 'detail' => $open->count() . " open, {$givenUp} given up, {$domains} domain actions (need staff)",
-            'data' => ['open' => $open->count(), 'given_up' => $givenUp, 'domain_renewals' => $domains]];
+        return ['status' => $givenUp + $domains > 0 ? self::WARN : self::OK, 'detail' => $open->count() . " open, {$givenUp} given up, {$domains} domain actions (need staff)"
+            . ($checks['accounts'] + $checks['domains'] > 0 ? "; {$checks['accounts']} accounts and {$checks['domains']} domains to check (not failures)" : ''),
+            'data' => ['open' => $open->count(), 'given_up' => $givenUp, 'domain_renewals' => $domains,
+                'accounts_to_check' => $checks['accounts'], 'domains_to_check' => $checks['domains']]];
     }
 
     private static function licenses(): array
