@@ -9,6 +9,7 @@ use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Observers\ServiceObserver;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
@@ -102,7 +103,14 @@ class ServiceUpgradeService
                     $service->coupon_expired_at = now()->toImmutable();
                 }
             }
-            $service->save();
+            // Its order's open pro rata line is told below with the others it keeps (tellOfKeptPeriods), not by the
+            // observer as a plan change by staff is (REV3-L-ROUNDING-TAX-2).
+            ServiceObserver::$upgrading = true;
+            try {
+                $service->save();
+            } finally {
+                ServiceObserver::$upgrading = false;
+            }
 
             $service->refresh();
 
