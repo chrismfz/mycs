@@ -86,6 +86,20 @@ class ChangeOpenLine
 
     public const KEPT_EKDOSI = 'ekdosi_document';
 
+    /** The order's own pro rata line, kept at the old plan's price on a plan change by staff (REV3-L-ROUNDING-TAX-2). */
+    public const KEPT_ORDER_LINE = 'order_line';
+
+    /**
+     * A line kept as it is by a decision of the caller's own, not of these locks (the order's line on a plan change: it
+     * keeps its stub), in its invoice's activity as any kept line: $wouldBe is what the change would have made of it.
+     */
+    public static function recordKept(InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice, string $because): void
+    {
+        if ($wouldBe->isDirty()) {
+            self::audit($billed, $wouldBe, $invoice, $because);
+        }
+    }
+
     /** The kept line, locked after its invoice (docs/money-trail.md §2), and what the change would have made of it. */
     private static function tellKept(InvoiceItem $line, Closure $change, Invoice $invoice, ?Closure $kept, string $because): void
     {
