@@ -62,10 +62,14 @@ class CreditAutoApply
     /**
      * The renewal of a service with a gateway subscription: only when the credit covers it all, as before MT-1e. A
      * subscription sale with no open invoice to land on becomes credit, and that credit is what pays the renewal.
+     *
+     * Only Credits Enabled gates it, not «Automatically use credits» (myip: NoAutoApplyCredit), as the customer's
+     * opt-out does not: the subscription has no other way to pay its renewal, and with the policy off its own sale sat
+     * as credit while the renewal was dunned, suspended and billed again (sweep 3, L-SETTINGS-MATRIX-1).
      */
     public function toSubscriptionRenewal(Invoice $invoice): ?InvoiceTransaction
     {
-        if (!self::enabled()) {
+        if (!(bool) config('settings.credits_enabled')) {
             return null;
         }
 
