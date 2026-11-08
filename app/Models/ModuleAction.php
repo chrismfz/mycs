@@ -105,6 +105,26 @@ class ModuleAction extends Model
      */
     public const DOMAIN_CONTACT = 'domain_contact';
 
+    /**
+     * «Check this» tasks a server's read opens (StrayAccounts, owner 2026-11-08): an account still on its server whose
+     * service ended in MyCS, and a running one no service has. One open per server and account (subject «server:remote»),
+     * closed on its own once a read no longer finds it; never anything run on the server (no Retry).
+     */
+    public const STRAY_ENDED = 'stray_ended';
+
+    public const STRAY_UNMAPPED = 'stray_unmapped';
+
+    public const STRAY = [self::STRAY_ENDED, self::STRAY_UNMAPPED];
+
+    /** A registrar sync's warning, what it did not apply (DomainSyncService::plan's «_warning»): the same kind of task. */
+    public const DOMAIN_CHECK = 'domain_check';
+
+    /** The tasks that only ask staff to look: nothing to retry, closed by staff («Checked») or by a later read. */
+    public const CHECKS = [self::STRAY_ENDED, self::STRAY_UNMAPPED, self::DOMAIN_CHECK];
+
+    /** The resolution of a row staff closed by hand («Mark resolved»). */
+    public const RESOLVED_BY_STAFF = 'marked resolved by staff';
+
     protected $guarded = [];
 
     protected function casts(): array
@@ -479,7 +499,7 @@ class ModuleAction extends Model
 
             return;
         }
-        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'marked resolved by staff',
+        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => self::RESOLVED_BY_STAFF,
             'resolved_by_staff_id' => $staff?->id])->save();
         if ($this->action === 'create' && $this->service !== null) {
             ExtensionHelper::startCreated($this->service);

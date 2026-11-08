@@ -2,11 +2,14 @@
 
 namespace App\Services\Mailcow;
 
+use App\Contracts\ReadsAccounts;
 use App\Helpers\ExtensionHelper;
 use App\Models\MailcowDomain;
 use App\Models\MailcowMailbox;
 use App\Models\Server;
 use App\Models\Service;
+use App\Services\Servers\ServerAccount;
+use App\Services\Servers\StrayAccounts;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -20,9 +23,10 @@ use Throwable;
  * A mailcow server's domains and mailboxes read into mailcow_domains/mailcow_mailboxes (owner 2026-10-28: «what goes on
  * in each server», as for Proxmox): new domains added, mapped at once when exactly one live service on this server is
  * that domain; known ones refreshed (their mapping kept); the ones no longer listed marked gone (kept, with their
- * mapping). Mailboxes mirror the server. Reads only.
+ * mapping). Mailboxes mirror the server. Reads only. After each read, its strays are tasks (StrayAccounts: a domain whose
+ * service ended in MyCS and still on the server, or an active one not mapped and not internal).
  */
-final class DomainSync
+final class DomainSync implements ReadsAccounts
 {
     /** @return array{seen: int, new: int, gone: int, mailboxes: int} */
     /** @param  bool  $dns  check its domains' DNS after (the cron: yes; a page's «Read now»: no, never DNS in a request) */
@@ -37,7 +41,9 @@ final class DomainSync
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
         try {
+            $readAt = now()->subSecond(); // a service changed while the server answered is newer than the read
             $result = self::read($server, $extension);
+            StrayAccounts::afterRead($server, new self, $readAt);
             // Its domains' DNS, after the write (lookups, never in the transaction): a failure costs only the statuses.
             if ($dns) {
                 rescue(fn () => MailSetup::refreshStatuses($server->id));
@@ -164,6 +170,14 @@ final class DomainSync
         $list = is_array($value) ? $value : (is_string($value) && $value !== '' ? preg_split('/[\s,]+/', $value) : []);
 
         return array_values(array_filter(array_map(fn ($a) => is_scalar($a) ? trim((string) $a) : '', $list)));
+    }
+
+    /** @return list<ServerAccount> the server's mail domains as the last read left them (ReadsAccounts) */
+    public function accounts(Server $server): array
+    {
+        return MailcowDomain::query()->where('server_id', $server->id)->whereNull('gone_at')->orderBy('id')->get()
+            ->map(fn (MailcowDomain $domain) => new ServerAccount($domain->domain, $domain->domain, $domain->active, $domain->service_id, $domain->internal))
+            ->values()->all();
     }
 
     /** @return Collection<int, Server> */

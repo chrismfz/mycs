@@ -2,10 +2,13 @@
 
 namespace App\Services\Cpanel;
 
+use App\Contracts\ReadsAccounts;
 use App\Helpers\ExtensionHelper;
 use App\Models\CpanelAccount;
 use App\Models\Server;
 use App\Models\Service;
+use App\Services\Servers\ServerAccount;
+use App\Services\Servers\StrayAccounts;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -17,9 +20,10 @@ use RuntimeException;
  * A WHM server's accounts read into cpanel_accounts (owner 2026-10-28: «what goes on in each server», as Mail Domains):
  * new ones added, mapped at once when exactly one live service on this server has that cPanel username; known ones
  * refreshed (their mapping kept, given to the new live service when theirs ended); the ones no longer listed marked gone
- * (kept, with their mapping). Reads only.
+ * (kept, with their mapping). Reads only. After each read, its strays are tasks (StrayAccounts: ended in MyCS and still
+ * there, or running and not mapped; a reseller's own customer's account is its reseller's).
  */
-final class AccountSync
+final class AccountSync implements ReadsAccounts
 {
     /** @return array{seen: int, new: int, gone: int} */
     public static function sync(Server $server): array
@@ -38,7 +42,10 @@ final class AccountSync
             // A second earlier: timestamps are kept to the second, and one in the read's own second is newer (round 2).
             $readAt = now()->subSecond();
 
-            return self::read($server, $extension->inventory(), $readAt);
+            $result = self::read($server, $extension->inventory(), $readAt);
+            StrayAccounts::afterRead($server, new self, $readAt);
+
+            return $result;
         } finally {
             $lock->release();
         }
@@ -89,6 +96,18 @@ final class AccountSync
 
             return ['seen' => count($seen), 'new' => $new, 'gone' => $gone];
         });
+    }
+
+    /** @return list<ServerAccount> the server's accounts as the last read left them (ReadsAccounts) */
+    public function accounts(Server $server): array
+    {
+        return CpanelAccount::query()->where('server_id', $server->id)->whereNull('gone_at')->orderBy('id')->get()
+            ->map(function (CpanelAccount $row) use ($server) {
+                $row->setRelation('server', $server);
+
+                return new ServerAccount($row->user, $row->domain ? "{$row->user} ({$row->domain})" : $row->user, !$row->suspended,
+                    $row->service_id, $row->internal || $row->resellersCustomer());
+            })->values()->all();
     }
 
     /** @return Collection<int, Server> */

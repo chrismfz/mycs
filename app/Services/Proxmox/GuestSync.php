@@ -2,9 +2,12 @@
 
 namespace App\Services\Proxmox;
 
+use App\Contracts\ReadsAccounts;
 use App\Helpers\ExtensionHelper;
 use App\Models\ProxmoxGuest;
 use App\Models\Server;
+use App\Services\Servers\ServerAccount;
+use App\Services\Servers\StrayAccounts;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
@@ -14,9 +17,10 @@ use RuntimeException;
 /**
  * A cluster's guests read into proxmox_guests: new ones added unmapped, known ones refreshed (their mapping kept), the
  * ones no longer listed marked gone (kept, with their mapping: a guest moved to another cluster or deleted is staff's to
- * look at). Reads only.
+ * look at). Reads only. After each read, its strays are tasks (StrayAccounts: a guest whose service ended in MyCS and
+ * still on the cluster, or a running one not mapped, not internal, not a template).
  */
-final class GuestSync
+final class GuestSync implements ReadsAccounts
 {
     /** @return array{seen: int, new: int, gone: int} */
     public static function sync(Server $server): array
@@ -30,7 +34,12 @@ final class GuestSync
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
         try {
-            return self::read($server, $extension);
+            // A second earlier, as cPanel's: a service changed while the cluster answered is newer than the read.
+            $readAt = now()->subSecond();
+            $result = self::read($server, $extension);
+            StrayAccounts::afterRead($server, new self, $readAt);
+
+            return $result;
         } finally {
             $lock->release();
         }
@@ -92,6 +101,16 @@ final class GuestSync
         }
 
         return $row->gone_at !== null && (string) $row->name !== $guest->name;
+    }
+
+    /** @return list<ServerAccount> the cluster's guests as the last read left them (ReadsAccounts) */
+    public function accounts(Server $server): array
+    {
+        return ProxmoxGuest::query()->where('server_id', $server->id)->whereNull('gone_at')->orderBy('id')->get()
+            ->map(fn (ProxmoxGuest $guest) => new ServerAccount((string) $guest->vmid,
+                trim("{$guest->vmid} " . ($guest->name ?? '')) . ($guest->node ? " on {$guest->node}" : ''),
+                $guest->status === 'running', $guest->service_id, $guest->internal || $guest->template))
+            ->values()->all();
     }
 
     /** @return Collection<int, Server> */

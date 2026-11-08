@@ -60,6 +60,38 @@
 - Μένει: domains (RegisterDomain/RenewDomain του Openprovider/FORTH) με τα domains· τα «πληρωμένα που δεν εφαρμόστηκαν»
   του BIL-9 στην ίδια λίστα.
 
+## Λογαριασμοί που περισσεύουν: ο κανόνας για κάθε module (απόφαση του owner 2026-11-08)
+- **Μετά από κάθε ανάγνωση των λογαριασμών ενός server** (cpanel:sync, proxmox:sync, mailcow:sync και το «Read now» των
+  σελίδων τους), ένα **«check this»** στα Pending Module Actions για κάθε λογαριασμό (guest, mail domain):
+  - που υπάρχει ακόμα στον server ενώ η υπηρεσία του έχει τελειώσει στο MyCS (terminated ή cancelled): `stray_ended`
+    («Check: ended in MyCS»), με το `service_id` της·
+  - που τρέχει (όχι suspended/stopped) χωρίς υπηρεσία, χωρίς «internal», χωρίς να είναι template ή λογαριασμός πελάτη
+    ενός reseller μας (αυτόν τον καλύπτει ο λογαριασμός του reseller): `stray_unmapped` («Check: not mapped»).
+- **Ένα ανοιχτό ανά server και λογαριασμό**, όχι ένα ανά ανάγνωση: `subject` = `«server id»:«remote id»` (username,
+  VMID, domain· αν δεν χωρά στους 191 χαρακτήρες, με το sha1 του). Ανοίγει «needs staff» (`given_up_at`), χωρίς Retry
+  (ούτε από το MCP) και χωρίς mail. Κλείνει **μόνο του** όταν μια επόμενη ανάγνωση δεν το βρίσκει πια (ο λογαριασμός
+  έφυγε, έγινε mapped, σημειώθηκε internal, η υπηρεσία ξαναέγινε active): `resolved`, «cleared: a later read no longer
+  finds it». Αν από «ended» γίνει «not mapped» (σβήστηκε η υπηρεσία), κλείνει το ένα και ανοίγει το άλλο.
+- Το staff το κλείνει με «Checked»: τότε **δεν ξανανοίγει** όσο ο λογαριασμός μένει όπως είναι· αν αλλάξει (φύγει, γίνει
+  mapped) και ξαναγυρίσει, ανοίγει νέο.
+- **Οι υπάρχοντες κανόνες μένουν:** διαφορά που την εξηγεί ανοιχτή ενέργεια του MyCS (suspend, unsuspend ή terminate
+  της υπηρεσίας, αποτυχημένη ή «by hand») δεν είναι task, όπως στο `CpanelAccount::differs`· ούτε υπηρεσία που άλλαξε
+  αφού ξεκίνησε η ανάγνωση (το κρίνει η επόμενη· ένα ανοιχτό μένει όπως είναι). **Μόνο tasks, καμία αυτόματη ενέργεια
+  στον server:** τίποτα δεν τερματίζεται ή αναστέλλεται από εδώ (ο reference λογαριασμός cPanel, υπηρεσία #4 στον
+  orion, δεν τερματίζεται ποτέ).
+- **Πώς το υλοποιεί ένα module:** η sync του υλοποιεί το `App\Contracts\ReadsAccounts` (`accounts(Server)`: οι
+  λογαριασμοί που άφησε η τελευταία ανάγνωση, χωρίς τους gone, ως `App\Services\Servers\ServerAccount`: remote id,
+  label, running, mapped service id, internal) και, μέσα στο lock της ανάγνωσης, καλεί
+  `StrayAccounts::afterRead($server, new self, $readAt)` με την ώρα που **ξεκίνησε** η ανάγνωση. Τα tasks τα φτιάχνει
+  μόνο η κοινή `App\Services\Servers\StrayAccounts`. Σήμερα: cPanel (`Cpanel\AccountSync`), Proxmox
+  (`Proxmox\GuestSync`), Mailcow (`Mailcow\DomainSync`). **Centova, DirectAdmin, NGM, Redfish** (και όποιο module
+  αποκτήσει ανάγνωση λογαριασμών) απλώς υλοποιούν το ίδιο interface· τίποτα άλλο.
+- **Domains:** η προειδοποίηση της registrar sync, ό,τι διάβασε και δεν εφάρμοσε (`DomainSyncService::plan` «_warning»:
+  λήξη που θα πήγαινε πίσω, handle επαφής που διαφέρει), γίνεται το ίδιο είδος task για το domain: `domain_check`
+  («Check: domain sync»), ένα ανοιχτό ανά domain με το τελευταίο κείμενο, που κλείνει με sync χωρίς προειδοποίηση. Μόνο
+  στη sync που γράφει (όχι στο dry run, όχι μετά από write του staff), κάτω από το lock του registrar· όχι όσο είναι
+  ανοιχτή ανανέωση, εγγραφή ή μεταφορά του (εκείνη η γραμμή είναι ήδη του staff). Το `sync_error` του domain μένει ως είχε.
+
 ## Auto Setup ανά προϊόν (`products.autosetup`, Σ1-b1)
 | | WHMCS | πότε στήνεται | πληρωμένη, πριν στηθεί |
 |---|---|---|---|
