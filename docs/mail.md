@@ -38,8 +38,10 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
   (password reset, email verification) are never kept, so they never go out again.
 - **Not carried over:** a resent ticket reply loses its threading headers.
 - **A mail outage:** `php artisan app:mail-resend-failed [--days=7] [--limit=50] [--dry-run]` resends the customer mails
-  that failed without ever going out and were not resent yet. Rows from before the audit are skipped. It runs by hand
-  only and is never scheduled.
+  that failed without ever going out and were not resent yet. Rows from before the audit are skipped, and so is a mail
+  that is no longer true (`MailAudit::stale`): one asking to pay an invoice paid, cancelled or settled since, a
+  suspension notice of a service no longer suspended, a hold's warning of one no longer active (sweep 3,
+  L-NOTIFICATIONS-4). It runs by hand only and is never scheduled.
 
 ## Στον πελάτη: «Τα email μου» (2026-10-22)
 `/account/emails` (`Client\Emails`), με την άδεια `emails` του WHMCS («Προβολή email»· ο owner την έχει πάντα). Δείχνει

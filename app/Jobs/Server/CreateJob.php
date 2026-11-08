@@ -50,7 +50,9 @@ class CreateJob implements ShouldQueue
         $data = [];
         // $data is the data that will be used to send the email, data is coming from the extension itself
         try {
-            $data = ExtensionHelper::createServer($service, whilePending: true);
+            $this->keepingOptions(function () use ($service, &$data) {
+                $data = ExtensionHelper::createServer($service, whilePending: true);
+            });
         } catch (NothingToDoOnServer) {
             // No module to make an account on (its server detached since the payment): nothing to wait for.
             ExtensionHelper::startCreated($service);
@@ -78,6 +80,12 @@ class CreateJob implements ShouldQueue
         if ($this->sendNotification) {
             NotificationHelper::serverCreatedNotification($service->client, $service, is_array($data) ? $data : [], byStaff: $this->byStaff);
         }
+    }
+
+    /** @return array<string, bool> */
+    protected function jobOptions(): array
+    {
+        return ['send_notification' => (bool) $this->sendNotification, 'by_staff' => $this->byStaff];
     }
 
     protected function moduleAction(): string

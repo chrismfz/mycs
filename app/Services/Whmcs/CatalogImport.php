@@ -2,6 +2,7 @@
 
 namespace App\Services\Whmcs;
 
+use App\Models\Builders\CacheableBuilder;
 use App\Models\Category;
 use App\Models\ConfigOption;
 use App\Models\Currency;
@@ -18,7 +19,6 @@ use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Licensing\WhmcsLicensingImport;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -161,9 +161,10 @@ final class CatalogImport
             throw $e;
         }
         // After the commit, never inside it or on a dry run (reviews 7, F7): a currency added clears the query cache as
-        // the admin's does; the settings reload, queue workers included.
+        // the admin's does (only the cached queries: a Cache::flush() released every lock, L-DEPLOY-MIGRATIONS-1); the
+        // settings reload, queue workers included.
         if (!$dryRun && $this->currencyAdded) {
-            Cache::flush();
+            CacheableBuilder::flushQueryCache();
         }
         if (!$dryRun && $this->settingsChanged) {
             SettingsProvider::flushCache();

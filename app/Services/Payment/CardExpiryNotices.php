@@ -22,11 +22,13 @@ final class CardExpiryNotices
     {
         $day = self::day();
         $today = CarbonImmutable::today();
-        if ($day === 0 || $today->day < $day) {
+        // Mail off for everyone (Settings): not marked as told, told once it is back (L-NOTIFICATIONS-3).
+        if ($day === 0 || $today->day < $day || config('settings.mail_disable')) {
             return 0;
         }
         $sent = 0;
         $due = BillingAgreement::query()->with('client')
+            ->whereHas('client', fn ($client) => $client->whereNull('closed_at')) // not a closed account's (WG-8)
             // Its gateway removed (code review CR-11) or disabled (ADV-540-4): nothing is charged to it any more.
             ->whereHas('gateway', fn ($gateway) => $gateway->where('enabled', true))
             ->whereNotNull('expiry')

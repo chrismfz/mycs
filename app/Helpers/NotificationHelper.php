@@ -52,6 +52,9 @@ class NotificationHelper
      */
     public const PRIVATE_TEMPLATES = ['password_reset', 'email_verification', 'client_invite', 'new_server_created'];
 
+    /** What a closed account is still mailed without staff's hand: its tickets' thread (docs/accounts.md WG-8). */
+    public const CLOSED_ACCOUNT_TEMPLATES = ['new_ticket_message'];
+
     /** The account a mail is about (docs/accounts.md, PR 2a): its email log is the account's. */
     private static ?Client $account = null;
 
@@ -69,6 +72,12 @@ class NotificationHelper
     {
         $owner = $client->owner();
         if ($owner === null) {
+            return;
+        }
+        // A closed account (WG-8, WHMCS «Closed») is told nothing on its own: its logins can open none of it, and WHMCS
+        // mails no Closed client (as BulkMailer). Staff may still send it what it needs by hand (not $gated), and a
+        // ticket's thread goes on, whose answers by mail InboundRouter still takes (sweep 3, L-NOTIFICATIONS-1).
+        if ($gated && $client->closed_at !== null && !in_array($key, self::CLOSED_ACCOUNT_TEMPLATES, true)) {
             return;
         }
         $noMail = $gated && !EmailKinds::sends($client, $key);

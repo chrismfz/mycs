@@ -7,6 +7,8 @@ use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
+use App\Jobs\Server\SuspendJob;
+use App\Jobs\Server\TerminateJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Jobs\Server\UpgradeJob;
 use App\Services\Domains\DomainRenewalService;
@@ -31,6 +33,7 @@ use Throwable;
  * @property int|null $domain_id
  * @property int|null $invoice_item_id
  * @property string $status
+ * @property array<string, bool>|null $job_options
  */
 class ModuleAction extends Model
 {
@@ -111,6 +114,7 @@ class ModuleAction extends Model
             'given_up_at' => 'datetime',
             'resolved_at' => 'datetime',
             'attempts' => 'integer',
+            'job_options' => 'array',
         ];
     }
 
@@ -338,14 +342,31 @@ class ModuleAction extends Model
     public static function askAgainNotQueued(Service $service): void
     {
         $lost = self::query()->open()->where('service_id', $service->id)->whereIn('action', ['create', 'unsuspend', 'upgrade'])->whereNull('subject')
-            ->where('last_error', 'like', self::NOT_QUEUED . '%')->pluck('action')->unique();
-        foreach ($lost as $action) {
-            AfterCommit::job(match ($action) {
-                'create' => new CreateJob($service),
-                'unsuspend' => new UnsuspendJob($service),
-                default => new UpgradeJob($service),
-            });
+            ->where('last_error', 'like', self::NOT_QUEUED . '%')->latest('id')->get()->unique('action');
+        foreach ($lost as $row) {
+            AfterCommit::job($row->lifecycleJob($service));
         }
+    }
+
+    /**
+     * The server job that runs this action again (staff's Retry, a payment's replay), with what the failed one was asked
+     * for (job_options: a silent terminate stays silent, a welcome mail staff chose not to send is not sent;
+     * L-NOTIFICATIONS-2). A row without them: the defaults.
+     */
+    public function lifecycleJob(?Service $service = null): CreateJob|SuspendJob|UnsuspendJob|TerminateJob|UpgradeJob
+    {
+        $service ??= $this->service;
+        $options = (array) ($this->job_options ?? []);
+        $notify = (bool) ($options['send_notification'] ?? true);
+
+        return match ($this->action) {
+            'create' => new CreateJob($service, $notify, (bool) ($options['by_staff'] ?? false)),
+            'suspend' => new SuspendJob($service, $notify),
+            'unsuspend' => new UnsuspendJob($service),
+            'terminate' => new TerminateJob($service, $notify),
+            'upgrade' => new UpgradeJob($service),
+            default => throw new \InvalidArgumentException("Unknown module action {$this->action}"),
+        };
     }
 
     public static function recordFailure(Service $service, string $action, ?string $module, Throwable $error): self
