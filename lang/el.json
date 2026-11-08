@@ -262,6 +262,7 @@
     "The billing cycle changes from your next renewal.": "Ο κύκλος χρέωσης αλλάζει από την επόμενη ανανέωση.",
     "Choose": "Επιλέξτε",
     "A renewal is paid ahead: change it from the next renewal.": "Μια ανανέωση έχει πληρωθεί προκαταβολικά: αλλάξτε τον από την επόμενη ανανέωση.",
+    "An addon shares its service's due date: change it from the next renewal.": "Ένα addon έχει την ίδια λήξη με την υπηρεσία του: αλλάξτε τον από την επόμενη ανανέωση.",
     "This service has no paid period to change now: change it from the next renewal.": "Η υπηρεσία δεν έχει πληρωμένη περίοδο για να αλλάξει τώρα: αλλάξτε τον από την επόμενη ανανέωση.",
     "A discount for its billing cycle runs on this service: ask us to change it.": "Η υπηρεσία έχει έκπτωση που εξαρτάται από τον κύκλο χρέωσης: ζητήστε μας να τον αλλάξουμε.",
     "An open invoice of this service needs staff first: :reason": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρειάζεται πρώτα έλεγχο από εμάς: :reason",

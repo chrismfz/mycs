@@ -182,7 +182,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertNull($made['invoice']);
@@ -197,7 +197,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01', status: 'suspended');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertSame(Service::STATUS_SUSPENDED, $addon->status);
@@ -217,7 +217,7 @@ class AddAddonTest extends TestCase
             [fn () => (new AddAddon)->handle($ended, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_status'],
             [fn () => (new AddAddon)->handle($cancelling, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_cancelling'],
             [fn () => (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::PRORATED), 'services.addons.add.quantity'],
-            [fn () => (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-11-01')), 'services.addons.add.date_past'],
+            [fn () => (new AddAddon)->handle($this->parent('2026-11-01'), $product, $plan, 1, null, false, AddAddon::NO_INVOICE), 'services.addons.add.no_due_date'],
             [fn () => (new AddAddon)->handle($parent, $product, $plan, 1, '-1', false, AddAddon::PRORATED), 'services.addons.add.price_negative'],
         ] as [$add, $message]) {
             try {
@@ -242,7 +242,7 @@ class AddAddonTest extends TestCase
         config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct(targets: ['product:' . $parent->product_id]);
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
         $other = $this->createProduct()->product;
 
         $parent->fresh()->update(['product_id' => $other->id, 'plan_id' => $other->plans()->first()->id]);

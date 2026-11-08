@@ -133,14 +133,14 @@ class Adv637Test extends TestCase
         $parent = $this->parent();
         [$product, $plan] = $this->addonProduct(product: ['stock' => 5]);
 
-        (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::NO_INVOICE);
         $this->assertSame(3, (int) $product->fresh()->stock, 'two of five taken');
 
         $parent->fresh()->update(['status' => Service::STATUS_TERMINATED]);
         $this->assertSame(5, (int) $product->fresh()->stock, 'given back when it ends: never more than there were');
 
         try {
-            (new AddAddon)->handle($this->parent(), $product->fresh(), $plan, 6, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+            (new AddAddon)->handle($this->parent(), $product->fresh(), $plan, 6, null, false, AddAddon::NO_INVOICE);
             $this->fail('six of five: refused');
         } catch (DisplayException) {
             $this->assertSame(5, (int) $product->fresh()->stock);

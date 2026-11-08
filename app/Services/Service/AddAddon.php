@@ -24,7 +24,8 @@ use Throwable;
  * always shares its parent's due date (owner 2026-11-08): there is no «own date».
  * - prorated (the default, owner 2026-11-04): invoiced now for the days up to the parent's next due date (counted back by
  *   the addon's own cycle when that is shorter), then renewed with it, on the same invoice when due the same day;
- * - no invoice: started now, due on the date given (free, or paid some other way).
+ * - no invoice: started now, due on the date a prorated one would end (its parent's, counted back by its own cycle when
+ *   that is shorter), free or paid some other way. No other date: there is no field for one (REV-KISS-5).
  * Invoiced, it waits pending until paid; paid, it starts and its creation is a task for staff on the parent's machine
  * (RenewServiceService). Started without an invoice, the task is made at once.
  */
@@ -141,16 +142,16 @@ final class AddAddon
     }
 
     /**
-     * Adds it. $price per unit and cycle (null: the catalog's); $date: a started one's due date (no invoice).
+     * Adds it. $price per unit and cycle (null: the catalog's).
      *
      * @return array{service: Service, invoice: Invoice|null}
      */
-    public function handle(Service $parent, Product $product, Plan $plan, int $quantity, ?string $price, bool $keepPrice, string $start, ?CarbonInterface $date = null): array
+    public function handle(Service $parent, Product $product, Plan $plan, int $quantity, ?string $price, bool $keepPrice, string $start): array
     {
         if (!in_array($start, [self::PRORATED, self::NO_INVOICE], true)) {
             throw new DisplayException(__('services.addons.add.start_unknown'));
         }
-        $result = DB::transaction(function () use ($parent, $product, $plan, $quantity, $price, $keepPrice, $start, $date) {
+        $result = DB::transaction(function () use ($parent, $product, $plan, $quantity, $price, $keepPrice, $start) {
             // Under the parent's lock, read again: a payment, the cron or a cancellation may have changed it.
             $parent = Service::query()->whereKey($parent->id)->lockForUpdate()->firstOrFail();
             if (($refused = self::refusal($parent)) !== null) {
@@ -180,10 +181,9 @@ final class AddAddon
             }
             $quote = self::quote($parent, $plan, $unit, $start);
             $noInvoice = $quote === null || $start === self::NO_INVOICE;
-            $due = $noInvoice ? CarbonImmutable::instance($date ?? $parent->expires_at ?? CarbonImmutable::today())->startOfDay() : null;
-            if ($noInvoice && $plan->type === 'recurring' && $due->lessThan(CarbonImmutable::today())) {
-                throw new DisplayException(__('services.addons.add.date_past'));
-            }
+            // No invoice, recurring: due when a prorated one would be, so on its parent's day (owner 2026-11-08, REV-KISS-5).
+            $due = $noInvoice && $plan->type === 'recurring'
+                ? (self::alignedEnd($parent, $plan) ?? throw new DisplayException(__('services.addons.add.no_due_date'))) : null;
 
             $addon = new Service([
                 'client_id' => $parent->client_id, 'currency_code' => $parent->currency_code, 'parent_service_id' => $parent->id,
@@ -193,12 +193,12 @@ final class AddAddon
                 // Started under a suspended parent: suspended with it, back with it (AddonCascade).
                 'status' => !$noInvoice ? Service::STATUS_PENDING : ($parent->status === Service::STATUS_SUSPENDED ? Service::STATUS_SUSPENDED : Service::STATUS_ACTIVE),
                 'suspend_reason' => $noInvoice && $parent->status === Service::STATUS_SUSPENDED ? Service::SUSPEND_REASON_PARENT : null,
-                'expires_at' => $noInvoice && $plan->type === 'recurring' ? $due : null,
+                'expires_at' => $due,
             ]);
             // Prorated to its parent's date: it renews on its parent's day (a 31st stays a 31st through short months).
             // Its effective day, not only a stored one (a 31st with none stored: code review 1 of #637); its payment keeps it
             // (RenewServiceService).
-            if ($start === self::PRORATED) {
+            if ($due !== null || $start === self::PRORATED) {
                 $addon->forceFill(['billing_day' => $parent->billingDay(CarbonImmutable::parse($parent->expires_at))]);
             }
             $addon->save();

@@ -7,9 +7,11 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Services\Billing\ClientGroupPricing;
 use App\Services\Whmcs\CatalogImport;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use MyCS\BillingPeriod\BillingPeriod;
 use PDO;
 use PDOException;
 
@@ -405,6 +407,30 @@ final class WhmcsAddonImport
         'biennially' => ['Biennially', 2, 'year', 'bsetupfee'],
         'triennially' => ['Triennially', 3, 'year', 'tsetupfee'],
     ];
+
+    /**
+     * Whether a WHMCS addon due $addonDue is on its service's billing day (due $serviceDue): the service's date, or k of its
+     * own cycles back from it, as «Add addon» puts one (AddAddon::alignedEnd: a monthly addon of a yearly service renews
+     * monthly on the service's day). Any other date, or a cycle not known here, is not (REV-KISS-2).
+     */
+    public static function onServiceDay(string $cycle, string $addonDue, string $serviceDue): bool
+    {
+        $known = self::CYCLES[self::cycleKey($cycle)] ?? null;
+        $addon = self::date($addonDue);
+        $due = self::date($serviceDue);
+        if ($known === null || $addon === null || $due === null) {
+            return false;
+        }
+        $addon = CarbonImmutable::parse($addon);
+        $due = CarbonImmutable::parse($due);
+        for ($k = 0; ($back = $k === 0 ? $due : BillingPeriod::start($due, $known[2], $known[1] * $k, $due->day))->greaterThanOrEqualTo($addon); $k++) {
+            if ($back->equalTo($addon)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static function cycleKey(string $cycle): string
     {

@@ -164,7 +164,10 @@ class RevKissAddonsTest extends TestCase
 
         try {
             ChangeCycle::apply($addon->fresh(), $ipMonthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
-        } catch (DisplayException) {
+        } catch (DisplayException $e) {
+            $this->assertSame(__('An addon shares its service\'s due date: change it from the next renewal.'), $e->getMessage());
+            $this->assertSame('2027-01-01', $addon->fresh()->expires_at->toDateString());
+
             return; // refused for an addon: fine
         }
 
@@ -189,7 +192,7 @@ class RevKissAddonsTest extends TestCase
         $parent = $this->service($hosting, $monthly, '2026-12-01', 10.00);
 
         try {
-            $made = (new AddAddon)->handle($parent->fresh(), $ip->fresh(), $ipMonthly, 1, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-20'));
+            $made = (new AddAddon)->handle($parent->fresh(), $ip->fresh(), $ipMonthly, 1, null, false, AddAddon::NO_INVOICE); // no date to give any more (was 2026-12-20)
         } catch (DisplayException) {
             return; // refused: fine
         }

@@ -132,6 +132,11 @@ final class ChangeCycle
         }
         if ($mode === self::NOW) {
             $today = CarbonImmutable::today();
+            // Now starts a new period today, on today's day: an addon and its parent would no longer share a due date
+            // (docs/addons.md, owner 2026-11-08, KISS; REV-KISS-3/4). From the next renewal the day stays: change it then.
+            if ($service->isAddon() || $service->addons()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->exists()) {
+                return __('An addon shares its service\'s due date: change it from the next renewal.');
+            }
             // Overdue: the unpaid days would never be billed (S1). From the next renewal, the overdue period is billed again.
             if ($service->expires_at === null || CarbonImmutable::instance($service->expires_at)->startOfDay()->lessThan($today)
                 || $service->currentPeriodStart() === null) {

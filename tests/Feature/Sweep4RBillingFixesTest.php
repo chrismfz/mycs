@@ -195,13 +195,13 @@ class Sweep4RBillingFixesTest extends TestCase
         $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT)');
         $whmcs->exec("INSERT INTO tblhosting VALUES (1, '2027-05-18'), (2, '2027-05-18')");
         $whmcs->exec("INSERT INTO tblhostingaddons VALUES (160, 1, 'Suspended', 'Annually', '2027-02-01'), (161, 1, 'Active', 'Annually', '2027-05-18'),
-            (162, 2, 'Active', 'Monthly', '2026-12-18'), (163, 2, 'Terminated', 'Annually', '2026-01-01'), (164, 2, 'Active', 'One Time', '0000-00-00')");
+            (162, 2, 'Active', 'Monthly', '2026-12-03'), (163, 2, 'Terminated', 'Annually', '2026-01-01'), (164, 2, 'Active', 'One Time', '0000-00-00')");
         $command = app(ImportFromWhmcs::class);
         ImportFromWhmcs::$connect = fn () => $whmcs;
         putenv('WHMCS_SOURCE_PASSWORD=secret');
         try {
             $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
-            $refused = 'WHMCS addon(s) due on another day than their service: #160, #162.';
+            $refused = 'WHMCS addon(s) off their service\'s billing day: #160, #162.';
             $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
             $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
                 ->doesntExpectOutputToContain('--confirm-database');
@@ -211,8 +211,8 @@ class Sweep4RBillingFixesTest extends TestCase
         }
         $this->assertSame(1, Client::query()->whereKey($this->client->id)->count(), 'nothing emptied');
 
-        // Aligned in WHMCS: no longer refused.
-        $whmcs->exec("UPDATE tblhostingaddons SET nextduedate = '2027-05-18' WHERE id IN (160, 162)");
+        // Aligned in WHMCS: #160 on its service's date, #162 (monthly) on its service's day within its cycle (REV-KISS-2).
+        $whmcs->exec("UPDATE tblhostingaddons SET nextduedate = CASE id WHEN 160 THEN '2027-05-18' ELSE '2026-12-18' END WHERE id IN (160, 162)");
         (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
         $this->assertSame([], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command));
     }
