@@ -153,7 +153,8 @@ class Sweep5GMoneyServiceTest extends TestCase
      * G-MONEY-SERVICE-2. A service and its addon (same due date D) renewed on one invoice, staff cancelled it in WHMCS and
      * nextinvoicedate moved on. Only the Hosting line is given up and its service's date moved; the addon's line is left
      * billable and its date left at D, so the first cron bills the addon's period from D (already past) on its own,
-     * while its parent's same period was written off, and the addon falls off its parent's billing day.
+     * while its parent's same period was written off, and the addon falls off its parent's billing day. Since the fix the
+     * import refuses the source (cancelledRenewals) and no line is given up by the importer.
      */
     public function test_g_money_service_2_the_addon_on_a_given_up_renewal_invoice_is_given_up_with_its_parent(): void
     {
@@ -175,14 +176,13 @@ class Sweep5GMoneyServiceTest extends TestCase
             [96212, 'Addon', 77, 'Dedicated IP', 5, $due],
         ]);
 
+        // Fixed (owner's decision 2026-11-08): the import refuses such a source, settled in WHMCS for the service and its
+        // addons together; nothing is given up line by line any more, so the two never part.
+        $this->assertSame([9521], (new ReflectionMethod(ImportFromWhmcs::class, 'cancelledRenewals'))->invoke($this->command($whmcs)));
         $this->import($whmcs, ['importInvoices', 'importInvoiceItems']);
 
-        $this->assertNotNull(InvoiceItem::query()->findOrFail(96211)->forgone_at, 'precondition: the parent\'s line is given up');
-        $this->assertSame($next, $parent->fresh()->expires_at->toDateString(), 'precondition: the parent\'s date moved over it');
-        $this->cron();
-        $billed = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $addon->id)
-            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->whereDate('period_start', $due)->count();
-        $this->assertSame(0, $billed, 'the addon\'s period WHMCS gave up with its parent\'s is billed again (overdue at once)');
+        $this->assertNull(InvoiceItem::query()->findOrFail(96211)->forgone_at, 'the parent\'s line given up alone');
+        $this->assertNull(InvoiceItem::query()->findOrFail(96212)->forgone_at);
         $this->assertSame($parent->fresh()->expires_at->toDateString(), $addon->fresh()->expires_at->toDateString(), 'the addon off its parent\'s billing day');
     }
 

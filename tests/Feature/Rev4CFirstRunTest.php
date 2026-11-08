@@ -162,26 +162,30 @@ class Rev4CFirstRunTest extends TestCase
     }
 
     /**
-     * REV4-C-1 (C-FIRST-RUN-2). The fix imports the renewal WHMCS gave up as given up (Δ3a) but leaves expires_at at
-     * WHMCS's nextduedate. Δ3a bills nothing after a period given up on (ForgonePeriodTest), so the service is never
-     * billed again: suspended by date on the first run with no invoice its customer could pay, then terminated by date
-     * (Termination Days 60 past nextduedate) a month later. WHMCS, which suspends by an overdue invoice and bills the next
-     * period at nextinvoicedate, keeps it running and bills it. Before the fix the period was billed again (payable);
-     * now the customer has nothing to pay and loses the service (its data) without any invoice.
+     * REV4-C-1 (C-FIRST-RUN-2). A renewal WHMCS gave up must never leave the service suspended and terminated by date with
+     * no invoice its customer could pay. Since sweep 5 (owner's decision 2026-11-08) the import refuses such a source;
+     * given away in WHMCS as the runbook says (due date moved to the next invoice date), the service is billed at that
+     * date, as WHMCS bills it, and never terminated meanwhile.
      */
     public function test_rev4_c_1_a_service_whose_renewal_whmcs_gave_up_is_not_terminated_without_ever_being_billed(): void
     {
         $whmcs = $this->whmcs();
         $due = now()->subDays(30)->toDateString();
-        $this->whmcsService($whmcs, 9311, $due, now()->addDays(20)->toDateString());
+        $next = now()->addDays(20)->toDateString();
+        $this->whmcsService($whmcs, 9311, $due, $next);
         $this->whmcsInvoice($whmcs, 9411, 'Cancelled', $due, [[94111, 'Hosting', 9311, 'Hosting (example.test)', 10, $due]]);
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $this->assertSame([9311], (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command), 'refused as it is');
+
+        $whmcs->exec('UPDATE tblhosting SET nextduedate = nextinvoicedate WHERE id = 9311'); // given away in WHMCS
         $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
 
         $this->cron(); // first run
         Carbon::setTestNow(now()->addDays(13)); // WHMCS bills the next period now (nextinvoicedate - 7)
         $this->cron();
         $billed = Invoice::query()->where('client_id', $this->user->client()->id)->whereIn('status', Invoice::OPEN_STATUSES)->count();
-        Carbon::setTestNow(now()->addDays(18)); // nextduedate + 61
+        Carbon::setTestNow(now()->addDays(18)); // the old nextduedate + 61
         $this->cron();
 
         $service = Service::query()->findOrFail(9311);
