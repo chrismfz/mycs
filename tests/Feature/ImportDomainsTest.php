@@ -353,4 +353,37 @@ class ImportDomainsTest extends TestCase
             $this->assertSame($expected, $domain->renewalPrice(), "#{$id} here");
         }
     }
+
+    /**
+     * D-25 (owner 2026-11-08): one row holds a name (active, grace, redemption, or a pending order paid or sent). Where
+     * one of WHMCS's rows of a name holds it, the others come cancelled as before; rows none of which holds it (expired,
+     * unpaid orders) all stay, and the first paid takes the name.
+     */
+    public function test_one_row_holds_a_name_and_rows_that_hold_nothing_all_stay(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, status TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, type TEXT, relid INT)');
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(21, 'twice.com', 'Active', 'openprovider');
+        $this->domain(22, 'twice.com', 'Expired', 'openprovider', ['expirydate' => '2026-01-01']);
+        $this->domain(23, 'nobody.com', 'Expired', 'openprovider', ['expirydate' => '2026-01-01']);
+        $this->domain(24, 'nobody.com', 'Pending', 'openprovider', $order);
+        $this->domain(25, 'race.com', 'Pending', 'openprovider', $order);
+        $this->domain(26, 'race.com', 'Pending', 'openprovider', $order);
+        $this->domain(27, 'sent.com', 'Pending Registration', 'openprovider', $order);
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (1, 'Paid'), (2, 'Unpaid')");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 1, 'DomainRegister', 25), (2, 2, 'DomainRegister', 26)");
+
+        $this->run_();
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $status = fn (int $id) => $domains[$id]->status->value;
+        $this->assertSame(['active', 'cancelled'], [$status(21), $status(22)], 'held by the active row: the expired one cancelled, as before');
+        $this->assertSame(['expired', 'pending_register'], [$status(23), $status(24)], 'neither holds it: both stay');
+        $this->assertSame([null, null], [$domains[23]->live_fqdn, $domains[24]->live_fqdn]);
+        $this->assertSame(['pending_register', 'cancelled'], [$status(25), $status(26)], 'the paid order holds it, the unpaid one cancelled');
+        $this->assertSame(['race.com', null], [$domains[25]->live_fqdn, $domains[26]->live_fqdn]);
+        $this->assertNotNull($domains[27]->name_held_at, 'sent by WHMCS: it holds its name');
+        $this->assertSame('sent.com', $domains[27]->live_fqdn);
+    }
 }

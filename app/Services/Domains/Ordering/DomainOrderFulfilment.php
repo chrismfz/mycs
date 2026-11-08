@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainSyncService;
@@ -182,6 +183,13 @@ class DomainOrderFulfilment
         }
         if (!self::paid($domain, $line)) {
             return self::WAITING;
+        }
+        // Its name held before it is sent (D-25): another row paid or registered first is the name's; this one is
+        // refused as a registrar's refusal is (staff refund or credit it), never sent.
+        if (!DomainNameHold::claim($domain)) {
+            DomainNameHold::refuse($domain, $line);
+
+            return self::STAFF;
         }
 
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,

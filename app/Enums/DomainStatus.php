@@ -54,6 +54,22 @@ enum DomainStatus: string implements HasColor, HasLabel
         return in_array($this, [self::TransferredAway, self::Cancelled, self::Deleted], true);
     }
 
+    /** A registration or a transfer ordered and not done yet. */
+    public function isPending(): bool
+    {
+        return in_array($this, [self::PendingRegister, self::PendingTransfer], true);
+    }
+
+    /**
+     * It holds its name (owner 2026-11-08, docs/domains.md D-25): active, in grace or in redemption; a pending order only
+     * once $paid (its order paid, free as ordered, or sent to its registrar: Domain::holdsName). Expired does not: as in
+     * WHMCS, another customer may order the name, and whoever pays first holds it. The database's `live_fqdn` says the same.
+     */
+    public function holdsName(bool $paid = false): bool
+    {
+        return in_array($this, [self::Active, self::Grace, self::Redemption], true) || ($paid && $this->isPending());
+    }
+
     /** @return list<string> */
     public static function terminalValues(): array
     {

@@ -16,6 +16,7 @@ use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Service\RenewServiceService;
@@ -247,7 +248,11 @@ final class PlaceOrderService
         }
         $net = OrderPricing::toNet($price, $client);
         if (!BigDecimal::of($net)->isPositive()) {
-            // Nothing to pay (a free transfer, D-6): sent to its registrar once this order commits (D8b-2).
+            // Nothing to pay (a free transfer, D-6): it holds its name now, as one paid (D-25), unless another was paid a
+            // moment ago; sent to its registrar once this order commits (D8b-2).
+            if (!DomainNameHold::claim($domain)) {
+                throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
+            }
             $domainId = (int) $domain->id;
             DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
 

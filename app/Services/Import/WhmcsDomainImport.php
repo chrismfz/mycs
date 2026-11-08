@@ -324,6 +324,9 @@ final class WhmcsDomainImport
         $migrations = $this->migrations();
         $paidRenewals = $this->has('tblinvoiceitems') && $this->has('tblinvoices') ? array_flip(array_map('intval', $this->column("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii
             JOIN tblinvoices i ON i.id = ii.invoiceid WHERE ii.type = 'Domain' AND i.status = 'Paid'"))) : [];
+        // Orders paid in WHMCS (their register or transfer line): pending, they hold their name here (D-25).
+        $paidOrders = $this->has('tblinvoiceitems') && $this->has('tblinvoices') ? array_flip(array_map('intval', $this->column("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii
+            JOIN tblinvoices i ON i.id = ii.invoiceid WHERE ii.type IN ('DomainRegister', 'DomainTransfer') AND i.status = 'Paid'"))) : [];
         $live = [];
         $rows = [];
         foreach ($this->rows('SELECT * FROM tbldomains ORDER BY id') as $row) {
@@ -409,6 +412,8 @@ final class WhmcsDomainImport
                 'tld' => $tld,
                 'fqdn' => $fqdn,
                 'status' => $status->value,
+                // A pending order holds its name once paid or sent (D-25): WHMCS sent it, or its order line is paid.
+                'name_held_at' => $status->isPending() && (!empty($meta['sent_at']) || isset($paidOrders[$id])) ? now()->toDateTimeString() : null,
                 'registered_at' => $this->date($row['registrationdate'] ?? null, dateOnly: true),
                 'expires_at' => $this->date($row['expirydate'] ?? null, dateOnly: true),
                 'years' => $years,
@@ -433,19 +438,24 @@ final class WhmcsDomainImport
             $this->counts['handles'] += count($roleHandles);
             $this->counts['handles_kept'] += count($kept);
         }
-        // One live row per name here (live_fqdn): of WHMCS's live rows of a name, the current one stays (active before
-        // pending, grace, redemption, expired; then the later expiry, then the newer row); the others come cancelled, listed.
+        // One row holds a name here (live_fqdn, D-25: active, grace, redemption, or a pending order paid or sent). Of
+        // WHMCS's rows of a name not ended, where one of them holds it: the current holder stays (active before pending,
+        // grace, redemption; then the later expiry, then the newer row) and the others come cancelled, listed, as the app
+        // closes them once a row holds the name (DomainNameHold::closeOthers). Rows none of which holds it (expired, unpaid
+        // orders) all stay: whoever pays first takes the name.
         $rank = [DomainStatus::Active->value => 0, DomainStatus::PendingTransfer->value => 1, DomainStatus::PendingRegister->value => 1,
             DomainStatus::Grace->value => 2, DomainStatus::Redemption->value => 3, DomainStatus::Expired->value => 4];
+        $holds = fn (int $index) => DomainStatus::from($rows[$index]['status'])->holdsName($rows[$index]['name_held_at'] !== null);
         foreach ($live as $fqdn => $indexes) {
-            if (count($indexes) < 2) {
+            if (count($indexes) < 2 || array_filter($indexes, $holds) === []) {
                 continue;
             }
-            usort($indexes, fn (int $a, int $b) => [$rank[$rows[$a]['status']] ?? 9, -strtotime((string) ($rows[$a]['expires_at'] ?? '1970-01-01')), -$rows[$a]['id']]
-                <=> [$rank[$rows[$b]['status']] ?? 9, -strtotime((string) ($rows[$b]['expires_at'] ?? '1970-01-01')), -$rows[$b]['id']]);
+            usort($indexes, fn (int $a, int $b) => [$holds($a) ? 0 : 1, $rank[$rows[$a]['status']] ?? 9, -strtotime((string) ($rows[$a]['expires_at'] ?? '1970-01-01')), -$rows[$a]['id']]
+                <=> [$holds($b) ? 0 : 1, $rank[$rows[$b]['status']] ?? 9, -strtotime((string) ($rows[$b]['expires_at'] ?? '1970-01-01')), -$rows[$b]['id']]);
             foreach (array_slice($indexes, 1) as $index) {
                 $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: also live as #{$rows[$indexes[0]]['id']} in WHMCS, imported cancelled: check them.";
                 $rows[$index]['status'] = DomainStatus::Cancelled->value;
+                $rows[$index]['name_held_at'] = null;
             }
         }
         foreach (array_chunk($rows, 500) as $chunk) {

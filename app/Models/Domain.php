@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Services\Billing\ClientGroupPricing;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Payment\ItemPaymentMethod;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Nixpal\DomainTools\DomainName;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -32,8 +34,9 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string $sld
  * @property string $tld
  * @property string $fqdn lowercase ASCII (IDN as punycode)
- * @property string|null $live_fqdn = fqdn while not ended, computed by the database
+ * @property string|null $live_fqdn = fqdn while it holds its name (holdsName, D-25), computed by the database: unique
  * @property DomainStatus $status
+ * @property Carbon|null $name_held_at a pending order's hold of its name: paid, free as ordered, or sent (D-25); null otherwise
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
  * @property Carbon|null $expires_at
@@ -102,6 +105,18 @@ class Domain extends Model implements Auditable
             if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
                 ItemPaymentMethod::keepApart($domain);
             }
+            // It holds its name from now on (D-25): the other rows of the name that no longer hold it are closed.
+            if ($domain->wasChanged(['status', 'name_held_at']) && $domain->holdsName()
+                && !self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)) {
+                $id = (int) $domain->id;
+                DB::afterCommit(fn () => DomainNameHold::closeOthers($id));
+            }
+        });
+        static::created(function (self $domain) {
+            if ($domain->holdsName()) {
+                $id = (int) $domain->id;
+                DB::afterCommit(fn () => DomainNameHold::closeOthers($id));
+            }
         });
         // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
         // database compares names case- and accent-blind, so «άλφα.gr» and «αλφα.gr» must not both be stored as such.
@@ -127,7 +142,26 @@ class Domain extends Model implements Auditable
                     $domain->{"{$role}_handle"} = null;
                 }
             }
+            // A pending order's hold of its name (D-25): only a pending row has one. Sent to its registrar, it holds (it
+            // was claimed before it was sent); one of ours that becomes pending again (a renewal as a transfer) keeps it.
+            if (!$domain->status->isPending()) {
+                $domain->name_held_at = null;
+            } elseif ($domain->name_held_at === null && (!empty($domain->meta['sent_at'])
+                || ($domain->exists && self::holding($domain->getOriginal('status'), false)))) {
+                $domain->name_held_at = now();
+            }
         });
+    }
+
+    /** It holds its name (D-25): active, grace, redemption, or a pending order paid or sent (name_held_at). */
+    public function holdsName(): bool
+    {
+        return self::holding($this->status, $this->name_held_at !== null);
+    }
+
+    private static function holding(mixed $status, bool $held): bool
+    {
+        return $status instanceof DomainStatus && $status->holdsName($held);
     }
 
     /** A name as it is stored: trimmed, lowercase, ASCII (punycode), without the root's trailing dot. */
@@ -164,6 +198,7 @@ class Domain extends Model implements Auditable
             'email_forwarding' => 'boolean',
             'dnssec_enabled' => 'boolean',
             'last_synced_at' => 'datetime',
+            'name_held_at' => 'datetime',
             'grace_days_override' => 'integer',
             'redemption_days_override' => 'integer',
             'grace_fee_override' => 'decimal:2',

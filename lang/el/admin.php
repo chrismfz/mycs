@@ -19,6 +19,7 @@ return [
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
         'domain_invoices_cancelled' => 'Ακυρωμένα τιμολόγια χαμένων domains',
         'domains_ordered' => 'Καταχωρίσεις/μεταφορές domains',
+        'domains_superseded' => 'Domains που έκλεισαν: το όνομα το κρατά άλλο',
         'domain_owner_changes' => 'Αλλαγές κατόχου .gr που στάλθηκαν',
         'domain_epp_codes_cleared' => 'Διαγραφή EPP codes μεταφορών',
         'holds_ending' => 'Υπηρεσίες σε αναμονή που ενημερώθηκαν για την αναστολή',

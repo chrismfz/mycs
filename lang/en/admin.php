@@ -19,6 +19,7 @@ return [
         'reminders_sent' => 'Payment reminders sent',
         'domain_invoices_cancelled' => 'Invoices of lost domains cancelled',
         'domains_ordered' => 'Domains registered or transferred',
+        'domains_superseded' => 'Domain rows closed: their name held by another',
         'domain_owner_changes' => '.gr changes of holder sent',
         'domain_epp_codes_cleared' => 'Transfer EPP codes cleared',
         'holds_ending' => 'Held services told their suspension date',

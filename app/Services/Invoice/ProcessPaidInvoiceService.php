@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
@@ -41,6 +42,14 @@ class ProcessPaidInvoiceService
                     // A domain ordered (D8b-2): registered or its transfer started at its registrar, after this commit.
                     if (in_array($item->kind, [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER], true) && $item->applied_at === null) {
                         $domainId = (int) $item->reference_id;
+                        // Paid: it holds its name from now on, unless another row paid or registered first (D-25): then
+                        // refused as a registrar's refusal (staff refund or credit it), never sent.
+                        $domain = Domain::query()->find($domainId);
+                        if ($domain !== null && $domain->status->isPending() && !DomainNameHold::claim($domain)) {
+                            DomainNameHold::refuse($domain, $item);
+
+                            return;
+                        }
                         DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
                     }
 

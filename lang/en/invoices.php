@@ -137,6 +137,7 @@ return [
         'service_deleted' => 'Cancelled: the service was deleted.',
         'parent_ended' => 'Cancelled: the main service of this addon has ended.',
         'domain_lost' => 'Cancelled: the domain has ended and is no longer renewed with us.',
+        'domain_name_taken' => 'Cancelled: the domain name was taken by another order first.',
         'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
         'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',
         'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',

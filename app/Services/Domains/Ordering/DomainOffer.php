@@ -11,8 +11,8 @@ use Nixpal\DomainTools\DomainName;
 
 /**
  * What the shop sells of a name (D8b): a TLD we sell, active, with a price for the operation and years (D-5: years per
- * TLD and operation); a register only when free (never a premium name, D8a), a transfer only when taken and not ours
- * already; a name in another script only where its TLD allows it. Checked when added to the cart and again at checkout.
+ * TLD and operation); a register only when free (never a premium name, D8a), a transfer only when taken and not held
+ * here (D-25); a name in another script only where its TLD allows it. Checked when added to the cart and again at checkout.
  */
 class DomainOffer
 {
@@ -50,7 +50,9 @@ class DomainOffer
         if (!$tld->registrarCan($operation)) {
             throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)]));
         }
-        // One live record per name (live_fqdn): a name pending or ours already is not ordered again.
+        // A name held here is not ordered again (D-25, owner 2026-11-08, as WHMCS): active, in grace or redemption, or an
+        // order paid (live_fqdn). An expired row or an unpaid order of it does not hold it: ordered again, whoever pays
+        // first holds it (DomainNameHold), and the other rows are closed.
         if (Domain::query()->where('live_fqdn', $fqdn)->exists()) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
         }
