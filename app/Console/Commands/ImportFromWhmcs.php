@@ -180,6 +180,14 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An old unpaid order (owner's decision 2026-11-08, sweep 4 C-FIRST-RUN-1): the first cron would pay it with the
+        // customer's credit and set the service up or buy the name at the registrar. Cancelled in WHMCS before the dump.
+        if (($orders = $this->abandonedOrders()) !== []) {
+            $this->error('WHMCS unpaid order invoice(s) older than ' . self::ABANDONED_ORDER_DAYS . ' days: #' . implode(', #', $orders)
+                . '. Credit would pay them on the first cron and set them up: cancel them in WHMCS and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
 
         $target = (string) DB::connection()->getDatabaseName();
         if ($target === '') {
@@ -2406,6 +2414,7 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_items')->insert($data);
         });
+        $this->moveDatesOverGivenUp();
         $this->domains?->recordDoneYears();
         foreach ($this->domains?->lineNotes() ?? [] as $note) {
             $this->warn($note);
@@ -2450,7 +2459,97 @@ class ImportFromWhmcs extends Command
             return $domain;
         }
 
-        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $this->serviceLineReference($record);
+        $reference = $this->serviceLineReference($record);
+        // A renewal WHMCS invoiced and staff cancelled, its nextinvoicedate moved past it: given up, as a cancel here (Δ3a).
+        $givenUp = ($record['type'] ?? null) === 'Hosting' && isset($record['id']) ? $this->renewalsGivenUp()[(int) $record['id']] ?? null : null;
+        if ($givenUp !== null && $reference['reference_type'] === Service::class && $reference['kind'] === null
+            && (int) $reference['reference_id'] === $givenUp['service']) {
+            return ['period_start' => $givenUp['start'], 'period_end' => $givenUp['end'], 'applied_at' => null,
+                'forgone_at' => now()->toDateTimeString()] + $reference;
+        }
+
+        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $reference;
+    }
+
+    /** @var array<int, array{service: int, start: string, end: string}>|null */
+    private ?array $renewalsGivenUp = null;
+
+    /**
+     * Each service whose renewal WHMCS gave up (renewalsGivenUp, its line imported given up) dated at WHMCS's
+     * nextinvoicedate, the end of that period: what staff here do to close a gap («move the service's date over the
+     * gap», RenewalBilling). As WHMCS has it: it bills the next period at nextinvoicedate and suspends only for an
+     * overdue invoice. Left at nextduedate, nothing is billed after the period given up on (Δ3a) and the cron suspends
+     * and then terminates it by that date with no invoice its customer could pay (sweep 4 review REV4-C-1). Only a date
+     * still at the period's start (a re-run, or staff's own date, is left alone).
+     */
+    private function moveDatesOverGivenUp(): void
+    {
+        $givenUp = $this->renewalsGivenUp ?? [];
+        if ($givenUp === []) {
+            return;
+        }
+        $imported = DB::table('invoice_items')->whereIn('id', array_keys($givenUp))->whereNotNull('forgone_at')
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        foreach ($imported as $line) {
+            ['service' => $service, 'start' => $start, 'end' => $end] = $givenUp[$line];
+            DB::table('services')->where('id', $service)->whereDate('expires_at', $start)->update(['expires_at' => $end]);
+        }
+    }
+
+    /**
+     * The cancelled renewal lines WHMCS gave up (sweep 4, C-FIRST-RUN-2), by line: a live service's (Active, Suspended)
+     * whose nextinvoicedate is past its nextduedate (WHMCS invoiced that period, and a cancel never moves it back: WHMCS
+     * never bills it again), on a cancelled invoice due on its nextduedate, with no other renewal invoice (paid or open)
+     * due then, which would stand for it. Imported with that period, nextduedate to nextinvoicedate, given up
+     * (forgone_at), as a cancel here does: never billed again here, nor charged. Its imported Hosting line has no period
+     * otherwise, and the cron would bill the period from expires_at (nextduedate) again. One line per service (its
+     * latest). A source without nextinvoicedate or the invoice tables (a test's): none.
+     *
+     * @return array<int, array{service: int, start: string, end: string}>
+     */
+    private function renewalsGivenUp(): array
+    {
+        if ($this->renewalsGivenUp !== null) {
+            return $this->renewalsGivenUp;
+        }
+        $this->renewalsGivenUp = [];
+        if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return $this->renewalsGivenUp;
+        }
+        try {
+            $rows = $this->pdo->query("SELECT h.id AS service, h.nextduedate, h.nextinvoicedate, ii.id AS line, i.status FROM tblhosting h
+                JOIN tblinvoiceitems ii ON ii.type = 'Hosting' AND ii.relid = h.id JOIN tblinvoices i ON i.id = ii.invoiceid
+                WHERE h.domainstatus IN ('Active', 'Suspended') AND h.nextduedate > '0000-00-00' AND h.nextinvoicedate > h.nextduedate
+                AND i.duedate = h.nextduedate ORDER BY h.id, ii.id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return $this->renewalsGivenUp; // no nextinvoicedate in the source
+        }
+        $byService = [];
+        foreach ($rows as $row) {
+            $byService[(int) $row['service']][] = $row;
+        }
+        $listed = [];
+        foreach ($byService as $service => $lines) {
+            if (collect($lines)->contains(fn (array $line) => (string) $line['status'] !== 'Cancelled')) {
+                continue; // a paid or open renewal of that period stands for it
+            }
+            $start = $this->validateDate($lines[0]['nextduedate']);
+            $end = $this->validateDate($lines[0]['nextinvoicedate']);
+            if ($start === null || $end === null || !isset($this->importedServices()[$service])) {
+                continue;
+            }
+            $last = end($lines);
+            $this->renewalsGivenUp[(int) $last['line']] = ['service' => $service, 'start' => substr($start, 0, 10), 'end' => substr($end, 0, 10)];
+            $listed[] = [$service, substr($start, 0, 10), substr($end, 0, 10), (int) $last['line']];
+        }
+        if ($listed !== []) {
+            $this->warn(count($listed) . ' live service(s) whose renewal WHMCS invoiced and staff cancelled (its next invoice date moved past it): '
+                . 'given up here as a cancel does, never billed again; each one dated at its next invoice date (the end of that period), '
+                . 'as WHMCS bills and suspends it.');
+            $this->table(['Service', 'Due', 'Next invoice', 'Line'], $listed);
+        }
+
+        return $this->renewalsGivenUp;
     }
 
     /** @return array{reference_type: string|null, reference_id: mixed, kind: string|null} */
@@ -3232,6 +3331,37 @@ class ImportFromWhmcs extends Command
         }
 
         return $pending;
+    }
+
+    /** Days after which an unpaid WHMCS order invoice refuses the import (abandonedOrders). */
+    public const ABANDONED_ORDER_DAYS = 7;
+
+    /**
+     * Every WHMCS invoice imported unpaid (invoiceStatus, ADV-531-1: Collections too) dated more than ABANDONED_ORDER_DAYS
+     * ago that orders something: a Hosting line of a Pending service, an Addon line of a Pending addon (imported as a
+     * pending service, REV2-FR-2), or a DomainRegister/DomainTransfer line. «Payment Pending» is left out: it comes with a
+     * processing payment, which credit does not pay over. The import refuses to run on them (handle): credit would pay
+     * them on the first cron and set them up. The runbook's pre-dump query, the same set. A source without these tables
+     * (a test's): none.
+     *
+     * @return list<int>
+     */
+    private function abandonedOrders(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblhosting')) {
+            return [];
+        }
+        $addons = $this->sourceHas('tblhostingaddons');
+        $query = $this->pdo->prepare("SELECT DISTINCT i.id FROM tblinvoices i JOIN tblinvoiceitems ii ON ii.invoiceid = i.id
+            LEFT JOIN tblhosting h ON ii.type = 'Hosting' AND h.id = ii.relid"
+            . ($addons ? " LEFT JOIN tblhostingaddons a ON ii.type = 'Addon' AND a.id = ii.relid" : '')
+            . " WHERE i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') AND i.date < ?
+            AND (ii.type IN ('DomainRegister', 'DomainTransfer') OR h.domainstatus = 'Pending'"
+            . ($addons ? " OR a.status = 'Pending'" : '') . ')
+            ORDER BY i.id');
+        $query->execute([now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString()]);
+
+        return array_values(array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)));
     }
 
     /**
