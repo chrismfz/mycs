@@ -15,6 +15,7 @@ use App\Models\DomainTldPrice;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Lookup\LaravelTransport;
@@ -188,6 +189,10 @@ class Sweep4RDomainsOtherFixesTest extends TestCase
         $openAction = ModuleAction::query()->where('domain_id', $bobs->id)->where('status', ModuleAction::STATUS_OPEN)->exists();
         $this->assertTrue($bobs->fresh()->status !== DomainStatus::Cancelled || $openAction,
             'Bob\'s paid order was closed as cancelled with no Pending Module Action: his money has no task for staff');
+        // Fixer: left open for staff, and his payment opened its Pending Module Action (refuse(): Alice paid first).
+        $this->assertSame(DomainStatus::PendingRegister, $bobs->fresh()->status);
+        $this->assertTrue($openAction);
+        $this->assertSame('mybusiness.com', $alices->fresh()->live_fqdn);
     }
 
     /**
@@ -198,11 +203,15 @@ class Sweep4RDomainsOtherFixesTest extends TestCase
      */
     public function test_renewed_by_hand_on_an_expired_row_whose_name_is_held_leaves_nothing_half_done(): void
     {
-        // Ordered and sent here once (meta.sent_at), no registrar connection now (manual): closeOthers leaves it open
-        // («sent to its registrar») when Bob's row takes the name, so both rows coexist, as #750 allows.
+        // Ordered and sent here once (meta.sent_at), no registrar connection now (manual). Busy (its registrar lock taken)
+        // when Bob's row takes the name, closeOthers leaves it open, so both rows coexist, as #750 allows. (The verifier's
+        // first setup relied on R-DOMAINS-OTHER-FIXES-1's «sent to its registrar» guard, fixed now.)
         $alices = $this->expired($this->alice->client(), 'mybusiness.com', ['meta' => ['sent_at' => '2025-09-20T10:00:00+00:00']]);
+        $busy = Cache::lock("domain-registrar:{$alices->id}", 60);
+        $this->assertTrue($busy->get());
         Domain::factory()->create(['client_id' => $this->bob->client()->id, 'sld' => 'mybusiness', 'tld' => 'com', 'fqdn' => 'mybusiness.com',
             'status' => DomainStatus::Active, 'expires_at' => '2027-11-01']);
+        $busy->release();
         $this->assertSame(DomainStatus::Expired, $alices->fresh()->status, 'precondition: left open beside the holder');
         $invoice = Invoice::query()->create(['client_id' => $alices->client_id, 'currency_code' => 'EUR', 'status' => Invoice::STATUS_UNPAID, 'due_at' => now()]);
         $line = $invoice->items()->create(['reference_type' => Domain::class, 'reference_id' => $alices->id, 'price' => '23.33', 'quantity' => 1,
@@ -224,5 +233,54 @@ class Sweep4RDomainsOtherFixesTest extends TestCase
         $this->assertFalse($line->fresh()->applied_at !== null && $alices->status === DomainStatus::Expired,
             'half done: its line applied and its expiry moved to ' . $alices->expires_at?->toDateString() . ', the row still expired'
             . ($thrown !== null ? ' (' . $thrown::class . ')' : ''));
+        // Refused before anything is written: said to staff, the line waiting, the expiry where it was, the action open.
+        $this->assertInstanceOf(\RuntimeException::class, $thrown);
+        $this->assertStringContainsString('#' . Domain::query()->where('fqdn', 'mybusiness.com')->whereKeyNot($alices->id)->value('id'), $thrown->getMessage());
+        $this->assertNull($line->fresh()->applied_at);
+        $this->assertSame('2026-09-20', $alices->expires_at?->toDateString());
+        $this->assertSame(ModuleAction::STATUS_OPEN, $action->fresh()->status);
+    }
+
+    /**
+     * Fixer (R-DOMAINS-OTHER-FIXES-1): the «sent to its registrar» guard still keeps a pending order that may be done at
+     * its registrar (a registration logged, its hold lost past the model) out of closeOthers: staff's.
+     */
+    public function test_a_pending_order_sent_to_its_registrar_is_still_left_to_staff(): void
+    {
+        $sent = Domain::factory()->create(['client_id' => $this->alice->client()->id, 'sld' => 'mybusiness', 'tld' => 'com', 'fqdn' => 'mybusiness.com',
+            'status' => DomainStatus::PendingRegister]);
+        DomainRegistrarLog::query()->create(['domain_id' => $sent->id, 'action' => 'register', 'status' => DomainRegistrarLog::STATUS_PENDING]);
+        Domain::query()->whereKey($sent->id)->update(['name_held_at' => null]); // past the model
+        $this->assertNull($sent->fresh()->live_fqdn);
+        $bobs = $this->order($this->bob, 'mybusiness.com');
+
+        $this->pay($bobs);
+
+        $this->assertSame('mybusiness.com', $bobs->fresh()->live_fqdn);
+        $this->assertSame(DomainStatus::PendingRegister, $sent->fresh()->status, 'sent to its registrar: staff decide');
+    }
+
+    /**
+     * Fixer (R-DOMAINS-OTHER-FIXES-3): staff «Renew now» on an expired row whose name another row holds is refused before
+     * the registrar is asked (no year bought there for a row that cannot be active here), nothing billed.
+     */
+    public function test_renew_now_on_an_expired_row_whose_name_is_held_is_refused_before_the_registrar(): void
+    {
+        $alices = $this->expired($this->alice->client(), 'mybusiness.com', ['domain_tld_id' => DomainTld::query()->where('tld', 'com')->value('id')]);
+        $bobs = Domain::factory()->create(['client_id' => $this->bob->client()->id, 'sld' => 'mybusiness', 'tld' => 'com', 'fqdn' => 'mybusiness.com',
+            'status' => DomainStatus::Active, 'expires_at' => '2027-11-01']);
+        $this->assertSame(DomainStatus::Cancelled, $alices->fresh()->status, 'closed by Bob\'s row (FIXES-1 fixed): set back by staff below');
+        Domain::query()->whereKey($alices->id)->update(['status' => DomainStatus::Expired->value]); // past the model
+        $this->assertNotNull($alices->fresh()->effectiveRegistrarConnection());
+        Http::fake(fn () => throw new \LogicException('the registrar must not be asked'));
+
+        try {
+            app(DomainRenewalService::class)->renewNow($alices->fresh(), Staff::factory()->create());
+            $this->fail('renewed');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('#' . $bobs->id, $e->getMessage());
+        }
+        $this->assertSame(0, InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $alices->id)->count());
+        $this->assertSame(DomainStatus::Expired, $alices->fresh()->status);
     }
 }

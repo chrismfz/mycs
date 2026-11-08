@@ -34,7 +34,7 @@ use Throwable;
  *   past its recovery window (the cron's domains_superseded step, daily: `live_fqdn` cannot read the date).
  * - closeOthers(): once a row holds the name, the rows of it that no longer do (an expired one past its window, an
  *   unpaid order of anyone) are closed as cancelled with a note for staff; an unpaid order's open invoice line is cancelled as staff's
- *   «Cancel Order» does. A row sent to its registrar, busy, or with money on its invoice is left to staff, told.
+ *   «Cancel Order» does. A pending order sent to its registrar, busy, or with money on its invoice (or paid meanwhile) is left to staff, told.
  */
 final class DomainNameHold
 {
@@ -229,8 +229,7 @@ final class DomainNameHold
     /** @param  array<string, Throwable>  $left */
     private static function closeOne(Domain $holder, Domain $other, array &$left): bool
     {
-        // Under its registrar lock, as staff's Cancel Order (ADV-2 of #180): one being sent now, or sent already, or with
-        // a charge not confirmed, may be done at the registrar: staff's.
+        // Under its registrar lock, as staff's Cancel Order (ADV-2 of #180): one being sent now is staff's (busy).
         $lock = Cache::lock("domain-registrar:{$other->id}", 60);
         if (!$lock->get()) {
             $left["domain #{$other->id}"] = new DisplayException("Domain #{$other->id} {$other->fqdn}: busy, not closed; its name is held by #{$holder->id}.");
@@ -238,17 +237,19 @@ final class DomainNameHold
             return false;
         }
         try {
-            if (self::sent($other)) {
-                $left["domain #{$other->id}"] = new DisplayException("Domain #{$other->id} {$other->fqdn}: sent to its registrar, not closed; its name is held by #{$holder->id}. Decide by hand.");
-
-                return false;
-            }
-
             return DB::transaction(function () use ($holder, $other, &$left) {
                 $fresh = Domain::query()->lockForUpdate()->find($other->id);
                 // Read again: one ended or held meanwhile is not closed; nor when the holder no longer holds.
                 if ($fresh === null || $fresh->status->isTerminal() || $fresh->holdsName()
                     || !Domain::query()->whereKey($holder->id)->where('live_fqdn', $holder->fqdn)->exists()) {
+                    return false;
+                }
+                // A pending order sent to its registrar may be done there: staff's. Only a pending one (R-DOMAINS-OTHER-FIXES-1
+                // of sweep 4): sent_at and the registration's log stay on a row for good once it is active, so an expired
+                // row past its window, once ordered here, is closed as an imported one is (D-25).
+                if ($fresh->status->isPending() && self::sent($fresh)) {
+                    $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: sent to its registrar, not closed; its name is held by #{$holder->id}. Decide by hand.");
+
                     return false;
                 }
                 // Paid and refused (another paid first, refuse()): its money is staff's to refund or credit, from its
@@ -282,6 +283,15 @@ final class DomainNameHold
                     if ($kept !== []) {
                         $left += $kept;
                         $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: its order's invoice was left open (money on it), so it was not closed; its name is held by #{$holder->id}.");
+
+                        return false;
+                    }
+                    // Paid while it was being closed (R-DOMAINS-OTHER-FIXES-2 of sweep 4): paid() above is a plain read, and
+                    // a payment committed before CancelOpenInvoices took the invoice's lock makes it return «nothing to
+                    // give up on». Read again under that lock (held to our commit; a locking read sees the latest): its
+                    // money is staff's, from the Pending Module Action its payment opens (refuse()), never closed here.
+                    if ($open->isNotEmpty() && Invoice::query()->whereKey($open->modelKeys())->where('status', Invoice::STATUS_PAID)->lockForUpdate()->exists()) {
+                        $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: paid while it was being closed, but its name is held by #{$holder->id}: refund or credit its order (Cancel Order).");
 
                         return false;
                     }
