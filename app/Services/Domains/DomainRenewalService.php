@@ -674,6 +674,10 @@ class DomainRenewalService
         }
         TimeLimit::atLeast(600);
         try {
+            // Before the registrar: never a year bought there for a row whose name another holds here (D-25).
+            if ($domain->status === DomainStatus::Expired && ($holder = DomainNameHold::holder($domain->fqdn, (int) $domain->id)) !== null) {
+                throw new RuntimeException(__('domains.renew.name_held', ['domain' => $domain->fqdn, 'holder' => $holder->id]));
+            }
             if ($this->unconfirmed($domain) !== null) {
                 throw new RuntimeException(__('domains.renew.unconfirmed', ['domain' => $domain->fqdn]));
             }
@@ -770,6 +774,23 @@ class DomainRenewalService
     }
 
     /**
+     * An expired row is renewed only while it holds its name (D-25): claimed (inside its recovery window, or its renewal
+     * paid and waiting), else refused when another row holds it. Not expired, or nobody holding it: nothing to do.
+     *
+     * @throws RuntimeException its name is held by another row
+     */
+    private static function claimOrRefuse(Domain $domain): void
+    {
+        if ($domain->status !== DomainStatus::Expired || DomainNameHold::claim($domain)) {
+            return;
+        }
+        $holder = DomainNameHold::holder($domain->fqdn, (int) $domain->id);
+        if ($holder !== null) {
+            throw new RuntimeException(__('domains.renew.name_held', ['domain' => $domain->fqdn, 'holder' => $holder->id]));
+        }
+    }
+
+    /**
      * Staff say it was renewed by hand (code review 6). A paid line of a live domain only. With a registrar API the
      * registrar must show it (read now, under the lock): the line is adopted, its expiry the registrar's, never ours;
      * with a manual registrar the expiry moves to the end of the paid period.
@@ -785,6 +806,9 @@ class DomainRenewalService
         if (in_array($domain->status->value, DomainStatus::terminalValues(), true)) {
             throw new RuntimeException(__('domains.renew.not_renewable', ['domain' => $domain->fqdn]));
         }
+        // An expired row renewed holds its name (D-25), as in renewLine: never applied while another row holds it, else the
+        // line and the expiry are committed and the row cannot become active (live_fqdn; R-DOMAINS-OTHER-FIXES-3 of sweep 4).
+        self::claimOrRefuse($domain);
         $connection = $domain->effectiveRegistrarConnection();
         if ($connection instanceof DomainRegistrarConnection && $connection->isUsable()) {
             $lock = Cache::lock("domain-registrar:{$domain->id}", 600);
