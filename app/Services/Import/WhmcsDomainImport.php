@@ -453,9 +453,31 @@ final class WhmcsDomainImport
             if (count($indexes) < 2 || array_filter($indexes, $holds) === []) {
                 continue;
             }
-            usort($indexes, fn (int $a, int $b) => [$holds($a) ? 0 : 1, $rank[$rows[$a]['status']] ?? 9, -strtotime((string) ($rows[$a]['expires_at'] ?? '1970-01-01')), -$rows[$a]['id']]
-                <=> [$holds($b) ? 0 : 1, $rank[$rows[$b]['status']] ?? 9, -strtotime((string) ($rows[$b]['expires_at'] ?? '1970-01-01')), -$rows[$b]['id']]);
+            // A row its registry still has as its customer's (grace, redemption, expired inside its window) is never put
+            // behind another customer's order (REV2-DNH-3): in the app it held first, closeOthers never closes it and
+            // claim refuses the later payment. That order comes after it, so it is never sent to a registry that has the
+            // name as someone else's. One of its own customer's (a renewal as a transfer) stays first, as before.
+            $registry = [];
+            foreach ($indexes as $index) {
+                if ($holds($index) && !DomainStatus::from($rows[$index]['status'])->isPending() && $rows[$index]['status'] !== DomainStatus::Active->value) {
+                    $registry[$rows[$index]['client_id']] = true;
+                }
+            }
+            $order = fn (int $index) => [$holds($index) ? 0 : 1,
+                $registry !== [] && DomainStatus::from($rows[$index]['status'])->isPending() && !isset($registry[$rows[$index]['client_id']])
+                    ? 5 : ($rank[$rows[$index]['status']] ?? 9),
+                -strtotime((string) ($rows[$index]['expires_at'] ?? '1970-01-01')), -$rows[$index]['id']];
+            usort($indexes, fn (int $a, int $b) => $order($a) <=> $order($b));
             foreach (array_slice($indexes, 1) as $index) {
+                if ($rows[$index]['name_held_at'] !== null && DomainStatus::from($rows[$index]['status'])->isPending()
+                    && empty(json_decode((string) $rows[$index]['meta'], true)['sent_at'] ?? null)) {
+                    // Paid after its name was another's, not sent: it stays, holding nothing, for staff to refund or credit
+                    // (as claim's refusal in the app), never cancelled under its money. One sent comes cancelled, listed.
+                    $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: an order paid in WHMCS, but the name is #{$rows[$indexes[0]]['id']}'s: imported without its hold, refund or credit it.";
+                    $rows[$index]['name_held_at'] = null;
+
+                    continue;
+                }
                 $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: also live as #{$rows[$indexes[0]]['id']} in WHMCS, imported cancelled: check them.";
                 $rows[$index]['status'] = DomainStatus::Cancelled->value;
                 $rows[$index]['name_held_at'] = null;
@@ -469,8 +491,8 @@ final class WhmcsDomainImport
 
     /**
      * An expired domain still recoverable at its registry today (D-25, owner 2026-11-08): its expiry plus its TLD's grace
-     * and redemption days, as Domain::recoveryEndsOn reads them (no registrar's stage dates yet at import), or the default
-     * days when they are not both known.
+     * and redemption days, as Domain::recoveryEndsOn reads them (no registrar's stage dates yet at import), plus the
+     * default days when they are not both known (counted from the end of what is known, REV2-DNH-1).
      */
     private static function recoverable(?string $expires, ?DomainTld $tld): bool
     {
@@ -480,9 +502,9 @@ final class WhmcsDomainImport
         $expiry = Carbon::parse($expires)->startOfDay();
         $grace = $tld?->grace_days;
         $redemption = $tld?->redemption_days;
-        $last = $expiry->copy()->addDays(max(0, (int) $grace) + ($grace !== null ? max(0, (int) $redemption) : 0));
+        $last = $expiry->copy()->addDays(max(0, (int) $grace) + max(0, (int) $redemption));
 
-        return !Domain::recoveryEnd($expiry, $last, $grace !== null && $redemption !== null)->startOfDay()->lessThan(today());
+        return !Domain::recoveryEnd($last, $grace !== null && $redemption !== null)->startOfDay()->lessThan(today());
     }
 
     /**

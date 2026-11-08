@@ -71,8 +71,8 @@ return new class extends Migration
             ->update(['name_held_at' => now()]);
         // An expired row its registry may still give back (owner 2026-11-08): it holds until its recovery window ends
         // (expiry + grace + redemption, Domain::recoveryEndsOn). Read generously here (the latest of its registrar's dates,
-        // its days, 30 days): the cron's domains_superseded step releases it by its exact window the next night. Never a
-        // second holder of a name: the latest expiry first, and none where a row holds it already.
+        // its days plus 30 more, REV2-DNH-1): the cron's domains_superseded step releases it by its exact window
+        // the next night. Never a second holder of a name: the latest expiry first, and none where a row holds it already.
         $held = DB::table('domains')->whereRaw(self::HOLDING)->pluck('fqdn')->flip()->all();
         $expired = DB::table('domains')->leftJoin('domain_tlds', 'domain_tlds.id', '=', 'domains.domain_tld_id')
             ->where('domains.status', 'expired')->whereNull('domains.name_held_at')->whereNotNull('domains.expires_at')
@@ -83,7 +83,7 @@ return new class extends Migration
             $expiry = Carbon::parse($row->expires_at)->startOfDay();
             $days = max(0, (int) ($row->grace_days_override ?? $row->grace_days)) + max(0, (int) ($row->redemption_days_override ?? $row->redemption_days));
             $last = collect([$row->grace_ends_on, $row->redemption_ends_on])->filter()->map(fn ($date) => Carbon::parse($date)->startOfDay())
-                ->push($expiry->copy()->addDays(max($days, 30)))->max();
+                ->push($expiry->copy()->addDays($days + 30))->max();
             if (isset($held[$row->fqdn]) || $last->lessThan(today())) {
                 continue;
             }

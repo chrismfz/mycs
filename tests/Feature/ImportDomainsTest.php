@@ -408,4 +408,39 @@ class ImportDomainsTest extends TestCase
         $this->assertSame([null, null], [$domains[33]->live_fqdn, $domains[34]->live_fqdn], 'past its window: neither holds');
         $this->assertSame([DomainStatus::Expired, DomainStatus::PendingRegister], [$domains[33]->status, $domains[34]->status]);
     }
+
+    /**
+     * REV2-DNH-1/3: another customer's paid order of a name its registry still has as its customer's (active, or expired
+     * inside its window) comes after it, holding nothing and not cancelled (staff refund or credit it); its own customer's
+     * order (a renewal as a transfer) still comes first. A TLD whose grace is known but not its redemption: 30 days after
+     * its grace.
+     */
+    public function test_another_customers_paid_order_comes_after_the_registrys_row_and_keeps_its_money(): void
+    {
+        $this->freezeTime();
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, status TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, type TEXT, relid INT)');
+        $this->whmcs->exec("INSERT INTO tbldomainpricing VALUES (4, '.net', 'openprovider', 1, 1, 1, 1, 40, NULL, 4)");
+        $other = User::factory()->create()->client();
+        $this->whmcs->exec("INSERT INTO tblclients VALUES ({$other->id}, 1)");
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(51, 'kept.com', 'Active', 'openprovider');
+        $this->domain(52, 'kept.com', 'Pending', 'openprovider', ['userid' => $other->id] + $order);
+        $this->domain(53, 'own.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(10)->toDateString()]);
+        $this->domain(54, 'own.com', 'Pending', 'openprovider', ['type' => 'Transfer'] + $order);
+        $this->domain(55, 'grace.net', 'Expired', 'openprovider', ['expirydate' => now()->subDays(65)->toDateString()]);
+        $this->domain(56, 'gone.net', 'Expired', 'openprovider', ['expirydate' => now()->subDays(71)->toDateString()]);
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (1, 'Paid')");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 1, 'DomainRegister', 52), (2, 1, 'DomainTransfer', 54)");
+
+        $notes = implode("\n", $this->run_()['notes']);
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $this->assertSame(['kept.com', null], [$domains[51]->live_fqdn, $domains[52]->live_fqdn]);
+        $this->assertSame(DomainStatus::PendingRegister, $domains[52]->status, 'paid: kept for staff, never cancelled under its money');
+        $this->assertStringContainsString('Domain #52 kept.com: an order paid in WHMCS', $notes);
+        $this->assertSame([DomainStatus::Cancelled, DomainStatus::PendingTransfer], [$domains[53]->status, $domains[54]->status], 'its own order first, as before');
+        $this->assertSame('own.com', $domains[54]->live_fqdn);
+        $this->assertSame(['grace.net', null], [$domains[55]->live_fqdn, $domains[56]->live_fqdn], 'grace 40, then 30 days: 70 days');
+    }
 }

@@ -113,6 +113,18 @@ class Domain extends Model implements Auditable
             if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
                 ItemPaymentMethod::keepApart($domain);
             }
+            // Expired again inside its recovery window without a hold (REV2-DNH-2: set back from cancelled): its customer's
+            // still, it takes its name back, unless another row holds it by now (claim refuses; staff's, told by the cron).
+            if ($domain->wasChanged('status') && $domain->status === DomainStatus::Expired && $domain->name_held_at === null
+                && $domain->inRecoveryWindow()) {
+                $id = (int) $domain->id;
+                DB::afterCommit(function () use ($id) {
+                    $fresh = Domain::query()->find($id);
+                    if ($fresh !== null) {
+                        DomainNameHold::claim($fresh);
+                    }
+                });
+            }
             // It holds its name from now on (D-25): the other rows of the name that no longer hold it are closed.
             if ($domain->wasChanged(['status', 'name_held_at']) && $domain->holdsName()
                 && !self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)) {
@@ -468,8 +480,8 @@ class Domain extends Model implements Auditable
     /**
      * The last day its registry may still give it back to its customer (owner 2026-11-08, D-25): the end of its
      * redemption, else of its grace, else its expiry, by the same dates and days as its life (DomainLifecycle, D5a). When
-     * neither its registrar's dates nor both its days (its own or its TLD's) are known, never sooner than
-     * RECOVERY_DEFAULT_DAYS after its expiry, as a deleted domain's recovery (CronJob::pastRecovery). Null without an expiry.
+     * neither its registrar's dates nor both its days (its own or its TLD's) are known, RECOVERY_DEFAULT_DAYS after the end
+     * of what is known (its expiry when nothing is: as a deleted domain's recovery, CronJob::pastRecovery). Null without an expiry.
      */
     public function recoveryEndsOn(): ?Carbon
     {
@@ -478,15 +490,17 @@ class Domain extends Model implements Auditable
         }
         $known = $this->hasRegistrarStageDates() || ($this->graceDays() !== null && $this->redemptionDays() !== null);
 
-        return self::recoveryEnd($this->expires_at, $this->redemptionEndsOn() ?? $this->graceEndsOn() ?? $this->expires_at, $known);
+        return self::recoveryEnd($this->redemptionEndsOn() ?? $this->graceEndsOn() ?? $this->expires_at, $known);
     }
 
-    /** Its last recoverable day from $last (D-25): as it is when $known, else never sooner than the default days. */
-    public static function recoveryEnd(Carbon $expires, Carbon $last, bool $known): Carbon
+    /**
+     * Its last recoverable day (D-25): $last, the end of the stages that are known, as it is when $known; else the default
+     * days counted from it (REV2-DNH-1: from the end of a known grace, not from the expiry, which the grace would swallow),
+     * so the part that is not known is always covered.
+     */
+    public static function recoveryEnd(Carbon $last, bool $known): Carbon
     {
-        $floor = $expires->copy()->addDays(self::RECOVERY_DEFAULT_DAYS);
-
-        return ($known || $last->greaterThanOrEqualTo($floor) ? $last : $floor)->copy();
+        return $known ? $last->copy() : $last->copy()->addDays(self::RECOVERY_DEFAULT_DAYS);
     }
 
     /** Today is on or before its last recoverable day (D-25): an expired row holds its name till then. */

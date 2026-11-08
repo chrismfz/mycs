@@ -160,6 +160,20 @@ final class DomainNameHold
             ->reject(fn (Domain $domain) => self::entitled($domain))->map(fn (Domain $domain) => (int) $domain->id)->values()->all();
     }
 
+    /**
+     * Expired rows inside their recovery window that hold nothing (REV2-DNH-2: set back past the model, or their days raised
+     * after a release), latest expiry first: what claim() gives their name back to, for the cron (daily), unless another
+     * row holds it by then.
+     *
+     * @return list<int>
+     */
+    public static function unheldRecoverable(): array
+    {
+        return Domain::query()->with('domainTld')->where('status', DomainStatus::Expired->value)->whereNull('name_held_at')
+            ->whereNotNull('expires_at')->orderByDesc('expires_at')->orderByDesc('id')->get()
+            ->filter(fn (Domain $domain) => $domain->inRecoveryWindow())->map(fn (Domain $domain) => (int) $domain->id)->values()->all();
+    }
+
     /** The row that holds $fqdn, other than $except, if any. */
     public static function holder(string $fqdn, ?int $except = null): ?Domain
     {

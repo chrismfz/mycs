@@ -669,6 +669,15 @@ class CronJob extends Command
                         $this->failures["domains_superseded release #{$id}"] = $e;
                     }
                 }
+                // An expired row inside its window that holds nothing (REV2-DNH-2): its name back, if no row holds it.
+                foreach (DomainNameHold::unheldRecoverable() as $id) {
+                    try {
+                        $domain = Domain::query()->find($id);
+                        $number += $domain !== null && DomainNameHold::claim($domain) ? 1 : 0;
+                    } catch (Throwable $e) {
+                        $this->failures["domains_superseded claim #{$id}"] = $e;
+                    }
+                }
                 $holders = Domain::query()->whereNotNull('live_fqdn')->whereExists(fn ($q) => $q->from('domains as other')
                     ->whereColumn('other.fqdn', 'domains.fqdn')->whereColumn('other.id', '!=', 'domains.id')
                     ->whereNull('other.live_fqdn')->whereNotIn('other.status', DomainStatus::terminalValues()))->pluck('id');
