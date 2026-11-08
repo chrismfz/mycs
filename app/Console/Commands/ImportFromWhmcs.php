@@ -3375,10 +3375,11 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) of a live service off its billing day (not on its day of the
-     * month: WhmcsAddonImport::onServiceDay), or of a live service with no next due date: the import refuses to run on them
-     * (handle). An addon of an ended service is imported ended with it (WhmcsAddonImport), so it is not checked (sweep 5
-     * G-ADDONS-CYCLE-3). The runbook's pre-dump check. A source without addons: none.
+     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) of a service off its billing day (not on its day of the month:
+     * WhmcsAddonImport::onServiceDay), or of a service with no next due date: the import refuses to run on them (handle).
+     * An addon of a service imported ended (terminated or cancelled: serviceStatus) is imported ended with it
+     * (WhmcsAddonImport), so it is not checked (sweep 5 G-ADDONS-CYCLE-3); every other service is, Completed included
+     * (REV5-G-ADDONS-CYCLE-1). The runbook's pre-dump check. A source without addons: none.
      *
      * @return list<int> tblhostingaddons ids
      */
@@ -3388,9 +3389,12 @@ class ImportFromWhmcs extends Command
             return [];
         }
         $live = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status), WhmcsAddonImport::LIVE));
+        // Only the services imported ended are skipped: one whose status is not named (e.g. Completed) is imported pending.
+        $ended = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status),
+            array_keys(array_filter(self::SERVICE_STATUSES, fn (string $status) => in_array($status, ['terminated', 'cancelled'], true)))));
 
         $rows = $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due FROM tblhostingaddons a'
-            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus IN ({$live})"
+            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
             . " AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
 
         return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($rows,
