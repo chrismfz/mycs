@@ -323,9 +323,10 @@ final class WhmcsAddonImport
 
     /**
      * The first service id above every one WHMCS gave: its counter (tblhosting's AUTO_INCREMENT) and the ids still named by
-     * what refers to a service (a counter reset by a restart, or a copy without it), and this instance's own.
+     * what refers to a service (a counter reset by a restart, or a copy without it), and this instance's own. Also where
+     * the services' own counter is moved to after the import (ImportFromWhmcs::moveServicesCounter, sweep 4 C-IMPORT-1).
      */
-    private function firstFreeServiceId(): int
+    public function firstFreeServiceId(): int
     {
         $highest = (int) DB::table('services')->max('id');
         foreach (['SELECT MAX(id) FROM tblhosting', "SELECT MAX(relid) FROM tblinvoiceitems WHERE type IN ('Hosting', 'Setup', 'PromoHosting')",

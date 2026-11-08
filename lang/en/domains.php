@@ -68,6 +68,7 @@ return [
         'paid_on_its_way' => 'A paid renewal of :domain is being done at its registrar: nothing to renew now.',
         'not_a_paid_renewal' => 'This is not a paid renewal waiting to be done.',
         'registrar_does_not_show' => 'The registrar does not show :domain renewed (it expires :expires): nothing applied.',
+        'name_held' => ':domain is expired and its name is held by domain #:holder (paid or registered first): it cannot be renewed here. Refund this renewal, or settle the name by hand first.',
         'not_renewable' => ':domain cannot be renewed now: it has no expiry or has ended.',
         'no_price' => ':domain has no renew price for :years year(s): set one on its TLD or the domain.',
         'not_active_at_registrar' => 'The registrar has :domain as :status: renew it there by hand.',
