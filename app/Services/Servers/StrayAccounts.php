@@ -147,10 +147,12 @@ final class StrayAccounts
     public static function domainWarning(Domain $domain, ?string $warning, ?string $module = null): void
     {
         $explained = $warning !== null && ModuleAction::query()->open()->where('domain_id', $domain->id)
-            ->whereIn('action', ModuleAction::DOMAIN_ACTIONS)->exists();
+            ->whereIn('action', [...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT])->exists();
         $task = $warning === null || $explained ? null
             : Str::limit("{$domain->fqdn}: the registrar sync did not apply what it read: {$warning}. Check it at the registrar, then mark it checked.", 2000);
-        DB::transaction(function () use ($domain, $task, $module) {
+        $cleared = $explained ? 'cleared: an open task for the domain (renewal, registration, transfer, contact) explains it'
+            : 'cleared: a later sync no longer warns';
+        DB::transaction(function () use ($domain, $task, $module, $cleared) {
             $now = now();
             $open = ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_CHECK)->orderBy('id')->get();
             $keep = $task === null ? null : $open->first();
@@ -162,7 +164,7 @@ final class StrayAccounts
 
                     continue;
                 }
-                $row->forceFill(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => 'cleared: a later sync no longer warns'])->save();
+                $row->forceFill(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => $cleared])->save();
             }
             // Staff's closed one, for another warning or none now: a later warning is a new task.
             ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_CHECK)

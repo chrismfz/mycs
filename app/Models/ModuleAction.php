@@ -309,13 +309,15 @@ class ModuleAction extends Model
 
     /**
      * An open task its service's delete would take with it (module_actions.service_id ON DELETE CASCADE): a termination
-     * not done yet on the server (a failure, or a step left to staff), or any task for staff by hand. The service is
-     * kept until staff close it (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5: owner's call, no migration).
+     * not done yet on the server (a failure, or a step left to staff), any task for staff by hand, or a read's «ended in
+     * MyCS, still on the server» check (its account, once unmapped, may not be running and would open nothing again:
+     * REV-STRAY-1). The service is kept until staff close it (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5: owner's call,
+     * no migration).
      */
     public static function openTaskKeeps(int $serviceId): bool
     {
         return self::query()->open()->where('service_id', $serviceId)
-            ->where(fn (Builder $query) => $query->where('action', 'terminate')->orWhere('subject', self::SUBJECT_BY_HAND))
+            ->where(fn (Builder $query) => $query->whereIn('action', ['terminate', self::STRAY_ENDED])->orWhere('subject', self::SUBJECT_BY_HAND))
             ->exists();
     }
 

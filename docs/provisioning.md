@@ -90,7 +90,20 @@
   λήξη που θα πήγαινε πίσω, handle επαφής που διαφέρει), γίνεται το ίδιο είδος task για το domain: `domain_check`
   («Check: domain sync»), ένα ανοιχτό ανά domain με το τελευταίο κείμενο, που κλείνει με sync χωρίς προειδοποίηση. Μόνο
   στη sync που γράφει (όχι στο dry run, όχι μετά από write του staff), κάτω από το lock του registrar· όχι όσο είναι
-  ανοιχτή ανανέωση, εγγραφή ή μεταφορά του (εκείνη η γραμμή είναι ήδη του staff). Το `sync_error` του domain μένει ως είχε.
+  ανοιχτή ανανέωση, εγγραφή, μεταφορά ή αλλαγή επαφής του (εκείνη η γραμμή είναι ήδη του staff· ένα ανοιχτό
+  `domain_check` τότε κλείνει με «cleared: an open task for the domain … explains it»). Το `sync_error` του domain μένει ως είχε.
+- **Διαγραφή υπηρεσίας:** ένα ανοιχτό `stray_ended` την κρατά, όπως ο ανοιχτός τερματισμός και το «by hand»
+  (`ModuleAction::openTaskKeeps`): με το cascade θα έφευγε μαζί της, και ένας λογαριασμός suspended ή VM σταματημένη
+  δεν θα άνοιγε ξανά task ως «not mapped» (REV-STRAY-1). Το staff το κλείνει («Checked») και μετά τη διαγράφει.
+- **Rollback report:** οι έλεγχοι (`ModuleAction::CHECKS`) δεν μπαίνουν στο «Server and module actions»· δεν έγινε
+  τίποτα σε server για να περάσει στο WHMCS (REV-STRAY-2).
+- **Ανοιχτά για τον owner** (review 2026-11-08, NOTE-1, χωρίς αλλαγή κώδικα):
+  - κάθε έλεγχος ανοίγει «needs staff» (`given_up_at`): το Health `module_actions` μένει WARN όσο υπάρχει ανοιχτός, και
+    το CronSummary μετρά ως «failed» τη μέρα που ανοίγει νέος (στο «failures only» φεύγει mail). Στο πρώτο deploy τα
+    unmapped του WHMCS θα ανοίξουν πολλά μαζί·
+  - υπηρεσία που τερματίστηκε ενώ το TerminateJob περιμένει στην ουρά (χωρίς ModuleAction ακόμα) παίρνει `stray_ended`
+    αν τύχει ανάγνωση εκείνη τη στιγμή· κλείνει στην επόμενη (το ίδιο κενό έχει το `CpanelAccount::differs`)·
+  - tasks server που απενεργοποιήθηκε ή σβήστηκε δεν κλείνουν μόνα τους (δεν γίνεται ανάγνωση): τα κλείνει το staff.
 
 ## Auto Setup ανά προϊόν (`products.autosetup`, Σ1-b1)
 | | WHMCS | πότε στήνεται | πληρωμένη, πριν στηθεί |

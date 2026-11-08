@@ -408,5 +408,15 @@ class StrayAccountsRuleTest extends TestCase
         $expiry = '1999-01-01 00:00:00';
         $sync->sync($domain->fresh());
         $this->assertCount(0, $tasks());
+
+        // An open check that a later open task explains closes saying so, not «no longer warns»; a contact change
+        // explains it too (review NOTE-1 d).
+        ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_RENEW)->delete();
+        StrayAccounts::domainWarning($domain->fresh(), 'handle differs', 'openprovider');
+        $this->assertCount(1, $tasks());
+        ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_CONTACT, 'status' => ModuleAction::STATUS_OPEN]);
+        StrayAccounts::domainWarning($domain->fresh(), 'handle differs', 'openprovider');
+        $this->assertCount(0, $tasks());
+        $this->assertStringContainsString('explains it', (string) $tasks(null)->sortByDesc('id')->first()->resolution);
     }
 }
