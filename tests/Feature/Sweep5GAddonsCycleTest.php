@@ -88,4 +88,16 @@ class Sweep5GAddonsCycleTest extends TestCase
         $this->assertTrue(WhmcsAddonImport::onServiceDay('Monthly', '2027-01-31', '2027-02-28'),
             'refused: counted back from the 28th, never the 31st');
     }
+
+    /**
+     * G-ADDONS-CYCLE-3 (b), fixer's rule: a recurring addon of a live service with no next due date (a free one) is refused,
+     * as MyCS cannot give an addon to such a parent either; a live service's addon on another day is still refused.
+     */
+    public function test_g_addons_cycle_3_an_addon_of_a_live_service_without_a_due_date_is_refused(): void
+    {
+        $this->assertSame([181, 182], $this->addonsApart(
+            ["(1701, 'Active', 'Free Account', '0000-00-00')", "(1702, 'Pending', 'Monthly', '2026-12-15')"],
+            ["(181, 1701, 'Active', 'Monthly', '2026-12-01')", "(182, 1702, 'Active', 'Annually', '2027-03-14')"],
+        ));
+    }
 }

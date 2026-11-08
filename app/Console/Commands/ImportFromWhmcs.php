@@ -193,7 +193,8 @@ class ImportFromWhmcs extends Command
         // service's billing day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
         if (($apart = $this->addonsApart()) !== []) {
             $this->error('WHMCS addon(s) off their service\'s billing day: #' . implode(', #', $apart)
-                . '. An addon shares its service\'s due date here: set its next due date in WHMCS to the service\'s, or for a shorter cycle to the service\'s day within its cycle (cutover-runbook.md), and dump again. Nothing done.');
+                . '. An addon renews on its service\'s day of the month here: set its next due date in WHMCS to that day (the service\'s date, or that day within its own cycle; cutover-runbook.md), and dump again.'
+                . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
 
             return self::FAILURE;
         }
@@ -3374,9 +3375,10 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) off their service's billing day (not its date, nor k of their own
-     * cycles back from it: WhmcsAddonImport::onServiceDay, REV-KISS-2): the import refuses to run on them (handle). The
-     * runbook's pre-dump check. A source without addons: none.
+     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) of a live service off its billing day (not on its day of the
+     * month: WhmcsAddonImport::onServiceDay), or of a live service with no next due date: the import refuses to run on them
+     * (handle). An addon of an ended service is imported ended with it (WhmcsAddonImport), so it is not checked (sweep 5
+     * G-ADDONS-CYCLE-3). The runbook's pre-dump check. A source without addons: none.
      *
      * @return list<int> tblhostingaddons ids
      */
@@ -3388,10 +3390,9 @@ class ImportFromWhmcs extends Command
         $live = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status), WhmcsAddonImport::LIVE));
 
         $rows = $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due FROM tblhostingaddons a'
-            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free')"
-            . ' AND a.nextduedate <> h.nextduedate ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
+            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus IN ({$live})"
+            . " AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
 
-        // On its service's billing day by its own cycle (a monthly addon of a yearly service, a month before it) is fine.
         return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($rows,
             fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));
     }
