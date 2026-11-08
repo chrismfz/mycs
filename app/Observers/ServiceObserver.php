@@ -5,12 +5,14 @@ namespace App\Observers;
 use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
+use App\Models\InvoiceItem;
 use App\Models\IpAddress;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\AddonCascade;
 use App\Services\Service\OptionTasks;
+use App\Services\Service\ProrataOrderLineNotice;
 use App\Services\Service\ServerSelector;
 use App\Support\DunningWindow;
 use Carbon\CarbonImmutable;
@@ -41,6 +43,9 @@ class ServiceObserver
 
     /** Set while RenewServiceService saves: it has applied the paid periods already. */
     public static bool $renewing = false;
+
+    /** Set while ServiceUpgradeService saves the new product and plan: it tells staff of the lines it keeps itself. */
+    public static bool $upgrading = false;
 
     /**
      * Staff moving the Next Due Date (expires_at) forward onto or into periods that are already paid
@@ -248,7 +253,17 @@ class ServiceObserver
         }
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
-            $service->refreshOpenPeriods();
+            // The order's own pro rata line keeps the old plan's price: staff are told, once per change (owner 2026-11-08,
+            // REV3-L-ROUNDING-TAX-2). Not while an upgrade applies: it tells staff of that line itself (tellOfKeptPeriods).
+            $fromPlanId = $service->getOriginal('plan_id');
+            $priceSet = $service->wasChanged('price');
+            // The plan set for the next renewal, applied by the cron (RenewalBilling), not a change by staff: told as such
+            // (review REV-PPN-4). Told too when the service is Active with its order unpaid (staff activated it): the
+            // line keeps the old stub all the same.
+            $scheduled = $service->wasChanged('next_plan_id') && $service->getOriginal('next_plan_id') !== null
+                && (int) $service->getOriginal('next_plan_id') === (int) $service->plan_id;
+            $service->refreshOpenPeriods(orderLineKept: self::$upgrading ? null
+                : fn (InvoiceItem $line) => ProrataOrderLineNotice::tell($service, $line, $fromPlanId === null ? null : (int) $fromPlanId, $priceSet, $scheduled));
         }
         // Its addons follow it: suspended, back, ended with it (docs/addons.md); an addon never runs under a suspended
         // parent, and fastened to one that is ending, it ends with it.
