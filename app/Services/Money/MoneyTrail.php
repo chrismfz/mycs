@@ -48,6 +48,13 @@ class MoneyTrail
 
     public const CAUSE_TRANSACTION_DELETED = 'transaction_deleted';
 
+    /**
+     * Credit a credit purchase bought, taken back while the purchase is open again with its lines applied (set back to
+     * unpaid, a chargeback): a payment of it refunded or deleted. Given back when it is paid again, as a chargeback's
+     * take (sweep3 L-LEDGER-INVARIANT-1).
+     */
+    public const CAUSE_PURCHASE_REOPENED = 'purchase_reopened';
+
     /** Credit paid on an invoice the app gave up on (CancelOpenInvoices) went back to the customer (MT-2b). */
     public const CAUSE_CANCELLATION = 'cancellation';
 

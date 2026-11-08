@@ -22,6 +22,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use MyCS\Extensions\Gateways\PayPal\PayPal;
@@ -388,5 +390,21 @@ class PayPalSubscriptionEndedTest extends TestCase
         $service->fresh()->markTerminated();
 
         Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/cancel'));
+    }
+
+    /** Sweep 3 L-FAILURES-1: PayPal failing the cancel when the service ends is reported and told to staff (it still bills). */
+    public function test_a_failed_cancel_when_its_service_ends_is_told_to_staff(): void
+    {
+        ExtensionHelper::getExtension('gateway', 'PayPal', Gateway::query()->where('extension', 'PayPal')->sole()->settings)->boot();
+        $service = $this->subscribed();
+        $this->status = 500;
+        Exceptions::fake();
+
+        $service->fresh()->markTerminated();
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/I-SUB1/cancel'));
+        $this->assertSame('1', $service->fresh()->properties()->where('key', 'has_paypal_subscription')->value('value'), 'still billing');
+        Exceptions::assertReportedCount(1);
+        $this->assertSame(1, DB::table('email_logs')->where('subject', 'PayPal subscription not cancelled')->count());
     }
 }

@@ -8,11 +8,11 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
+use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
-use App\Models\ChargeAttempt;
 use App\Models\Client;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
@@ -198,6 +198,10 @@ class PayPal extends Gateway
             if ($e->status >= 500) {
                 throw $e;
             }
+            // Refused before it ran (its token, a rate limit): nothing was charged and nothing declined (sweep 3 L-FAILURES-2).
+            if (in_array($e->status, [401, 429], true)) {
+                throw new ChargeNotSent(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
+            }
 
             throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
         }
@@ -279,7 +283,7 @@ class PayPal extends Gateway
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
-                    report($e);
+                    $this->cancelFailed($event->service, $e);
                 }
             }
         });
@@ -294,9 +298,24 @@ class PayPal extends Gateway
             try {
                 $this->cancelSubscription($service);
             } catch (Exception $e) {
-                report($e);
+                $this->cancelFailed($service, $e);
             }
         });
+    }
+
+    /**
+     * The subscription of a service that ended (or is to be cancelled) could not be cancelled at PayPal: it still bills.
+     * Reported, and staff told, once a day for the same subscription (sweep 3, L-FAILURES-1).
+     */
+    private function cancelFailed(Service $service, Throwable $e): void
+    {
+        report($e);
+        $message = sprintf('The PayPal subscription %s of service #%d could not be cancelled at PayPal (%s). It may still bill the customer: cancel it in the PayPal account.',
+            (string) $service->subscription_id, $service->id, Str::limit($e->getMessage(), 200));
+        PaymentsLog::warning($message, ['gateway' => 'PayPal', 'service_id' => $service->id]);
+        if (Cache::add('paypal-cancel-failed:' . $service->subscription_id, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('PayPal subscription not cancelled', e($message));
+        }
     }
 
     public function getConfig($values = [])
@@ -870,25 +889,12 @@ class PayPal extends Gateway
     /**
      * The saved method's charge whose payment was the denied capture, settled as failed: the one «succeeded» attempt on its
      * invoice, through its gateway, of at most its amount, sent by the day it was recorded, that no other payment records
-     * now (SavedMethodCharge::notRecorded). None or more than one such attempt is not known to be this capture's: left to
+     * now (SavedMethodCharge::failedAtGateway, notRecorded). None or more than one such attempt is not known to be this capture's: left to
      * staff (ResolveCharge). Only from «succeeded», so a charge staff settled meanwhile is kept. @return int|null its id
      */
     private static function deniedChargeAttempt(InvoiceTransaction $payment): ?int
     {
-        $candidates = ChargeAttempt::query()->where('invoice_id', $payment->invoice_id)
-            ->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('amount', '<=', $payment->amount)
-            ->whereHas('billingAgreement', fn ($agreement) => $agreement->where('gateway_id', $payment->gateway_id))
-            ->get()
-            ->filter(fn (ChargeAttempt $attempt) => $attempt->sent_at->copy()->startOfDay()->lte($payment->created_at)
-                && !SavedMethodCharge::recordedSince($attempt));
-        if ($candidates->count() !== 1) {
-            return null;
-        }
-        $attempt = $candidates->sole();
-        $updated = ChargeAttempt::query()->whereKey($attempt->id)->where('status', ChargeAttempt::STATUS_SUCCEEDED)
-            ->update(['status' => ChargeAttempt::STATUS_FAILED, 'error' => mb_substr('PayPal denied the capture ' . $payment->transaction_id, 0, 250)]);
-
-        return $updated === 1 ? (int) $attempt->id : null;
+        return SavedMethodCharge::failedAtGateway($payment, 'PayPal denied the capture ' . $payment->transaction_id);
     }
 
     /** A subscription that bills no more: cancelled (by the customer, in PayPal), expired, suspended (failed payments). */

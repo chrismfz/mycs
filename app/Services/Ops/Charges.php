@@ -152,7 +152,7 @@ final class Charges
     public static function recent(?string $status, ?Client $client, ?Invoice $invoice, int $days, int $limit): array
     {
         $statuses = [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_UNKNOWN,
-            ChargeAttempt::STATUS_ACTION_REQUIRED, ChargeAttempt::STATUS_SETTLED, self::TAKEN_NOT_RECORDED];
+            ChargeAttempt::STATUS_ACTION_REQUIRED, ChargeAttempt::STATUS_SETTLED, ChargeAttempt::STATUS_NOT_SENT, self::TAKEN_NOT_RECORDED];
         if ($status !== null && $status !== '' && !in_array($status, $statuses, true)) {
             throw new NotFound("No status {$status}: one of " . implode(', ', $statuses) . '.');
         }

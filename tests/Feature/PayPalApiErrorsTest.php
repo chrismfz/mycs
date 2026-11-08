@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
@@ -150,6 +151,15 @@ class PayPalApiErrorsTest extends TestCase
 
         // A DisplayException: the customer sees "could not process", the cron sends the failed-payment email.
         $this->expectException(DisplayException::class);
+        ExtensionHelper::charge($this->gateway, $this->unpaidInvoice(), $this->agreement());
+    }
+
+    /** Rate limited: PayPal did not run it, so nothing was charged or declined (sweep 3 L-FAILURES-2). */
+    public function test_a_rate_limited_vault_charge_is_not_sent_not_declined(): void
+    {
+        $this->fakePayPal(['/v2/checkout/orders' => Http::response(['name' => 'RATE_LIMIT_REACHED', 'message' => 'Too many requests'], 429)]);
+
+        $this->expectException(ChargeNotSent::class);
         ExtensionHelper::charge($this->gateway, $this->unpaidInvoice(), $this->agreement());
     }
 
