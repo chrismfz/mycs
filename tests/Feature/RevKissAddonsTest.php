@@ -87,9 +87,9 @@ class RevKissAddonsTest extends TestCase
     {
         $whmcs = new \PDO('sqlite::memory:');
         $whmcs->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, billingcycle TEXT, nextduedate TEXT)');
+        $whmcs->exec("CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, billingcycle TEXT, nextduedate TEXT, domainstatus TEXT DEFAULT 'Active')");
         $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT)');
-        $whmcs->exec("INSERT INTO tblhosting VALUES (2, 'Annually', '2027-05-18')");
+        $whmcs->exec("INSERT INTO tblhosting (id, billingcycle, nextduedate) VALUES (2, 'Annually', '2027-05-18')");
         $whmcs->exec("INSERT INTO tblhostingaddons VALUES (162, 2, 'Active', 'Monthly', '2026-12-18'), (165, 2, 'Active', 'Monthly', '2026-12-03')");
         $command = app(ImportFromWhmcs::class);
         (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);

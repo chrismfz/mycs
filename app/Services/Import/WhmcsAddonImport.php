@@ -11,7 +11,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use MyCS\BillingPeriod\BillingPeriod;
 use PDO;
 use PDOException;
 
@@ -410,27 +409,25 @@ final class WhmcsAddonImport
     ];
 
     /**
-     * Whether a WHMCS addon due $addonDue is on its service's billing day (due $serviceDue): the service's date, or k of its
-     * own cycles back from it, as «Add addon» puts one (AddAddon::alignedEnd: a monthly addon of a yearly service renews
-     * monthly on the service's day). Any other date, or a cycle not known here, is not (REV-KISS-2).
+     * Whether a WHMCS addon due $addonDue is on its service's billing day (due $serviceDue): both dates on the same day of
+     * the month, a 29th-31st clamped to a short month's last day as BillingPeriod clamps it (2027-01-31 and 2027-02-28 are
+     * both on the 31st). Its cycle does not matter: «Add addon» puts a monthly addon of a yearly service a month before the
+     * service, a yearly addon of a monthly one a year after its first period (AddAddon::alignedEnd). A missing date (a
+     * service with none, as a free one: MyCS cannot give it an addon either), or a cycle not known here, is not
+     * (REV-KISS-2, sweep 5 G-ADDONS-CYCLE-2/5).
      */
     public static function onServiceDay(string $cycle, string $addonDue, string $serviceDue): bool
     {
-        $known = self::CYCLES[self::cycleKey($cycle)] ?? null;
         $addon = self::date($addonDue);
         $due = self::date($serviceDue);
-        if ($known === null || $addon === null || $due === null) {
+        if (!isset(self::CYCLES[self::cycleKey($cycle)]) || $addon === null || $due === null) {
             return false;
         }
         $addon = CarbonImmutable::parse($addon);
         $due = CarbonImmutable::parse($due);
-        for ($k = 0; ($back = $k === 0 ? $due : BillingPeriod::start($due, $known[2], $known[1] * $k, $due->day))->greaterThanOrEqualTo($addon); $k++) {
-            if ($back->equalTo($addon)) {
-                return true;
-            }
-        }
+        $day = max($addon->day, $due->day);
 
-        return false;
+        return min($day, $addon->daysInMonth) === $addon->day && min($day, $due->daysInMonth) === $due->day;
     }
 
     private static function cycleKey(string $cycle): string
