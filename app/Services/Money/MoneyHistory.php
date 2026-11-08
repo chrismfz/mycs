@@ -113,7 +113,7 @@ class MoneyHistory
             MoneyTrail::CAUSE_OVERPAYMENT => 'overpayment',
             MoneyTrail::CAUSE_CREDIT_PAYMENT => 'credit_payment',
             MoneyTrail::CAUSE_PURCHASE => 'purchase',
-            MoneyTrail::CAUSE_PURCHASE_REFUNDED => 'purchase_refunded',
+            MoneyTrail::CAUSE_PURCHASE_REFUNDED, MoneyTrail::CAUSE_PURCHASE_REOPENED => 'purchase_refunded',
             MoneyTrail::CAUSE_TRANSACTION_DELETED => 'correction',
             MoneyTrail::CAUSE_CANCELLATION => 'cancellation',
             MoneyTrail::CAUSE_STAFF_ADJUSTMENT => 'adjustment',

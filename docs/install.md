@@ -110,13 +110,23 @@ maintenance (`down` απέτυχε), το deploy σταματά χωρίς αλ�
   τράπεζα έχει τα χρήματα και η MyCS όχι (ADV-529-2):
   `select i.id, t.transaction_id, t.amount, t.created_at from invoice_transactions t join invoices i on i.id = t.invoice_id where t.created_at >= '<ώρα του snapshot>';`
 
-Χειροκίνητα:
+Χειροκίνητα, όλα μέσα στο ίδιο παράθυρο maintenance (L-DEPLOY-MIGRATIONS-4): ούτε cron ούτε worker της νεότερης
+έκδοσης πάνω στο παλιό σχήμα, και η επαναφορά πριν από το `up`, ποτέ με το site ανοιχτό (όχι `deploy/update.sh <sha>`
+και μετά επαναφορά: εκείνο τελειώνει με `up` και τους workers πίσω).
 ```bash
 cd /var/www/mycs && php artisan down
+php artisan app:cron-wait --timeout=900          # ένα cron run σε εξέλιξη τελειώνει πρώτα
+php artisan queue:restart                        # οι workers (νεότερη έκδοση στη μνήμη) βγαίνουν μετά την τρέχουσα δουλειά
+pgrep -af 'artisan queue:work'                   # ξανά, ώσπου να μη μείνει κανένας από πριν (ή: systemctl stop mycs-queue)
 git checkout <sha του snapshot>                 # η έκδοση που δούλευε
 composer install --no-dev --optimize-autoloader && npm ci && npm run build
-gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>   # μόνο αν άλλαξε το σχήμα ή τα δεδομένα, και αμέσως (βλ. πάνω)
-php artisan optimize && php artisan up
+# μόνο αν άλλαξε το σχήμα ή τα δεδομένα, και αμέσως (βλ. πάνω): πρώτα το query των πληρωμών, μετά η επαναφορά
+gunzip -c storage/app/db-snapshots/<snapshot>.sql.gz | mysql <βάση>
+php artisan optimize
+php artisan queue:restart                        # όσοι workers ξεκίνησαν στο μεταξύ βγαίνουν: ξεκινούν στην παλιά έκδοση
+php artisan up                                   # (ή, αν σταμάτησε το unit: systemctl start mycs-queue, πριν από αυτό)
 ```
+Μια πληρωμή που μπήκε **όσο έτρεχε το `mysql`** (το return του Cardlink, AUD8-1) δεν τη βρίσκει το query: μετά την
+επαναφορά κοίτα και τις συναλλαγές της τράπεζας για εκείνα τα λεπτά, και πέρασέ τες με το χέρι.
 Τα snapshots είναι στον ίδιο server: δεν αντικαθιστούν τα backups εκτός server, που είναι το JetBackup του root.
 Το `APP_KEY` φυλάγεται και εκτός server (`decisions.md`, «Backups και `APP_KEY`»).

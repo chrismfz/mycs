@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Cache;
 
 class Currency extends Model
 {
@@ -31,21 +30,12 @@ class Currency extends Model
         return new Builders\CacheableBuilder($query);
     }
 
-    // Clear cache when model is updated, created, or deleted
+    // The cached currency queries cleared when a currency is created, saved or deleted: only those (CacheableBuilder),
+    // never the whole store, whose file driver keeps the locks there too (sweep 3, L-DEPLOY-MIGRATIONS-1).
     protected static function booted()
     {
-        // Currencies change infrequently, so we can clear the entire cache on changes
-        static::created(function ($currency) {
-            Cache::flush();
-        });
-
-        static::saved(function ($currency) {
-            Cache::flush();
-        });
-
-        static::deleted(function ($currency) {
-            Cache::flush();
-        });
+        static::saved(fn () => Builders\CacheableBuilder::flushQueryCache());
+        static::deleted(fn () => Builders\CacheableBuilder::flushQueryCache());
     }
 
     /** @return HasMany<Service, $this> */

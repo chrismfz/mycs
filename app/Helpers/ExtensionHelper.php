@@ -1922,7 +1922,10 @@ class ExtensionHelper
         $creditCents ??= $cents;
         $trail = new MoneyTrail;
         if ($credit !== null && $creditCents > 0) { // checked in prepareRefund (or refundedAtGateway), under the same locks
-            (new CreditLedger)->remove((int) $credit->client_id, $credit->currency_code, $creditCents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
+            // Refunded while the purchase is open again (set back to unpaid, a chargeback): given back once it is paid
+            // again (sweep3 L-LEDGER-INVARIANT-1). Refunded while paid: final (its refund note lowers what it bills).
+            $cause = $transaction->invoice->status === Invoice::STATUS_PAID ? MoneyTrail::CAUSE_PURCHASE_REFUNDED : MoneyTrail::CAUSE_PURCHASE_REOPENED;
+            (new CreditLedger)->remove((int) $credit->client_id, $credit->currency_code, $creditCents, $cause,
                 $source, $transaction->invoice, $transaction);
         }
         // One rounded amount for the transaction, the note and the journal.
