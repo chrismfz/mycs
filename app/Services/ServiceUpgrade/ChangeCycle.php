@@ -21,7 +21,9 @@ use App\Services\Order\OrderPricing;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Payment\SavedMethodCharge;
+use App\Services\Service\AddAddon;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +40,10 @@ use MyCS\Pricing\LinePricer;
  *   the old cycle (nothing paid on it) is cancelled, and the cron bills the period again in the new cycle.
  * - Now (staff): the unused part of the period paid becomes account credit, from what its line was paid (with its tax,
  *   code review B2), and that line ends today; the open renewals are cancelled, and a new period in the new cycle starts
- *   today, billed at once (credit and a saved payment method pay it, as a renewal).
+ *   today, billed at once (credit and a saved payment method pay it, as a renewal). An addon shares its parent's
+ *   billing day (docs/addons.md, owner 2026-11-08): an addon's new period ends on it (AddAddon::alignedEnd), pro rata;
+ *   a parent's live addons follow it to its new day, each credited and billed the same way on the same invoice
+ *   (refused, all of it, when one could not be changed itself).
  *
  * The new recurring amount is the new plan's catalog price with the service's options and coupon (as an upgrade, decided
  * 2026-10-14: a staff price is not carried over). Refused while a gateway subscription bills the service (it charges its
@@ -99,6 +104,32 @@ final class ChangeCycle
         if (!self::plans($service)->contains('id', $plan->id) || ($mode === self::NOW && (int) $plan->id === (int) $service->plan_id)) {
             return __('This billing cycle is not available for this service.');
         }
+        if (($why = self::blocked($service, $mode)) !== null) {
+            return $why;
+        }
+        if ($mode === self::NOW) {
+            // An addon shares its parent's billing day (docs/addons.md, owner 2026-11-08): its new period ends on it
+            // (AddAddon::alignedEnd), so its parent needs a due date ahead.
+            if ($service->isAddon() && ($service->parent === null || AddAddon::alignedEnd($service->parent, $plan) === null)) {
+                return __('services.addons.add.no_due_date');
+            }
+            // Its live addons follow it to its new billing day, on the same invoice: each as it would be changed itself.
+            foreach (self::followers($service) as $addon) {
+                if (self::follows($addon) && ($why = self::blocked($addon, $mode)) !== null) {
+                    return __('Addon #:id follows this service: :reason', ['id' => $addon->id, 'reason' => $why]);
+                }
+            }
+            if (BigDecimal::of(self::quote($service, $plan, $mode)['credit'])->isPositive() && !config('settings.credits_enabled', false)) {
+                return __('Account credit is off: change it from the next renewal.');
+            }
+        }
+
+        return null;
+    }
+
+    /** Why this service's money stops a change (its own invoices, payments, period), or null: the parent's and each addon's. */
+    private static function blocked(Service $service, string $mode): ?string
+    {
         if ((string) $service->subscription_id !== '') {
             return __('A subscription bills this service: cancel it first.');
         }
@@ -132,11 +163,6 @@ final class ChangeCycle
         }
         if ($mode === self::NOW) {
             $today = CarbonImmutable::today();
-            // Now starts a new period today, on today's day: an addon and its parent would no longer share a due date
-            // (docs/addons.md, owner 2026-11-08, KISS; REV-KISS-3/4). From the next renewal the day stays: change it then.
-            if ($service->isAddon() || $service->addons()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->exists()) {
-                return __('An addon shares its service\'s due date: change it from the next renewal.');
-            }
             // Overdue: the unpaid days would never be billed (S1). From the next renewal, the overdue period is billed again.
             if ($service->expires_at === null || CarbonImmutable::instance($service->expires_at)->startOfDay()->lessThan($today)
                 || $service->currentPeriodStart() === null) {
@@ -154,9 +180,6 @@ final class ChangeCycle
                 && $line->period_start->startOfDay()->greaterThanOrEqualTo($today))) {
                 return __('A renewal is paid ahead: change it from the next renewal.');
             }
-            if (BigDecimal::of(self::quote($service, $plan, $mode)['credit'])->isPositive() && !config('settings.credits_enabled', false)) {
-                return __('Account credit is off: change it from the next renewal.');
-            }
         }
 
         return null;
@@ -164,33 +187,104 @@ final class ChangeCycle
 
     /**
      * What the change does, before it is made: the new recurring amount (net, per unit) and with tax for the quantity; now,
-     * also the credit for the unused days (as they were paid), the new period and what it is billed (with tax).
+     * also the credit for the unused days (as they were paid), the new period, its line's net amount per unit and what it
+     * is billed (with tax). An addon's new period ends on its parent's billing day, its amount pro rata (AddAddon::alignedEnd).
+     * A parent's live addons follow it to its new day (owner 2026-11-08): each one's credit and new period as its own
+     * change would be, in `addons` (by id; free or one-time ones only move their date), and in the credit and charge.
      *
-     * @return array{price: string, gross: string, credit: string, start: ?CarbonImmutable, end: ?CarbonImmutable, charge: string}
+     * @return array{price: string, gross: string, credit: string, start: ?CarbonImmutable, end: ?CarbonImmutable, line: string, charge: string, day: ?int, addons: array<int, array{end: ?CarbonImmutable, line: ?string}>}
      */
     public static function quote(Service $service, Plan $plan, string $mode): array
     {
         $after = self::withPlan($service, $plan);
         $price = (string) $after->calculatePrice();
-        $gross = LinePricer::invoiceLine($price, max(1, (int) $service->quantity), OrderPricing::taxRate($service->client, $service->product))['total'];
+        $gross = self::gross($service, $price);
         if ($mode !== self::NOW || $service->expires_at === null) {
-            return ['price' => $price, 'gross' => $gross, 'credit' => '0.00', 'start' => null, 'end' => null, 'charge' => '0.00'];
+            return ['price' => $price, 'gross' => $gross, 'credit' => '0.00', 'start' => null, 'end' => null, 'line' => $price, 'charge' => '0.00', 'day' => null, 'addons' => []];
         }
 
         $today = CarbonImmutable::today();
-        // The days left as they were paid: the period's lines, and the upgrades paid within it, less what a downgrade in it
-        // gave back already (sweep UPGRADES-1, as DowngradeCredit counts them).
-        [$upgrades, $given] = DowngradeCredit::withinPeriod($service, $today);
-        $credit = BigDecimal::max(BigDecimal::of(self::unused($service, $today))->plus($upgrades)->minus($given), BigDecimal::zero())->toScale(2);
+        $credit = BigDecimal::of(self::credit($service, $today));
+        if ($service->isAddon() && $service->parent !== null) {
+            [$end, $line] = self::aligned($after, $service->parent, $today, $price);
+            $day = $service->parent->billingDay(CarbonImmutable::parse($service->parent->expires_at));
+        } else {
+            [$end, $line] = [$after->periodEnd($today), $price];
+            $after->rememberBillingDay($today);
+            $day = $end === null ? null : $after->forceFill(['expires_at' => $end])->billingDay($end);
+        }
+        $charge = BigDecimal::of(self::gross($service, $line));
+        $addons = [];
+        foreach ($end === null || $service->isAddon() ? [] : self::followers($service) as $addon) {
+            $addons[$addon->id] = ['end' => $end, 'line' => null];
+            if (self::follows($addon)) {
+                [$until, $amount] = self::aligned($addon, $after, $today, number_format((float) $addon->price, 2, '.', ''));
+                $addons[$addon->id] = ['end' => $until, 'line' => $amount];
+                $credit = $credit->plus(self::credit($addon, $today));
+                $charge = $charge->plus(self::gross($addon, $amount));
+            }
+        }
 
         return [
             'price' => $price,
             'gross' => $gross,
-            'credit' => (string) $credit,
+            'credit' => (string) $credit->toScale(2),
             'start' => $today,
-            'end' => $after->periodEnd($today),
-            'charge' => $gross,
+            'end' => $end,
+            'line' => $line,
+            'charge' => (string) $charge->toScale(2),
+            'day' => $day,
+            'addons' => $addons,
         ];
+    }
+
+    /** The days left as they were paid: the period's lines, and the upgrades paid within it, less what a downgrade in it gave back already (sweep UPGRADES-1, as DowngradeCredit counts them). */
+    private static function credit(Service $service, CarbonImmutable $today): string
+    {
+        [$upgrades, $given] = DowngradeCredit::withinPeriod($service, $today);
+
+        return (string) BigDecimal::max(BigDecimal::of(self::unused($service, $today))->plus($upgrades)->minus($given), BigDecimal::zero())->toScale(2);
+    }
+
+    /** Its line with tax, for its quantity. */
+    private static function gross(Service $service, string $net): string
+    {
+        return LinePricer::invoiceLine($net, max(1, (int) $service->quantity), OrderPricing::taxRate($service->client, $service->product))['total'];
+    }
+
+    /**
+     * An addon's new period from $today, on its parent's billing day (AddAddon::alignedEnd for its plan), and its amount per
+     * unit: $price pro rata of its whole cycle, as «Add addon» bills one.
+     *
+     * @return array{0: CarbonImmutable, 1: string}
+     */
+    private static function aligned(Service $addon, Service $parent, CarbonImmutable $today, string $price): array
+    {
+        $end = AddAddon::alignedEnd($parent, $addon->plan, $today) ?? throw new DisplayException(__('services.addons.add.no_due_date'));
+        $full = AddAddon::fullStart($parent, $addon->plan, $end);
+
+        return [$end, (string) BigDecimal::of(BillingPeriod::remaining($price, $full, $end, $today))->toScale(2, RoundingMode::HalfUp)];
+    }
+
+    /**
+     * A parent's live addons (active, suspended, pending), which share its billing day and so follow a change «now».
+     *
+     * @return Collection<int, Service>
+     */
+    private static function followers(Service $service, bool $lock = false): Collection
+    {
+        if ($service->isAddon()) {
+            return collect();
+        }
+        $query = $service->addons()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->orderBy('id');
+
+        return ($lock ? $query->lockForUpdate() : $query)->get();
+    }
+
+    /** Billed by period (a recurring plan): its money follows. A free or one-time one only moves its date. */
+    private static function follows(Service $addon): bool
+    {
+        return $addon->plan?->type === 'recurring' && in_array($addon->plan->billing_unit, BillingPeriod::UNITS, true) && (int) $addon->plan->billing_period >= 1;
     }
 
     /**
@@ -203,20 +297,30 @@ final class ChangeCycle
     public static function apply(Service $service, Plan $plan, string $mode, string $source): ?Invoice
     {
         $invoice = DB::transaction(function () use ($service, $plan, $mode, $source) {
+            // Parent first, then the addon(s): the order every money path takes (AddonCascade).
+            $parentId = Service::query()->whereKey($service->getKey())->value('parent_service_id');
+            $parent = $parentId === null ? null : Service::query()->whereKey($parentId)->lockForUpdate()->first();
             $locked = Service::query()->whereKey($service->getKey())->lockForUpdate()->firstOrFail();
+            if ($parent !== null) {
+                $locked->setRelation('parent', $parent);
+            }
+            $followers = $mode === self::NOW ? self::followers($locked, lock: true) : collect();
             if (($why = self::refusal($locked, $plan, $mode)) !== null) {
                 throw new DisplayException($why);
             }
             $quote = self::quote($locked, $plan, $mode);
 
-            // The open renewals were for the old cycle (nothing paid on them: refusal); an invoice CancelOpenInvoices
-            // keeps open (a line it cannot tell, staff to look at) stops the change, all of it rolled back (B4).
+            // The open renewals were for the old cycle (nothing paid on them: refusal), its following addons' too; an
+            // invoice CancelOpenInvoices keeps open (a line it cannot tell, staff to look at) stops the change, all of it
+            // rolled back (B4).
             $back = (int) $plan->id === (int) $locked->plan_id;
             if (!$back) {
-                $left = CancelOpenInvoices::handle($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id'),
-                    __('invoices.cancellation_reasons.cycle_changed'), $locked);
-                if ($left !== []) {
-                    throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
+                foreach ([$locked, ...$followers->filter(fn (Service $addon) => self::follows($addon))] as $each) {
+                    $left = CancelOpenInvoices::handle($each->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id'),
+                        __('invoices.cancellation_reasons.cycle_changed'), $each);
+                    if ($left !== []) {
+                        throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
+                    }
                 }
             }
 
@@ -230,25 +334,23 @@ final class ChangeCycle
 
             $start = $quote['start'] ?? CarbonImmutable::today();
             $end = $quote['end'] ?? $start;
-            // The period paid ends today: the rest of it is the credit. Its line keeps its price (what was paid), only the
-            // days it covers end, so the next payment counts from today (RenewServiceService chains paid lines).
-            foreach (self::paidCovering($locked, $start) as $line) {
-                $line->forceFill(['period_end' => $start])->save();
-            }
-
             $locked->plan_id = $plan->id;
             $locked->next_plan_id = null;
             $locked->setRelation('plan', $plan);
             $locked->price = (float) $quote['price'];
             $locked->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
-            $locked->expires_at = $start->toMutable();
-            $locked->rememberBillingDay($start);
-            $locked->save();
+            // An addon keeps its parent's billing day (docs/addons.md); a parent takes today's, and its addons with it.
+            if ($locked->isAddon()) {
+                $locked->billing_day = $quote['day'];
+            } else {
+                $locked->rememberBillingDay($start);
+            }
 
             $cents = RecordPaymentService::toCents((float) $quote['credit']);
             if ($cents > 0) {
+                $with = $followers->isEmpty() ? '' : ' and its addons #' . $followers->pluck('id')->implode(', #');
                 (new CreditLedger)->add((int) $locked->client_id, $locked->currency_code, $cents, MoneyTrail::CAUSE_CYCLE_CHANGE, $source,
-                    note: "Service #{$locked->id}: the unused days of its period, on a change of billing cycle");
+                    note: "Service #{$locked->id}{$with}: the unused days of their period, on a change of billing cycle");
             }
 
             $invoice = $locked->invoices()->make([
@@ -258,16 +360,20 @@ final class ChangeCycle
                 'currency_code' => $locked->currency_code,
             ] + (($own = ItemPaymentMethod::apart($locked)) !== null ? ['preferred_gateway_id' => $own] : []));
             $invoice->save();
-            $invoice->items()->create([
-                'reference_id' => $locked->id,
-                'reference_type' => Service::class,
-                'price' => $quote['price'],
-                'quantity' => $locked->quantity,
-                'description' => $locked->describeLine($start, $end),
-                'period_start' => $start,
-                'period_end' => $end,
-                'payment_gateway_id' => ItemPaymentMethod::live($locked), // its way as billed (#541)
-            ]);
+            self::newPeriod($locked, $invoice, $start, $end, $quote['line']);
+
+            // Its addons follow it to its new billing day, each from today to its aligned end (owner 2026-11-08); a free or
+            // one-time one only moves its date.
+            foreach ($followers as $addon) {
+                $addon->billing_day = $quote['day'];
+                ['end' => $until, 'line' => $amount] = $quote['addons'][$addon->id];
+                if ($amount !== null && $until !== null) {
+                    self::newPeriod($addon, $invoice, $start, $until, $amount);
+                } elseif ($addon->expires_at !== null) {
+                    $addon->expires_at = $until?->toMutable();
+                    $addon->save();
+                }
+            }
 
             return $invoice->refresh();
         });
@@ -295,6 +401,30 @@ final class ChangeCycle
         }
 
         return $invoice->refresh();
+    }
+
+    /**
+     * The period paid ends today: the rest of it is the credit. Its line keeps its price (what was paid), only the days it
+     * covers end, so the next payment counts from today (RenewServiceService chains paid lines). Its new period, $start to
+     * $end at $price net per unit, is a line of $invoice.
+     */
+    private static function newPeriod(Service $service, Invoice $invoice, CarbonImmutable $start, CarbonImmutable $end, string $price): void
+    {
+        foreach (self::paidCovering($service, $start) as $line) {
+            $line->forceFill(['period_end' => $start])->save();
+        }
+        $service->expires_at = $start->toMutable();
+        $service->save();
+        $invoice->items()->create([
+            'reference_id' => $service->id,
+            'reference_type' => Service::class,
+            'price' => $price,
+            'quantity' => $service->quantity,
+            'description' => $service->describeLine($start, $end),
+            'period_start' => $start,
+            'period_end' => $end,
+            'payment_gateway_id' => ItemPaymentMethod::live($service), // its way as billed (#541)
+        ]);
     }
 
     /**

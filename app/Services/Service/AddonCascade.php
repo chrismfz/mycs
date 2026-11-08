@@ -72,9 +72,11 @@ final class AddonCascade
         if ($addon->status !== Service::STATUS_SUSPENDED || $addon->suspend_reason !== Service::SUSPEND_REASON_PARENT) {
             return;
         }
-        // Overdue on its own past Suspend Days (its own invoice unpaid): it stays suspended, now for that, as the cron
-        // would have suspended it, and its server is asked for it (a task: the parent's suspension covered it).
-        if ($addon->expires_at !== null && $addon->stillOverdue(CarbonImmutable::parse($addon->expires_at))) {
+        // Overdue on its own past Suspend Days, with an open invoice of its own (one that does not bill its parent): it
+        // stays suspended, now for that, as the cron would have suspended it, and its server is asked for it (a task: the
+        // parent's suspension covered it). Its period on its parent's invoice, or none billed while it was suspended with
+        // it, follows its parent: back with it (owner 2026-11-08, it shares its parent's due date).
+        if ($addon->expires_at !== null && self::ownOpenInvoice($addon) && $addon->stillOverdue(CarbonImmutable::parse($addon->expires_at))) {
             $addon->forceFill(['suspend_reason' => 'Overdue on Payment', 'dunning_suspended_at' => now()])->save();
             AfterCommit::job(new SuspendJob($addon));
 
@@ -84,6 +86,14 @@ final class AddonCascade
         if (self::suspendedByHand($addon)) {
             AfterCommit::job(new UnsuspendJob($addon));
         }
+    }
+
+    /** An open invoice that bills it and not its parent. */
+    private static function ownOpenInvoice(Service $addon): bool
+    {
+        return $addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)
+            ->whereDoesntHave('items', fn ($line) => $line->where('reference_type', Service::class)->where('reference_id', $addon->parent_service_id))
+            ->exists();
     }
 
     /**

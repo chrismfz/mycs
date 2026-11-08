@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Console\Commands\ImportFromWhmcs;
 use App\Exceptions\DisplayException;
+use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -75,14 +76,6 @@ class RevKissAddonsTest extends TestCase
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end]);
     }
 
-    private function cronUntil(string $last): void
-    {
-        while (Carbon::today()->lessThanOrEqualTo(Carbon::parse($last))) {
-            $this->artisan('app:cron-job')->assertExitCode(0);
-            Carbon::setTestNow(Carbon::now()->addDay());
-        }
-    }
-
     /**
      * REV-KISS-2 (medium). The importer refuses a monthly WHMCS addon of an annual service whose next due date is on the
      * service's billing day (2026-12-18 under 2027-05-18): the very date MyCS gives such an addon itself (alignedEnd), so
@@ -105,13 +98,8 @@ class RevKissAddonsTest extends TestCase
             '#162 is on its service\'s billing day (a month of its own cycle), only #165 is off it');
     }
 
-    /**
-     * REV-KISS-3 (medium). A cycle change «now» of a parent (staff, ChangeCycle::apply NOW) starts its new period today:
-     * the parent is due on a new date and day, its addon keeps the old one. An addon due on another day than its parent is
-     * made after all, with no refusal and nothing told to staff, and is then billed apart and suspended with its parent
-     * unbilled. Expected: refused while the service has live addons, or the addons follow it.
-     */
-    public function test_rev_kiss_3_a_cycle_change_now_of_the_parent_does_not_leave_its_addon_on_another_date(): void
+    /** A yearly hosting paid 2026-01-01 → 2027-01-01 with a yearly «Extra IPv4» addon paid alike (today 2026-07-02). */
+    private function parentWithAddon(): array
     {
         Carbon::setTestNow('2026-07-02 10:00:00');
         $hosting = Product::factory()->create(['name' => 'Hosting']);
@@ -119,6 +107,7 @@ class RevKissAddonsTest extends TestCase
         $monthlyHosting = $this->plan($hosting, 'month', 12.00);
         $ip = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true]);
         $ipYearly = $this->plan($ip, 'year', 30.00);
+        $ipMonthly = $this->plan($ip, 'month', 3.00);
         $parent = $this->service($hosting, $yearly, '2027-01-01', 120.00);
         $addon = $this->service($ip, $ipYearly, '2027-01-01', 30.00, ['parent_service_id' => $parent->id]);
         foreach ([[$parent, 120.00], [$addon, 30.00]] as [$service, $price]) {
@@ -127,53 +116,151 @@ class RevKissAddonsTest extends TestCase
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
         }
 
-        try {
-            ChangeCycle::apply($parent->fresh(), $monthlyHosting, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
-        } catch (DisplayException) {
-            $this->assertSame('2027-01-01', $addon->fresh()->expires_at->toDateString());
-
-            return; // refused: fine
-        }
-
-        // Its new monthly period, 2 Jul - 2 Aug, is on an invoice due today: the parent's billing day is now the 2nd.
-        $parent->refresh();
-        $period = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $parent->id)->latest('id')->first();
-        $this->assertSame('2026-08-02', $period->period_end->toDateString(), 'precondition: its new period');
-        $this->assertSame($period->period_end->day, $addon->fresh()->expires_at->day,
-            "the parent now renews on day {$period->period_end->day} of the month, its addon still on {$addon->fresh()->expires_at->toDateString()}");
+        return [$parent, $addon, $monthlyHosting, $ipMonthly];
     }
 
     /**
-     * REV-KISS-4 (medium). The same on the addon itself: its cycle changed «now» (ChangeCycle::apply on the addon), its
-     * new period starts today, so it is due on today's day, not its parent's: an addon «from its own date» by another door.
-     * Expected: refused for an addon, or its period ends on its parent's billing day.
+     * REV-KISS-3 (medium). A cycle change «now» of a parent (staff, ChangeCycle::apply NOW) starts its new period today:
+     * the parent is due on a new date and day, its addon kept the old one. Owner 2026-11-08: its live addons follow it to
+     * its new billing day, on the same invoice, each credited and billed as the parent's own change.
+     */
+    public function test_rev_kiss_3_a_cycle_change_now_of_the_parent_does_not_leave_its_addon_on_another_date(): void
+    {
+        [$parent, $addon, $monthlyHosting] = $this->parentWithAddon();
+
+        $invoice = ChangeCycle::apply($parent->fresh(), $monthlyHosting, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        // Its new monthly period, 2 Jul - 2 Aug, is on an invoice due today: the parent's billing day is now the 2nd.
+        $lines = $invoice->items()->orderBy('id')->get();
+        $this->assertSame([$parent->id, $addon->id], $lines->pluck('reference_id')->map(fn ($id) => (int) $id)->all(), 'one invoice, both');
+        $this->assertSame(['2026-07-02', '2026-08-02', '12.00'], [$lines[0]->period_start->toDateString(), $lines[0]->period_end->toDateString(), number_format((float) $lines[0]->price, 2, '.', '')]);
+        // The yearly addon to its parent's new day: 30.00 × 31 / 365, as «Add addon» prorates it.
+        $this->assertSame(['2026-07-02', '2026-08-02', '2.55'], [$lines[1]->period_start->toDateString(), $lines[1]->period_end->toDateString(), number_format((float) $lines[1]->price, 2, '.', '')]);
+        // The unused days of both: 120.00 × 183 / 365 + 30.00 × 183 / 365.
+        $this->assertSame('75.20', number_format((float) Credit::query()->sole()->amount, 2, '.', ''));
+        $addon->refresh();
+        $this->assertSame([2, '2026-07-02'], [(int) $addon->billing_day, $addon->expires_at->toDateString()], 'on its parent\'s new day, its old period ended today');
+        $this->assertSame('2026-07-02', InvoiceItem::query()->where('reference_id', $addon->id)->whereDate('period_start', '2026-01-01')->sole()->period_end->toDateString());
+        $this->assertSame((int) $parent->fresh()->billing_day, (int) $addon->billing_day);
+    }
+
+    /** Paid (here by the credit), both renew to the same date, and their next renewal is one invoice again. */
+    public function test_rev_kiss_3_paid_the_parent_and_its_addon_share_the_new_date(): void
+    {
+        config(['settings.credits_auto_use' => true]);
+        [$parent, $addon, $monthlyHosting] = $this->parentWithAddon();
+
+        $invoice = ChangeCycle::apply($parent->fresh(), $monthlyHosting, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame('2026-08-02', $parent->fresh()->expires_at->toDateString());
+        $this->assertSame('2026-08-02', $addon->fresh()->expires_at->toDateString(), 'its parent\'s date');
+        $this->assertSame(2, (int) $addon->fresh()->billing_day, 'its payment keeps its parent\'s day');
+    }
+
+    /** One addon that could not be changed itself (a payment on its open invoice) refuses all of it, nothing moved. */
+    public function test_rev_kiss_3_an_addon_that_cannot_follow_refuses_the_whole_change(): void
+    {
+        [$parent, $addon, $monthlyHosting] = $this->parentWithAddon();
+        $open = Invoice::factory()->create(['client_id' => $addon->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $this->line($open, $addon, 5.00, '2026-06-01', '2026-07-01');
+
+        try {
+            ChangeCycle::apply($parent->fresh(), $monthlyHosting, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+            $this->fail('refused');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString("Addon #{$addon->id} follows this service", $e->getMessage());
+        }
+        $this->assertSame('2027-01-01', $parent->fresh()->expires_at->toDateString());
+        $this->assertSame('2027-01-01', $addon->fresh()->expires_at->toDateString());
+        $this->assertSame(0, Credit::query()->count());
+    }
+
+    /** A free addon has no money to move: only its date follows its parent's new period. */
+    public function test_rev_kiss_3_a_free_addon_only_moves_its_date(): void
+    {
+        [$parent, $addon, $monthlyHosting] = $this->parentWithAddon();
+        $free = Plan::factory()->create(['priceable_id' => $addon->product_id, 'priceable_type' => Product::class, 'name' => 'Free', 'type' => 'free',
+            'billing_unit' => null, 'billing_period' => null]);
+        Price::factory()->create(['plan_id' => $free->id, 'price' => 0, 'setup_fee' => 0, 'currency_code' => 'USD']);
+        DB::table('services')->where('id', $addon->id)->update(['plan_id' => $free->id, 'price' => 0]);
+        DB::table('invoice_items')->where('reference_id', $addon->id)->delete();
+
+        $invoice = ChangeCycle::apply($parent->fresh(), $monthlyHosting, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $this->assertSame([$parent->id], $invoice->items()->pluck('reference_id')->map(fn ($id) => (int) $id)->all(), 'nothing billed for it');
+        $this->assertSame(['2026-08-02', 2], [$addon->fresh()->expires_at->toDateString(), (int) $addon->fresh()->billing_day]);
+    }
+
+    /**
+     * REV-KISS-4 (medium). The same on the addon itself: its cycle changed «now» (ChangeCycle::apply on the addon). Owner
+     * 2026-11-08: not refused; its new period ends on its parent's billing day (AddAddon::alignedEnd), pro rata.
      */
     public function test_rev_kiss_4_a_cycle_change_now_of_an_addon_keeps_it_on_its_parents_date(): void
     {
-        Carbon::setTestNow('2026-07-02 10:00:00');
+        [$parent, $addon, , $ipMonthly] = $this->parentWithAddon();
+
+        $invoice = ChangeCycle::apply($addon->fresh(), $ipMonthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $period = $invoice->items()->sole();
+        $this->assertSame(AddAddon::alignedEnd($parent->fresh(), $ipMonthly, Carbon::today())?->toDateString(), $period->period_end->toDateString());
+        // 2 Jul - 1 Aug of a 1 Jul - 1 Aug month: 3.00 × 30 / 31.
+        $this->assertSame(['2026-07-02', '2026-08-01', '2.90'], [$period->period_start->toDateString(), $period->period_end->toDateString(), number_format((float) $period->price, 2, '.', '')]);
+        $this->assertSame('15.04', number_format((float) Credit::query()->sole()->amount, 2, '.', ''), '30.00 × 183 / 365');
+        $this->assertSame(1, (int) $addon->fresh()->billing_day, 'its parent\'s day, not today\'s');
+        $this->assertSame('2027-01-01', $parent->fresh()->expires_at->toDateString(), 'the parent is not touched');
+    }
+
+    /** Paid, the addon's next renewal is on its parent's day too (its payment keeps its billing day). */
+    public function test_rev_kiss_4_paid_the_addon_renews_on_its_parents_day(): void
+    {
+        config(['settings.credits_auto_use' => true]);
+        [$parent, $addon, , $ipMonthly] = $this->parentWithAddon();
+
+        ChangeCycle::apply($addon->fresh(), $ipMonthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $addon->refresh();
+        $this->assertSame(['2026-08-01', 1], [$addon->expires_at->toDateString(), (int) $addon->billing_day]);
+        $this->assertSame('2026-09-01', $addon->periodEnd(Carbon::parse('2026-08-01'))?->toDateString());
+    }
+
+    /** An addon of a parent with no due date ahead cannot end on its day: refused. */
+    public function test_rev_kiss_4_refused_when_its_parent_has_no_due_date_ahead(): void
+    {
+        [$parent, $addon, , $ipMonthly] = $this->parentWithAddon();
+        DB::table('services')->where('id', $parent->id)->update(['expires_at' => '2026-07-01']);
+
+        $this->assertSame(__('services.addons.add.no_due_date'), ChangeCycle::refusal($addon->fresh(), $ipMonthly, ChangeCycle::NOW));
+    }
+
+    /**
+     * Unsuspend (owner 2026-11-08). Staff unsuspend a parent past Suspend Days: its addon, suspended with it, stays
+     * suspended «Overdue on Payment» only with an open invoice of its own; its period on its parent's invoice, or none
+     * billed, comes back with its parent.
+     */
+    public function test_unsuspend_brings_back_an_addon_with_no_open_invoice_of_its_own(): void
+    {
+        Carbon::setTestNow('2026-12-20 09:00:00');
         $hosting = Product::factory()->create(['name' => 'Hosting']);
-        $yearly = $this->plan($hosting, 'year', 120.00);
+        $monthly = $this->plan($hosting, 'month', 10.00);
         $ip = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true]);
-        $ipYearly = $this->plan($ip, 'year', 30.00);
         $ipMonthly = $this->plan($ip, 'month', 3.00);
-        $parent = $this->service($hosting, $yearly, '2027-01-01', 120.00);
-        $addon = $this->service($ip, $ipYearly, '2027-01-01', 30.00, ['parent_service_id' => $parent->id]);
-        $invoice = Invoice::factory()->create(['client_id' => $addon->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
-        $this->line($invoice, $addon, 30.00, '2026-01-01', '2027-01-01');
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $suspended = ['status' => Service::STATUS_SUSPENDED];
+        $parent = $this->service($hosting, $monthly, '2026-12-01', 10.00, $suspended + ['suspend_reason' => 'Overdue on Payment']);
+        $shared = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);
+        $none = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);
+        $own = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);
+        $renewal = Invoice::factory()->create(['client_id' => $parent->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $this->line($renewal, $parent, 10.00, '2026-12-01', '2027-01-01');
+        $this->line($renewal, $shared, 3.00, '2026-12-01', '2027-01-01');
+        $apart = Invoice::factory()->create(['client_id' => $parent->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $this->line($apart, $own, 3.00, '2026-12-01', '2027-01-01');
 
-        try {
-            ChangeCycle::apply($addon->fresh(), $ipMonthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
-        } catch (DisplayException $e) {
-            $this->assertSame(__('An addon shares its service\'s due date: change it from the next renewal.'), $e->getMessage());
-            $this->assertSame('2027-01-01', $addon->fresh()->expires_at->toDateString());
+        $parent->fresh()->update(['status' => Service::STATUS_ACTIVE]);
 
-            return; // refused for an addon: fine
-        }
-
-        $period = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $addon->id)->latest('id')->first();
-        $this->assertSame(AddAddon::alignedEnd($parent->fresh(), $ipMonthly, Carbon::today())?->toDateString(), $period->period_end->toDateString(),
-            'the addon\'s new period runs from today to the 2nd, not to its parent\'s billing day (the 1st)');
+        $this->assertSame(Service::STATUS_ACTIVE, $shared->fresh()->status, 'its period is on its parent\'s invoice: back with it');
+        $this->assertSame(Service::STATUS_ACTIVE, $none->fresh()->status, 'nothing billed while suspended with it: back with it');
+        $this->assertSame([Service::STATUS_SUSPENDED, 'Overdue on Payment'], [$own->fresh()->status, $own->fresh()->suspend_reason], 'an open invoice of its own');
     }
 
     /**
