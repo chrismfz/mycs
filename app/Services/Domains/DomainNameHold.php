@@ -146,10 +146,10 @@ final class DomainNameHold
             ->whereIn('status', [DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::STATUS_OK])->exists();
     }
 
-    /** A register or transfer at its registrar with no confirmed outcome: it may be under way there. */
+    /** A register, transfer, renew or restore at its registrar with no confirmed outcome: it may be under way there. */
     private static function unconfirmedCharge(Domain $domain): bool
     {
-        return $domain->registrarLogs()->whereIn('action', ['register', 'transfer'])
+        return $domain->registrarLogs()->whereIn('action', ['register', 'transfer', 'renew', 'restore'])
             ->where('status', DomainRegistrarLog::STATUS_PENDING)->exists();
     }
 
@@ -254,8 +254,9 @@ final class DomainNameHold
                 // A pending order sent to its registrar may be done there: staff's. Only a pending one (R-DOMAINS-OTHER-FIXES-1
                 // of sweep 4): sent_at and the registration's log stay on a row for good once it is active, so an expired
                 // row past its window, once ordered here, is closed as an imported one is (D-25). A charge at a registrar
-                // not confirmed (a PENDING register/transfer log, e.g. RenewAsTransfer's on an expired row) is no leftover:
-                // it may be completing there, so it stays staff's on any row (REV4-RDOF-1).
+                // not confirmed (a PENDING register/transfer/renew/restore log, e.g. RenewAsTransfer's or a late renewal's
+                // on an expired row) is no leftover: it may be completing there, so it stays staff's on any row
+                // (REV4-RDOF-1, G-DOMAINS-2 of sweep 5).
                 if (($fresh->status->isPending() && self::sent($fresh)) || self::unconfirmedCharge($fresh)) {
                     $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: sent to its registrar, not closed; its name is held by #{$holder->id}. Decide by hand.");
 
@@ -299,7 +300,11 @@ final class DomainNameHold
                     // a payment committed before CancelOpenInvoices took the invoice's lock makes it return «nothing to
                     // give up on». Read again under that lock (held to our commit; a locking read sees the latest): its
                     // money is staff's, from the Pending Module Action its payment opens (refuse()), never closed here.
-                    if ($open->isNotEmpty() && Invoice::query()->whereKey($open->modelKeys())->where('status', Invoice::STATUS_PAID)->lockForUpdate()->exists()) {
+                    // Only a paid invoice that still bills this domain (G-DOMAINS-1 of sweep 5): one whose domain line was
+                    // removed above and the rest then paid by its credit paid nothing for the domain, which is closed.
+                    if ($open->isNotEmpty() && Invoice::query()->whereKey($open->modelKeys())->where('status', Invoice::STATUS_PAID)
+                        ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $fresh->id))
+                        ->lockForUpdate()->exists()) {
                         $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: paid while it was being closed, but its name is held by #{$holder->id}: refund or credit its order (Cancel Order).");
 
                         return false;
