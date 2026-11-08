@@ -62,9 +62,10 @@ enum DomainStatus: string implements HasColor, HasLabel
 
     /**
      * It holds its name (owner 2026-11-08, docs/domains.md D-25): active, in grace or in redemption; a pending order only
-     * once $paid (its order paid, free as ordered, or sent to its registrar: Domain::holdsName). Expired does not, unless
-     * $paid (a renewal of it paid and waiting for its registrar, ADV-DNH-1): as in WHMCS, another customer may order the
-     * name, and whoever pays first holds it. The database's `live_fqdn` says the same.
+     * once $paid (its order paid, free as ordered, or sent to its registrar: Domain::holdsName). Expired only while $paid
+     * too: until the end of its registry's recovery window (owner 2026-11-08) or while a renewal of it is paid and waiting
+     * for its registrar (ADV-DNH-1). After that, as in WHMCS, another customer may order the name, and whoever pays first
+     * holds it. The database's `live_fqdn` says the same.
      */
     public function holdsName(bool $paid = false): bool
     {

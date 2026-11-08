@@ -42,8 +42,10 @@ use Tests\TestCase;
 
 /**
  * Who holds a domain name (owner 2026-11-08, docs/domains.md D-25): an active, grace or redemption row, or a pending
- * order once paid (or free, or sent). An expired row or an unpaid order does not: another customer may order the name,
- * whoever pays first holds it, a later payment is refused as a registrar's refusal, and the rows left behind are closed.
+ * order once paid (or free, or sent), an expired row until its registry's recovery window ends (expiry + grace +
+ * redemption) or while its renewal is paid. An expired row past its window or an unpaid order does not: another
+ * customer may order the name, whoever pays first holds it, a later payment is refused as a registrar's refusal, and the
+ * rows left behind are closed.
  */
 class DomainNameHoldTest extends TestCase
 {
@@ -177,10 +179,35 @@ class DomainNameHoldTest extends TestCase
         }
     }
 
+    /**
+     * $client's expired row of $fqdn, past its registry's recovery window (expired 2026-09-20; .com's days not known here:
+     * 30 days, till 2026-10-20), so it holds nothing (D-25). One still inside its window: recoverable().
+     */
     private function expired(Client $client, string $fqdn): Domain
     {
         return Domain::factory()->create(['client_id' => $client->id, 'sld' => explode('.', $fqdn)[0], 'tld' => 'com', 'fqdn' => $fqdn,
-            'status' => DomainStatus::Expired, 'expires_at' => '2026-10-20']);
+            'status' => DomainStatus::Expired, 'expires_at' => '2026-09-20']);
+    }
+
+    /** $client's active row of $fqdn that expired on $expires (inside its recovery window today): the cron moving it on. */
+    private function recoverable(Client $client, string $fqdn, string $expires = '2026-11-01', array $set = []): Domain
+    {
+        $domain = Domain::factory()->create(['client_id' => $client->id, 'sld' => explode('.', $fqdn)[0], 'tld' => 'com', 'fqdn' => $fqdn,
+            'domain_tld_id' => DomainTld::query()->where('tld', 'com')->value('id'), 'status' => DomainStatus::Active, 'expires_at' => $expires] + $set);
+        $domain->forceFill(['status' => DomainStatus::Expired])->save();
+
+        return $domain;
+    }
+
+    private function refusedToOrder(string $fqdn, User $user): bool
+    {
+        try {
+            app(DomainOffer::class)->check($fqdn, 'register', 1, 'EUR', availability: false, clientId: $user->client()->id);
+
+            return false;
+        } catch (DisplayException) {
+            return true;
+        }
     }
 
     /** @return list<string> the subjects of the mails to staff */
@@ -198,6 +225,94 @@ class DomainNameHoldTest extends TestCase
             ['active', true, true], ['pending_register', false, true], ['pending_transfer', false, true], ['expired', false, true],
             ['grace', true, true], ['redemption', true, true], ['transferred_away', false, false], ['cancelled', false, false], ['deleted', false, false],
         ], $holds);
+    }
+
+    /**
+     * Owner 2026-11-08: an expired row holds its name until the end of its registry's recovery window (expiry + grace +
+     * redemption; 30 days when its TLD's are not known), then the daily domains_superseded step releases it.
+     */
+    public function test_an_expired_row_holds_its_name_until_its_recovery_window_ends(): void
+    {
+        $alices = $this->recoverable($this->alice->client(), 'mybusiness.com');
+
+        $this->assertNotNull($alices->fresh()->name_held_at, 'expired inside its window: it keeps the name');
+        $this->assertSame('mybusiness.com', $alices->fresh()->live_fqdn);
+        $this->assertSame('2026-12-01', $alices->fresh()->recoveryEndsOn()?->toDateString(), '.com\'s days not known: 30 days');
+        $this->assertTrue($this->refusedToOrder('mybusiness.com', $this->bob), 'not ordered by another customer');
+        $bobs = $this->recoverable($this->bob->client(), 'other.com', '2026-09-01');
+        $this->assertNull($bobs->fresh()->name_held_at, 'expired past its window: it does not');
+
+        Carbon::setTestNow('2026-12-01 10:00:00'); // its last recoverable day
+        $this->assertSame([], DomainNameHold::staleHolds());
+        $this->assertFalse(DomainNameHold::release($alices->id));
+        $this->assertTrue($this->refusedToOrder('mybusiness.com', $this->bob));
+
+        Carbon::setTestNow('2026-12-02 10:00:00');
+        $this->assertSame([$alices->id], DomainNameHold::staleHolds());
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame([DomainStatus::Expired, null, null], [$alices->fresh()->status, $alices->fresh()->name_held_at, $alices->fresh()->live_fqdn]);
+        $this->assertFalse($this->refusedToOrder('mybusiness.com', $this->bob), 'past its window: free to order');
+    }
+
+    /** The window by the same dates and days as its life (DomainLifecycle, D5a): its own or its TLD's, its registrar's dates. */
+    public function test_the_recovery_window_follows_its_grace_and_redemption(): void
+    {
+        DomainTld::query()->where('tld', 'com')->update(['grace_days' => 5, 'redemption_days' => 10]);
+        $alices = $this->recoverable($this->alice->client(), 'mybusiness.com');
+        $this->assertSame('2026-11-16', $alices->fresh()->recoveryEndsOn()?->toDateString(), 'expiry + 5 + 10');
+        $own = $this->recoverable($this->bob->client(), 'own.com', set: ['grace_days_override' => 0, 'redemption_days_override' => 40]);
+        $this->assertSame('2026-12-11', $own->fresh()->recoveryEndsOn()?->toDateString(), 'its own days');
+        $dated = $this->recoverable($this->bob->client(), 'dated.com', set: ['grace_ends_on' => '2026-11-20', 'redemption_ends_on' => '2026-12-20']);
+        $this->assertSame('2026-12-20', $dated->fresh()->recoveryEndsOn()?->toDateString(), 'its registrar\'s dates');
+        $none = $this->recoverable($this->bob->client(), 'none.com', set: ['grace_days_override' => 0, 'redemption_days_override' => 0]);
+        $this->assertSame('2026-11-01', $none->fresh()->recoveryEndsOn()?->toDateString(), 'known: none, nothing to recover');
+        $this->assertNull($none->fresh()->name_held_at, 'so it holds nothing');
+
+        Carbon::setTestNow('2026-11-16 23:00:00');
+        $this->assertSame([], DomainNameHold::staleHolds(), 'its last day, to its end');
+        Carbon::setTestNow('2026-11-17 10:00:00');
+        $this->assertSame([$alices->id], DomainNameHold::staleHolds());
+        $this->assertTrue(DomainNameHold::release($alices->id));
+        $this->assertNull($alices->fresh()->live_fqdn);
+    }
+
+    /**
+     * An expired row inside its window whose hold was dropped past the model (staff set it back from cancelled): another
+     * customer's paid order never closes it (left to staff, told); claimed, it holds its name again.
+     */
+    public function test_another_customers_order_never_closes_an_expired_row_inside_its_window(): void
+    {
+        $alices = $this->recoverable($this->alice->client(), 'mybusiness.com');
+        DB::table('domains')->where('id', $alices->id)->update(['name_held_at' => null]);
+        $this->assertTrue(DomainNameHold::claim($alices->fresh()), 'inside its window: it may hold its name');
+        DB::table('domains')->where('id', $alices->id)->update(['name_held_at' => null]);
+        $bobs = $this->order($this->bob, 'mybusiness.com');
+
+        $this->pay($bobs);
+
+        $this->assertSame('mybusiness.com', $bobs->fresh()->live_fqdn);
+        $this->assertSame(DomainStatus::Expired, $alices->fresh()->status, 'never closed while recoverable');
+        $this->assertContains('Domain name now held: mybusiness.com', $this->staffMails());
+        $this->assertFalse(DomainNameHold::claim($alices->fresh()), 'Bob holds it now');
+        $this->assertFalse(DomainNameHold::claim($this->expired($this->bob->client(), 'past.com')), 'past its window, no renewal: no claim');
+    }
+
+    /** The migration's backfill: an expired row still recoverable holds, one past its window or of a name held does not. */
+    public function test_the_migration_backfills_expired_rows_inside_their_window(): void
+    {
+        $alices = $this->recoverable($this->alice->client(), 'mybusiness.com');
+        $past = $this->expired($this->bob->client(), 'past.com');
+        $active = Domain::factory()->create(['client_id' => $this->bob->client()->id, 'sld' => 'held', 'tld' => 'com', 'fqdn' => 'held.com']);
+        $shadow = $this->expired($this->alice->client(), 'held.com');
+        DB::table('domains')->whereIn('id', [$alices->id, $past->id, $shadow->id])->update(['name_held_at' => null]);
+        DB::table('domains')->where('id', $shadow->id)->update(['expires_at' => '2026-11-01']);
+
+        $migration = require database_path('migrations/2027_02_16_000000_hold_domain_names_by_paid_rows.php');
+        (fn () => $this->backfill())->call($migration);
+
+        $this->assertSame(['mybusiness.com', null, 'held.com', null], [$alices->fresh()->live_fqdn, $past->fresh()->live_fqdn,
+            $active->fresh()->live_fqdn, $shadow->fresh()->live_fqdn]);
     }
 
     public function test_an_expired_row_or_an_unpaid_order_leaves_the_name_free_to_order(): void

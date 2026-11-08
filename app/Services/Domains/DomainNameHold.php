@@ -22,16 +22,18 @@ use Throwable;
 /**
  * Who holds a domain name (owner 2026-11-08, docs/domains.md D-25). A row active, in grace or in redemption holds it; a
  * pending order once it is paid (its line on a paid invoice, free as ordered, or sent to its registrar), and an expired
- * row while a renewal of it is paid and waiting for its registrar. Other expired rows and unpaid orders do not: another
- * customer may order the name, as in WHMCS. The database keeps one holder per name (`live_fqdn`, unique), so whoever
+ * row until the end of its registry's recovery window (owner 2026-11-08: expiry + grace + redemption, its TLD's or its
+ * own days, Domain::recoveryEndsOn; 30 days when not known) or while a renewal of it is paid and waiting for its
+ * registrar. An expired row past its window and unpaid orders do not: another customer may order the name, as in WHMCS. The database keeps one holder per name (`live_fqdn`, unique), so whoever
  * pays first holds it:
  *
  * - claim(): a pending order paid (or about to be sent), or an expired row's renewal paid, takes the name, or is refused
  *   because another row holds it. A refused order goes the way a registrar's refusal does (refuse(): staff's Pending
  *   Module Action, and they refund or credit its money); never sent. A refused renewal goes to staff before its charge.
- * - release(): its payment refunded or set back to unpaid, a row not sent holds the name no more.
- * - closeOthers(): once a row holds the name, the rows of it that no longer do (an expired one, an unpaid order of
- *   anyone) are closed as cancelled with a note for staff; an unpaid order's open invoice line is cancelled as staff's
+ * - release(): its payment refunded or set back to unpaid, a row not sent holds the name no more; nor an expired row
+ *   past its recovery window (the cron's domains_superseded step, daily: `live_fqdn` cannot read the date).
+ * - closeOthers(): once a row holds the name, the rows of it that no longer do (an expired one past its window, an
+ *   unpaid order of anyone) are closed as cancelled with a note for staff; an unpaid order's open invoice line is cancelled as staff's
  *   «Cancel Order» does. A row sent to its registrar, busy, or with money on its invoice is left to staff, told.
  */
 final class DomainNameHold
@@ -41,8 +43,9 @@ final class DomainNameHold
 
     /**
      * The pending order $domain, paid or about to be sent, holds its name from now on: true, or false when another row
-     * holds the name already (whoever paid first). So does an expired row whose renewal is paid and waiting for its
-     * registrar (ADV-DNH-1: its customer paid first; the registry still has it as theirs). Inside a caller's transaction,
+     * holds the name already (whoever paid first). So does an expired row inside its recovery window (D-25) or whose
+     * renewal is paid and waiting for its registrar (ADV-DNH-1: its customer paid first; the registry still has it as
+     * theirs). Inside a caller's transaction,
      * a savepoint: a refusal undoes nothing of the caller's.
      */
     public static function claim(Domain $domain): bool
@@ -57,7 +60,7 @@ final class DomainNameHold
             $held = DB::transaction(function () use ($domain) {
                 $fresh = Domain::query()->lockForUpdate()->find($domain->id);
                 if ($fresh === null || !self::mayHold($fresh->status)
-                    || ($fresh->status === DomainStatus::Expired && !self::renewalWaiting($fresh))) {
+                    || ($fresh->status === DomainStatus::Expired && !$fresh->inRecoveryWindow() && !self::renewalWaiting($fresh))) {
                     return false;
                 }
                 if ($fresh->name_held_at === null) {
@@ -77,7 +80,7 @@ final class DomainNameHold
         return true;
     }
 
-    /** A status whose row holds its name only by a payment (name_held_at): a pending order, an expired row renewed. */
+    /** A status whose row holds its name only by name_held_at: a pending order paid, an expired row recoverable or renewed. */
     private static function mayHold(DomainStatus $status): bool
     {
         return $status->isPending() || $status === DomainStatus::Expired;
@@ -119,11 +122,14 @@ final class DomainNameHold
         }
     }
 
-    /** It still has what gave it its hold: paid (or free), sent, a renewal's transfer; an expired row's renewal paid. */
+    /**
+     * It still has what gave it its hold: paid (or free), sent, a renewal's transfer; an expired row inside its recovery
+     * window (D-25, owner 2026-11-08) or with its renewal paid.
+     */
     private static function entitled(Domain $domain): bool
     {
         if ($domain->status === DomainStatus::Expired) {
-            return self::renewalWaiting($domain);
+            return $domain->inRecoveryWindow() || self::renewalWaiting($domain);
         }
         if (!$domain->status->isPending()) {
             return true; // holds by its status, or not at all: nothing to release
@@ -141,8 +147,9 @@ final class DomainNameHold
     }
 
     /**
-     * The rows holding their name by a payment that no longer stands (ADV-DNH-4): what release() would free, for the
-     * cron (a refund written past the model, a release that found its row busy).
+     * The rows holding their name by a payment that no longer stands (ADV-DNH-4), or expired past their recovery window
+     * (D-25): what release() would free, for the cron (daily; a refund written past the model, a release that found its
+     * row busy).
      *
      * @return list<int>
      */
@@ -239,6 +246,14 @@ final class DomainNameHold
                 }
                 // An expired row whose renewal was paid (ADV-DNH-1; it holds by then, unless written past the model or
                 // paid after the holder): that money is staff's to apply or refund, never closed under them.
+                // An expired row inside its recovery window (D-25, owner 2026-11-08) is its customer's still: it holds by
+                // then, unless written past the model (staff set it back from cancelled): never closed by another's order.
+                if ($fresh->status === DomainStatus::Expired && $fresh->inRecoveryWindow()) {
+                    $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: expired and still recoverable at its registry (until "
+                        . $fresh->recoveryEndsOn()?->toDateString() . "), but its name is held by #{$holder->id}: decide by hand.");
+
+                    return false;
+                }
                 if ($fresh->status === DomainStatus::Expired && self::renewalWaiting($fresh)) {
                     $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: expired with a renewal paid, but its name is held by #{$holder->id}: renew it or refund the renewal.");
 

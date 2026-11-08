@@ -653,13 +653,15 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
-            // A name held by one row (D-25: active, grace, redemption, or an order paid) while others of it that no longer
-            // hold it are still open (an expired row, an unpaid order): closed, as when the holder took the name
+            // A name held by one row (D-25: active, grace, redemption, an order paid, an expired row still recoverable)
+            // while others of it that no longer hold it are still open (an expired row past its window, an unpaid order): closed, as when the holder took the name
             // (DomainNameHold::closeOthers, after its commit). This catches what that left (busy, a write that bypassed
             // the model). One sent to its registrar, busy, or with money on its invoice is staff's: told once a month.
             $this->runCronJob('domains_superseded', function ($number = 0) {
-                // A hold whose payment no longer stands (ADV-DNH-4: refunded past the model, or found busy): released
-                // first, so the name is free again and its rows are read as they are.
+                // A hold whose payment no longer stands (ADV-DNH-4: refunded past the model, or found busy), or an expired
+                // row's past the end of its registry's recovery window (D-25, owner 2026-11-08: live_fqdn cannot read the
+                // date, so this step ends it, daily): released first, so the name is free again and its rows are read as
+                // they are.
                 foreach (DomainNameHold::staleHolds() as $id) {
                     try {
                         $number += DomainNameHold::release($id) ? 1 : 0;
@@ -1412,7 +1414,7 @@ class CronJob extends Command
         }
         $last = $domain->redemptionEndsOn() ?? $domain->graceEndsOn()
             ?? $domain->expires_at->copy()->addDays((int) $domain->graceDays() + (int) $domain->redemptionDays());
-        $floor = $domain->expires_at->copy()->addDays(30);
+        $floor = $domain->expires_at->copy()->addDays(Domain::RECOVERY_DEFAULT_DAYS);
 
         return ($last->greaterThan($floor) ? $last : $floor)->copy()->startOfDay()->lessThan(today());
     }

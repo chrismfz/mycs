@@ -37,7 +37,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $live_fqdn = fqdn while it holds its name (holdsName, D-25), computed by the database: unique
  * @property DomainStatus $status
  * @property Carbon|null $name_held_at a pending order's hold of its name: paid, free as ordered, or sent (D-25); an expired row's
- *                                     while a renewal of it is paid and waiting (ADV-DNH-1); null otherwise
+ *                                     until its recovery window ends (recoveryEndsOn) or while a renewal of it is paid and
+ *                                     waiting (ADV-DNH-1); null otherwise
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
  * @property Carbon|null $expires_at
@@ -94,6 +95,12 @@ class Domain extends Model implements Auditable
     /** Bookkeeping of the sync, not a change of the domain (docs/domains.md D-9). */
     protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code']; // a transfer's code: never in an audit (D8b)
 
+    /**
+     * Days after its expiry its registry may still give an expired domain back when its grace and redemption are not
+     * known (D-25 and a deleted domain's recovery: myip's hook, 30 days).
+     */
+    public const RECOVERY_DEFAULT_DAYS = 30;
+
     public const TEMPLATE_HIDDEN = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
     protected static function booted(): void
@@ -143,14 +150,15 @@ class Domain extends Model implements Auditable
                     $domain->{"{$role}_handle"} = null;
                 }
             }
-            // A pending order's hold of its name (D-25): only a pending row has one, or an expired row while a renewal
-            // of it is paid and waiting (ADV-DNH-1: becoming expired, it keeps the name it held). Sent to its registrar,
-            // it holds (it was claimed before it was sent); one of ours that becomes pending again (a renewal as a
-            // transfer) keeps it.
+            // A pending order's hold of its name (D-25): only a pending row has one, or an expired row until the end of
+            // its registry's recovery window (owner 2026-11-08: expiry + grace + redemption, recoveryEndsOn) or while a
+            // renewal of it is paid and waiting (ADV-DNH-1): becoming expired, it keeps the name it held; the cron's
+            // domains_superseded step releases it once neither stands. Sent to its registrar, it holds (it was claimed
+            // before it was sent); one of ours that becomes pending again (a renewal as a transfer) keeps it.
             if ($domain->status === DomainStatus::Expired) {
                 if ($domain->isDirty('status')) {
                     $domain->name_held_at = $domain->exists && self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)
-                        && DomainNameHold::renewalWaiting($domain) ? ($domain->name_held_at ?? now()) : null;
+                        && ($domain->inRecoveryWindow() || DomainNameHold::renewalWaiting($domain)) ? ($domain->name_held_at ?? now()) : null;
                 }
             } elseif (!$domain->status->isPending()) {
                 $domain->name_held_at = null;
@@ -455,6 +463,38 @@ class Domain extends Model implements Auditable
         $days = $this->graceDays();
 
         return $this->expires_at !== null && $days !== null && $days > 0 ? $this->expires_at->copy()->addDays($days) : null;
+    }
+
+    /**
+     * The last day its registry may still give it back to its customer (owner 2026-11-08, D-25): the end of its
+     * redemption, else of its grace, else its expiry, by the same dates and days as its life (DomainLifecycle, D5a). When
+     * neither its registrar's dates nor both its days (its own or its TLD's) are known, never sooner than
+     * RECOVERY_DEFAULT_DAYS after its expiry, as a deleted domain's recovery (CronJob::pastRecovery). Null without an expiry.
+     */
+    public function recoveryEndsOn(): ?Carbon
+    {
+        if ($this->expires_at === null) {
+            return null;
+        }
+        $known = $this->hasRegistrarStageDates() || ($this->graceDays() !== null && $this->redemptionDays() !== null);
+
+        return self::recoveryEnd($this->expires_at, $this->redemptionEndsOn() ?? $this->graceEndsOn() ?? $this->expires_at, $known);
+    }
+
+    /** Its last recoverable day from $last (D-25): as it is when $known, else never sooner than the default days. */
+    public static function recoveryEnd(Carbon $expires, Carbon $last, bool $known): Carbon
+    {
+        $floor = $expires->copy()->addDays(self::RECOVERY_DEFAULT_DAYS);
+
+        return ($known || $last->greaterThanOrEqualTo($floor) ? $last : $floor)->copy();
+    }
+
+    /** Today is on or before its last recoverable day (D-25): an expired row holds its name till then. */
+    public function inRecoveryWindow(): bool
+    {
+        $end = $this->recoveryEndsOn();
+
+        return $end !== null && !$end->copy()->startOfDay()->lessThan(today());
     }
 
     /**

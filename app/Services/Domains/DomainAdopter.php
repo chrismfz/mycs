@@ -40,8 +40,8 @@ class DomainAdopter
         if ($tld === '') {
             throw new DisplayException(__('Not a domain name.'));
         }
-        // Held here already (D-25: active, grace, redemption, or an order paid) is not added twice. An expired row or an
-        // unpaid order of it does not hold it: added, it holds the name and those are closed (DomainNameHold::closeOthers).
+        // Held here already (D-25: active, grace, redemption, an order paid, an expired row still recoverable) is not
+        // added twice. An expired row past its window or an unpaid order of it does not hold it: added, it holds the name and those are closed (DomainNameHold::closeOthers).
         if (Domain::query()->where('live_fqdn', $fqdn)->exists()) {
             throw new DisplayException(__(':domain is already here.', ['domain' => $fqdn]));
         }

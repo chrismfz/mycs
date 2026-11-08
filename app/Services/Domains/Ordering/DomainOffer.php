@@ -54,9 +54,11 @@ class DomainOffer
         if (!$tld->registrarCan($operation)) {
             throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)]));
         }
-        // A name held here is not ordered again (D-25, owner 2026-11-08, as WHMCS): active, in grace or redemption, or an
-        // order paid (live_fqdn). An expired row or an unpaid order of it does not hold it: ordered again, whoever pays
-        // first holds it (DomainNameHold), and the other rows are closed.
+        // A name held here is not ordered again (D-25, owner 2026-11-08, as WHMCS): active, in grace or redemption, an
+        // order paid, or expired and still recoverable at its registry (expiry + grace + redemption: name_held_at until
+        // the daily domains_superseded step releases it), all in live_fqdn, the one source. An expired row past its
+        // window or an unpaid order of it does not hold it: ordered again, whoever pays first holds it (DomainNameHold),
+        // and the other rows are closed.
         if (Domain::query()->where('live_fqdn', $fqdn)->exists()) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
         }

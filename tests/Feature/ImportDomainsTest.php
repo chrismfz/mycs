@@ -386,4 +386,26 @@ class ImportDomainsTest extends TestCase
         $this->assertNotNull($domains[27]->name_held_at, 'sent by WHMCS: it holds its name');
         $this->assertSame('sent.com', $domains[27]->live_fqdn);
     }
+
+    /**
+     * D-25 (owner 2026-11-08): an expired row its registry may still give back (expiry + grace + redemption: .com's 30 +
+     * 30 here) holds its name, so an unpaid order of the name comes cancelled; one past its window not.
+     */
+    public function test_an_expired_row_inside_its_recovery_window_holds_its_name(): void
+    {
+        $this->freezeTime();
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(31, 'recent.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(60)->toDateString()]);
+        $this->domain(32, 'recent.com', 'Pending', 'openprovider', $order);
+        $this->domain(33, 'old.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(61)->toDateString()]);
+        $this->domain(34, 'old.com', 'Pending', 'openprovider', $order);
+
+        $this->run_();
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $this->assertSame(['recent.com', null], [$domains[31]->live_fqdn, $domains[32]->live_fqdn]);
+        $this->assertSame([DomainStatus::Expired, DomainStatus::Cancelled], [$domains[31]->status, $domains[32]->status], 'the unpaid order cancelled');
+        $this->assertSame([null, null], [$domains[33]->live_fqdn, $domains[34]->live_fqdn], 'past its window: neither holds');
+        $this->assertSame([DomainStatus::Expired, DomainStatus::PendingRegister], [$domains[33]->status, $domains[34]->status]);
+    }
 }

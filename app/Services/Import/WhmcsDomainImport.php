@@ -314,6 +314,7 @@ final class WhmcsDomainImport
         $clients = DB::table('clients')->pluck('id')->flip()->all();
         $orders = DB::table('orders')->pluck('id')->flip()->all();
         $tlds = DomainTld::query()->pluck('id', 'tld')->all();
+        $stageDays = DomainTld::query()->get(['id', 'grace_days', 'redemption_days'])->keyBy('id');
         $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'email'])->keyBy('primary_of_client_id');
         $currencies = $this->pairs('SELECT c.id, cur.code FROM tblclients c JOIN tblcurrencies cur ON cur.id = c.currency');
         $default = (string) config('settings.default_currency', 'USD');
@@ -412,8 +413,10 @@ final class WhmcsDomainImport
                 'tld' => $tld,
                 'fqdn' => $fqdn,
                 'status' => $status->value,
-                // A pending order holds its name once paid or sent (D-25): WHMCS sent it, or its order line is paid.
-                'name_held_at' => $status->isPending() && (!empty($meta['sent_at']) || isset($paidOrders[$id])) ? now()->toDateTimeString() : null,
+                // A pending order holds its name once paid or sent (D-25): WHMCS sent it, or its order line is paid. An
+                // expired one until its registry's recovery window ends (owner 2026-11-08, Domain::recoveryEnd).
+                'name_held_at' => ($status->isPending() && (!empty($meta['sent_at']) || isset($paidOrders[$id])))
+                    || ($status === DomainStatus::Expired && self::recoverable($expires, $stageDays[$tlds[$tld] ?? 0] ?? null)) ? now()->toDateTimeString() : null,
                 'registered_at' => $this->date($row['registrationdate'] ?? null, dateOnly: true),
                 'expires_at' => $this->date($row['expirydate'] ?? null, dateOnly: true),
                 'years' => $years,
@@ -438,11 +441,11 @@ final class WhmcsDomainImport
             $this->counts['handles'] += count($roleHandles);
             $this->counts['handles_kept'] += count($kept);
         }
-        // One row holds a name here (live_fqdn, D-25: active, grace, redemption, or a pending order paid or sent). Of
-        // WHMCS's rows of a name not ended, where one of them holds it: the current holder stays (active before pending,
-        // grace, redemption; then the later expiry, then the newer row) and the others come cancelled, listed, as the app
-        // closes them once a row holds the name (DomainNameHold::closeOthers). Rows none of which holds it (expired, unpaid
-        // orders) all stay: whoever pays first takes the name.
+        // One row holds a name here (live_fqdn, D-25: active, grace, redemption, a pending order paid or sent, an expired
+        // one still recoverable). Of WHMCS's rows of a name not ended, where one of them holds it: the current holder stays
+        // (active before pending, grace, redemption, expired; then the later expiry, then the newer row) and the others
+        // come cancelled, listed, as the app closes them once a row holds the name (DomainNameHold::closeOthers). Rows
+        // none of which holds it (expired past their window, unpaid orders) all stay: whoever pays first takes the name.
         $rank = [DomainStatus::Active->value => 0, DomainStatus::PendingTransfer->value => 1, DomainStatus::PendingRegister->value => 1,
             DomainStatus::Grace->value => 2, DomainStatus::Redemption->value => 3, DomainStatus::Expired->value => 4];
         $holds = fn (int $index) => DomainStatus::from($rows[$index]['status'])->holdsName($rows[$index]['name_held_at'] !== null);
@@ -462,6 +465,24 @@ final class WhmcsDomainImport
             DB::table('domains')->insert($chunk);
         }
         $this->imported = null;
+    }
+
+    /**
+     * An expired domain still recoverable at its registry today (D-25, owner 2026-11-08): its expiry plus its TLD's grace
+     * and redemption days, as Domain::recoveryEndsOn reads them (no registrar's stage dates yet at import), or the default
+     * days when they are not both known.
+     */
+    private static function recoverable(?string $expires, ?DomainTld $tld): bool
+    {
+        if ($expires === null) {
+            return false;
+        }
+        $expiry = Carbon::parse($expires)->startOfDay();
+        $grace = $tld?->grace_days;
+        $redemption = $tld?->redemption_days;
+        $last = $expiry->copy()->addDays(max(0, (int) $grace) + ($grace !== null ? max(0, (int) $redemption) : 0));
+
+        return !Domain::recoveryEnd($expiry, $last, $grace !== null && $redemption !== null)->startOfDay()->lessThan(today());
     }
 
     /**
