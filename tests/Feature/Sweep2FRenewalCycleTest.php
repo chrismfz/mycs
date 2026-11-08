@@ -70,72 +70,64 @@ class Sweep2FRenewalCycleTest extends TestCase
     }
 
     /**
-     * F-RENEWAL-CYCLE-1. Parent due Jan 1, unpaid; its addon has its own date, Jan 20 (as WHMCS imports one). The parent is
-     * suspended Jan 10 and the addon with it (reason «parent», no dunning date). The addon's renewal falls due while it is
-     * suspended with its parent: not billed (suspended, never paid since a dunning suspension). The customer pays the
-     * parent Feb 5: the parent comes back, the addon is past its own Suspend Days, so it stays suspended «Overdue on
-     * Payment», with no invoice ever made for it. Then nothing bills it, and Termination Days on it is terminated.
-     *
-     * Expected: the addon is billed for its period at some point (something to pay before it is suspended/terminated
-     * for non-payment). Actual: never billed, and terminated.
+     * F-RENEWAL-CYCLE-1, under the rule that replaced its fix (owner 2026-11-08, docs/addons.md): an addon shares its
+     * parent's due date, so it is on its parent's invoice. Suspended with its parent, it is not billed on its own; the
+     * customer pays that invoice, and both come back together, paid to the same day, and renew on one invoice again.
+     * (Sweep 2 had the addon on its own date, Jan 20, and billed it while suspended: #723, removed with the own date.)
      */
-    public function test_f1_an_addon_with_its_own_date_suspended_with_its_parent_is_billed_before_being_terminated(): void
+    public function test_f1_an_addon_suspended_with_its_parent_follows_it_on_its_invoice(): void
     {
         [$parent, $addon, $invoice] = $this->f1Setup();
 
-        // Feb 5: the customer pays the parent, then the addon's own invoice.
-        (new RecordPaymentService)->handle($invoice->fresh(), null, $invoice->fresh()->remaining, transactionId: 'f1-parent');
+        // Feb 5: the customer pays the invoice of both.
+        (new RecordPaymentService)->handle($invoice->fresh(), null, $invoice->fresh()->remaining, transactionId: 'f1');
         $this->assertSame(Service::STATUS_ACTIVE, $parent->fresh()->status, 'the parent is back');
-        $this->assertSame(Service::STATUS_SUSPENDED, $addon->fresh()->status, 'the addon stays suspended, overdue on its own');
-        $this->assertNotNull($addon->fresh()->dunning_suspended_at);
-        $own = $this->addonLines($addon)->first()->invoice;
-        (new RecordPaymentService)->handle($own->fresh(), null, $own->fresh()->remaining, transactionId: 'f1-addon');
-        $this->assertSame(Service::STATUS_ACTIVE, $addon->fresh()->status, 'its own invoice paid, it is back');
-        $this->assertSame('2027-02-20', $addon->fresh()->expires_at->toDateString());
+        $this->assertSame(Service::STATUS_ACTIVE, $addon->fresh()->status, 'the addon with it: its period was on the same invoice');
+        $this->assertSame($parent->fresh()->expires_at->toDateString(), $addon->fresh()->expires_at->toDateString(), 'paid to the same day');
 
-        $this->cronUntil('2027-03-25');
+        $this->cronUntil('2027-02-06');
 
-        $this->assertNotSame(Service::STATUS_TERMINATED, $addon->fresh()->status,
-            'an addon never invoiced is terminated for non-payment, though the customer paid all they were billed');
+        $next = $this->addonLines($addon)->firstWhere(fn ($line) => $line->period_start->toDateString() === '2027-02-01');
+        $this->assertNotNull($next, 'its next period is billed');
+        $this->assertTrue($next->invoice->items()->where('reference_id', $parent->id)->exists(), 'on its parent\'s invoice');
+        $this->assertNotSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
     }
 
-    /** F-RENEWAL-CYCLE-1, unpaid: the addon's own invoice left unpaid, it is terminated for that invoice, which it had. */
-    public function test_f1_an_addon_billed_with_its_parent_suspended_and_left_unpaid_is_terminated_for_its_own_invoice(): void
+    /** F-RENEWAL-CYCLE-1, unpaid: the invoice of both left unpaid, the addon ends with its parent, billed only on its invoice. */
+    public function test_f1_an_addon_suspended_with_its_unpaid_parent_ends_with_it(): void
     {
         [$parent, $addon, $invoice] = $this->f1Setup();
-        (new RecordPaymentService)->handle($invoice->fresh(), null, $invoice->fresh()->remaining, transactionId: 'f1-parent');
-        $this->assertSame(Service::STATUS_SUSPENDED, $addon->fresh()->status);
-        $this->assertSame('Overdue on Payment', $addon->fresh()->suspend_reason);
 
         $this->cronUntil('2027-03-25');
 
-        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status, 'past Termination Days on its own unpaid invoice');
-        $this->assertSame('2027-01-20', $this->addonLines($addon)->first()->period_start->toDateString(), 'billed for the period it was ended for');
+        $this->assertSame(Service::STATUS_TERMINATED, $parent->fresh()->status, 'past Termination Days on its unpaid invoice');
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status, 'the addon with it');
+        $this->assertSame([], $this->addonLines($addon)->where('invoice_id', '!=', $invoice->id)->pluck('invoice_id')->all(),
+            'billed only on its parent\'s invoice, never on its own while suspended');
     }
 
     /**
-     * Parent due Jan 1 and unpaid, its addon on its own date Jan 20; the cron to Feb 4: both suspended, the addon with its
-     * parent, and its Jan 20 period billed on its own date all the same (docs/addons.md: each addon renews on its own).
+     * Parent and addon both due Jan 1 and unpaid, on one invoice (as the cron bills them); the cron to Feb 4: the parent
+     * suspended for it, the addon with it (reason «parent»), and nothing more billed for the addon.
      *
      * @return array{Service, Service, Invoice}
      */
     private function f1Setup(): array
     {
         $parent = $this->service('2027-01-01 00:00:00');
-        $addon = $this->service('2027-01-20 00:00:00', ['parent_service_id' => $parent->id], addon: true);
+        $addon = $this->service('2027-01-01 00:00:00', ['parent_service_id' => $parent->id], addon: true);
         $invoice = Invoice::factory()->create(['client_id' => $parent->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD',
             'due_at' => '2027-01-01', 'created_at' => '2026-12-25 09:00:00']);
-        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $parent->id, 'description' => 'Renewal',
-            'quantity' => 1, 'price' => 10.00, 'period_start' => '2027-01-01', 'period_end' => '2027-02-01']);
+        foreach ([[$parent, 10.00], [$addon, 3.00]] as [$service, $price]) {
+            $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
+                'quantity' => 1, 'price' => $price, 'period_start' => '2027-01-01', 'period_end' => '2027-02-01']);
+        }
 
         $this->cronUntil('2027-02-04');
         $this->assertSame(Service::STATUS_SUSPENDED, $parent->fresh()->status, 'the parent is suspended for its unpaid invoice');
         $this->assertSame(Service::STATUS_SUSPENDED, $addon->fresh()->status, 'the addon with it');
         $this->assertSame(Service::SUSPEND_REASON_PARENT, $addon->fresh()->suspend_reason);
-        $lines = $this->addonLines($addon);
-        $this->assertCount(1, $lines, 'its Jan 20 renewal is billed once, while suspended with its parent');
-        $this->assertSame('2027-01-20', $lines->first()->period_start->toDateString());
-        $this->assertSame(Invoice::STATUS_UNPAID, $lines->first()->invoice->status);
+        $this->assertCount(1, $this->addonLines($addon), 'not billed on its own while suspended with its parent');
 
         return [$parent, $addon, $invoice];
     }

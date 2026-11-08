@@ -161,18 +161,20 @@ class AddAddonTest extends TestCase
         $this->assertEqualsCanonicalizing([$parent->id, $made['service']->id], $renewal->items()->pluck('reference_id')->map(fn ($id) => (int) $id)->all());
     }
 
-    public function test_from_its_own_date_it_is_invoiced_a_full_period(): void
+    /** «From its own date» is gone (owner 2026-11-08: an addon always shares its parent's due date): refused, nothing made. */
+    public function test_from_its_own_date_is_no_longer_a_way_to_add_one(): void
     {
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2026-11-25'));
-
-        $line = $made['invoice']->items()->sole();
-        $this->assertSame('2026-11-25', $line->period_start->toDateString());
-        $this->assertSame('2026-12-25', $line->period_end->toDateString());
-        $this->assertSame('3.00', number_format((float) $line->price, 2));
-        $this->assertSame('2026-11-25', $made['invoice']->fresh()->due_at->toDateString());
+        try {
+            (new AddAddon)->handle($parent, $product, $plan, 1, null, false, 'own_date', Carbon::parse('2026-11-25'));
+            $this->fail('refused');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('services.addons.add.start_unknown'), $e->getMessage());
+        }
+        $this->assertSame(0, Service::query()->whereNotNull('parent_service_id')->count());
+        $this->assertSame(0, Invoice::query()->count());
     }
 
     public function test_with_no_invoice_it_starts_now_and_its_task_is_made(): void
@@ -180,7 +182,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertNull($made['invoice']);
@@ -195,7 +197,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01', status: 'suspended');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertSame(Service::STATUS_SUSPENDED, $addon->status);
@@ -215,7 +217,7 @@ class AddAddonTest extends TestCase
             [fn () => (new AddAddon)->handle($ended, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_status'],
             [fn () => (new AddAddon)->handle($cancelling, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_cancelling'],
             [fn () => (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::PRORATED), 'services.addons.add.quantity'],
-            [fn () => (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2026-11-01')), 'services.addons.add.date_past'],
+            [fn () => (new AddAddon)->handle($this->parent('2026-11-01'), $product, $plan, 1, null, false, AddAddon::NO_INVOICE), 'services.addons.add.no_due_date'],
             [fn () => (new AddAddon)->handle($parent, $product, $plan, 1, '-1', false, AddAddon::PRORATED), 'services.addons.add.price_negative'],
         ] as [$add, $message]) {
             try {
@@ -240,7 +242,7 @@ class AddAddonTest extends TestCase
         config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct(targets: ['product:' . $parent->product_id]);
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
         $other = $this->createProduct()->product;
 
         $parent->fresh()->update(['product_id' => $other->id, 'plan_id' => $other->plans()->first()->id]);

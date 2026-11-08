@@ -21,15 +21,30 @@ use Illuminate\Support\Facades\DB;
  */
 class CancelPendingUpgrades
 {
-    /** @return array<string, \Throwable> invoices left open or failed, as CancelOpenInvoices returns them */
+    /**
+     * Its service ended: its pending upgrades, and the open invoices of its completed ones.
+     *
+     * @return array<string, \Throwable> invoices left open or failed, as CancelOpenInvoices returns them
+     */
     public static function forService(Service $service, string $reason): array
+    {
+        return self::pending($service, $reason) + self::shortfalls($service, $reason);
+    }
+
+    /**
+     * Only its pending upgrades: a service that still runs (a request at the end of its period) keeps a completed
+     * upgrade's shortfall, the days it runs on the upgraded package (R-BILLING-FIXES-2). It goes when the service ends.
+     *
+     * @return array<string, \Throwable>
+     */
+    public static function pending(Service $service, string $reason): array
     {
         $left = [];
         foreach (ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->pluck('id') as $id) {
             $left += self::one((int) $id, $reason)[1];
         }
 
-        return $left + self::shortfalls($service, $reason);
+        return $left;
     }
 
     /**

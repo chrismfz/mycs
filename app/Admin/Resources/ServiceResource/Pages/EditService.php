@@ -99,6 +99,10 @@ class EditService extends EditRecord
         if ($mode === ChangeCycle::NOW) {
             $text .= " Credit for the unused days: {$quote['credit']} {$currency}. New period {$quote['start']?->toDateString()} – "
                 . "{$quote['end']?->toDateString()}, billed {$quote['charge']} {$currency} with tax.";
+            if ($quote['addons'] !== []) {
+                // They share its billing day: they move to the new one, on the same invoice (docs/addons.md).
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' follow it to its new billing day: their credit and new periods are in these amounts.';
+            }
         }
 
         return $text;

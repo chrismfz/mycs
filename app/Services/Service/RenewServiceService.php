@@ -118,19 +118,10 @@ class RenewServiceService
                 $lines = $locked->livePeriodLines();
             }
 
-            // An addon billed from a later date of its own, paid before then: it starts now, its period with it (the same
-            // length, already paid), never days for free before it (ADV-637-7).
-            if ($locked->status === Service::STATUS_PENDING && $locked->parent_service_id !== null && $current === null
-                && $item->period_start->greaterThan(CarbonImmutable::today())) {
-                $start = CarbonImmutable::today();
-                $end = $locked->periodEnd($start, $lines);
-                $item->forceFill(['period_start' => $start, 'period_end' => $end, 'description' => $locked->describeLine($start, $end)])->save();
-                $lines = $locked->livePeriodLines();
-            }
-
             $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
-            // An addon started prorated to its parent's date keeps its parent's day, not its first line's (code review 1 of #637).
-            if (!($locked->status === Service::STATUS_PENDING && $locked->parent_service_id !== null && $locked->billing_day !== null)) {
+            // An addon keeps its parent's day, not its line's: started prorated to its parent's date (code review 1 of #637), or
+            // its cycle changed «now» to a period ending on it (ChangeCycle, owner 2026-11-08).
+            if (!($locked->parent_service_id !== null && $locked->billing_day !== null)) {
                 $locked->rememberBillingDay($item->period_start);
             }
             if ($locked->coupon_id && $locked->coupon_started_at === null && $locked->status === Service::STATUS_PENDING) {

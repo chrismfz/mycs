@@ -262,7 +262,9 @@
     "The billing cycle changes from your next renewal.": "Ο κύκλος χρέωσης αλλάζει από την επόμενη ανανέωση.",
     "Choose": "Επιλέξτε",
     "A renewal is paid ahead: change it from the next renewal.": "Μια ανανέωση έχει πληρωθεί προκαταβολικά: αλλάξτε τον από την επόμενη ανανέωση.",
+    "Addon #:id follows this service: :reason": "Το addon #:id ακολουθεί αυτή την υπηρεσία: :reason",
     "This service has no paid period to change now: change it from the next renewal.": "Η υπηρεσία δεν έχει πληρωμένη περίοδο για να αλλάξει τώρα: αλλάξτε τον από την επόμενη ανανέωση.",
+    "This service changed meanwhile: try again.": "Η υπηρεσία άλλαξε στο μεταξύ: δοκιμάστε ξανά.",
     "A discount for its billing cycle runs on this service: ask us to change it.": "Η υπηρεσία έχει έκπτωση που εξαρτάται από τον κύκλο χρέωσης: ζητήστε μας να τον αλλάξουμε.",
     "An open invoice of this service needs staff first: :reason": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρειάζεται πρώτα έλεγχο από εμάς: :reason",
     "An open invoice of this service bills days already used: settle it first.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρεώνει μέρες που έχουν ήδη περάσει: τακτοποιήστε το πρώτα.",
@@ -1738,5 +1740,7 @@
     "Chat #:id": "Chat #:id",
     "No messages": "Κανένα μήνυμα",
     "Invalid code.": "Λάθος κωδικός.",
-    "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση."
+    "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση.",
+    "An open invoice of this service was paid meanwhile: try again.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας πληρώθηκε στο μεταξύ: δοκιμάστε ξανά.",
+    "Addon #:id is paid another way than this service: change it from the next renewal, or set the addon's payment as the service's first.": "Το addon #:id πληρώνεται με άλλον τρόπο από την υπηρεσία: αλλάξτε τον κύκλο από την επόμενη ανανέωση, ή ορίστε πρώτα την πληρωμή του addon όπως της υπηρεσίας."
 }

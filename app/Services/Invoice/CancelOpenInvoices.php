@@ -42,18 +42,19 @@ final class CancelOpenInvoices
      * @param  iterable<Invoice>  $invoices
      * @param  string  $reason  the cancellation note's description (lang/*\/invoices.php, cancellation_reasons)
      * @param  Service|ServiceUpgrade|Domain|null  $onlyFor  cancel only its part of each invoice (a service: its renewals and upgrades; a domain: its renewals and stage fees)
+     * @param  list<Service>  $with  services whose part goes together with $onlyFor's, as one (a parent's addons that follow its cycle change)
      * @return array<string, Throwable> what was left open or failed, by invoice («invoice_cancelled #id»)
      *
      * @throws Throwable inside a caller's transaction: a failure (a deadlock rolled the caller's work back already)
      *                   is the caller's, never swallowed here
      */
-    public static function handle(iterable $invoices, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor = null): array
+    public static function handle(iterable $invoices, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor = null, array $with = []): array
     {
         $nested = DB::transactionLevel() > 0;
         $failures = [];
         foreach ($invoices as $invoice) {
             try {
-                $kept = DB::transaction(fn () => self::cancel((int) $invoice->id, $reason, $onlyFor));
+                $kept = DB::transaction(fn () => self::cancel((int) $invoice->id, $reason, $onlyFor, $with));
                 if ($kept !== null) {
                     $failures["invoice_cancelled #{$invoice->id}"] = new DisplayException("Invoice #{$invoice->id} left open: {$kept}");
                 }
@@ -96,7 +97,8 @@ final class CancelOpenInvoices
     }
 
     /** Cancel the invoice, or the lines of $onlyFor on it. Returns why it stays open for staff, or null. */
-    private static function cancel(int $id, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor): ?string
+    /** @param  list<Service>  $with */
+    private static function cancel(int $id, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor, array $with): ?string
     {
         // Customer, then invoice: the payment paths' order. A payment that got here first is seen below.
         $invoice = (new RecordPaymentService)->lockInvoice($id);
@@ -132,7 +134,7 @@ final class CancelOpenInvoices
             default => "upgrade #{$onlyFor?->id}",
         };
         if ($onlyFor !== null) {
-            [$own, $others, $loose] = self::split($items, $onlyFor);
+            [$own, $others, $loose] = self::split($items, $onlyFor, $with);
             if ($own->isEmpty()) {
                 return null; // nothing of it on this invoice (any more): the rest is not this cancellation's
             }
@@ -195,9 +197,10 @@ final class CancelOpenInvoices
      * hand).
      *
      * @param  Collection<int, InvoiceItem>  $items
+     * @param  list<Service>  $with  services whose lines count as $onlyFor's (a service only)
      * @return array{0: Collection<int, InvoiceItem>, 1: Collection<int, InvoiceItem>, 2: Collection<int, InvoiceItem>}
      */
-    private static function split(Collection $items, Service|ServiceUpgrade|Domain $onlyFor): array
+    private static function split(Collection $items, Service|ServiceUpgrade|Domain $onlyFor, array $with = []): array
     {
         // A domain's own (D7): its renewals and the fees of its grace or redemption; a «charge» on it (an owner change)
         // is not given up with it: staff decide.
@@ -209,12 +212,12 @@ final class CancelOpenInvoices
 
             return [$own->values(), $items->diffKeys($own)->values(), collect()];
         }
+        $services = $onlyFor instanceof Service ? collect([$onlyFor, ...$with])->map(fn (Service $service) => (int) $service->id) : collect();
         $upgrades = $onlyFor instanceof Service
-            ? ServiceUpgrade::query()->where('service_id', $onlyFor->id)->pluck('id')->map(fn ($id) => (int) $id)
+            ? ServiceUpgrade::query()->whereIn('service_id', $services)->pluck('id')->map(fn ($id) => (int) $id)
             : collect([(int) $onlyFor->id]);
-        // A service's own: its renewals, its charges (an imported setup fee or promotion), its upgrades.
-        $own = $items->filter(fn (InvoiceItem $line) => ($onlyFor instanceof Service && (int) $line->reference_id === (int) $onlyFor->id
-            && $line->reference_type === Service::class)
+        // A service's own (and of those with it): its renewals, its charges (an imported setup fee or promotion), its upgrades.
+        $own = $items->filter(fn (InvoiceItem $line) => ($line->reference_type === Service::class && $services->contains((int) $line->reference_id))
             || ($line->reference_type === ServiceUpgrade::class && $upgrades->contains((int) $line->reference_id)));
         $loose = $items->filter(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id <= 0);
 

@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Invoice;
-use App\Models\ModuleAction;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
@@ -134,14 +133,14 @@ class Adv637Test extends TestCase
         $parent = $this->parent();
         [$product, $plan] = $this->addonProduct(product: ['stock' => 5]);
 
-        (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+        (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::NO_INVOICE);
         $this->assertSame(3, (int) $product->fresh()->stock, 'two of five taken');
 
         $parent->fresh()->update(['status' => Service::STATUS_TERMINATED]);
         $this->assertSame(5, (int) $product->fresh()->stock, 'given back when it ends: never more than there were');
 
         try {
-            (new AddAddon)->handle($this->parent(), $product->fresh(), $plan, 6, null, false, AddAddon::NO_INVOICE, Carbon::parse('2026-12-01'));
+            (new AddAddon)->handle($this->parent(), $product->fresh(), $plan, 6, null, false, AddAddon::NO_INVOICE);
             $this->fail('six of five: refused');
         } catch (DisplayException) {
             $this->assertSame(5, (int) $product->fresh()->stock);
@@ -190,50 +189,22 @@ class Adv637Test extends TestCase
     }
 
     /**
-     * ADV-637-6 (medium, with «cancel unpaid orders after N days» on). An addon «from its own date» in the future
-     * (2027-01-01): its invoice is due then. The cron's «orders never paid» (CronJob::unpaidOrders) counts from the
-     * service's creation, not the invoice's due date: 7 days after it was added, a month before its invoice is even due,
-     * the addon is cancelled and its invoice with it. Expected: an invoice not yet due is not an order never paid; the
-     * addon waits.
+     * ADV-637-6 and -7 were about «from its own date», gone (owner 2026-11-08: an addon always shares its parent's due
+     * date): that way of adding one is refused, nothing made.
      */
-    public function test_adv_637_6_an_addon_from_a_future_date_is_not_cancelled_as_an_unpaid_order_before_its_invoice_is_due(): void
+    public function test_adv_637_6_7_an_addon_from_its_own_date_cannot_be_added(): void
     {
-        config(['settings.cronjob_order_cancel' => 7]);
-        $parent = $this->parent('2027-05-01', 'year');
-        [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2027-01-01'));
-        $this->assertSame('2027-01-01', $made['invoice']->fresh()->due_at->toDateString());
-
-        Carbon::setTestNow('2026-11-30 10:00:00');
-        $this->artisan('app:cron-job');
-
-        $this->assertSame(Service::STATUS_PENDING, $made['service']->fresh()->status, 'not cancelled a month before its invoice is due');
-        $this->assertSame(Invoice::STATUS_UNPAID, $made['invoice']->fresh()->status);
-    }
-
-    /**
-     * ADV-637-7 (low, owner's call). «From its own date» in the future (2027-01-01, a full period 1 Jan - 1 Feb): with
-     * credit on the account the invoice is paid at once (finishRenewalInvoices), and any early payment starts the addon:
-     * it is active today and staff get its creation task today, so it runs 6 weeks before the period it paid for, free.
-     * Expected: it does not run before the first day it is paid for (it waits for its date, or the period starts when it
-     * starts).
-     */
-    public function test_adv_637_7_an_addon_from_a_future_date_does_not_run_before_its_paid_period(): void
-    {
-        config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
-        $this->client->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
         $parent = $this->parent('2027-05-01', 'year');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2027-01-01'));
-
-        $this->assertSame(Invoice::STATUS_PAID, $made['invoice']->fresh()->status, 'paid by credit at once');
-        $line = $made['invoice']->items()->sole();
-        $addon = $made['service']->fresh();
-        $this->assertFalse($addon->status === Service::STATUS_ACTIVE && $line->period_start->isAfter(Carbon::today()),
-            "active from today, its paid period starting {$line->period_start->toDateString()}: the days between are free");
-        $this->assertFalse(ModuleAction::query()->where('service_id', $addon->id)->exists() && $line->period_start->isAfter(Carbon::today()),
-            'its creation task before the period it paid for');
+        try {
+            (new AddAddon)->handle($parent, $product, $plan, 1, null, false, 'own_date', Carbon::parse('2027-01-01'));
+            $this->fail('an own date is not a way to add an addon');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('services.addons.add.start_unknown'), $e->getMessage());
+        }
+        $this->assertSame(0, Service::query()->whereNotNull('parent_service_id')->count());
+        $this->assertSame(0, Invoice::query()->count());
     }
 
     /**
