@@ -68,8 +68,10 @@ class GrantBoughtCreditService
             $ledger->giveBack($taken, MoneyTrail::CAUSE_PURCHASE);
             $room -= RecordPaymentService::toCents($taken->amount);
             if ($room < 0) {
-                // Given back in part: the part no money stays for is taken again, as a refund of the purchase.
-                $ledger->remove($invoice->client_id, $invoice->currency_code, -$room, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
+                // Given back in part: the part no money stays for is taken again, still an open take (purchase_reopened,
+                // not a final purchase_refunded), given back if the invoice is paid again with money for it (a partial
+                // write-off undone and paid, review REV3-LLI-1), as a whole take kept open is.
+                $ledger->remove($invoice->client_id, $invoice->currency_code, -$room, MoneyTrail::CAUSE_PURCHASE_REOPENED,
                     MoneyTrail::SOURCE_SYSTEM, $invoice, mayGoNegative: true);
             }
         }
