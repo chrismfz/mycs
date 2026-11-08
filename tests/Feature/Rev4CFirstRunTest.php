@@ -190,10 +190,9 @@ class Rev4CFirstRunTest extends TestCase
     }
 
     /**
-     * REV4-C-2 (C-FIRST-RUN-1). An order is «abandoned» 7 days after it was made (ORDER_DAYS), whatever its due date.
-     * Order Days Grace (order_days_grace, WHMCS's OrderDaysGrace, imported; myip 8) puts an order's due date after it, up
-     * to years: an order still within its grace, not even due, is no longer paid by credit that comes in (decision 5),
-     * while the fix's own docblock says a fresh order is. Measured from the due date it would follow the grace.
+     * REV4-C-2 (C-FIRST-RUN-1). The fix's first rule (credit left an order 7 days after it was made) is gone (owner's
+     * decision 2026-11-08: the import refuses old unpaid orders instead): an order within its Order Days Grace, and any
+     * other, is paid by credit that comes in, as decision 5 has it.
      */
     public function test_rev4_c_2_an_order_still_within_its_grace_is_paid_by_credit(): void
     {

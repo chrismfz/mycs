@@ -10,7 +10,6 @@ use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Service;
@@ -19,7 +18,6 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
 use App\Services\Service\DunningRules;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,8 +25,7 @@ use Illuminate\Support\Facades\DB;
  * is made (renewals), when credit comes in (an overpayment) and once a day before suspensions, so a customer with
  * credit is not suspended while it sits unused. Oldest due first.
  *
- * Not on: a credit purchase (add funds); an order left unpaid past its first days (ORDER_DAYS: abandoned, the customer
- * pays it, as AutoCharge leaves orders; sweep 4 C-FIRST-RUN-1); an invoice with a payment on its way (processing); an invoice of a service
+ * Not on: a credit purchase (add funds); an invoice with a payment on its way (processing); an invoice of a service
  * with a gateway subscription (Stripe/PayPal charge the whole amount: credit first would be paid twice), except its
  * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e; and once
  * it is overdue, the subscription not having paid it, once overdue by Suspend Days: ADV-A3-3, P2); an
@@ -239,17 +236,8 @@ class CreditAutoApply
         if (!$subscriptionRenewal && !self::customerAllows((int) $invoice->client_id, lock: true)) {
             return false;
         }
-        $items = $invoice->items()->lockForUpdate()->get(['id', 'reference_type', 'reference_id', 'kind']);
+        $items = $invoice->items()->lockForUpdate()->get(['id', 'reference_type', 'reference_id']);
         if ($items->contains('reference_type', Credit::class) || $items->contains('reference_type', ServiceUpgrade::class)) {
-            return false;
-        }
-        // An order left unpaid past its first days (a new domain's registration or transfer, a service not set up yet):
-        // abandoned, as AutoCharge::due leaves every order to its customer (D8b). Credit paying it on its own would start
-        // the service and buy the name at the registrar months later, for an order nobody wants any more (an imported
-        // WHMCS one on the first run, sweep 4 C-FIRST-RUN-1; orders are not cancelled by default). A fresh order is paid
-        // by credit as decision 5 has it (its partial credit goes back if the order is cancelled). The customer pays an
-        // older one with credit from the invoice (Invoices\Show), staff with «Apply credit».
-        if (self::abandonedOrder($invoice, $items)) {
             return false;
         }
         if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Processing->value)->lockForUpdate()->exists()) {
@@ -300,33 +288,6 @@ class CreditAutoApply
 
         return $subscriptionRenewal || !Service::query()->whereIn('id', $services)->whereNotNull('subscription_id')
             ->where('subscription_id', '!=', '')->exists();
-    }
-
-    /**
-     * Days an order's invoice is paid by credit on its own after it was made, or after its due date when that is later
-     * (Order Days Grace, order_days_grace: an order not yet due is not abandoned, sweep 4 review REV4-C-2): the
-     * order-cancel days when set (the cron cancels it then), else ORDER_DAYS, the time an order is paid in.
-     */
-    public const ORDER_DAYS = 7;
-
-    /** @param  Collection<int, InvoiceItem>  $items */
-    private static function abandonedOrder(Invoice $invoice, Collection $items): bool
-    {
-        $cancelDays = (int) config('settings.cronjob_order_cancel', 0);
-        $made = $invoice->created_at ?? $invoice->due_at;
-        if ($made !== null && $invoice->due_at !== null && $invoice->due_at->greaterThan($made)) {
-            $made = $invoice->due_at;
-        }
-        if ($made === null || $made->greaterThanOrEqualTo(now()->subDays($cancelDays > 0 ? $cancelDays : self::ORDER_DAYS))) {
-            return false;
-        }
-        if ($items->contains(fn ($item) => $item->reference_type === Domain::class
-            && in_array($item->kind, [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER], true))) {
-            return true;
-        }
-        $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();
-
-        return $services->isNotEmpty() && Service::query()->whereIn('id', $services)->where('status', Service::STATUS_PENDING)->exists();
     }
 
     private static function customerAllows(int $clientId, bool $lock = false): bool

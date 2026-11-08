@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Console\Commands\ImportFromWhmcs;
 use App\Enums\DomainStatus;
-use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainTld;
@@ -115,26 +114,66 @@ class Sweep4CFirstRunTest extends TestCase
     }
 
     /**
-     * C-FIRST-RUN-1. An abandoned WHMCS order (a pending service and a pending domain registration, unpaid for four
-     * months, orders not cancelled by the cron by default) is paid by the customer's imported credit on the first run:
-     * the service starts and the domain goes to its registrar. AutoCharge leaves an order to its customer
-     * (AutoCharge::due, D8b); credit has no such rule (CreditAutoApply::eligible).
+     * C-FIRST-RUN-1 (owner's decision 2026-11-08). After the cut-over credit pays an order as before: a fresh order is
+     * paid by the customer's credit on the cron (decision 5), the service set up and the name ordered.
      */
-    public function test_c_first_run_1_credit_does_not_pay_an_abandoned_imported_order(): void
+    public function test_c_first_run_1_credit_still_pays_a_fresh_order_after_cut_over(): void
     {
         $service = $this->service(['status' => Service::STATUS_PENDING, 'expires_at' => null]);
         $domain = $this->domain(['status' => DomainStatus::PendingRegister, 'expires_at' => null]);
-        $order = $this->imported(Invoice::STATUS_UNPAID, now()->subMonths(4)->toDateString(), [
+        $order = $this->imported(Invoice::STATUS_UNPAID, now()->subDays(2)->toDateString(), [
             ['description' => 'Hosting order', 'price' => '10.00', 'reference_type' => Service::class, 'reference_id' => $service->id],
             ['description' => 'Domain registration', 'price' => '12.00', 'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER],
         ]);
-        (new CreditLedger)->add($this->user->client()->id, 'EUR', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Imported balance');
+        (new CreditLedger)->add($this->user->client()->id, 'EUR', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Credit');
 
         $this->cron();
 
-        $this->assertSame(Invoice::STATUS_UNPAID, $order->fresh()->status, 'an abandoned order is paid by the customer, not by credit on its own');
-        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status);
-        Queue::assertNotPushed(FulfilDomainOrderJob::class);
+        $this->assertSame(Invoice::STATUS_PAID, $order->fresh()->status, 'a fresh order is paid by credit, as before');
+    }
+
+    /**
+     * C-FIRST-RUN-1. An abandoned WHMCS order (unpaid, more than 7 days old: a Pending service's Hosting line, a domain
+     * registration or transfer) would be paid by the customer's imported credit on the first run, the service set up and
+     * the name bought. The import refuses to run while there is one, naming them, on a dry run too, before anything is
+     * emptied: they are cancelled in WHMCS before the dump (cutover-runbook.md).
+     */
+    public function test_c_first_run_1_the_import_refuses_old_unpaid_orders(): void
+    {
+        $whmcs = $this->whmcs();
+        $old = now()->subDays(8)->toDateString();
+        $fresh = now()->subDays(5)->toDateString();
+        $this->whmcsService($whmcs, 9701, $old, $old);
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Pending' WHERE id = 9701");
+        $this->whmcsService($whmcs, 9702, $old, $old); // Active: its unpaid renewal is no order
+        $this->whmcsInvoice($whmcs, 9801, 'Unpaid', $old, [[98011, 'Hosting', 9701, 'Hosting order', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9802, 'Unpaid', $old, [[98021, 'DomainRegister', 1, 'Domain registration', 12, $old]]);
+        $this->whmcsInvoice($whmcs, 9803, 'Unpaid', $old, [[98031, 'DomainTransfer', 2, 'Domain transfer', 12, $old]]);
+        $this->whmcsInvoice($whmcs, 9804, 'Unpaid', $old, [[98041, 'Hosting', 9702, 'Hosting renewal', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9805, 'Cancelled', $old, [[98051, 'Hosting', 9701, 'Hosting order', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9806, 'Unpaid', $fresh, [[98061, 'DomainRegister', 3, 'Domain registration', 12, $fresh]]);
+        $whmcs->exec("UPDATE tblinvoices SET date = '{$old}' WHERE id <= 9805");
+        $whmcs->exec("UPDATE tblinvoices SET date = '{$fresh}' WHERE id = 9806");
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $refused = 'WHMCS unpaid order invoice(s) older than 7 days: #9801, #9802, #9803. Credit would pay them on the first cron'
+                . ' and set them up: cancel them in WHMCS and dump again. Nothing done.';
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertSame(1, DB::table('users')->where('id', $this->user->id)->count(), 'nothing emptied');
+
+        // Cancelled in WHMCS: no longer refused.
+        $whmcs->exec("UPDATE tblinvoices SET status = 'Cancelled' WHERE id IN (9801, 9802, 9803)");
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $this->assertSame([], (new ReflectionMethod($command, 'abandonedOrders'))->invoke($command));
     }
 
     /** C-FIRST-RUN-1, what stays: credit still pays a live service's renewal and a domain's on the same run. */

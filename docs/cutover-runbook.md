@@ -87,6 +87,17 @@ credentials. Το import της ημέρας τα φέρνει όλα:
      και παίρνουμε ξανά dump.
   2. Αν το import αρνηθεί («WHMCS Mass Pay invoice(s) in «Payment Pending»»): το ίδιο, και ξανά import. Τίποτα δεν έχει
      αδειάσει.
+- **Παλιές απλήρωτες παραγγελίες (sweep 4 C-FIRST-RUN-1, απόφαση ιδιοκτήτη 2026-11-08): ακυρώνονται στο WHMCS πριν από
+  το τελικό dump.** Μετά το cut-over η πίστωση και η αυτόματη χρέωση πληρώνουν τις παραγγελίες όπως πάντα, οπότε το πρώτο
+  cron θα πλήρωνε με την πίστωση του πελάτη μια παραγγελία που εγκατέλειψε μήνες πριν: η υπηρεσία θα στηνόταν και το domain
+  θα αγοραζόταν στον registrar. Ο importer **αρνείται να τρέξει** (και με `--dry-run`, πριν αδειάσει οτιδήποτε) όσο υπάρχει
+  Unpaid τιμολόγιο με ημερομηνία πάνω από 7 μέρες πριν που παραγγέλνει κάτι, και τα ονομάζει (`abandonedOrders`).
+  1. Ακριβώς πριν από το dump: `SELECT DISTINCT i.id FROM tblinvoices i JOIN tblinvoiceitems ii ON ii.invoiceid = i.id
+     LEFT JOIN tblhosting h ON ii.type = 'Hosting' AND h.id = ii.relid WHERE i.status = 'Unpaid' AND i.date <
+     CURDATE() - INTERVAL 7 DAY AND (ii.type IN ('DomainRegister', 'DomainTransfer') OR h.domainstatus = 'Pending')` =
+     καμία γραμμή. Όσα βγουν: ακυρώνονται στο WHMCS (Orders → «Cancel Order», ή «Mark Cancelled» στο τιμολόγιο), και ξανά dump.
+  2. Αν το import αρνηθεί («WHMCS unpaid order invoice(s) older than 7 days»): το ίδιο, και ξανά import. Τίποτα δεν έχει
+     αδειάσει.
 - **Ποσότητα > 1 (sweep IMPORT-1, `sweeps/2026-11-07.md`): καμία πριν από το τελικό dump, αλλιώς έλεγχος.** Ο importer
   γράφει τιμή = `amount` (addon: `recurring`) και ποσότητα = `qty`, και η ανανέωση χρεώνει το γινόμενο. Αν στο WHMCS το
   `amount` είναι ήδη το σύνολο, κάθε ανανέωση χρεώνει `qty` φορές. Έλεγχος 2026-11-06: καμία σε καμία εταιρεία.

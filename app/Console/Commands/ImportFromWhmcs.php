@@ -180,6 +180,14 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An old unpaid order (owner's decision 2026-11-08, sweep 4 C-FIRST-RUN-1): the first cron would pay it with the
+        // customer's credit and set the service up or buy the name at the registrar. Cancelled in WHMCS before the dump.
+        if (($orders = $this->abandonedOrders()) !== []) {
+            $this->error('WHMCS unpaid order invoice(s) older than ' . self::ABANDONED_ORDER_DAYS . ' days: #' . implode(', #', $orders)
+                . '. Credit would pay them on the first cron and set them up: cancel them in WHMCS and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
 
         $target = (string) DB::connection()->getDatabaseName();
         if ($target === '') {
@@ -3285,6 +3293,31 @@ class ImportFromWhmcs extends Command
         }
 
         return $pending;
+    }
+
+    /** Days after which an unpaid WHMCS order invoice refuses the import (abandonedOrders). */
+    public const ABANDONED_ORDER_DAYS = 7;
+
+    /**
+     * Every Unpaid WHMCS invoice dated more than ABANDONED_ORDER_DAYS ago that orders something: a Hosting line of a
+     * Pending service, or a DomainRegister/DomainTransfer line. The import refuses to run on them (handle): credit would
+     * pay them on the first cron and set them up. The runbook's pre-dump query, the same set. A source without these
+     * tables (a test's): none.
+     *
+     * @return list<int>
+     */
+    private function abandonedOrders(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblhosting')) {
+            return [];
+        }
+        $query = $this->pdo->prepare("SELECT DISTINCT i.id FROM tblinvoices i JOIN tblinvoiceitems ii ON ii.invoiceid = i.id
+            LEFT JOIN tblhosting h ON ii.type = 'Hosting' AND h.id = ii.relid
+            WHERE i.status = 'Unpaid' AND i.date < ? AND (ii.type IN ('DomainRegister', 'DomainTransfer') OR h.domainstatus = 'Pending')
+            ORDER BY i.id");
+        $query->execute([now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString()]);
+
+        return array_values(array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)));
     }
 
     /**
