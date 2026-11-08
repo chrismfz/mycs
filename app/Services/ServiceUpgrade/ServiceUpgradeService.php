@@ -259,7 +259,7 @@ class ServiceUpgradeService
             $dates = $kept->period_start !== null && $kept->period_end !== null
                 ? $kept->period_start->format('d/m/Y') . ' - ' . $kept->period_end->format('d/m/Y')
                 : 'no period (an imported line)';
-            PaymentsLog::warning('Upgrade of a service whose open renewal keeps its price (a payment or an Ekdosi document on it): staff settle the difference.',
+            PaymentsLog::warning('Upgrade of a service whose open renewal keeps its price (a payment or an Ekdosi document on it, or the first line of its order): staff settle the difference.',
                 ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $kept->invoice_id,
                     'invoice_item_id' => $kept->id, 'period' => $dates, 'difference' => (string) $difference, 'tax' => $taxNow, 'new_tax' => $taxNew]);
             $text = "invoice #{$kept->invoice_id}, period {$dates}: {$difference} {$currency} net (before VAT), its billed price "
@@ -273,7 +273,7 @@ class ServiceUpgradeService
             return;
         }
         $body = "Upgrade #{$upgrade->id} of service #{$service->id} changed its price, but its open renewal invoice keeps each line at "
-            . 'its billed price (a payment or an Ekdosi document is on it). Settle the difference to the new price by hand (bill it, '
+            . 'its billed price (a payment or an Ekdosi document is on it, or it is the first line of its order, which keeps its stub). Settle the difference to the new price by hand (bill it, '
             . 'or credit it if negative): ' . implode('; ', $lines) . '.';
         // As the customer's notice below (EVT-2, review C4 of #695): a mail that fails is reported, stops nothing.
         DB::afterCommit(function () use ($body) {

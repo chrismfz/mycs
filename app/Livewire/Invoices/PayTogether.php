@@ -209,6 +209,12 @@ class PayTogether extends Component
             if (!in_array($gatewayId, array_map('strval', array_column($this->gateways(), 'id')), true)) {
                 return $this->notify(__('Invalid payment method.'), 'error');
             }
+            // Held as each invoice's page holds it (a charge of one of them on its way), and stamped on them all under the
+            // payment locks: the cron does not charge one of them while the group's checkout may still pay it (sweep 3
+            // L-NO-DOUBLE-CHARGE-2).
+            if (!SavedMethodCharge::openCheckout($this->paymentGroup->invoice, $this->paymentGroup)) {
+                return $this->notify(__('A payment for these invoices is already on its way.'), 'error');
+            }
             $this->pay = ExtensionHelper::payGroup(Gateway::query()->findOrFail($gatewayId), $this->paymentGroup);
             if (is_string($this->pay)) {
                 $this->redirect($this->pay);

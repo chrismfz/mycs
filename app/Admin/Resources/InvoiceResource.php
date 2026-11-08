@@ -519,8 +519,9 @@ class InvoiceResource extends Resource
                             throw new Halt;
                         }
                     })
-                    ->visible(fn (Invoice $record): bool => auth()->user()->can('update', Invoice::class)
-                        && !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
+                    // per record, as on ViewInvoice: with immutable invoices on only a draft can be changed
+                    ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
+                    ->visible(fn (Invoice $record): bool => !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
             ])
             ->toolbarActions([
                 MergeInvoicesAction::make(),

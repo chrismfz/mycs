@@ -371,9 +371,9 @@ class Show extends Component
             return $this->notify(__('Invalid payment method.'), 'error');
         }
         // A charge of a saved method not settled (on its way, unknown, taken and not recorded): another checkout could take
-        // the same debt again (predeploy S2). Read under the invoice's payment lock, as SavedMethodCharge does.
-        $held = DB::transaction(fn () => SavedMethodCharge::onItsWay((new RecordPaymentService)->lockInvoice($this->invoice->id)));
-        if ($held) {
+        // the same debt again (predeploy S2). Read under the invoice's payment lock, as SavedMethodCharge does; the checkout
+        // opened is stamped under it too, so the cron's charge waits for it (sweep 3 L-NO-DOUBLE-CHARGE-2).
+        if (!SavedMethodCharge::openCheckout($this->invoice)) {
             return $this->notify(__('A payment for this invoice is already on its way.'), 'error');
         }
 

@@ -219,6 +219,8 @@ class Invoice extends Model implements Auditable
         'apply_pending_since' => 'immutable_datetime',
         'kept_as_debt_at' => 'immutable_datetime',
         'finish_pending_at' => 'immutable_datetime',
+        // The customer opened a gateway's checkout of it (SavedMethodCharge::openCheckout): the cron waits a while.
+        'checkout_opened_at' => 'immutable_datetime',
         // Staff keep it from the cron's charge of the saved method (PR H2b).
         'no_auto_charge' => 'boolean',
         // Staff asked Ekdosi for its document (E5, «Send to Ekdosi»): the feed's `requested`.

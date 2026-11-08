@@ -63,6 +63,17 @@ fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; }
 warn() { printf '\n\033[1;33m! %s\033[0m\n' "$*"; }
 
 [[ -f artisan && -f .env ]] || { fail "Not an installed MyCS checkout: $(pwd) (artisan/.env missing)."; exit 1; }
+# One deploy at a time (sweep 3, L-DEPLOY-MIGRATIONS-3): a second run's `down` succeeds over the first's, and the first's
+# `up` would then open the site, the scheduler and the workers over the second's half-done checkout and migrations. The
+# lock is the open file descriptor: it goes with this process (and its children), a crashed run leaves none behind. A
+# worker that QUEUE_START_CMD leaves running gets it closed (9>&-), or it would hold the lock after the deploy.
+mkdir -p storage/framework
+exec 9>>storage/framework/deploy.lock
+if command -v flock >/dev/null 2>&1; then
+  flock -n 9 || { fail "Another deploy is running on $(pwd) (storage/framework/deploy.lock) — nothing changed. Wait for it, then re-run."; exit 1; }
+else
+  warn "flock not found: no lock against a second deploy running at the same time."
+fi
 _env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
 COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 # Production never gets dev packages (Debugbar, Ignition) nor debug output (security audit SEC-13): refused, unless
@@ -159,7 +170,7 @@ _wait_queue_workers() {
 }
 start_queue_worker() {
   case "$_stopped_by" in
-    hook)    [[ -n "${QUEUE_START_CMD:-}" ]] && { log "Starting queue worker (QUEUE_START_CMD)"; eval "${QUEUE_START_CMD}" || true; } ;;
+    hook)    [[ -n "${QUEUE_START_CMD:-}" ]] && { log "Starting queue worker (QUEUE_START_CMD)"; eval "${QUEUE_START_CMD}" 9>&- || true; } ;;
     systemd) log "Starting queue worker (systemd: ${QUEUE_SERVICE})"; systemctl --no-ask-password start "${QUEUE_SERVICE}" 2>/dev/null \
                || fail "Could not start ${QUEUE_SERVICE} — START IT YOURSELF NOW." ;;
     # A worker its supervisor brought back during maintenance holds the old code, config and settings (AUD8-5):
@@ -287,7 +298,9 @@ fi
 
 # --- 7. database ---------------------------------------------------------------
 log "Database migrations"
-$ART migrate --force
+# --isolated=1: a migrate already running (another process, whatever the lock above misses) is a failure, not a
+# silent success with its migrations still half applied.
+$ART migrate --force --isolated=1
 # No Passport any more (security audit AUTHN-10): its keys, if a host still has them, are no use to anyone.
 rm -f storage/oauth-private.key storage/oauth-public.key
 
@@ -308,9 +321,13 @@ bash deploy/private-files.sh "$APP_DIR"
 
 # --- 10. back up ---------------------------------------------------------------
 trap - ERR
+# The workers told first, then the site up (sweep 3, L-DEPLOY-MIGRATIONS-2): on the queue:restart path a worker its
+# supervisor brought back during maintenance holds the old release and only sleeps; told after `up`, it could wake in
+# between and take a job on the old code. Told before, it exits at its next pause check, having taken none. The ones
+# started after the signal start on the new release; a unit or hook started here sleeps until `up`.
+start_queue_worker
 log "Maintenance mode OFF"
 $ART up
-start_queue_worker
 # The console relay, where it runs on this server (the devbox; docs/proxmox.md, B6), told now, with the new release in
 # place: it sees its `restart_file` touched, exits, and systemd starts the new code. Its consoles drop; the customer
 # reconnects. Where none runs (a cPanel host: the relay is next to the cluster), the file is only a file.
@@ -330,4 +347,4 @@ if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
   # /health is 503 while the scheduler has not run since the maintenance window: told, not a failed deploy.
   [[ "$_health" == "200" ]] || warn "/health → ${_health:-no answer}: look at it in a few minutes (docs/ops.md)."
 fi
-ok "Deployed $(git rev-parse --short HEAD) ($REF). Previous: ${CURRENT_SHA:0:8} — rollback: deploy/update.sh ${CURRENT_SHA:0:8} with ALLOW_DOWNGRADE=1 (+ restore the snapshot if migrations changed data)."
+ok "Deployed $(git rev-parse --short HEAD) ($REF). Previous: ${CURRENT_SHA:0:8} — rollback: docs/install.md («Αν κάτι πάει στραβά»: the snapshot restored inside the maintenance window, the workers restarted before up)."

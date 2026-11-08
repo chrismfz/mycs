@@ -16,6 +16,7 @@ use App\Services\Service\RemoveCoupon;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\ServiceIdentifier;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Closure;
@@ -155,6 +156,8 @@ class Service extends Model implements Auditable
         'suspend_hold_until' => 'date',
         'suspend_hold_notice_for' => 'date',
         'started_unpaid_at' => 'datetime',
+        'accepted_run_create' => 'boolean',
+        'accepted_send_email' => 'boolean',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',
@@ -800,8 +803,20 @@ class Service extends Model implements Auditable
             return;
         }
         $lines = $this->livePeriodLines();
+        $orderInvoice = $this->order_id === null ? null : $this->order?->invoice_id;
         foreach ($lines as $line) {
             if (!in_array($line->invoice?->status, Invoice::OPEN_STATUSES, true)) {
+                continue;
+            }
+            // The order's own line (a pro rata stub to the product's day, its setup fee, a first-cycle coupon: sweep 3,
+            // L-ROUNDING-TAX-1) is not a renewal: rebuilt as one, its setup fee, its coupon and its day would be lost. It
+            // keeps its price and period, as the order line of any other product (no period) does; the service's first period only.
+            // An upgrade to another product still retaxes it (Δ1), and a caller that reports kept lines (the upgrade) is
+            // told of a price the stub would now have, for staff (review REV3-L-ROUNDING-TAX-1); a plan change by staff
+            // (no $kept) leaves it as it is.
+            if ($orderInvoice !== null && (int) $line->invoice_id === (int) $orderInvoice && $line->is($lines->first())) {
+                $this->keepOrderLine($line, $retax, $kept);
+
                 continue;
             }
             $end = $this->periodEnd($line->period_start, $lines);
@@ -817,6 +832,50 @@ class Service extends Model implements Auditable
                     'price' => $this->priceForPeriod($locked->period_start, $end),
                 ] + ($retax ? LineTax::decide($locked) : [])), $kept);
             }
+        }
+    }
+
+    /**
+     * The order's own open line keeps its price, setup fee and period (refreshOpenPeriods). On $retax its tax follows the
+     * new product, under the payment locks (ChangeOpenLine). $kept is told, once per line, when it is billed at another
+     * price than its stub at the new recurring amount (same period, its setup fee as billed), and of a tax it keeps
+     * (a payment or an Ekdosi document on it): staff settle it.
+     *
+     * @param  (Closure(InvoiceItem, InvoiceItem, Invoice): mixed)|null  $kept
+     */
+    private function keepOrderLine(InvoiceItem $line, bool $retax, ?Closure $kept): void
+    {
+        $atNewPrice = function (InvoiceItem $item): void {
+            if ($item->period_start === null || $item->period_end === null) {
+                return;
+            }
+            $price = BigDecimal::of($this->priceForPeriod($item->period_start, $item->period_end))
+                ->plus(BigDecimal::of($item->setup_fee === null ? '0' : (string) $item->setup_fee))->toScale(2, RoundingMode::HalfUp);
+            if (BigDecimal::of((string) $item->price)->compareTo($price) !== 0) {
+                $item->price = (string) $price;
+            }
+        };
+        $told = false;
+        if ($retax) {
+            // Kept at its tax (a payment on it): told with the stub's new price too, in one report.
+            ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill(LineTax::decide($locked)),
+                $kept === null ? null : function (InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice) use ($kept, $atNewPrice, &$told) {
+                    $told = true;
+                    $atNewPrice($wouldBe);
+                    $kept($billed, $wouldBe, $invoice);
+                });
+        }
+        if ($kept === null || $told) {
+            return;
+        }
+        $billed = InvoiceItem::query()->with('invoice')->find($line->getKey());
+        if ($billed === null || $billed->invoice === null || !in_array($billed->invoice->status, Invoice::OPEN_STATUSES, true)) {
+            return;
+        }
+        $wouldBe = clone $billed;
+        $atNewPrice($wouldBe);
+        if ($wouldBe->isDirty('price')) {
+            $kept($billed, $wouldBe, $billed->invoice);
         }
     }
 
