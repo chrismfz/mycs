@@ -14,6 +14,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Ekdosi\EkdosiRequest;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
@@ -394,6 +395,23 @@ class InvoiceObserver
                     report($e);
                 }
             });
+        }
+
+        // No longer paid (refunded, charged back, set back to unpaid): a domain order not sent, or an expired domain's
+        // renewal, held its name by this payment (D-25): it holds it no more (ADV-DNH-4), after this commit.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
+            $domainIds = $invoice->items()->where('reference_type', Domain::class)->pluck('reference_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+            if ($domainIds !== []) {
+                DB::afterCommit(function () use ($domainIds) {
+                    foreach ($domainIds as $domainId) {
+                        try {
+                            DomainNameHold::release($domainId); // busy: the cron's domains_superseded step
+                        } catch (Throwable $e) {
+                            report($e);
+                        }
+                    }
+                });
+            }
         }
 
         if ($invoice->isDirty('status') && $invoice->status == 'paid') {

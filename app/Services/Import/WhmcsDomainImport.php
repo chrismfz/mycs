@@ -314,6 +314,7 @@ final class WhmcsDomainImport
         $clients = DB::table('clients')->pluck('id')->flip()->all();
         $orders = DB::table('orders')->pluck('id')->flip()->all();
         $tlds = DomainTld::query()->pluck('id', 'tld')->all();
+        $stageDays = DomainTld::query()->get(['id', 'grace_days', 'redemption_days'])->keyBy('id');
         $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'email'])->keyBy('primary_of_client_id');
         $currencies = $this->pairs('SELECT c.id, cur.code FROM tblclients c JOIN tblcurrencies cur ON cur.id = c.currency');
         $default = (string) config('settings.default_currency', 'USD');
@@ -324,6 +325,9 @@ final class WhmcsDomainImport
         $migrations = $this->migrations();
         $paidRenewals = $this->has('tblinvoiceitems') && $this->has('tblinvoices') ? array_flip(array_map('intval', $this->column("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii
             JOIN tblinvoices i ON i.id = ii.invoiceid WHERE ii.type = 'Domain' AND i.status = 'Paid'"))) : [];
+        // Orders paid in WHMCS (their register or transfer line): pending, they hold their name here (D-25).
+        $paidOrders = $this->has('tblinvoiceitems') && $this->has('tblinvoices') ? array_flip(array_map('intval', $this->column("SELECT DISTINCT ii.relid FROM tblinvoiceitems ii
+            JOIN tblinvoices i ON i.id = ii.invoiceid WHERE ii.type IN ('DomainRegister', 'DomainTransfer') AND i.status = 'Paid'"))) : [];
         $live = [];
         $rows = [];
         foreach ($this->rows('SELECT * FROM tbldomains ORDER BY id') as $row) {
@@ -409,6 +413,10 @@ final class WhmcsDomainImport
                 'tld' => $tld,
                 'fqdn' => $fqdn,
                 'status' => $status->value,
+                // A pending order holds its name once paid or sent (D-25): WHMCS sent it, or its order line is paid. An
+                // expired one until its registry's recovery window ends (owner 2026-11-08, Domain::recoveryEnd).
+                'name_held_at' => ($status->isPending() && (!empty($meta['sent_at']) || isset($paidOrders[$id])))
+                    || ($status === DomainStatus::Expired && self::recoverable($expires, $stageDays[$tlds[$tld] ?? 0] ?? null)) ? now()->toDateTimeString() : null,
                 'registered_at' => $this->date($row['registrationdate'] ?? null, dateOnly: true),
                 'expires_at' => $this->date($row['expirydate'] ?? null, dateOnly: true),
                 'years' => $years,
@@ -433,25 +441,70 @@ final class WhmcsDomainImport
             $this->counts['handles'] += count($roleHandles);
             $this->counts['handles_kept'] += count($kept);
         }
-        // One live row per name here (live_fqdn): of WHMCS's live rows of a name, the current one stays (active before
-        // pending, grace, redemption, expired; then the later expiry, then the newer row); the others come cancelled, listed.
+        // One row holds a name here (live_fqdn, D-25: active, grace, redemption, a pending order paid or sent, an expired
+        // one still recoverable). Of WHMCS's rows of a name not ended, where one of them holds it: the current holder stays
+        // (active before pending, grace, redemption, expired; then the later expiry, then the newer row) and the others
+        // come cancelled, listed, as the app closes them once a row holds the name (DomainNameHold::closeOthers). Rows
+        // none of which holds it (expired past their window, unpaid orders) all stay: whoever pays first takes the name.
         $rank = [DomainStatus::Active->value => 0, DomainStatus::PendingTransfer->value => 1, DomainStatus::PendingRegister->value => 1,
             DomainStatus::Grace->value => 2, DomainStatus::Redemption->value => 3, DomainStatus::Expired->value => 4];
+        $holds = fn (int $index) => DomainStatus::from($rows[$index]['status'])->holdsName($rows[$index]['name_held_at'] !== null);
         foreach ($live as $fqdn => $indexes) {
-            if (count($indexes) < 2) {
+            if (count($indexes) < 2 || array_filter($indexes, $holds) === []) {
                 continue;
             }
-            usort($indexes, fn (int $a, int $b) => [$rank[$rows[$a]['status']] ?? 9, -strtotime((string) ($rows[$a]['expires_at'] ?? '1970-01-01')), -$rows[$a]['id']]
-                <=> [$rank[$rows[$b]['status']] ?? 9, -strtotime((string) ($rows[$b]['expires_at'] ?? '1970-01-01')), -$rows[$b]['id']]);
+            // A row its registry still has as its customer's (grace, redemption, expired inside its window) is never put
+            // behind another customer's order (REV2-DNH-3): in the app it held first, closeOthers never closes it and
+            // claim refuses the later payment. That order comes after it, so it is never sent to a registry that has the
+            // name as someone else's. One of its own customer's (a renewal as a transfer) stays first, as before.
+            $registry = [];
+            foreach ($indexes as $index) {
+                if ($holds($index) && !DomainStatus::from($rows[$index]['status'])->isPending() && $rows[$index]['status'] !== DomainStatus::Active->value) {
+                    $registry[$rows[$index]['client_id']] = true;
+                }
+            }
+            $order = fn (int $index) => [$holds($index) ? 0 : 1,
+                $registry !== [] && DomainStatus::from($rows[$index]['status'])->isPending() && !isset($registry[$rows[$index]['client_id']])
+                    ? 5 : ($rank[$rows[$index]['status']] ?? 9),
+                -strtotime((string) ($rows[$index]['expires_at'] ?? '1970-01-01')), -$rows[$index]['id']];
+            usort($indexes, fn (int $a, int $b) => $order($a) <=> $order($b));
             foreach (array_slice($indexes, 1) as $index) {
+                if ($rows[$index]['name_held_at'] !== null && DomainStatus::from($rows[$index]['status'])->isPending()
+                    && empty(json_decode((string) $rows[$index]['meta'], true)['sent_at'] ?? null)) {
+                    // Paid after its name was another's, not sent: it stays, holding nothing, for staff to refund or credit
+                    // (as claim's refusal in the app), never cancelled under its money. One sent comes cancelled, listed.
+                    $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: an order paid in WHMCS, but the name is #{$rows[$indexes[0]]['id']}'s: imported without its hold, refund or credit it.";
+                    $rows[$index]['name_held_at'] = null;
+
+                    continue;
+                }
                 $this->notes[] = "Domain #{$rows[$index]['id']} {$fqdn}: also live as #{$rows[$indexes[0]]['id']} in WHMCS, imported cancelled: check them.";
                 $rows[$index]['status'] = DomainStatus::Cancelled->value;
+                $rows[$index]['name_held_at'] = null;
             }
         }
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('domains')->insert($chunk);
         }
         $this->imported = null;
+    }
+
+    /**
+     * An expired domain still recoverable at its registry today (D-25, owner 2026-11-08): its expiry plus its TLD's grace
+     * and redemption days, as Domain::recoveryEndsOn reads them (no registrar's stage dates yet at import), plus the
+     * default days when they are not both known (counted from the end of what is known, REV2-DNH-1).
+     */
+    private static function recoverable(?string $expires, ?DomainTld $tld): bool
+    {
+        if ($expires === null) {
+            return false;
+        }
+        $expiry = Carbon::parse($expires)->startOfDay();
+        $grace = $tld?->grace_days;
+        $redemption = $tld?->redemption_days;
+        $last = $expiry->copy()->addDays(max(0, (int) $grace) + max(0, (int) $redemption));
+
+        return !Domain::recoveryEnd($last, $grace !== null && $redemption !== null)->startOfDay()->lessThan(today());
     }
 
     /**

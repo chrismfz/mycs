@@ -33,6 +33,7 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Billing\ClientGroupPricing;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Domains\DomainReminders;
 use App\Services\Domains\DomainRenewalService;
@@ -617,8 +618,9 @@ class CronJob extends Command
                         $this->failures["orders_cancelled #{$id}"] = $e;
                     }
                 }
-                // Domains ordered and not paid in as many days (D8b): cancelled, their lines off their invoice, the name
-                // free again (live_fqdn). One with money from a gateway or a transfer on it is left to staff.
+                // Domains ordered and not paid in as many days (D8b): cancelled, their lines off their invoice. An unpaid
+                // order never held its name (D-25, owner 2026-11-08: another customer may order it, whoever pays first
+                // holds it); this ends the order. One with money from a gateway or a transfer on it is left to staff.
                 foreach ($days <= 0 ? [] : $this->domainOrderPartPaid($days) as $partPaid) {
                     $this->notices["orders_cancelled domain #{$partPaid}"] = new DisplayException("Domain #{$partPaid} is an order part paid and not registered or transferred yet: not cancelled (refund it, or take the rest).");
                 }
@@ -646,6 +648,44 @@ class CronJob extends Command
                         report($e);
                         $this->failures["orders_cancelled domain #{$id}"] = $e;
                     }
+                }
+
+                return $number;
+            }, transaction: false);
+
+            // A name held by one row (D-25: active, grace, redemption, an order paid, an expired row still recoverable)
+            // while others of it that no longer hold it are still open (an expired row past its window, an unpaid order): closed, as when the holder took the name
+            // (DomainNameHold::closeOthers, after its commit). This catches what that left (busy, a write that bypassed
+            // the model). One sent to its registrar, busy, or with money on its invoice is staff's: told once a month.
+            $this->runCronJob('domains_superseded', function ($number = 0) {
+                // A hold whose payment no longer stands (ADV-DNH-4: refunded past the model, or found busy), or an expired
+                // row's past the end of its registry's recovery window (D-25, owner 2026-11-08: live_fqdn cannot read the
+                // date, so this step ends it, daily): released first, so the name is free again and its rows are read as
+                // they are.
+                foreach (DomainNameHold::staleHolds() as $id) {
+                    try {
+                        $number += DomainNameHold::release($id) ? 1 : 0;
+                    } catch (Throwable $e) {
+                        $this->failures["domains_superseded release #{$id}"] = $e;
+                    }
+                }
+                // An expired row inside its window that holds nothing (REV2-DNH-2): its name back, if no row holds it.
+                foreach (DomainNameHold::unheldRecoverable() as $id) {
+                    try {
+                        $domain = Domain::query()->find($id);
+                        $number += $domain !== null && DomainNameHold::claim($domain) ? 1 : 0;
+                    } catch (Throwable $e) {
+                        $this->failures["domains_superseded claim #{$id}"] = $e;
+                    }
+                }
+                $holders = Domain::query()->whereNotNull('live_fqdn')->whereExists(fn ($q) => $q->from('domains as other')
+                    ->whereColumn('other.fqdn', 'domains.fqdn')->whereColumn('other.id', '!=', 'domains.id')
+                    ->whereNull('other.live_fqdn')->whereNotIn('other.status', DomainStatus::terminalValues()))->pluck('id');
+                foreach ($holders as $id) {
+                    $done = DomainNameHold::closeOthers((int) $id, tellStaff: false);
+                    $number += count($done['closed']);
+                    $this->leftOpen(array_filter($done['left'], fn ($reason, $key) => !$reason instanceof DisplayException
+                        || Cache::add('domain-superseded-left:' . $key . ':' . sha1($reason->getMessage()), true, now()->addDays(30)), ARRAY_FILTER_USE_BOTH));
                 }
 
                 return $number;
@@ -1383,7 +1423,7 @@ class CronJob extends Command
         }
         $last = $domain->redemptionEndsOn() ?? $domain->graceEndsOn()
             ?? $domain->expires_at->copy()->addDays((int) $domain->graceDays() + (int) $domain->redemptionDays());
-        $floor = $domain->expires_at->copy()->addDays(30);
+        $floor = $domain->expires_at->copy()->addDays(Domain::RECOVERY_DEFAULT_DAYS);
 
         return ($last->greaterThan($floor) ? $last : $floor)->copy()->startOfDay()->lessThan(today());
     }

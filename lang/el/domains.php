@@ -288,6 +288,7 @@ return [
         'manage_contacts' => 'Προσθήκη ή συμπλήρωση επαφής',
         'not_offered' => 'Δεν διαθέτουμε αυτό το domain.',
         'years_not_offered' => 'Αυτό το domain δεν διατίθεται για :years έτος/η.',
+        'already_ordered' => 'Έχετε ήδη παραγγείλει το :domain: πληρώστε το τιμολόγιο εκείνης της παραγγελίας ή ακυρώστε την πριν το παραγγείλετε ξανά.',
         'already_here' => 'Το :domain δεν μπορεί να παραγγελθεί εδώ: επικοινωνήστε μαζί μας αν είναι δικό σας.',
         'taken' => 'Το :domain δεν είναι πλέον διαθέσιμο.',
         'not_registered' => 'Το :domain δεν είναι κατοχυρωμένο: καταχωρίστε το αντί να το μεταφέρετε.',
@@ -298,6 +299,7 @@ return [
         'no_nameservers' => ':domain: δεν υπάρχουν nameservers να σταλούν (ορίστε «Default Nameservers» ή προσθέστε τους στο domain), και μετά Retry.',
         'sent_after_cancel' => ':domain: έγινε στον registrar, αλλά η παραγγελία του ακυρώθηκε ή επιστράφηκαν τα χρήματα στο μεταξύ. Αποφασίστε: το κρατάμε (νέα χρέωση) ή το διαγράφουμε στον registrar.',
         'ns_unknown' => ':domain: οι τωρινοί nameservers του δεν διαβάστηκαν από το μητρώο, οπότε η μεταφορά δεν ξεκίνησε (πρέπει να τους κρατήσει). Προσθέστε τους στο domain και μετά Retry.',
+        'name_held' => ':domain: πληρώθηκε, αλλά το όνομα το κρατά ήδη άλλο domain εδώ (:holder), που πληρώθηκε ή καταχωρίστηκε πρώτο: δεν στάλθηκε στον registrar. Επιστρέψτε ή πιστώστε την παραγγελία (Cancel Order) και μετά Close.',
     ],
     // The registry's statuses, EPP and the EETT's, for staff (G8-3, grepp.md §6).
     'registry_status' => [

@@ -353,4 +353,94 @@ class ImportDomainsTest extends TestCase
             $this->assertSame($expected, $domain->renewalPrice(), "#{$id} here");
         }
     }
+
+    /**
+     * D-25 (owner 2026-11-08): one row holds a name (active, grace, redemption, or a pending order paid or sent). Where
+     * one of WHMCS's rows of a name holds it, the others come cancelled as before; rows none of which holds it (expired,
+     * unpaid orders) all stay, and the first paid takes the name.
+     */
+    public function test_one_row_holds_a_name_and_rows_that_hold_nothing_all_stay(): void
+    {
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, status TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, type TEXT, relid INT)');
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(21, 'twice.com', 'Active', 'openprovider');
+        $this->domain(22, 'twice.com', 'Expired', 'openprovider', ['expirydate' => '2026-01-01']);
+        $this->domain(23, 'nobody.com', 'Expired', 'openprovider', ['expirydate' => '2026-01-01']);
+        $this->domain(24, 'nobody.com', 'Pending', 'openprovider', $order);
+        $this->domain(25, 'race.com', 'Pending', 'openprovider', $order);
+        $this->domain(26, 'race.com', 'Pending', 'openprovider', $order);
+        $this->domain(27, 'sent.com', 'Pending Registration', 'openprovider', $order);
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (1, 'Paid'), (2, 'Unpaid')");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 1, 'DomainRegister', 25), (2, 2, 'DomainRegister', 26)");
+
+        $this->run_();
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $status = fn (int $id) => $domains[$id]->status->value;
+        $this->assertSame(['active', 'cancelled'], [$status(21), $status(22)], 'held by the active row: the expired one cancelled, as before');
+        $this->assertSame(['expired', 'pending_register'], [$status(23), $status(24)], 'neither holds it: both stay');
+        $this->assertSame([null, null], [$domains[23]->live_fqdn, $domains[24]->live_fqdn]);
+        $this->assertSame(['pending_register', 'cancelled'], [$status(25), $status(26)], 'the paid order holds it, the unpaid one cancelled');
+        $this->assertSame(['race.com', null], [$domains[25]->live_fqdn, $domains[26]->live_fqdn]);
+        $this->assertNotNull($domains[27]->name_held_at, 'sent by WHMCS: it holds its name');
+        $this->assertSame('sent.com', $domains[27]->live_fqdn);
+    }
+
+    /**
+     * D-25 (owner 2026-11-08): an expired row its registry may still give back (expiry + grace + redemption: .com's 30 +
+     * 30 here) holds its name, so an unpaid order of the name comes cancelled; one past its window not.
+     */
+    public function test_an_expired_row_inside_its_recovery_window_holds_its_name(): void
+    {
+        $this->freezeTime();
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(31, 'recent.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(60)->toDateString()]);
+        $this->domain(32, 'recent.com', 'Pending', 'openprovider', $order);
+        $this->domain(33, 'old.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(61)->toDateString()]);
+        $this->domain(34, 'old.com', 'Pending', 'openprovider', $order);
+
+        $this->run_();
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $this->assertSame(['recent.com', null], [$domains[31]->live_fqdn, $domains[32]->live_fqdn]);
+        $this->assertSame([DomainStatus::Expired, DomainStatus::Cancelled], [$domains[31]->status, $domains[32]->status], 'the unpaid order cancelled');
+        $this->assertSame([null, null], [$domains[33]->live_fqdn, $domains[34]->live_fqdn], 'past its window: neither holds');
+        $this->assertSame([DomainStatus::Expired, DomainStatus::PendingRegister], [$domains[33]->status, $domains[34]->status]);
+    }
+
+    /**
+     * REV2-DNH-1/3: another customer's paid order of a name its registry still has as its customer's (active, or expired
+     * inside its window) comes after it, holding nothing and not cancelled (staff refund or credit it); its own customer's
+     * order (a renewal as a transfer) still comes first. A TLD whose grace is known but not its redemption: 30 days after
+     * its grace.
+     */
+    public function test_another_customers_paid_order_comes_after_the_registrys_row_and_keeps_its_money(): void
+    {
+        $this->freezeTime();
+        $this->whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, status TEXT)');
+        $this->whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, type TEXT, relid INT)');
+        $this->whmcs->exec("INSERT INTO tbldomainpricing VALUES (4, '.net', 'openprovider', 1, 1, 1, 1, 40, NULL, 4)");
+        $other = User::factory()->create()->client();
+        $this->whmcs->exec("INSERT INTO tblclients VALUES ({$other->id}, 1)");
+        $order = ['expirydate' => '0000-00-00', 'registrationdate' => '0000-00-00'];
+        $this->domain(51, 'kept.com', 'Active', 'openprovider');
+        $this->domain(52, 'kept.com', 'Pending', 'openprovider', ['userid' => $other->id] + $order);
+        $this->domain(53, 'own.com', 'Expired', 'openprovider', ['expirydate' => now()->subDays(10)->toDateString()]);
+        $this->domain(54, 'own.com', 'Pending', 'openprovider', ['type' => 'Transfer'] + $order);
+        $this->domain(55, 'grace.net', 'Expired', 'openprovider', ['expirydate' => now()->subDays(65)->toDateString()]);
+        $this->domain(56, 'gone.net', 'Expired', 'openprovider', ['expirydate' => now()->subDays(71)->toDateString()]);
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (1, 'Paid')");
+        $this->whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 1, 'DomainRegister', 52), (2, 1, 'DomainTransfer', 54)");
+
+        $notes = implode("\n", $this->run_()['notes']);
+
+        $domains = Domain::query()->orderBy('id')->get()->keyBy('id');
+        $this->assertSame(['kept.com', null], [$domains[51]->live_fqdn, $domains[52]->live_fqdn]);
+        $this->assertSame(DomainStatus::PendingRegister, $domains[52]->status, 'paid: kept for staff, never cancelled under its money');
+        $this->assertStringContainsString('Domain #52 kept.com: an order paid in WHMCS', $notes);
+        $this->assertSame([DomainStatus::Cancelled, DomainStatus::PendingTransfer], [$domains[53]->status, $domains[54]->status], 'its own order first, as before');
+        $this->assertSame('own.com', $domains[54]->live_fqdn);
+        $this->assertSame(['grace.net', null], [$domains[55]->live_fqdn, $domains[56]->live_fqdn], 'grace 40, then 30 days: 70 days');
+    }
 }

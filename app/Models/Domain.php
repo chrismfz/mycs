@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Services\Billing\ClientGroupPricing;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Payment\ItemPaymentMethod;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Nixpal\DomainTools\DomainName;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -32,8 +34,11 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string $sld
  * @property string $tld
  * @property string $fqdn lowercase ASCII (IDN as punycode)
- * @property string|null $live_fqdn = fqdn while not ended, computed by the database
+ * @property string|null $live_fqdn = fqdn while it holds its name (holdsName, D-25), computed by the database: unique
  * @property DomainStatus $status
+ * @property Carbon|null $name_held_at a pending order's hold of its name: paid, free as ordered, or sent (D-25); an expired row's
+ *                                     until its recovery window ends (recoveryEndsOn) or while a renewal of it is paid and
+ *                                     waiting (ADV-DNH-1); null otherwise
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
  * @property Carbon|null $expires_at
@@ -88,7 +93,13 @@ class Domain extends Model implements Auditable
     protected $hidden = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
     /** Bookkeeping of the sync, not a change of the domain (docs/domains.md D-9). */
-    protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code']; // a transfer's code: never in an audit (D8b)
+    protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code', 'name_held_at']; // a transfer's code: never in an audit (D8b); name_held_at is bookkeeping of D-25, not a change staff made
+
+    /**
+     * Days after its expiry its registry may still give an expired domain back when its grace and redemption are not
+     * known (D-25 and a deleted domain's recovery: myip's hook, 30 days).
+     */
+    public const RECOVERY_DEFAULT_DAYS = 30;
 
     public const TEMPLATE_HIDDEN = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
@@ -101,6 +112,30 @@ class Domain extends Model implements Auditable
             }
             if ($domain->wasChanged('no_auto_charge') && $domain->no_auto_charge) {
                 ItemPaymentMethod::keepApart($domain);
+            }
+            // Expired again inside its recovery window without a hold (REV2-DNH-2: set back from cancelled): its customer's
+            // still, it takes its name back, unless another row holds it by now (claim refuses; staff's, told by the cron).
+            if ($domain->wasChanged('status') && $domain->status === DomainStatus::Expired && $domain->name_held_at === null
+                && $domain->inRecoveryWindow()) {
+                $id = (int) $domain->id;
+                DB::afterCommit(function () use ($id) {
+                    $fresh = Domain::query()->find($id);
+                    if ($fresh !== null) {
+                        DomainNameHold::claim($fresh);
+                    }
+                });
+            }
+            // It holds its name from now on (D-25): the other rows of the name that no longer hold it are closed.
+            if ($domain->wasChanged(['status', 'name_held_at']) && $domain->holdsName()
+                && !self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)) {
+                $id = (int) $domain->id;
+                DB::afterCommit(fn () => DomainNameHold::closeOthers($id));
+            }
+        });
+        static::created(function (self $domain) {
+            if ($domain->holdsName()) {
+                $id = (int) $domain->id;
+                DB::afterCommit(fn () => DomainNameHold::closeOthers($id));
             }
         });
         // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
@@ -127,7 +162,34 @@ class Domain extends Model implements Auditable
                     $domain->{"{$role}_handle"} = null;
                 }
             }
+            // A pending order's hold of its name (D-25): only a pending row has one, or an expired row until the end of
+            // its registry's recovery window (owner 2026-11-08: expiry + grace + redemption, recoveryEndsOn) or while a
+            // renewal of it is paid and waiting (ADV-DNH-1): becoming expired, it keeps the name it held; the cron's
+            // domains_superseded step releases it once neither stands. Sent to its registrar, it holds (it was claimed
+            // before it was sent); one of ours that becomes pending again (a renewal as a transfer) keeps it.
+            if ($domain->status === DomainStatus::Expired) {
+                if ($domain->isDirty('status')) {
+                    $domain->name_held_at = $domain->exists && self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)
+                        && ($domain->inRecoveryWindow() || DomainNameHold::renewalWaiting($domain)) ? ($domain->name_held_at ?? now()) : null;
+                }
+            } elseif (!$domain->status->isPending()) {
+                $domain->name_held_at = null;
+            } elseif ($domain->name_held_at === null && (!empty($domain->meta['sent_at'])
+                || ($domain->exists && self::holding($domain->getOriginal('status'), false)))) {
+                $domain->name_held_at = now();
+            }
         });
+    }
+
+    /** It holds its name (D-25): active, grace, redemption, a pending order paid or sent, an expired row renewed (name_held_at). */
+    public function holdsName(): bool
+    {
+        return self::holding($this->status, $this->name_held_at !== null);
+    }
+
+    private static function holding(mixed $status, bool $held): bool
+    {
+        return $status instanceof DomainStatus && $status->holdsName($held);
     }
 
     /** A name as it is stored: trimmed, lowercase, ASCII (punycode), without the root's trailing dot. */
@@ -164,6 +226,7 @@ class Domain extends Model implements Auditable
             'email_forwarding' => 'boolean',
             'dnssec_enabled' => 'boolean',
             'last_synced_at' => 'datetime',
+            'name_held_at' => 'datetime',
             'grace_days_override' => 'integer',
             'redemption_days_override' => 'integer',
             'grace_fee_override' => 'decimal:2',
@@ -412,6 +475,40 @@ class Domain extends Model implements Auditable
         $days = $this->graceDays();
 
         return $this->expires_at !== null && $days !== null && $days > 0 ? $this->expires_at->copy()->addDays($days) : null;
+    }
+
+    /**
+     * The last day its registry may still give it back to its customer (owner 2026-11-08, D-25): the end of its
+     * redemption, else of its grace, else its expiry, by the same dates and days as its life (DomainLifecycle, D5a). When
+     * neither its registrar's dates nor both its days (its own or its TLD's) are known, RECOVERY_DEFAULT_DAYS after the end
+     * of what is known (its expiry when nothing is: as a deleted domain's recovery, CronJob::pastRecovery). Null without an expiry.
+     */
+    public function recoveryEndsOn(): ?Carbon
+    {
+        if ($this->expires_at === null) {
+            return null;
+        }
+        $known = $this->hasRegistrarStageDates() || ($this->graceDays() !== null && $this->redemptionDays() !== null);
+
+        return self::recoveryEnd($this->redemptionEndsOn() ?? $this->graceEndsOn() ?? $this->expires_at, $known);
+    }
+
+    /**
+     * Its last recoverable day (D-25): $last, the end of the stages that are known, as it is when $known; else the default
+     * days counted from it (REV2-DNH-1: from the end of a known grace, not from the expiry, which the grace would swallow),
+     * so the part that is not known is always covered.
+     */
+    public static function recoveryEnd(Carbon $last, bool $known): Carbon
+    {
+        return $known ? $last->copy() : $last->copy()->addDays(self::RECOVERY_DEFAULT_DAYS);
+    }
+
+    /** Today is on or before its last recoverable day (D-25): an expired row holds its name till then. */
+    public function inRecoveryWindow(): bool
+    {
+        $end = $this->recoveryEndsOn();
+
+        return $end !== null && !$end->copy()->startOfDay()->lessThan(today());
     }
 
     /**

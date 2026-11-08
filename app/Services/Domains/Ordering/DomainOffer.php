@@ -2,6 +2,7 @@
 
 namespace App\Services\Domains\Ordering;
 
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Domain;
 use App\Models\DomainTld;
@@ -11,15 +12,18 @@ use Nixpal\DomainTools\DomainName;
 
 /**
  * What the shop sells of a name (D8b): a TLD we sell, active, with a price for the operation and years (D-5: years per
- * TLD and operation); a register only when free (never a premium name, D8a), a transfer only when taken and not ours
- * already; a name in another script only where its TLD allows it. Checked when added to the cart and again at checkout.
+ * TLD and operation); a register only when free (never a premium name, D8a), a transfer only when taken and not held
+ * here (D-25); a name in another script only where its TLD allows it. Checked when added to the cart and again at checkout.
  */
 class DomainOffer
 {
     public function __construct(private readonly DomainSearch $search) {}
 
-    /** @return array{0: string, 1: DomainTld} the normalised name and its TLD */
-    public function check(string $fqdn, string $operation, int $years, string $currency, bool $availability = true): array
+    /**
+     * @param  int|null  $clientId  the account ordering it (ADV-DNH-3): never a second open order of a name it ordered
+     * @return array{0: string, 1: DomainTld} the normalised name and its TLD
+     */
+    public function check(string $fqdn, string $operation, int $years, string $currency, bool $availability = true, ?int $clientId = null): array
     {
         if (!in_array($operation, [DomainOrderLine::REGISTER, DomainOrderLine::TRANSFER], true) || !self::allowed($operation)) {
             throw new DisplayException(__('domains.order.not_offered'));
@@ -50,9 +54,19 @@ class DomainOffer
         if (!$tld->registrarCan($operation)) {
             throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)]));
         }
-        // One live record per name (live_fqdn): a name pending or ours already is not ordered again.
+        // A name held here is not ordered again (D-25, owner 2026-11-08, as WHMCS): active, in grace or redemption, an
+        // order paid, or expired and still recoverable at its registry (expiry + grace + redemption: name_held_at until
+        // the daily domains_superseded step releases it), all in live_fqdn, the one source. An expired row past its
+        // window or an unpaid order of it does not hold it: ordered again, whoever pays first holds it (DomainNameHold),
+        // and the other rows are closed.
         if (Domain::query()->where('live_fqdn', $fqdn)->exists()) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
+        }
+        // Nor by the same account twice (ADV-DNH-3): its unpaid order holds nothing, so live_fqdn no longer stops a
+        // second one (two tabs, a retry), and paying both would charge it twice. Its order is paid, or cancelled first.
+        if ($clientId !== null && Domain::query()->where('client_id', $clientId)->where('fqdn', $fqdn)
+            ->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->exists()) {
+            throw new DisplayException(__('domains.order.already_ordered', ['domain' => $fqdn]));
         }
         if ($availability) {
             $error = self::availabilityError($this->search->statuses([$fqdn => $tld])[$fqdn] ?? DomainSearch::UNKNOWN, $operation, $fqdn);

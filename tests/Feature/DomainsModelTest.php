@@ -171,7 +171,12 @@ class DomainsModelTest extends TestCase
             DB::table('domains')->insert(['client_id' => $client, 'sld' => "raw{$i}", 'tld' => 'test', 'fqdn' => "raw{$i}.test",
                 'status' => $status->value, 'currency_code' => 'USD', 'created_at' => now(), 'updated_at' => now()]);
             $live = DB::table('domains')->where('fqdn', "raw{$i}.test")->value('live_fqdn');
-            $this->assertSame($status->isTerminal() ? null : "raw{$i}.test", $live, $status->value);
+            // Only a row that holds its name (D-25, owner 2026-11-08): never an expired one or an order not paid.
+            $this->assertSame($status->holdsName() ? "raw{$i}.test" : null, $live, $status->value);
+            // A pending order paid (name_held_at) holds it too; nothing else does by that column.
+            DB::table('domains')->where('fqdn', "raw{$i}.test")->update(['name_held_at' => now()]);
+            $live = DB::table('domains')->where('fqdn', "raw{$i}.test")->value('live_fqdn');
+            $this->assertSame($status->holdsName(paid: true) ? "raw{$i}.test" : null, $live, "{$status->value}, paid");
         }
     }
 

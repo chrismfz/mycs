@@ -288,6 +288,7 @@ return [
         'manage_contacts' => 'Add or complete a contact',
         'not_offered' => 'We do not offer this domain.',
         'years_not_offered' => 'This domain is not offered for :years year(s).',
+        'already_ordered' => 'You have ordered :domain already: pay that order\'s invoice, or cancel it before ordering it again.',
         'already_here' => ':domain cannot be ordered here: contact us if it is yours.',
         'taken' => ':domain is not available any more.',
         'not_registered' => ':domain is not registered: register it instead of transferring it.',
@@ -298,6 +299,7 @@ return [
         'no_nameservers' => ':domain: no nameservers to send (set «Default Nameservers», or add them to the domain), then Retry.',
         'sent_after_cancel' => ':domain: done at the registrar, but its order was cancelled or refunded meanwhile. Decide: keep it (re-bill), or delete it at the registrar.',
         'ns_unknown' => ':domain: its current nameservers could not be read from the registry, so the transfer was not started (it must keep them). Add them to the domain, then Retry.',
+        'name_held' => ':domain: paid, but its name is held by another domain here (:holder), paid or registered first: not sent to the registrar. Refund or credit its order (Cancel Order), then Close.',
     ],
     // The registry's statuses, EPP and the EETT's, for staff (G8-3, grepp.md §6).
     'registry_status' => [

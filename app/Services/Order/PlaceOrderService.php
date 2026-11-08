@@ -16,6 +16,7 @@ use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Service\RenewServiceService;
@@ -205,10 +206,10 @@ final class PlaceOrderService
         if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {
             throw new DisplayException(__('domains.order.contact_incomplete'));
         }
-        // Under the account's lock: only what the database says (the TLD, its price, the name not ours). Whether the name
-        // is free or taken was asked of its registrar before the lock (code review M2): never a registrar call while
-        // every payment of the account waits.
-        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false);
+        // Under the account's lock: only what the database says (the TLD, its price, the name not held here nor ordered by
+        // this account already: ADV-DNH-3, race-free under the lock). Whether the name is free or taken was asked of its
+        // registrar before the lock (code review M2): never a registrar call while every payment of the account waits.
+        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false, clientId: (int) $client->id);
         if ($line->operation === DomainOrderLine::TRANSFER && $tld->epp_code_required && trim((string) $line->eppCode) === '') {
             throw new DisplayException(__('domains.order.epp_required', ['domain' => $fqdn]));
         }
@@ -247,7 +248,11 @@ final class PlaceOrderService
         }
         $net = OrderPricing::toNet($price, $client);
         if (!BigDecimal::of($net)->isPositive()) {
-            // Nothing to pay (a free transfer, D-6): sent to its registrar once this order commits (D8b-2).
+            // Nothing to pay (a free transfer, D-6): it holds its name now, as one paid (D-25), unless another was paid a
+            // moment ago; sent to its registrar once this order commits (D8b-2).
+            if (!DomainNameHold::claim($domain)) {
+                throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
+            }
             $domainId = (int) $domain->id;
             DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
 

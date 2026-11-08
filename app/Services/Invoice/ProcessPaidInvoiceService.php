@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoice;
 
+use App\Enums\DomainStatus;
 use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Jobs\Domains\RenewDomainJob;
 use App\Models\Domain;
@@ -10,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
@@ -35,12 +37,26 @@ class ProcessPaidInvoiceService
                 // (applied_at), never here, and never this invoice's marker (D5b-1 review 1). Fees have nothing to do.
                 if ($item->reference_type == Domain::class) {
                     if ($item->kind === null && $item->period_end !== null && $item->applied_at === null) {
+                        // An expired row's renewal paid: it holds its name from now on (D-25, ADV-DNH-1), unless another
+                        // row paid or registered first; then the renewal goes to staff before any charge (renewLine).
+                        $domain = Domain::query()->find((int) $item->reference_id);
+                        if ($domain?->status === DomainStatus::Expired) {
+                            DomainNameHold::claim($domain);
+                        }
                         $lineId = (int) $item->id;
                         DB::afterCommit(fn () => RenewDomainJob::dispatch($lineId));
                     }
                     // A domain ordered (D8b-2): registered or its transfer started at its registrar, after this commit.
                     if (in_array($item->kind, [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER], true) && $item->applied_at === null) {
                         $domainId = (int) $item->reference_id;
+                        // Paid: it holds its name from now on, unless another row paid or registered first (D-25): then
+                        // refused as a registrar's refusal (staff refund or credit it), never sent.
+                        $domain = Domain::query()->find($domainId);
+                        if ($domain !== null && $domain->status->isPending() && !DomainNameHold::claim($domain)) {
+                            DomainNameHold::refuse($domain, $item);
+
+                            return;
+                        }
                         DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
                     }
 
