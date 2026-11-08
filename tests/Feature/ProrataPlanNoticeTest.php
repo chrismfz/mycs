@@ -209,4 +209,49 @@ class ProrataPlanNoticeTest extends TestCase
         $this->assertCount(0, $this->notices());
         $this->assertCount(0, $this->activity($line));
     }
+
+    /** Review REV-PPN-3: A to B, back to A (the same stub: nothing), A to B again: two changes told, two activity rows. */
+    public function test_a_change_made_again_after_a_change_back_is_told_again(): void
+    {
+        [$product, $plan, $pricier] = $this->catalog();
+        [$service, $line] = $this->order($product, $plan);
+
+        $this->staffSave($service, ['plan_id' => $pricier->id]);
+        $this->staffSave($service, ['plan_id' => $plan->id]);
+        $this->staffSave($service, ['plan_id' => $pricier->id]);
+
+        $this->assertCount(2, $this->notices());
+        $this->assertCount(2, $this->activity($line), 'each change in the invoice\'s activity, not the second taken for the first');
+    }
+
+    /**
+     * Review REV-PPN-4: an Active service whose order is still unpaid (staff activated it) keeps the old stub all the same
+     * and is told; the plan set for its next renewal, applied by the cron (RenewalBilling), is told as the cron's.
+     */
+    public function test_an_active_service_with_its_order_unpaid_is_told_and_a_cron_change_says_so(): void
+    {
+        [$product, $plan, $pricier] = $this->catalog();
+        [$service, $line] = $this->order($product, $plan);
+        $service->forceFill(['status' => Service::STATUS_ACTIVE, 'next_plan_id' => $pricier->id])->save();
+        $this->assertCount(0, $this->notices());
+
+        // As RenewalBilling applies a change of cycle «from the next renewal».
+        $service->refresh();
+        $service->plan_id = $pricier->id;
+        $service->setRelation('plan', $pricier);
+        $service->price = (float) $service->calculatePrice();
+        $service->next_plan_id = null;
+        $service->save();
+
+        $this->assertSame('26.29', $this->money($line->fresh()->price));
+        $body = (string) $this->notices()->sole()->body;
+        $this->assertStringContainsString('by the cron (the plan set for its next renewal)', $body);
+        $this->assertStringContainsString('it would be 33.39 USD', $body);
+
+        // A change by staff is not said to be the cron's.
+        $this->staffSave($service, ['plan_id' => $plan->id]);
+        $this->staffSave($service, ['plan_id' => $pricier->id]);
+        $last = (string) $this->notices()->last()->body;
+        $this->assertStringNotContainsString('by the cron', $last);
+    }
 }

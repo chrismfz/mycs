@@ -92,11 +92,13 @@ class ChangeOpenLine
     /**
      * A line kept as it is by a decision of the caller's own, not of these locks (the order's line on a plan change: it
      * keeps its stub), in its invoice's activity as any kept line: $wouldBe is what the change would have made of it.
+     * Each call is a row: its caller tells once per change itself (a plan change: the observer, on plan_id changed), so a
+     * change back and forth again is two rows, not one taken for the other (review REV-PPN-3).
      */
     public static function recordKept(InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice, string $because): void
     {
         if ($wouldBe->isDirty()) {
-            self::audit($billed, $wouldBe, $invoice, $because);
+            self::audit($billed, $wouldBe, $invoice, $because, once: false);
         }
     }
 
@@ -123,9 +125,9 @@ class ChangeOpenLine
      * line and why it was kept. Once per line and outcome until the line itself changes; an upgrade's line once per reason,
      * fields and direction, since its price follows the days left and the cron would add a row a day (ADV-KL-1); a line edited since its
      * last row is told again (ADV-KL-2). Only where the audit is on (the cron, jobs, web; not tinker or the importer,
-     * config/audit.php): a custom event skips that check of its own (ADV-KL-3).
+     * config/audit.php): a custom event skips that check of its own (ADV-KL-3). Not $once: a row each call (recordKept).
      */
-    private static function audit(InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice, string $because): void
+    private static function audit(InvoiceItem $billed, InvoiceItem $wouldBe, Invoice $invoice, string $because, bool $once = true): void
     {
         if (!Invoice::isAuditingEnabled()) {
             return;
@@ -138,7 +140,7 @@ class ChangeOpenLine
             $old[$field] = self::plain($billed->getAttributeValue($field));
             $new[$field] = self::plain($wouldBe->getAttributeValue($field));
         }
-        $last = Audit::query()->where('auditable_type', $invoice->getMorphClass())->where('auditable_id', $invoice->getKey())
+        $last = !$once ? null : Audit::query()->where('auditable_type', $invoice->getMorphClass())->where('auditable_id', $invoice->getKey())
             ->where('event', self::AUDIT_EVENT)->where('new_values->invoice_item_id', (int) $billed->getKey())->orderByDesc('id')->first();
         if ($last !== null) {
             $was = (array) $last->new_values;

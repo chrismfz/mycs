@@ -257,8 +257,13 @@ class ServiceObserver
             // REV3-L-ROUNDING-TAX-2). Not while an upgrade applies: it tells staff of that line itself (tellOfKeptPeriods).
             $fromPlanId = $service->getOriginal('plan_id');
             $priceSet = $service->wasChanged('price');
+            // The plan set for the next renewal, applied by the cron (RenewalBilling), not a change by staff: told as such
+            // (review REV-PPN-4). Told too when the service is Active with its order unpaid (staff activated it): the
+            // line keeps the old stub all the same.
+            $scheduled = $service->wasChanged('next_plan_id') && $service->getOriginal('next_plan_id') !== null
+                && (int) $service->getOriginal('next_plan_id') === (int) $service->plan_id;
             $service->refreshOpenPeriods(orderLineKept: self::$upgrading ? null
-                : fn (InvoiceItem $line) => ProrataOrderLineNotice::tell($service, $line, $fromPlanId === null ? null : (int) $fromPlanId, $priceSet));
+                : fn (InvoiceItem $line) => ProrataOrderLineNotice::tell($service, $line, $fromPlanId === null ? null : (int) $fromPlanId, $priceSet, $scheduled));
         }
         // Its addons follow it: suspended, back, ended with it (docs/addons.md); an addon never runs under a suspended
         // parent, and fastened to one that is ending, it ends with it.

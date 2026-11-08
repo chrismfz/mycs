@@ -801,7 +801,22 @@ class Service extends Model implements Auditable
      */
     public function refreshOpenPeriods(bool $retax = false, ?Closure $kept = null, ?Closure $orderLineKept = null): void
     {
-        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+        if ($this->plan === null) {
+            return;
+        }
+        if (in_array($this->plan->type, ['one-time', 'free'], true)) {
+            // No periods to rebuild; the order's own open line still keeps the old plan's stub, and a plan change by staff
+            // tells staff of it as for any other plan (review REV-PPN-1).
+            if ($orderLineKept !== null) {
+                $lines = $this->livePeriodLines();
+                $orderInvoice = $this->order_id === null ? null : $this->order?->invoice_id;
+                $first = $lines->first();
+                if ($first !== null && $orderInvoice !== null && (int) $first->invoice_id === (int) $orderInvoice
+                    && in_array($first->invoice?->status, Invoice::OPEN_STATUSES, true)) {
+                    $orderLineKept($first);
+                }
+            }
+
             return;
         }
         $lines = $this->livePeriodLines();
