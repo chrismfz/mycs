@@ -106,6 +106,8 @@ class ModuleActionResource extends Resource
                     array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION, ...ModuleAction::CHECKS]))),
                 // Given up, or a domain's (ModuleAction::scopeNeedsStaff): the dashboard's «Needs attention» opens it.
                 Filter::make('needs_staff')->label('Needs staff')->query(fn ($query) => $query->needsStaff()),
+                // The «check this» tasks (ModuleAction::CHECKS): not failures, so not in «Needs staff»; «Needs attention» opens this.
+                Filter::make('checks')->label('To check')->query(fn ($query) => $query->whereIn('action', ModuleAction::CHECKS)),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).

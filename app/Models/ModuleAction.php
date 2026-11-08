@@ -303,8 +303,34 @@ class ModuleAction extends Model
      */
     public function scopeNeedsStaff(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_OPEN)
+        return $query->where('status', self::STATUS_OPEN)->failures()
             ->where(fn (Builder $query) => $query->whereNotNull('given_up_at')->orWhereIn('action', self::DOMAIN_ACTIONS));
+    }
+
+    /**
+     * Not a «check this» task (CHECKS): those are not failures (owner 2026-11-08, after review). They make no Health
+     * warning, no failed day in the Cron calendar or the summary email, and are counted on their own («N accounts to
+     * check»).
+     *
+     * @param  Builder<ModuleAction>  $query
+     * @return Builder<ModuleAction>
+     */
+    public function scopeFailures(Builder $query): Builder
+    {
+        return $query->whereNotIn('action', self::CHECKS);
+    }
+
+    /**
+     * The open «check this» tasks, by kind: accounts (STRAY) and domains (DOMAIN_CHECK).
+     *
+     * @return array{accounts: int, domains: int}
+     */
+    public static function openChecks(): array
+    {
+        $counts = self::query()->open()->whereIn('action', self::CHECKS)->selectRaw('action, COUNT(*) as total')->groupBy('action')
+            ->pluck('total', 'action')->map(fn ($total) => (int) $total);
+
+        return ['accounts' => (int) $counts->only(self::STRAY)->sum(), 'domains' => (int) ($counts[self::DOMAIN_CHECK] ?? 0)];
     }
 
     /**

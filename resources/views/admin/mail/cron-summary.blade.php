@@ -46,6 +46,11 @@
 @endif
 @endforeach
 
+{{-- The open «check this» tasks (owner 2026-11-08): not failures, a count only. --}}
+@if ($checks['accounts'] + $checks['domains'] > 0)
+<p style="margin:16px 0 4px"><a href="{{ $checksUrl }}">@if ($checks['accounts'] > 0){{ trans_choice(':count account to check|:count accounts to check', $checks['accounts']) }}@endif{{ $checks['accounts'] > 0 && $checks['domains'] > 0 ? ' · ' : '' }}@if ($checks['domains'] > 0){{ trans_choice(':count domain to check|:count domains to check', $checks['domains']) }}@endif</a></p>
+@endif
+
 <p style="margin:20px 0 4px"><strong>{{ __('What the cron suspends and terminates if nothing is paid') }}</strong></p>
 @if ($suspendOff)
 <p style="color:#b45309">{{ __('The safety net is on (Settings → Cron): what is due waits until «Enable Suspension» is on again.') }}</p>

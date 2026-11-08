@@ -130,7 +130,7 @@ class StrayAccountsRuleTest extends TestCase
         $this->assertSame([[ModuleAction::STRAY_ENDED, "{$server->id}:old", $ended->id], [ModuleAction::STRAY_UNMAPPED, "{$server->id}:stray", null]],
             $tasks->map(fn (ModuleAction $t) => [$t->action, $t->subject, $t->service_id])->all());
         $this->assertStringContainsString("its service #{$ended->id} terminated in MyCS", (string) $tasks[0]->last_error);
-        $this->assertNotNull($tasks[0]->given_up_at, 'staff\'s at once: the dashboard\'s «Needs attention»');
+        $this->assertNotNull($tasks[0]->given_up_at, 'staff\'s at once (not a failure: its own line in «Needs attention», StrayChecksNotFailuresTest)');
         $this->assertSame('CPanel', $tasks[0]->module);
         $this->assertSame(Service::STATUS_TERMINATED, $ended->fresh()->status);
         $this->assertNoServerJob(); // only tasks: nothing run on the server

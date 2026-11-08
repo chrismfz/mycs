@@ -70,6 +70,17 @@ class NeedsAttention extends Widget
                     __('given up, or a domain renewal'), $actions->min('created_at'), 'danger',
                     ModuleActionResource::getUrl('index', ['filters' => ['needs_staff' => ['isActive' => true]]]));
             }
+            // The «check this» tasks (owner 2026-11-08): not failures, a line of their own in grey.
+            $checks = ModuleAction::openChecks();
+            if ($checks['accounts'] + $checks['domains'] > 0) {
+                $title = array_filter([
+                    $checks['accounts'] > 0 ? trans_choice(':count account to check|:count accounts to check', $checks['accounts']) : null,
+                    $checks['domains'] > 0 ? trans_choice(':count domain to check|:count domains to check', $checks['domains']) : null,
+                ]);
+                $rows[] = self::row(implode(' · ', $title), __('not failures: still on a server, not mapped, or a registrar sync'),
+                    ModuleAction::query()->open()->whereIn('action', ModuleAction::CHECKS)->min('created_at'), 'gray',
+                    ModuleActionResource::getUrl('index', ['filters' => ['checks' => ['isActive' => true]]]));
+            }
         }
 
         if (InvoiceResource::canViewAny()) {
