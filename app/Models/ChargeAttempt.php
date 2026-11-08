@@ -57,6 +57,13 @@ class ChargeAttempt extends Model
      */
     public const STATUS_UNKNOWN = 'unknown';
 
+    /**
+     * The gateway was not reached before the charge (an outage, a timeout, a rate limit: ChargeNotSent): nothing taken,
+     * nothing declined. Holds nothing, is not counted as a decline, and the customer is not told it failed (sweep 3
+     * L-FAILURES-2); the cron tries again as set.
+     */
+    public const STATUS_NOT_SENT = 'not_sent';
+
     /** The bank asks the customer to confirm (3-D Secure): not retried until they pay themselves. */
     public const STATUS_ACTION_REQUIRED = 'action_required';
 

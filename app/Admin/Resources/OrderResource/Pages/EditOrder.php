@@ -40,7 +40,7 @@ class EditOrder extends EditRecord
                         ->helperText('Unticked: the services set up now turn active as they are (built by hand).'),
                     Checkbox::make('send_email')->label('Send welcome email')->default(true),
                     Checkbox::make('start_unpaid')->label('Also start the services not paid yet')->default(false)
-                        ->helperText('They are set up now, their invoices stay due; the cron no longer cancels the order as unpaid.')
+                        ->helperText('They are set up now, their invoices stay due; the cron no longer cancels the order as unpaid. A one-time plan has no due date: nothing suspends it for its unpaid invoice.')
                         ->visible(fn (Order $record) => Service::query()->where('order_id', $record->id)->where('status', Service::STATUS_PENDING)->get()
                             ->contains(fn (Service $service) => AcceptOrder::waitsForPayment($service))),
                 ])
