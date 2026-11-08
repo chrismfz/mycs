@@ -113,6 +113,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 runbook), PAYMENTS-4, DOMAINS-4, SETTINGS-OPS-4 (το PROVISIONING-5 έκλεισε στο sweep3: η υπηρεσία μένει terminated με την εργασία
 ανοιχτή, `docs/provisioning.md`).
 
+### Τέταρτο sweep: regressions, οντότητες, μέρα του cut-over (2026-11-08, [`sweeps/2026-11-08-fourth.md`](sweeps/2026-11-08-fourth.md))
+
+3 high και 7 medium, δύο από αυτά regressions των διορθώσεων. Όλα διορθωμένα (#752–#757). Το μάθημα έγινε κανόνας KISS στο CLAUDE.md
+(#751): τα addons παίρνουν πάντα τη μέρα της γονικής (#757).
+
 ### Τρίτο, ανεξάρτητο sweep ανά οπτική (2026-11-08, [`sweeps/2026-11-08-third.md`](sweeps/2026-11-08-third.md))
 
 1 high και 13 medium, όλα διορθωμένα (#737–#746). Ανοιχτά: L-ATTACKER-CLIENT-1 (ποιος «κρατά» ένα όνομα domain, πρόταση
