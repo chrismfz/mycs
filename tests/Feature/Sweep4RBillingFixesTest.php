@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ImportFromWhmcs;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Credit;
@@ -25,7 +26,9 @@ use Tests\TestCase;
 
 /**
  * Sweep 4, lens r-billing-fixes (adversarial verifier): regressions of #723 (an addon suspended with its parent is billed)
- * and #709 (UPGRADES-3, a completed upgrade's shortfall goes with its service).
+ * and #709 (UPGRADES-3, a completed upgrade's shortfall goes with its service). -1 and -3 rewritten for the rule that
+ * replaced #723 (owner 2026-11-08, docs/addons.md): an addon shares its parent's due date, so suspended with its parent it
+ * is not billed on its own; the importer refuses one due on another day.
  */
 class Sweep4RBillingFixesTest extends TestCase
 {
@@ -88,9 +91,9 @@ class Sweep4RBillingFixesTest extends TestCase
     }
 
     /**
-     * R-BILLING-FIXES-1: an addon suspended with its parent (staff suspended the parent) is billed since #723, its line
-     * lands on the same grouped invoice as an active service due the same day, and AutoCharge::due() then leaves the whole
-     * invoice out: the active service's renewal is never charged to the saved card.
+     * R-BILLING-FIXES-1: an addon suspended with its parent (staff suspended the parent) is not billed, with its parent
+     * (same due date), so no line of a suspended service lands on the grouped invoice of an active service due that day,
+     * which AutoCharge::due() would leave out: the active service's renewal is charged to the saved card.
      */
     public function test_an_addon_suspended_with_its_parent_does_not_keep_another_services_renewal_from_the_card(): void
     {
@@ -100,7 +103,7 @@ class Sweep4RBillingFixesTest extends TestCase
         $this->client->forceFill(['auto_charge' => true])->save();
         Queue::fake(); // the parent's server suspension
 
-        $parent = $this->service('2027-01-01');
+        $parent = $this->service('2026-11-25');
         $addon = $this->service('2026-11-25', ['parent_service_id' => $parent->id], 3.00);
         $other = $this->service('2026-11-25');
         $parent->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
@@ -108,8 +111,10 @@ class Sweep4RBillingFixesTest extends TestCase
         $this->assertSame([Service::STATUS_SUSPENDED, Service::SUSPEND_REASON_PARENT, null],
             [$addon->status, $addon->suspend_reason, $addon->dunning_suspended_at], 'precondition: suspended with its parent only');
 
-        $this->bill($addon, $other);
+        $this->bill($parent, $addon, $other);
 
+        $this->assertFalse(InvoiceItem::query()->where('reference_type', Service::class)->whereIn('reference_id', [$parent->id, $addon->id])->exists(),
+            'neither the suspended parent nor its addon is billed');
         $line = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $other->id)->sole();
         $invoice = $line->invoice;
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
@@ -151,8 +156,8 @@ class Sweep4RBillingFixesTest extends TestCase
     }
 
     /**
-     * R-BILLING-FIXES-3: an addon suspended with a parent suspended for non-payment is billed since #723, and credit pays
-     * that period at once, though the addon runs none of it while its parent is suspended.
+     * R-BILLING-FIXES-3: an addon suspended with a parent suspended for non-payment is not billed, as its parent is not:
+     * no credit is spent on a period it would spend suspended.
      */
     public function test_credit_is_not_spent_on_an_addons_period_while_its_parent_is_suspended_for_non_payment(): void
     {
@@ -161,15 +166,54 @@ class Sweep4RBillingFixesTest extends TestCase
 
         $parent = $this->service('2026-11-01', ['status' => 'suspended', 'suspend_reason' => 'Overdue on Payment',
             'dunning_suspended_at' => now()->subDays(10)]);
-        $addon = $this->service('2026-11-25', ['parent_service_id' => $parent->id, 'status' => 'suspended',
+        $addon = $this->service('2026-11-01', ['parent_service_id' => $parent->id, 'status' => 'suspended',
             'suspend_reason' => Service::SUSPEND_REASON_PARENT], 3.00);
 
         $this->bill($parent, $addon);
 
         $this->assertFalse(InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $parent->id)->exists(),
             'precondition: the parent, suspended for non-payment, is not billed again');
+        $this->assertFalse(InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $addon->id)->exists(),
+            'nor its addon, suspended with it');
         $this->assertSame('50.00', number_format((float) Credit::query()->where('client_id', $this->client->id)->value('amount'), 2, '.', ''),
             'credit spent on the next period of an addon suspended with its dunned parent (addon now paid until '
             . $addon->fresh()->expires_at->toDateString() . ', still ' . $addon->fresh()->status . ')');
+    }
+
+    /**
+     * The rule's other half (owner 2026-11-08): the importer refuses a live recurring WHMCS addon due on another day than
+     * its service, before anything is written, naming it (cutover-runbook.md: staff align it in WHMCS before the dump).
+     */
+    public function test_the_importer_refuses_an_addon_due_on_another_day_than_its_service(): void
+    {
+        $whmcs = new \PDO('sqlite::memory:');
+        $whmcs->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY)');
+        $whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT, value TEXT)');
+        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, nextduedate TEXT)');
+        $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT)');
+        $whmcs->exec("INSERT INTO tblhosting VALUES (1, '2027-05-18'), (2, '2027-05-18')");
+        $whmcs->exec("INSERT INTO tblhostingaddons VALUES (160, 1, 'Suspended', 'Annually', '2027-02-01'), (161, 1, 'Active', 'Annually', '2027-05-18'),
+            (162, 2, 'Active', 'Monthly', '2026-12-18'), (163, 2, 'Terminated', 'Annually', '2026-01-01'), (164, 2, 'Active', 'One Time', '0000-00-00')");
+        $command = app(ImportFromWhmcs::class);
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $refused = 'WHMCS addon(s) due on another day than their service: #160, #162.';
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertSame(1, Client::query()->whereKey($this->client->id)->count(), 'nothing emptied');
+
+        // Aligned in WHMCS: no longer refused.
+        $whmcs->exec("UPDATE tblhostingaddons SET nextduedate = '2027-05-18' WHERE id IN (160, 162)");
+        (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $this->assertSame([], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command));
     }
 }

@@ -94,11 +94,12 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   `SELECT COUNT(*) FROM tblhostingaddons WHERE qty > 1 AND status IN ('Active','Suspended')` = 0. Αν βγει κάποιο, συγκρίνουμε
   ένα με την τελευταία γραμμή ανανέωσής του (`tblinvoiceitems.amount`) πριν από το import.
 - **Addons με άλλη λήξη από τη γονική (απόφαση ιδιοκτήτη 2026-11-07): με το χέρι, πριν από το τελικό dump.** Ένα addon που
-  λήγει άλλη μέρα από τη γονική του έρχεται με τη δική του ημερομηνία. Αποφασίστηκε να παίρνει τη λήξη της γονικής, με το χέρι
+  λήγει άλλη μέρα από τη γονική του **σταματά το import** (2026-11-08: εδώ ένα addon έχει πάντα τη λήξη της γονικής): το
+  import τα ονομάζει και δεν γράφει τίποτα. Αποφασίστηκε να παίρνει τη λήξη της γονικής, με το χέρι
   στο WHMCS (`nextduedate` του addon = της γονικής), χωρίς συμψηφισμό για τις μέρες που χάνονται ή χαρίζονται. Έλεγχος
   2026-11-06: 3 στο myip (#160, #169, #170· το #160 είναι Suspended ενώ η γονική του είναι Active: να δει κάποιος γιατί), κανένα
   στη nixpal. Ακριβώς πριν από το dump: `SELECT a.id FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE
-  a.status IN ('Active','Suspended') AND a.billingcycle NOT IN ('Free Account','One Time','Free') AND a.nextduedate <>
+  a.status IN ('Active','Suspended','Pending') AND a.billingcycle NOT IN ('Free Account','One Time','Free') AND a.nextduedate <>
   h.nextduedate` = καμία γραμμή.
 - **Παλιά ανοιχτά τιμολόγια (sweep 2, F-RENEWAL-CYCLE-2):** ένα ανοιχτό τιμολόγιο του WHMCS με γραμμή της υπηρεσίας χωρίς
   περίοδο μετράει στο MyCS ως ανανέωση ήδη τιμολογημένη, και οι επόμενες δεν βγαίνουν ώσπου να πληρωθεί ή να ακυρωθεί. Πριν από

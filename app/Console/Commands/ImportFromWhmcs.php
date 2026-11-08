@@ -181,6 +181,15 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
+        // An addon always shares its parent's due date here (docs/addons.md, owner 2026-11-08): a live recurring one due on
+        // another day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
+        if (($apart = $this->addonsApart()) !== []) {
+            $this->error('WHMCS addon(s) due on another day than their service: #' . implode(', #', $apart)
+                . '. An addon shares its service\'s due date here: set its next due date to the service\'s in WHMCS (cutover-runbook.md) and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
         $target = (string) DB::connection()->getDatabaseName();
         if ($target === '') {
             $this->error('This instance has no database name to confirm: nothing done.');
@@ -3194,6 +3203,24 @@ class ImportFromWhmcs extends Command
         }
 
         return $pending;
+    }
+
+    /**
+     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) due on another day than their service: the import refuses to run
+     * on them (handle). The runbook's pre-dump query. A source without addons: none.
+     *
+     * @return list<int> tblhostingaddons ids
+     */
+    private function addonsApart(): array
+    {
+        if (!$this->sourceHas('tblhostingaddons')) {
+            return [];
+        }
+        $live = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status), WhmcsAddonImport::LIVE));
+
+        return array_map('intval', $this->pdo->query('SELECT a.id FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid'
+            . " WHERE a.status IN ({$live}) AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free') AND a.nextduedate <> h.nextduedate"
+            . ' ORDER BY a.id')->fetchAll(PDO::FETCH_COLUMN));
     }
 
     /**

@@ -65,12 +65,12 @@ class AddAddonAction extends Action
                         ? __('services.addons.add.price_help', ['price' => $price]) : null),
                 Toggle::make('keep_price')->label(__('services.addons.add.keep_price'))->default(false),
                 Radio::make('start')->label(__('services.addons.add.start'))->required()->live()
-                    ->default(fn () => $record->expires_at !== null && CarbonImmutable::parse($record->expires_at)->isFuture() ? AddAddon::PRORATED : AddAddon::OWN_DATE)
+                    ->default(AddAddon::PRORATED)
                     ->options(fn (Get $get) => self::startOptions($record, $get('plan_id'))),
-                DatePicker::make('date')->live()
-                    ->label(fn (Get $get) => $get('start') === AddAddon::NO_INVOICE ? __('services.addons.add.due_date') : __('services.addons.add.date'))
-                    ->visible(fn (Get $get) => in_array($get('start'), [AddAddon::OWN_DATE, AddAddon::NO_INVOICE], true))
-                    ->default(fn () => now()->toDateString())->minDate(now()->startOfDay())->required(),
+                // No invoice: its parent's due date by default, as an addon shares it (owner 2026-11-08).
+                DatePicker::make('date')->live()->label(__('services.addons.add.due_date'))
+                    ->visible(fn (Get $get) => $get('start') === AddAddon::NO_INVOICE)
+                    ->default(fn () => $record->expires_at !== null && CarbonImmutable::parse($record->expires_at)->isFuture() ? CarbonImmutable::parse($record->expires_at)->toDateString() : now()->toDateString())->minDate(now()->startOfDay())->required(),
                 TextEntry::make('summary')->label(__('services.addons.add.summary'))
                     ->state(fn (Get $get) => self::summary($record, $get('product_id'), $get('plan_id'), $get('quantity'), $get('price'), $get('start'), $get('date'))),
             ])
@@ -120,7 +120,6 @@ class AddAddonAction extends Action
         $end = $plan === null ? null : AddAddon::alignedEnd($parent, $plan);
         $options = [AddAddon::PRORATED => $end !== null ? __('services.addons.add.start_prorated', ['date' => $end->format('d/m/Y')])
             : __('services.addons.add.start_prorated_none'),
-            AddAddon::OWN_DATE => __('services.addons.add.start_own_date'),
             AddAddon::NO_INVOICE => __('services.addons.add.start_no_invoice')];
         if ($plan !== null && $plan->type !== 'recurring') {
             return [AddAddon::NO_INVOICE => $options[AddAddon::NO_INVOICE]]; // free: nothing to invoice
@@ -148,7 +147,7 @@ class AddAddonAction extends Action
         $quantity = max(1, (int) ($quantity ?: 1));
         try {
             $day = filled($date) ? CarbonImmutable::parse($date) : null;
-            $quote = AddAddon::quote($parent, $plan, $unit, (string) $start, $day);
+            $quote = AddAddon::quote($parent, $plan, $unit, (string) $start);
         } catch (Throwable $e) {
             return $e instanceof DisplayException ? $e->getMessage() : '—';
         }
@@ -157,12 +156,8 @@ class AddAddonAction extends Action
         }
         [$from, $until, $amount] = $quote;
         $due = (string) BigDecimal::of($amount)->multipliedBy($quantity)->toScale(2) . ' ' . $parent->currency_code;
-        if ($start === AddAddon::PRORATED) {
-            $full = AddAddon::fullStart($parent, $plan, $until);
+        $full = AddAddon::fullStart($parent, $plan, $until);
 
-            return __('services.addons.add.summary_line', ['days' => (int) $from->diffInDays($until), 'of' => (int) $full->diffInDays($until), 'amount' => $due]);
-        }
-
-        return __('services.addons.add.summary_full', ['from' => $from->format('d/m/Y'), 'until' => $until->format('d/m/Y'), 'amount' => $due]);
+        return __('services.addons.add.summary_line', ['days' => (int) $from->diffInDays($until), 'of' => (int) $full->diffInDays($until), 'amount' => $due]);
     }
 }

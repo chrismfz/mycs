@@ -272,7 +272,7 @@ class Sweep2FPlanChangeTest extends TestCase
         $product = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true, 'server_id' => null, 'stock' => null]);
         $plan = $this->plan($product, 'month', '3.00', '2.00');
 
-        $made = (new AddAddon)->handle($parent->fresh(), $product->fresh(), $plan, 1, null, false, AddAddon::OWN_DATE, Carbon::parse('2026-01-01'));
+        $made = (new AddAddon)->handle($parent->fresh(), $product->fresh(), $plan, 1, null, false, AddAddon::PRORATED); // Jan 1 to Feb 1: a whole month
 
         $line = $made['invoice']->items()->sole();
         $this->assertSame(['5.00', '2.00'], [(string) $line->price, (string) $line->setup_fee]);

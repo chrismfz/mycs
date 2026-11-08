@@ -20,10 +20,10 @@ use MyCS\BillingPeriod\BillingPeriod;
 use Throwable;
 
 /**
- * Staff's «Add addon» (docs/addons.md, step 3): an addon fastened to a running service, billed one of three ways.
+ * Staff's «Add addon» (docs/addons.md, step 3): an addon fastened to a running service, billed one of two ways. An addon
+ * always shares its parent's due date (owner 2026-11-08): there is no «own date».
  * - prorated (the default, owner 2026-11-04): invoiced now for the days up to the parent's next due date (counted back by
  *   the addon's own cycle when that is shorter), then renewed with it, on the same invoice when due the same day;
- * - its own date: invoiced for a full first period starting that day;
  * - no invoice: started now, due on the date given (free, or paid some other way).
  * Invoiced, it waits pending until paid; paid, it starts and its creation is a task for staff on the parent's machine
  * (RenewServiceService). Started without an invoice, the task is made at once.
@@ -31,8 +31,6 @@ use Throwable;
 final class AddAddon
 {
     public const PRORATED = 'prorated';
-
-    public const OWN_DATE = 'own_date';
 
     public const NO_INVOICE = 'no_invoice';
 
@@ -98,25 +96,16 @@ final class AddAddon
      *
      * @return array{0: CarbonImmutable, 1: CarbonImmutable, 2: string}|null
      */
-    public static function quote(Service $parent, Plan $plan, string $price, string $start, ?CarbonInterface $date = null): ?array
+    public static function quote(Service $parent, Plan $plan, string $price, string $start): ?array
     {
         $today = CarbonImmutable::today();
         if ($start === self::NO_INVOICE || $plan->type !== 'recurring') {
             return null;
         }
-        $count = max(1, (int) $plan->billing_period);
-        if ($start === self::PRORATED) {
-            $end = self::alignedEnd($parent, $plan) ?? throw new DisplayException(__('services.addons.add.no_due_date'));
-            $full = self::fullStart($parent, $plan, $end);
+        $end = self::alignedEnd($parent, $plan) ?? throw new DisplayException(__('services.addons.add.no_due_date'));
+        $full = self::fullStart($parent, $plan, $end);
 
-            return [$today, $end, self::plusSetupFee(BillingPeriod::remaining($price, $full, $end, $today), $plan, $parent->currency_code)];
-        }
-        $from = CarbonImmutable::instance($date ?? $today)->startOfDay();
-        if ($from->lessThan($today)) {
-            throw new DisplayException(__('services.addons.add.date_past'));
-        }
-
-        return [$from, BillingPeriod::end($from, $plan->billing_unit, $count), self::plusSetupFee($price, $plan, $parent->currency_code)];
+        return [$today, $end, self::plusSetupFee(BillingPeriod::remaining($price, $full, $end, $today), $plan, $parent->currency_code)];
     }
 
     /** Start of the whole cycle of $plan that ends on $end, on its parent's billing day (sweep CRON-BILLING-3). */
@@ -152,13 +141,13 @@ final class AddAddon
     }
 
     /**
-     * Adds it. $price per unit and cycle (null: the catalog's); $date: an own date's first day, or a started one's due date.
+     * Adds it. $price per unit and cycle (null: the catalog's); $date: a started one's due date (no invoice).
      *
      * @return array{service: Service, invoice: Invoice|null}
      */
     public function handle(Service $parent, Product $product, Plan $plan, int $quantity, ?string $price, bool $keepPrice, string $start, ?CarbonInterface $date = null): array
     {
-        if (!in_array($start, [self::PRORATED, self::OWN_DATE, self::NO_INVOICE], true)) {
+        if (!in_array($start, [self::PRORATED, self::NO_INVOICE], true)) {
             throw new DisplayException(__('services.addons.add.start_unknown'));
         }
         $result = DB::transaction(function () use ($parent, $product, $plan, $quantity, $price, $keepPrice, $start, $date) {
@@ -189,7 +178,7 @@ final class AddAddon
             if (BigDecimal::of($unit)->isNegative()) {
                 throw new DisplayException(__('services.addons.add.price_negative'));
             }
-            $quote = self::quote($parent, $plan, $unit, $start, $date);
+            $quote = self::quote($parent, $plan, $unit, $start);
             $noInvoice = $quote === null || $start === self::NO_INVOICE;
             $due = $noInvoice ? CarbonImmutable::instance($date ?? $parent->expires_at ?? CarbonImmutable::today())->startOfDay() : null;
             if ($noInvoice && $plan->type === 'recurring' && $due->lessThan(CarbonImmutable::today())) {

@@ -70,8 +70,9 @@ class CancellationCreatedListener implements ShouldQueue
         // both companies, docs/settings-map.md): nothing left to pay that would renew it by mistake.
         self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
         // And its pending upgrades now (with their own invoices): an upgrade of a service about to end makes no sense,
-        // and its payment would have to be refunded. A paid one stays. Withdrawn, the customer asks for it again.
-        self::report(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
+        // and its payment would have to be refunded. A paid one stays. Withdrawn, the customer asks for it again. A completed
+        // upgrade's open shortfall stays: it bills days the service still runs, and goes only at the end (R-BILLING-FIXES-2).
+        self::report(CancelPendingUpgrades::pending($service, __('invoices.cancellation_reasons.cancellation_request')));
     }
 
     /** @param  array<string, \Throwable>  $left  invoices left open or failed: logged, and mailed to staff */
