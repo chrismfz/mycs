@@ -93,7 +93,7 @@ class Domain extends Model implements Auditable
     protected $hidden = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
     /** Bookkeeping of the sync, not a change of the domain (docs/domains.md D-9). */
-    protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code']; // a transfer's code: never in an audit (D8b)
+    protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code', 'name_held_at']; // a transfer's code: never in an audit (D8b); name_held_at is bookkeeping of D-25, not a change staff made
 
     /**
      * Days after its expiry its registry may still give an expired domain back when its grace and redemption are not
