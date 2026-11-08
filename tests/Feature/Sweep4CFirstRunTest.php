@@ -291,17 +291,14 @@ class Sweep4CFirstRunTest extends TestCase
     }
 
     /**
-     * C-FIRST-RUN-2, the suspension. Given up as a cancel here, the service falls to the suspension rules by its date
-     * (Δ3a; with «suspend only with an overdue invoice» off, the default, as for ADV-486-2), where WHMCS, which suspends
-     * by an overdue invoice, would not: an owner's decision.
+     * C-FIRST-RUN-2, the suspension. Given up as a cancel here, the service would fall to the suspension rules by its date
+     * (Δ3a), where WHMCS, which suspends by an overdue invoice, would not. Its date is imported as WHMCS's nextinvoicedate,
+     * the end of the period given up (as staff move a date over a gap): not suspended, and billed on from there
+     * (review REV4-C-1).
      */
     public function test_c_first_run_2_a_service_renewal_cancelled_in_whmcs_is_not_suspended(): void
     {
-        $this->markTestIncomplete('Owner decision (sweep 4 C-FIRST-RUN-2): a service whose renewal WHMCS invoiced and staff cancelled is now '
-            . 'imported given up and never billed again, but Δ3a suspends it by its date (nextduedate) on the first run, where WHMCS would '
-            . 'not. Keep Δ3a (staff set a hold or move the date: the import lists each one), or import its date as WHMCS\'s nextinvoicedate, '
-            . 'or a hold? Not changed here: the money part (no second bill, no card charge) is fixed.');
-        $whmcs = $this->whmcs(); // @phpstan-ignore deadCode.unreachable
+        $whmcs = $this->whmcs();
         $due = now()->subDays(30)->toDateString();
         $this->whmcsService($whmcs, 9301, $due, now()->addDays(20)->toDateString());
         $this->whmcsInvoice($whmcs, 9401, 'Cancelled', $due, [[94011, 'Hosting', 9301, 'Hosting (example.test)', 10, $due]]);

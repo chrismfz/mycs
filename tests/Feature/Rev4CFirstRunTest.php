@@ -3,9 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\ImportFromWhmcs;
-use App\Enums\DomainStatus;
 use App\Models\Currency;
-use App\Models\Domain;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Models\Invoice;
@@ -80,30 +78,6 @@ class Rev4CFirstRunTest extends TestCase
             'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'EUR', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2027-03-01',
         ]);
-    }
-
-    private function domain(array $attributes = []): Domain
-    {
-        static $n = 0;
-        $n++;
-
-        return Domain::factory()->create($attributes + ['client_id' => $this->user->client()->id, 'sld' => "fr{$n}", 'tld' => 'com', 'fqdn' => "fr{$n}.com",
-            'domain_tld_id' => $this->tld->id, 'registrar_connection_id' => null, 'status' => DomainStatus::Active, 'expires_at' => '2027-03-01',
-            'currency_code' => 'EUR', 'years' => 1, 'auto_renew' => true, 'recurring_amount' => null]);
-    }
-
-    /** An invoice as the importer writes it: the row and its lines with DB::table, no observer. */
-    private function imported(string $status, string $due, array $lines): Invoice
-    {
-        $id = DB::table('invoices')->insertGetId(['client_id' => $this->user->client()->id, 'status' => $status, 'currency_code' => 'EUR',
-            'due_at' => $due, 'created_at' => $due, 'updated_at' => $due]);
-        foreach ($lines as $line) {
-            DB::table('invoice_items')->insert($line + ['invoice_id' => $id, 'quantity' => 1, 'taxed' => false, 'tax_rate' => 0, 'tax_amount' => 0,
-                'line_total' => $line['price'], 'kind' => null, 'period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null,
-                'created_at' => $due, 'updated_at' => $due]);
-        }
-
-        return Invoice::query()->findOrFail($id);
     }
 
     private function cron(): void

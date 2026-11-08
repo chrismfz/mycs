@@ -303,8 +303,9 @@ class CreditAutoApply
     }
 
     /**
-     * Days an order's invoice is paid by credit on its own after it was made: the order-cancel days when set (the cron
-     * cancels it then), else ORDER_DAYS, the time an order is paid in.
+     * Days an order's invoice is paid by credit on its own after it was made, or after its due date when that is later
+     * (Order Days Grace, order_days_grace: an order not yet due is not abandoned, sweep 4 review REV4-C-2): the
+     * order-cancel days when set (the cron cancels it then), else ORDER_DAYS, the time an order is paid in.
      */
     public const ORDER_DAYS = 7;
 
@@ -313,6 +314,9 @@ class CreditAutoApply
     {
         $cancelDays = (int) config('settings.cronjob_order_cancel', 0);
         $made = $invoice->created_at ?? $invoice->due_at;
+        if ($made !== null && $invoice->due_at !== null && $invoice->due_at->greaterThan($made)) {
+            $made = $invoice->due_at;
+        }
         if ($made === null || $made->greaterThanOrEqualTo(now()->subDays($cancelDays > 0 ? $cancelDays : self::ORDER_DAYS))) {
             return false;
         }

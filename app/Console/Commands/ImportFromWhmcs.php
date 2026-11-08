@@ -2369,6 +2369,7 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_items')->insert($data);
         });
+        $this->moveDatesOverGivenUp();
         $this->domains?->recordDoneYears();
         foreach ($this->domains?->lineNotes() ?? [] as $note) {
             $this->warn($note);
@@ -2429,6 +2430,28 @@ class ImportFromWhmcs extends Command
     private ?array $renewalsGivenUp = null;
 
     /**
+     * Each service whose renewal WHMCS gave up (renewalsGivenUp, its line imported given up) dated at WHMCS's
+     * nextinvoicedate, the end of that period: what staff here do to close a gap («move the service's date over the
+     * gap», RenewalBilling). As WHMCS has it: it bills the next period at nextinvoicedate and suspends only for an
+     * overdue invoice. Left at nextduedate, nothing is billed after the period given up on (Δ3a) and the cron suspends
+     * and then terminates it by that date with no invoice its customer could pay (sweep 4 review REV4-C-1). Only a date
+     * still at the period's start (a re-run, or staff's own date, is left alone).
+     */
+    private function moveDatesOverGivenUp(): void
+    {
+        $givenUp = $this->renewalsGivenUp ?? [];
+        if ($givenUp === []) {
+            return;
+        }
+        $imported = DB::table('invoice_items')->whereIn('id', array_keys($givenUp))->whereNotNull('forgone_at')
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        foreach ($imported as $line) {
+            ['service' => $service, 'start' => $start, 'end' => $end] = $givenUp[$line];
+            DB::table('services')->where('id', $service)->whereDate('expires_at', $start)->update(['expires_at' => $end]);
+        }
+    }
+
+    /**
      * The cancelled renewal lines WHMCS gave up (sweep 4, C-FIRST-RUN-2), by line: a live service's (Active, Suspended)
      * whose nextinvoicedate is past its nextduedate (WHMCS invoiced that period, and a cancel never moves it back: WHMCS
      * never bills it again), on a cancelled invoice due on its nextduedate, with no other renewal invoice (paid or open)
@@ -2476,8 +2499,8 @@ class ImportFromWhmcs extends Command
         }
         if ($listed !== []) {
             $this->warn(count($listed) . ' live service(s) whose renewal WHMCS invoiced and staff cancelled (its next invoice date moved past it): '
-                . 'given up here as a cancel does, never billed again. Their due date is WHMCS\'s next due date, so the cron suspends them by it: '
-                . 'set a hold or move the date where WHMCS would not suspend.');
+                . 'given up here as a cancel does, never billed again; each one dated at its next invoice date (the end of that period), '
+                . 'as WHMCS bills and suspends it.');
             $this->table(['Service', 'Due', 'Next invoice', 'Line'], $listed);
         }
 
