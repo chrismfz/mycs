@@ -133,6 +133,25 @@ class Sweep4CFirstRunTest extends TestCase
     }
 
     /**
+     * C-FIRST-RUN-1 / REV2-FR-3. No age rule is left in credit: an order older than the importer's 7 days, made after
+     * the cut-over, is paid by credit on the cron too (the refusal is the import's only).
+     */
+    public function test_c_first_run_1_credit_pays_an_order_older_than_seven_days_after_cut_over(): void
+    {
+        $service = $this->service(['status' => Service::STATUS_PENDING, 'expires_at' => null]);
+        $domain = $this->domain(['status' => DomainStatus::PendingRegister, 'expires_at' => null]);
+        $order = $this->imported(Invoice::STATUS_UNPAID, now()->subDays(30)->toDateString(), [
+            ['description' => 'Hosting order', 'price' => '10.00', 'reference_type' => Service::class, 'reference_id' => $service->id],
+            ['description' => 'Domain registration', 'price' => '12.00', 'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER],
+        ]);
+        (new CreditLedger)->add($this->user->client()->id, 'EUR', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Credit');
+
+        $this->cron();
+
+        $this->assertSame(Invoice::STATUS_PAID, $order->fresh()->status, 'an order a month old is paid by credit too');
+    }
+
+    /**
      * C-FIRST-RUN-1. An abandoned WHMCS order (unpaid, more than 7 days old: a Pending service's Hosting line, a domain
      * registration or transfer) would be paid by the customer's imported credit on the first run, the service set up and
      * the name bought. The import refuses to run while there is one, naming them, on a dry run too, before anything is

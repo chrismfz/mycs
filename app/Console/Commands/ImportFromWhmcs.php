@@ -3299,10 +3299,12 @@ class ImportFromWhmcs extends Command
     public const ABANDONED_ORDER_DAYS = 7;
 
     /**
-     * Every Unpaid WHMCS invoice dated more than ABANDONED_ORDER_DAYS ago that orders something: a Hosting line of a
-     * Pending service, or a DomainRegister/DomainTransfer line. The import refuses to run on them (handle): credit would
-     * pay them on the first cron and set them up. The runbook's pre-dump query, the same set. A source without these
-     * tables (a test's): none.
+     * Every WHMCS invoice imported unpaid (invoiceStatus, ADV-531-1: Collections too) dated more than ABANDONED_ORDER_DAYS
+     * ago that orders something: a Hosting line of a Pending service, an Addon line of a Pending addon (imported as a
+     * pending service, REV2-FR-2), or a DomainRegister/DomainTransfer line. «Payment Pending» is left out: it comes with a
+     * processing payment, which credit does not pay over. The import refuses to run on them (handle): credit would pay
+     * them on the first cron and set them up. The runbook's pre-dump query, the same set. A source without these tables
+     * (a test's): none.
      *
      * @return list<int>
      */
@@ -3311,10 +3313,14 @@ class ImportFromWhmcs extends Command
         if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblhosting')) {
             return [];
         }
+        $addons = $this->sourceHas('tblhostingaddons');
         $query = $this->pdo->prepare("SELECT DISTINCT i.id FROM tblinvoices i JOIN tblinvoiceitems ii ON ii.invoiceid = i.id
-            LEFT JOIN tblhosting h ON ii.type = 'Hosting' AND h.id = ii.relid
-            WHERE i.status = 'Unpaid' AND i.date < ? AND (ii.type IN ('DomainRegister', 'DomainTransfer') OR h.domainstatus = 'Pending')
-            ORDER BY i.id");
+            LEFT JOIN tblhosting h ON ii.type = 'Hosting' AND h.id = ii.relid"
+            . ($addons ? " LEFT JOIN tblhostingaddons a ON ii.type = 'Addon' AND a.id = ii.relid" : '')
+            . " WHERE i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') AND i.date < ?
+            AND (ii.type IN ('DomainRegister', 'DomainTransfer') OR h.domainstatus = 'Pending'"
+            . ($addons ? " OR a.status = 'Pending'" : '') . ')
+            ORDER BY i.id');
         $query->execute([now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString()]);
 
         return array_values(array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)));
