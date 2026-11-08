@@ -48,12 +48,14 @@ class DomainReminders
     public function send(?callable $failed = null): int
     {
         $days = self::days();
-        if ($days === []) {
+        // Mail off for everyone (Settings): none is taken as sent, they go once it is back (L-NOTIFICATIONS-3).
+        if ($days === [] || config('settings.mail_disable')) {
             return 0;
         }
         $today = Carbon::today();
         // Within reach of a notice day: from max(days) before the expiry to the farthest day after it (and its catch-up).
         $domains = Domain::query()->where('auto_renew', true)->whereNotNull('expires_at')->whereNotNull('client_id')
+            ->whereHas('client', fn ($client) => $client->whereNull('closed_at')) // not a closed account's (WG-8)
             ->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, [DomainStatus::Active, ...self::AFTER]))
             ->whereDate('expires_at', '<=', $today->copy()->addDays(max($days)))
             ->whereDate('expires_at', '>', $today->copy()->subDays(max(0, -min($days)) + self::CATCH_UP_DAYS))

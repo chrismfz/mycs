@@ -55,6 +55,11 @@ class PaymentReminders
     /** @param  (callable(int, Throwable): void)|null  $failed  told of an invoice whose reminder failed */
     public function send(?callable $failed = null): int
     {
+        // Mail off for everyone (Settings): none is taken as sent, they go once mail is back, within the catch-up days
+        // (as BulkMailer keeps its recipients waiting; L-NOTIFICATIONS-3).
+        if (config('settings.mail_disable')) {
+            return 0;
+        }
         $today = Carbon::today();
         $sent = 0;
 
@@ -113,7 +118,7 @@ class PaymentReminders
     }
 
     /**
-     * Open invoices someone owes: unpaid (not a proforma draft), with a customer and a due date, no payment on its way,
+     * Open invoices someone owes: unpaid (not a proforma draft), with an open account and a due date, no payment on its way,
      * and not only an offer to buy credit (an «add funds» invoice left at the gateway: nothing is owed, review R6/A5).
      *
      * @return Builder<Invoice>
@@ -121,6 +126,9 @@ class PaymentReminders
     private function open()
     {
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
+            // Not a closed account's (WG-8): it is mailed nothing on its own, and its reminders wait should it be opened
+            // again (L-NOTIFICATIONS-1).
+            ->whereHas('client', fn ($client) => $client->whereNull('closed_at'))
             ->whereDoesntHave('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))
             ->whereHas('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
             ->with(['client.primaryContact', 'client.ownerGrant.user', 'client.group', 'items.reference', 'transactions']);

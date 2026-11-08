@@ -584,6 +584,10 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   `Domains\Index`. Εξαιρέσεις, ρητά με `includeClosed: true`: το «Login as client», ο έλεγχος της κονσόλας του staff και
   οι απαντήσεις με mail (`InboundRouter`). Το `CurrentClient` κρατά το δικό του query: έχει ήδη διαλέξει ανοιχτό
   λογαριασμό. Ό,τι χρειαστεί ο πελάτης (π.χ. ένα παλιό τιμολόγιο) του το στέλνει το staff.
+- **Κανένα mail από μόνο του** (όπως το WHMCS σε Closed πελάτη και το `BulkMailer`): ούτε υπενθυμίσεις, ούτε
+  ειδοποιήσεις λήξης domain ή κάρτας, ούτε αναστολές, ούτε in-app (`NotificationHelper::toAccount`· sweep 3,
+  L-NOTIFICATIONS-1). Οι υπενθυμίσεις τιμολογίων, domains και καρτών δεν τον διαλέγουν καν, άρα δεν σημειώνονται ως
+  σταλμένες. Μένουν ό,τι στέλνει το staff με το χέρι και το νήμα ενός ticket (`CLOSED_ACCOUNT_TEMPLATES`).
 - Το staff τον βλέπει και τον δουλεύει με το «Login as client», όσο του επιτρέπει ο ρόλος του (SA-5). Μια κονσόλα VPS που
   ανοίγει έτσι γράφει στο εισιτήριο το μέλος του staff (`staff_id`), και ο έλεγχος των 30'' τη ρωτά για εκείνο (ενεργό,
   `admin.users.impersonate`, `admin.services.update`) αντί για τον login του πελάτη, και μόνο όσο το ίδιο «Login as

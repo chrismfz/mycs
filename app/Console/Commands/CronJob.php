@@ -998,7 +998,9 @@ class CronJob extends Command
      */
     private function holdsEnding(int $number = 0): int
     {
-        if (!config('settings.cronjob_suspend_enabled', true)) {
+        // Mail off for everyone (Settings): not marked as told, told once it is back the same day or the next
+        // (L-NOTIFICATIONS-3).
+        if (!config('settings.cronjob_suspend_enabled', true) || config('settings.mail_disable')) {
             return 0;
         }
         $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
