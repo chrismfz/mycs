@@ -1717,6 +1717,7 @@
     "Module actions left open": "Ενέργειες module που έμειναν ανοιχτές",
     ":count account to check|:count accounts to check": ":count λογαριασμός για έλεγχο|:count λογαριασμοί για έλεγχο",
     ":count domain to check|:count domains to check": ":count domain για έλεγχο|:count domains για έλεγχο",
+    "to check": "για έλεγχο",
     "not failures: still on a server, not mapped, or a registrar sync": "όχι αποτυχίες: ακόμα σε server, χωρίς υπηρεσία, ή από sync του registrar",
     "What the cron suspends and terminates if nothing is paid": "Τι αναστέλλει και τερματίζει το cron αν δεν πληρωθεί τίποτα",
     "The safety net is on (Settings → Cron): what is due waits until «Enable Suspension» is on again.": "Το δίχτυ είναι ανοιχτό (Settings → Cron): ό,τι λήγει περιμένει μέχρι να ξαναγίνει on το «Enable Suspension».",

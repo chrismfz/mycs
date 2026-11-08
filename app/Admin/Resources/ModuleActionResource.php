@@ -82,12 +82,15 @@ class ModuleActionResource extends Resource
                 TextColumn::make('status')->badge()
                     ->state(fn (ModuleAction $record) => match (true) {
                         $record->status !== ModuleAction::STATUS_OPEN => $record->status,
+                        // A «check this» task (CHECKS) is opened given up, yet is not a failure (owner 2026-11-08): not «needs staff».
+                        $record->isCheck() => 'to check',
                         $record->given_up_at !== null => 'needs staff',
                         default => 'retrying',
                     })
                     ->color(fn (string $state) => match ($state) {
                         'needs staff' => 'danger',
                         'retrying' => 'warning',
+                        'to check' => 'info',
                         'completed' => 'success',
                         default => 'gray',
                     }),
@@ -98,7 +101,8 @@ class ModuleActionResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->options([
-                    ModuleAction::STATUS_OPEN => 'Pending (failed)',
+                    // Open: retrying, given up (needs staff) or a «check this» task, which is not a failure.
+                    ModuleAction::STATUS_OPEN => 'Open',
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
@@ -261,7 +265,8 @@ class ModuleActionResource extends Resource
     }
 
     /** A stray account's server and what the server calls it (StrayAccounts' subject). */
-    private static function strayFor(ModuleAction $record): string
+    /** A stray account's row (no service, no domain): its server and what the server calls it. The Cron calendar shows it too. */
+    public static function strayFor(ModuleAction $record): string
     {
         $parsed = StrayAccounts::parse($record->subject);
         if ($parsed === null) {

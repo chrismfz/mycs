@@ -307,6 +307,12 @@ class ModuleAction extends Model
             ->where(fn (Builder $query) => $query->whereNotNull('given_up_at')->orWhereIn('action', self::DOMAIN_ACTIONS));
     }
 
+    /** A «check this» task (CHECKS): not a failure (owner 2026-11-08), see scopeFailures. */
+    public function isCheck(): bool
+    {
+        return in_array($this->action, self::CHECKS, true);
+    }
+
     /**
      * Not a «check this» task (CHECKS): those are not failures (owner 2026-11-08, after review). They make no Health
      * warning, no failed day in the Cron calendar or the summary email, and are counted on their own («N accounts to

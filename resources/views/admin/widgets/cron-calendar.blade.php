@@ -120,8 +120,9 @@
         <ul class="divide-y divide-gray-100 text-sm dark:divide-white/5">
             @foreach ($detail['actions']['rows'] as $action)
             <li class="flex justify-between gap-3 py-1">
-                <span>{{ $action->action }} · {{ $action->service?->label ?? $action->domain?->fqdn }}</span>
-                <span style="color: {{ $action->status === 'open' ? 'var(--danger-600)' : 'inherit' }}">{{ $action->status }}</span>
+                <span>{{ $action->action }} · {{ $action->service?->label ?? $action->domain?->fqdn ?? \App\Admin\Resources\ModuleActionResource::strayFor($action) }}</span>
+                {{-- A «check this» task (ModuleAction::CHECKS) is not a failure (owner 2026-11-08): grey, «to check». --}}
+                <span style="color: {{ $action->status === 'open' && !$action->isCheck() ? 'var(--danger-600)' : 'inherit' }}">{{ $action->status === 'open' && $action->isCheck() ? __('to check') : $action->status }}</span>
             </li>
             @endforeach
         </ul>
