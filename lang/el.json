@@ -1740,5 +1740,7 @@
     "Chat #:id": "Chat #:id",
     "No messages": "Κανένα μήνυμα",
     "Invalid code.": "Λάθος κωδικός.",
-    "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση."
+    "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση.",
+    "An open invoice of this service was paid meanwhile: try again.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας πληρώθηκε στο μεταξύ: δοκιμάστε ξανά.",
+    "Addon #:id is paid another way than this service: change it from the next renewal, or set the addon's payment as the service's first.": "Το addon #:id πληρώνεται με άλλον τρόπο από την υπηρεσία: αλλάξτε τον κύκλο από την επόμενη ανανέωση, ή ορίστε πρώτα την πληρωμή του addon όπως της υπηρεσίας."
 }

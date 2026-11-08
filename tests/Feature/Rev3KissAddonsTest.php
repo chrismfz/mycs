@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Credit;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -133,7 +134,8 @@ class Rev3KissAddonsTest extends TestCase
         }
 
         $this->assertFalse($armed, 'the payment landed inside the window');
-        $this->assertSame(Invoice::STATUS_PAID, $renewal->fresh()->status);
+        // The payment here shares the change's connection, so the refusal rolls it back with the change; on MariaDB it is
+        // another connection's, committed (and with the customer locked first, it cannot land in the window at all).
         $this->assertNotNull($refused, 'the old-cycle year was paid meanwhile: no change «now» on top of it');
         $this->assertFalse(InvoiceItem::query()->where('reference_type', Service::class)->whereIn('reference_id', [$parent->id, $addon->id])
             ->whereDate('period_start', '2026-12-27')->exists(), 'no new period billed over the paid old-cycle year');
@@ -154,11 +156,35 @@ class Rev3KissAddonsTest extends TestCase
         DB::table('invoices')->where('id', $renewal->id)->update(['status' => Invoice::STATUS_CANCELLED]); // not billed yet
         $addon->forceFill(['no_auto_charge' => true])->save();
 
-        $invoice = ChangeCycle::apply($parent->fresh(), $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+        // The fix: «or the change says so» (no invoice apart): refused, nothing changed; staff change it from the next
+        // renewal, or align the addon first.
+        try {
+            $invoice = ChangeCycle::apply($parent->fresh(), $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString("#{$addon->id}", $e->getMessage());
+            $this->assertSame($parent->plan_id, $parent->fresh()->plan_id);
+            $this->assertSame(0, Invoice::query()->where('status', Invoice::STATUS_UNPAID)->count(), 'no new invoice');
+
+            return;
+        }
 
         $this->assertNotNull($invoice);
         $this->assertTrue($invoice->items()->where('reference_type', Service::class)->where('reference_id', $parent->id)->exists());
         $this->assertFalse(InvoiceItem::query()->where('invoice_id', $invoice->id)->where(fn ($lines) => ItemPaymentMethod::kept($lines))->exists(),
             'the parent\'s new period is not kept from the automatic charge by its addon\'s own «Do not charge automatically»');
+    }
+
+    /** REV3-KISS-2, its other half (the fix): an addon with its own way of payment is refused too, and nothing changes. */
+    public function test_rev3_kiss_2_an_addon_with_its_own_gateway_refuses_the_change_now(): void
+    {
+        [$parent, $addon, $monthly, $renewal] = $this->family();
+        DB::table('invoices')->where('id', $renewal->id)->update(['status' => Invoice::STATUS_CANCELLED]); // not billed yet
+        $gateway = Gateway::query()->create(['extension' => 'Rev3Card', 'name' => 'CardCo', 'type' => 'gateway', 'enabled' => true]);
+        $addon->forceFill(['payment_gateway_id' => $gateway->id])->save();
+
+        $this->assertStringContainsString("#{$addon->id}", (string) ChangeCycle::refusal($parent->fresh(), $monthly, ChangeCycle::NOW));
+        $this->assertNull(ChangeCycle::refusal($parent->fresh(), $monthly, ChangeCycle::NEXT_RENEWAL), 'from the next renewal stays open');
+        $parent->forceFill(['payment_gateway_id' => $gateway->id])->save();
+        $this->assertNull(ChangeCycle::refusal($parent->fresh(), $monthly, ChangeCycle::NOW), 'aligned: allowed');
     }
 }

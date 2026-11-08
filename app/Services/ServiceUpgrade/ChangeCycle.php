@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\ChargeAttempt;
+use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -117,6 +118,12 @@ final class ChangeCycle
             foreach (self::followers($service) as $addon) {
                 if (self::follows($addon) && ($why = self::blocked($addon, $mode)) !== null) {
                     return __('Addon #:id follows this service: :reason', ['id' => $addon->id, 'reason' => $why]);
+                }
+                // Its new period goes on its parent's invoice: its own «Do not charge automatically» or its own way of
+                // payment would hold, or mix, the whole invoice (the cron bills such a one apart, REV3-KISS-2).
+                if (self::follows($addon) && ((bool) $addon->no_auto_charge !== (bool) $service->no_auto_charge
+                    || ($addon->payment_gateway_id === null ? null : (int) $addon->payment_gateway_id) !== ($service->payment_gateway_id === null ? null : (int) $service->payment_gateway_id))) {
+                    return __('Addon #:id is paid another way than this service: change it from the next renewal, or set the addon\'s payment as the service\'s first.', ['id' => $addon->id]);
                 }
             }
             if (BigDecimal::of(self::quote($service, $plan, $mode)['credit'])->isPositive() && !config('settings.credits_enabled', false)) {
@@ -310,6 +317,10 @@ final class ChangeCycle
                 $locked->setRelation('parent', $parent);
             }
             $followers = $mode === self::NOW ? self::followers($locked, lock: true) : collect();
+            // Then the customer, before any plain read (docs/money-trail.md §2: service → upgrade → customer → invoice): a
+            // payment, a credit or the cron's finish of its invoices takes it first, so none commits between the refusal's
+            // reads and the cancellation below (REV3-KISS-1).
+            Client::lock((int) $locked->client_id);
             if (($why = self::refusal($locked, $plan, $mode)) !== null) {
                 throw new DisplayException($why);
             }
@@ -327,6 +338,13 @@ final class ChangeCycle
                 $left = CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cycle_changed'), $locked, array_values($group->all()));
                 if ($left !== []) {
                     throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
+                }
+                // One paid meanwhile, its lines of the group still on it (CancelOpenInvoices leaves it be; one it cut down
+                // to the others' lines may be paid by the credit on it, CancelOpenInvoices::cancel): that period stands.
+                $paid = $open->isEmpty() ? collect() : Invoice::query()->whereKey($open->pluck('id'))->where('status', Invoice::STATUS_PAID)->lockForUpdate()->pluck('id');
+                if ($paid->isNotEmpty() && InvoiceItem::query()->whereIn('invoice_id', $paid)->where('reference_type', Service::class)
+                    ->whereIn('reference_id', collect([$locked, ...$group])->pluck('id'))->exists()) {
+                    throw new DisplayException(__('An open invoice of this service was paid meanwhile: try again.'));
                 }
             }
 
