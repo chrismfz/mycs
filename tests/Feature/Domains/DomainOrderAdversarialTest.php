@@ -396,11 +396,12 @@ class DomainOrderAdversarialTest extends TestCase
                 parent::__construct($search);
             }
 
-            public function check(string $fqdn, string $operation, int $years, string $currency, bool $availability = true): array
+            public function check(string $fqdn, string $operation, int $years, string $currency, bool $availability = true, ?int $clientId = null): array
             {
-                $result = parent::check($fqdn, $operation, $years, $currency, $availability);
+                $result = parent::check($fqdn, $operation, $years, $currency, $availability, $clientId);
+                // A paid order of it (D-25: an unpaid one holds nothing, so it would not race).
                 DB::table('domains')->insert(['client_id' => $this->other, 'sld' => 'mybusiness', 'tld' => 'com', 'fqdn' => 'mybusiness.com',
-                    'status' => 'pending_register', 'created_at' => now(), 'updated_at' => now()]);
+                    'status' => 'pending_register', 'name_held_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
                 return $result;
             }

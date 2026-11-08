@@ -36,7 +36,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string $fqdn lowercase ASCII (IDN as punycode)
  * @property string|null $live_fqdn = fqdn while it holds its name (holdsName, D-25), computed by the database: unique
  * @property DomainStatus $status
- * @property Carbon|null $name_held_at a pending order's hold of its name: paid, free as ordered, or sent (D-25); null otherwise
+ * @property Carbon|null $name_held_at a pending order's hold of its name: paid, free as ordered, or sent (D-25); an expired row's
+ *                                     while a renewal of it is paid and waiting (ADV-DNH-1); null otherwise
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
  * @property Carbon|null $expires_at
@@ -142,9 +143,16 @@ class Domain extends Model implements Auditable
                     $domain->{"{$role}_handle"} = null;
                 }
             }
-            // A pending order's hold of its name (D-25): only a pending row has one. Sent to its registrar, it holds (it
-            // was claimed before it was sent); one of ours that becomes pending again (a renewal as a transfer) keeps it.
-            if (!$domain->status->isPending()) {
+            // A pending order's hold of its name (D-25): only a pending row has one, or an expired row while a renewal
+            // of it is paid and waiting (ADV-DNH-1: becoming expired, it keeps the name it held). Sent to its registrar,
+            // it holds (it was claimed before it was sent); one of ours that becomes pending again (a renewal as a
+            // transfer) keeps it.
+            if ($domain->status === DomainStatus::Expired) {
+                if ($domain->isDirty('status')) {
+                    $domain->name_held_at = $domain->exists && self::holding($domain->getOriginal('status'), $domain->getOriginal('name_held_at') !== null)
+                        && DomainNameHold::renewalWaiting($domain) ? ($domain->name_held_at ?? now()) : null;
+                }
+            } elseif (!$domain->status->isPending()) {
                 $domain->name_held_at = null;
             } elseif ($domain->name_held_at === null && (!empty($domain->meta['sent_at'])
                 || ($domain->exists && self::holding($domain->getOriginal('status'), false)))) {
@@ -153,7 +161,7 @@ class Domain extends Model implements Auditable
         });
     }
 
-    /** It holds its name (D-25): active, grace, redemption, or a pending order paid or sent (name_held_at). */
+    /** It holds its name (D-25): active, grace, redemption, a pending order paid or sent, an expired row renewed (name_held_at). */
     public function holdsName(): bool
     {
         return self::holding($this->status, $this->name_held_at !== null);

@@ -288,6 +288,7 @@ return [
         'manage_contacts' => 'Add or complete a contact',
         'not_offered' => 'We do not offer this domain.',
         'years_not_offered' => 'This domain is not offered for :years year(s).',
+        'already_ordered' => 'You have ordered :domain already: pay that order\'s invoice, or cancel it before ordering it again.',
         'already_here' => ':domain cannot be ordered here: contact us if it is yours.',
         'taken' => ':domain is not available any more.',
         'not_registered' => ':domain is not registered: register it instead of transferring it.',

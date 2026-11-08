@@ -3,10 +3,9 @@
 namespace Tests\Feature;
 
 use App\Enums\DomainStatus;
-use App\Jobs\Domains\FulfilDomainOrderJob;
+use App\Helpers\ExtensionHelper;
 use App\Livewire\Cart;
 use App\Livewire\DomainShop\Search;
-use App\Mail\SystemMail;
 use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Domain;
@@ -166,23 +165,10 @@ class RevDomainNameHoldTest extends TestCase
         (new RecordPaymentService)->handle($invoice, null, (string) $invoice->total, transactionId: 'tx-' . $domain->id);
     }
 
-    private function runJobs(): void
-    {
-        foreach (Queue::pushed(FulfilDomainOrderJob::class) as $job) {
-            app()->call([$job, 'handle']);
-        }
-    }
-
     private function expired(Client $client, string $fqdn): Domain
     {
         return Domain::factory()->create(['client_id' => $client->id, 'sld' => explode('.', $fqdn)[0], 'tld' => 'com', 'fqdn' => $fqdn,
             'status' => DomainStatus::Expired, 'expires_at' => '2026-10-20']);
-    }
-
-    /** @return list<string> the subjects of the mails to staff */
-    private function staffMails(): array
-    {
-        return MailFacade::queued(SystemMail::class)->map(fn (SystemMail $mail) => $mail->envelope()->subject)->values()->all();
     }
 
     /** A renewal of $domain on its own invoice, paid now (its job queued, not run: the line waits for the registrar). */
@@ -209,10 +195,17 @@ class RevDomainNameHoldTest extends TestCase
         $renewal = $this->paidRenewal($alices);
         $this->assertNull($renewal->applied_at, 'waiting for its job');
 
-        $bobs = $this->order($this->bob, 'mybusiness.com');
-        $this->pay($bobs);
+        // Builder's correction (the fix): her paid renewal holds the name (name_held_at on the expired row, live_fqdn), so
+        // Bob's order is refused at checkout as any name held here is (it was to be ordered and paid, then refused).
+        try {
+            $this->order($this->bob, 'mybusiness.com');
+        } catch (\Throwable) {
+            // refused at checkout: the name is held
+        }
+        $this->assertSame(0, Domain::query()->where('client_id', $this->bob->client()->id)->count(), 'Bob cannot order a name paid for first');
 
         $this->assertNotSame(DomainStatus::Cancelled, $alices->fresh()->status, 'Alice paid her renewal first: her row is not closed under her');
+        $this->assertSame('mybusiness.com', $alices->fresh()->live_fqdn, 'her paid renewal holds the name');
     }
 
     /**
@@ -278,7 +271,12 @@ class RevDomainNameHoldTest extends TestCase
         $bobs = $this->order($this->bob, 'mybusiness.com');
         $this->pay($bobs);
         $this->assertNotNull($bobs->fresh()->name_held_at);
-        DB::table('invoices')->where('id', $this->invoiceOf($bobs)->id)->update(['status' => Invoice::STATUS_REFUNDED]);
+        // Builder's correction: refunded as staff refund it (ExtensionHelper::refundLocally, the invoice becomes refunded
+        // through the model), not a bare write, which no hook sees; a bare write is released by the cron's
+        // domains_superseded step (DomainNameHoldTest).
+        $payment = $this->invoiceOf($bobs)->transactions()->sole();
+        ExtensionHelper::refundLocally($payment, (float) $payment->amount, notify: false);
+        $this->assertSame(Invoice::STATUS_REFUNDED, $this->invoiceOf($bobs)->status);
 
         $this->assertFalse(DomainOrderFulfilment::paid($bobs->fresh(), DomainOrderFulfilment::lineOf($bobs->fresh())), 'no longer paid');
         $this->assertNull($bobs->fresh()->live_fqdn, 'not paid any more: it does not hold the name');

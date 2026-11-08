@@ -658,6 +658,15 @@ class CronJob extends Command
             // (DomainNameHold::closeOthers, after its commit). This catches what that left (busy, a write that bypassed
             // the model). One sent to its registrar, busy, or with money on its invoice is staff's: told once a month.
             $this->runCronJob('domains_superseded', function ($number = 0) {
+                // A hold whose payment no longer stands (ADV-DNH-4: refunded past the model, or found busy): released
+                // first, so the name is free again and its rows are read as they are.
+                foreach (DomainNameHold::staleHolds() as $id) {
+                    try {
+                        $number += DomainNameHold::release($id) ? 1 : 0;
+                    } catch (Throwable $e) {
+                        $this->failures["domains_superseded release #{$id}"] = $e;
+                    }
+                }
                 $holders = Domain::query()->whereNotNull('live_fqdn')->whereExists(fn ($q) => $q->from('domains as other')
                     ->whereColumn('other.fqdn', 'domains.fqdn')->whereColumn('other.id', '!=', 'domains.id')
                     ->whereNull('other.live_fqdn')->whereNotIn('other.status', DomainStatus::terminalValues()))->pluck('id');

@@ -153,7 +153,7 @@ class Cart
         $offer = app(DomainOffer::class);
         // Its shortest priced term unless chosen (D-5: years per TLD and operation).
         $years ??= ($tld = $offer->tldFor($fqdn, $currency)) === null ? 1 : ($offer->years($tld, $operation, $currency)->first() ?? 1);
-        [$fqdn, $tld] = $offer->check($fqdn, $operation, $years, $currency);
+        [$fqdn, $tld] = $offer->check($fqdn, $operation, $years, $currency, clientId: CurrentClient::model()?->id); // checked again at checkout
         $cart = self::createCart();
         $existing = $cart->items->first(fn (CartItem $item) => $item->isDomain() && $item->domain['fqdn'] === $fqdn);
         self::ensureCartItemLimit($cart, $existing?->id);

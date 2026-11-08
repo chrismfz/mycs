@@ -206,10 +206,10 @@ final class PlaceOrderService
         if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {
             throw new DisplayException(__('domains.order.contact_incomplete'));
         }
-        // Under the account's lock: only what the database says (the TLD, its price, the name not ours). Whether the name
-        // is free or taken was asked of its registrar before the lock (code review M2): never a registrar call while
-        // every payment of the account waits.
-        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false);
+        // Under the account's lock: only what the database says (the TLD, its price, the name not held here nor ordered by
+        // this account already: ADV-DNH-3, race-free under the lock). Whether the name is free or taken was asked of its
+        // registrar before the lock (code review M2): never a registrar call while every payment of the account waits.
+        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false, clientId: (int) $client->id);
         if ($line->operation === DomainOrderLine::TRANSFER && $tld->epp_code_required && trim((string) $line->eppCode) === '') {
             throw new DisplayException(__('domains.order.epp_required', ['domain' => $fqdn]));
         }

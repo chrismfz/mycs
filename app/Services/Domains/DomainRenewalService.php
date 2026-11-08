@@ -182,6 +182,16 @@ class DomainRenewalService
             return self::WAITING;
         }
         $connection = $domain->effectiveRegistrarConnection();
+        // An expired row renewed holds its name (D-25, ADV-DNH-1): never renewed (here or by hand) while another row
+        // holds it, paid or registered first, else the registrar's year is bought for a row that cannot be active here
+        // again. Once claimed the database keeps it, so a payer after it is refused.
+        if ($domain->status === DomainStatus::Expired && !DomainNameHold::claim($domain)) {
+            $holder = DomainNameHold::holder($domain->fqdn, (int) $domain->id);
+            $this->staffDecides($domain, $line, $connection->registrar ?? 'manual', 'Its name is held by domain #' . ($holder->id ?? '?')
+                . ' (paid or registered first, D-25): refund this renewal, or settle the name by hand, then Retry.');
+
+            return self::WAITING;
+        }
         if (!$connection instanceof DomainRegistrarConnection || !$connection->isUsable()) {
             $this->staffDecides($domain, $line, $connection === null ? 'manual' : $connection->registrar,
                 'No registrar with an API (manual): renew it by hand at the registrar, then mark this resolved.');

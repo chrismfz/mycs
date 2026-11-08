@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoice;
 
+use App\Enums\DomainStatus;
 use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Jobs\Domains\RenewDomainJob;
 use App\Models\Domain;
@@ -36,6 +37,12 @@ class ProcessPaidInvoiceService
                 // (applied_at), never here, and never this invoice's marker (D5b-1 review 1). Fees have nothing to do.
                 if ($item->reference_type == Domain::class) {
                     if ($item->kind === null && $item->period_end !== null && $item->applied_at === null) {
+                        // An expired row's renewal paid: it holds its name from now on (D-25, ADV-DNH-1), unless another
+                        // row paid or registered first; then the renewal goes to staff before any charge (renewLine).
+                        $domain = Domain::query()->find((int) $item->reference_id);
+                        if ($domain?->status === DomainStatus::Expired) {
+                            DomainNameHold::claim($domain);
+                        }
                         $lineId = (int) $item->id;
                         DB::afterCommit(fn () => RenewDomainJob::dispatch($lineId));
                     }
