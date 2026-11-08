@@ -155,6 +155,8 @@ class Service extends Model implements Auditable
         'suspend_hold_until' => 'date',
         'suspend_hold_notice_for' => 'date',
         'started_unpaid_at' => 'datetime',
+        'accepted_run_create' => 'boolean',
+        'accepted_send_email' => 'boolean',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',

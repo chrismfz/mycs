@@ -389,6 +389,9 @@ final class AutoCharge
         if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
             return false; // maybe taken: sent again with its key, the customer is not told it failed
         }
+        if ($attempt->status === ChargeAttempt::STATUS_NOT_SENT) {
+            return false; // the gateway was not reached (an outage): nothing declined, the customer is not told (L-FAILURES-2)
+        }
         // The customer hears of it on the first decline, the last try before suspension and when the bank asks them to
         // confirm: not on every daily retry (Π7.7).
         $first = (clone $cron)->whereIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED])->count() === 1;

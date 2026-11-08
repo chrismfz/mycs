@@ -4,10 +4,12 @@ namespace MyCS\Extensions\Gateways\Stripe;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
+use App\Enums\InvoiceTransactionStatus;
 use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\ChargeNeedsAction;
+use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -25,6 +27,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\GatewayReference;
 use App\Services\Money\PaymentsLog;
+use App\Services\Payment\SavedMethodCharge;
 use App\Services\Payment\SubscriptionEnded;
 use Carbon\Carbon;
 use Exception;
@@ -419,7 +422,8 @@ class Stripe extends Gateway
                     GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
                     break;
                 }
-                ExtensionHelper::addFailedPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id);
+                $failed = ExtensionHelper::addFailedPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id);
+                $this->savedChargeFailed($failed, $paymentIntent);
                 break;
             case 'charge.updated':
                 $charge = $event->data->object; // contains a StripeCharge
@@ -1176,6 +1180,31 @@ class Stripe extends Gateway
 
     }
 
+    /**
+     * A saved method's charge Stripe took as «processing» (a SEPA or other bank debit: kept «succeeded», PR H) that then
+     * failed: no money came. Its charge attempt is settled as failed, so the invoice is payable again and the cron charges
+     * it again as set; left «succeeded» with no payment it would read as taken and not recorded, holding the invoice for
+     * every way of paying, for ever, and telling staff to record a payment that never came (sweep 3 L-NO-DOUBLE-CHARGE-1;
+     * PayPal's denied capture, REV-PAYMENTS-1). Only a payment intent of a saved method's charge (its billing agreement in
+     * its metadata), whose payment row is failed now (a payment completed meanwhile stays succeeded). Staff are told.
+     */
+    private function savedChargeFailed(mixed $failed, object $paymentIntent): void
+    {
+        $agreementId = $paymentIntent->metadata->billing_agreement_id ?? null;
+        if (!$failed instanceof InvoiceTransaction || $failed->status !== InvoiceTransactionStatus::Failed || !is_numeric($agreementId)) {
+            return;
+        }
+        $key = $paymentIntent->metadata->charge_attempt ?? null;
+        $attempt = SavedMethodCharge::failedAtGateway($failed, 'Stripe: the payment intent ' . $paymentIntent->id . ' failed', (int) $agreementId, is_string($key) ? $key : null);
+        if ($attempt === null) {
+            return;
+        }
+        $message = sprintf('Stripe reported the saved method\'s charge %s on invoice #%d as failed after it was processing (a bank debit that bounced): no money came. The charge #%d is marked failed and the invoice can be paid again.',
+            $paymentIntent->id, $failed->invoice_id, $attempt);
+        PaymentsLog::warning($message, ['payment_intent' => $paymentIntent->id, 'invoice_id' => $failed->invoice_id, 'charge_attempt_id' => $attempt]);
+        NotificationHelper::sendSystemEmailNotification('Stripe saved-method charge failed', e($message));
+    }
+
     public function charge(Invoice $invoice, $amount, BillingAgreement $billingAgreement)
     {
         $user = $invoice->client;
@@ -1188,6 +1217,11 @@ class Stripe extends Gateway
             $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
         } catch (Exception $e) {
             report($e);
+            // Stripe down, slow or rate-limiting before the charge was sent: nothing was charged, and nothing declined. Not
+            // a decline: the customer is not told it failed, the method's declines are not counted (sweep 3 L-FAILURES-2).
+            if (self::noAnswer($e)) {
+                throw new ChargeNotSent('Could not reach Stripe: nothing was charged');
+            }
 
             throw new DisplayException('Could not process payment'); // nothing was charged yet
         }
@@ -1202,13 +1236,20 @@ class Stripe extends Gateway
                 'payment_method' => $billingAgreement->external_reference,
                 'off_session' => 'true',
                 'confirm' => 'true',
-                'metadata' => array_filter(['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id, 'payment_group' => $invoice->payingGroup]),
+                // The charge attempt's key too: a later payment_intent.payment_failed (a SEPA debit that bounced) settles that
+                // very attempt (sweep 3 L-NO-DOUBLE-CHARGE-1).
+                'metadata' => array_filter(['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id, 'payment_group' => $invoice->payingGroup,
+                    'charge_attempt' => $invoice->chargeKey]),
             ], $invoice->chargeKey);
         } catch (Exception $e) {
             // No answer about the money (a timeout, a 5xx): not a decline. Thrown as it is, so the attempt keeps its key and
             // is sent again with it (PR H, adversarial ADV-3b).
             if ($e instanceof ConnectionException || ($e instanceof RequestException && $e->response->status() >= 500)) {
                 throw $e;
+            }
+            // Rate limited: Stripe did not run the request (its docs), so nothing was charged and nothing declined.
+            if ($e instanceof RequestException && $e->response->status() === 429) {
+                throw new ChargeNotSent('Stripe rate-limited the charge: nothing was charged');
             }
             if ($e instanceof RequestException && in_array($e->response->status(), [400, 402], true)) {
                 $error = $e->response->object()->error ?? null;
@@ -1236,6 +1277,13 @@ class Stripe extends Gateway
         }
 
         return true;
+    }
+
+    /** No answer from Stripe at all (a timeout, a 5xx) or a request it refused to run (429): says nothing of a card. */
+    private static function noAnswer(Throwable $e): bool
+    {
+        return $e instanceof ConnectionException
+            || ($e instanceof RequestException && ($e->response->status() >= 500 || $e->response->status() === 429));
     }
 
     /** How old a signed event may be: Stripe's own libraries' default, so a captured one is not replayed later (PAY-SEC-7). */
