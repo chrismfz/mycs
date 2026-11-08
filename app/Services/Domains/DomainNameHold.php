@@ -146,6 +146,13 @@ final class DomainNameHold
             ->whereIn('status', [DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::STATUS_OK])->exists();
     }
 
+    /** A register or transfer at its registrar with no confirmed outcome: it may be under way there. */
+    private static function unconfirmedCharge(Domain $domain): bool
+    {
+        return $domain->registrarLogs()->whereIn('action', ['register', 'transfer'])
+            ->where('status', DomainRegistrarLog::STATUS_PENDING)->exists();
+    }
+
     /**
      * The rows holding their name by a payment that no longer stands (ADV-DNH-4), or expired past their recovery window
      * (D-25): what release() would free, for the cron (daily; a refund written past the model, a release that found its
@@ -246,8 +253,10 @@ final class DomainNameHold
                 }
                 // A pending order sent to its registrar may be done there: staff's. Only a pending one (R-DOMAINS-OTHER-FIXES-1
                 // of sweep 4): sent_at and the registration's log stay on a row for good once it is active, so an expired
-                // row past its window, once ordered here, is closed as an imported one is (D-25).
-                if ($fresh->status->isPending() && self::sent($fresh)) {
+                // row past its window, once ordered here, is closed as an imported one is (D-25). A charge at a registrar
+                // not confirmed (a PENDING register/transfer log, e.g. RenewAsTransfer's on an expired row) is no leftover:
+                // it may be completing there, so it stays staff's on any row (REV4-RDOF-1).
+                if (($fresh->status->isPending() && self::sent($fresh)) || self::unconfirmedCharge($fresh)) {
                     $left["domain #{$fresh->id}"] = new DisplayException("Domain #{$fresh->id} {$fresh->fqdn}: sent to its registrar, not closed; its name is held by #{$holder->id}. Decide by hand.");
 
                     return false;
