@@ -283,7 +283,7 @@ class PayPal extends Gateway
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
-                    report($e);
+                    $this->cancelFailed($event->service, $e);
                 }
             }
         });
@@ -298,9 +298,24 @@ class PayPal extends Gateway
             try {
                 $this->cancelSubscription($service);
             } catch (Exception $e) {
-                report($e);
+                $this->cancelFailed($service, $e);
             }
         });
+    }
+
+    /**
+     * The subscription of a service that ended (or is to be cancelled) could not be cancelled at PayPal: it still bills.
+     * Reported, and staff told, once a day for the same subscription (sweep 3, L-FAILURES-1).
+     */
+    private function cancelFailed(Service $service, Throwable $e): void
+    {
+        report($e);
+        $message = sprintf('The PayPal subscription %s of service #%d could not be cancelled at PayPal (%s). It may still bill the customer: cancel it in the PayPal account.',
+            (string) $service->subscription_id, $service->id, Str::limit($e->getMessage(), 200));
+        PaymentsLog::warning($message, ['gateway' => 'PayPal', 'service_id' => $service->id]);
+        if (Cache::add('paypal-cancel-failed:' . $service->subscription_id, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('PayPal subscription not cancelled', e($message));
+        }
     }
 
     public function getConfig($values = [])
