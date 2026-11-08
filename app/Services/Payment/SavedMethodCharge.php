@@ -4,6 +4,7 @@ namespace App\Services\Payment;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\ChargeNeedsAction;
+use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
@@ -14,6 +15,7 @@ use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -41,6 +43,13 @@ final class SavedMethodCharge
      * the invoice stays held until the outcome is known (predeploy S1).
      */
     public const KEY_REUSE_HOURS = 23;
+
+    /**
+     * A gateway's checkout the customer opened on the invoice (a Stripe payment form, Cardlink's or Mollie's page, PayPal):
+     * the cron does not charge a saved method of it for this long after (openCheckout), as the checkout may still take the
+     * money (sweep 3 L-NO-DOUBLE-CHARGE-2). The cron's next run charges it, if it is still open then.
+     */
+    public const CHECKOUT_HOLD_MINUTES = 60;
 
     /** The hours a gateway keeps a charge's key: its own (`idempotencyKeyHours`), never above KEY_REUSE_HOURS. */
     public static function keyReuseHours(?BillingAgreement $agreement): int
@@ -132,6 +141,11 @@ final class SavedMethodCharge
             if ($source === ChargeAttempt::SOURCE_CRON && AutoCharge::agreementFor($locked)?->id !== $agreement->id) {
                 throw new DisplayException(__('This invoice is not charged automatically.'));
             }
+            // The customer opened a checkout of it a moment ago (openCheckout): it may still take the money, so the cron
+            // leaves it to its next run (sweep 3 L-NO-DOUBLE-CHARGE-2). Read under the lock it is written under.
+            if ($source === ChargeAttempt::SOURCE_CRON && self::checkoutOpen($locked)) {
+                throw new DisplayException(__('The customer is paying this invoice at a checkout.'));
+            }
             $amount = $group !== null ? RecordPaymentService::toCents($group->total) : RecordPaymentService::toCents($locked->remaining);
             if ($amount <= 0) {
                 throw new DisplayException(__('Nothing is left to pay on this invoice.'));
@@ -186,6 +200,9 @@ final class SavedMethodCharge
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_SUCCEEDED);
         } catch (ChargeNeedsAction $e) {
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage());
+        } catch (ChargeNotSent $e) {
+            // The gateway was not reached before the charge (an outage): nothing taken, nothing declined (L-FAILURES-2).
+            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_NOT_SENT, $e->getMessage());
         } catch (DisplayException $e) {
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_FAILED, $e->getMessage());
         } catch (Throwable $e) {
@@ -220,6 +237,65 @@ final class SavedMethodCharge
 
         return InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
             ->where(fn ($query) => $query->whereIn('invoice_id', [...$ids, ...$leads])->orWhereIn('id', $payments))->exists();
+    }
+
+    /**
+     * The customer opens a gateway's checkout on the invoice (or on $group, a Mass Pay group of it): refused (false) when a
+     * payment of it is on its way (onItsWay, predeploy S2); else stamped on it (and on each of the group's invoices) under
+     * the same payment locks the cron's charge reads it under, so that charge waits CHECKOUT_HOLD_MINUTES: a checkout
+     * opened before the cron's charge would take the same debt again when the customer completes it (sweep 3
+     * L-NO-DOUBLE-CHARGE-2). Written without touching the invoice's own updated_at or observers: it is no change of it.
+     */
+    public static function openCheckout(Invoice $invoice, ?PaymentGroup $group = null): bool
+    {
+        return DB::transaction(function () use ($invoice, $group) {
+            $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
+            if (self::onItsWay($locked, $group)) {
+                return false;
+            }
+            [$ids] = self::payable($locked, $group);
+            DB::table('invoices')->whereIn('id', $ids)->update(['checkout_opened_at' => now()]);
+
+            return true;
+        });
+    }
+
+    /** A checkout of it opened under CHECKOUT_HOLD_MINUTES ago (openCheckout): the cron does not charge it yet. */
+    public static function checkoutOpen(Invoice $invoice): bool
+    {
+        $opened = DB::table('invoices')->where('id', $invoice->id)->value('checkout_opened_at');
+
+        return $opened !== null && Carbon::parse($opened)->greaterThan(now()->subMinutes(self::CHECKOUT_HOLD_MINUTES));
+    }
+
+    /**
+     * A saved method's charge its gateway took as on its way (Stripe «processing», a bank debit; a PayPal PENDING capture)
+     * and then reported failed in a signed event, $payment being that payment now failed: settled as failed, so the invoice
+     * is payable and charged again (left «succeeded» with no payment, it reads as taken and not recorded and holds the
+     * invoice for ever: REV-PAYMENTS-1, sweep 3 L-NO-DOUBLE-CHARGE-1). The attempt of $key when the gateway carried it back;
+     * else the one «succeeded» attempt on its invoice through its gateway (of $agreementId, when known), of at most its
+     * amount, sent by the day it was recorded, that no other payment records now (notRecorded). None or more than one such
+     * attempt is not known to be this payment's: left to staff (ResolveCharge). Only from «succeeded», so a charge staff
+     * settled meanwhile is kept. @return int|null its id
+     */
+    public static function failedAtGateway(InvoiceTransaction $payment, string $error, ?int $agreementId = null, ?string $key = null): ?int
+    {
+        $candidates = ChargeAttempt::query()->where('invoice_id', $payment->invoice_id)
+            ->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('amount', '<=', $payment->amount)
+            ->whereHas('billingAgreement', fn ($agreement) => $agreement->where('gateway_id', $payment->gateway_id))
+            ->when($agreementId !== null, fn ($query) => $query->where('billing_agreement_id', $agreementId))
+            ->when($key !== null && $key !== '', fn ($query) => $query->where('key', $key))
+            ->get()
+            ->filter(fn (ChargeAttempt $attempt) => $attempt->sent_at->copy()->startOfDay()->lte($payment->created_at)
+                && !self::recordedSince($attempt));
+        if ($candidates->count() !== 1) {
+            return null;
+        }
+        $attempt = $candidates->sole();
+        $updated = ChargeAttempt::query()->whereKey($attempt->id)->where('status', ChargeAttempt::STATUS_SUCCEEDED)
+            ->update(['status' => ChargeAttempt::STATUS_FAILED, 'error' => mb_substr($error, 0, 250)]);
+
+        return $updated === 1 ? (int) $attempt->id : null;
     }
 
     /** The charge's payment was recorded: see notRecorded. */
@@ -269,7 +345,7 @@ final class SavedMethodCharge
         // again. Once a day, whatever the number of invoices declined that day (adversarial ADV-9).
         if ($status === ChargeAttempt::STATUS_SUCCEEDED) {
             BillingAgreement::query()->whereKey($agreement->id)->update(['failed_count' => 0]);
-        } elseif ($attempt->source === ChargeAttempt::SOURCE_CRON && $status !== ChargeAttempt::STATUS_UNKNOWN) {
+        } elseif ($attempt->source === ChargeAttempt::SOURCE_CRON && !in_array($status, [ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_NOT_SENT], true)) {
             BillingAgreement::query()->whereKey($agreement->id)
                 ->where(fn ($query) => $query->whereNull('last_failed_at')->orWhere('last_failed_at', '<', today()))
                 ->update(['failed_count' => DB::raw('failed_count + 1')]);
