@@ -110,12 +110,13 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 ### Sweep για bugs σε όλο το app (2026-11-07, [`sweeps/2026-11-07.md`](sweeps/2026-11-07.md))
 
 66 ευρήματα σε 14 περιοχές, όλα τα high και medium διορθωμένα (#708–#721). Ανοιχτά, για απόφαση: IMPORT-1 (έλεγχος στο
-runbook), PAYMENTS-4, DOMAINS-4, PROVISIONING-5, SETTINGS-OPS-4.
+runbook), PAYMENTS-4, DOMAINS-4, SETTINGS-OPS-4 (το PROVISIONING-5 έκλεισε στο sweep3: η υπηρεσία μένει terminated με την εργασία
+ανοιχτή, `docs/provisioning.md`).
 
 ### Δεύτερο, ανεξάρτητο sweep ανά ροή (2026-11-07, [`sweeps/2026-11-07-second.md`](sweeps/2026-11-07-second.md))
 
 4 high και 14 medium που είχαν ξεφύγει από τον πρώτο γύρο, όλα διορθωμένα (#723–#735). Ανοιχτά, για απόφαση: F-RENEWAL-CYCLE-2
-(καθαρισμός στο runbook), F-PROVISIONING-OPS-2 (= PROVISIONING-5), F-CONCURRENCY-2 και REV2-FCONC-2 (σειρά των locks).
+(καθαρισμός στο runbook), F-CONCURRENCY-2 και REV2-FCONC-2 (σειρά των locks).
 
 ### Κενά από το sweep του WHMCS (2026-11-04, [`sweeps/whmcs-gaps.md`](sweeps/whmcs-gaps.md))
 Κάθε γραμμή έχει την εξήγηση και τους αριθμούς στο sweep. Ένα PR ανά γραμμή (ή ομάδα)· όσα αγγίζουν χρήματα με

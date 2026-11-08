@@ -287,6 +287,18 @@ class ModuleAction extends Model
             ->where(fn (Builder $query) => $query->whereNotNull('given_up_at')->orWhereIn('action', self::DOMAIN_ACTIONS));
     }
 
+    /**
+     * An open task its service's delete would take with it (module_actions.service_id ON DELETE CASCADE): a termination
+     * not done yet on the server (a failure, or a step left to staff), or any task for staff by hand. The service is
+     * kept until staff close it (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5: owner's call, no migration).
+     */
+    public static function openTaskKeeps(int $serviceId): bool
+    {
+        return self::query()->open()->where('service_id', $serviceId)
+            ->where(fn (Builder $query) => $query->where('action', 'terminate')->orWhere('subject', self::SUBJECT_BY_HAND))
+            ->exists();
+    }
+
     private static function openFor(Service $service, string $action): ?self
     {
         // A module's own row: never a task for staff (its instructions overwritten by a later failure: review of #447).

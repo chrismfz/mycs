@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Facades\DB;
 use MyCS\BillingPeriod\Prorata;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -144,6 +145,35 @@ class Product extends Model implements Auditable
         return $this->services()->exists() || ServiceUpgrade::query()->where('product_id', $this->id)->exists();
     }
 
+    /**
+     * The codes of the coupons that name it, as a product they are for or one they require (sweep3 L-DATA-INTEGRITY-1):
+     * its pivot rows go with it by cascade, and a coupon left with none reads as «every product» or «nothing required».
+     * Staff take it out of those coupons first (or hide it).
+     *
+     * @return list<string>
+     */
+    public function couponCodes(): array
+    {
+        $ids = DB::table('coupon_products')->where('product_id', $this->id)->pluck('coupon_id')
+            ->merge(DB::table('coupon_required_products')->where('product_id', $this->id)->pluck('coupon_id'))->unique();
+
+        return $ids->isEmpty() ? [] : Coupon::query()->whereKey($ids->all())->orderBy('code')->pluck('code')->map(fn ($code) => (string) $code)->values()->all();
+    }
+
+    /** Why it cannot be deleted, or null (the page's Delete and the model's own guard say the same). */
+    public function deleteRefusal(): ?string
+    {
+        if ($this->inUse()) {
+            return __('This product is used by services or upgrades: hide it instead of deleting it.');
+        }
+        $codes = $this->couponCodes();
+        if ($codes !== []) {
+            return __('This product is named in coupons (:codes): take it out of them first, or hide it.', ['codes' => implode(', ', $codes)]);
+        }
+
+        return null;
+    }
+
     protected static function booted(): void
     {
         // Taxable or not changes what its services' subscriptions bill (Δ1).
@@ -153,8 +183,9 @@ class Product extends Model implements Auditable
             }
         });
         static::deleting(function (self $model) {
-            if ($model->inUse()) {
-                throw new DisplayException(__('This product is used by services or upgrades: hide it instead of deleting it.'));
+            $refusal = $model->deleteRefusal();
+            if ($refusal !== null) {
+                throw new DisplayException($refusal);
             }
         });
     }
