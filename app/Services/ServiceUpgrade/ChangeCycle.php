@@ -296,13 +296,15 @@ final class ChangeCycle
      * What is left of the period paid on $today, as it was paid (with its line's tax, B2; without its setup fee or what its
      * invoice gave back, PaidForPeriod: sweep 2): each paid line covering today,
      * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
-     * (imported without one): its price, with tax, for the days to its expiry. The period's part of what a downgrade gives
+     * (imported without one): its price, with tax, for the days to its expiry. One whose days left are on a cancelled or
+     * refunded invoice was not paid for them, nothing (sweep 4 E-PAYMENT-CREDIT-1: a refund in full, then a downgrade
+     * or a cycle change «now», gave the refunded days back as credit). The period's part of what a downgrade gives
      * back (DowngradeCredit) and of a cycle change's credit (quote, with the upgrades): never more than was paid.
      */
     public static function unused(Service $service, CarbonImmutable $today): string
     {
         $lines = self::paidCovering($service, $today);
-        if ($lines->isEmpty() && $service->livePeriodLines()->isEmpty()) {
+        if ($lines->isEmpty() && $service->livePeriodLines()->isEmpty() && !self::givenUpLeft($service, $today)) {
             $start = $service->currentPeriodStart();
             if ($start === null || $service->expires_at === null) {
                 return '0.00';
@@ -319,6 +321,25 @@ final class ChangeCycle
         }
 
         return (string) $total->toScale(2);
+    }
+
+    /**
+     * Whether a period line on a cancelled or refunded invoice holds any of the service's days left, from $today to its
+     * expiry: those days were billed and given up on (their money refunded, or never paid), not imported without a line.
+     * A renewal ahead given up on (from the expiry on) holds none of them.
+     */
+    private static function givenUpLeft(Service $service, CarbonImmutable $today): bool
+    {
+        $today = $today->startOfDay();
+        $expiry = $service->expires_at === null ? null : CarbonImmutable::instance($service->expires_at)->startOfDay();
+
+        return $service->invoiceItems()
+            ->whereNotNull('period_start')
+            ->whereNotNull('period_end')
+            ->whereHas('invoice', fn ($q) => $q->whereIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))
+            ->get()
+            ->contains(fn (InvoiceItem $line) => $line->period_end->startOfDay()->greaterThan($today)
+                && ($expiry === null || $line->period_start->startOfDay()->lessThan($expiry)));
     }
 
     /** @return Collection<int, InvoiceItem> the service's paid period lines that run past $day (they started before it) */
