@@ -2413,7 +2413,75 @@ class ImportFromWhmcs extends Command
             return $domain;
         }
 
-        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $this->serviceLineReference($record);
+        $reference = $this->serviceLineReference($record);
+        // A renewal WHMCS invoiced and staff cancelled, its nextinvoicedate moved past it: given up, as a cancel here (Δ3a).
+        $givenUp = ($record['type'] ?? null) === 'Hosting' && isset($record['id']) ? $this->renewalsGivenUp()[(int) $record['id']] ?? null : null;
+        if ($givenUp !== null && $reference['reference_type'] === Service::class && $reference['kind'] === null
+            && (int) $reference['reference_id'] === $givenUp['service']) {
+            return ['period_start' => $givenUp['start'], 'period_end' => $givenUp['end'], 'applied_at' => null,
+                'forgone_at' => now()->toDateTimeString()] + $reference;
+        }
+
+        return ['period_start' => null, 'period_end' => null, 'applied_at' => null, 'forgone_at' => null] + $reference;
+    }
+
+    /** @var array<int, array{service: int, start: string, end: string}>|null */
+    private ?array $renewalsGivenUp = null;
+
+    /**
+     * The cancelled renewal lines WHMCS gave up (sweep 4, C-FIRST-RUN-2), by line: a live service's (Active, Suspended)
+     * whose nextinvoicedate is past its nextduedate (WHMCS invoiced that period, and a cancel never moves it back: WHMCS
+     * never bills it again), on a cancelled invoice due on its nextduedate, with no other renewal invoice (paid or open)
+     * due then, which would stand for it. Imported with that period, nextduedate to nextinvoicedate, given up
+     * (forgone_at), as a cancel here does: never billed again here, nor charged. Its imported Hosting line has no period
+     * otherwise, and the cron would bill the period from expires_at (nextduedate) again. One line per service (its
+     * latest). A source without nextinvoicedate or the invoice tables (a test's): none.
+     *
+     * @return array<int, array{service: int, start: string, end: string}>
+     */
+    private function renewalsGivenUp(): array
+    {
+        if ($this->renewalsGivenUp !== null) {
+            return $this->renewalsGivenUp;
+        }
+        $this->renewalsGivenUp = [];
+        if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return $this->renewalsGivenUp;
+        }
+        try {
+            $rows = $this->pdo->query("SELECT h.id AS service, h.nextduedate, h.nextinvoicedate, ii.id AS line, i.status FROM tblhosting h
+                JOIN tblinvoiceitems ii ON ii.type = 'Hosting' AND ii.relid = h.id JOIN tblinvoices i ON i.id = ii.invoiceid
+                WHERE h.domainstatus IN ('Active', 'Suspended') AND h.nextduedate > '0000-00-00' AND h.nextinvoicedate > h.nextduedate
+                AND i.duedate = h.nextduedate ORDER BY h.id, ii.id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return $this->renewalsGivenUp; // no nextinvoicedate in the source
+        }
+        $byService = [];
+        foreach ($rows as $row) {
+            $byService[(int) $row['service']][] = $row;
+        }
+        $listed = [];
+        foreach ($byService as $service => $lines) {
+            if (collect($lines)->contains(fn (array $line) => (string) $line['status'] !== 'Cancelled')) {
+                continue; // a paid or open renewal of that period stands for it
+            }
+            $start = $this->validateDate($lines[0]['nextduedate']);
+            $end = $this->validateDate($lines[0]['nextinvoicedate']);
+            if ($start === null || $end === null || !isset($this->importedServices()[$service])) {
+                continue;
+            }
+            $last = end($lines);
+            $this->renewalsGivenUp[(int) $last['line']] = ['service' => $service, 'start' => substr($start, 0, 10), 'end' => substr($end, 0, 10)];
+            $listed[] = [$service, substr($start, 0, 10), substr($end, 0, 10), (int) $last['line']];
+        }
+        if ($listed !== []) {
+            $this->warn(count($listed) . ' live service(s) whose renewal WHMCS invoiced and staff cancelled (its next invoice date moved past it): '
+                . 'given up here as a cancel does, never billed again. Their due date is WHMCS\'s next due date, so the cron suspends them by it: '
+                . 'set a hold or move the date where WHMCS would not suspend.');
+            $this->table(['Service', 'Due', 'Next invoice', 'Line'], $listed);
+        }
+
+        return $this->renewalsGivenUp;
     }
 
     /** @return array{reference_type: string|null, reference_id: mixed, kind: string|null} */
