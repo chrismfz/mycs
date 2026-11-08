@@ -455,21 +455,25 @@ final class ChangeCycle
      * What is left of the period paid on $today, as it was paid (with its line's tax, B2; without its setup fee or what its
      * invoice gave back, PaidForPeriod: sweep 2): each paid line covering today,
      * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
-     * (imported without one): its price, with tax, for the days to its expiry. The period's part of what a downgrade gives
+     * (imported without one): its price, with tax, for its days left that were paid before the cut-over, up to its expiry
+     * or to the first day a cancelled or refunded line holds, whichever comes first: the days on such a line were not paid
+     * for, nothing for them (sweep 4 E-PAYMENT-CREDIT-1: a refund in full, then a downgrade or a cycle change «now», gave
+     * the refunded days back as credit), but the days before it still were (REV4-E-1: an imported service whose first
+     * renewal here was paid early, then refunded, keeps the days paid in WHMCS). The period's part of what a downgrade gives
      * back (DowngradeCredit) and of a cycle change's credit (quote, with the upgrades): never more than was paid.
      */
     public static function unused(Service $service, CarbonImmutable $today): string
     {
         $lines = self::paidCovering($service, $today);
         if ($lines->isEmpty() && $service->livePeriodLines()->isEmpty()) {
-            $start = $service->currentPeriodStart();
-            if ($start === null || $service->expires_at === null) {
+            [$start, $end] = self::importedPeriod($service, $today);
+            if ($start === null || $end === null || !$end->greaterThan($today->startOfDay())) {
                 return '0.00';
             }
             $paid = LinePricer::invoiceLine(number_format((float) $service->price, 2, '.', ''), max(1, (int) $service->quantity),
                 OrderPricing::taxRate($service->client, $service->product))['total'];
 
-            return (string) BigDecimal::max(BigDecimal::of(BillingPeriod::remaining($paid, $start, $service->expires_at, $today)), BigDecimal::zero())->toScale(2);
+            return (string) BigDecimal::max(BigDecimal::of(BillingPeriod::remaining($paid, $start, $end, $today)), BigDecimal::zero())->toScale(2);
         }
         $total = BigDecimal::zero();
         foreach ($lines as $line) {
@@ -478,6 +482,46 @@ final class ChangeCycle
         }
 
         return (string) $total->toScale(2);
+    }
+
+    /**
+     * The period paid before the cut-over (imported without its lines) whose days left are priced, as [start, end]: up to
+     * the expiry, or to the start of the first cancelled or refunded period line that holds any of the days from $today to
+     * the expiry, if earlier (those days were billed here and given up on: their money refunded, or never paid). A line
+     * that holds $today itself leaves no paid day (end <= today). A renewal ahead given up on (from the expiry on) changes
+     * nothing. [null, null] when it cannot be priced (no expiry, or a plan with no billing unit).
+     *
+     * @return array{0: ?CarbonImmutable, 1: ?CarbonImmutable}
+     */
+    private static function importedPeriod(Service $service, CarbonImmutable $today): array
+    {
+        if ($service->expires_at === null) {
+            return [null, null];
+        }
+        $today = $today->startOfDay();
+        $expiry = CarbonImmutable::instance($service->expires_at)->startOfDay();
+        $end = $service->invoiceItems()
+            ->whereNotNull('period_start')
+            ->whereNotNull('period_end')
+            ->whereHas('invoice', fn ($q) => $q->whereIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))
+            ->get()
+            ->filter(fn (InvoiceItem $line) => $line->period_end->startOfDay()->greaterThan($today)
+                && $line->period_start->startOfDay()->lessThan($expiry))
+            ->map(fn (InvoiceItem $line) => CarbonImmutable::instance($line->period_start)->startOfDay())
+            ->push($expiry)
+            ->min();
+        if ($end->equalTo($expiry)) {
+            return [$service->currentPeriodStart(), $expiry];
+        }
+        if ($end->lessThanOrEqualTo($today)) {
+            return [$end, $end];
+        }
+        $plan = $service->plan;
+        if ($plan === null || !in_array($plan->billing_unit, BillingPeriod::UNITS, true)) {
+            return [null, null];
+        }
+
+        return [BillingPeriod::start($end, $plan->billing_unit, max(1, (int) $plan->billing_period), $service->billingDay($end)), $end];
     }
 
     /** @return Collection<int, InvoiceItem> the service's paid period lines that run past $day (they started before it) */

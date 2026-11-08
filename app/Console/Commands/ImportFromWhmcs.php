@@ -1455,6 +1455,7 @@ class ImportFromWhmcs extends Command
             DB::table('services')->insert($data);
             DB::table('properties')->insert($marks);
         });
+        $this->moveServicesCounter();
         if ($freeOnPlan !== []) {
             $this->info(count($freeOnPlan) . ' «Free Account» service(s) of a product with no Free plan: on its first plan at 0.00 (renews free, never invoiced, as in WHMCS): '
                 . implode(', ', array_map(fn (int $id) => "#{$id}", $freeOnPlan)) . '.');
@@ -1472,6 +1473,29 @@ class ImportFromWhmcs extends Command
             $this->info(count($marked) . ' suspended service(s) marked as suspended by us: a payment enables them again.');
             $this->table(['Service', 'Module', 'Account'], $marked);
         }
+    }
+
+    /**
+     * The services' counter past every id WHMCS gave a service, even one it deleted since (its highest, a fraud order staff
+     * removed): its cancellation requests, invoice lines, upgrades and fields still name that id, and a service made here
+     * after the cut-over would take them (sweep 4, C-IMPORT-1). As the invoices' (importInvoices); the addons (inserted
+     * after, WhmcsAddonImport) take ids above it, and their explicit ids move it on by themselves.
+     */
+    private function moveServicesCounter(): void
+    {
+        $next = (new WhmcsAddonImport($this->pdo))->firstFreeServiceId();
+        $driver = DB::getDriverName();
+        // DDL commits an open transaction (MySQL/MariaDB): only outside one, as the importer runs.
+        if (($driver === 'mysql' || $driver === 'mariadb') && DB::transactionLevel() === 0) {
+            DB::statement('ALTER TABLE services AUTO_INCREMENT = ' . $next);
+        } elseif ($driver === 'sqlite') {
+            // AUTOINCREMENT keeps its counter in sqlite_sequence (a row once the table had one); never moved back.
+            $updated = DB::update('UPDATE sqlite_sequence SET seq = ? WHERE name = ? AND seq < ?', [$next - 1, 'services', $next - 1]);
+            if ($updated === 0 && !DB::table('sqlite_sequence')->where('name', 'services')->exists()) {
+                DB::table('sqlite_sequence')->insert(['name' => 'services', 'seq' => $next - 1]);
+            }
+        }
+        $this->info('Services counter: the next service is #' . $next . '.');
     }
 
     /** WHMCS's product addons (WhmcsAddonImport): each live one a service fastened to its parent. */
@@ -2109,6 +2133,9 @@ class ImportFromWhmcs extends Command
             . "{$counts['fields']} custom field values, {$counts['logs']} log rows.");
     }
 
+    /** WHMCS cancellation requests of services not imported, left out */
+    private int $cancellationsDropped = 0;
+
     private function importCancellations()
     {
         $this->info('Importing cancellations... (' . $this->count('tblcancelrequests') . ' records)');
@@ -2117,6 +2144,13 @@ class ImportFromWhmcs extends Command
         $this->migrateInBatch('tblcancelrequests', 'SELECT * FROM tblcancelrequests ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
+                // A deleted service's request (or one of an account not imported) is no one's: a service made here later
+                // with its id would be never billed and cancelled at its first expiry (sweep 4, C-IMPORT-1).
+                if (!isset($this->importedServices()[(int) $record['relid']])) {
+                    $this->cancellationsDropped++;
+
+                    continue;
+                }
                 $data[] = [
                     'id' => $record['id'],
                     'service_id' => $record['relid'],
@@ -2129,6 +2163,9 @@ class ImportFromWhmcs extends Command
 
             DB::table('service_cancellations')->insertOrIgnore($data);
         });
+        if ($this->cancellationsDropped > 0) {
+            $this->info("{$this->cancellationsDropped} cancellation request(s) of services not imported (deleted in WHMCS): left out.");
+        }
         $this->cancellationsToAddons();
     }
 
@@ -2445,8 +2482,9 @@ class ImportFromWhmcs extends Command
         };
 
         return match (true) {
-            // Never an addon's service (its id is no WHMCS service's, ADV-647-3); a deleted service's line is WG-27's.
-            $type === 'Hosting' && !in_array($relid, $this->addonsHere(), true) => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
+            // Never an addon's service (its id is no WHMCS service's, ADV-647-3), nor a deleted one's (WG-27): a service made
+            // here later with its id would take it as its renewal, billed or paid (sweep 4, C-IMPORT-1).
+            $type === 'Hosting' && isset($this->importedServices()[$relid]) && !in_array($relid, $this->addonsHere(), true) => ['reference_type' => Service::class, 'reference_id' => $record['relid'], 'kind' => null],
             // An addon imported as a service of its own (WhmcsAddonImport): its renewal, as a service's Hosting line (paid, it
             // renews it; unpaid, it is the renewal billed already).
             $type === 'Addon' && isset($this->addonsHere()[$relid]) => ['reference_type' => Service::class, 'reference_id' => $this->addonsHere()[$relid], 'kind' => null],

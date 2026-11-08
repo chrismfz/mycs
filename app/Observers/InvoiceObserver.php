@@ -400,6 +400,7 @@ class InvoiceObserver
         // No longer paid (refunded, charged back, set back to unpaid): a domain order not sent, or an expired domain's
         // renewal, held its name by this payment (D-25): it holds it no more (ADV-DNH-4), after this commit.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
+            self::markAppliedBeforeMyCs($invoice);
             $domainIds = $invoice->items()->where('reference_type', Domain::class)->pluck('reference_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
             if ($domainIds !== []) {
                 DB::afterCommit(function () use ($domainIds) {
@@ -438,6 +439,37 @@ class InvoiceObserver
             });
         }
         event(new InvoiceEvent\Updated($invoice));
+    }
+
+    /**
+     * Reopened (set back to unpaid, its payment deleted, charged back): a renewal line it paid before MyCS kept applied_at
+     * (a WHMCS invoice imported paid: no period, never applied here, ImportFromWhmcs::lineReference) is marked applied, as
+     * of when the invoice was paid. Paid again, it is then what a native line is (RenewServiceService::paidAgain): no
+     * second period for the same money (sweep4 E-SERVICE-1), and a service suspended for non-payment meanwhile is treated
+     * as on any payment. Not at the import: an imported line stays without applied_at (ADV-582-4, MoneyCheck).
+     *
+     * Only a line whose period was given already: never one MyCS still has to apply (apply_pending_since, BIL-9), one of
+     * a service that has ended (its payment bought nothing: staff are told when it is paid again), or one whose service
+     * does not run past the invoice's due date (nothing shows it was renewed). Left alone, a line renews on its next
+     * payment as before: when in doubt the customer's payment buys its period.
+     */
+    private static function markAppliedBeforeMyCs(Invoice $invoice): void
+    {
+        $due = $invoice->due_at;
+        if ($invoice->getOriginal('apply_pending_since') !== null || $due === null) {
+            return;
+        }
+        $at = $invoice->getOriginal('paid_at') ?? CarbonImmutable::now();
+        InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)->whereNull('kind')
+            ->whereNull('applied_at')->whereNull('period_start')->whereNull('period_end')->get(['id', 'reference_id'])
+            ->each(function (InvoiceItem $line) use ($due, $at) {
+                $service = Service::query()->find((int) $line->reference_id);
+                if ($service === null || $service->isEnded() || $service->expires_at === null
+                    || !CarbonImmutable::parse($service->expires_at)->startOfDay()->greaterThan(CarbonImmutable::parse($due)->startOfDay())) {
+                    return;
+                }
+                InvoiceItem::query()->whereKey($line->id)->update(['applied_at' => $at]);
+            });
     }
 
     /**
