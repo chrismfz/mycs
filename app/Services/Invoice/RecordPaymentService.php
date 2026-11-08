@@ -444,8 +444,12 @@ class RecordPaymentService
             // On a credit purchase that gave its credit, what is on the invoice bought credit: taken back too. When the
             // invoice is open again without it, it bought nothing (credit is given once paid): all the credit it still
             // holds goes back and its lines give it again when it is paid again (sweep MONEY-LEDGER-1, as a chargeback).
+            // Already open again with its lines applied (set back to unpaid, a chargeback): what this payment holds of the
+            // credit goes back (cause purchase_reopened), and is given back once the invoice is paid again, as a
+            // chargeback's take (sweep3 L-LEDGER-INVARIANT-1).
             $change = 0;
             $unbuy = false;
+            $reopened = 0;
             if ($transaction->status === InvoiceTransactionStatus::Succeeded) {
                 $credited = self::toCents($transaction->credited_amount);
                 $onInvoice = self::toCents($transaction->amount) - self::toCents($transaction->refunded_amount) - $credited;
@@ -460,7 +464,14 @@ class RecordPaymentService
                     if ($unbuy && $left < $this->boughtCreditCents($invoice)) {
                         throw new DisplayException(__('Part of the credit this invoice bought was already refunded: its other payments are not deleted, refund them instead.'));
                     }
-                    $change -= $unbuy ? $left : $onInvoice;
+                    if ($unbuy) {
+                        $change -= $left;
+                    } elseif ($onInvoice > 0 && $invoice->status !== Invoice::STATUS_PAID) {
+                        $reopened = min($onInvoice, $this->boughtCreditLeftCents($invoice));
+                        $change -= $reopened;
+                    } else {
+                        $change -= $onInvoice;
+                    }
                 }
             }
             $credit = null;
@@ -490,13 +501,18 @@ class RecordPaymentService
                 $trail->reverse($event, $cause, $effect !== 0 ? $credit : null);
             }
             // What the reversals do not cover: credit a credit purchase bought, or a payment from before the journal.
-            $rest = $change - $journaled;
+            $rest = $change + $reopened - $journaled;
             if ($rest !== 0) {
                 $balance += $rest;
                 $credit->amount = $balance / 100;
                 $rest > 0
                     ? $trail->creditIn($credit, $rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
                     : $trail->creditOut($credit, -$rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
+            }
+            if ($reopened > 0) {
+                $balance -= $reopened;
+                $credit->amount = $balance / 100;
+                $trail->creditOut($credit, $reopened, MoneyTrail::CAUSE_PURCHASE_REOPENED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
             }
             $credit?->save();
 
@@ -699,24 +715,51 @@ class RecordPaymentService
         $taken = (int) MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE_REFUNDED)
             ->where('kind', MoneyEventKind::CreditOut->value)->when($granted !== null, fn ($query) => $query->where('id', '>', $granted))
             ->orderBy('id')->get(['amount'])->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
-        // A chargeback took part of it and has not given it back yet (sweep2 F-REFUND-CHARGEBACK-2).
-        $chargedBack = (int) self::chargebackTakes($invoice)->when($granted !== null, fn ($takes) => $takes->where('id', '>', $granted))
-            ->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
+        // A chargeback, or a refund or deletion while it was open again, took part of it and has not given it back yet
+        // (sweep2 F-REFUND-CHARGEBACK-2, sweep3 L-LEDGER-INVARIANT-1).
+        $openTakes = (int) self::takesSinceGrant($invoice)->sum(fn (MoneyEvent $event) => self::toCents($event->amount));
 
-        return max(0, $given - $taken - $chargedBack);
+        return max(0, $given - $taken - $openTakes);
     }
 
     /**
-     * The bought credit chargebacks took from a credit purchase (ExtensionHelper::chargebackAtGateway, its credit-out
-     * events) and not given back yet: given back when the invoice is paid again (GrantBoughtCreditService), by a new
-     * payment or the dispute won (sweep2 F-REFUND-CHARGEBACK-1). Read locked, under the payments' locks.
+     * The bought credit taken from a credit purchase while its lines stay applied, to be given back when it is paid again
+     * (GrantBoughtCreditService): a chargeback's take (ExtensionHelper::chargebackAtGateway; sweep2
+     * F-REFUND-CHARGEBACK-1), and what a refund or a deletion of a payment took while the invoice was open again
+     * (purchase_reopened; sweep3 L-LEDGER-INVARIANT-1). Their credit-out events not given back yet. Read locked, under
+     * the payments' locks.
      *
      * @return Collection<int, MoneyEvent>
      */
     public static function chargebackTakes(Invoice $invoice): Collection
     {
         return MoneyEvent::query()->where('invoice_id', $invoice->id)->where('kind', MoneyEventKind::CreditOut->value)
-            ->where('cause', MoneyTrail::CAUSE_CHARGEBACK)->whereDoesntHave('reversal')->orderBy('id')->lockForUpdate()->get();
+            ->whereIn('cause', [MoneyTrail::CAUSE_CHARGEBACK, MoneyTrail::CAUSE_PURCHASE_REOPENED])->whereDoesntHave('reversal')
+            ->orderBy('id')->lockForUpdate()->get();
+    }
+
+    /**
+     * Those takes (chargebackTakes) since its lines last gave their credit: one from before (its lines given again since,
+     * from scratch) no longer counts. Under the payments' locks.
+     *
+     * @return Collection<int, MoneyEvent>
+     */
+    public static function takesSinceGrant(Invoice $invoice): Collection
+    {
+        // The grant itself (its credit-in, or credit-out for a negative line), never a reversal journaled under the same
+        // cause (a take given back).
+        $granted = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_PURCHASE)
+            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value])->max('id');
+
+        return self::chargebackTakes($invoice)->when($granted !== null, fn ($takes) => $takes->where('id', '>', $granted))->values();
+    }
+
+    /** Money that arrived on the invoice and stays on it: its succeeded payments less refunds and what became credit. Locked. */
+    public static function keptCents(Invoice $invoice): int
+    {
+        return (int) $invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded->value)->lockForUpdate()->get()
+            ->sum(fn (InvoiceTransaction $payment) => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
+                - self::toCents($payment->credited_amount));
     }
 
     /** What the credit lines of a credit purchase give when it is paid (their totals). Under the payments' locks. */
