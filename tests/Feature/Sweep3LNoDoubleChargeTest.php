@@ -240,7 +240,7 @@ class Sweep3LNoDoubleChargeTest extends TestCase
     {
         $agreement = $this->stripeAgreement();
         $invoice = $this->invoice();
-        $attempt = ChargeAttempt::query()->create(['key' => 'k-1', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
+        $attempt = ChargeAttempt::query()->create(['key' => '0b1e5f2a-0000-4d2c-9e7f-000000000001', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
             'billing_agreement_id' => $agreement->id, 'amount' => '10.00', 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CRON,
             'status' => ChargeAttempt::STATUS_SUCCEEDED, 'started_at' => now(), 'sent_at' => now(), 'finished_at' => now()]);
 
@@ -278,7 +278,7 @@ class Sweep3LNoDoubleChargeTest extends TestCase
         $agreement = BillingAgreement::query()->create(['client_id' => $this->client->id, 'gateway_id' => $saved->id,
             'name' => 'Visa 4242', 'external_reference' => 'pm_1', 'type' => 'card']);
         $invoice = $this->invoice();
-        ChargeAttempt::query()->create(['key' => 'k-2', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
+        ChargeAttempt::query()->create(['key' => '0b1e5f2a-0000-4d2c-9e7f-000000000002', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
             'billing_agreement_id' => $agreement->id, 'amount' => '10.00', 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CRON,
             'status' => ChargeAttempt::STATUS_STARTED, 'started_at' => now(), 'sent_at' => now()]);
 
