@@ -8,6 +8,7 @@ return [
         'credit_payment' => 'credit payment',
         'purchase' => 'credit purchase',
         'purchase_refunded' => 'credit purchase refunded',
+        'purchase_reopened' => 'credit purchase open again (given back when paid)',
         'transaction_deleted' => 'transaction deleted',
         'cancellation' => 'cancellation',
         'staff_adjustment' => 'staff adjustment',
