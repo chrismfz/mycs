@@ -4,9 +4,11 @@ namespace MyCS\Extensions\Others\Affiliates\Listeners;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
+use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Support\Facades\DB;
 use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 use MyCS\Extensions\Others\Affiliates\Models\AffiliateOrder;
 
@@ -54,10 +56,33 @@ class RewardAffiliate
 
             // The reward becomes the affiliate's account credit, through the ledger (docs/money-trail.md §2).
             $cents = (int) round($lineCents * $reward_percentage / 100);
-            if ($cents > 0) {
+            if ($cents <= 0) {
+                continue;
+            }
+            // Once per invoice and affiliate (sweep 4 E-PAYMENT-CREDIT-2): an invoice paid again (a chargeback won, a
+            // payment deleted and recorded again, unpaid then paid) brought no new sale. Under the invoice's lock (lock
+            // order: invoice, then credit), so two paid transitions at once reward it once.
+            DB::transaction(function () use ($invoice, $affiliate, $cents) {
+                Invoice::query()->whereKey($invoice->id)->lockForUpdate()->first();
+                if (self::rewarded((int) $affiliate->client_id, (int) $invoice->id)) {
+                    return;
+                }
                 (new CreditLedger)->add((int) $affiliate->client_id, $invoice->currency_code, $cents,
                     MoneyTrail::CAUSE_AFFILIATE_REWARD, MoneyTrail::SOURCE_SYSTEM, $invoice);
-            }
+            });
         }
+    }
+
+    /** Whether the affiliate's client was already rewarded for the invoice, by a reward not reversed since. */
+    private static function rewarded(int $clientId, int $invoiceId): bool
+    {
+        return MoneyEvent::query()
+            ->where('client_id', $clientId)
+            ->where('invoice_id', $invoiceId)
+            ->where('cause', MoneyTrail::CAUSE_AFFILIATE_REWARD)
+            ->whereNull('reverses_id')
+            ->whereNotExists(fn ($reversal) => $reversal->from('money_events as reversal')
+                ->whereColumn('reversal.reverses_id', 'money_events.id'))
+            ->exists();
     }
 }
