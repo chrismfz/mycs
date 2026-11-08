@@ -27,6 +27,7 @@ class Rev2FirstRunTest extends TestCase
         $whmcs = $this->whmcs();
         $old = now()->subDays(30)->toDateString();
         $whmcs->exec("INSERT INTO tblinvoices VALUES (9901, 1, '{$old}', '{$old}', 'Collections')");
+        $whmcs->exec("INSERT INTO tbldomains VALUES (1, 'Pending')");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (99011, 9901, 'DomainRegister', 1)");
 
         $this->assertSame([9901], $this->abandonedOrders($whmcs), 'imported unpaid, credit pays it and registers the name');
@@ -59,6 +60,7 @@ class Rev2FirstRunTest extends TestCase
             'CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)',
             'CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, domainstatus TEXT)',
             'CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT)',
+            'CREATE TABLE tbldomains (id INTEGER PRIMARY KEY, status TEXT)',
             'CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, date TEXT, duedate TEXT, status TEXT)',
             'CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, type TEXT, relid INT)',
         ] as $sql) {
