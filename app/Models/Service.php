@@ -796,10 +796,27 @@ class Service extends Model implements Auditable
     /**
      * @param  bool  $retax  its product changed: the lines' tax is decided again (Δ1), else each keeps its rate
      * @param  (Closure(InvoiceItem, InvoiceItem, Invoice): mixed)|null  $kept  told of each line kept at its price (ChangeOpenLine)
+     * @param  (Closure(InvoiceItem): mixed)|null  $orderLineKept  told of the order's own open line, kept as it is (a plan
+     *                                                             change by staff tells staff of it: ProrataOrderLineNotice)
      */
-    public function refreshOpenPeriods(bool $retax = false, ?Closure $kept = null): void
+    public function refreshOpenPeriods(bool $retax = false, ?Closure $kept = null, ?Closure $orderLineKept = null): void
     {
-        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+        if ($this->plan === null) {
+            return;
+        }
+        if (in_array($this->plan->type, ['one-time', 'free'], true)) {
+            // No periods to rebuild; the order's own open line still keeps the old plan's stub, and a plan change by staff
+            // tells staff of it as for any other plan (review REV-PPN-1).
+            if ($orderLineKept !== null) {
+                $lines = $this->livePeriodLines();
+                $orderInvoice = $this->order_id === null ? null : $this->order?->invoice_id;
+                $first = $lines->first();
+                if ($first !== null && $orderInvoice !== null && (int) $first->invoice_id === (int) $orderInvoice
+                    && in_array($first->invoice?->status, Invoice::OPEN_STATUSES, true)) {
+                    $orderLineKept($first);
+                }
+            }
+
             return;
         }
         $lines = $this->livePeriodLines();
@@ -813,9 +830,12 @@ class Service extends Model implements Auditable
             // keeps its price and period, as the order line of any other product (no period) does; the service's first period only.
             // An upgrade to another product still retaxes it (Δ1), and a caller that reports kept lines (the upgrade) is
             // told of a price the stub would now have, for staff (review REV3-L-ROUNDING-TAX-1); a plan change by staff
-            // (no $kept) leaves it as it is.
+            // (no $kept) leaves it as it is, and staff are told by $orderLineKept (owner 2026-11-08, REV3-L-ROUNDING-TAX-2).
             if ($orderInvoice !== null && (int) $line->invoice_id === (int) $orderInvoice && $line->is($lines->first())) {
                 $this->keepOrderLine($line, $retax, $kept);
+                if ($orderLineKept !== null) {
+                    $orderLineKept($line);
+                }
 
                 continue;
             }
