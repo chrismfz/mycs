@@ -113,6 +113,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 runbook), PAYMENTS-4, DOMAINS-4, SETTINGS-OPS-4 (το PROVISIONING-5 έκλεισε στο sweep3: η υπηρεσία μένει terminated με την εργασία
 ανοιχτή, `docs/provisioning.md`).
 
+### Τρίτο, ανεξάρτητο sweep ανά οπτική (2026-11-08, [`sweeps/2026-11-08-third.md`](sweeps/2026-11-08-third.md))
+
+1 high και 13 medium, όλα διορθωμένα (#737–#746). Ανοιχτά: L-ATTACKER-CLIENT-1 (ποιος «κρατά» ένα όνομα domain, πρόταση
+στον owner), και η ειδοποίηση του staff για αλλαγή πλάνου σε pending pro rata (απόφαση 2026-11-08, δικό της PR).
+
 ### Δεύτερο, ανεξάρτητο sweep ανά ροή (2026-11-07, [`sweeps/2026-11-07-second.md`](sweeps/2026-11-07-second.md))
 
 4 high και 14 medium που είχαν ξεφύγει από τον πρώτο γύρο, όλα διορθωμένα (#723–#735). Ανοιχτά, για απόφαση: F-RENEWAL-CYCLE-2
