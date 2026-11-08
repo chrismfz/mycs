@@ -349,7 +349,9 @@ final class RollbackReport
 
     private function moduleActions(): array
     {
-        $rows = $this->between(ModuleAction::query()->with(['service.client.primaryContact', 'service.client.ownerGrant.user', 'domain']))->orderBy('id')->get()
+        // The read-only checks (stray accounts, domain warnings) did nothing on a server: nothing to carry over (REV-STRAY-2).
+        $rows = $this->between(ModuleAction::query()->whereNotIn('action', ModuleAction::CHECKS)
+            ->with(['service.client.primaryContact', 'service.client.ownerGrant.user', 'domain']))->orderBy('id')->get()
             ->map(fn (ModuleAction $m) => [$m->id, $m->created_at, $m->action, $m->service_id ?? '', $m->domain->fqdn ?? '', $m->service->client->name ?? '', $m->status, $m->last_error ?? '']);
 
         return $this->section('module_actions', 'Server and module actions', 'The service\'s status in WHMCS as on the server now (create, suspend, unsuspend, terminate done here). An open one did not happen there.',

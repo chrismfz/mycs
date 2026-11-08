@@ -57,7 +57,8 @@ final class CronDay
                 $days[$day][$field] += (int) $stat->getAttribute('total');
             }
         }
-        $attention = ModuleAction::query()->whereBetween('created_at', [$from, $to])->where('status', ModuleAction::STATUS_OPEN)
+        // A «check this» task is not a failure (owner 2026-11-08): no red day for it.
+        $attention = ModuleAction::query()->whereBetween('created_at', [$from, $to])->where('status', ModuleAction::STATUS_OPEN)->failures()
             ->selectRaw('DATE(created_at) as day')->distinct()->pluck('day')
             ->merge(ChargeAttempt::query()->whereBetween('created_at', [$from, $to])->where('source', ChargeAttempt::SOURCE_CRON)->whereNotIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_SETTLED])
                 ->selectRaw('DATE(created_at) as day')->distinct()->pluck('day'));

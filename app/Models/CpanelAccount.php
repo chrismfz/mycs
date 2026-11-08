@@ -205,6 +205,18 @@ class CpanelAccount extends Model
     }
 
     /**
+     * A reseller's own customer's account: owned by neither root, itself, nor the server's login (a server reached with a
+     * reseller's login lists that reseller's accounts, which MyCS made: round 2 of #495). Never one of our services by its
+     * name alone, and never «not mapped» (its reseller's account is ours to check: StrayAccounts).
+     */
+    public function resellersCustomer(): bool
+    {
+        $login = strtolower(trim((string) $this->server?->settings->firstWhere('key', 'username')?->value));
+
+        return $this->owner !== null && !in_array($this->owner, array_filter(['root', $this->user, $login]), true);
+    }
+
+    /**
      * The one live service (active or suspended) this account is on this server: its cPanel username the account's (the
      * service's property, else its username), the service on this server or its product's; never a reseller's customer's
      * account. None when none or more.
@@ -215,8 +227,7 @@ class CpanelAccount extends Model
         // reseller would show another customer's account: review of #495); staff map one by hand.
         // Ours: root's, its own, or the server's login's (a server reached with a reseller's login lists that reseller's
         // accounts, which MyCS made: round 2 of #495).
-        $login = strtolower(trim((string) $this->server?->settings->firstWhere('key', 'username')?->value));
-        if ($this->owner !== null && !in_array($this->owner, array_filter(['root', $this->user, $login]), true)) {
+        if ($this->resellersCustomer()) {
             return null;
         }
         $ids = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])

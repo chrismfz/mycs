@@ -15,6 +15,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
+use App\Services\Servers\StrayAccounts;
 use App\Support\Actor;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Redact;
@@ -117,6 +118,15 @@ class DomainSyncService
                 // A warning alone changes nothing (review R1 of #404); a first good sync after a failure says it ended.
                 if (array_diff_key($changes, ['_warning' => true]) !== [] || ($previousError !== null && $this->lastSyncFailed($domain))) {
                     $this->logSync($domain, DomainRegistrarLog::STATUS_OK, changes: $changes);
+                }
+                // What it did not apply is a task for staff (StrayAccounts: one open per domain, closed by a sync with
+                // nothing to warn about), under this lock.
+                if ($domain->exists) {
+                    try {
+                        StrayAccounts::domainWarning($domain, $changes['_warning'][1] ?? null, $domain->effectiveRegistrarConnection()?->registrar);
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
                 }
                 if ($before !== null) {
                     $this->transferOutcome($domain, DomainStatus::tryFrom((string) $before->status), $before->registrar_domain_id, $result);

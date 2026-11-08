@@ -4,6 +4,7 @@ namespace App\Services\Ops;
 
 use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Settings as SettingsPage;
+use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\ServiceResource;
 use App\Helpers\NotificationHelper;
 use App\Models\ChargeAttempt;
@@ -163,7 +164,7 @@ final class CronSummary
                 ->where('source', ChargeAttempt::SOURCE_CRON)->whereNotIn('status', [ChargeAttempt::STATUS_SUCCEEDED, ChargeAttempt::STATUS_SETTLED])
                 ->orderBy('id')->get();
             $actions = ModuleAction::query()->with(['service.client', 'service.product', 'domain'])->whereBetween('created_at', [$start, $end])
-                ->where('status', ModuleAction::STATUS_OPEN)->orderBy('id')->get();
+                ->where('status', ModuleAction::STATUS_OPEN)->failures()->orderBy('id')->get(); // a check is not a failure: counted below
             $failed = $failed || !$ran || $charges->isNotEmpty() || $actions->isNotEmpty();
             $days[] = [
                 'date' => $day->copy(), 'url' => self::dayUrl($key), 'ran' => $ran, 'cell' => $cell,
@@ -193,6 +194,9 @@ final class CronSummary
 
         return [
             'from' => $from, 'to' => $to, 'today' => $today, 'days' => $days, 'failed' => $failed,
+            // The open «check this» tasks now (owner 2026-11-08): a count, never a failure, no mail of their own.
+            'checks' => ModuleAction::openChecks(),
+            'checksUrl' => ModuleActionResource::getUrl('index', ['filters' => ['checks' => ['isActive' => true]]], panel: 'admin'),
             'due' => $due, 'forecastError' => $forecastError,
             'suspendOff' => $forecast !== null && !$forecast['suspend_on'],
             'terminateOff' => $forecast !== null && $forecast['suspend_on'] && !$forecast['terminate_on'],

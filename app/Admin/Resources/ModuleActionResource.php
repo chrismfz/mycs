@@ -5,10 +5,12 @@ namespace App\Admin\Resources;
 use App\Admin\Clusters\Services;
 use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
 use App\Models\ModuleAction;
+use App\Models\Server;
 use App\Models\Staff;
 use App\Services\Domains\ContactPush;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
+use App\Services\Servers\StrayAccounts;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
 use App\Support\AdminBadge;
@@ -61,12 +63,18 @@ class ModuleActionResource extends Resource
             ->modifyQueryUsing(fn ($query) => $query->with(['service.product', 'service.license', 'service.client', 'domain.client', 'invoiceItem']))
             ->columns([
                 // A service's action, or a domain's (D5b-2: its renewal at the registrar).
+                // A stray account with no service (StrayAccounts): its server and what the server calls it.
                 TextColumn::make('for')->label('For')
-                    ->state(fn (ModuleAction $record) => $record->domain_id !== null
-                        ? ($record->domain->fqdn ?? '#' . $record->domain_id) . ($record->invoiceItem ? ' · invoice #' . $record->invoiceItem->invoice_id : '')
-                        : '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . LicenseKeyMask::domain($record->service) . ')' : ''))
-                    ->url(fn (ModuleAction $record) => $record->domain_id !== null ? DomainResource::getUrl('view', ['record' => $record->domain_id])
-                        : ServiceResource::getUrl('edit', ['record' => $record->service_id])),
+                    ->state(fn (ModuleAction $record) => match (true) {
+                        $record->domain_id !== null => ($record->domain->fqdn ?? '#' . $record->domain_id) . ($record->invoiceItem ? ' · invoice #' . $record->invoiceItem->invoice_id : ''),
+                        $record->service_id !== null => '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . LicenseKeyMask::domain($record->service) . ')' : ''),
+                        default => self::strayFor($record),
+                    })
+                    ->url(fn (ModuleAction $record) => match (true) {
+                        $record->domain_id !== null => DomainResource::getUrl('view', ['record' => $record->domain_id]),
+                        $record->service_id !== null => ServiceResource::getUrl('edit', ['record' => $record->service_id]),
+                        default => null,
+                    }),
                 TextColumn::make('client')->label('Client')->state(fn (ModuleAction $record) => $record->service !== null ? $record->service->client?->name : $record->domain?->client?->name),
                 // «upgrade» is WHMCS's ChangePackage: an upgrade or a downgrade sends the new product's package.
                 TextColumn::make('action')->badge()->formatStateUsing(fn (string $state) => self::label($state)),
@@ -74,12 +82,15 @@ class ModuleActionResource extends Resource
                 TextColumn::make('status')->badge()
                     ->state(fn (ModuleAction $record) => match (true) {
                         $record->status !== ModuleAction::STATUS_OPEN => $record->status,
+                        // A «check this» task (CHECKS) is opened given up, yet is not a failure (owner 2026-11-08): not «needs staff».
+                        $record->isCheck() => 'to check',
                         $record->given_up_at !== null => 'needs staff',
                         default => 'retrying',
                     })
                     ->color(fn (string $state) => match ($state) {
                         'needs staff' => 'danger',
                         'retrying' => 'warning',
+                        'to check' => 'info',
                         'completed' => 'success',
                         default => 'gray',
                     }),
@@ -90,20 +101,24 @@ class ModuleActionResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->options([
-                    ModuleAction::STATUS_OPEN => 'Pending (failed)',
+                    // Open: retrying, given up (needs staff) or a «check this» task, which is not a failure.
+                    ModuleAction::STATUS_OPEN => 'Open',
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION],
-                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION]))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION, ...ModuleAction::CHECKS],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::RENEW, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION, ...ModuleAction::CHECKS]))),
                 // Given up, or a domain's (ModuleAction::scopeNeedsStaff): the dashboard's «Needs attention» opens it.
                 Filter::make('needs_staff')->label('Needs staff')->query(fn ($query) => $query->needsStaff()),
+                // The «check this» tasks (ModuleAction::CHECKS): not failures, so not in «Needs staff»; «Needs attention» opens this.
+                Filter::make('checks')->label('To check')->query(fn ($query) => $query->whereIn('action', ModuleAction::CHECKS)),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null
-                        && $record->action !== OptionTasks::ACTION && $record->subject !== ModuleAction::SUBJECT_BY_HAND) // a staff task: done by hand, nothing to run
+                        && $record->action !== OptionTasks::ACTION && $record->subject !== ModuleAction::SUBJECT_BY_HAND // a staff task: done by hand, nothing to run
+                        && !in_array($record->action, ModuleAction::CHECKS, true)) // a check: staff look, nothing to run
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -186,6 +201,7 @@ class ModuleActionResource extends Resource
                         Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
                 Action::make('resolve')->label(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done' : match ($record->action) {
+                    ModuleAction::STRAY_ENDED, ModuleAction::STRAY_UNMAPPED, ModuleAction::DOMAIN_CHECK => 'Checked',
                     ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Locked by hand' : 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
@@ -201,6 +217,7 @@ class ModuleActionResource extends Resource
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
                         OptionTasks::ACTION => 'Done by hand (the IP given or taken back, noted on the service): closes it.',
+                        ModuleAction::STRAY_ENDED, ModuleAction::STRAY_UNMAPPED, ModuleAction::DOMAIN_CHECK => 'Looked at: closes it, and it is not opened again while it stays as it is. It also closes on its own once a read no longer finds it (gone, mapped, marked internal, its service active again; for a domain, a sync with nothing to warn about).',
                         default => 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).',
                     })
                     ->action(function (ModuleAction $record) {
@@ -240,8 +257,25 @@ class ModuleActionResource extends Resource
             ModuleAction::DOMAIN_TRANSFER => 'Domain Transfer',
             ModuleAction::DOMAIN_CONTACT => 'Domain Contact Update',
             OptionTasks::ACTION => 'Staff Task',
+            ModuleAction::STRAY_ENDED => 'Check: ended in MyCS',
+            ModuleAction::STRAY_UNMAPPED => 'Check: not mapped',
+            ModuleAction::DOMAIN_CHECK => 'Check: domain sync',
             default => ucfirst($action),
         };
+    }
+
+    /** A stray account's server and what the server calls it (StrayAccounts' subject). */
+    /** A stray account's row (no service, no domain): its server and what the server calls it. The Cron calendar shows it too. */
+    public static function strayFor(ModuleAction $record): string
+    {
+        $parsed = StrayAccounts::parse($record->subject);
+        if ($parsed === null) {
+            return (string) $record->subject;
+        }
+        static $servers = [];
+        $servers[$parsed[0]] ??= (string) (Server::query()->whereKey($parsed[0])->value('name') ?? 'server #' . $parsed[0]);
+
+        return $servers[$parsed[0]] . ' · ' . $parsed[1];
     }
 
     /** A domain's row acted on under its registrar lock: «busy» said, not an error page. */

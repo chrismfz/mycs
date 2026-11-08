@@ -105,6 +105,26 @@ class ModuleAction extends Model
      */
     public const DOMAIN_CONTACT = 'domain_contact';
 
+    /**
+     * «Check this» tasks a server's read opens (StrayAccounts, owner 2026-11-08): an account still on its server whose
+     * service ended in MyCS, and a running one no service has. One open per server and account (subject «server:remote»),
+     * closed on its own once a read no longer finds it; never anything run on the server (no Retry).
+     */
+    public const STRAY_ENDED = 'stray_ended';
+
+    public const STRAY_UNMAPPED = 'stray_unmapped';
+
+    public const STRAY = [self::STRAY_ENDED, self::STRAY_UNMAPPED];
+
+    /** A registrar sync's warning, what it did not apply (DomainSyncService::plan's «_warning»): the same kind of task. */
+    public const DOMAIN_CHECK = 'domain_check';
+
+    /** The tasks that only ask staff to look: nothing to retry, closed by staff («Checked») or by a later read. */
+    public const CHECKS = [self::STRAY_ENDED, self::STRAY_UNMAPPED, self::DOMAIN_CHECK];
+
+    /** The resolution of a row staff closed by hand («Mark resolved»). */
+    public const RESOLVED_BY_STAFF = 'marked resolved by staff';
+
     protected $guarded = [];
 
     protected function casts(): array
@@ -283,19 +303,53 @@ class ModuleAction extends Model
      */
     public function scopeNeedsStaff(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_OPEN)
+        return $query->where('status', self::STATUS_OPEN)->failures()
             ->where(fn (Builder $query) => $query->whereNotNull('given_up_at')->orWhereIn('action', self::DOMAIN_ACTIONS));
+    }
+
+    /** A «check this» task (CHECKS): not a failure (owner 2026-11-08), see scopeFailures. */
+    public function isCheck(): bool
+    {
+        return in_array($this->action, self::CHECKS, true);
+    }
+
+    /**
+     * Not a «check this» task (CHECKS): those are not failures (owner 2026-11-08, after review). They make no Health
+     * warning, no failed day in the Cron calendar or the summary email, and are counted on their own («N accounts to
+     * check»).
+     *
+     * @param  Builder<ModuleAction>  $query
+     * @return Builder<ModuleAction>
+     */
+    public function scopeFailures(Builder $query): Builder
+    {
+        return $query->whereNotIn('action', self::CHECKS);
+    }
+
+    /**
+     * The open «check this» tasks, by kind: accounts (STRAY) and domains (DOMAIN_CHECK).
+     *
+     * @return array{accounts: int, domains: int}
+     */
+    public static function openChecks(): array
+    {
+        $counts = self::query()->open()->whereIn('action', self::CHECKS)->selectRaw('action, COUNT(*) as total')->groupBy('action')
+            ->pluck('total', 'action')->map(fn ($total) => (int) $total);
+
+        return ['accounts' => (int) $counts->only(self::STRAY)->sum(), 'domains' => (int) ($counts[self::DOMAIN_CHECK] ?? 0)];
     }
 
     /**
      * An open task its service's delete would take with it (module_actions.service_id ON DELETE CASCADE): a termination
-     * not done yet on the server (a failure, or a step left to staff), or any task for staff by hand. The service is
-     * kept until staff close it (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5: owner's call, no migration).
+     * not done yet on the server (a failure, or a step left to staff), any task for staff by hand, or a read's «ended in
+     * MyCS, still on the server» check (its account, once unmapped, may not be running and would open nothing again:
+     * REV-STRAY-1). The service is kept until staff close it (sweep3 L-DATA-INTEGRITY-2, PROVISIONING-5: owner's call,
+     * no migration).
      */
     public static function openTaskKeeps(int $serviceId): bool
     {
         return self::query()->open()->where('service_id', $serviceId)
-            ->where(fn (Builder $query) => $query->where('action', 'terminate')->orWhere('subject', self::SUBJECT_BY_HAND))
+            ->where(fn (Builder $query) => $query->whereIn('action', ['terminate', self::STRAY_ENDED])->orWhere('subject', self::SUBJECT_BY_HAND))
             ->exists();
     }
 
@@ -479,7 +533,7 @@ class ModuleAction extends Model
 
             return;
         }
-        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'marked resolved by staff',
+        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => self::RESOLVED_BY_STAFF,
             'resolved_by_staff_id' => $staff?->id])->save();
         if ($this->action === 'create' && $this->service !== null) {
             ExtensionHelper::startCreated($this->service);
