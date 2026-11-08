@@ -6,6 +6,7 @@ use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\DomainReminders;
@@ -199,10 +200,13 @@ final class WhmcsDomainImport
                 }
             }
             // Cancelled in WHMCS for the period now due and not renewed (its expiry still at its start): given up, as a
-            // cancellation here does (Δ3a). Never an alternative not taken (a longer one, the domain renewed by another):
+            // cancellation here does (Δ3a). Due as a cancel here reads it (InvoiceObserver::givePeriodsUp): one the cron
+            // bills already, starting before Invoice::billedFrom (the domain invoice days ahead), not only one started:
+            // else the first run bills it again, charges it and renews it at the registrar (sweep 4 C-FIRST-RUN-3). One
+            // further off stays billable, as a cancel here keeps it (ADV-4). Never an alternative not taken (a longer one, the domain renewed by another):
             // given up, it would count as billed and stop the next renewal (R2-1 of #535).
             // Nor one beside a paid or open renewal of the same period: that one stands for it (R3-1 of #535).
-            $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] <= now()->toDateString()
+            $forgone = $status === 'Cancelled' && $renewal['period_start'] !== null && $renewal['period_start'] < Invoice::billedFrom(Domain::class)
                 && !$domain['ended'] && $domain['expires'] !== null
                 && abs(Carbon::parse($domain['expires'])->diffInDays(Carbon::parse($renewal['period_start']), false)) <= self::COVERED_WITHIN_DAYS
                 && !$this->standsFor((int) $record['relid'], $renewal['period_start']);
