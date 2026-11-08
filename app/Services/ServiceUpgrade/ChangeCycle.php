@@ -297,10 +297,15 @@ final class ChangeCycle
     public static function apply(Service $service, Plan $plan, string $mode, string $source): ?Invoice
     {
         $invoice = DB::transaction(function () use ($service, $plan, $mode, $source) {
-            // Parent first, then the addon(s): the order every money path takes (AddonCascade).
-            $parentId = Service::query()->whereKey($service->getKey())->value('parent_service_id');
+            // Parent first, then the addon(s): the order every money path takes (AddonCascade). Its parent from the model
+            // passed in, not a plain read: on MariaDB the first plain read fixes the transaction's snapshot, and every read
+            // after the locks would miss a payment committed while it waited for them (REV2-KISS-2).
+            $parentId = $service->parent_service_id;
             $parent = $parentId === null ? null : Service::query()->whereKey($parentId)->lockForUpdate()->first();
             $locked = Service::query()->whereKey($service->getKey())->lockForUpdate()->firstOrFail();
+            if ((int) $locked->parent_service_id !== (int) $parentId) {
+                throw new DisplayException(__('This service changed meanwhile: try again.'));
+            }
             if ($parent !== null) {
                 $locked->setRelation('parent', $parent);
             }
@@ -310,17 +315,18 @@ final class ChangeCycle
             }
             $quote = self::quote($locked, $plan, $mode);
 
-            // The open renewals were for the old cycle (nothing paid on them: refusal), its following addons' too; an
-            // invoice CancelOpenInvoices keeps open (a line it cannot tell, staff to look at) stops the change, all of it
-            // rolled back (B4).
+            // The open renewals were for the old cycle (nothing paid on them: refusal), its following addons' too, cancelled
+            // as one: their lines go together, so credit on an invoice of only them goes back, never pays what is left of
+            // the group (REV2-KISS-1). An invoice CancelOpenInvoices keeps open (a line it cannot tell, staff to look at)
+            // stops the change, all of it rolled back (B4).
             $back = (int) $plan->id === (int) $locked->plan_id;
             if (!$back) {
-                foreach ([$locked, ...$followers->filter(fn (Service $addon) => self::follows($addon))] as $each) {
-                    $left = CancelOpenInvoices::handle($each->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id'),
-                        __('invoices.cancellation_reasons.cycle_changed'), $each);
-                    if ($left !== []) {
-                        throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
-                    }
+                $group = $followers->filter(fn (Service $addon) => self::follows($addon))->values();
+                $open = collect([$locked, ...$group])->flatMap(fn (Service $each) => $each->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get())
+                    ->unique('id')->sortBy('id');
+                $left = CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cycle_changed'), $locked, array_values($group->all()));
+                if ($left !== []) {
+                    throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
                 }
             }
 
