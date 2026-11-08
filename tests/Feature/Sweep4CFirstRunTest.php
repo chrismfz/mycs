@@ -171,6 +171,9 @@ class Sweep4CFirstRunTest extends TestCase
         $this->whmcsInvoice($whmcs, 9804, 'Unpaid', $old, [[98041, 'Hosting', 9702, 'Hosting renewal', 10, $old]]);
         $this->whmcsInvoice($whmcs, 9805, 'Cancelled', $old, [[98051, 'Hosting', 9701, 'Hosting order', 10, $old]]);
         $this->whmcsInvoice($whmcs, 9806, 'Unpaid', $fresh, [[98061, 'DomainRegister', 3, 'Domain registration', 12, $fresh]]);
+        // Pending in WHMCS (never sent): credit would register / transfer them (an Active one is a debt: G-MONEY-SERVICE-3).
+        $whmcs->exec("INSERT INTO tbldomains (id, userid, type, domain, status) VALUES (1, {$this->user->client()->id}, 'Register', 'one.com', 'Pending'),"
+            . " (2, {$this->user->client()->id}, 'Transfer', 'two.com', 'Pending'), (3, {$this->user->client()->id}, 'Register', 'three.com', 'Pending')");
         $whmcs->exec("UPDATE tblinvoices SET date = '{$old}' WHERE id <= 9805");
         $whmcs->exec("UPDATE tblinvoices SET date = '{$fresh}' WHERE id = 9806");
         ImportFromWhmcs::$connect = fn () => $whmcs;
@@ -287,84 +290,100 @@ class Sweep4CFirstRunTest extends TestCase
         return $output->fetch();
     }
 
+    /** The importer's refusal of cancelled renewals (cancelledRenewals), on the source as it is now. */
+    private function cancelledRenewals(PDO $whmcs): array
+    {
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+
+        return (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command);
+    }
+
     /**
-     * C-FIRST-RUN-2. A service's renewal WHMCS invoiced and staff cancelled (WHMCS's nextinvoicedate moved on, so WHMCS
-     * never bills it again) came as a cancelled Hosting line with no period and no forgone_at: the first run billed the
-     * period again. The importer now reads nextinvoicedate and gives that line up (period nextduedate to
-     * nextinvoicedate, forgone_at), as a cancel here does (Δ3a).
+     * C-FIRST-RUN-2 (owner's decision 2026-11-08, sweep 5, in place of the importer's rule). A service's renewal WHMCS
+     * invoiced and staff cancelled (nextinvoicedate moved on: WHMCS never bills it again) would be billed again here from
+     * nextduedate. The import refuses to run while there is one, naming it, on a dry run too, before anything is emptied:
+     * staff settle it in WHMCS before the dump (cutover-runbook.md).
      */
-    public function test_c_first_run_2_a_service_renewal_cancelled_in_whmcs_is_not_billed_again(): void
+    public function test_c_first_run_2_the_import_refuses_a_service_renewal_cancelled_in_whmcs(): void
     {
         $whmcs = $this->whmcs();
         $due = now()->subDays(30)->toDateString();
         $this->whmcsService($whmcs, 9301, $due, now()->addDays(20)->toDateString());
         $this->whmcsInvoice($whmcs, 9401, 'Cancelled', $due, [[94011, 'Hosting', 9301, 'Hosting (example.test)', 10, $due]]);
-        $output = $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
-        $line = InvoiceItem::query()->findOrFail(94011);
-        $this->assertNotNull($line->forgone_at, 'given up, as a cancel here');
-        $this->assertSame($due, $line->period_start?->toDateString());
-        $this->assertStringContainsString('9301', $output, 'listed for staff');
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $refused = 'WHMCS live service(s) whose renewal invoice was cancelled and next invoice date moved past it: #9301.';
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertSame(1, DB::table('users')->where('id', $this->user->id)->count(), 'nothing emptied');
 
-        $this->cron();
-
-        $open = Invoice::query()->where('client_id', $this->user->client()->id)->where('status', Invoice::STATUS_UNPAID)->count();
-        $this->assertSame(0, $open, 'the period WHMCS gave up on is billed again');
-    }
-
-    /** C-FIRST-RUN-2, case B: cancelled ahead of its due date (in 5 days): not billed again, so never charged on it. */
-    public function test_c_first_run_2_a_service_renewal_cancelled_ahead_in_whmcs_is_not_billed_again(): void
-    {
-        $whmcs = $this->whmcs();
-        $due = now()->addDays(5)->toDateString();
-        $this->whmcsService($whmcs, 9302, $due, Carbon::parse($due)->addMonth()->toDateString());
-        $this->whmcsInvoice($whmcs, 9402, 'Cancelled', $due, [[94021, 'Hosting', 9302, 'Hosting (example.test)', 10, $due]]);
-        $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
-
-        $this->cron();
-
-        $this->assertSame(0, Invoice::query()->where('client_id', $this->user->client()->id)->where('status', Invoice::STATUS_UNPAID)->count());
+        // Billed again in WHMCS (next invoice date back to the due date): no longer refused.
+        $whmcs->exec('UPDATE tblhosting SET nextinvoicedate = nextduedate WHERE id = 9301');
+        $this->assertSame([], $this->cancelledRenewals($whmcs));
     }
 
     /**
-     * Not one beside an open renewal of the same due date (it stands for the period), and not one WHMCS would bill again
-     * (nextinvoicedate = nextduedate: staff moved it back to bill it again): both stay as before, no period.
+     * Only such a renewal: not one beside an open renewal of the same due date (it stands for the period), not one WHMCS
+     * would bill again (nextinvoicedate = nextduedate), not one cancelled for another due date, not an ended service's,
+     * and not one with a cancellation request (never billed here; it ends on its date as asked, G-MONEY-SERVICE-1).
      */
-    public function test_c_first_run_2_only_a_renewal_whmcs_gave_up_is_imported_given_up(): void
+    public function test_c_first_run_2_only_a_renewal_whmcs_gave_up_refuses_the_import(): void
+    {
+        $whmcs = $this->whmcs();
+        $whmcs->exec('CREATE TABLE tblcancelrequests (id INTEGER PRIMARY KEY, date TEXT, relid INT, reason TEXT, type TEXT)');
+        $due = now()->subDays(3)->toDateString();
+        $next = now()->addDays(27)->toDateString();
+        $this->whmcsService($whmcs, 9302, $due, $next); // refused
+        $this->whmcsInvoice($whmcs, 9402, 'Cancelled', $due, [[94021, 'Hosting', 9302, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsService($whmcs, 9303, $due, $next); // an open renewal stands for it
+        $this->whmcsInvoice($whmcs, 9403, 'Cancelled', $due, [[94031, 'Hosting', 9303, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsInvoice($whmcs, 9404, 'Unpaid', $due, [[94041, 'Hosting', 9303, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsService($whmcs, 9304, $due, $due); // WHMCS bills it again
+        $this->whmcsInvoice($whmcs, 9405, 'Cancelled', $due, [[94051, 'Hosting', 9304, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsService($whmcs, 9305, $due, $next); // cancelled for an earlier due date
+        $this->whmcsInvoice($whmcs, 9406, 'Cancelled', now()->subDays(33)->toDateString(), [[94061, 'Hosting', 9305, 'Hosting (example.test)', 10, now()->subDays(33)->toDateString()]]);
+        $this->whmcsService($whmcs, 9306, $due, $next); // ended
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Terminated' WHERE id = 9306");
+        $this->whmcsInvoice($whmcs, 9407, 'Cancelled', $due, [[94071, 'Hosting', 9306, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsService($whmcs, 9307, $due, $next); // a cancellation request
+        $this->whmcsInvoice($whmcs, 9408, 'Cancelled', $due, [[94081, 'Hosting', 9307, 'Hosting (example.test)', 10, $due]]);
+        $whmcs->exec("INSERT INTO tblcancelrequests VALUES (1, '{$due}', 9307, 'Moving away', 'End of Billing Period')");
+
+        $this->assertSame([9302], $this->cancelledRenewals($whmcs));
+    }
+
+    /**
+     * Settled in WHMCS as the runbook says, the import's own rules hold: billed again (next invoice date back to the due
+     * date), the period is billed on the first run; given away (due date moved to the next invoice date), nothing is
+     * billed before then and the service is not suspended (REV4-C-1).
+     */
+    public function test_c_first_run_2_a_renewal_settled_in_whmcs_is_billed_or_given_away(): void
     {
         $whmcs = $this->whmcs();
         $due = now()->subDays(3)->toDateString();
-        $this->whmcsService($whmcs, 9303, $due, now()->addDays(27)->toDateString());
-        $this->whmcsInvoice($whmcs, 9403, 'Cancelled', $due, [[94031, 'Hosting', 9303, 'Hosting (example.test)', 10, $due]]);
-        $this->whmcsInvoice($whmcs, 9404, 'Unpaid', $due, [[94041, 'Hosting', 9303, 'Hosting (example.test)', 10, $due]]);
-        $this->whmcsService($whmcs, 9304, $due, $due);
-        $this->whmcsInvoice($whmcs, 9405, 'Cancelled', $due, [[94051, 'Hosting', 9304, 'Hosting (example.test)', 10, $due]]);
-
-        $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
-
-        foreach ([94031, 94041, 94051] as $id) {
-            $line = InvoiceItem::query()->findOrFail($id);
-            $this->assertNull($line->forgone_at, "line {$id}");
-            $this->assertNull($line->period_start, "line {$id}");
-        }
-    }
-
-    /**
-     * C-FIRST-RUN-2, the suspension. Given up as a cancel here, the service would fall to the suspension rules by its date
-     * (Δ3a), where WHMCS, which suspends by an overdue invoice, would not. Its date is imported as WHMCS's nextinvoicedate,
-     * the end of the period given up (as staff move a date over a gap): not suspended, and billed on from there
-     * (review REV4-C-1).
-     */
-    public function test_c_first_run_2_a_service_renewal_cancelled_in_whmcs_is_not_suspended(): void
-    {
-        $whmcs = $this->whmcs();
-        $due = now()->subDays(30)->toDateString();
-        $this->whmcsService($whmcs, 9301, $due, now()->addDays(20)->toDateString());
+        $next = now()->addDays(27)->toDateString();
+        $this->whmcsService($whmcs, 9301, $due, $due); // billed again
         $this->whmcsInvoice($whmcs, 9401, 'Cancelled', $due, [[94011, 'Hosting', 9301, 'Hosting (example.test)', 10, $due]]);
+        $this->whmcsService($whmcs, 9302, $next, $next); // given away
+        $this->whmcsInvoice($whmcs, 9402, 'Cancelled', $due, [[94021, 'Hosting', 9302, 'Hosting (example.test)', 10, $due]]);
+        $this->assertSame([], $this->cancelledRenewals($whmcs));
         $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
 
         $this->cron();
 
-        $this->assertSame(Service::STATUS_ACTIVE, Service::query()->findOrFail(9301)->status);
+        $billed = fn (int $service) => InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $service)
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->count();
+        $this->assertSame(1, $billed(9301), 'the period WHMCS bills again is billed here');
+        $this->assertSame(0, $billed(9302), 'the period given away is billed');
+        $this->assertSame(Service::STATUS_ACTIVE, Service::query()->findOrFail(9302)->status);
     }
 
     /**
