@@ -49,7 +49,7 @@ class VoidAdjustmentNote
      * An edit or a deletion of a note, as a void: under the payments' locks (customer, invoice), the note read again
      * there, the model's refusals told as a notice.
      *
-     * @param  \Closure(AdjustmentNote): void  $change
+     * @param  \Closure(AdjustmentNote): mixed  $change
      */
     public static function correct(AdjustmentNote $record, string $ability, \Closure $change): void
     {

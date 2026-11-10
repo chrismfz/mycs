@@ -269,7 +269,7 @@ class InvoiceResource extends Resource
                                 // «Paid» chosen with money still owed: staff confirm that none is recorded (owner 2026-11-10).
                                 Checkbox::make('paid_without_payment')
                                     ->label(fn (?Invoice $record): string => __('No payment is recorded: mark it paid anyway, with :amount :currency still owed on it. Its services are renewed. (To record the money, use «Mark Paid» instead.)', [
-                                        'amount' => number_format(max(0, RecordPaymentService::toCents($record?->remaining ?? 0)) / 100, 2, '.', ''), 'currency' => (string) $record?->currency_code,
+                                        'amount' => number_format(max(0, RecordPaymentService::toCents($record === null ? 0 : $record->remaining)) / 100, 2, '.', ''), 'currency' => (string) $record?->currency_code,
                                     ]))
                                     ->visible(fn (Get $get, ?Invoice $record): bool => self::marksPaidWithoutPayment($record, $get('status')))
                                     ->accepted()

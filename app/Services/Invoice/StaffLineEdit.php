@@ -45,7 +45,7 @@ final class StaffLineEdit
      */
     public static function balanceNotice(mixed $invoiceId): ?string
     {
-        $invoice = Invoice::query()->with(['items', 'transactions', 'adjustmentNotes'])->find($invoiceId);
+        $invoice = Invoice::query()->with(['items', 'transactions', 'adjustmentNotes'])->whereKey($invoiceId)->first();
         if ($invoice === null || !in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_PAID], true)) {
             return null;
         }
