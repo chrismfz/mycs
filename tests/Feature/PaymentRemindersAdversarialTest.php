@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Classes\Settings;
 use App\Mail\Mail;
 use App\Models\BillingAgreement;
@@ -205,18 +204,14 @@ class PaymentRemindersAdversarialTest extends TestCase
         $this->assertSame([], $this->sent());
     }
 
-    /**
-     * A8: «Send Email» is authorized by `update`, and with Immutable Invoices on `update` is false for every issued
-     * invoice, while the action is visible only on issued ones: staff (even the Owner) can never send it.
-     */
-    public function test_a8_send_email_works_with_immutable_invoices(): void
+    /** A8: «Send Email» on an issued invoice's page sends the template staff chose. */
+    public function test_a8_send_email_works_on_an_issued_invoice(): void
     {
-        config(['settings.immutable_invoices_enabled' => true]);
         $owner = $this->owner();
         $invoice = $this->invoice('2026-10-25');
 
         try {
-            $this->livewireAs($owner)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])
+            $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->getKey()])
                 ->callAction('sendEmail', ['template' => 'invoice_modified']);
         } catch (\Throwable) {
             // forbidden: counted below

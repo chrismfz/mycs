@@ -4,17 +4,14 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\ApiResource\Pages\ManageApis;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Models\ApiKey;
 use App\Models\Currency;
 use App\Models\Invoice;
-use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -68,29 +65,21 @@ class Sweep3LAttackerStaffApiTest extends TestCase
     }
 
     /**
-     * L-ATTACKER-STAFF-API-2. With immutable invoices on, InvoicePolicy::update allows only a draft, and ViewInvoice's
-     * Cancel follows it; the list's Cancel checks only the class-level permission and cancels an issued invoice.
+     * L-ATTACKER-STAFF-API-2. The list's Cancel is authorized per record, by the policy's update: staff who may only list
+     * invoices do not cancel one. («Immutable Invoices», which this was found with, is gone: owner 2026-11-10.)
      */
-    public function test_list_cancel_follows_the_immutable_invoice_rule(): void
+    public function test_list_cancel_follows_the_policy_update(): void
     {
-        Setting::query()->updateOrCreate(['key' => 'immutable_invoices_enabled', 'settingable_type' => null], ['value' => true, 'type' => 'boolean']);
-        config(['settings.immutable_invoices_enabled' => true]);
-        Cache::forget('settings.rows');
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
 
         $customer = User::factory()->create();
         $invoice = Invoice::query()->create(['client_id' => $customer->client()->id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now(), 'currency_code' => 'EUR']);
-        $staff = Staff::factory()->admin()->create();
+        $staff = Staff::factory()->withPermissions(['admin.invoices.viewAny'])->create();
 
-        $this->assertFalse($staff->can('update', $invoice), 'the policy keeps an issued invoice as it is');
-
-        // ViewInvoice holds.
-        $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])->assertActionHidden('cancel');
-
-        // The list's row Cancel is authorized per record now, so it is hidden (and refused) like ViewInvoice's.
+        $this->assertFalse($staff->can('update', $invoice));
         $this->livewireAs($staff)->test(ListInvoices::class)->assertTableActionHidden('cancel', $invoice);
 
-        $this->assertNotSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'the list cancelled an immutable invoice');
+        $this->assertNotSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
     }
 
     /** The fix keeps the bulk delete for a key the actor could have granted. */
@@ -107,8 +96,8 @@ class Sweep3LAttackerStaffApiTest extends TestCase
         $this->assertNull(ApiKey::query()->find($key->id));
     }
 
-    /** With immutable invoices off, the list Cancel still cancels an issued invoice. */
-    public function test_list_cancel_still_works_without_immutable_invoices(): void
+    /** The list Cancel cancels an issued invoice for staff who may change it. */
+    public function test_list_cancel_still_works_for_staff_who_may_update(): void
     {
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
 

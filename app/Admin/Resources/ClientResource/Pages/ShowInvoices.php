@@ -58,7 +58,7 @@ class ShowInvoices extends ManageRelatedRecords
                     ->options(Invoice::statusOptions()),
             ])
             ->recordActions([
-                ViewAction::make()->url(fn ($record) => InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record])),
+                ViewAction::make()->url(fn ($record) => InvoiceResource::getUrl('edit', ['record' => $record])),
             ]);
     }
 }

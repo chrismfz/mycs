@@ -74,8 +74,8 @@ class OrderResource extends Resource
                     TextEntry::make('id')->label('Order #'),
                     TextEntry::make('invoice')->label('Invoice #')
                         ->state(fn (Order $record) => $record->invoice_id === null ? '—' : '#' . (OrderSummary::invoice($record)->number ?? $record->invoice_id))
-                        ->url(fn (Order $record) => ($invoice = OrderSummary::invoice($record)) !== null && InvoiceResource::canView($invoice)
-                            ? InvoiceResource::getUrl('view', ['record' => $invoice->id]) : null),
+                        ->url(fn (Order $record) => ($invoice = OrderSummary::invoice($record)) !== null && InvoiceResource::canEdit($invoice)
+                            ? InvoiceResource::getUrl('edit', ['record' => $invoice->id]) : null),
                     TextEntry::make('client_summary')->label('Client')
                         ->state(fn (Order $record) => self::clientSummary($record))
                         ->url(fn (Order $record) => $record->client !== null && ClientResource::canView($record->client)

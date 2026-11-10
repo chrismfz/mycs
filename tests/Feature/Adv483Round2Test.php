@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Helpers\ExtensionHelper;
 use App\Models\EkdosiDocument;
@@ -145,20 +144,20 @@ class Adv483Round2Test extends TestCase
         $this->assertSame('120.00', (string) $invoice->items()->first()->price);
     }
 
-    /** PIN: the table on the view page (no form, no listener) deletes a payment and tells without error. */
-    public function test_pin_the_table_on_the_view_page_tells_without_error(): void
+    /** PIN: the payments table deletes a payment and tells its page without error. */
+    public function test_pin_the_payments_table_tells_its_page_without_error(): void
     {
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '40.00', transactionId: 'TX-V');
 
         $this->livewireAs($this->staff())
-            ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => ViewInvoice::class])
+            ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->callTableAction('delete', $invoice->transactions()->sole())
             ->assertHasNoTableActionErrors()
             ->assertDispatched(TransactionsRelationManager::PAYMENTS_CHANGED)
             ->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED)
             ->assertDontSee('TX-V');
-        $this->livewireAs($this->staff())->test(ViewInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED)->assertHasNoErrors();
     }
 }

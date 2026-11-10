@@ -12,7 +12,6 @@ use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\EkdosiDocumentsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
@@ -32,7 +31,6 @@ use App\Support\AdminBadge;
 use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
@@ -258,7 +256,7 @@ class InvoiceResource extends Resource
                                             || RecordPaymentService::toCents($record->remaining) !== 0))
                                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
-                                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
+                                    ->default(Invoice::STATUS_UNPAID)
                                     // Cancelled here too: the fiscal document from Ekdosi stands (E2).
                                     ->helperText(fn (?Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                                     ->placeholder('Select the status of the invoice'),
@@ -478,8 +476,6 @@ class InvoiceResource extends Resource
                     ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->visible(fn (): bool => config('settings.immutable_invoices_enabled', false)),
                 EditAction::make(),
                 Action::make('cancel')
                     ->label('Cancel')
@@ -519,7 +515,6 @@ class InvoiceResource extends Resource
                             throw new Halt;
                         }
                     })
-                    // per record, as on ViewInvoice: with immutable invoices on only a draft can be changed
                     ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
                     ->visible(fn (Invoice $record): bool => !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
             ])
@@ -550,7 +545,6 @@ class InvoiceResource extends Resource
             'index' => ListInvoices::route('/'),
             'create' => CreateInvoice::route('/create'),
             // Always use id for invoice route binding in admin
-            'view' => ViewInvoice::route('/{record:id}'),
             'edit' => EditInvoice::route('/{record:id}/edit'),
         ];
     }

@@ -209,15 +209,6 @@ class EditInvoice extends EditRecord
             ->first(['ekdosi_requested_at', 'ekdosi_requested_by'])?->getAttributes() ?? [])->syncOriginal();
     }
 
-    public function mount(int|string $record): void
-    {
-        parent::mount($record);
-
-        if (config('settings.immutable_invoices_enabled', false) && $this->record->status !== Invoice::STATUS_DRAFT) {
-            redirect(InvoiceResource::getUrl('view', ['record' => $record]));
-        }
-    }
-
     /** An invoice with payments keeps its customer and currency (docs/money-trail.md §8): say why, not an error page. */
     protected function beforeSave(): void
     {

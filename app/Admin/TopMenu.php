@@ -19,7 +19,6 @@ use App\Admin\Pages\Settings;
 use App\Admin\Pages\SslChecker;
 use App\Admin\Pages\SystemCleanup;
 use App\Admin\Pages\WhoisLookup;
-use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
 use App\Admin\Resources\BulkMailResource;
 use App\Admin\Resources\CannedReplyCategoryResource;
@@ -109,7 +108,6 @@ class TopMenu
             [InvoiceResource::class, 'index', 'Invoices'],
             [InvoiceResource::class, 'create', 'Create Invoice'],
             [InvoiceTransactionResource::class, 'index', 'Transactions List'],
-            [AdjustmentNoteResource::class, 'index', 'Adjustment Notes'],
             [PaymentGatewayEventResource::class, 'index', 'Gateway Log'],
         ],
         'Support' => [
@@ -171,12 +169,6 @@ class TopMenu
             [McpOauthGrantResource::class, 'index', 'MCP Authorizations'],
         ],
     ];
-
-    /**
-     * Pages that hide themselves while a setting is off (debugging; immutable invoices): their own
-     * shouldRegisterNavigation() decides here too, as in the sidebar (review of #276).
-     */
-    public const CONDITIONAL = [AdjustmentNoteResource::class];
 
     /**
      * What the panel registers but needs no line here, and why. Anything else not in MENU (an extension's page) goes to
@@ -286,9 +278,6 @@ class TopMenu
             $first = Logs::first();
 
             return $first ? ['label' => $label ?? 'Logs', 'url' => (string) $first->getUrl()] : null;
-        }
-        if (in_array($class, self::CONDITIONAL, true) && !$class::shouldRegisterNavigation()) {
-            return null;
         }
         try {
             if (is_subclass_of($class, Resource::class)) {

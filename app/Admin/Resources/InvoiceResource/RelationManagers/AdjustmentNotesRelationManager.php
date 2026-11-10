@@ -21,11 +21,6 @@ class AdjustmentNotesRelationManager extends RelationManager
 
     protected static ?string $title = 'Adjustment Notes';
 
-    protected function canModifyAdjustmentNotes(): bool
-    {
-        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_UNPAID;
-    }
-
     private function ownerIsPaid(): bool
     {
         $invoice = $this->getOwnerRecord();
@@ -107,7 +102,7 @@ class AdjustmentNotesRelationManager extends RelationManager
             ->headerActions([
                 // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to unpaid first.
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes() && !$this->ownerIsPaid()),
+                    ->visible(fn (): bool => !$this->ownerIsPaid()),
             ])
             // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
             // written.
