@@ -100,6 +100,13 @@
 ποσό ή τιμολόγιο· επιστροφή και αναίρεσή της το **update**· το `reopen` (είναι του «Mark Paid») και το `invoices.update`·
 σημείωμα ή γραμμή που κάνει ένα paid να χρωστά, το `invoice_transactions.create` (`Invoice::owesByStaffsWord`).
 
+**Μετά το review του #782.** Δύο κανόνες μπήκαν στα ίδια τα services, άρα ισχύουν και στο panel: μια πληρωμή
+μεταφέρεται μόνο σε unpaid, draft ή paid τιμολόγιο (`EditPayment::TARGET_STATUSES`, REV-782-1)· η διαγραφή γραμμής που
+κάνει ένα paid να χρωστά ρωτά το `Invoice::owesByStaffsWord` όπως η προσθήκη και η αλλαγή (REV-782-2). Τα POST που κινούν
+χρήματα δέχονται `Idempotency-Key` (REV-782-3: «μην ξαναστέλνετε ποτέ χωρίς αυτό»). Το `unpaid → draft` κρύβει το
+τιμολόγιο από τον πελάτη και τις υπενθυμίσεις με μόνο το `invoices.update`, όπως στο panel· το `draft → unpaid` ξαναστέλνει
+το mail. Λεπτομέρειες και όρια πεδίων στο `payments.md`.
+
 Ο πίνακας των endpoints είναι στο `payments.md` («Admin API: πληρωμές, επιστροφές, σημειώματα»). Tests:
 `StaffFreedomApiPaymentsTest`, `StaffFreedomApiNotesLinesTest` (πάνω σε τιμολόγια του importer) και οι τρεις
 «attacker» έλεγχοι στο `Sweep3LAttackerStaffApiTest` (χωρίς κλειδί / κλειδί άλλου τύπου, κλειδί χωρίς το δικαίωμα, ids
