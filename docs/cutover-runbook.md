@@ -120,6 +120,19 @@ credentials. Το import της ημέρας τα φέρνει όλα:
      καμία γραμμή. Όσα βγουν: ακυρώνονται στο WHMCS (Orders → «Cancel Order», ή «Mark Cancelled» στο τιμολόγιο), και ξανά dump.
   2. Αν το import αρνηθεί («WHMCS unpaid order invoice(s) older than 7 days»): το ίδιο, και ξανά import. Τίποτα δεν έχει
      αδειάσει.
+- **Απλήρωτα Add Funds με έκπτωση (S6-MONEY-LEDGER-1, review του #766): ακυρώνονται στο WHMCS πριν από το τελικό dump.**
+  Στο MyCS ένα τιμολόγιο αγοράς πίστωσης δεν παίρνει έκπτωση (ούτε αρνητική γραμμή ούτε πιστωτικό σημείωμα): η πίστωση
+  δίνεται μόνο για χρήματα που ήρθαν. Αν ερχόταν ένα τέτοιο από το WHMCS και ο πελάτης πλήρωνε το μειωμένο ποσό, η πληρωμή
+  θα γραφόταν, το τιμολόγιο θα έμενε απλήρωτο με 0,00 για πληρωμή, πίστωση δεν θα δινόταν και το staff θα έπρεπε να κάνει
+  refund στο gateway. Ο importer **αρνείται να τρέξει** (και με `--dry-run`, πριν αδειάσει οτιδήποτε) όσο υπάρχει μη
+  εξοφλημένο τιμολόγιο (ό,τι δεν είναι Paid, Cancelled ή Refunded) με γραμμή `AddFunds` και γραμμή με αρνητικό ποσό, και
+  τα ονομάζει (`discountedAddFunds`). Στα αντίγραφα της 2026-11-06 (nixpal) και 2026-11-08 (myip) δεν υπάρχει κανένα.
+  1. Ακριβώς πριν από το dump: `SELECT DISTINCT i.id FROM tblinvoices i JOIN tblinvoiceitems a ON a.invoiceid = i.id AND
+     a.type = 'AddFunds' JOIN tblinvoiceitems d ON d.invoiceid = i.id AND d.amount < 0 WHERE i.status NOT IN ('Paid',
+     'Cancelled', 'Refunded')` = καμία γραμμή. Όσα βγουν: «Mark Cancelled» στο WHMCS και νέο Add Funds με το σωστό ποσό
+     (ή ο πελάτης το ξαναφτιάχνει), και ξανά dump.
+  2. Αν το import αρνηθεί («WHMCS unpaid Add Funds invoice(s) with a negative line»): το ίδιο, και ξανά import. Τίποτα δεν
+     έχει αδειάσει.
 - **Ανανεώσεις που ακυρώθηκαν ή σβήστηκαν στο WHMCS ενώ το `nextinvoicedate` προχώρησε (απόφαση ιδιοκτήτη 2026-11-08, sweep 5· στη θέση
   του κανόνα του sweep 4 C-FIRST-RUN-2· addons και σβησμένα τιμολόγια: sweep 6 S6-IMPORT-3/4): διορθώνονται στο WHMCS πριν από το τελικό dump.** Το WHMCS δεν ξαναχρεώνει μια τέτοια
   περίοδο· εδώ θα χρεωνόταν ξανά από το `nextduedate`. Ο importer **αρνείται να τρέξει** (και με `--dry-run`, πριν αδειάσει

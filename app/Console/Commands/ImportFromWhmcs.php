@@ -199,6 +199,14 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An unpaid Add Funds invoice with a discount (a negative line): here a credit purchase takes none, and its payment
+        // would be recorded on an invoice that stays unpaid and gives no credit (S6-MONEY-LEDGER-1, review of #766).
+        if (($discounted = $this->discountedAddFunds()) !== []) {
+            $this->error('WHMCS unpaid Add Funds invoice(s) with a negative line: #' . implode(', #', $discounted)
+                . '. A credit purchase takes no discount here: cancel them in WHMCS and make new ones for the right amount (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
         // A renewal WHMCS invoiced and staff cancelled or deleted, its nextinvoicedate moved past it (owner's decision 2026-11-08,
         // sweep 5, replacing sweep 4's C-FIRST-RUN-2 rule; addons and deleted invoices: sweep 6 S6-IMPORT-3/4): settled in WHMCS
         // before the dump, never guessed here (cutover-runbook.md).
@@ -3317,6 +3325,27 @@ class ImportFromWhmcs extends Command
         }
 
         return $unsettled;
+    }
+
+    /**
+     * Every WHMCS invoice not yet paid (anything but Paid, Cancelled, Refunded: a draft and «Payment Pending» too) with an
+     * «AddFunds» line and a line below zero: a discounted credit purchase. Here its payment of the discounted total does
+     * not cover the credit it buys: recorded, with the invoice left unpaid and no credit given (S6-MONEY-LEDGER-1). The
+     * import refuses to run on them (handle); staff cancel them in WHMCS and make new ones. The runbook's pre-dump query,
+     * the same set. A source without these tables (a test's): none.
+     *
+     * @return list<int>
+     */
+    private function discountedAddFunds(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems')) {
+            return [];
+        }
+
+        return array_values(array_map('intval', $this->pdo->query("SELECT DISTINCT i.id FROM tblinvoices i
+            JOIN tblinvoiceitems a ON a.invoiceid = i.id AND a.type = 'AddFunds'
+            JOIN tblinvoiceitems d ON d.invoiceid = i.id AND d.amount < 0
+            WHERE i.status NOT IN ('Paid', 'Cancelled', 'Refunded') ORDER BY i.id")->fetchAll(PDO::FETCH_COLUMN)));
     }
 
     /** Days after which an unpaid WHMCS order invoice refuses the import (abandonedOrders). */
