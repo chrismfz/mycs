@@ -163,10 +163,16 @@ plugin (`mod_ekdosi_contacts`, `mod_ekdosi_routing`). Στη MyCS είναι δ�
   (υπόλοιπο μετά από μεταφορά) δεν μετρά. Το `is_receipt` βγαίνει από το `document_type` της επαφής.
 - `mycs`: `source`, `ignore_invoicing`, `immediate_invoicing`, `requested_at` (E5: πότε το έστειλε το staff, ή null),
   `adjustments` (credit/debit notes, που το WHMCS δεν
-  έχει), `recipient` (η κύρια επαφή με ΑΦΜ, ΔΟΥ, δραστηριότητα και `document_type`), `documents` (ό,τι έχει ήδη
+  έχει), `balance` (2026-11-10: ό,τι χρωστιέται ακόμη στο τιμολόγιο· `0.00` κανονικά, αρνητικό όταν πληρώθηκε παραπάνω),
+  `recipient` (η κύρια επαφή με ΑΦΜ, ΔΟΥ, δραστηριότητα και `document_type`), `documents` (ό,τι έχει ήδη
   γράψει πίσω το Ekdosi).
 
 Για το K1 (από τα reviews του #459):
+- **Paid χωρίς (όλα) τα χρήματα (2026-11-10, `staff-freedom.md`).** Το staff μπορεί πλέον να κάνει ένα τιμολόγιο paid με
+  το χέρι χωρίς πληρωμή, ή να αλλάξει τις γραμμές ενός paid. Ένα τέτοιο τιμολόγιο βγαίνει στο `paid_unfiled` ως `Paid`
+  με `transactions` που δεν φτάνουν το `total` (ή άδειες, και `paymentmethod` κενό) και `mycs.balance` ≠ `0.00`. Η MyCS
+  μόνο το λέει· το τι εκδίδεται γι' αυτό (επί πιστώσει, με άλλον τρόπο πληρωμής, καθόλου) το αποφασίζει ο άνθρωπος στο
+  Ekdosi. Μόλις εκδοθεί παραστατικό, οι γραμμές και το σύνολο παγώνουν εδώ όπως πάντα.
 - Το `total` μετρά και τα credit/debit notes, ενώ `subtotal` και `tax` όχι. Με notes, `subtotal + tax − credit ≠ total`
   κατά `mycs.adjustments`. Το K1 το διαβάζει· αλλιώς ο έλεγχος συνέπειας του Ekdosi κρατά το τιμολόγιο (hold), που είναι
   το ασφαλές.
