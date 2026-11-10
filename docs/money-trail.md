@@ -102,6 +102,9 @@ gateway. Εδώ: **append-only** ημερολόγιο, διορθώσεις μό
   `payment` (και `credit_in`/`credit_out` όπως σε κάθε διαγραφή και καταγραφή). Αιτία των αντιλογισμών: `transaction_deleted`.
 - **Αναίρεση επιστροφής** (`UndoRefund`): `reversal` της κίνησης `refund` (ή του `credit_in` με `refund_to_credit`), με
   `cause=refund_undone` και actor. Έτσι ο κανόνας `refund_journal` (`refunded_amount` = ζωντανές επιστροφές) μένει αληθής.
+  **Κάθε αναγνώστης επιστροφών του ημερολογίου μετρά μόνο όσες δεν έχουν αντιλογισμό** (review του #781: πριν από το
+  «Undo refund» δεν υπήρχε αναιρεμένη επιστροφή): `recordGatewayRefund` (ταίριασμα με «με το χέρι»), `creditedParts`,
+  `CreditAutoApply`, `refundedToCredit`, `MoneyCheck::refundJournal`, `UndoRefund`.
 - **Locks:** και οι δύο παίρνουν πελάτη → τιμολόγιο → συναλλαγή (→ πίστωση) με τη σειρά της §2, και το τιμολόγιο δίνεται
   ως μοντέλο στο `lockInvoice`, ώστε τίποτα να μη διαβάζεται πριν από τα locks (S7-PAYMENTS-1). Ένα webhook για το ίδιο
   transaction id που φτάνει ανάμεσα στη διαγραφή και τη νέα γραμμή περιμένει το lock του πελάτη και μετά βλέπει τη νέα
