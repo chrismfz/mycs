@@ -138,15 +138,18 @@ final class AdversarialTest extends TestCase
         $theirs = 'dkim=pass header.d=eurobank.gr; dmarc=pass header.from=eurobank.gr';
 
         $this->assertSame('no_bank_dkim_and_dmarc', $verdict($echoed('bounce@evil.example'))->reason, 'the honest one reads, and says no');
+        // Quoted (as rspamd writes it) it is one value; not quoted, the header is refused whole. Never the bank's passes.
         foreach ([
-            "\"a) ; {$theirs}; x=y (\"@evil.example",
-            "a) ; {$theirs}; x=y (b@evil.example",
-            "a) ; {$theirs}; x=y ((b@evil.example",
-            "\"a\\) ; {$theirs}; x=y \\(\"@evil.example",
-            "\"a;{$theirs};b=c\"@evil.example",
-        ] as $envelopeSender) {
+            "\"a) ; {$theirs}; x=y (\"@evil.example" => 'unreadable_results',
+            "\"a) ; {$theirs}; x=y (b@evil.example\"" => 'unreadable_results',
+            "\"a\\) ; {$theirs}; x=y \\(\"@evil.example" => 'no_bank_dkim_and_dmarc',
+            "\"a;{$theirs};b=c\"@evil.example" => 'no_bank_dkim_and_dmarc',
+            "a) ; {$theirs}; x=y (b@evil.example" => 'unreadable_results',
+            "a) ; {$theirs}; x=y ((b@evil.example" => 'unreadable_results',
+            "\"a\" ; {$theirs} ; x=\"y@evil.example\"" => 'unreadable_results',
+        ] as $envelopeSender => $reason) {
             $forged = $verdict($echoed($envelopeSender));
-            $this->assertSame([false, 'unreadable_results'], [$forged->authenticated, $forged->reason], $envelopeSender);
+            $this->assertSame([false, $reason], [$forged->authenticated, $forged->reason], $envelopeSender);
         }
 
         // Inside a comment, below our own header, under a look-alike of our name, or half of it: nothing.

@@ -121,7 +121,7 @@ class Sweep7AuthenticationResultsTest extends TestCase
             'parentheses without quotes' => [self::echoed('mymail.myip.test', 'victim.example', 'a) smtp.mailfrom=victim.example (b@evil.example')],
             'statements of its own' => [self::echoed('mymail.myip.test', 'victim.example', '"a) ; dkim=pass header.d=victim.example; x=y ("@evil.example')],
             'a forged header below ours' => [self::echoed('mymail.myip.test', 'victim.example', 'bounce@evil.example'), $pass],
-            'a forged header below one of ours that does not read' => [self::echoed('mymail.myip.test', 'victim.example', '"a) ("@evil.example'), $pass],
+            'a forged header below one of ours that does not read' => [self::echoed('mymail.myip.test', 'victim.example', 'a) (b@evil.example'), $pass],
             'a look-alike of our server' => ['mymail.myip.test.evil.example; dkim=pass header.d=victim.example; dmarc=pass header.from=victim.example'],
             'a pass inside a comment' => ['mymail.myip.test; dmarc=fail (dmarc=pass header.from=victim.example) header.from=victim.example'],
             'a pass for another From' => ['mymail.myip.test; dkim=pass header.d=evil.example; dmarc=pass header.from=evil.example'],

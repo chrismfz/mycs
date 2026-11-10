@@ -101,16 +101,33 @@ final class AuthenticationResultsTest extends TestCase
     {
         $this->assertSame('no_aligned_pass', $this->reason(self::echoed('bounce@evil.test')), 'the honest one reads, and vouches for nothing');
 
+        // Quoted, as rspamd writes whatever holds such a character: one opaque value, in the comment and as the property.
         foreach ([
-            'a quoted local part that closes the comment' => '"a) smtp.mailfrom=example.com ("@evil.test',
+            'escaped parentheses' => '"a\\) smtp.mailfrom=example.com \\("@evil.test',
+            'escaped parentheses and statements' => '"a\\) ; dkim=pass header.d=example.com; dmarc=pass header.from=example.com; x=y \\(@evil.test"',
+            'escaped quotes' => '"a\\"; dkim=pass header.d=example.com; x=\\"y@evil.test"',
+            'a quoted local part with ; and =' => '"a;dmarc=pass header.from=example.com;b=c"@evil.test',
+        ] as $what => $envelopeSender) {
+            $this->assertSame('no_aligned_pass', $this->reason(self::echoed($envelopeSender)), $what);
+        }
+        // A parenthesis inside quotes in the comment, not escaped: refused (a lone quote could carry a comment too far).
+        foreach ([
+            'a quoted local part with a closing parenthesis' => '"a) smtp.mailfrom=example.com ("@evil.test',
             'the same, with statements of its own' => '"a) ; dkim=pass header.d=example.com; dmarc=pass header.from=example.com; x=y ("@evil.test',
+            'quotes around the parentheses only' => 'a" ) ; dkim=pass header.d=example.com ( "b@evil.test',
+            'one quote, to carry the comment to the second copy' => 'a"b) smtp.mailfrom=example.com',
+            'the same, with a statement' => 'a"b) ; dkim=pass header.d=example.com',
+        ] as $what => $envelopeSender) {
+            $this->assertSame('unreadable_results', $this->reason(self::echoed($envelopeSender)), $what);
+        }
+        // Not quoted (no rspamd): the comment ends early, and the header is refused whole.
+        foreach ([
             'parentheses without quotes' => 'a) smtp.mailfrom=example.com (b@evil.test',
             'a closing parenthesis alone' => 'a) smtp.mailfrom=example.com b@evil.test',
             'two comments left open, to swallow the second copy' => 'a) ; dkim=pass header.d=example.com ((b@evil.test',
-            'a quote that the comment would end' => 'a" ) ; dkim=pass header.d=example.com ( "b@evil.test',
-            'a backslash before the parenthesis' => '"a\\) smtp.mailfrom=example.com \\("@evil.test',
-            'a quoted local part with ; and =' => '"a;dmarc=pass header.from=example.com;b=c"@evil.test',
             'an opening parenthesis alone' => 'a(b@evil.test',
+            'a quote never closed' => 'a"b@evil.test',
+            'quotes closed and opened again around statements' => '"a" ; dkim=pass header.d=example.com ; x="y@evil.test"',
         ] as $what => $envelopeSender) {
             $this->assertSame('unreadable_results', $this->reason(self::echoed($envelopeSender)), $what);
             $this->assertNull(AuthenticationResults::parse(self::echoed($envelopeSender)), $what);
@@ -122,9 +139,14 @@ final class AuthenticationResultsTest extends TestCase
         foreach ([
             'a comment never closed' => 'mymail.myip.test; dmarc=pass header.from=example.com (policy=none',
             'a comment inside a comment' => 'mymail.myip.test; dmarc=pass (policy (none)) header.from=example.com',
-            'a parenthesis inside quotes in a comment' => 'mymail.myip.test; dmarc=pass ("a)b") header.from=example.com',
+            'a statement separator in a comment' => 'mymail.myip.test; dmarc=pass (policy=none; x) header.from=example.com',
+            'a quote never closed in a comment' => 'mymail.myip.test; dmarc=pass ("a) header.from=example.com',
             'a stray closing parenthesis' => 'mymail.myip.test; dmarc=pass header.from=example.com)',
-            'a quoted value' => 'mymail.myip.test; dmarc=pass header.from="example.com"',
+            'a quoted value never closed' => 'mymail.myip.test; dmarc=pass header.from="example.com',
+            'a quoted method' => 'mymail.myip.test; "dmarc"=pass header.from=example.com',
+            'a quoted name' => 'mymail.myip.test; dmarc=pass "header.from"=example.com',
+            'a quoted authserv-id' => '"mymail.myip.test"; dmarc=pass header.from=example.com',
+            'a line break that is no folding' => "mymail.myip.test; dmarc=pass\r\nheader.from=example.com",
             'a backslash' => 'mymail.myip.test; dmarc=pass header.from=example.com\\',
             'a control character' => "mymail.myip.test; dmarc=pass\0 header.from=example.com",
             'a word that is no name=value' => 'mymail.myip.test; dmarc=pass really header.from=example.com',
@@ -188,38 +210,86 @@ final class AuthenticationResultsTest extends TestCase
         $this->assertSame(2, $email->fromCount);
     }
 
-    /** Invented samples in the style of common servers (ours would be the authserv-id): they still authenticate. */
-    public function test_what_real_servers_write_still_vouches(): void
+    /**
+     * rspamd (mailcow) is the one server we support as «ours». Invented samples, written by its rules: a value that
+     * holds one of «( ) < > , ; : \ " / [ ] ? =», a space or a tab is put in double quotes (review of #771).
+     */
+    public function test_what_rspamd_writes_vouches(): void
     {
+        $dkim = 'dkim=pass header.d=example.com header.s=dkim header.b=Qz8kLm1p';
+        $spf = fn (string $sender) => "spf=pass (mymail.myip.test: domain of {$sender} designates 192.0.2.25 as permitted sender) smtp.mailfrom={$sender}";
         $samples = [
-            'rspamd (mailcow)' => "mymail.myip.test;\r\n\tdkim=pass header.d=example.com header.s=dkim header.b=Qz8kLm1p;\r\n"
-                . "\tdmarc=pass (policy=quarantine) header.from=example.com;\r\n"
-                . "\tspf=pass (mymail.myip.test: domain of maria@example.com designates 192.0.2.25 as permitted sender) smtp.mailfrom=maria@example.com",
-            'rspamd, forwarded with ARC' => "mymail.myip.test;\r\n\tdkim=pass header.d=example.com header.s=dkim header.b=Qz8kLm1p;\r\n"
-                . "\tarc=pass (\"example.com:s=dkim:i=1\");\r\n\tdmarc=pass (policy=none) header.from=example.com;\r\n\tspf=softfail smtp.mailfrom=maria@example.com",
-            'Postfix, OpenDMARC on top' => 'mymail.myip.test; dmarc=pass (p=none dis=none) header.from=example.com',
-            'Postfix, OpenDKIM on top' => "mymail.myip.test;\r\n\tdkim=pass (2048-bit key; unprotected) header.d=example.com header.i=@example.com header.a=rsa-sha256 header.s=mail header.b=fR3xYz12;\r\n\tdkim-atps=neutral",
-            'Postfix, policyd-spf on top' => 'mymail.myip.test; spf=pass (sender SPF authorized) smtp.mailfrom=example.com '
-                . '(client-ip=192.0.2.25; helo=mail.example.com; envelope-from=maria@example.com; receiver=<UNKNOWN>)',
-            'Exim' => "mymail.myip.test;\r\n\tiprev=pass (mail.example.com) smtp.remote-ip=2001:db8::25;\r\n\tspf=pass smtp.mailfrom=example.com;\r\n"
-                . "\tdkim=pass header.d=example.com header.s=sel1 header.a=rsa-sha256;\r\n\tdmarc=pass header.from=example.com;\r\n\tarc=none",
-            'a hosted provider' => "mymail.myip.test;\r\n       dkim=pass header.i=@example.com header.s=20240605 header.b=Kd9+aB/3;\r\n"
-                . "       spf=pass (mymail.myip.test: domain of maria@example.com designates 192.0.2.25 as permitted sender) smtp.mailfrom=maria@example.com;\r\n"
-                . '       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=example.com',
-            'another hosted provider' => "mymail.myip.test; spf=pass (sender IP is 192.0.2.25)\r\n smtp.mailfrom=example.com; dkim=pass (signature was verified)\r\n"
-                . " header.d=example.com;dmarc=pass action=none\r\n header.from=example.com;compauth=pass reason=100",
-            'a bounce, with no envelope sender' => 'mymail.myip.test 1; spf=none smtp.mailfrom=<> smtp.helo=mail.example.com; dmarc=pass header.from=example.com;',
+            'nothing to quote' => ["mymail.myip.test;\r\n\t{$dkim};\r\n\tdmarc=pass (policy=quarantine) header.from=example.com;\r\n\t" . $spf('maria@example.com'), 'dmarc_pass'],
+            'a signature start with a slash' => ["mymail.myip.test;\r\n\tdkim=pass header.d=example.com header.s=dkim header.b=\"Qz8/Lm1p\";\r\n"
+                . "\tdmarc=pass (policy=none) header.from=example.com;\r\n\t" . $spf('maria@example.com'), 'dmarc_pass'],
+            'an envelope sender with an equals sign' => ["mymail.myip.test;\r\n\t{$dkim};\r\n\tdmarc=pass (policy=none) header.from=example.com;\r\n\t"
+                . $spf('"bounces+maria=example.com@em.mailer.example"'), 'dmarc_pass'],
+            'a bounce, by its HELO literal' => ["mymail.myip.test;\r\n\t{$dkim};\r\n\tdmarc=pass (policy=reject) header.from=example.com;\r\n"
+                . "\tspf=none (mymail.myip.test: domain of \"[192.0.2.25]\" has no SPF policy when checking 192.0.2.25) smtp.helo=\"[192.0.2.25]\"", 'dmarc_pass'],
+            'DMARC could not be checked, DKIM passed' => ["mymail.myip.test;\r\n\t{$dkim};\r\n"
+                . "\tdmarc=temperror reason=\"query timed out\" header.from=example.com (policy=temperror);\r\n\t" . $spf('maria@example.com'), 'dkim_pass'],
+            'forwarded, with ARC' => ["mymail.myip.test;\r\n\t{$dkim};\r\n\tarc=pass (\"example.com:s=dkim:i=1\");\r\n"
+                . "\tdmarc=pass (policy=none) header.from=example.com;\r\n\tspf=softfail (mymail.myip.test: 192.0.2.7 is neither permitted nor denied by domain of maria@example.com) smtp.mailfrom=maria@example.com", 'dmarc_pass'],
+            'SPF alone, for a quoted sender of the same domain' => ["mymail.myip.test;\r\n\tdkim=none;\r\n\tdmarc=none;\r\n\t" . $spf('"prvs=0123456789=maria@example.com"'), 'spf_pass'],
         ];
-        foreach ($samples as $server => $header) {
+        foreach ($samples as $what => [$header, $reason]) {
             $verdict = AuthenticationResults::verdict([$header], self::OURS, 'maria@example.com');
-            $this->assertTrue($verdict->authenticated, "{$server}: {$verdict->reason}");
+            $this->assertSame([true, $reason], [$verdict->authenticated, $verdict->reason], $what);
             // Through a real message too: folded as written.
             $email = Parser::parse(Eml::make(["Authentication-Results: {$header}"]));
-            $this->assertTrue(AuthenticationResults::verdict($email->authenticationResults, self::OURS, $email->fromEmail)->authenticated, "{$server}, as a message");
+            $this->assertTrue(AuthenticationResults::verdict($email->authenticationResults, self::OURS, $email->fromEmail)->authenticated, "{$what}, as a message");
+            // The same header, for a From it does not name.
+            $this->assertSame('no_aligned_pass', $this->reason($header, 'owner@victim.example'), $what);
         }
-        // The same headers, for a From they do not name.
-        foreach ($samples as $server => $header) {
+
+        $failed = "mymail.myip.test;\r\n\tdkim=none;\r\n\tdmarc=fail reason=\"No valid SPF, No valid DKIM\" header.from=example.com (policy=reject);\r\n"
+            . "\tspf=softfail (mymail.myip.test: 203.0.113.9 is neither permitted nor denied by domain of x@example.com) smtp.mailfrom=x@example.com";
+        $this->assertSame('no_aligned_pass', $this->reason($failed), 'the everyday forgery reads, and says no');
+    }
+
+    /**
+     * Other servers are not supported as «ours» (they may copy the sender's text unquoted into a comment). Invented
+     * samples in their style: each is read or refused without an error, and none vouches for a From it does not name.
+     * No promise that they vouch at all.
+     */
+    public function test_other_servers_headers_are_read_or_refused_and_never_vouch_for_another_from(): void
+    {
+        $samples = [
+            'Postfix, OpenDMARC' => ['mymail.myip.test; dmarc=pass (p=none dis=none) header.from=example.com', true],
+            'Postfix, OpenDKIM (a «;» in its comment)' => ["mymail.myip.test;\r\n\tdkim=pass (2048-bit key; unprotected) header.d=example.com header.i=@example.com header.a=rsa-sha256 header.s=mail header.b=fR3xYz12;\r\n\tdkim-atps=neutral", false],
+            'Postfix, policyd-spf (a «;» in its comment)' => ['mymail.myip.test; spf=pass (sender SPF authorized) smtp.mailfrom=example.com '
+                . '(client-ip=192.0.2.25; helo=mail.example.com; envelope-from=maria@example.com; receiver=<UNKNOWN>)', false],
+            'Exim' => ["mymail.myip.test;\r\n\tiprev=pass (mail.example.com) smtp.remote-ip=2001:db8::25;\r\n\tspf=pass smtp.mailfrom=example.com;\r\n"
+                . "\tdkim=pass header.d=example.com header.s=sel1 header.a=rsa-sha256;\r\n\tdmarc=pass header.from=example.com;\r\n\tarc=none", true],
+            'a hosted provider' => ["mymail.myip.test;\r\n       dkim=pass header.i=@example.com header.s=20240605 header.b=Kd9+aB/3;\r\n"
+                . "       spf=pass (mymail.myip.test: domain of maria@example.com designates 192.0.2.25 as permitted sender) smtp.mailfrom=maria@example.com;\r\n"
+                . '       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=example.com', true],
+            'another hosted provider' => ["mymail.myip.test; spf=pass (sender IP is 192.0.2.25)\r\n smtp.mailfrom=example.com; dkim=pass (signature was verified)\r\n"
+                . " header.d=example.com;dmarc=pass action=none\r\n header.from=example.com;compauth=pass reason=100", true],
+        ];
+        foreach ($samples as $server => [$header, $reads]) {
+            $this->assertSame($reads, AuthenticationResults::parse($header) !== null, $server);
             $this->assertFalse($this->authenticated([$header], 'owner@victim.example'), $server);
         }
+    }
+
+    /** Review of #771 (REV-771-7): only a header named exactly Authentication-Results is our server's. */
+    public function test_a_header_with_a_name_that_only_looks_like_it_is_not_read(): void
+    {
+        $pass = 'mymail.myip.test; dmarc=pass header.from=example.com';
+        foreach (['Authentication_Results', 'Authentication Results', 'AuthenticationResults', 'Authentication--Results', 'Authentication-Results-'] as $name) {
+            $email = Parser::parse(Eml::make(["{$name}: {$pass}", 'Authentication-Results: mymail.myip.test; dmarc=fail header.from=example.com']));
+
+            $this->assertSame(['mymail.myip.test; dmarc=fail header.from=example.com'], $email->authenticationResults, $name);
+        }
+        $email = Parser::parse(Eml::make(["AUTHENTICATION-results: {$pass}"]));
+        $this->assertSame([$pass], $email->authenticationResults, 'the name in any case');
+    }
+
+    public function test_a_quoted_value_is_read_as_one_value(): void
+    {
+        $this->assertTrue($this->authenticated(['mymail.myip.test; dmarc=pass ("a;b" \\) c) header.from="example.com"']));
+        $this->assertSame(['smtp.mailfrom' => 'a b"c\\@example.com'], AuthenticationResults::parse('x.test; spf=pass smtp.mailfrom="a b\\"c\\\\@example.com"')['results'][0]['props'] ?? null);
+        $this->assertSame(['smtp.mailfrom' => 'a;b=c@example.com'], AuthenticationResults::parse('x.test; spf=pass (\\) \\( ok) smtp.mailfrom="a;b=c"@example.com')['results'][0]['props'] ?? null);
     }
 }
