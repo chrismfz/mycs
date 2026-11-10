@@ -1306,6 +1306,39 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * The service of its order whose promotion needs this one («Requires», WHMCS), while this one is pending and its
+     * order's invoice unpaid, or null: cancelled by its customer, only its line would leave the invoice and the other be
+     * paid at a discount whose required product was never bought (S7-CLIENT-PORTAL-1, owner 2026-11-10). Its customer
+     * cancels that service first (the whole order) or asks; staff cancel it freely. Its addons end with it, so one of
+     * them that is required counts too; not needed when the account holds the required product another way, or when
+     * the discounted service goes with it (its own addon).
+     */
+    public function neededByOrderPromotion(): ?self
+    {
+        if ($this->status !== self::STATUS_PENDING || $this->order_id === null) {
+            return null;
+        }
+        $going = collect([$this])->merge($this->addons()->where('status', self::STATUS_PENDING)->where('order_id', $this->order_id)->get());
+        $discounted = self::query()->where('order_id', $this->order_id)->whereNotIn('id', $going->pluck('id'))
+            ->whereIn('status', self::PAYING_STATUSES)->whereNotNull('coupon_id')->whereNull('coupon_expired_at')
+            ->with('coupon.requiredProducts')->orderBy('id')->get();
+        foreach ($going as $required) {
+            if (!$required->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
+                continue; // paid (waiting to be set up): the discount was earned
+            }
+            foreach ($discounted as $other) {
+                $products = $other->coupon?->requiredProducts->pluck('id') ?? collect();
+                if ($products->contains($required->product_id) && !self::query()->where('client_id', $this->client_id)
+                    ->whereIn('product_id', $products)->whereIn('status', self::PAYING_STATUSES)->whereNotIn('id', $going->pluck('id'))->exists()) {
+                    return $other;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The day its plan starts to count, while that day is ahead: the cron put it on the plan of a change of cycle «from the
      * next renewal» when it billed that renewal, and the period paid on the old cycle still runs. Until then a package
      * change is refused, for staff too (PlaceUpgrade::CYCLE_NOT_STARTED): its difference would be the new cycle's prices

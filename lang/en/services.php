@@ -21,6 +21,7 @@ return [
     'cancel_end_of_period' => 'Cancel at the end of the billing period',
     'cancel_immediate_warning' => 'When you press the button below, the service will be cancelled immediately and you will not be able to use it anymore.',
     'cancellation_requested' => 'Cancellation requested',
+    'cancellation_needed_by_promotion' => 'Another service of this order (:other) has a discount that requires this one, and the order is not paid yet. To cancel, cancel the whole order (that service first, then this one), or contact us.',
     'cancellation_not_possible' => 'This service cannot be cancelled, or a cancellation is already requested.',
 
     'current_plan' => 'Current Plan',

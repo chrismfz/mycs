@@ -255,4 +255,134 @@ class Sweep7PlanCyclePromoFixTest extends TestCase
 
         $this->assertSame('1.20', ChangeCycle::unused($service->fresh(), CarbonImmutable::today()), '6 of 365 days of 73.00');
     }
+
+    // --- S7-CLIENT-PORTAL-1 ---
+
+    private function product(float $price, string $name): Product
+    {
+        $product = Product::factory()->create(['name' => $name]);
+        $plan = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'year1',
+            'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
+        Price::factory()->create(['plan_id' => $plan->id, 'price' => $price, 'setup_fee' => 0, 'currency_code' => 'USD']);
+
+        return $product->fresh();
+    }
+
+    private function orderLine(Product $product): OrderLine
+    {
+        return new OrderLine($product->fresh(), $product->plans()->firstOrFail()->load('prices'), 1, []);
+    }
+
+    /** A (100.00) + B (200.00) ordered with «50% off B, requires A»: one unpaid invoice of 200.00, both pending. */
+    private function orderWithRequires(?User $user = null): array
+    {
+        $a = $this->product(100.00, 'Controller');
+        $b = $this->product(200.00, 'Agent');
+        $coupon = Coupon::create(['code' => 'REQ' . uniqid(), 'type' => 'percentage', 'applies_to' => 'all', 'value' => 50, 'recurring' => 1]);
+        $coupon->products()->sync([$b->id]);
+        $coupon->requiredProducts()->sync([$a->id]);
+        $user ??= User::factory()->create();
+        $placed = (new PlaceOrderService)->place($user->client(), 'USD', [$this->orderLine($a), $this->orderLine($b)], $coupon->fresh());
+        $serviceA = $placed->order->services()->where('product_id', $a->id)->sole();
+        $serviceB = $placed->order->services()->where('product_id', $b->id)->sole();
+        $this->assertSame('200.00', number_format((float) $placed->invoice->fresh()->total, 2, '.', ''));
+
+        return [$user, $serviceA, $serviceB, $placed->invoice, $a];
+    }
+
+    public function test_the_customer_cannot_cancel_alone_the_pending_service_a_requires_discount_of_the_order_needs(): void
+    {
+        [$user, $serviceA, $serviceB, $invoice] = $this->orderWithRequires();
+
+        $this->assertSame($serviceB->id, $serviceA->fresh()->neededByOrderPromotion()?->id);
+        foreach (['immediate', 'end_of_period'] as $type) {
+            $this->livewireAs($user)->test(Cancel::class, ['service' => $serviceA->fresh()])
+                ->set('type', $type)->set('reason', 'changed my mind')->call('cancelService')
+                ->assertNoRedirect();
+            $this->assertSame(0, ServiceCancellation::query()->count(), "{$type}: no request made");
+        }
+        $this->assertSame(Service::STATUS_PENDING, $serviceA->fresh()->status);
+        $invoice->refresh();
+        $this->assertSame([Invoice::STATUS_UNPAID, '200.00', 2], [$invoice->status, number_format((float) $invoice->total, 2, '.', ''), $invoice->items()->count()],
+            'the order stands as placed');
+        foreach (['en', 'el'] as $locale) {
+            $text = __('services.cancellation_needed_by_promotion', ['other' => 'Agent'], $locale);
+            $this->assertStringContainsString('Agent', $text);
+            $this->assertStringNotContainsString('services.', $text);
+        }
+    }
+
+    public function test_the_customer_cancels_the_whole_order_the_discounted_service_first(): void
+    {
+        [$user, $serviceA, $serviceB, $invoice] = $this->orderWithRequires();
+
+        // The discounted one first: nothing needs it. The invoice bills A alone, at its full price.
+        $this->assertNull($serviceB->fresh()->neededByOrderPromotion());
+        $this->livewireAs($user)->test(Cancel::class, ['service' => $serviceB->fresh()])
+            ->set('type', 'immediate')->set('reason', 'not needed')->call('cancelService');
+        $this->assertSame(Service::STATUS_CANCELLED, $serviceB->fresh()->status);
+        $this->assertSame('100.00', number_format((float) $invoice->fresh()->total, 2, '.', ''));
+
+        // Then the required one: no discount depends on it any more.
+        $this->assertNull($serviceA->fresh()->neededByOrderPromotion());
+        $this->livewireAs($user)->test(Cancel::class, ['service' => $serviceA->fresh()])
+            ->set('type', 'immediate')->set('reason', 'not needed')->call('cancelService');
+        $this->assertSame(Service::STATUS_CANCELLED, $serviceA->fresh()->status);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
+    }
+
+    public function test_staff_cancel_the_required_pending_service_freely(): void
+    {
+        [, $serviceA, , $invoice] = $this->orderWithRequires();
+
+        // As staff's «Cancellations» page makes it (ServiceCancellationResource): the request itself, no customer rule.
+        ServiceCancellation::create(['service_id' => $serviceA->id, 'type' => 'immediate', 'reason' => 'by staff']);
+
+        $this->assertSame(Service::STATUS_CANCELLED, $serviceA->fresh()->status);
+        $this->assertSame(1, $invoice->fresh()->items()->count(), 'its line left the order\'s invoice, as before: staff decide the rest');
+    }
+
+    public function test_the_customer_cancels_the_pending_required_service_when_the_account_holds_one_already(): void
+    {
+        $user = User::factory()->create();
+        [, $serviceA, , $invoice, $a] = $this->orderWithRequires($user);
+        // One of the required product runs on the account already: the discount stands without the new one.
+        Service::factory()->create(['client_id' => $user->client()->id, 'product_id' => $a->id, 'plan_id' => $a->plans()->firstOrFail()->id,
+            'price' => 100.00, 'quantity' => 1, 'currency_code' => 'USD', 'status' => Service::STATUS_ACTIVE, 'expires_at' => now()->addMonths(3)]);
+
+        $this->assertNull($serviceA->fresh()->neededByOrderPromotion());
+        $this->livewireAs($user)->test(Cancel::class, ['service' => $serviceA->fresh()])
+            ->set('type', 'immediate')->set('reason', 'one is enough')->call('cancelService');
+        $this->assertSame(Service::STATUS_CANCELLED, $serviceA->fresh()->status);
+        $this->assertSame('100.00', number_format((float) $invoice->fresh()->total, 2, '.', ''));
+    }
+
+    public function test_a_pending_parent_is_not_cancelled_alone_when_its_addon_of_the_order_is_what_the_discount_requires(): void
+    {
+        [$user, $serviceA, $serviceB] = $this->orderWithRequires();
+        // The required A is an addon of another pending service of the order: that one ending ends A with it.
+        $host = $this->product(30.00, 'Host');
+        $parent = Service::factory()->create(['client_id' => $user->client()->id, 'order_id' => $serviceA->order_id, 'product_id' => $host->id,
+            'plan_id' => $host->plans()->firstOrFail()->id, 'price' => 30.00, 'quantity' => 1, 'currency_code' => 'USD', 'status' => Service::STATUS_PENDING]);
+        $serviceA->forceFill(['parent_service_id' => $parent->id])->save();
+
+        $this->assertSame($serviceB->id, $parent->fresh()->neededByOrderPromotion()?->id);
+        $this->livewireAs($user)->test(Cancel::class, ['service' => $parent->fresh()])
+            ->set('type', 'immediate')->set('reason', 'changed my mind')->call('cancelService');
+        $this->assertSame(0, ServiceCancellation::query()->count());
+        $this->assertSame(Service::STATUS_PENDING, $serviceA->fresh()->status);
+    }
+
+    public function test_once_the_order_is_paid_the_required_service_is_cancelled_as_any_other(): void
+    {
+        [$user, $serviceA, $serviceB, $invoice] = $this->orderWithRequires();
+        ExtensionHelper::addPayment($invoice->id, null, 200.00, null, 's7-cp-1', currency: 'USD');
+
+        $this->assertNull($serviceA->fresh()->neededByOrderPromotion(), 'bought: the first discount was earned');
+        $this->livewireAs($user)->test(Cancel::class, ['service' => $serviceA->fresh()])
+            ->set('type', 'immediate')->set('reason', 'not needed')->call('cancelService');
+        $this->assertSame(Service::STATUS_CANCELLED, $serviceA->fresh()->status);
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame(Service::STATUS_ACTIVE, $serviceB->fresh()->status);
+    }
 }
