@@ -8,6 +8,7 @@ use App\Models\ChargeAttempt;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Invoice\SplitInvoice;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
@@ -32,6 +33,9 @@ class Sweep7ChargeConcurrencyTest extends TestCase
     private Invoice $invoice;
 
     private BillingAgreement $agreement;
+
+    /** @var array<string, string> */
+    private array $kept = [];
 
     protected function beforeTruncatingDatabase(): void
     {
@@ -139,6 +143,48 @@ class Sweep7ChargeConcurrencyTest extends TestCase
         $this->assertOneCharge($calls);
     }
 
+    /**
+     * REV-774: staff split the invoice (as a merge: InvoiceLineMove::lock reads the owners by id first, a plain read, then
+     * waits for the locks) while its card is being charged for its whole amount. After the charge's commit the split must
+     * see the attempt and be refused: moved, the line's new invoice would be charged again and the late payment would
+     * land as credit.
+     */
+    public function test_a_split_that_waited_for_a_charges_locks_is_refused(): void
+    {
+        $second = $this->invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => '20.00']);
+
+        $calls = $this->race([
+            function (string $dir) {
+                $held = false;
+                DB::listen(function (QueryExecuted $query) use ($dir, &$held) {
+                    if (!$held && preg_match('/^insert into [`"]charge_attempts[`"]/i', $query->sql) === 1) {
+                        $held = true;
+                        touch("$dir/b-locked");
+                        $this->waitFor("$dir/a-started");
+                        usleep(700_000); // the split's first statements run, then it waits for these locks
+                    }
+                });
+                $this->chargeOrRefused();
+            },
+            function (string $dir) use ($second) {
+                $this->waitFor("$dir/b-locked");
+                touch("$dir/a-started");
+                try {
+                    (new SplitInvoice)->handle($this->invoice->id, [$second->id]);
+                    touch("$dir/split-done");
+                } catch (DisplayException $e) {
+                    file_put_contents("$dir/split-refused", $e->getMessage());
+                }
+            },
+        ], keep: ['split-done', 'split-refused']);
+
+        $this->assertSame(['120.00'], $calls, 'precondition: the card was charged for both lines');
+        $this->assertArrayNotHasKey('split-done', $this->kept, 'the invoice was split while its card was charged 120.00 for it');
+        $this->assertStringContainsString('card charge on its way', $this->kept['split-refused'] ?? '');
+        $this->assertSame(1, Invoice::query()->count());
+        $this->assertSame(2, $this->invoice->items()->count());
+    }
+
     /** @param  list<string>  $calls */
     private function assertOneCharge(array $calls): void
     {
@@ -160,10 +206,12 @@ class Sweep7ChargeConcurrencyTest extends TestCase
 
     /**
      * @param  list<callable(string): void>  $workers
+     * @param  list<string>  $keep  files the workers left that the test reads (into $this->kept)
      * @return list<string> the amounts the gateway was charged
      */
-    private function race(array $workers): array
+    private function race(array $workers, array $keep = []): array
     {
+        $this->kept = [];
         $dir = sys_get_temp_dir() . '/mycs-s7-charge-race-' . bin2hex(random_bytes(8));
         mkdir($dir, 0700);
         S7RacePay::$calls = "$dir/gateway-calls";
@@ -192,6 +240,12 @@ class Sweep7ChargeConcurrencyTest extends TestCase
             foreach ($pids as $index => $pid) {
                 $this->assertTrue($this->awaitWorker($pid, $dir, $index),
                     file_exists("$dir/error-$index") ? (string) file_get_contents("$dir/error-$index") : 'Charge worker failed.');
+            }
+
+            foreach ($keep as $file) {
+                if (file_exists("$dir/$file")) {
+                    $this->kept[$file] = (string) file_get_contents("$dir/$file");
+                }
             }
 
             return array_values(array_filter(explode("\n", (string) file_get_contents(S7RacePay::$calls))));
