@@ -139,6 +139,8 @@ class Sweep7OpsTest extends TestCase
         $marker = $this->dir . '/storage/framework/deploy-left-down';
         File::put($marker, '');
         touch($marker, time() - 2 * 86400);
+        // The deploy's own lock file is there already (as on a real install): only removing the marker is refused.
+        File::put($this->dir . '/storage/framework/deploy.lock', '');
         chmod($this->dir . '/storage/framework', 0500);
         if (@touch($this->dir . '/storage/framework/probe')) {
             chmod($this->dir . '/storage/framework', 0700);
