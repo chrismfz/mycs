@@ -69,10 +69,11 @@ final class InvoiceLineMove
             return __('Invoice :invoice has a fiscal document from Ekdosi: issued is final. It is not merged, split or moved; a correction is made in Ekdosi.', ['invoice' => $label]);
         }
         if ($invoice->ekdosi_requested_at !== null) {
-            return __('Invoice :invoice was sent to Ekdosi: withdraw the request («Withdraw from Ekdosi») and remove it from Ekdosi\'s inbox first.', ['invoice' => $label]);
+            return __('Invoice :invoice was sent to Ekdosi: withdraw the request («Withdraw from Ekdosi») and archive its copy in Ekdosi\'s inbox first.', ['invoice' => $label]);
         }
         // «Immediate invoicing»: Ekdosi reads the account's unpaid invoices with no request, from the day they are issued.
-        if (config('settings.ekdosi_enabled') && $invoice->client?->immediate_invoicing) {
+        // Not with «ignore invoicing» as well: the feed never lists that account (REV-778-5).
+        if (config('settings.ekdosi_enabled') && $invoice->client?->immediate_invoicing && !$invoice->client->ignore_invoicing) {
             return __('Invoice :invoice is of an account with «immediate invoicing»: Ekdosi reads it as soon as it is issued, so it is not merged, split or moved. Cancel it and issue new ones.', ['invoice' => $label]);
         }
         if ($invoice->hasPayments(lock: true)) {
