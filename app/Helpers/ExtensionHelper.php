@@ -710,14 +710,14 @@ class ExtensionHelper
      *
      * @param  Invoice|int  $invoice
      */
-    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null, ?string $paymentGroup = null)
+    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null, ?string $paymentGroup = null, bool $onItsWayNow = false)
     {
         if (isset($gateway)) {
             $gateway = Gateway::where('extension', $gateway)->first();
         }
 
         $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency,
-            paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup);
+            paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup, onItsWayNow: $onItsWayNow);
         // Refunds that arrived before their payment was money here are recorded now (PR 2c-2, F3).
         if ($transaction instanceof InvoiceTransaction && $gateway !== null && $transactionId !== null && $transaction->status === InvoiceTransactionStatus::Succeeded) {
             $extension = $gateway->extension;
@@ -733,9 +733,13 @@ class ExtensionHelper
         return $transaction;
     }
 
-    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null, ?string $paymentGroup = null)
+    /**
+     * A failed payment stays failed when an event says «processing» (a late or repeated one: S6-PAYMENTS-1), unless
+     * $onItsWayNow: the gateway was asked just now and the payment is on its way (a new attempt under the same id).
+     */
+    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null, ?string $paymentGroup = null, bool $onItsWayNow = false)
     {
-        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency, paymentGroup: $paymentGroup);
+        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency, paymentGroup: $paymentGroup, onItsWayNow: $onItsWayNow);
     }
 
     public static function addFailedPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)
