@@ -105,6 +105,7 @@ class AddonsTest extends TestCase
     {
         Queue::fake();
         $parent = $this->parent('2026-11-01');
+        $this->billedAhead($parent);
         $addon = $this->addon($parent, '2026-11-01');
 
         $this->artisan('app:cron-job')->assertExitCode(0);

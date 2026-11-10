@@ -2,20 +2,27 @@
 
 namespace Tests;
 
+use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Console\Commands\CronJob;
 use App\Console\Commands\CronWait;
+use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Role;
+use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Once;
 use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
 use Livewire\Livewire;
@@ -127,6 +134,36 @@ abstract class TestCase extends BaseTestCase
     protected function pickOne(Collection $items): mixed
     {
         return $items->values()->get($this->rand(0, $items->count() - 1));
+    }
+
+    /**
+     * The open renewal invoice a service past its due date would have: for the period from its due date, due then, issued
+     * $days before it (as the cron bills ahead). Dunning fixtures need it since 2026-11-10 (S6-CRON-BILLING-1/2): nothing
+     * is suspended for an invoice issued fewer than Suspend Days ago, so a service the run bills for the first time is
+     * not suspended by that run.
+     */
+    protected function billedAhead(Service $service, int $days = 14): Invoice
+    {
+        $due = Carbon::parse($service->expires_at);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID,
+            'currency_code' => $service->currency_code, 'due_at' => $due]);
+        $line = $invoice->items()->create(['description' => 'Renewal', 'price' => $service->price, 'quantity' => $service->quantity ?? 1,
+            'reference_id' => $service->id, 'reference_type' => Service::class, 'period_start' => $due, 'period_end' => $service->periodEnd($due)]);
+        $issued = $due->copy()->subDays($days);
+        DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $issued]);
+        DB::table('invoice_items')->where('id', $line->id)->update(['created_at' => $issued]);
+
+        return $invoice->fresh();
+    }
+
+    /** Staff's «Cancel Invoice», as in the invoices' list (the same action as on its page): the way through a refusal that names an invoice. */
+    protected function staffCancelInvoice(Invoice $invoice, string $reason): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Cancels ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => $reason])->assertHasNoTableActionErrors();
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'staff cancelled the invoice');
     }
 
     //

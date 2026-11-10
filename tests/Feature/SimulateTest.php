@@ -101,6 +101,7 @@ class SimulateTest extends TestCase
         $carded->forceFill(['auto_charge' => true])->save();
         $new(['client_id' => $carded->id, 'expires_at' => '2026-11-02 00:00:00']);
         $overdue = $new(['client_id' => User::factory()->create()->client()->id, 'expires_at' => '2026-10-17 00:00:00']);
+        $this->billedAhead($overdue);
 
         $this->artisan('mycs:simulate', ['--confirm-database' => $this->database(), '--from' => '2026-11-01', '--days' => 3, '--out' => $this->csv])->assertSuccessful();
 

@@ -140,6 +140,7 @@ return [
         'domain_name_taken' => 'Cancelled: the domain name was taken by another order first.',
         'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
         'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',
+        'upgrade_withdrawn' => 'Cancelled: the package change was taken back.',
         'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',
     ],
 

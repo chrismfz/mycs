@@ -61,7 +61,8 @@ class SuspensionWindowRound2Test extends TestCase
 
     private function openInvoice(Service $service, string $due): Invoice
     {
-        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => $due]);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => $due,
+            'created_at' => Carbon::parse($due)->subWeek()]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1,
             'price' => 10, 'period_start' => $due, 'period_end' => Carbon::parse($due)->addMonth()->toDateString()]);
 

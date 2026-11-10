@@ -45,11 +45,18 @@ class Adv681Test extends TestCase
             $product->product->update(['name' => 'Extra IPv4', 'is_addon' => true]);
         }
 
-        return Service::factory()->create([
+        $service = Service::factory()->create([
             'client_id' => isset($extra['parent_service_id']) ? Service::find($extra['parent_service_id'])->client_id : User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->startOfDay()->subDays($expiredDaysAgo)->addHours(12), 'currency_code' => 'USD', 'price' => 10.00,
             'quantity' => 1,
         ] + $extra);
+        // Past due and running: its renewal was billed before its due date, as the cron does (nothing is suspended for an
+        // invoice issued fewer than Suspend Days ago; one the cron bills for the first time tonight waits those days).
+        if ($expiredDaysAgo > 0 && $service->status === 'active') {
+            $this->billedAhead($service);
+        }
+
+        return $service;
     }
 
     /** @return array<string, string> «suspend 12» => the day foretold ('now' as today) */
@@ -187,6 +194,8 @@ class Adv681Test extends TestCase
         $service = $this->service(5);
         $this->assertSame([$service->id], DunningForecast::upcoming()['now']['suspend']);
 
+        // A minute later (its renewal was billed long ago, so the run writes no invoice: the suspension is the change).
+        Carbon::setTestNow(now()->addMinute());
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status);
 

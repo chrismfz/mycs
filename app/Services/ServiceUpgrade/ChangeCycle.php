@@ -51,7 +51,7 @@ use MyCS\Pricing\LinePricer;
  *
  * The new recurring amount is the new plan's catalog price with the service's options and coupon (as an upgrade, decided
  * 2026-10-14: a staff price is not carried over). Refused while a gateway subscription bills the service (it charges its
- * own cycle), an upgrade waits, a cancellation is asked for, an open invoice of it has money on it, or a coupon priced by
+ * own cycle), an upgrade waits (now: any invoice of an upgrade is open, its shortfall too), a cancellation is asked for, an open invoice of it has money on it, or a coupon priced by
  * the cycle runs (one for a number of cycles, or a fixed amount: a cycle change would stretch or shrink it, S3).
  */
 final class ChangeCycle
@@ -97,9 +97,12 @@ final class ChangeCycle
                 ->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing])->exists();
     }
 
-    /** Why the change cannot be made (a message for whoever asked), or null. */
-    public static function refusal(Service $service, Plan $plan, string $mode): ?string
+    /**
+     * Why the change cannot be made (a message for whoever asked: $source, staff by default, the customer otherwise), or null.
+     */
+    public static function refusal(Service $service, Plan $plan, string $mode, string $source = MoneyTrail::SOURCE_STAFF): ?string
     {
+        $staff = $source === MoneyTrail::SOURCE_STAFF;
         if (!in_array($mode, [self::NEXT_RENEWAL, self::NOW], true)) {
             return __('This change is not available.');
         }
@@ -112,10 +115,18 @@ final class ChangeCycle
         if (!self::plans($service)->contains('id', $plan->id) || ($mode === self::NOW && (int) $plan->id === (int) $service->plan_id)) {
             return __('This billing cycle is not available for this service.');
         }
-        if (($why = self::blocked($service, $mode)) !== null) {
+        if (($why = self::blocked($service, $mode, $staff)) !== null) {
             return $why;
         }
         $back = (int) $plan->id === (int) $service->plan_id;
+        // Past due, the customer's change would cancel the open renewal and the cron issue it again, with a new issue
+        // date: Suspend Days from then (DunningRules), again and again, never suspended (REV-770-1). They pay first.
+        // Staff keep it: their cancel and re-issue gives the customer Suspend Days, on purpose. Taking a change back
+        // cancels nothing.
+        if (!$staff && !$back && $service->expires_at !== null
+            && CarbonImmutable::instance($service->expires_at)->startOfDay()->lessThan(CarbonImmutable::today())) {
+            return __('services.change_cycle_past_due');
+        }
         // Suspended, its open renewal is what brings it and its addons back: cancelled for the new cycle, the cron bills
         // it again without its addons (suspended with it, they are not billed apart), and they fall overdue on their own
         // the night after it is paid (REV-765-2). Pay first.
@@ -144,7 +155,7 @@ final class ChangeCycle
             if ($addon->cancellation()->exists()) {
                 return __('services.addons.cycle.cancelling', ['id' => $addon->id]);
             }
-            if (($why = self::blocked($addon, $mode)) !== null) {
+            if (($why = self::blocked($addon, $mode, $staff)) !== null) {
                 return __('Addon #:id follows this service: :reason', ['id' => $addon->id, 'reason' => $why]);
             }
             // Its new period goes on its parent's invoice: its own «Do not charge automatically» or its own way of
@@ -162,13 +173,31 @@ final class ChangeCycle
     }
 
     /** Why this service's money stops a change (its own invoices, payments, period), or null: the parent's and each addon's. */
-    private static function blocked(Service $service, string $mode): ?string
+    private static function blocked(Service $service, string $mode, bool $staff = true): ?string
     {
         if ((string) $service->subscription_id !== '') {
             return __('A subscription bills this service: cancel it first.');
         }
-        if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->exists()) {
-            return __('An upgrade of this service is waiting for payment.');
+        // An upgrade waiting for payment, either way (S6-PLAN-CYCLE-ADDONS-1: the cron would apply the new cycle under it,
+        // and its payment put the service back on the old one). And now, any open invoice of an upgrade, the shortfall
+        // of a completed one too (S6-PLAN-CYCLE-ADDONS-2: its lines name the upgrade, the cancellation below would not
+        // see it, and it would bill the dearer plan for days credited and billed again). Each message names the way
+        // through (owner 2026-11-10): paid, or cancelled by staff (the pending upgrade under «Package changes», the
+        // shortfall's invoice on its page), the change goes ahead.
+        $pending = $service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->orderBy('id')->first();
+        if ($pending !== null) {
+            $invoice = $pending->invoice->number ?? $pending->invoice_id;
+
+            return $staff
+                ? "A package change of this service is waiting for payment (invoice #{$invoice}): record its payment, or cancel the change first («Package changes» on the service's page, Cancel)."
+                : __('services.upgrade_waiting', ['invoice' => $invoice]);
+        }
+        if ($mode === self::NOW && ($open = ServiceUpgrade::openInvoiceOf($service)) !== null) {
+            $invoice = $open->number ?? $open->id;
+
+            return $staff
+                ? "An upgrade invoice of this service is open (#{$invoice}): record its payment, or cancel it first («Cancel Invoice» on invoice #{$open->id})."
+                : __('services.upgrade_invoice_open', ['invoice' => $invoice]);
         }
         if ($service->cancellation()->exists()) {
             return __('This service is to be cancelled.');
@@ -320,7 +349,7 @@ final class ChangeCycle
             // payment, a credit or the cron's finish of its invoices takes it first, so none commits between the refusal's
             // reads and the cancellation below (REV3-KISS-1).
             Client::lock((int) $locked->client_id);
-            if (($why = self::refusal($locked, $plan, $mode)) !== null) {
+            if (($why = self::refusal($locked, $plan, $mode, $source)) !== null) {
                 throw new DisplayException($why);
             }
             $quote = self::quote($locked, $plan, $mode);

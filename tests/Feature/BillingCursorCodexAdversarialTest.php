@@ -80,7 +80,9 @@ class BillingCursorCodexAdversarialTest extends TestCase
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
         // Due when its period starts, as the cron's renewal invoices (suspension needs an overdue invoice, BIL-5).
-        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now(),
+            // Issued a week before its period, as the cron bills ahead (nothing is suspended for an invoice issued fewer than Suspend Days ago).
+            'created_at' => $start === null ? now() : Carbon::parse($start)->subWeek()]);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -173,6 +175,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
     public function test_stale_admin_form_does_not_lift_a_new_dunning_suspension(): void
     {
         $service = $this->service(['expires_at' => '2026-10-08']);
+        $this->billedAhead($service);
         $form = $this->editForm($service);
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
@@ -224,6 +227,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $this->pay($this->invoiceFor($service, '2026-09-08', '2026-10-08'));
         $this->assertSame('2026-10-08', $this->expires($service));
         $dup = $this->invoiceFor($service, '2026-09-08', '2026-10-08');
+        $this->billedAhead($service->fresh());
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
         $this->pay($dup);
@@ -236,6 +240,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $service = $this->service(['expires_at' => '2026-09-08']);
         $paid = $this->invoiceFor($service, '2026-09-08', '2026-10-08');
         $this->pay($paid);
+        $this->billedAhead($service->fresh());
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
         $paid->fresh()->update(['status' => 'unpaid']);
@@ -247,6 +252,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
     public function test_ahead_of_gap_payment_waits_then_gap_payment_lifts_dunning(): void
     {
         $service = $this->service(['expires_at' => '2026-10-08']);
+        $this->billedAhead($service);
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
         $gap = $service->invoices()->where('invoices.status', 'unpaid')->sole();
@@ -452,6 +458,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $holey = $this->service(['price' => 0.10]);
         $this->pay($this->invoiceFor($holey, '2026-10-16', '2026-11-16', price: 0.10));
         $overdue = $this->service(['expires_at' => '2026-10-01']);
+        $this->billedAhead($overdue);
         $this->cronOn('2026-10-12 10:00:00');
         $snapshot = fn () => [
             Invoice::count(),

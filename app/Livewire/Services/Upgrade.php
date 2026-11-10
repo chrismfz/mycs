@@ -45,6 +45,12 @@ class Upgrade extends Component
 
             return $this->redirect(route('services.show', $this->service), true);
         }
+        // A change of cycle set for the next renewal: taken back first, on the service's page (S6-PLAN-CYCLE-ADDONS-1).
+        if ($this->service->next_plan_id !== null) {
+            $this->notify(PlaceUpgrade::cycleChangePending($this->service), 'error', true);
+
+            return $this->redirect(route('services.show', $this->service), true);
+        }
         $this->upgradeProduct = $this->service->product;
         $this->upgrade = $this->service->product->id;
         $this->totalToday();
@@ -227,6 +233,11 @@ class Upgrade extends Component
                 $this->notify(__('This service is not upgradable.'), 'error', true);
 
                 return $this->redirect(route('services.show', $this->service), true);
+            case PlaceUpgrade::CYCLE_CHANGE_PENDING:
+            case PlaceUpgrade::PARENT_CYCLE_CHANGE_PENDING:
+                return $this->notify(PlaceUpgrade::cycleChangePending($this->service), 'error');
+            case PlaceUpgrade::UPGRADE_INVOICE_OPEN:
+                return $this->notify(__('services.upgrade_invoice_open', ['invoice' => $placed->invoice->number ?? $placed->invoice?->id]), 'error');
             case PlaceUpgrade::INVALID:
                 return $this->notify(__('Invalid upgrade.'), 'error');
             case PlaceUpgrade::UNCHANGED:

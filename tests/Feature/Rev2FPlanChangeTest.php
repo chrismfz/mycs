@@ -133,7 +133,7 @@ class Rev2FPlanChangeTest extends TestCase
      * of upgrade money where only 6 of its 15 paid days (2.00) are left: the shortfall that would pay December was never
      * paid, yet its days are credited out of November's money.
      */
-    public function test_a_downgrade_before_an_unpaid_shortfall_credits_only_the_days_the_upgrade_paid(): void
+    public function test_a_downgrade_after_an_unpaid_shortfall_was_cancelled_credits_only_the_days_the_upgrade_paid(): void
     {
         $p10 = $this->monthlyProduct('10.00');
         $p20 = $this->monthlyProduct('20.00');
@@ -155,7 +155,12 @@ class Rev2FPlanChangeTest extends TestCase
         $shortfall = InvoiceItem::query()->where('description', 'like', '%renewal paid meanwhile%')->sole();
         $this->assertSame(Invoice::STATUS_UNPAID, $shortfall->invoice->status, 'precondition: December\'s shortfall is not paid');
 
+        // Since 2026-11-10 (S6-PLAN-CYCLE-ADDONS-2) a downgrade is refused while that shortfall is open; staff cancel its
+        // invoice, and the downgrade goes ahead: what it credits is still only the days the upgrade paid.
         Carbon::setTestNow('2026-11-25 10:00:00');
+        $this->change($service, $p10);
+        $this->assertSame((int) $p20->id, (int) $service->fresh()->product_id, 'refused while the shortfall is open');
+        $this->staffCancelInvoice($shortfall->invoice, 'Downgraded instead');
         $this->change($service, $p10);
         $this->assertSame((int) $p10->id, (int) $service->fresh()->product_id, 'precondition: downgraded');
 

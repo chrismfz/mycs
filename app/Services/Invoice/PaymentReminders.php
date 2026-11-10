@@ -253,11 +253,10 @@ class PaymentReminders
                 && !in_array($service->plan?->type, ['free', 'one-time'], true))
             ->map(function (Service $service) use ($days, $invoice) {
                 $day = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
-                // «Suspend only with an overdue invoice»: the invoice too must be due and issued Suspend Days ago, as
-                // CronJob::suspendable() asks (sweep by simulation 2026-10-24: an invoice issued late told a day too early).
-                if (config('settings.cronjob_suspend_requires_invoice', false)) {
-                    $day = $day->max(self::billedSuspendDay($invoice, $service, $days));
-                }
+                // The invoice too must be issued Suspend Days ago (S6-CRON-BILLING-1/2), and with «suspend only with an
+                // overdue invoice» due Suspend Days ago, as DunningRules::suspendable() asks (sweep by simulation
+                // 2026-10-24: an invoice issued late told a day too early).
+                $day = $day->max(self::billedSuspendDay($invoice, $service, $days, (bool) config('settings.cronjob_suspend_requires_invoice', false)));
                 // On the first day the suspensions' window allows (Settings → Automation: no weekend, say).
                 $day = DunningWindow::firstDayFrom($day);
                 $held = $service->holdInForce($day); // its own hold or its parent's (ADV-A3-1)
@@ -271,22 +270,23 @@ class PaymentReminders
     }
 
     /**
-     * With «suspend only with an overdue invoice»: the first day an invoice billing the service lets the cron suspend it
-     * (due and issued Suspend Days ago). A charge alone is not one (renewalInvoices, #507, CRON-BILLING-1): on a charge's
+     * The first day an invoice billing the service lets the cron suspend it: issued Suspend Days ago, and with «suspend
+     * only with an overdue invoice» ($dueToo) due Suspend Days ago too. A charge alone is not one (renewalInvoices, #507, CRON-BILLING-1): on a charge's
      * notice, the service's own open renewal invoices count instead, or the renewal the cron bills on its next run when
      * none is open (as DunningForecast foretells it: due on the expiry, issued Invoice Generation days before; review REV-CB-2).
      */
-    private static function billedSuspendDay(Invoice $invoice, Service $service, int $days): Carbon
+    private static function billedSuspendDay(Invoice $invoice, Service $service, int $days, bool $dueToo): Carbon
     {
         $bills = $invoice->items->contains(fn ($item) => $item->reference_type === Service::class && (int) $item->reference_id === (int) $service->id
             && $item->kind !== InvoiceItem::KIND_CHARGE);
-        $dated = $bills ? [[$invoice->due_at ?? $invoice->created_at, $invoice->created_at]]
+        $due = fn (Invoice $open) => $dueToo ? $open->due_at ?? $open->created_at : null;
+        $dated = $bills ? [[$due($invoice), $invoice->created_at ?? $invoice->due_at]]
             : $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(['invoices.due_at', 'invoices.created_at'])
-                ->map(fn (Invoice $open) => [$open->due_at ?? $open->created_at, $open->created_at])->all();
+                ->map(fn (Invoice $open) => [$due($open), $open->created_at ?? $open->due_at])->all(); // no issue date: its due date (REV-770-2)
         if ($dated === []) {
             $expires = Carbon::parse($service->expires_at)->startOfDay();
             $billedOn = $expires->copy()->subDays(RenewalBilling::serviceInvoiceDays(RenewalBilling::billedPlan($service) ?? $service->plan))->max(Carbon::today());
-            $dated = [[$expires, $billedOn]];
+            $dated = [[$dueToo ? $expires : null, $billedOn]];
         }
 
         // The cron suspends on the first open invoice that qualifies: the earliest of them.
