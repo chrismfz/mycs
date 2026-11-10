@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\Domains\DomainNameHold;
 use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Domains\Ordering\DomainOffer;
+use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -186,7 +187,7 @@ class Sweep6DomainsTest extends TestCase
         $this->assertSame(DomainStatus::Cancelled, $bobs->fresh()->status, 'never opened again on its own');
         // Once per line: applied again (the cron's replay), even after staff closed it, no second task.
         $task->closeUnrenewed(null);
-        (new \App\Services\Invoice\ProcessPaidInvoiceService)->handle($invoice->fresh());
+        (new ProcessPaidInvoiceService)->handle($invoice->fresh());
         $this->assertSame(1, ModuleAction::query()->where('domain_id', $bobs->id)->count());
     }
 }

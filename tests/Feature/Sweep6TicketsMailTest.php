@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\CreateClient;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
@@ -101,8 +103,8 @@ class Sweep6TicketsMailTest extends TestCase
     /** S6-TICKETS-MAIL-1: a customer staff create in the admin is verified (staff typed the address), so its mail is its account's. */
     public function test_a_customer_staff_create_in_the_admin_is_verified(): void
     {
-        $staff = \App\Models\Staff::factory()->admin()->create();
-        $this->livewireAs($staff)->test(\App\Admin\Resources\ClientResource\Pages\CreateClient::class)
+        $staff = Staff::factory()->admin()->create();
+        $this->livewireAs($staff)->test(CreateClient::class)
             ->fillForm(['first_name' => 'Nikos', 'last_name' => 'Example', 'email' => 'nikos@example.com', 'password' => 'secret-pass-1'])
             ->call('create')->assertHasNoFormErrors();
         $nikos = User::query()->where('email', 'nikos@example.com')->sole();
