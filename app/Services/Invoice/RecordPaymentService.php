@@ -142,6 +142,18 @@ class RecordPaymentService
                 return null;
             }
 
+            // A failed payment never goes back to processing (S6-PAYMENTS-1): gateways deliver events out of order and
+            // retry old ones, and a revived row would hold the invoice from every way of paying with nothing left to
+            // settle it. It may only become succeeded.
+            if ($existing !== null && $existing->status === InvoiceTransactionStatus::Failed && $status === InvoiceTransactionStatus::Processing) {
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'failed_stays_failed', [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
+
+                return $existing;
+            }
+
             if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
                 $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
                 MassPay::link($target, $paymentGroup, $existing, $gateway !== null && !$isCreditTransaction && !$enteredByStaff);
