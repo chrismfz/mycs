@@ -153,21 +153,22 @@ class InvoiceMergeSplitReviewTest extends TestCase
         $this->assertSame($a->created_at->toDateTimeString(), $new->created_at->toDateTimeString());
     }
 
-    /** CR-7: neither side of a merge is deleted. */
-    public function test_a_merged_invoice_and_its_target_are_not_deleted(): void
+    /** CR-7, rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-25): either side of a merge is deleted like any other invoice. */
+    public function test_a_merged_invoice_and_its_target_are_deleted_like_any_other(): void
     {
         $a = $this->invoice();
         $b = $this->invoice();
-        (new MergeInvoices)->handle($a->id, [$b->id]);
+        $c = $this->invoice();
+        (new MergeInvoices)->handle($a->id, [$b->id, $c->id]);
 
-        foreach ([$a, $b] as $invoice) {
-            try {
-                $invoice->fresh()->delete();
-                $this->fail('a merged invoice was deleted');
-            } catch (DisplayException) {
-            }
-        }
-        $this->assertSame(2, Invoice::query()->whereKey([$a->id, $b->id])->count());
+        $b->fresh()->delete(); // a merged-away one: the target keeps its lines
+        $this->assertNull(Invoice::query()->find($b->id));
+        $this->assertSame(3, $a->fresh()->items()->count());
+
+        $a->fresh()->delete(); // the target: the other merged one no longer points at it
+        $this->assertNull(Invoice::query()->find($a->id));
+        $this->assertNull($c->fresh()->merged_into_id);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $c->fresh()->status);
     }
 
     /** CR-8: an invoice without a snapshot splits into one without a snapshot, not the customer's details today. */

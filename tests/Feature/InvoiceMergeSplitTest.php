@@ -216,13 +216,18 @@ class InvoiceMergeSplitTest extends TestCase
         (new MergeInvoices)->handle($a->id, [$b->id]);
     }
 
-    public function test_a_merged_invoice_is_not_reopened(): void
+    /** Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-25): a merged invoice is reopened, empty, and no longer «merged into». */
+    public function test_a_merged_invoice_is_reopened_as_an_empty_invoice(): void
     {
         [$a, $b] = $this->two();
+        $lines = $a->items()->count() + $b->items()->count();
         (new MergeInvoices)->handle($a->id, [$b->id]);
 
-        $this->expectException(DisplayException::class);
         $b->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
+
+        $reopened = $b->fresh();
+        $this->assertSame([Invoice::STATUS_UNPAID, null, 0, 0.0], [$reopened->status, $reopened->merged_into_id, $reopened->items()->count(), $reopened->total]);
+        $this->assertSame($lines, $a->fresh()->items()->count(), 'its lines stay where the merge put them');
     }
 
     public function test_split_moves_the_chosen_lines_to_a_new_invoice(): void

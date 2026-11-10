@@ -86,10 +86,11 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
         }
-        // Merged into another invoice (PR E): its lines are there now. Reopened, it would bill nothing.
+        // Merged into another invoice (PR E): its lines are there now. Reopened (owner 2026-11-10: a merge is undone as in
+        // WHMCS), it is an empty invoice like any other and no longer «merged into» anything: the link goes with it.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->merged_into_id !== null) {
-            throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $invoice->merged_into_id]));
+            $invoice->merged_into_id = null;
         }
         // Reopened after its period was billed again on another invoice (a cancellation request withdrawn, adversarial
         // D3A-10): the customer would be asked twice for it. Staff cancel the other one first.
@@ -504,14 +505,13 @@ class InvoiceObserver
         if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->lockForUpdate()->exists()) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it is kept. Cancel or refund it instead.'));
         }
-        // Where a merge went (PR E, code review CR-7): kept, with the invoice its lines are on.
-        if ($invoice->merged_into_id !== null || Invoice::query()->where('merged_into_id', $invoice->id)->exists()) {
-            throw new DisplayException(__('This invoice is part of a merge: it is kept, so the merge can be traced.'));
-        }
         // It records a period given up on (Δ3a, adversarial D3A-6): deleted, the cron would bill that period again.
         if ($invoice->recordsForgonePeriod()) {
             throw new DisplayException(__('This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).'));
         }
+        // Either side of a merge is deleted like any other invoice (owner 2026-11-10; they were kept to trace the merge,
+        // code review CR-7): the invoices merged into this one no longer point at it (MariaDB's key does it; SQLite has none).
+        Invoice::query()->where('merged_into_id', $invoice->id)->update(['merged_into_id' => null]);
     }
 
     /**

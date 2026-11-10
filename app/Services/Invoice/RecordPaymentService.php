@@ -422,6 +422,11 @@ class RecordPaymentService
                 if (!$reopen) {
                     throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
                 }
+                // Merged into another (PR E): its lines, and what is owed, are there. Staff may reopen it on its page
+                // (an empty invoice, owner 2026-11-10); a payment does not, it belongs on the other one.
+                if ($locked->merged_into_id !== null) {
+                    throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $locked->merged_into_id]));
+                }
                 $locked->status = Invoice::STATUS_UNPAID;
                 $locked->save();
             }
