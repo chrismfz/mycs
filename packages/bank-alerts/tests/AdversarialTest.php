@@ -166,4 +166,32 @@ final class AdversarialTest extends TestCase
         $this->assertSame('dkim_dmarc_pass', $verdict($genuine)->reason);
         $this->assertSame('dkim_dmarc_pass', $verdict('MX.Example.Test; DKIM=PASS Header.D=EUROBANK.GR; DMARC=Pass Header.From=Eurobank.gr')->reason);
     }
+
+    /**
+     * The shape of a real forwarded alert, taken from a live server on 2026-11-10: punctuation, folding (CRLF and a
+     * tab), the quoted ARC comment, the colon and spaces inside the SPF comment and the mixed-case local part as they
+     * arrived; every name, number and signature invented.
+     */
+    public function test_the_shape_a_live_server_wrote_is_authentic_forwarded_and_direct(): void
+    {
+        $results = "mail.example.net;\r\n\tdkim=pass header.d=bank.example header.s=sel1 header.b=AbCdEf12;\r\n"
+            . "\tdmarc=pass (policy=quarantine) header.from=bank.example;\r\n"
+            . "\tspf=pass (mail.example.net: domain of Alerts@bank.example designates 192.0.2.76 as permitted sender) smtp.mailfrom=Alerts@bank.example";
+        $top = "mail.example.net;\r\n\tarc=pass (\"example.net:s=dkim:i=1\")";
+        $seal = "i=1; a=rsa-sha256; d=example.net; s=dkim; cv=none; t=1794300000;\r\n\tb=AAAA";
+        $signature = "i=1; a=rsa-sha256; c=relaxed/relaxed; d=example.net; s=dkim; t=1794300000;\r\n\th=from:subject:date; bh=AAAA; b=AAAA";
+        $verdict = fn (array $ar, array $seals = [], array $signatures = [], array $aar = [], string $sealer = 'example.net') => Authenticity::verdict($ar, $seals, $signatures, $aar,
+            'mail.example.net', $sealer, 'Alerts@bank.example');
+
+        // Forwarded by our server (a sieve redirect, one ARC set): our sealed i=1 results say so.
+        $forwarded = $verdict([$top], [$seal], [$signature], ["i=1; {$results}"]);
+        $this->assertSame([true, 'arc:dkim_dmarc_pass'], [$forwarded->authenticated, $forwarded->reason]);
+        $this->assertFalse($verdict([$top], [$seal], [$signature], ["i=1; {$results}"], '')->authenticated, 'no sealing domain set');
+        $this->assertFalse($verdict([$top], [$seal], [$signature], ["i=1; {$results}"], 'bank.example')->authenticated, "another's seal");
+        $this->assertFalse($verdict([$top])->authenticated, 'arc=pass alone says nothing of the bank');
+
+        // Delivered directly: the same results as our topmost header.
+        $direct = $verdict([$results]);
+        $this->assertSame([true, 'dkim_dmarc_pass'], [$direct->authenticated, $direct->reason]);
+    }
 }

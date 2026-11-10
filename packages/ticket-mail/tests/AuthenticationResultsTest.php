@@ -211,8 +211,8 @@ final class AuthenticationResultsTest extends TestCase
     }
 
     /**
-     * rspamd (mailcow) is the one server we support as «ours». Invented samples, written by its rules: a value that
-     * holds one of «( ) < > , ; : \ " / [ ] ? =», a space or a tab is put in double quotes (review of #771).
+     * Today's server is rspamd; it quotes the sender's text, as «our» server must. Invented samples, by its rules: a
+     * value that holds one of «( ) < > , ; : \ " / [ ] ? =», a space or a tab is put in double quotes (review of #771).
      */
     public function test_what_rspamd_writes_vouches(): void
     {
@@ -248,7 +248,7 @@ final class AuthenticationResultsTest extends TestCase
     }
 
     /**
-     * Other servers are not supported as «ours» (they may copy the sender's text unquoted into a comment). Invented
+     * Other servers qualify as «ours» only if they quote or escape the sender's text (docs/tickets.md). Invented
      * samples in their style: each is read or refused without an error, and none vouches for a From it does not name.
      * No promise that they vouch at all.
      */
@@ -291,5 +291,27 @@ final class AuthenticationResultsTest extends TestCase
         $this->assertTrue($this->authenticated(['mymail.myip.test; dmarc=pass ("a;b" \\) c) header.from="example.com"']));
         $this->assertSame(['smtp.mailfrom' => 'a b"c\\@example.com'], AuthenticationResults::parse('x.test; spf=pass smtp.mailfrom="a b\\"c\\\\@example.com"')['results'][0]['props'] ?? null);
         $this->assertSame(['smtp.mailfrom' => 'a;b=c@example.com'], AuthenticationResults::parse('x.test; spf=pass (\\) \\( ok) smtp.mailfrom="a;b=c"@example.com')['results'][0]['props'] ?? null);
+    }
+
+    /**
+     * The shape of a real mail, taken from a live server on 2026-11-10 (a bank's alert): punctuation, folding (CRLF and
+     * a tab), the colon and spaces inside the SPF comment and the mixed-case local part as they arrived; every name
+     * and number invented.
+     */
+    public function test_the_shape_a_live_server_wrote_vouches(): void
+    {
+        $header = "mail.example.net;\r\n\tdkim=pass header.d=bank.example header.s=sel1 header.b=AbCdEf12;\r\n"
+            . "\tdmarc=pass (policy=quarantine) header.from=bank.example;\r\n"
+            . "\tspf=pass (mail.example.net: domain of Alerts@bank.example designates 192.0.2.76 as permitted sender) smtp.mailfrom=Alerts@bank.example";
+
+        $verdict = AuthenticationResults::verdict([$header], 'mail.example.net', 'Alerts@bank.example');
+        $this->assertSame([true, 'dmarc_pass'], [$verdict->authenticated, $verdict->reason]);
+        $email = Parser::parse(Eml::make(['From' => 'Alerts@bank.example', "Authentication-Results: {$header}"]));
+        $this->assertSame('dmarc_pass', AuthenticationResults::verdict($email->authenticationResults, 'mail.example.net', $email->fromEmail)->reason);
+
+        // Forwarded (sieve redirect): its topmost header says only this, and vouches for no From by itself.
+        $forwarded = "mail.example.net;\r\n\tarc=pass (\"example.net:s=dkim:i=1\")";
+        $this->assertNotNull(AuthenticationResults::parse($forwarded));
+        $this->assertSame('no_aligned_pass', AuthenticationResults::verdict([$forwarded], 'mail.example.net', 'Alerts@bank.example')->reason);
     }
 }
