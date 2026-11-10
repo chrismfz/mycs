@@ -88,7 +88,7 @@ class EditInvoiceTransaction
         }
 
         return Invoice::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)
-            ->where(fn ($query) => $query->whereKey($invoice->id)->orWhereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT, Invoice::STATUS_PAID]))
+            ->where(fn ($query) => $query->whereKey($invoice->id)->orWhereIn('status', EditPayment::TARGET_STATUSES))
             ->orderByDesc('id')->limit(200)->get(['id', 'number', 'status'])
             ->mapWithKeys(fn (Invoice $option) => [$option->id => '#' . $option->id . ($option->number ? ' · ' . $option->number : '') . ' · ' . __('money.statuses.' . $option->status)])
             ->all();
