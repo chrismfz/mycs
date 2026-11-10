@@ -409,7 +409,10 @@ class Invoice extends Model implements Auditable
         if (!self::actorMayRecordPayments()) {
             throw new DisplayException(__('This invoice is paid: a change that makes it owe is «paid by hand» for that part, and needs the permission to record payments.'));
         }
-        self::query()->whereKey($invoiceId)->update(['paid_by_staff_at' => now()]);
+        // Later than every payment on it, by a second at least: deleting one of those reopens it as ever, the word being
+        // for the raise and not for what they paid (RecordPaymentService::deleteTransaction, REV-780-3-1).
+        $after = $invoice->transactions->max('created_at')?->copy()->addSecond();
+        self::query()->whereKey($invoiceId)->update(['paid_by_staff_at' => $after !== null && $after->greaterThan(now()) ? $after : now()]);
     }
 
     /** Whoever acts now may record payments: the Admin API key by its own list, a staff member by their role; the app itself, yes. */

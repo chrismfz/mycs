@@ -199,6 +199,15 @@ class StaffFreedomReviewFixesTest extends TestCase
         $this->assertSame([Invoice::STATUS_PAID, 1000], [$marked->fresh()->status, RecordPaymentService::toCents($marked->fresh()->remaining)]);
         $this->assertNotNull($marked->fresh()->paid_by_staff_at);
 
+        // Paid by hand with a part payment already on it: that payment was there before the word, so deleting it reopens
+        // the invoice as on main (REV-780-3-1: the word never stands in for money that was on it).
+        $other = Invoice::query()->create(['client_id' => $marked->client_id, 'currency_code' => 'EUR', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
+        $other->items()->create(['description' => 'Work', 'quantity' => 1, 'price' => '20.00', 'taxed' => false]);
+        $part = (new RecordPaymentService)->recordByStaff($other->fresh(), null, '5.00', 'wire-part', paidAt: now()->subDay());
+        $other = $this->byHand($other);
+        (new RecordPaymentService)->deleteTransaction($part->fresh());
+        $this->assertSame([Invoice::STATUS_UNPAID, null], [$other->fresh()->status, $other->fresh()->paid_by_staff_at]);
+
         $full = (new RecordPaymentService)->recordByStaff($marked->fresh(), null, '10.00', 'wire-y');
         $this->assertNull($marked->fresh()->paid_by_staff_at);
         (new RecordPaymentService)->deleteTransaction($full->fresh());

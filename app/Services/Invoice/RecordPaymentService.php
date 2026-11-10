@@ -611,8 +611,13 @@ class RecordPaymentService
             // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
             $invoice->refresh();
-            // Not one staff marked paid by hand: it owed before this payment and owes now, by their word (REV-780-6).
-            if ($invoice->status === Invoice::STATUS_PAID && $invoice->paid_by_staff_at === null
+            // Not one staff marked paid by hand BEFORE this payment came: it owed before the payment and owes now, by their
+            // word (REV-780-6). One paid with this money and flagged afterwards (a line raised on it: the word was for the
+            // raise, not for what the payment paid) follows its payment as ever (REV-780-3-1), and the flag goes with it.
+            // By the two times: a raise's flag is always later than every payment then on the invoice (owesByStaffsWord).
+            $byHandBefore = $invoice->paid_by_staff_at !== null && $transaction->created_at !== null
+                && $invoice->paid_by_staff_at->lessThanOrEqualTo($transaction->created_at);
+            if ($invoice->status === Invoice::STATUS_PAID && !$byHandBefore
                 && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
                 $invoice->status = Invoice::STATUS_UNPAID;
                 $invoice->save();
