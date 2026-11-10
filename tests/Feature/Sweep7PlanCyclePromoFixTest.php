@@ -154,6 +154,43 @@ class Sweep7PlanCyclePromoFixTest extends TestCase
         $this->assertSame($yearly->id, (int) $service->fresh()->next_plan_id);
     }
 
+    public function test_staff_are_refused_a_change_now_with_the_order_unpaid_and_told_the_way_through(): void
+    {
+        [$service, $monthly, $orderLine] = $this->setUpUnpaid();
+
+        $this->assertSame(__('services.change_cycle_now_order_unpaid'), ChangeCycle::refusal($service, $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF));
+        foreach (['en', 'el'] as $locale) {
+            $this->assertNotSame('services.change_cycle_now_order_unpaid', __('services.change_cycle_now_order_unpaid', [], $locale));
+        }
+        // A part payment on the order's invoice, which the change leaves alone, does not stop staff's «from the next renewal».
+        ExtensionHelper::addPayment($orderLine->invoice_id, null, 20.00, null, 's7-pca-1', currency: 'USD');
+        $this->assertNull(ChangeCycle::refusal($service->fresh(), $monthly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF));
+    }
+
+    public function test_a_charge_beside_the_renewal_refuses_the_change_for_customer_and_staff_naming_the_invoice(): void
+    {
+        Carbon::setTestNow('2026-07-05 10:00:00');
+        $product = Product::factory()->create(['name' => 'Hosting']);
+        $yearly = $this->plan($product, 'year', 120.00);
+        $monthly = $this->plan($product, 'month', 12.00);
+        $service = $this->service($product, $monthly, 12.00, '2026-07-10');
+        $this->line($service, '2026-06-10', '2026-07-10', 12.00, Invoice::STATUS_PAID);
+        $renewal = $this->line($service, '2026-07-10', '2026-08-10', 12.00, Invoice::STATUS_UNPAID);
+        $renewal->invoice->items()->create(['description' => 'Setup', 'price' => 30.00, 'quantity' => 1, 'reference_id' => $service->id,
+            'reference_type' => Service::class, 'kind' => InvoiceItem::KIND_CHARGE]);
+        $number = $renewal->invoice->fresh()->number ?? $renewal->invoice_id;
+
+        $this->assertSame(__('services.change_cycle_charge_on_renewal', ['invoice' => $number]),
+            ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM));
+        $staff = ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
+        $this->assertStringContainsString("#{$number}", (string) $staff);
+        $this->assertStringContainsString('remove or cancel that charge by hand', (string) $staff, 'staff\'s way through');
+
+        // A negative one (a promotion of the renewal) goes with it, as before.
+        InvoiceItem::query()->where('invoice_id', $renewal->invoice_id)->where('kind', InvoiceItem::KIND_CHARGE)->update(['price' => -2.00]);
+        $this->assertNull(ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM));
+    }
+
     // --- S7-PLAN-CYCLE-ADDONS-2 ---
 
     /** Monthly 12.00 paid to 2026-07-10, a change to yearly from the next renewal, applied by the cron on 2026-07-03. */
@@ -241,6 +278,19 @@ class Sweep7PlanCyclePromoFixTest extends TestCase
         $this->line($service, '2026-08-01', '2027-08-01', 120.00, Invoice::STATUS_UNPAID);
 
         $this->assertSame('0.00', ChangeCycle::unused($service->fresh(), CarbonImmutable::today()));
+    }
+
+    public function test_the_imported_days_are_not_priced_by_the_next_cycles_plan_while_it_has_not_started(): void
+    {
+        Carbon::setTestNow('2026-07-26 10:00:00');
+        $product = Product::factory()->create(['name' => 'Hosting']);
+        $yearly = $this->plan($product, 'year', 120.00);
+        // Imported monthly at 12.00, due 2026-08-01; the cron put it on the yearly plan (120.00) for the period from then.
+        $service = $this->service($product, $yearly, 120.00, '2026-08-01');
+        $service->forceFill(['plan_from' => '2026-08-01'])->save();
+        $this->line($service, '2026-08-01', '2027-08-01', 120.00, Invoice::STATUS_UNPAID);
+
+        $this->assertSame('0.00', ChangeCycle::unused($service->fresh(), CarbonImmutable::today()), 'never 6 days of the yearly price for days paid monthly');
     }
 
     public function test_a_period_paid_here_is_credited_from_its_line_with_the_next_renewal_open(): void

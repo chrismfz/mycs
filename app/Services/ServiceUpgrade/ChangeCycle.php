@@ -127,6 +127,11 @@ final class ChangeCycle
         if (!$staff && !$back && $service->orderUnpaid()) {
             return __('services.change_cycle_order_unpaid');
         }
+        // Now, for staff too: the new cycle would be billed from today beside the order's invoice, which still asks for
+        // the cycle ordered (REV-776-2; ChangePackage refuses the same). From the next renewal stays theirs.
+        if ($mode === self::NOW && $service->orderUnpaid()) {
+            return __('services.change_cycle_now_order_unpaid');
+        }
         // Suspended, its open renewal is what brings it and its addons back: cancelled for the new cycle, the cron bills
         // it again without its addons (suspended with it, they are not billed apart), and they fall overdue on their own
         // the night after it is paid (REV-765-2). Pay first.
@@ -202,22 +207,40 @@ final class ChangeCycle
         if ($service->cancellation()->exists()) {
             return __('This service is to be cancelled.');
         }
+        // Its open renewals, what the change cancels (openRenewals): only these can stop it. An invoice it leaves alone
+        // (its order's own, a charge alone) does not, whatever is paid on it (REV-776-5).
+        $renewals = self::openRenewals($service);
         // Credit on an invoice it shares with other services (a grouped renewal, PR C) does not stop it: only its line goes,
         // and the credit stays on what is left (CancelOpenInvoices, partial).
-        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id')->contains(fn (Invoice $invoice) => $invoice->hasPayments()
-            && !self::sharedWithCreditOnly($invoice, $service))) {
-            return __('An open invoice of this service has a payment on it.');
+        $paid = $renewals->first(fn (Invoice $invoice) => $invoice->hasPayments() && !self::sharedWithCreditOnly($invoice, $service));
+        if ($paid !== null) {
+            $invoice = $paid->number ?? $paid->id;
+
+            return $staff
+                ? "An open renewal invoice of this service has a payment on it (#{$invoice}): record the rest of its payment, or refund the payment (or move it to credit) and cancel the invoice, then change the cycle."
+                : __('services.change_cycle_renewal_part_paid', ['invoice' => $invoice]);
         }
-        // A saved-card charge of an open invoice of it, its outcome not here yet: cancelled for the new cycle, the period
+        // A saved-card charge of an open renewal of it, its outcome not here yet: cancelled for the new cycle, the period
         // would be billed and charged again while the money that lands becomes credit (sweep2 REV2-SAM-1).
-        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id')->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice))) {
+        if ($renewals->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice))) {
             return __('A card payment of an open invoice of this service is on its way or not settled: wait for it first.');
+        }
+        // A charge of it (an imported setup fee, kind `charge`) beside its renewal on one invoice: the invoice would go
+        // whole and the cron bill only the period again, the charge lost (REV-776-4, owner: refuse, no line surgery).
+        $charged = $renewals->first(fn (Invoice $invoice) => $invoice->items()->where('reference_type', Service::class)
+            ->where('reference_id', $service->id)->where('kind', InvoiceItem::KIND_CHARGE)->where('price', '>', 0)->exists());
+        if ($charged !== null) {
+            $invoice = $charged->number ?? $charged->id;
+
+            return $staff
+                ? "Invoice #{$invoice} also bills a charge of this service: settle it first (record its payment, or remove or cancel that charge by hand), then change the cycle."
+                : __('services.change_cycle_charge_on_renewal', ['invoice' => $invoice]);
         }
         // An open invoice of it kept from the automatic charge (the customer's «I'll pay another way», or staff's «Do not
         // auto-charge»: a payment agreed another way, a transfer maybe on its way) would go, and the period it bills come
         // back on an invoice the cron charges to the saved method: paid twice (ADV-623-1). Pay it, or settle it, first.
         if (!$service->no_auto_charge && $service->client?->auto_charge && $service->client->billingAgreements()->exists()
-            && $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->where('invoices.no_auto_charge', true)->exists()) {
+            && $renewals->contains(fn (Invoice $invoice) => (bool) $invoice->no_auto_charge)) {
             return __('An open invoice of this service is to be paid another way: pay it first, or ask us.');
         }
         $coupon = $service->coupon;
@@ -462,21 +485,21 @@ final class ChangeCycle
     }
 
     /**
-     * Its open renewals, what a change of cycle cancels and the cron bills again in the new cycle: the open invoices with a
-     * period line of it. Never its order's own invoice while that is unpaid (set up before payment: it holds what the
-     * order owes, its setup fee too, and the cron would bill none of that again: S7-PLAN-CYCLE-ADDONS-1), nor an invoice
-     * with only a charge of it (no period: nothing of it is billed again).
+     * Its open renewals, what a change of cycle cancels and the cron bills again in the new cycle: the open invoices that
+     * bill it, not only a charge of it (Service::renewalInvoices, what the cron takes for «its renewal on its way»; a
+     * renewal imported from WHMCS has no period on its line, REV-776-1). Never its order's own invoice while that is unpaid
+     * (set up before payment: it holds what the order owes, its setup fee too, and the cron would bill none of that again:
+     * S7-PLAN-CYCLE-ADDONS-1), nor an invoice with only a charge of it (nothing of it is billed again).
      *
      * @return Collection<int, Invoice>
      */
     private static function openRenewals(Service $service): Collection
     {
-        $order = $service->orderUnpaid() ? $service->invoiceItems()->min('invoice_id') : null;
+        $order = $service->unpaidOrderInvoiceId();
 
-        return $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)
-            ->whereNotNull('invoice_items.period_start')->whereNotNull('invoice_items.period_end')
+        return $service->renewalInvoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)
             ->when($order !== null, fn ($invoices) => $invoices->where('invoices.id', '!=', $order))
-            ->get();
+            ->get()->unique('id')->values();
     }
 
     /**
@@ -520,7 +543,8 @@ final class ChangeCycle
         // No line of the period it is in: none at all, or only renewals from its expiry on (the first one the cron issued
         // here, open: until it is paid the period paid in WHMCS still runs, S7-PLAN-CYCLE-ADDONS-3).
         $expiry = $service->expires_at === null ? null : CarbonImmutable::instance($service->expires_at)->startOfDay();
-        if ($lines->isEmpty() && $service->livePeriodLines()->every(fn (InvoiceItem $line) => $expiry !== null
+        // Not while its plan is the next period's (planStartsOn): its price is the new cycle's, not what the days were paid at.
+        if ($lines->isEmpty() && $service->planStartsOn() === null && $service->livePeriodLines()->every(fn (InvoiceItem $line) => $expiry !== null
             && $line->period_start->startOfDay()->greaterThanOrEqualTo($expiry))) {
             [$start, $end] = self::importedPeriod($service, $today);
             if ($start === null || $end === null || !$end->greaterThan($today->startOfDay())) {

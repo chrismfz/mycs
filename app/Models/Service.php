@@ -1306,8 +1306,8 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * The service of its order whose promotion needs this one («Requires», WHMCS), while this one is pending and its
-     * order's invoice unpaid, or null: cancelled by its customer, only its line would leave the invoice and the other be
+     * The service of its order whose promotion needs this one («Requires», WHMCS), while its order's invoice is unpaid
+     * (pending, or set up on order and running already: REV-776-3), or null: cancelled by its customer, only its line would leave the invoice and the other be
      * paid at a discount whose required product was never bought (S7-CLIENT-PORTAL-1, owner 2026-11-10). Its customer
      * cancels that service first (the whole order) or asks; staff cancel it freely. Its addons end with it, so one of
      * them that is required counts too; not needed when the account holds the required product another way, or when
@@ -1315,16 +1315,16 @@ class Service extends Model implements Auditable
      */
     public function neededByOrderPromotion(): ?self
     {
-        if ($this->status !== self::STATUS_PENDING || $this->order_id === null) {
+        if ($this->isEnded() || $this->order_id === null) {
             return null;
         }
-        $going = collect([$this])->merge($this->addons()->where('status', self::STATUS_PENDING)->where('order_id', $this->order_id)->get());
+        $going = collect([$this])->merge($this->addons()->whereIn('status', self::PAYING_STATUSES)->where('order_id', $this->order_id)->get());
         $discounted = self::query()->where('order_id', $this->order_id)->whereNotIn('id', $going->pluck('id'))
             ->whereIn('status', self::PAYING_STATUSES)->whereNotNull('coupon_id')->whereNull('coupon_expired_at')
             ->with('coupon.requiredProducts')->orderBy('id')->get();
         foreach ($going as $required) {
-            if (!$required->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
-                continue; // paid (waiting to be set up): the discount was earned
+            if (!$required->orderUnpaid()) {
+                continue; // its order paid: the discount was earned
             }
             foreach ($discounted as $other) {
                 $products = $other->coupon?->requiredProducts->pluck('id') ?? collect();
@@ -1358,12 +1358,18 @@ class Service extends Model implements Auditable
      */
     public function orderUnpaid(): bool
     {
+        return $this->unpaidOrderInvoiceId() !== null;
+    }
+
+    /** Its order's own invoice while that is open (orderUnpaid), or null: what a change of cycle never cancels. */
+    public function unpaidOrderInvoiceId(): ?int
+    {
         if ($this->order_id === null) {
-            return false;
+            return null;
         }
         $first = $this->invoiceItems()->min('invoice_id');
         if ($first === null) {
-            return false;
+            return null;
         }
         $order = $this->order;
         $orderDay = $order?->created_at?->toDateString();
@@ -1378,7 +1384,7 @@ class Service extends Model implements Auditable
                     $line->orWhereDate('period_start', $orderDay);
                 }
             })
-            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists();
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists() ? (int) $first : null;
     }
 
     public function productUpgrades()
