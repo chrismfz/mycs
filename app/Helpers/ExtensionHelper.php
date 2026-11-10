@@ -718,6 +718,7 @@ class ExtensionHelper
 
         $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency,
             paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup, onItsWayNow: $onItsWayNow);
+
         // Refunds that arrived before their payment was money here are recorded by handle(), for staff's entry too (REV-774-3).
         return $transaction;
     }
