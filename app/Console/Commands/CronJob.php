@@ -85,6 +85,9 @@ class CronJob extends Command
 
     private int $successFullCharges = 0;
 
+    /** A gateway's payment «processing» for this many days is told to staff (S7-PAYMENTS-3, owner 2026-11-10). */
+    public const PROCESSING_STALE_DAYS = 14;
+
     /** @var array<string, Throwable> job (or job #service) => what failed */
     private array $failures = [];
 
@@ -745,22 +748,42 @@ class CronJob extends Command
                 return Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->count();
             }, transaction: false);
 
-            // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
-            // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
-            // R1b-3), staff are told, once a week (R1-5): marked told only once the notices mail is queued, so one that
-            // could not be queued is told again the next day (review 2 of #697, I5). Nothing changes by itself.
+            // A payment still «processing» long after it began holds its invoice from every way of paying and its services
+            // from suspension, until its gateway's final event is recorded: one that never comes (lost, or the gateway has
+            // none for the case) would hold them for ever, unseen (S7-PAYMENTS-3). Staff are told, nothing changes by itself
+            // (owner 2026-11-10): a gateway's after PROCESSING_STALE_DAYS (its created_at); one WHMCS had on its way at the
+            // cut-over (imported «Payment Pending», ADV-A1-3) a week after its import (its updated_at; created_at is its
+            // WHMCS invoice's day, R1b-3). Each once a week (R1-5): marked told only once the notices mail is queued, so
+            // one that could not be queued is told again the next day (review 2 of #697, I5).
             $this->runCronJob('imported_pending_payments', function () {
                 $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
-                    ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
-                    ->with('invoice:id,client_id')->orderBy('id')->get();
+                    ->where(fn ($payment) => $payment
+                        ->where(fn ($imported) => $imported->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7)))
+                        ->orWhere(fn ($native) => $native->where(fn ($id) => $id->whereNull('transaction_id')->orWhere('transaction_id', 'not like', 'whmcs-pending-%'))
+                            ->where('created_at', '<', now()->subDays(self::PROCESSING_STALE_DAYS))))
+                    ->with(['invoice:id,client_id,currency_code', 'gateway:id,name'])->orderBy('id')->get();
                 foreach ($stale as $payment) {
-                    if (!Cache::has($mark = "imported-pending-told:{$payment->id}")) {
-                        $this->noticeMarks[$mark] = now()->addDays(7);
+                    $imported = str_starts_with((string) $payment->transaction_id, 'whmcs-pending-');
+                    if (Cache::has($mark = ($imported ? 'imported-pending-told:' : 'processing-payment-told:') . $payment->id)) {
+                        continue;
+                    }
+                    $this->noticeMarks[$mark] = now()->addDays(7);
+                    $amount = number_format((float) $payment->amount, 2, '.', '');
+                    if ($imported) {
                         $this->notices["imported_pending_payments #{$payment->invoice_id}"] = new DisplayException(sprintf(
                             'Invoice #%d (client #%d): the payment WHMCS had on its way at the cut-over (%s, %s) is still processing. Confirm the debit in the gateway,'
                             . ' then record it with that transaction id (the same gateway or none), or delete the payment if it failed.',
-                            $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id, number_format((float) $payment->amount, 2, '.', '')));
+                            $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id, $amount));
+
+                        continue;
                     }
+                    $this->notices["processing_payments #{$payment->invoice_id} (payment {$payment->id})"] = new DisplayException(sprintf(
+                        'Invoice #%d (client #%d): the payment %s of %s %s through %s has been processing since %s (over %d days), and no final answer of the gateway was recorded.'
+                        . ' Until it is settled the invoice cannot be paid or charged another way and its services are not suspended. Check it at the gateway, then on the invoice\'s Transactions:'
+                        . ' if the money came, «Add payment» with that transaction id (the same gateway or none) completes it;'
+                        . ' if it failed or was cancelled, delete the payment (a saved method\'s charge of it is then settled with «Resolve charge»). A success the gateway reports later is still recorded.',
+                        $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id ?? '(no id)', $amount, (string) $payment->invoice?->currency_code,
+                        $payment->gateway->name ?? 'no gateway', $payment->created_at->toDateString(), self::PROCESSING_STALE_DAYS));
                 }
 
                 return $stale->count();
