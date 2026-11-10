@@ -91,9 +91,9 @@ final class EkdosiDocuments
     }
 
     /**
-     * Why the invoice is not the one Ekdosi read, or null: merged into another, split (the split off lines on an invoice of
-     * their own), or with the fingerprint Ekdosi read (`mycs.fingerprint`) no longer its own. Without a fingerprint
-     * (an Ekdosi before K1) only a merge or a split is seen.
+     * Why the invoice is not the one Ekdosi read, or null: merged into another, split since it was Ekdosi's to read (the
+     * split off lines on an invoice of their own), or with the fingerprint Ekdosi read (`mycs.fingerprint`) no longer its
+     * own. Without a fingerprint (as K1 sends it) only a merge or such a split is seen.
      */
     private function changed(Invoice $invoice, ?string $fingerprint): ?string
     {
@@ -108,7 +108,14 @@ final class EkdosiDocuments
 
             return hash_equals(EkdosiFeed::fingerprint($invoice), $fingerprint) ? null : 'Its lines changed since it was read: read it again.';
         }
-        if (Invoice::query()->where('split_from_id', $invoice->id)->lockForUpdate()->exists()) {
+        // A split (or a service moved off it to another account) counts only when made after the invoice was Ekdosi's to
+        // read: asked for by staff («Send to Ekdosi») or paid, whichever is there (sweep 7, S7-TAX-EKDOSI-1). One made
+        // before is the invoice Ekdosi read: staff correct freely here, the final result goes to Ekdosi. Neither there:
+        // it was read under a request since withdrawn (a split withdraws it), so any split is after the read. A split
+        // with no time (made before split_at was kept) is taken as before: only unpaid invoices are split.
+        $since = $invoice->ekdosi_requested_at ?? $invoice->paid_at;
+        $splits = Invoice::query()->where('split_from_id', $invoice->id)->lockForUpdate()->get(['id', 'split_at']);
+        if ($splits->contains(fn (Invoice $part) => $since === null || ($part->split_at !== null && $part->split_at->gt($since)))) {
             return 'Split since: part of its lines are on another invoice. Read it again (with its fingerprint).';
         }
 

@@ -63,6 +63,7 @@ final class SplitInvoice
             ]);
             $new->send_create_email = false;
             $new->split_from_id = $invoice->id;
+            $new->split_at = now()->toImmutable();
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;
             // Kept from the cron's charge as the first was (PR H2b, code review CR-2).
             $new->no_auto_charge = (bool) $invoice->no_auto_charge;

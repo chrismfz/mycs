@@ -216,6 +216,8 @@ class Invoice extends Model implements Auditable
         'paid_at' => 'immutable_datetime',
         'merged_into_id' => 'integer',
         'split_from_id' => 'integer',
+        // When it was split off split_from_id (its created_at is the first one's): EkdosiDocuments::changed.
+        'split_at' => 'immutable_datetime',
         'apply_pending_since' => 'immutable_datetime',
         'kept_as_debt_at' => 'immutable_datetime',
         'finish_pending_at' => 'immutable_datetime',
