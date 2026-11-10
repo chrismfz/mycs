@@ -28,6 +28,8 @@ class WhmcsParityTest extends TestCase
         $this->whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         foreach ([
             'CREATE TABLE tblclients (id INTEGER PRIMARY KEY, credit REAL DEFAULT 0, currency INTEGER DEFAULT 1)',
+            // Every WHMCS has it: the note on currencies counts them as the importer assigns them (WhmcsClientCurrency).
+            'CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)',
             'CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, domainstatus TEXT)',
             'CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INTEGER DEFAULT 1, status TEXT, subtotal REAL, tax REAL DEFAULT 0, tax2 REAL DEFAULT 0, credit REAL DEFAULT 0, total REAL)',
             'CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INTEGER, type TEXT, relid INTEGER DEFAULT 0, amount REAL)',

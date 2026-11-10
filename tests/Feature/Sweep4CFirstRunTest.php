@@ -314,7 +314,7 @@ class Sweep4CFirstRunTest extends TestCase
         ImportFromWhmcs::$connect = fn () => $whmcs;
         putenv('WHMCS_SOURCE_PASSWORD=secret');
         try {
-            $refused = 'WHMCS live service(s) whose renewal invoice was cancelled and next invoice date moved past it: #9301.';
+            $refused = 'WHMCS live service(s) or addon(s) whose renewal invoice was cancelled or deleted and next invoice date moved past it: #9301.';
             $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
             $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
             $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
