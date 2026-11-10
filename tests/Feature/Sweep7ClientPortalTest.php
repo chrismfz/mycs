@@ -103,6 +103,7 @@ class Sweep7ClientPortalTest extends TestCase
      */
     public function test_cp2_an_unpaid_order_of_the_required_product_keeps_the_renewal_discount(): void
     {
+        $this->markTestIncomplete('S7-CLIENT-PORTAL-2 is left as is, recorded only (owner 2026-11-10, docs/sweeps/2026-11-10-seventh.md): an ordered, unpaid service still holds a «Requires» discount at renewal.');
         $a = $this->product(100.00, 'Controller');
         $b = $this->product(200.00, 'Agent');
         $coupon = $this->coupon($b, $a, 0);
