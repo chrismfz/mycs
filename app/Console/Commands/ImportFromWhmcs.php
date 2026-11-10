@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
@@ -227,6 +228,17 @@ class ImportFromWhmcs extends Command
                 . implode('; ', array_map(fn (int $invoice, array $of) => "#{$invoice} (" . implode(', ', $of) . ')', array_keys($stale), $stale))
                 . '. Here such an invoice would stand for the next renewal, which would never be billed: cancel it or settle it in WHMCS'
                 . ' (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
+        // A domain order paid long ago and still plain «Pending» (sweep 7 S7-IMPORT-2, owner 2026-11-10): the first cron
+        // would register or transfer it at the registrar. Set Cancelled or Active in WHMCS before the dump; a younger one
+        // is sent from here as before (docs/importer.md).
+        if (($pending = $this->stalePaidDomainOrders()) !== []) {
+            $this->error('WHMCS domain order(s) paid more than ' . self::STALE_PAID_ORDER_DAYS . ' days ago and still «Pending»: domain #' . implode(', #', $pending)
+                . '. The first cron would register or transfer them at the registrar: set them Cancelled (not wanted any more) or Active'
+                . ' (registered since) in WHMCS (cutover-runbook.md), and dump again. Nothing done.');
 
             return self::FAILURE;
         }
@@ -3488,6 +3500,38 @@ class ImportFromWhmcs extends Command
         ksort($found);
 
         return $found;
+    }
+
+    /** Days after its payment a WHMCS domain order still plain «Pending» refuses the import (stalePaidDomainOrders). */
+    public const STALE_PAID_ORDER_DAYS = 30;
+
+    /**
+     * WHMCS domains still plain «Pending» (never sent to a registrar there) whose register or transfer line is on an
+     * invoice Paid more than STALE_PAID_ORDER_DAYS ago (by its datepaid, else its date): a registration that failed and was
+     * settled outside WHMCS, the row never closed. Imported, the first cron would send it to the registrar
+     * (DomainOrderFulfilment::due has no age limit; sweep 7 S7-IMPORT-2). The import refuses to run on them (handle): staff
+     * set them Cancelled or Active in WHMCS. A younger one is sent from here as before (R3-2 of #535), and one imported
+     * active (WhmcsDomainImport::registeredWhilePending: it has an expiry ahead) is never sent, so not refused. The unpaid
+     * twin is abandonedOrders'. A source without these tables (a test's): none.
+     *
+     * @return list<int> tbldomains ids
+     */
+    private function stalePaidDomainOrders(): array
+    {
+        if (!$this->sourceHas('tbldomains') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        $query = $this->pdo->prepare("SELECT DISTINCT d.id, d.type, d.expirydate, d.registrationdate,
+            (SELECT COUNT(*) FROM tblinvoiceitems r JOIN tblinvoices ri ON ri.id = r.invoiceid WHERE r.type = 'Domain' AND r.relid = d.id AND ri.status = 'Paid') AS renewals
+            FROM tbldomains d JOIN tblinvoiceitems ii ON ii.type IN ('DomainRegister', 'DomainTransfer') AND ii.relid = d.id
+            JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE d.status = 'Pending' AND i.status = 'Paid' AND (CASE WHEN i.datepaid > '0000-00-00' THEN i.datepaid ELSE i.date END) < ?
+            ORDER BY d.id");
+        $query->execute([now()->subDays(self::STALE_PAID_ORDER_DAYS)->toDateString()]);
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($query->fetchAll(PDO::FETCH_ASSOC),
+            fn (array $row) => !WhmcsDomainImport::registeredWhilePending(
+                stripos((string) $row['type'], 'transfer') !== false ? DomainStatus::PendingTransfer : DomainStatus::PendingRegister, $row, (int) $row['renewals'] > 0))));
     }
 
     /** The addon cycles with no next period here (WhmcsAddonImport: no expiry, never renewed): left out of the addon checks. */

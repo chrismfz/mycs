@@ -295,17 +295,51 @@ class Sweep7ImportTest extends TestCase
             $whmcs->prepare("INSERT INTO tblinvoiceitems VALUES (?, ?, ?, 'DomainRegister', ?, ?, 12, 0, ?)")
                 ->execute([$id * 10, $id, $client, $id, "Domain Registration - {$name} - 1 Year/s", $date]);
         }
-        $this->assertSame([], $this->refusal($whmcs, 'abandonedOrders'), 'no pre-dump check refuses it');
+        $this->assertSame([], $this->refusal($whmcs, 'abandonedOrders'), 'not an unpaid order');
+        // The fix (owner 2026-11-10): paid more than 30 days ago and still plain «Pending» is refused before the dump.
+        $this->assertSame([9901], $this->refusal($whmcs, 'stalePaidDomainOrders'));
+        $this->refused($whmcs, 'WHMCS domain order(s) paid more than 30 days ago and still «Pending»: domain #9901.');
+        // Staff set it Cancelled in WHMCS, dump again: the import runs and only the young order is sent from here.
+        $whmcs->exec("UPDATE tbldomains SET status = 'Cancelled' WHERE id = 9901");
+        $this->assertSame([], $this->refusal($whmcs, 'stalePaidDomainOrders'));
 
         $this->import($whmcs, ['importDomains', 'importInvoices', 'importInvoiceItems']);
 
-        $this->assertSame(DomainStatus::PendingRegister, Domain::query()->findOrFail(9901)->status);
+        $this->assertSame(DomainStatus::Cancelled, Domain::query()->findOrFail(9901)->status);
         $this->assertSame(Invoice::STATUS_PAID, Invoice::query()->findOrFail(9901)->status);
         // As the cron's domains_ordered step reads them (CronJob: due() older than 10 minutes).
         $due = DomainOrderFulfilment::due()->where('updated_at', '<', now()->subMinutes(10))->pluck('id')->map(fn ($id) => (int) $id)->all();
         $this->assertContains(9902, $due, 'control: an order paid yesterday and still pending is sent from here (R3-2 of #535)');
-        $this->assertTrue(!in_array(9901, $due, true) || !empty(Domain::query()->findOrFail(9901)->meta['on_hold']),
-            'an order paid in 2019 that WHMCS never registered is not bought at the registrar by the first cron: it is due to be sent');
+        $this->assertNotContains(9901, $due, 'an order paid in 2019 that WHMCS never registered is not bought at the registrar by the first cron');
+    }
+
+    /**
+     * S7-IMPORT-2, the line: 30 days from the payment (the invoice's datepaid, else its date). Not refused: a younger one,
+     * one WHMCS sent («Pending Registration»), one never paid (abandonedOrders'), and a «Pending» row with an expiry ahead
+     * registered long ago (imported active, WhmcsDomainImport::registeredWhilePending: never sent).
+     */
+    public function test_s7_import_2_only_a_plain_pending_order_paid_more_than_thirty_days_ago_is_refused(): void
+    {
+        $whmcs = $this->whmcs();
+        $client = $this->user->client()->id;
+        $add = function (int $id, string $status, string $type, string $invoice, string $paid, ?string $invoiceDate = null, string $expiry = '0000-00-00', ?string $registered = null) use ($whmcs, $client) {
+            $date = $invoiceDate ?? substr($paid, 0, 10);
+            $whmcs->prepare("INSERT INTO tbldomains VALUES (?, ?, ?, ?, ?, ?, 12, 12, 'openprovider', 1, ?, ?, ?, '', 0, 0, 0, 0, ?, ?)")
+                ->execute([$id, $client, $id, $type, $registered ?? $date, "order{$id}.example.com", $expiry, $status, $date, "{$date} 10:00:00", "{$date} 10:00:00"]);
+            $whmcs->prepare("INSERT INTO tblinvoices VALUES (?, ?, '', ?, ?, ?, ?, 12, 0, 0)")->execute([$id, $client, $date, $date, $paid, $invoice]);
+            $whmcs->prepare('INSERT INTO tblinvoiceitems VALUES (?, ?, ?, ?, ?, ?, 12, 0, ?)')
+                ->execute([$id * 10, $id, $client, $type === 'Transfer' ? 'DomainTransfer' : 'DomainRegister', $id, 'Domain order', $date]);
+        };
+        $add(9911, 'Pending', 'Register', 'Paid', now()->subDays(31)->toDateString() . ' 09:00:00');
+        $add(9912, 'Pending', 'Transfer', 'Paid', now()->subDays(31)->toDateString() . ' 09:00:00');
+        $add(9913, 'Pending', 'Register', 'Paid', now()->subDays(29)->toDateString() . ' 09:00:00');
+        $add(9914, 'Pending', 'Register', 'Paid', '0000-00-00 00:00:00', now()->subDays(45)->toDateString()); // no datepaid: by its date
+        $add(9915, 'Pending Registration', 'Register', 'Paid', '2020-01-01 09:00:00');
+        $add(9916, 'Pending', 'Register', 'Unpaid', '0000-00-00 00:00:00', '2020-01-01');
+        $add(9917, 'Pending', 'Register', 'Paid', '2020-01-01 09:00:00', null, now()->addMonths(3)->toDateString(), '2020-01-01');
+        $add(9918, 'Active', 'Register', 'Paid', '2020-01-01 09:00:00');
+
+        $this->assertSame([9911, 9912, 9914], $this->refusal($whmcs, 'stalePaidDomainOrders'));
     }
 
     /** The import as staff run it, dry run and for real: refused with $message, and nothing asked about this database. */
