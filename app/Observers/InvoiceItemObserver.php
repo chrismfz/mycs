@@ -184,6 +184,8 @@ class InvoiceItemObserver
     public function deleting(InvoiceItem $invoice): void
     {
         self::refuseOnFinalInvoice($invoice->invoice_id);
+        // A discount taken off a paid invoice raises what it bills, as a line added or repriced does (REV-782-2).
+        Invoice::owesByStaffsWord($invoice->invoice_id, -(int) round((float) $invoice->getOriginal('line_total') * 100));
     }
 
     /**
