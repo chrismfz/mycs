@@ -14,8 +14,12 @@ use App\Models\Service;
  */
 final class SharedAccount
 {
-    /** @param  list<string>  $keys  the module's property keys that name its account */
-    public static function otherLive(Service $service, string $name, array $keys): ?Service
+    /**
+     * @param  list<string>  $keys  the module's property keys that name its account
+     * @param  string|null  $domain  only another service of this same domain (its own, or its «domain» property): an
+     *                               account that holds several domains, one service each, is shared by design (mailcow)
+     */
+    public static function otherLive(Service $service, string $name, array $keys, ?string $domain = null): ?Service
     {
         $serverId = $service->provisioningServer()?->id;
         $name = strtolower(trim($name));
@@ -28,9 +32,10 @@ final class SharedAccount
             ->whereNotIn('status', Service::ENDED_STATUSES)
             ->where(fn ($query) => $query->where('server_id', $serverId)
                 ->orWhere(fn ($query) => $query->whereNull('server_id')->whereHas('product', fn ($product) => $product->where('server_id', $serverId))))
-            ->with(['properties' => fn ($property) => $property->whereIn('key', $keys)])
+            ->with(['properties' => fn ($property) => $property->whereIn('key', [...$keys, 'domain'])])
             ->orderBy('id')->get()
-            ->first(fn (Service $other) => ($other->status !== Service::STATUS_PENDING && $same($other->username))
-                || $other->properties->contains(fn ($property) => $same($property->value)));
+            ->first(fn (Service $other) => (($other->status !== Service::STATUS_PENDING && $same($other->username))
+                || $other->properties->contains(fn ($property) => in_array($property->key, $keys, true) && $same($property->value)))
+                && ($domain === null || strtolower(trim((string) ($other->properties->firstWhere('key', 'domain')->value ?? $other->domain ?? ''))) === strtolower(trim($domain))));
     }
 }
