@@ -86,6 +86,11 @@ su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh
 ```
 Πριν αλλάξει οτιδήποτε, κρατά **snapshot της βάσης** στο `storage/app/db-snapshots/` (τα τελευταία 10), και μετά:
 maintenance mode, queue drain, checkout, composer, migrate, build, caches, private files, smoke check.
+**Site που ήταν ήδη σε maintenance μένει σε maintenance** (sweep 6, S6-OPS-2): το deploy δεν τρέχει `up`, δεν ξεκινά
+workers που δεν έτρεχαν πριν, δεν κάνει smoke check, και τελειώνει με «site was in maintenance before the deploy: left
+down; run artisan up when ready». Το `app:cron-wait` περιμένει και το `schedule:run` αυτής της εγκατάστασης να τελειώσει,
+όχι μόνο τα tasks που τρέχουν εκείνη τη στιγμή (S6-OPS-1).
+
 **Ένα τρέξιμο του cron σε εξέλιξη τελειώνει πρώτα** (sweep 9γ, `app:cron-wait`): το deploy το περιμένει πριν το
 maintenance και ξανά αμέσως μετά (ο scheduler δεν ξεκινά νέο σε maintenance), ως 15 λεπτά (`CRON_WAIT_SECONDS`). Αν δεν
 τελειώσει, το deploy σταματά χωρίς να έχει αλλάξει τίποτα: το ξανατρέχεις όταν τελειώσει. Lock τρεξίματος που
@@ -112,7 +117,7 @@ maintenance (`down` απέτυχε), το deploy σταματά χωρίς αλ�
 
 Χειροκίνητα, όλα μέσα στο ίδιο παράθυρο maintenance (L-DEPLOY-MIGRATIONS-4): ούτε cron ούτε worker της νεότερης
 έκδοσης πάνω στο παλιό σχήμα, και η επαναφορά πριν από το `up`, ποτέ με το site ανοιχτό (όχι `deploy/update.sh <sha>`
-και μετά επαναφορά: εκείνο τελειώνει με `up` και τους workers πίσω).
+και μετά επαναφορά: εκείνο, σε site που ήταν πάνω, τελειώνει με `up` και τους workers πίσω).
 ```bash
 cd /var/www/mycs && php artisan down
 php artisan app:cron-wait --timeout=900          # ένα cron run σε εξέλιξη τελειώνει πρώτα
