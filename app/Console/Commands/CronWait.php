@@ -137,7 +137,7 @@ class CronWait extends Command
                 continue;
             }
             $cwd = @readlink("/proc/{$pid}/cwd");
-            if (is_string($cwd) && $cwd !== '') {
+            if (is_string($cwd)) {
                 if ($cwd === $here) {
                     return true;
                 }
