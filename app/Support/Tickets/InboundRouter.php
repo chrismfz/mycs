@@ -32,8 +32,8 @@ use MyCS\TicketMail\ReplyText;
  *      (§3 Β); otherwise quarantine, the ticket suggested to staff;
  *   4. a mail naming a ticket (its number in the subject) without our Message-ID: quarantine, the ticket suggested only
  *      when its owner wrote it (§5α: replies to old WHMCS mail);
- *   5. anything else is a new ticket: in an account only when our server vouches for the From and it is a login of
- *      exactly one account; else a guest's (§3 Δ). Never To or Cc into a ticket (§3 Γ).
+ *   5. anything else is a new ticket: in an account only when our server vouches for the From and it is a login, its
+ *      address verified, of exactly one account; else a guest's (§3 Δ). Never To or Cc into a ticket (§3 Γ).
  */
 class InboundRouter
 {
@@ -176,10 +176,10 @@ class InboundRouter
         return $key?->ticket?->survivor();
     }
 
-    /** A ticket named in a subject as WHMCS and we write it: «[Ticket ID: 123456]», «[#123456]». */
+    /** A ticket named in a subject as WHMCS and we write it: «[Ticket ID: 123456]», «[#123456]», «[Ticket #123456]» (ours). */
     private function namedTicket(string $subject): ?Ticket
     {
-        if (preg_match('/\[\s*(?:Ticket\s*ID:\s*|#)\s*([A-Za-z0-9_-]{4,64})\s*\]/i', $subject, $m) !== 1) {
+        if (preg_match('/\[\s*(?:Ticket\s*ID:\s*|(?:Ticket\s*)?#)\s*([A-Za-z0-9_-]{4,64})\s*\]/i', $subject, $m) !== 1) {
             return null;
         }
 
@@ -187,11 +187,14 @@ class InboundRouter
         return Ticket::query()->where('reference', $m[1])->first()?->survivor();
     }
 
-    /** The account of a login, when it is exactly one that lets it see tickets; otherwise none (staff link it). */
+    /** The account of a verified login, when it is exactly one that lets it see tickets; otherwise none (staff link it). */
     private function accountOf(string $from): ?array
     {
         $user = User::query()->whereRaw('LOWER(email) = ?', [strtolower($from)])->first();
-        if ($user === null) {
+        // Only a login whose address is verified (S6-TICKETS-MAIL-1): anyone may register an unused address, or change
+        // their login to one, without proving it is theirs (mail_must_verify is off by default), so an unverified login
+        // is no account for the address's real owner: a guest's ticket, as any unknown sender's.
+        if ($user === null || $user->email_verified_at === null) {
             return null;
         }
         // Open accounts only, as every client-area check counts them: a ticket in a closed one is one its login cannot open.
@@ -352,7 +355,7 @@ class InboundRouter
     /** A new ticket's subject: without Re:/Fwd: and our tag, never empty. */
     private function subject(string $subject): string
     {
-        $subject = trim((string) preg_replace('/\[\s*(?:Ticket\s*ID:\s*|#)[^\]]*\]/i', '', $subject));
+        $subject = trim((string) preg_replace('/\[\s*(?:Ticket\s*ID:\s*|(?:Ticket\s*)?#)[^\]]*\]/i', '', $subject));
         while (preg_match('/^\s*(re|fwd?|aw|wg|απ|σχετ|προς)\s*:\s*/iu', $subject) === 1) {
             $subject = (string) preg_replace('/^\s*(re|fwd?|aw|wg|απ|σχετ|προς)\s*:\s*/iu', '', $subject);
         }

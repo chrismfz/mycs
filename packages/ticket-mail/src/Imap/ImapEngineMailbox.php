@@ -2,6 +2,7 @@
 
 namespace MyCS\TicketMail\Imap;
 
+use DateTimeImmutable;
 use DirectoryTree\ImapEngine\FolderInterface;
 use DirectoryTree\ImapEngine\Mailbox as ImapEngine;
 use DirectoryTree\ImapEngine\Message;
@@ -57,6 +58,11 @@ final class ImapEngineMailbox implements Mailbox
             }
             $query = $folder->messages()->withHeaders()->withSize()->leaveUnread()->oldest()->limit($limit);
             $query->unseen();
+            // An unread backlog older than the department reads (years of mail WHMCS piped) is never asked for, so the
+            // $limit oldest are mail of now (S6-TICKETS-MAIL-2): it stays unread in the mailbox.
+            if (($since = self::searchSince($settings)) !== null) {
+                $query->since($since->format('Y-m-d'));
+            }
             $heads = $query->get();
             foreach ($heads as $head) {
                 if (!$head instanceof Message) {
@@ -78,6 +84,16 @@ final class ImapEngineMailbox implements Mailbox
         }
 
         return $summary;
+    }
+
+    /**
+     * The day IMAP's SEARCH SINCE is asked with: two days before the settings' `since`. SINCE compares whole days of the
+     * server's arrival date in the server's own timezone (up to 26 hours from ours), so two days earlier never leaves
+     * out a mail sent after `since`; what comes back from before it is told apart by the caller's own exact check, as before.
+     */
+    public static function searchSince(MailboxSettings $settings): ?DateTimeImmutable
+    {
+        return $settings->since === null ? null : DateTimeImmutable::createFromInterface($settings->since)->setTime(0, 0)->modify('-2 days');
     }
 
     /** @param  callable(?InboundEmail, string): bool  $handle */

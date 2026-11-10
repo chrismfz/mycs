@@ -14,5 +14,7 @@ final class MailboxSettings
         public readonly string $password,
         public readonly string $folder = 'INBOX',
         public readonly int $timeout = 30,
+        // Only mail that arrived since then is asked for (ImapEngineMailbox::searchSince); none: every unseen mail.
+        public readonly ?\DateTimeInterface $since = null,
     ) {}
 }
