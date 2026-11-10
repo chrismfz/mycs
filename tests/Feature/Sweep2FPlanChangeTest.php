@@ -268,11 +268,11 @@ class Sweep2FPlanChangeTest extends TestCase
     /** F-PLAN-CHANGE-1: an addon's first line holds its setup fee too; it is kept apart from the period's price. */
     public function test_an_addons_first_line_keeps_its_setup_fee_apart(): void
     {
-        $parent = $this->monthlyService($this->monthlyProduct('10.00'), '2026-12-01');
+        $parent = $this->monthlyService($this->monthlyProduct('10.00'), '2026-02-01');
         $product = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true, 'server_id' => null, 'stock' => null]);
         $plan = $this->plan($product, 'month', '3.00', '2.00');
 
-        $made = (new AddAddon)->handle($parent->fresh(), $product->fresh(), $plan, 1, null, false, AddAddon::PRORATED); // Jan 1 to Feb 1: a whole month
+        $made = (new AddAddon)->handle($parent->fresh(), $product->fresh(), 1, null, false, AddAddon::PRORATED); // Jan 1 to Feb 1: a whole month
 
         $line = $made['invoice']->items()->sole();
         $this->assertSame(['5.00', '2.00'], [(string) $line->price, (string) $line->setup_fee]);
