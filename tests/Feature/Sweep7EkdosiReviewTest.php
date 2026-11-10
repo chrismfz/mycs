@@ -128,6 +128,12 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->bridge(['op' => 'invoice', 'invoice_id' => $invoice->id])->assertOk()->assertJsonPath('invoice.total', '124.00');
     }
 
+    /** As staff and the customer read it: its number, or its id while it has none (ids differ from numbers on MariaDB). */
+    private function label(Invoice $invoice): string
+    {
+        return '#' . ($invoice->fresh()->number ?: $invoice->id);
+    }
+
     /** @return list<string> the bodies of the mails to staff about a withdrawn request */
     private function toldByMail(): array
     {
@@ -160,7 +166,7 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->assertNull($invoice->fresh()->ekdosi_requested_at, 'precondition: the request is withdrawn');
         $told = $this->toldByMail();
         $this->assertCount(1, $told, 'the invoice staff sent at 148.80 is now 124.00, its request gone, nobody told');
-        $this->assertStringContainsString('#' . $invoice->id . ' was sent to Ekdosi and has changed since (its lines changed)', $told[0]);
+        $this->assertStringContainsString($this->label($invoice) . ' was sent to Ekdosi and has changed since (its lines changed)', $told[0]);
         $this->assertStringContainsString('archive its copy', $told[0]);
 
         // Once: with no request left, another change says nothing more.
@@ -200,7 +206,7 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->assertNull($invoice->fresh()->ekdosi_requested_at);
         $this->assertSame([], $this->toldByMail());
         Notification::assertNotified(Notification::make()->warning()->persistent()->title('Request to Ekdosi withdrawn')
-            ->body('Invoice #' . $invoice->id . ' was sent to Ekdosi and has changed since (its lines changed): archive its copy in Ekdosi\'s inbox, and send it again when it is ready.'));
+            ->body('Invoice ' . $this->label($invoice) . ' was sent to Ekdosi and has changed since (its lines changed): archive its copy in Ekdosi\'s inbox, and send it again when it is ready.'));
     }
 
     /**
@@ -227,7 +233,7 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->assertSame([null], $invoice->items()->pluck('payment_gateway_id')->unique()->all(), 'the open invoice is as it was');
         $this->assertSame($other->id, (int) $service->fresh()->payment_gateway_id, 'the service has the new method, for its next invoices');
         $notice = ItemPaymentMethod::notice('saved', 'services.payment_method_saved_open_kept');
-        $this->assertStringContainsString('#' . $invoice->id . ' keeps its payment method', $notice);
+        $this->assertStringContainsString($this->label($invoice) . ' keeps its payment method', $notice);
         $this->assertStringContainsString('from the next invoice', $notice);
         $this->assertSame('saved', ItemPaymentMethod::notice('saved', 'services.payment_method_saved_open_kept'), 'told once');
     }
@@ -245,7 +251,7 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->assertSame([null], $sent->items()->pluck('payment_gateway_id')->unique()->all());
         $this->assertSame(2, $sent->items()->count());
         $this->assertNotNull($sent->fresh()->ekdosi_requested_at, 'untouched: its request stands');
-        $this->assertStringContainsString('#' . $sent->id, ItemPaymentMethod::notice('saved', 'services.payment_method_saved_open_kept'));
+        $this->assertStringContainsString($this->label($sent), ItemPaymentMethod::notice('saved', 'services.payment_method_saved_open_kept'));
 
         [$free, $second] = $this->invoice(services: true);
         ItemPaymentMethod::set(Service::query()->findOrFail($free->items()->findOrFail($second)->reference_id), $other->id);
@@ -271,7 +277,7 @@ class Sweep7EkdosiReviewTest extends TestCase
         $this->assertSame(1, Invoice::query()->count());
         $this->assertSame(2, $invoice->items()->count());
         $notice = ItemPaymentMethod::notice('off', 'services.auto_charge_turned_off_open_whole');
-        $this->assertStringContainsString('#' . $invoice->id, $notice);
+        $this->assertStringContainsString($this->label($invoice), $notice);
         $this->assertStringContainsString('none of it is charged automatically', $notice);
     }
 
