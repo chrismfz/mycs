@@ -51,6 +51,12 @@ class Upgrade extends Component
 
             return $this->redirect(route('services.show', $this->service), true);
         }
+        // Its cycle changed at the renewal the cron billed, and that period has not started: from that day (S7-PLAN-CYCLE-ADDONS-2).
+        if ($this->service->planStartsOn() !== null) {
+            $this->notify(PlaceUpgrade::cycleNotStarted($this->service), 'error', true);
+
+            return $this->redirect(route('services.show', $this->service), true);
+        }
         $this->upgradeProduct = $this->service->product;
         $this->upgrade = $this->service->product->id;
         $this->totalToday();
@@ -236,6 +242,8 @@ class Upgrade extends Component
             case PlaceUpgrade::CYCLE_CHANGE_PENDING:
             case PlaceUpgrade::PARENT_CYCLE_CHANGE_PENDING:
                 return $this->notify(PlaceUpgrade::cycleChangePending($this->service), 'error');
+            case PlaceUpgrade::CYCLE_NOT_STARTED:
+                return $this->notify(PlaceUpgrade::cycleNotStarted($this->service), 'error');
             case PlaceUpgrade::UPGRADE_INVOICE_OPEN:
                 return $this->notify(__('services.upgrade_invoice_open', ['invoice' => $placed->invoice->number ?? $placed->invoice?->id]), 'error');
             case PlaceUpgrade::INVALID:

@@ -197,6 +197,9 @@ final class RenewalBilling
                 $service->setRelation('plan', $next);
                 $service->price = (float) $service->calculatePrice();
                 $service->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
+                // The plan counts from this period on: until it starts, the period paid on the old cycle still runs and
+                // a package change is refused (S7-PLAN-CYCLE-ADDONS-2, Service::planStartsOn).
+                $service->plan_from = CarbonImmutable::parse($periodStart->toDateString());
             }
             $service->next_plan_id = null;
             $service->save();
