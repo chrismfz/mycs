@@ -11,8 +11,10 @@ use App\Http\Requests\Api\Admin\Invoices\GetInvoicesRequest;
 use App\Http\Requests\Api\Admin\Invoices\UpdateInvoiceRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Models\Invoice;
+use App\Services\Invoice\RecordPaymentService;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
+use Illuminate\Support\Facades\DB;
 use Spatie\QueryBuilder\QueryBuilder;
 
 #[Group(name: 'Invoices', weight: 4)]
@@ -88,7 +90,19 @@ class InvoiceController extends ApiController
             abort(422, 'An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).');
         }
         try {
-            $invoice->update($data);
+            // Back to a draft (owner 2026-11-10: as the panel's select): an unpaid one only, read under the payment locks.
+            if (($data['status'] ?? null) === Invoice::STATUS_DRAFT) {
+                DB::transaction(function () use ($invoice, $data) {
+                    $locked = (new RecordPaymentService)->lockInvoice($invoice->getKey());
+                    if (!in_array($locked->status, Invoice::OPEN_STATUSES, true)) {
+                        throw new DisplayException(__('Only an unpaid invoice is set back to a draft.'));
+                    }
+                    $invoice->setRawAttributes($locked->getAttributes(), true);
+                    $invoice->update($data);
+                });
+            } else {
+                $invoice->update($data);
+            }
         } catch (DisplayException $e) {
             // The model's money rules (InvoiceObserver::updating): paid only without a balance, a cancelled invoice is
             // reopened before it is paid, an invoice with payments keeps its customer and currency.

@@ -28,11 +28,16 @@ class VoidAdjustmentNote
      */
     public static function allowed(AdjustmentNote $note): bool
     {
-        $status = $note->invoice?->status;
-        $byStaff = ($note->isVoidableByStaff() && $status !== Invoice::STATUS_REFUNDED)
-            || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided && !UndoRefund::undone($note));
+        return self::voidable($note) && (bool) auth()->user()?->can('update', $note);
+    }
 
-        return $byStaff && (bool) auth()->user()?->can('update', $note);
+    /** The rule of allowed() alone: whoever asks is checked by the caller (the panel's policy, the Admin API key's list). */
+    public static function voidable(AdjustmentNote $note): bool
+    {
+        $status = $note->invoice?->status;
+
+        return ($note->isVoidableByStaff() && $status !== Invoice::STATUS_REFUNDED)
+            || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided && !UndoRefund::undone($note));
     }
 
     /**
@@ -41,9 +46,14 @@ class VoidAdjustmentNote
      */
     public static function correctable(AdjustmentNote $note, string $ability): bool
     {
+        return self::editable($note) && (bool) auth()->user()?->can($ability, $note);
+    }
+
+    /** The rule of correctable() alone, as voidable(). */
+    public static function editable(AdjustmentNote $note): bool
+    {
         return $note->isVoidableByStaff() && $note->invoice?->status !== Invoice::STATUS_REFUNDED
-            && !EkdosiDocument::activeOn($note->invoice_id) && !EkdosiDocument::issuedBeforeCutOver($note->invoice_id)
-            && (bool) auth()->user()?->can($ability, $note);
+            && !EkdosiDocument::activeOn($note->invoice_id) && !EkdosiDocument::issuedBeforeCutOver($note->invoice_id);
     }
 
     /**
@@ -55,20 +65,57 @@ class VoidAdjustmentNote
     public static function correct(AdjustmentNote $record, string $ability, \Closure $change): void
     {
         try {
-            DB::transaction(function () use ($record, $ability, $change) {
-                (new RecordPaymentService)->lockInvoice($record->invoice_id);
-                $note = AdjustmentNote::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
-                if (!self::correctable($note, $ability)) {
-                    throw new DisplayException(__('This note follows a refund or a cancellation, or its invoice is refunded or has a fiscal document from Ekdosi: it stays as it is.'));
-                }
-                $change($note);
-            });
+            self::change($record, $change, fn (AdjustmentNote $note): bool => self::correctable($note, $ability));
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Adjustment note not changed'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
         }
         self::tellBalance($record->invoice_id);
+    }
+
+    /**
+     * The edit or deletion itself, for the panel (correct) and the Admin API: one transaction, one rule.
+     *
+     * @param  \Closure(AdjustmentNote): mixed  $change
+     * @param  \Closure(AdjustmentNote): bool  $may  asked of the note read under the locks
+     *
+     * @throws DisplayException nothing changed
+     */
+    public static function change(AdjustmentNote $record, \Closure $change, \Closure $may): void
+    {
+        DB::transaction(function () use ($record, $change, $may) {
+            (new RecordPaymentService)->lockInvoice($record->invoice_id);
+            $note = AdjustmentNote::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
+            if (!$may($note)) {
+                throw new DisplayException(__('This note follows a refund or a cancellation, or its invoice is refunded or has a fiscal document from Ekdosi: it stays as it is.'));
+            }
+            $change($note);
+        });
+    }
+
+    /**
+     * Void an active note or unvoid a voided one, for the panel's action and the Admin API ($to: only towards that
+     * status; a note already there stays as it is).
+     *
+     * @param  \Closure(AdjustmentNote): bool  $may  asked of the note read under the locks
+     *
+     * @throws DisplayException nothing changed
+     */
+    public static function toggle(AdjustmentNote $record, \Closure $may, ?AdjustmentNoteStatus $to = null): void
+    {
+        DB::transaction(function () use ($record, $may, $to) {
+            (new RecordPaymentService)->lockInvoice($record->invoice_id);
+            $note = AdjustmentNote::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
+            if ($note->status === $to) {
+                return;
+            }
+            if (!$may($note)) {
+                throw new DisplayException(__('This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.'));
+            }
+            $note->update(['status' => $note->status === AdjustmentNoteStatus::Voided
+                ? AdjustmentNoteStatus::Active : AdjustmentNoteStatus::Voided]);
+        });
     }
 
     /** After a note changed what a paid invoice bills: it owes on while paid, or is paid over (owner 2026-11-10). */
@@ -92,15 +139,7 @@ class VoidAdjustmentNote
                 : __('Its amount no longer counts in the invoice total. The note stays, marked voided.'))
             ->action(function (AdjustmentNote $record): void {
                 try {
-                    DB::transaction(function () use ($record) {
-                        (new RecordPaymentService)->lockInvoice($record->invoice_id);
-                        $note = AdjustmentNote::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
-                        if (!self::allowed($note)) {
-                            throw new DisplayException(__('This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.'));
-                        }
-                        $note->update(['status' => $note->status === AdjustmentNoteStatus::Voided
-                            ? AdjustmentNoteStatus::Active : AdjustmentNoteStatus::Voided]);
-                    });
+                    self::toggle($record, self::allowed(...));
                 } catch (DisplayException $e) {
                     Notification::make()->danger()->title(__('Adjustment note not changed'))->body(e($e->getMessage()))->send();
 

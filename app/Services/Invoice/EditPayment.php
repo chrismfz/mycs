@@ -38,6 +38,9 @@ use OwenIt\Auditing\Events\AuditCustom;
  */
 class EditPayment
 {
+    /** The invoices a payment is moved onto: open or paid, never a cancelled or refunded one (the panel's select and the rule). */
+    public const TARGET_STATUSES = [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT, Invoice::STATUS_PAID];
+
     /**
      * @param  array{amount?: mixed, invoice_id?: mixed, gateway_id?: mixed, transaction_id?: mixed, fee?: mixed, paid_at?: ?\DateTimeInterface}  $changes  only the keys given change
      *
@@ -124,6 +127,11 @@ class EditPayment
                     if ($target === null || $invoice->client_id === null || (int) $target->client_id !== (int) $invoice->client_id
                         || strtoupper((string) $target->currency_code) !== strtoupper((string) $invoice->currency_code)) {
                         throw new DisplayException(__('invoices.payment_edit.other_customer'));
+                    }
+                    // Only onto an invoice that takes a payment as its own (what the panel's select offers, REV-782-1): on a
+                    // refunded or cancelled one the money would only become account credit, and its invoice open again.
+                    if (!in_array($target->status, self::TARGET_STATUSES, true)) {
+                        throw new DisplayException(__('invoices.payment_edit.target_status'));
                     }
                     if (EkdosiDocument::issuedBeforeCutOver($target->id)) {
                         throw new DisplayException(__('invoices.payment_edit.target_before_cut_over'));

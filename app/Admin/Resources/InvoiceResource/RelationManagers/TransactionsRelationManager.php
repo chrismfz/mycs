@@ -218,8 +218,8 @@ class TransactionsRelationManager extends RelationManager
             ]);
     }
 
-    /** @return array<string, string> the ways this payment can go back, the default first */
-    private static function refundMethods(InvoiceTransaction $record): array
+    /** @return array<string, string> the ways this payment can go back, the default first (the Admin API offers the same) */
+    public static function refundMethods(InvoiceTransaction $record): array
     {
         if ($record->is_credit_transaction) {
             return ['credit' => __('invoices.refund_method_credit')];
