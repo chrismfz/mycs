@@ -374,6 +374,26 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         return $a !== null && $b !== null && strtolower(trim($a)) === strtolower(trim($b));
     }
 
+    /**
+     * WHM's account by that name is this service's: its primary domain is the service's (sweep 7, S7-PROVISIONING-1, as
+     * mailcow's ownedAdmin). A username kept from WHMCS, or of an account removed and made again in WHM for someone else,
+     * names a stranger's account: never suspended, removed, opened or given a new password from here; staff check it
+     * (the job's refusal is their task). No account by that name, or none WHM names a domain for: WHM's own answer to the
+     * action tells, as before.
+     */
+    private function ownAccount(Service $service, array $properties, string $username): void
+    {
+        $theirs = $this->account($username)['domain'] ?? null;
+        if (!is_string($theirs) || trim($theirs) === '') {
+            return;
+        }
+        $domain = $service->domain ?? ($properties['domain'] ?? null);
+        if (!self::sameDomain($theirs, is_string($domain) ? $domain : null)) {
+            $ours = is_string($domain) && $domain !== '' ? $domain : 'none';
+            throw new Exception("cPanel: the account «{$username}» on this server is for {$theirs}, not this service's domain ({$ours}): check the service's username and domain before anything is done to it (by hand)");
+        }
+    }
+
     private function created(Service $service, string $username, array $properties): bool
     {
         $service->properties()->updateOrCreate([
@@ -402,6 +422,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             throw new Exception('Service has not been created');
         }
         self::notAnotherLiveServicesAccount($service, $properties['cpanel_username']);
+        $this->ownAccount($service, $properties, $properties['cpanel_username']);
 
         // Why, as WHM shows it (WHMCS sends its reason too: «Overdue on Payment»; owner's live test 2026-11-03 saw «Unknown»).
         // One line, no control characters (a reason imported from WHMCS may carry a newline into WHM's file).
@@ -467,6 +488,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 
         $username = $properties['cpanel_username'];
         self::notAnotherLiveServicesAccount($service, $username);
+        $this->ownAccount($service, $properties, $username);
         // What WHM has, whatever its product or record says (an imported reseller on a product not flagged yet: A1 of
         // #315): with a root login, the accounts it owns are always read first. A reseller's login owns no resellers.
         $owned = strtolower(trim((string) $this->config('username'))) === 'root' ? $this->ownedAccounts($username) : [];
@@ -678,6 +700,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if ($app !== null && !array_key_exists($app, self::SHORTCUTS)) {
             throw new Exception('Unknown cPanel shortcut');
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']);
 
         $response = $this->request(
             '/create_user_session',
@@ -795,6 +818,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']);
         // The account's MySQL user changed too only when asked (WHM's «db_pass_update», unchecked by default as in WHM:
         // scripts using it keep working; owner 2026-10-22).
         $this->whm('/passwd', ['user' => $properties['cpanel_username'], 'password' => $password] + ($mysqlToo ? ['db_pass_update' => 1] : []), 'post');

@@ -7,6 +7,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -110,5 +111,30 @@ class Sweep7ProvisioningTest extends TestCase
         $this->attempt(fn () => $extension->changePassword($this->service, [], ExtensionHelper::getServiceProperties($this->service), 'N3w-Passw0rd!x'));
 
         $this->assertSame([], $this->acted(), 'passwd was sent for an account of another domain, owned by a reseller');
+    }
+
+    /** The refusal names both domains, for the staff who get it. */
+    public function test_the_refusal_names_whose_account_it_is(): void
+    {
+        $e = $this->attempt(fn () => ExtensionHelper::suspendServer($this->service));
+
+        $this->assertNotNull($e);
+        $this->assertStringContainsString('stranger.test', $e->getMessage());
+        $this->assertStringContainsString('ours.test', $e->getMessage());
+    }
+
+    /** The other side: WHM's account for the name has the service's domain (in any case): acted on as before. */
+    public function test_an_account_with_the_services_domain_is_suspended_and_opened(): void
+    {
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake([
+            self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'exampl', 'domain' => 'Ours.Test']]]]),
+            self::WHM . '/*' => Http::response(['metadata' => ['result' => 1], 'data' => ['url' => 'https://whm.test:2083/cpsess1/login/?session=x']]),
+        ]);
+
+        $this->assertTrue(ExtensionHelper::suspendServer($this->service));
+        $this->assertSame('https://whm.test:2083/cpsess1/login/?session=x', ExtensionHelper::callService($this->service, 'getLoginUrl', [null]));
+        $this->assertSame(['suspendacct', 'create_user_session'], $this->acted());
     }
 }

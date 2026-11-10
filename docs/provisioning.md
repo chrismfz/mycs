@@ -178,6 +178,11 @@
   Το create του DirectAdmin κρατά username (`directadmin_pending_username`) και κωδικό **πριν** τη ζήτηση, όπως το
   cPanel: ένα retry μετά από χαμένη απάντηση ζητά τον ίδιο λογαριασμό και τον υιοθετεί αν υπάρχει με το ίδιο domain
   (sweep2 F-PROVISIONING-OPS-3). Μόνο μια ρητή άρνηση στην πρώτη προσπάθεια τα σβήνει.
+  **cPanel, του ποιου είναι ο λογαριασμός** (sweep 7, S7-PROVISIONING-1): πριν από suspend, terminate, «Login to cPanel»
+  και αλλαγή κωδικού ρωτά το WHM (`accountsummary`) και αρνείται αν ο λογαριασμός με αυτό το username έχει άλλο κύριο
+  domain από της υπηρεσίας (username που έμεινε από το WHMCS ή ξαναδόθηκε σε άλλον). Η άρνηση μένει στο staff όπως
+  κάθε αποτυχία module. Αν το staff άλλαξε το κύριο domain στο WHM, διορθώνει το domain της υπηρεσίας. Δεν ελέγχονται
+  (ακόμα): unsuspend, νέο mailbox, usage, λίστα domains.
   Κωδικοί λογαριασμών με CSPRNG (`Str::password`).
 - **Logs:** `App\Support\Redact`: κλειδιά που ονομάζουν μυστικό (pass, secret, token, key, authorization, cookie,
   session) σε κάθε βάθος και στο query του URL, τα cPanel `cpsess…`, και κάθε αποθηκευμένο μυστικό (τα encrypted

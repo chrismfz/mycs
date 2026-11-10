@@ -51,6 +51,10 @@ class ServicePageCompactTest extends TestCase
         ServiceUsage::query()->create(['service_id' => $this->service->id, 'disk_used_mb' => 4222, 'disk_limit_mb' => 20480,
             'bandwidth_used_mb' => 60, 'bandwidth_limit_mb' => null, 'server_ip' => '192.0.2.10', 'read_at' => now()]);
         Http::fake(function (Request $request) {
+            if (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/accountsummary')) {
+                // Whose account it is, asked first (S7-PROVISIONING-1).
+                return Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'zonecl', 'domain' => 'zonecloud.io']]]]);
+            }
             if (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/create_user_session')) {
                 $this->sessions[] = $request->data();
 

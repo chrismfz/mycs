@@ -67,7 +67,10 @@ class ResendWelcomeTest extends TestCase
             'domain' => 'example.test', 'username' => 'exampl', 'password' => self::OLD]);
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampl']);
         Http::fake(fn (Request $request) => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/passwd')
-            ? Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]) : Http::response([], 404));
+            ? Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]) : (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/accountsummary')
+                // Whose account it is, asked first (S7-PROVISIONING-1).
+                ? Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'exampl', 'domain' => 'example.test']]]])
+                : Http::response([], 404)));
         RateLimiter::clear('service-password:' . $this->service->id);
     }
 
