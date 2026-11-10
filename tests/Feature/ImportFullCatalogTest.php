@@ -155,9 +155,9 @@ class ImportFullCatalogTest extends TestCase
         $daily = ConfigOption::query()->where('whmcs_ref', 'value:51')->sole();
         $this->assertSame(['0.00'], Price::query()->whereIn('plan_id', $daily->plans()->pluck('id'))->pluck('price')->map(fn ($p) => number_format((float) $p, 2))->all());
 
-        // Hosting S's option is Extra IP, by its id here (not WHMCS's 60, nor 2 by position).
+        // Hosting S's option is Extra IP, by its id here, whatever that is (found by its WHMCS ref, not by WHMCS's id 60
+        // nor by position): the id is the table's next one, which on a shared test database can itself be 60 (CI, MariaDB).
         $extraIp = ConfigOption::query()->where('whmcs_ref', 'option:60')->sole();
-        $this->assertNotSame(60, $extraIp->id);
         $this->assertSame([[21, $extraIp->id]], DB::table('config_option_products')->get()->map(fn ($l) => [(int) $l->product_id, (int) $l->config_option_id])->all());
     }
 
