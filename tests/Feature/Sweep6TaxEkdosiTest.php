@@ -103,21 +103,29 @@ class Sweep6TaxEkdosiTest extends TestCase
         $this->assertSame('24.00', $totals['tax']);
     }
 
-    /** S6-TAX-EKDOSI-3: a chargeback in the next year changes the closed year and adds no reversal to the new one. */
-    public function test_a_chargeback_next_year_leaves_the_closed_year_as_sent(): void
+    /**
+     * S6-TAX-EKDOSI-3: a chargeback in the next year takes the invoice out of the year it was paid and adds no reversal.
+     * Owner 2026-11-10: left so; the report is informative (fiscal documents are Ekdosi's) and says it, and its class doc
+     * no longer claims that a year sent never changes. Rewritten from the adversarial test, which asked for a closed year
+     * kept still and a -124.00 row in 2027.
+     */
+    public function test_a_chargeback_next_year_changes_the_report_which_says_it_is_informative(): void
     {
         Carbon::setTestNow('2026-12-20 10:00:00');
         $invoice = $this->invoice('100.00');
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 124.00, transactionId: 'pi_cb', currency: 'eur');
-        $sent = IncomeReport::year('EUR', 2026)['totals'];
-        $this->assertSame('124.00', $sent['total']);
+        $this->assertSame('124.00', IncomeReport::year('EUR', 2026)['totals']['total']);
 
         Carbon::setTestNow('2027-02-10 10:00:00');
         $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
-        $this->assertSame($sent, IncomeReport::year('EUR', 2026)['totals'], '2026 as it was sent to the accountant');
-        $this->assertSame('-124.00', IncomeReport::year('EUR', 2027)['totals']['total'], 'the money lost is a reversal of 2027');
+        $this->assertSame('0.00', IncomeReport::year('EUR', 2026)['totals']['total'], 'the invoices paid in the year as they stand today');
+        $this->assertSame([], IncomeReport::year('EUR', 2027)['invoices']);
+        $this->assertSame('Informative. Fiscal documents are issued in Ekdosi.', IncomeReport::notice());
+        $doc = (string) (new \ReflectionClass(IncomeReport::class))->getDocComment();
+        $this->assertStringContainsString('Informative', $doc);
+        $this->assertStringNotContainsString('never changes', $doc);
     }
 
     /** S6-TAX-EKDOSI-2: the fingerprint misses a change of the line's net/VAT split at the same total. */

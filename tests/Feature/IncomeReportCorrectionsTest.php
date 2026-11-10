@@ -4,10 +4,8 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
-use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\InvoiceReopening;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
@@ -24,10 +22,9 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * The year's income report, its two corrections (sweep 6, S6-TAX-EKDOSI-1 and -3; docs/income-planning.md): credit a
- * downgrade or a change of cycle gave is taken off in the year it was given; a paid invoice reopened in a later year
- * (a chargeback, a deleted payment) stays in the year it was paid and is taken off in the year it was reopened. A year
- * sent to the accountant never changes.
+ * The year's income report (informative, owner 2026-11-10; docs/income-planning.md): credit a downgrade or a change of
+ * cycle gave is a negative row in the year it was given (sweep 6, S6-TAX-EKDOSI-1), imported credit left out; an invoice
+ * open again after a chargeback is simply no longer listed (S6-TAX-EKDOSI-3: nothing is kept to hold a past year still).
  */
 class IncomeReportCorrectionsTest extends TestCase
 {
@@ -133,145 +130,26 @@ class IncomeReportCorrectionsTest extends TestCase
         $this->assertSame([0, '0.00', '0.00', '0.00'], $this->totals(2026));
     }
 
-    // ---- a paid invoice open again (S6-TAX-EKDOSI-3) ---------------------------------------------------------------
-
-    public function test_a_chargeback_in_a_later_year_is_a_negative_row_of_that_year(): void
+    public function test_imported_credit_is_no_row(): void
     {
-        $invoice = $this->paid('2026-12-20 10:00:00', 'pi_cb');
-        $sent = IncomeReport::year('EUR', 2026);
+        Carbon::setTestNow('2024-06-10 10:00:00');
+        (new CreditLedger)->add((int) $this->client->id, 'EUR', 3100, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_IMPORT);
 
-        Carbon::setTestNow('2027-02-10 10:00:00');
-        $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-
-        $this->assertEquals($sent, IncomeReport::year('EUR', 2026), 'the closed year, row by row');
-        $this->assertSame([1, '-100.00', '-24.00', '-124.00'], $this->totals(2027));
-        $this->assertSame([['2027-02-10', '-124.00', 'Reopened: chargeback or payment deleted']], $this->rows(2027));
-        $this->assertSame((string) $invoice->id, IncomeReport::year('EUR', 2027)['invoices'][0]['number']);
+        $this->assertSame([0, '0.00', '0.00', '0.00'], $this->totals(2024));
     }
 
-    public function test_a_chargeback_in_the_year_it_was_paid_leaves_no_rows(): void
-    {
-        $this->paid('2026-03-20 10:00:00', 'pi_cb');
-        Carbon::setTestNow('2026-05-10 10:00:00');
-        $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
+    // ---- informative: the invoices paid in the year as they stand today (S6-TAX-EKDOSI-3) --------------------------
 
-        $this->assertSame(1, InvoiceReopening::query()->count());
-        $this->assertSame([0, '0.00', '0.00', '0.00'], $this->totals(2026));
-    }
-
-    public function test_paid_again_counts_in_the_year_it_is_paid_again(): void
+    public function test_a_chargeback_and_a_new_payment_show_the_invoice_where_it_stands_today(): void
     {
         $invoice = $this->paid('2026-12-20 10:00:00', 'pi_cb');
         Carbon::setTestNow('2027-02-10 10:00:00');
-        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur');
+        $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
+        $this->assertSame([[0, '0.00', '0.00', '0.00'], [0, '0.00', '0.00', '0.00']], [$this->totals(2026), $this->totals(2027)]);
 
-        Carbon::setTestNow('2028-01-15 10:00:00');
+        Carbon::setTestNow('2027-03-15 10:00:00');
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 124.00, transactionId: 'pi_again', currency: 'eur');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-
-        $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2026));
-        $this->assertSame([1, '-100.00', '-24.00', '-124.00'], $this->totals(2027));
-        $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2028));
-    }
-
-    public function test_a_dispute_won_counts_from_the_reopening_not_from_the_first_payment(): void
-    {
-        $invoice = $this->paid('2026-12-20 10:00:00', 'pi_cb');
-        Carbon::setTestNow('2027-02-10 10:00:00');
-        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur');
-
-        // Won: the invoice is paid again by its first payment, whose date its paid_at takes again.
-        Carbon::setTestNow('2027-04-01 10:00:00');
-        $this->assertTrue(ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $this->assertSame('2026', $invoice->fresh()->paid_at->format('Y'));
-
-        $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2026), 'once in 2026, not twice');
-        $this->assertSame([2, '0.00', '0.00', '0.00'], $this->totals(2027));
-        $this->assertSame([['2027-02-10', '-124.00', 'Reopened: chargeback or payment deleted'], ['2027-04-01', '124.00', 'Stripe']], $this->rows(2027));
-
-        // Disputed again a year later: off in 2028, and 2026 and 2027 as they were.
-        Carbon::setTestNow('2028-03-01 10:00:00');
-        $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb2', 124.00, 'eur'));
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2026));
-        $this->assertSame([2, '0.00', '0.00', '0.00'], $this->totals(2027));
-        $this->assertSame([1, '-100.00', '-24.00', '-124.00'], $this->totals(2028));
-    }
-
-    public function test_a_dispute_lost_in_the_year_it_was_paid_and_won_the_next_year_leaves_the_first_year_as_sent(): void
-    {
-        $invoice = $this->paid('2026-12-05 10:00:00', 'pi_cb');
-        Carbon::setTestNow('2026-12-28 10:00:00');
-        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur');
-        $sent = $this->totals(2026);
-        $this->assertSame([0, '0.00', '0.00', '0.00'], $sent);
-
-        Carbon::setTestNow('2027-02-01 10:00:00');
-        $this->assertTrue(ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
-        $this->assertSame('2026', $invoice->fresh()->paid_at->format('Y'));
-
-        $this->assertSame($sent, $this->totals(2026));
-        $this->assertSame([['2027-02-01', '124.00', 'Stripe']], $this->rows(2027));
-    }
-
-    public function test_a_payment_deleted_in_a_later_year_and_the_invoice_changed_since(): void
-    {
-        $invoice = $this->paid('2026-12-20 10:00:00', 'pi_del');
-        $sent = IncomeReport::year('EUR', 2026);
-
-        Carbon::setTestNow('2027-03-05 10:00:00');
-        (new RecordPaymentService)->deleteTransaction($invoice->transactions()->sole());
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        // Open and without payments, staff change its line: the closed year keeps what was paid then.
-        $invoice->items()->sole()->update(['price' => '50.00']);
-
-        // Its amounts, day and customer as sent; only «paid with» no longer names the gateway of the deleted payment.
-        $now = IncomeReport::year('EUR', 2026);
-        $this->assertSame('Payment deleted', $now['invoices'][0]['paid_with']);
-        $now['invoices'][0]['paid_with'] = $sent['invoices'][0]['paid_with'];
-        $this->assertEquals($sent, $now);
-        $this->assertSame([1, '-100.00', '-24.00', '-124.00'], $this->totals(2027));
-
-        // Paid again the same year, at its new total.
-        Carbon::setTestNow('2027-03-20 10:00:00');
-        ExtensionHelper::addPayment($invoice->id, 'Stripe', 62.00, transactionId: 'pi_new', currency: 'eur');
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $this->assertEquals($sent['totals'], IncomeReport::year('EUR', 2026)['totals']);
-        $this->assertSame([2, '-50.00', '-12.00', '-62.00'], $this->totals(2027));
-    }
-
-    public function test_a_refund_note_between_the_payment_and_the_reopening_stays_in_its_year(): void
-    {
-        $invoice = $this->paid('2025-06-01 10:00:00', 'pi_note');
-        Carbon::setTestNow('2026-02-01 10:00:00');
-        DB::table('adjustment_notes')->insert(['invoice_id' => $invoice->id, 'type' => 'credit', 'status' => 'active', 'amount' => -24.80,
-            'description' => 'refund', 'created_at' => now(), 'updated_at' => now()]);
-        $before = [$this->totals(2025), $this->totals(2026)];
-        $this->assertSame([[1, '100.00', '24.00', '124.00'], [1, '-20.00', '-4.80', '-24.80']], $before);
-
-        // Reopened in 2027 (as the observer records it), still open.
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_UNPAID]);
-        InvoiceReopening::query()->create(['invoice_id' => $invoice->id, 'paid_at' => '2025-06-01 10:00:00', 'reopened_at' => '2027-03-01 10:00:00',
-            'net' => '100.00', 'total' => '124.00']);
-
-        $this->assertSame($before, [$this->totals(2025), $this->totals(2026)], 'both closed years as they were sent');
-        $this->assertSame([1, '-80.00', '-19.20', '-99.20'], $this->totals(2027), 'what was left of it');
-    }
-
-    public function test_a_credit_purchase_reopened_is_never_a_row(): void
-    {
-        Carbon::setTestNow('2026-12-20 10:00:00');
-        $invoice = $this->invoice('50.00', Credit::class);
-        ExtensionHelper::addPayment($invoice->id, 'Stripe', 50.00, transactionId: 'pi_funds', currency: 'eur');
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-
-        Carbon::setTestNow('2027-02-10 10:00:00');
-        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_funds', 'dp_funds', 50.00, 'eur');
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-
-        $this->assertSame(0, InvoiceReopening::query()->count());
-        $this->assertSame([[0, '0.00', '0.00', '0.00'], [0, '0.00', '0.00', '0.00']], [$this->totals(2026), $this->totals(2027)]);
+        $this->assertSame([[0, '0.00', '0.00', '0.00'], [1, '100.00', '24.00', '124.00']], [$this->totals(2026), $this->totals(2027)], 'once, on its new date');
     }
 }

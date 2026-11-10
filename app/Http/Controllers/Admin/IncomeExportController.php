@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
- * The year's income as a file (review F2 of #280): a plain download for staff who may open the report, from a signed
+ * The year's income as a file (review F2 of #280), under the line that it is informative: a plain download for staff who may open the report, from a signed
  * link the page makes; not through Livewire (a year of invoices base64 in its JSON).
  */
 class IncomeExportController extends Controller
@@ -60,12 +60,14 @@ class IncomeExportController extends Controller
             $writer = new Writer;
             $writer->openToFile($path);
             $writer->getCurrentSheet()->setName(__('Months'));
+            $writer->addRow(self::row([IncomeReport::notice()]));
             $writer->addRow(self::row([__('Month'), __('Count'), __('Net'), __('Tax'), __('Total')]));
             foreach ($report['months'] as $month) {
                 $writer->addRow(self::row([$month['month']->format('Y-m'), $month['count'], (float) $month['net'], (float) $month['tax'], (float) $month['total']]));
             }
             $writer->addRow(self::row([__('Total'), $report['totals']['count'], (float) $report['totals']['net'], (float) $report['totals']['tax'], (float) $report['totals']['total']]));
             $writer->addNewSheetAndMakeItCurrent()->setName(__('Paid invoices'));
+            $writer->addRow(self::row([IncomeReport::notice()]));
             $writer->addRow(self::row(self::headings()));
             foreach ($report['invoices'] as $row) {
                 $writer->addRow(self::row(self::values($row)));
@@ -91,6 +93,7 @@ class IncomeExportController extends Controller
         return response()->streamDownload(function () use ($report) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, [IncomeReport::notice()], ';', '"', '');
             fputcsv($out, self::headings(), ';', '"', '');
             foreach ($report['invoices'] as $row) {
                 fputcsv($out, array_map(fn ($cell) => match (true) {
