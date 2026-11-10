@@ -6,7 +6,7 @@ namespace MyCS\TicketMail;
  * Who really sent a mail (docs/tickets.md §3 Β), from the Authentication-Results (RFC 8601) of OUR receiving server
  * only. Any sender can write an Authentication-Results header, also with our authserv-id; our server adds its own on
  * top. So only the topmost one counts, and only when its authserv-id is ours: a forged one below it is ignored, and a
- * mail where ours is missing is unauthenticated. A From is authenticated by DMARC pass for its domain (which allows
+ * mail where ours is missing is unauthenticated. One that does not read cleanly (see parse) vouches for nothing. A From is authenticated by DMARC pass for its domain (which allows
  * a related domain, checked by our server with the public suffix list), or by DKIM or SPF pass of its domain or a
  * parent of it (never a subdomain of it: a third party may control one).
  */
@@ -27,7 +27,10 @@ final class AuthenticationResults
         }
 
         $parsed = self::parse($headers[0]);
-        if ($parsed === null || $parsed['authserv_id'] !== $authservId) {
+        if ($parsed === null) {
+            return new AuthVerdict(false, 'unreadable_results');
+        }
+        if ($parsed['authserv_id'] !== $authservId) {
             return new AuthVerdict(false, 'not_our_server');
         }
 
@@ -55,78 +58,102 @@ final class AuthenticationResults
     }
 
     /**
-     * One Authentication-Results value: its authserv-id and each method's result with its properties.
+     * One Authentication-Results value: its authserv-id and each method's result with its properties. Null when it does
+     * not read cleanly, and then it vouches for nothing.
+     *
+     * Our server writes the header, but it copies into it text the sender chose (the envelope sender inside the SPF
+     * comment, the DKIM domain), and not every server escapes it. So it is read strictly, as the few shapes real servers
+     * write (RFC 8601 §2.2), and whatever else is refused whole, never skipped:
+     * - a comment ends at its «)»; a comment inside a comment, a backslash in one, or a parenthesis inside quotes in one
+     *   is refused (there the sender's text and the server's cannot be told apart);
+     * - outside comments, a quote, a backslash, a stray «)» or a control character is refused: a value is one plain
+     *   word (a quoted envelope sender is the sender's text; such a mail is not vouched for);
+     * - a statement is «method=result» and then «name=value» words only; «ptype.property» ones are its properties, each
+     *   once; nothing is ever read out of a comment or out of another value;
+     * - one DMARC result per mail, and a method that says «none» says nothing else.
      *
      * @return array{authserv_id: string, results: list<array{method: string, result: string, props: array<string, string>}>}|null
      */
     public static function parse(string $value): ?array
     {
-        $parts = self::statements(str_replace(["\r", "\n"], ' ', $value));
-        $id = strtolower((string) preg_replace('/\s+\d+$/', '', trim((string) array_shift($parts))));
-        if ($id === '' || preg_match('/^[a-z0-9._-]+$/', $id) !== 1) {
+        $statements = self::statements(str_replace(["\r\n", "\r", "\n"], ' ', $value));
+        if ($statements === null) {
+            return null;
+        }
+        // The authserv-id, and at most its version.
+        $first = array_shift($statements);
+        $id = strtolower($first[0] ?? '');
+        if (preg_match('/^[a-z0-9._-]+$/', $id) !== 1 || count($first) > 2 || (isset($first[1]) && !ctype_digit($first[1]))) {
             return null;
         }
 
         $results = [];
-        foreach ($parts as $part) {
-            // A method's result opens its statement; a quoted value is one token (the sender chose it).
-            if (preg_match('/^([a-z0-9_-]+)(?:\/\d+)?\s*=\s*([a-z]+)(.*)$/is', trim($part), $m) !== 1) {
+        $seen = [];
+        foreach ($statements as $words) {
+            // Nothing between two «;» (or after the last), or the «none» of a server that checked nothing.
+            if ($words === [] || (count($words) === 1 && strtolower($words[0]) === 'none')) {
                 continue;
             }
-            $props = [];
-            if (preg_match_all('/(?:^|\s)([a-z0-9_-]+\.[a-z0-9_.-]+)\s*=\s*("(?:[^"\\\\]|\\\\.)*"|[^\s"]+)/i', $m[3], $pairs, PREG_SET_ORDER) > 0) {
-                foreach ($pairs as $pair) {
-                    $props[strtolower($pair[1])] ??= strtolower(trim($pair[2], '"'));
-                }
+            if (preg_match('/^([a-z0-9-]+)(?:\/\d+)?=([a-z]+)$/i', array_shift($words), $m) !== 1) {
+                return null;
             }
-            $results[] = ['method' => strtolower($m[1]), 'result' => strtolower($m[2]), 'props' => $props];
+            [$method, $result] = [strtolower($m[1]), strtolower($m[2])];
+            $props = [];
+            foreach ($words as $word) {
+                if (preg_match('/^([a-z0-9_-]+)(\.[a-z0-9_-]+)?=(.*)$/is', $word, $pair) !== 1) {
+                    return null;
+                }
+                if ($pair[2] === '') {
+                    // «reason=…», or a server's own word («action=none»): not a property.
+                    continue;
+                }
+                $name = strtolower($pair[1] . $pair[2]);
+                if (array_key_exists($name, $props)) {
+                    return null;
+                }
+                $props[$name] = strtolower($pair[3]);
+            }
+            $seen[$method][] = $result;
+            $results[] = ['method' => $method, 'result' => $result, 'props' => $props];
+        }
+        foreach ($seen as $method => $said) {
+            if (count($said) > 1 && ($method === 'dmarc' || in_array('none', $said, true))) {
+                return null;
+            }
         }
 
         return ['authserv_id' => $id, 'results' => $results];
     }
 
     /**
-     * The statements of a header, split at the «;» outside quoted strings and comments, comments dropped (RFC 8601,
-     * RFC 5322). A «;» or a «dmarc=pass» inside the sender's quoted envelope address or a comment stays inside it.
+     * The words of each statement of a header (split at the «;»), comments dropped; null when it is not clean (see parse).
      *
-     * @return list<string>
+     * @return list<list<string>>|null
      */
-    private static function statements(string $value): array
+    private static function statements(string $value): ?array
     {
         $statements = [];
         $current = '';
-        $quoted = false;
-        $depth = 0;
+        $comment = $quoted = false;
         $length = strlen($value);
         for ($i = 0; $i < $length; $i++) {
             $char = $value[$i];
-            if ($char === '\\' && ($quoted || $depth > 0) && $i + 1 < $length) {
-                if ($depth === 0) {
-                    $current .= $char . $value[$i + 1];
-                }
-                $i++;
-
-                continue;
+            if ($char === '\\' || ($char !== "\t" && (ord($char) < 32 || ord($char) === 127))) {
+                return null;
             }
-            if ($depth > 0) {
-                $depth += $char === '(' ? 1 : ($char === ')' ? -1 : 0);
-                if ($depth === 0) {
+            if ($comment) {
+                if ($char === '"') {
+                    $quoted = !$quoted;
+                } elseif ($char === '(' || ($char === ')' && $quoted)) {
+                    return null;
+                } elseif ($char === ')') {
+                    $comment = false;
                     $current .= ' ';
                 }
-
-                continue;
-            }
-            if ($quoted) {
-                $current .= $char;
-                $quoted = $char !== '"';
-
-                continue;
-            }
-            if ($char === '"') {
-                $quoted = true;
-                $current .= $char;
+            } elseif ($char === '"' || $char === ')') {
+                return null;
             } elseif ($char === '(') {
-                $depth = 1;
+                $comment = true;
             } elseif ($char === ';') {
                 $statements[] = $current;
                 $current = '';
@@ -134,9 +161,12 @@ final class AuthenticationResults
                 $current .= $char;
             }
         }
+        if ($comment) {
+            return null;
+        }
         $statements[] = $current;
 
-        return $statements;
+        return array_map(fn (string $statement) => preg_split('/\s+/', $statement, -1, PREG_SPLIT_NO_EMPTY) ?: [], $statements);
     }
 
     /** The domain of an address (or a domain as such), lower case; null when there is none. */

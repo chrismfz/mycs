@@ -33,7 +33,7 @@ final class Authenticity
         }
         $top = $authenticationResults === [] ? null : AuthenticationResults::parse($authenticationResults[0]);
         if ($top === null || $top['authserv_id'] !== $authservId) {
-            return new AuthVerdict(false, 'not_our_server');
+            return new AuthVerdict(false, $top === null && $authenticationResults !== [] ? 'unreadable_results' : 'not_our_server');
         }
         if (self::bankPassed($top['results'], $domain)) {
             return new AuthVerdict(true, 'dkim_dmarc_pass');
