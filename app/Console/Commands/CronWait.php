@@ -121,9 +121,10 @@ class CronWait extends Command
     }
 
     /**
-     * A `artisan schedule:run` of this install alive, other than this process: its cwd here, or (a cwd this user cannot
-     * read) this install's artisan named by its path, as deploy/update.sh finds its queue workers. Another install's
-     * scheduler on the host is not ours to wait for. No pgrep: none seen, as before. Not seen either: a scheduler of
+     * A `artisan schedule:run` of this install alive, other than this process: its cwd here, or this install's artisan
+     * named by its path wherever it was started from (a crontab line `php /path/artisan schedule:run`, its cwd the
+     * user's home: sweep 7, S7-OPS-1), as deploy/update.sh finds its queue workers. Another install's scheduler on the
+     * host is not ours to wait for. No pgrep: none seen, as before. Not seen either: a scheduler of
      * another user whose cwd this user cannot read, started as `cd <app> && php artisan schedule:run` (no path on its
      * command line): the deploy runs as the cron's user, or as root (docs/install.md).
      */
@@ -138,16 +139,14 @@ class CronWait extends Command
             if ($pid <= 0 || $pid === getmypid()) {
                 continue;
             }
-            $cwd = @readlink("/proc/{$pid}/cwd");
-            if (is_string($cwd)) {
-                if ($cwd === $here) {
-                    return true;
-                }
-
-                continue;
+            if (@readlink("/proc/{$pid}/cwd") === $here) {
+                return true;
             }
-            $cmd = str_replace("\0", ' ', (string) @file_get_contents("/proc/{$pid}/cmdline"));
-            if (str_contains($cmd, $here . '/artisan ')) {
+            // A whole argument, never the end of a longer path (another install under …/backup<here>; review of #777,
+            // REV-777-7): the arguments as the kernel keeps them (NUL between them), or, of a process that wrote its
+            // own title as one string, its words.
+            $cmd = (string) @file_get_contents("/proc/{$pid}/cmdline");
+            if (in_array($here . '/artisan', [...explode("\0", $cmd), ...preg_split('/[\0\s]+/', $cmd)], true)) {
                 return true;
             }
         }

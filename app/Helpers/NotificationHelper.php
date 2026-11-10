@@ -260,6 +260,9 @@ class NotificationHelper
             'cc' => $copies ? (MailAudit::addresses($notificationTemplate->cc) ?: null) : null,
             'bcc' => $copies ? (MailAudit::addresses($notificationTemplate->bcc) ?: null) : null,
             'template_key' => $notificationTemplate->key,
+            // A ticket's mail: the Message-ID of ours it goes out with, known before it is sent, so one that never went
+            // out is sent again as itself (MailAudit::resend; sweep 7, S7-TICKETS-MAIL-2).
+            'message_id' => $mail->threadMessageId,
             ...MailAudit::related($data),
         ]);
 

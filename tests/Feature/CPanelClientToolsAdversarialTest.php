@@ -62,6 +62,8 @@ class CPanelClientToolsAdversarialTest extends TestCase
             $call = (string) parse_url($request->url(), PHP_URL_PATH);
 
             return match (true) {
+                // Asked before the account is opened or changed (S7-PROVISIONING-1): WHM's account is this service's.
+                str_ends_with($call, '/accountsummary') => Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'zonecl', 'domain' => 'zonecloud.io']]]]),
                 str_ends_with($call, '/create_user_session') => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'],
                     'data' => ['url' => 'https://orion.test:2083/cpsess1/login/?session=x' . ($request['app'] ?? '') . ($request['service'] === 'webmaild' ? 'webmail' : '')]]),
                 str_ends_with($call, '/passwd') => $this->passwd !== null ? ($this->passwd)($request) : Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]),

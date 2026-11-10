@@ -136,6 +136,21 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame(0, CpanelAccount::query()->whereNotNull('gone_at')->count());
     }
 
+    /** cpanel:sync --domains: the services the module would refuse (S7-PROVISIONING-1), by id; the same domain written another way is none. */
+    public function test_the_sync_lists_the_services_whose_domain_is_not_their_accounts(): void
+    {
+        $same = $this->service('alpha');
+        $same->forceFill(['domain' => 'WWW.Alpha.test.'])->save();
+        $other = $this->service('client1');
+        $other->forceFill(['domain' => 'renamed.test'])->save();
+
+        $this->artisan('cpanel:sync', ['--domains' => true])
+            ->expectsOutputToContain("1 service(s) with another domain than their account's in WHM: #{$other->id}")->assertExitCode(0);
+
+        $other->forceFill(['domain' => 'client1.test'])->save();
+        $this->artisan('cpanel:sync', ['--domains' => true])->expectsOutputToContain("every service's domain is its account's")->assertExitCode(0);
+    }
+
     public function test_an_account_gone_is_kept_with_its_mapping_and_one_back_for_a_new_live_service_is_its(): void
     {
         $old = $this->service('alpha');

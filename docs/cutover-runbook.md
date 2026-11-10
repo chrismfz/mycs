@@ -43,6 +43,11 @@ credentials. Το import της ημέρας τα φέρνει όλα:
       `mycs` και η ρύθμιση Terminate·
     - οι VPS του WHMCS αντιστοιχίζονται με το χέρι από τα Proxmox Guests (`proxmox.md` → Α3), και μετά το «Pool command».
     Μέχρι τότε η MyCS δεν αγγίζει κανένα VM.
+  - **cPanel, domain υπηρεσίας ≠ κύριο domain του λογαριασμού στο WHM (sweep 7, S7-PROVISIONING-1):** μετά το import και
+    πριν ανοίξει το cron, `php artisan cpanel:sync --domains` (read-only). Ανά server λέει τα ids των υπηρεσιών που το
+    module θα αρνηθεί να κάνει suspend, unsuspend, terminate ή login (ο λογαριασμός με το username τους έχει άλλο κύριο
+    domain). Για καθεμία: διορθώνεται το domain της υπηρεσίας (αν άλλαξε στο WHM) ή το username της (αν είναι άλλου), και
+    ξανά ώσπου να πει «every service's domain is its account's». Αλλιώς κάθε τέτοια αναστολή γίνεται εργασία του staff.
   - **Offline VM (myip: Hetzner Cloud) και «Manual (offline)» (προϊόντα χωρίς module):** καμία ρύθμιση. Κάθε ενέργεια
     γίνεται εργασία στα Pending Module Actions. Στη λίστα του import, όποια υπηρεσία δεν είναι μηχάνημα (SSL, license)
     μεταφέρεται όπου ταιριάζει.
@@ -435,7 +440,9 @@ knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πά
    Ένα `deploy/update.sh` μέσα σε αυτό το παράθυρο (π.χ. διόρθωση στο `mycs:rollback-report`) αφήνει το site όπως το
    βρήκε: κάτω, και χωρίς να ξεκινήσει workers που δεν έτρεχαν πριν (sweep 6, S6-OPS-2). Το λέει στις τελευταίες γραμμές του.
    Εξαίρεση: μετά από deploy που **απέτυχε**, το επόμενο που πετυχαίνει ανεβάζει το site. Μέσα σε αυτό το παράθυρο σβήσε
-   πρώτα το `storage/framework/deploy-left-down` (ή μην κάνεις deploy πάνω σε αποτυχημένο).
+   πρώτα το `storage/framework/deploy-left-down` (ή μην κάνεις deploy πάνω σε αποτυχημένο). Σημάδι παλιότερο από 24 ώρες
+   (ή με ώρα στο μέλλον) αγνοείται και σβήνεται μόνο του (sweep 7, S7-OPS-2)· αν δεν σβήνεται (αρχείο άλλου χρήστη), το
+   deploy το λέει και συνεχίζει.
 2. Η αναφορά των αλλαγών περνά στο WHMCS, όπως παραπάνω.
 3. Webhooks:
    - Stripe: ενεργοποιούνται ξανά τα endpoints του WHMCS και απενεργοποιείται του MyCS.

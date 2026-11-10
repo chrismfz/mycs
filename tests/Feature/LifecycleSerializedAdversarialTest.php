@@ -64,6 +64,9 @@ class LifecycleSerializedAdversarialTest extends TestCase
     private function fakeWhm(): void
     {
         Http::fake(function ($request) {
+            if (str_contains($request->url(), '/accountsummary')) {
+                return Http::response(['metadata' => ['result' => 1]]); // whose account it is, asked first (S7-PROVISIONING-1)
+            }
             $endpoint = str_contains($request->url(), '/unsuspendacct') ? 'unsuspendacct'
                 : (str_contains($request->url(), '/suspendacct') ? 'suspendacct' : null);
             if ($endpoint === null) {

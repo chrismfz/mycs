@@ -55,7 +55,10 @@ class Adv465Round2Test extends TestCase
         $this->service = $this->makeService($this->owner);
         Http::fake(fn (Request $request) => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/create_user_session')
             ? Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['url' => self::PANEL . ($request['app'] ?? '')]])
-            : Http::response([], 404));
+            : (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/accountsummary')
+                // Whose account it is, asked first (S7-PROVISIONING-1).
+                ? Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'zonecl', 'domain' => 'zonecloud.io']]]])
+                : Http::response([], 404)));
     }
 
     private function makeService(User $user): Service
