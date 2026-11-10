@@ -51,7 +51,8 @@ class SuspensionWindowAdversarialTest extends TestCase
         ], $attributes));
         // Its renewal billed, as the daily run does before any suspension (the hourly run leaves an unbilled period to it).
         if ($billed && $service->expires_at !== null && $service->status === Service::STATUS_ACTIVE) {
-            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at]);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at,
+                'created_at' => Carbon::parse($service->expires_at)->subWeek()]);
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         }
 

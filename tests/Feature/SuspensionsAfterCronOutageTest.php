@@ -13,7 +13,8 @@ use Tests\TestCase;
 
 /**
  * The cron down for days (sweep 9γ, owner 2026-10-30: «suspensions after a 2-4 day outage must happen when it runs
- * again, never be skipped»): the first run after it suspends what fell due meanwhile, bills a renewal it missed, and
+ * again, never be skipped»): the first run after it suspends what fell due meanwhile, bills a renewal it missed (that
+ * one is suspended Suspend Days after its invoice: owner 2026-11-10), and
  * never terminates in that same run (minimum days suspended); with suspensions kept to days and hours, the first hour
  * the window opens after the daily run does them.
  */
@@ -73,7 +74,12 @@ class SuspensionsAfterCronOutageTest extends TestCase
         $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status, 'terminated a day later, never in the same run');
     }
 
-    public function test_a_renewal_never_billed_because_the_cron_was_down_is_billed_then_suspended_when_due(): void
+    /**
+     * Never billed at all (the cron down from before its invoice day): billed by the first run, and suspended Suspend Days
+     * after that invoice was issued, not in the same run (owner 2026-11-10, S6-CRON-BILLING-1/2: nothing is suspended for an
+     * invoice issued fewer than Suspend Days ago; its customer first gets the invoice and the time to pay it).
+     */
+    public function test_a_renewal_never_billed_because_the_cron_was_down_is_billed_then_suspended_suspend_days_later(): void
     {
         // Due 11-05, never billed: the cron was down from before its invoice day.
         $service = $this->service('2026-11-05 00:00:00');
@@ -82,7 +88,12 @@ class SuspensionsAfterCronOutageTest extends TestCase
 
         $this->assertSame(1, Invoice::query()->where('client_id', $service->client_id)->where('status', Invoice::STATUS_UNPAID)->count(),
             'the renewal it missed is billed');
-        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'past Suspend Days already: suspended in the same run');
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'its invoice was issued tonight: not suspended for it yet');
+
+        $this->cron('2026-11-11 03:00:00');
+        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'issued 2 days ago: one more day');
+        $this->cron('2026-11-12 03:00:00');
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'Suspend Days after its invoice, unpaid');
     }
 
     public function test_with_suspensions_on_weekdays_from_ten_the_first_open_hour_after_the_outage_does_them(): void

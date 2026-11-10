@@ -62,7 +62,9 @@ class SuspensionRulesTest extends TestCase
     public function test_by_default_the_due_date_alone_suspends_as_whmcs(): void
     {
         $due = $this->service(['expires_at' => '2026-10-17']); // Suspend Days (2) passed
+        $this->billedAhead($due);
         $notYet = $this->service(['expires_at' => '2026-10-18']);
+        $this->billedAhead($notYet);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -128,6 +130,7 @@ class SuspensionRulesTest extends TestCase
     {
         config(['settings.cronjob_terminate_min_suspended_days' => 0]);
         $service = $this->service(['expires_at' => '2026-09-20', 'suspend_hold_until' => '2026-10-19']);
+        $this->billedAhead($service);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

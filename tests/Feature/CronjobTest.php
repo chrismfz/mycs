@@ -190,6 +190,8 @@ class CronjobTest extends TestCase
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);
+        // Its renewal was billed before it was due (nothing is suspended for an invoice issued fewer than Suspend Days ago).
+        $this->billedAhead($service);
 
         Queue::fake();
 
@@ -197,7 +199,7 @@ class CronjobTest extends TestCase
         $this->artisan('app:cron-job')
             ->assertExitCode(0);
 
-        // Check if an invoice was created
+        // Its invoice is still open
         $this->assertDatabaseHas('invoices', [
             'client_id' => $user->client()->id,
             'status' => 'unpaid',
