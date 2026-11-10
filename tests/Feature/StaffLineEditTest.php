@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -20,9 +21,10 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * PR B (sweep Π2.11): staff change an invoice's lines under the payment locks, and an open invoice with payments on it
- * keeps its amounts, as Blesta does: a line taken off or lowered left a payment over what is owed on an invoice still
- * unpaid. Descriptions still change; without payments, everything does.
+ * PR B (sweep Π2.11): staff change an invoice's lines under the payment locks. Since the owner's decision of 2026-11-10
+ * (sweep 7 TIGHT-INVOICES-PAYMENTS-2, docs/staff-freedom.md) an open invoice with payments on it changes as any other:
+ * raised, it owes more; lowered below what was paid, it is paid over and staff are told («Close as paid»). Rewritten
+ * from the tests that pinned the refusal.
  */
 class StaffLineEditTest extends TestCase
 {
@@ -74,28 +76,44 @@ class StaffLineEditTest extends TestCase
         return $invoice->items()->where('description', $description)->sole();
     }
 
-    public function test_the_form_keeps_the_amounts_of_an_invoice_with_a_payment(): void
+    /** Lowered, still above what was paid: it just owes less. No warning, nothing closed. */
+    public function test_the_form_changes_the_amounts_of_an_invoice_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 50);
         $component = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
 
-        $component->set("data.items.{$key}.price", '10.00')->call('save')->assertNotified(__('Invoice not saved'));
+        $component->assertFormFieldIsEnabled("items.{$key}.price")
+            ->set("data.items.{$key}.price", '10.00')->call('save')->assertNotNotified(__('Check its balance')); // one look: reading the notifications empties them
 
-        $this->assertSame('40.00', $this->line($invoice, 'Domain')->price);
+        $this->assertSame('10.00', $this->line($invoice, 'Domain')->price);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $this->assertSame(20.0, $invoice->fresh()->remaining, '70 billed, 50 paid');
     }
 
-    public function test_the_form_does_not_take_a_line_off_an_invoice_with_a_payment(): void
+    /** A line taken off below what was paid: the invoice stays open, paid over, and staff are told; the payment is whole. */
+    public function test_the_form_takes_a_line_off_an_invoice_with_a_payment_and_warns_it_is_paid_over(): void
     {
         $invoice = $this->invoice(paid: 50);
         $component = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $items = $component->get('data.items');
-        unset($items['record-' . $this->line($invoice, 'Domain')->id]);
+        unset($items['record-' . $this->line($invoice, 'Hosting')->id]);
 
-        $component->set('data.items', $items)->call('save')->assertNotified(__('Invoice not saved'));
+        $component->set('data.items', $items)->call('save')->assertNotified(__('Check its balance'));
 
-        $this->assertSame(2, $invoice->items()->count());
+        $fresh = $invoice->fresh();
+        $this->assertSame(1, $fresh->items()->count());
+        $this->assertSame(Invoice::STATUS_UNPAID, $fresh->status, 'an edit never closes it on its own');
+        $this->assertSame(-10.0, $fresh->remaining, '40 billed, 50 paid');
+        $this->assertSame('50.00', (string) $fresh->transactions()->sole()->amount);
+        $this->assertSame('0.00', (string) $fresh->transactions()->sole()->credited_amount, 'nothing became credit yet');
+        $this->assertStringContainsString('10.00 USD', (string) StaffLineEdit::balanceNotice($invoice->id));
+
+        // «Close as paid» is the way on: the 10 over becomes the customer's credit.
+        $this->assertTrue((new RecordPaymentService)->settle($invoice->id));
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame(0.0, $invoice->fresh()->remaining);
+        $this->assertSame('10.00', number_format((float) DB::table('credits')->where('client_id', $this->user->client()->id)->value('amount'), 2, '.', ''));
     }
 
     public function test_the_form_still_changes_a_description_of_an_invoice_with_a_payment(): void
@@ -120,23 +138,29 @@ class StaffLineEditTest extends TestCase
         $this->assertSame('10.00', $this->line($invoice, 'Domain')->price);
     }
 
-    public function test_the_api_keeps_the_amounts_of_an_invoice_with_a_payment(): void
+    /** The API too: raised it owes more (no warning), a line added, then lowered below the payment with the warning. */
+    public function test_the_api_changes_the_amounts_of_an_invoice_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 50);
         $line = $this->line($invoice, 'Domain');
         $token = $this->token(['admin.invoice_items.update', 'admin.invoice_items.delete', 'admin.invoice_items.create']);
 
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => 10])->assertStatus(422);
-        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $line))->assertStatus(422);
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => 45])->assertSuccessful()->assertJsonMissingPath('warning');
+        $this->assertSame(55.0, $invoice->fresh()->remaining, 'raised: it owes more');
         $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
-            'invoice_id' => $invoice->id, 'description' => 'Extra', 'price' => 5, 'quantity' => 1,
-        ])->assertStatus(422);
+            'invoice_id' => $invoice->id, 'description' => 'Extra', 'price' => 5, 'quantity' => 1, 'taxed' => false,
+        ])->assertSuccessful()->assertJsonMissingPath('warning');
+        $this->assertSame(3, $invoice->items()->count());
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $this->line($invoice, 'Hosting')))->assertNoContent();
+        $this->assertSame(0.0, $invoice->fresh()->remaining, '45 + 5 billed, 50 paid');
+        $warned = $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => 10])->assertSuccessful();
+        $this->assertStringContainsString('35.00 USD', (string) $warned->json('warning'));
 
-        $this->assertSame('40.00', $line->fresh()->price);
-        $this->assertSame(2, $invoice->items()->count());
-
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['description' => 'Domain renewal'])->assertSuccessful();
-        $this->assertSame('Domain renewal', $line->fresh()->description);
+        $fresh = $invoice->fresh();
+        $this->assertSame('10.00', $line->fresh()->price);
+        $this->assertSame(-35.0, $fresh->remaining, '15 billed, 50 paid: over, and said');
+        $this->assertSame(Invoice::STATUS_UNPAID, $fresh->status);
+        $this->assertSame('50.00', (string) $fresh->transactions()->sole()->amount, 'the payment is untouched');
     }
 
     public function test_the_api_changes_the_amounts_of_an_invoice_without_payments(): void
@@ -151,7 +175,7 @@ class StaffLineEditTest extends TestCase
         $this->assertSame(1, $invoice->items()->count());
     }
 
-    public function test_the_form_does_not_add_a_line_or_toggle_tax_or_quantity_with_a_payment(): void
+    public function test_the_form_adds_a_line_and_changes_tax_and_quantity_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 50);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
@@ -161,24 +185,28 @@ class StaffLineEditTest extends TestCase
             fn ($c) => $c->set("data.items.{$key}.quantity", 2),
         ] as $change) {
             $change($this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]))
-                ->call('save')->assertNotified(__('Invoice not saved'));
+                ->call('save')->assertNotNotified(__('Invoice not saved'));
         }
 
-        $this->assertSame(2, $invoice->items()->count());
+        $this->assertSame(3, $invoice->items()->count());
         $line = $this->line($invoice, 'Domain');
-        $this->assertSame(['40.00', 1, false], [$line->price, (int) $line->quantity, (bool) $line->taxed]);
+        $this->assertSame(['40.00', 2, true], [$line->price, (int) $line->quantity, (bool) $line->taxed]);
+        // 60 + 5 + 2 × 40 (and its tax, if the account has any) billed, 50 paid: it owes the rest.
+        $this->assertSame(RecordPaymentService::toCents($invoice->fresh()->total) - 5000, RecordPaymentService::toCents($invoice->fresh()->remaining));
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
-    public function test_a_processing_payment_keeps_the_amounts_too(): void
+    public function test_a_processing_payment_does_not_keep_the_amounts(): void
     {
         $invoice = $this->invoice();
         $invoice->transactions()->create(['amount' => 100, 'status' => InvoiceTransactionStatus::Processing->value, 'transaction_id' => 'sepa-1']);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
 
         $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()])
-            ->set("data.items.{$key}.price", '10.00')->call('save')->assertNotified(__('Invoice not saved'));
+            ->set("data.items.{$key}.price", '10.00')->call('save')->assertNotNotified(__('Invoice not saved'));
 
-        $this->assertSame('40.00', $this->line($invoice, 'Domain')->price);
+        $this->assertSame('10.00', $this->line($invoice, 'Domain')->price);
+        $this->assertSame(70.0, $invoice->fresh()->remaining, 'money on its way is not counted until it lands');
     }
 
     /**
@@ -208,17 +236,16 @@ class StaffLineEditTest extends TestCase
         $this->assertSame('10.00', $this->line($invoice, 'Domain')->price);
     }
 
-    public function test_the_api_keeps_quantity_and_tax_of_an_invoice_with_a_payment(): void
+    public function test_the_api_changes_quantity_and_tax_of_an_invoice_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 50);
         $line = $this->line($invoice, 'Domain');
         $token = $this->token(['admin.invoice_items.update']);
 
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['quantity' => 2])->assertStatus(422);
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['taxed' => true])->assertStatus(422);
-        // The same amounts sent again change nothing: not refused.
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '40.0', 'quantity' => 1, 'taxed' => false])->assertSuccessful();
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['quantity' => 2])->assertSuccessful();
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['taxed' => true])->assertSuccessful();
 
-        $this->assertSame(['40.00', 1, false], [$line->fresh()->price, (int) $line->fresh()->quantity, (bool) $line->fresh()->taxed]);
+        $this->assertSame(['40.00', 2, true], [$line->fresh()->price, (int) $line->fresh()->quantity, (bool) $line->fresh()->taxed]);
+        $this->assertSame(RecordPaymentService::toCents($invoice->fresh()->total) - 5000, RecordPaymentService::toCents($invoice->fresh()->remaining));
     }
 }

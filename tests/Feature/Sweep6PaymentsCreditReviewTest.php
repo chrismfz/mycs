@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Clients\MoveToClient;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
 use App\Services\Money\GatewayReference;
 use App\Services\Payment\SavedMethodCharge;
@@ -321,21 +322,27 @@ class Sweep6PaymentsCreditReviewTest extends TestCase
         $this->assertStringContainsString('moved to another customer or was deleted', $this->staffMail('Chargeback needs staff attention'));
     }
 
-    /** The line-edit refusal on a credit purchase with a payment no longer offers «a discount with a note» (REV-766-5). */
-    public function test_rev_766_5_the_line_refusal_of_a_paid_on_credit_purchase_names_what_can_be_done(): void
+    /**
+     * REV-766-5, rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-2): the line of a credit purchase with a part payment is
+     * repriced like any other (the refusal it pinned is gone). The kernel stays: it gives the credit its money covers,
+     * never more.
+     */
+    public function test_rev_766_5_a_part_paid_credit_purchase_is_repriced_and_gives_only_what_was_paid(): void
     {
         $this->stripe();
         $invoice = $this->invoice(100, Credit::class);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 50.00, transactionId: 'pi_rev766_5b', currency: 'usd');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $credit = fn (): string => number_format((float) (Credit::query()->where('client_id', $invoice->client_id)->value('amount') ?? 0), 2, '.', '');
+        $this->assertSame('0.00', $credit(), 'precondition: unpaid, no credit given yet');
 
-        try {
-            StaffLineEdit::run($invoice->id, true, fn () => $invoice->items()->first()->update(['price' => 50]));
-            $this->fail('a line of an invoice with a payment was repriced');
-        } catch (DisplayException $e) {
-            $this->assertStringContainsString('buys account credit', $e->getMessage());
-            $this->assertStringNotContainsString('discount with a note', $e->getMessage());
-            $this->assertNotSame($e->getMessage(), __($e->getMessage(), [], 'el'));
-        }
+        StaffLineEdit::run($invoice->id, true, fn () => $invoice->items()->first()->update(['price' => 50]));
+
+        $this->assertEqualsWithDelta(0.0, (float) $invoice->fresh()->remaining, 0.001);
+        $this->assertSame('0.00', $credit(), 'an edit closes nothing and gives nothing on its own');
+        $this->assertTrue((new RecordPaymentService)->settle($invoice->id));
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame('50.00', $credit(), 'the 50 that arrived, not the 100 it was made for');
     }
 
     /**

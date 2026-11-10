@@ -53,8 +53,9 @@ class Adv483Round2Test extends TestCase
      * cancelled invoice with nothing on it (lines open); staff reprice; a payment lands meanwhile and stays processing
      * (a late checkout). On Save the form now locks the price, so it is not dehydrated, and refuseWithPayments only
      * refuses an open one: the new price is dropped without a word and «Saved» is shown (ADV-1's class, for this lock).
+     * Since 2026-11-10 (TIGHT-INVOICES-PAYMENTS-2) a payment locks no line: the price is saved, never dropped.
      */
-    public function test_r2_1_a_repricing_of_a_cancelled_invoice_locked_meanwhile_is_not_dropped_silently(): void
+    public function test_r2_1_a_repricing_of_a_cancelled_invoice_a_payment_reached_meanwhile_is_saved(): void
     {
         $invoice = $this->invoice();
         $invoice->forceFill(['status' => Invoice::STATUS_CANCELLED])->saveQuietly();
@@ -65,13 +66,12 @@ class Adv483Round2Test extends TestCase
 
         ExtensionHelper::addProcessingPayment($invoice->fresh(), 'BankTransfer', '100.00', transactionId: 'TX-LATE');
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
-        $this->assertNotNull(InvoiceResource::linesKeepAmounts($invoice->fresh()), 'the form locks it now');
+        $this->assertNull(InvoiceResource::linesKeepAmounts($invoice->fresh()), 'a payment locks no line');
 
-        $page->call('save');
+        $page->call('save')->assertNotNotified(__('Invoice not saved'));
 
-        // Refused, as the reopening Save and ADV-1's document are: the price kept and staff told why.
-        $this->assertSame('100.00', (string) $invoice->items()->first()->price);
-        $page->assertNotified(__('Invoice not saved'));
+        $this->assertSame('120.00', (string) $invoice->items()->first()->price);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
     }
 
     /**
@@ -122,17 +122,17 @@ class Adv483Round2Test extends TestCase
         $this->assertSame('100.00', (string) $invoice->items()->first()->price);
     }
 
-    /** PIN: a cancelled invoice whose payment was refunded in full unlocks; reopening and repricing in one Save works. */
+    /** PIN: a cancelled invoice with a payment, then refunded in full: its lines are open all along; reopening and repricing in one Save works. */
     public function test_pin_a_cancelled_invoice_refunded_in_full_reopens_and_reprices(): void
     {
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '40.00', transactionId: 'TX-R');
         $invoice->refresh()->forceFill(['status' => Invoice::STATUS_CANCELLED])->saveQuietly();
-        $this->assertNotNull(InvoiceResource::linesKeepAmounts($invoice->fresh()));
+        $this->assertNull(InvoiceResource::linesKeepAmounts($invoice->fresh()));
 
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $line = array_key_first($page->get('data.items'));
-        $page->assertFormFieldIsDisabled("items.{$line}.price");
+        $page->assertFormFieldIsEnabled("items.{$line}.price");
 
         $invoice->transactions()->first()->forceFill(['refunded_amount' => '40.00'])->saveQuietly();
         $page->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED)

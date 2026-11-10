@@ -22,11 +22,11 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * Adversarial review of PR B (sweep Π2.11, StaffLineEdit): staff line edits under the payment locks; an open invoice
- * with payments (succeeded or processing) keeps its amounts, descriptions still change, without payments all changes.
- * Invariants: an unpaid invoice never ends with payments above what it bills because of a staff line edit; the rule
- * cannot be bypassed; description-only edits are not refused; the advice in the refusal can be followed.
- * A1–A3 were FAILING (confirmed defects) and are fixed in the PR; the rest stay as regression coverage.
+ * Adversarial review of PR B (sweep Π2.11, StaffLineEdit): staff line edits under the payment locks.
+ * Since 2026-11-10 (owner, sweep 7 TIGHT-INVOICES-PAYMENTS-2, docs/staff-freedom.md) an open invoice with payments
+ * changes its amounts as any other, and one left paid over says so. The tests that pinned «keeps its amounts» are
+ * rewritten to that; what they still guard: an invalid value writes nothing, the payment itself is never touched by a
+ * line edit, and nothing is closed or credited on its own.
  */
 class StaffLineEditAdversarialTest extends TestCase
 {
@@ -161,31 +161,39 @@ class StaffLineEditAdversarialTest extends TestCase
 
     // ---------------------------------------------------------------- regression coverage
 
-    /** A processing (SEPA) payment locks the amounts too. Regression coverage. */
-    public function test_a_processing_payment_keeps_the_amounts(): void
+    /** A processing (SEPA) payment no longer locks the amounts; it is still there, processing, for its money to land. */
+    public function test_a_processing_payment_does_not_lock_the_amounts(): void
     {
         $invoice = $this->invoice(paid: 50, status: InvoiceTransactionStatus::Processing);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
 
-        $this->form($invoice)->set("data.items.{$key}.price", '0')->call('save')->assertNotified(__('Invoice not saved'));
-        $this->assertSame('40.00', $this->line($invoice, 'Domain')->fresh()->price);
+        $this->form($invoice)->set("data.items.{$key}.price", '0')->call('save')->assertNotNotified(__('Invoice not saved'));
+        $this->assertSame('0.00', $this->line($invoice, 'Domain')->fresh()->price);
 
         $line = $this->line($invoice, 'Domain');
         $token = $this->token();
-        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $line))->assertStatus(422);
-        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['quantity' => 2])->assertStatus(422);
-        $this->assertSame(2, $invoice->items()->count());
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => 40, 'quantity' => 2])->assertSuccessful();
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $this->line($invoice, 'Hosting')))->assertNoContent();
+        $this->assertSame(1, $invoice->items()->count());
+        $this->assertSame(8000, $this->billedCents($invoice->fresh()));
+        $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
+        $this->assertSame(80.0, $invoice->fresh()->remaining);
     }
 
-    /** A payment made with account credit locks the amounts too. Regression coverage. */
-    public function test_a_credit_payment_keeps_the_amounts(): void
+    /** A payment made with account credit: the line comes down below it, the invoice says it is paid over, the credit spent stays spent. */
+    public function test_a_credit_payment_does_not_lock_the_amounts(): void
     {
         $invoice = $this->invoice(paid: 50, credit: true);
         $this->assertTrue($invoice->hasPayments());
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
+        $hosting = 'record-' . $this->line($invoice, 'Hosting')->id;
 
-        $this->form($invoice)->set("data.items.{$key}.price", '5')->call('save')->assertNotified(__('Invoice not saved'));
-        $this->assertSame('40.00', $this->line($invoice, 'Domain')->fresh()->price);
+        $this->form($invoice)->set("data.items.{$key}.price", '5')->set("data.items.{$hosting}.price", '5')->call('save')->assertNotified(__('Check its balance'));
+        $this->assertSame('5.00', $this->line($invoice, 'Domain')->fresh()->price);
+        $fresh = $invoice->fresh();
+        $this->assertSame(Invoice::STATUS_UNPAID, $fresh->status);
+        $this->assertSame(-40.0, $fresh->remaining, '10 billed, 50 of credit on it');
+        $this->assertSame(5000, $this->heldCents($fresh), 'the payment is as it was: only «Close as paid» moves the part over');
     }
 
     /** A failed payment holds nothing: the amounts change. Regression coverage. */
@@ -198,25 +206,28 @@ class StaffLineEditAdversarialTest extends TestCase
         $this->assertSame('10.00', $this->line($invoice, 'Domain')->fresh()->price);
     }
 
-    /** Toggling taxed changes the amount: refused with a payment, on the form and the API. Regression coverage. */
-    public function test_toggling_taxed_is_refused_with_a_payment(): void
+    /** Toggling taxed changes the amount: taken with a payment, on the form and back on the API. */
+    public function test_toggling_taxed_is_taken_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 50);
         $line = $this->line($invoice, 'Domain');
 
-        $this->form($invoice)->set('data.items.record-' . $line->id . '.taxed', true)->call('save')->assertNotified(__('Invoice not saved'));
-        $this->withToken($this->token())->putJson(route('api.v1.admin.invoice-items.update', $line), ['taxed' => true])->assertStatus(422);
+        $this->form($invoice)->set('data.items.record-' . $line->id . '.taxed', true)->call('save')->assertNotNotified(__('Invoice not saved'));
+        $this->assertTrue($line->fresh()->taxed);
+        $this->withToken($this->token())->putJson(route('api.v1.admin.invoice-items.update', $line), ['taxed' => false])->assertSuccessful();
 
         $this->assertFalse($line->fresh()->taxed);
+        $this->assertSame(10000, $this->billedCents($invoice->fresh()));
+        $this->assertSame(50.0, $invoice->fresh()->remaining);
     }
 
-    /** Raising a quantity, a non-numeric or negative price: all refused, nothing written. Regression coverage. */
-    public function test_quantity_and_odd_prices_are_refused_with_a_payment(): void
+    /** With a payment: a value the form never took (a zero or fractional quantity, a non-numeric price) writes nothing; a valid one is saved. */
+    public function test_invalid_quantities_and_prices_write_nothing_and_valid_ones_are_saved_with_a_payment(): void
     {
         $invoice = $this->invoice(paid: 90);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
 
-        foreach ([['quantity', '2'], ['quantity', '0'], ['price', 'abc'], ['price', '-40'], ['price', '39.99'], ['quantity', '1.5']] as [$field, $value]) {
+        foreach ([['quantity', '0'], ['price', 'abc'], ['quantity', '1.5']] as [$field, $value]) {
             $this->form($invoice)->set("data.items.{$key}.{$field}", $value)->call('save');
             $line = $this->line($invoice, 'Domain')->fresh();
             $this->assertSame('40.00', $line->price, "{$field}={$value}");
@@ -224,6 +235,14 @@ class StaffLineEditAdversarialTest extends TestCase
             $this->assertSame(1, (int) $line->quantity, "{$field}={$value}");
         }
         $this->assertNotOverpaid($invoice);
+
+        $this->form($invoice)->set("data.items.{$key}.quantity", '2')->call('save')->assertNotNotified(__('Invoice not saved'));
+        $this->assertSame('80.00', $this->line($invoice, 'Domain')->fresh()->line_total);
+        $this->assertSame(50.0, $invoice->fresh()->remaining, '140 billed, 90 paid');
+        $this->form($invoice)->set("data.items.{$key}.quantity", '1')->set("data.items.{$key}.price", '29.99')->call('save')->assertNotified(__('Check its balance'));
+        $this->assertSame('29.99', $this->line($invoice, 'Domain')->fresh()->line_total);
+        $this->assertSame(-0.01, $invoice->fresh()->remaining, '89.99 billed, 90 paid: a cent over, and said');
+        $this->assertSame(9000, $this->heldCents($invoice->fresh()));
     }
 
     /** Equivalent formats ("1.0", "40", "40.000") with a description change are a description-only edit. Regression coverage. */
@@ -257,8 +276,8 @@ class StaffLineEditAdversarialTest extends TestCase
         $this->assertSame(10000, $this->billedCents($invoice->fresh()));
     }
 
-    /** A new row is refused; a row added and removed again before the save is no change. Regression coverage. */
-    public function test_an_added_row_is_refused_and_an_added_then_removed_row_is_not(): void
+    /** A new row is added (the invoice owes more); a row added and removed again before the save is no change. */
+    public function test_an_added_row_is_saved_and_an_added_then_removed_row_changes_nothing(): void
     {
         $invoice = $this->invoice(paid: 50);
         $component = $this->form($invoice);
@@ -266,16 +285,20 @@ class StaffLineEditAdversarialTest extends TestCase
         $items = $original;
         $items[(string) Str::uuid()] = ['description' => 'Extra', 'price' => '5.00', 'quantity' => 1, 'taxed' => false];
 
-        $component->set('data.items', $items)->call('save')->assertNotified(__('Invoice not saved'));
+        $component->set('data.items', $original)->call('save')->assertNotNotified(__('Invoice not saved'));
         $this->assertSame(2, $invoice->items()->count());
 
         $component = $this->form($invoice);
-        $component->set('data.items', $items)->set('data.items', $original)->call('save')->assertNotNotified(__('Invoice not saved'));
-        $this->assertSame(2, $invoice->items()->count());
+        $component->set('data.items', $items)->call('save')->assertNotNotified(__('Invoice not saved'));
+        $this->assertSame(3, $invoice->items()->count());
+        $this->assertSame(55.0, $invoice->fresh()->remaining, '105 billed, 50 paid');
     }
 
-    /** A forged row key (an id not on the invoice) with the same amounts is a removed row plus a new one: refused. Regression coverage. */
-    public function test_a_forged_row_key_is_refused(): void
+    /**
+     * A forged row key (an id not on the invoice) with the same amounts is a removed row plus a new one: the invoice bills
+     * the same, and no line of another invoice is touched.
+     */
+    public function test_a_forged_row_key_only_replaces_its_own_row(): void
     {
         $invoice = $this->invoice(paid: 50);
         $component = $this->form($invoice);
@@ -283,11 +306,15 @@ class StaffLineEditAdversarialTest extends TestCase
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
         $row = $items[$key];
         unset($items[$key]);
-        $items['record-999999'] = $row;
+        $other = $this->invoice();
+        $foreign = $this->line($other, 'Domain');
+        $items['record-' . $foreign->id] = ['description' => 'Taken over'] + $row;
 
-        $component->set('data.items', $items)->call('save')->assertNotified(__('Invoice not saved'));
+        $component->set('data.items', $items)->call('save');
         $this->assertSame(2, $invoice->items()->count());
         $this->assertSame(10000, $this->billedCents($invoice->fresh()));
+        $this->assertSame([$other->id, 'Domain'], [$foreign->fresh()->invoice_id, $foreign->fresh()->description], 'another invoice\'s line stays where and as it was');
+        $this->assertSame(50.0, $invoice->fresh()->remaining);
     }
 
     /**

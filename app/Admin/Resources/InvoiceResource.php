@@ -143,8 +143,8 @@ class InvoiceResource extends Resource
 
     /**
      * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): paid or
-     * refunded, a fiscal document from Ekdosi, or payments on an open one. Null while they can change. Read once per state
-     * of the invoice: the form asks for every line.
+     * refunded, or a fiscal document from Ekdosi. Null while they can change. Read once per state of the invoice: the form
+     * asks for every line.
      */
     public static function linesKeepAmounts(?Invoice $invoice): ?string
     {
@@ -165,9 +165,6 @@ class InvoiceResource extends Resource
         return once(fn (): ?string => $state !== '' ? match (true) {
             in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
-            // A cancelled one too: owing nothing, a repricing only matters reopened, and the reopening Save refuses it
-            // (adversarial ADV-3 of #483).
-            in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_CANCELLED], true) && StaffLineEdit::holdsMoney($invoice, false) => StaffLineEdit::linesKeepAmounts($invoice),
             default => null,
         } : null);
     }

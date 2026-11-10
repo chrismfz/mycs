@@ -100,7 +100,7 @@ class InvoiceEditRefreshTest extends TestCase
             ->assertSee(__('A paid invoice keeps its lines: set it back to unpaid first.'));
     }
 
-    public function test_the_lines_lock_on_payments_and_on_a_document_and_not_before(): void
+    public function test_the_lines_lock_on_a_document_and_not_on_payments(): void
     {
         $open = $this->invoice();
         $this->assertNull(InvoiceResource::linesKeepAmounts($open));
@@ -108,7 +108,7 @@ class InvoiceEditRefreshTest extends TestCase
         $part = $this->invoice();
         ExtensionHelper::addPayment($part, 'BankTransfer', '40.00', transactionId: 'TX-3');
         $this->assertSame(Invoice::STATUS_UNPAID, $part->fresh()->status);
-        $this->assertNotNull(InvoiceResource::linesKeepAmounts($part->fresh()), 'a part paid: the Save refuses new amounts');
+        $this->assertNull(InvoiceResource::linesKeepAmounts($part->fresh()), 'a part paid: its lines change (TIGHT-INVOICES-PAYMENTS-2, 2026-11-10)');
 
         $documented = $this->invoice();
         EkdosiDocument::query()->create(['invoice_id' => $documented->id, 'mark' => '400001234567890', 'code' => 'ΤΠΥ1', 'state' => EkdosiDocument::ACTIVE]);

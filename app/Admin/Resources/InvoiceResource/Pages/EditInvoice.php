@@ -48,12 +48,11 @@ class EditInvoice extends EditRecord
     {
         try {
             // Under the payment locks (customer, then invoice), taken before the lines are written: a payment landing
-            // now waits for this save, and an invoice with payments keeps its amounts (StaffLineEdit, sweep Π2.11).
+            // now waits for this save (StaffLineEdit, sweep Π2.11).
             // Filament's own transaction is a savepoint inside this one: «Saved» is sent just before the outer commit.
-            StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification) {
-                if ($this->linesChangeAmounts()) {
-                    // Also when this save reopens it (cancelled → unpaid): the status it will have, not only the stored one.
-                    StaffLineEdit::refuseWithPayments($invoice, $this->data['status'] ?? null);
+            $amountsChanged = false;
+            StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification, &$amountsChanged) {
+                if ($amountsChanged = $this->linesChangeAmounts()) {
                     // A document issued while the form was open: the form now locks the amounts and would drop the change
                     // without a word (the observer never sees it); refused, as before the lock (adversarial ADV-1 of #483).
                     if (EkdosiDocument::activeOn($invoice->getKey(), true)) {
@@ -67,6 +66,11 @@ class EditInvoice extends EditRecord
                 }
                 parent::save($shouldRedirect, $shouldSendSavedNotification);
             });
+            // Its money and its total no longer agree (it owes on while paid, or is paid over): said, never left to be
+            // found (owner 2026-11-10).
+            if ($amountsChanged && ($notice = StaffLineEdit::balanceNotice($this->record->getKey())) !== null) {
+                Notification::make()->warning()->title(__('Check its balance'))->body(e($notice))->persistent()->send();
+            }
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Invoice not saved'))->body(e($e->getMessage()))->send();
         }
