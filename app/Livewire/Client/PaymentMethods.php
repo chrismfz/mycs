@@ -232,7 +232,7 @@ class PaymentMethods extends Component
 
             return;
         }
-        $this->notify(__('services.payment_method_saved'), 'success');
+        $this->notify(ItemPaymentMethod::notice(__('services.payment_method_saved'), 'services.payment_method_saved_open_kept'), 'success');
     }
 
     /** A row's service or domain, of the page's account only. */

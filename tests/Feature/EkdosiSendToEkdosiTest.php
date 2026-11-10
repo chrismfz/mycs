@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
+use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\EkdosiDocument;
@@ -186,16 +187,30 @@ class EkdosiSendToEkdosiTest extends TestCase
         $this->assertSame([$new->id], $ids);
     }
 
-    public function test_a_merge_takes_the_request_off_its_target(): void
+    /**
+     * Before the owner's rule of 2026-11-10 («issued is final») a merge took the request off its target, and Ekdosi kept
+     * what it had read. Now an invoice sent to Ekdosi is not merged at all, on either side, until staff withdraw it.
+     */
+    public function test_a_merge_is_refused_while_its_target_or_a_source_is_sent_to_ekdosi(): void
     {
         $this->actingAs($this->staff(), 'staff');
         $target = $this->invoice();
         $source = $this->invoice();
         SendToEkdosi::request([$target], true);
 
-        app(MergeInvoices::class)->handle($target->id, [$source->id]);
+        foreach ([[$target->id, $source->id], [$source->id, $target->id]] as [$into, $from]) {
+            try {
+                app(MergeInvoices::class)->handle($into, [$from]);
+                $this->fail('merged while sent to Ekdosi');
+            } catch (DisplayException $e) {
+                $this->assertStringContainsString('withdraw the request', $e->getMessage());
+            }
+        }
+        $this->assertNotNull($target->fresh()->ekdosi_requested_at, 'the request stays: nothing moved');
 
-        $this->assertNull($target->fresh()->ekdosi_requested_at, 'it bills lines nobody asked a document for');
+        SendToEkdosi::request([$target->fresh()], false);
+        app(MergeInvoices::class)->handle($target->id, [$source->id]);
+        $this->assertSame(2, $target->items()->count());
     }
 
     public function test_the_bulk_action_is_hidden_without_the_bridge(): void
