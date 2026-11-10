@@ -497,6 +497,7 @@ class D3aAdversarialTest extends TestCase
         Carbon::setTestNow('2026-10-21 10:00:00');
         $this->cron();
 
-        $this->assertSame([], (new MoneyCheck)->run());
+        // The money adds up; the service refunded in full still runs on the period its invoice gave it: staff are told.
+        $this->assertSame(['service_unbilled'], array_values(array_unique(array_column((new MoneyCheck)->run(), 'rule'))));
     }
 }

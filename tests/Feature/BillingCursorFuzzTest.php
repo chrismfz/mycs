@@ -42,8 +42,11 @@ class BillingCursorFuzzTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** I10: the money check's rules but those about time (a row or a payment still waiting) and a negative credit. */
-    public const I10_EXCLUDED = ['paid_not_applied', 'gateway_received', 'credit_negative'];
+    /**
+     * I10: the money check's rules but those about time (a row or a payment still waiting), a negative credit, and the
+     * service that runs unbilled (not the money's: the simulation's staff refund, cancel and move dates on purpose).
+     */
+    public const I10_EXCLUDED = ['paid_not_applied', 'gateway_received', 'credit_negative', 'service_unbilled'];
 
     /** I10: the rules about what staff do next with an invoice; one the simulation's staff left as it is is excused. */
     private const I10_STAFF_LEFT = ['cancelled_applied', 'cancelled_holds_money', 'open_for_cancelled', 'paid_for_cancelled'];

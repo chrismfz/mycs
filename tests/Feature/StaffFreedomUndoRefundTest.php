@@ -183,7 +183,8 @@ class StaffFreedomUndoRefundTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($edited);
         $this->assertSame([Invoice::STATUS_UNPAID, 1000, 0], $this->state());
         $this->assertSame('0.00', $this->credit());
-        $this->assertMoneyClean();
+        // The money adds up; service 31 keeps the month the deleted payment gave it: told to staff (service_unbilled).
+        $this->assertMoneyClean(['service_unbilled']);
     }
 
     public function test_a_refund_in_full_made_the_invoice_refunded_and_its_undo_makes_it_paid_again_with_no_second_period(): void

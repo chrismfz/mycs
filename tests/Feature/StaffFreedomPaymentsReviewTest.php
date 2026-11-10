@@ -151,12 +151,12 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         ExtensionHelper::refundLocally($seven, 3.00, notify: false);
         (new RecordPaymentService)->deleteTransaction($three);
         $this->assertSame([Invoice::STATUS_UNPAID, 300, 400], $this->state(503), 'precondition');
-        $this->assertMoneyClean(when: 'before the undo');
+        $this->assertMoneyClean(['service_unbilled'], 'before the undo'); // service 32 keeps the month #503 gave it while #503 owes again
 
         (new UndoRefund)->handle($seven, $this->refund($seven)->id);
 
         $this->assertSame([Invoice::STATUS_UNPAID, 300, 700], $this->state(503), '7.00 of 10.00 is on it: it owes 3.00 and is not paid');
-        $this->assertMoneyClean();
+        $this->assertMoneyClean(['service_unbilled']); // still owing 3.00, service 32 still on the month it gave
     }
 
     /**

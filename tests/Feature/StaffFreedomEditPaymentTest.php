@@ -207,7 +207,7 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertSame('0.00', $this->credit());
         $this->assertPeriodUntouched();
         $this->assertUnusedBounded();
-        $this->assertMoneyClean();
+        $this->assertMoneyClean(['service_unbilled']); // service 31 runs on a month invoice #501 no longer has the money for
 
         (new EditPayment)->handle($payment, ['amount' => '10.00']);
 
@@ -257,7 +257,7 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertSame('0.00', $this->credit());
         $this->assertPeriodUntouched(); // services already renewed stay renewed: staff decide
         $this->assertSame('0.00', ChangeCycle::unused(Service::query()->findOrFail(31), CarbonImmutable::today()), 'and its days are worth no credit without the money');
-        $this->assertMoneyClean();
+        $this->assertMoneyClean(['service_unbilled']); // told to staff: service 31 runs on, its invoice #501 owes again
     }
 
     public function test_kept_a_payment_moves_only_within_its_customer_and_currency(): void
