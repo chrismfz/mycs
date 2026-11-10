@@ -3,14 +3,15 @@
 namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
+use App\Models\ApiKey;
 use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Services\Ekdosi\EkdosiDocuments;
@@ -131,24 +132,36 @@ class Sweep6TaxEkdosiTest extends TestCase
         $line->refresh();
         $this->assertSame(['0.00', '124.00'], [(string) $line->tax_amount, (string) $line->line_total]);
 
+        $this->markTestIncomplete('S6-TAX-EKDOSI-2 left as is (owner 2026-11-09): the fingerprint is part of the bridge contract with Ekdosi; docs/sweeps/2026-11-09-sixth.md.');
+        // @phpstan-ignore deadCode.unreachable
         [$status, $body] = (new EkdosiDocuments)->record(['invoice_id' => $invoice->id, 'mark' => '400001234567890', 'fingerprint' => $read]);
         $this->assertSame(409, $status, 'a document read with 24.00 VAT is taken for an invoice now of 0 VAT: ' . json_encode($body));
     }
 
-    /** S6-TAX-EKDOSI-4: a line pointed at another service keeps the old product's tax decision. */
-    public function test_a_line_moved_to_a_taxable_service_is_taxed(): void
+    /**
+     * S6-TAX-EKDOSI-4: a line pointed at another service kept the old product's tax decision. Cut (owner, KISS): the
+     * Admin API refuses a change of a line's reference; staff delete the line and add a new one.
+     */
+    public function test_the_api_refuses_to_point_a_line_at_another_service(): void
     {
         $untaxed = $this->service(false);
         $taxed = $this->service(true);
         $invoice = $this->invoice('100.00', $untaxed);
         $line = $invoice->items()->sole();
         $this->assertSame('0.00', (string) $line->tax_amount);
+        $token = 'S6TX' . bin2hex(random_bytes(8));
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true,
+            'token' => hash('sha256', $token), 'permissions' => ['admin.invoice_items.update']]);
 
-        $line = InvoiceItem::query()->findOrFail($line->id);
-        $line->fill(['reference_type' => Service::class, 'reference_id' => $taxed->id])->save();
-        $line->refresh();
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['reference_id' => $taxed->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('reference_id');
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['reference_type' => null, 'reference_id' => null])
+            ->assertUnprocessable()->assertJsonValidationErrors(['reference_type', 'reference_id']);
+        $this->assertSame([Service::class, $untaxed->id, '0.00'], [$line->fresh()->reference_type, (int) $line->fresh()->reference_id, (string) $line->fresh()->tax_amount]);
 
-        $this->assertSame(['24.0000', '24.00', null], [(string) $line->tax_rate, (string) $line->tax_amount, $line->tax_reason],
-            'the line now bills a taxable product');
+        // The stored pair sent back with another change is no change of reference.
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line),
+            ['description' => 'Hosting, a year', 'reference_type' => Service::class, 'reference_id' => $untaxed->id])->assertSuccessful();
+        $this->assertSame('Hosting, a year', $line->fresh()->description);
     }
 }
