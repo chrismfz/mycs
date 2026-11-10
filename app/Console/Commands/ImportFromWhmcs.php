@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
@@ -219,20 +220,44 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
-        // An addon always shares its parent's due date here (docs/addons.md, owner 2026-11-08): a live recurring one off its
-        // service's billing day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
-        if (($apart = $this->addonsApart()) !== []) {
-            $this->error('WHMCS addon(s) off their service\'s billing day: #' . implode(', #', $apart)
-                . '. An addon renews on its service\'s day of the month here: set its next due date in WHMCS to that day (the service\'s date, or that day within its own cycle; cutover-runbook.md), and dump again.'
-                . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
+        // An unpaid renewal invoice of a period the live service or addon is already past (sweep 7 S7-IMPORT-1, owner
+        // 2026-11-10): here it would count as «the renewal is billed already», the next period would never be billed and
+        // the service would be suspended. Cancelled or settled in WHMCS before the dump.
+        if (($stale = $this->staleRenewals()) !== []) {
+            $this->error('WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past (or a first order still unpaid after ' . self::ABANDONED_ORDER_DAYS . ' days): '
+                . implode('; ', array_map(fn (int $invoice, array $of) => "#{$invoice} (" . implode(', ', $of) . ')', array_keys($stale), $stale))
+                . '. Here such an invoice would stand for the next renewal, which would never be billed: cancel it or settle it in WHMCS'
+                . ' (cutover-runbook.md), and dump again. Nothing done.');
 
             return self::FAILURE;
         }
-        // And its parent's billing cycle (owner 2026-11-09): with the same cycle and the same day it renews on its
-        // service's invoice every time. One on another cycle is refused the same way.
+        // A domain order paid long ago and still plain «Pending» (sweep 7 S7-IMPORT-2, owner 2026-11-10): the first cron
+        // would register or transfer it at the registrar. Set Cancelled or Active in WHMCS before the dump; a younger one
+        // is sent from here as before (docs/importer.md).
+        if (($pending = $this->stalePaidDomainOrders()) !== []) {
+            $this->error('WHMCS domain order(s) paid more than ' . self::STALE_PAID_ORDER_DAYS . ' days ago and still «Pending»: domain #' . implode(', #', $pending)
+                . '. The first cron would register or transfer them at the registrar: set them Cancelled (not wanted any more) or Active'
+                . ' (registered since) in WHMCS (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
+        // An addon has its parent's billing cycle here (owner 2026-11-09): with the same cycle and the same date it renews
+        // on its service's invoice every time. One on another cycle is refused, as the other pre-dump conditions.
         if (($other = $this->addonsOnAnotherCycle()) !== []) {
             $this->error('WHMCS addon(s) on another billing cycle than their service: #' . implode(', #', $other)
                 . '. An addon is billed on its service\'s cycle here: set its billing cycle (and its recurring amount and next due date) in WHMCS as its service\'s (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+        // And its parent's due date (docs/addons.md, owner 2026-11-08; the date itself, not its
+        // day of the month: sweep 7 S7-LATEST-FIXES-1, owner 2026-11-10): a live recurring one due on another date is
+        // refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
+        if (($apart = $this->addonsApart()) !== []) {
+            $this->error('WHMCS addon(s) due on another date than their service: #' . implode(', #', $apart)
+                . '. An addon shares its service\'s due date here: set its next due date in WHMCS to its service\'s (cutover-runbook.md), and dump again.'
+                . ' Only a pair whole periods apart because the one behind has its own renewal invoice of that period unpaid is taken as it is.'
+                . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
 
             return self::FAILURE;
         }
@@ -3443,6 +3468,86 @@ class ImportFromWhmcs extends Command
         return [...$services, ...array_map(fn (int $id) => "addon #{$id}", $addons)];
     }
 
+    /**
+     * Unpaid WHMCS invoices (imported unpaid, invoiceStatus: Unpaid, Collections, Payment Pending) with a renewal line of a period its live
+     * service or addon is already past: a Hosting line of an Active or Suspended service, or an Addon line of an Active or
+     * Suspended recurring addon of a service not imported ended, whose own due date (ii.duedate, the period WHMCS billed
+     * with it) is before the item's nextduedate. WHMCS moves nextduedate on only when a period is paid (or staff move it by
+     * hand), so an unpaid renewal still owed has its line due ON nextduedate, however long overdue: never refused. One due
+     * before it is a leftover (the date moved by hand, a duplicate paid) that WHMCS ignores; here its line comes as «the
+     * renewal billed already» (serviceLineReference: no kind, no period) and the next period is never billed (sweep 7
+     * S7-IMPORT-1). The import refuses to run on them (handle): staff cancel or settle them in WHMCS. A line with no due
+     * date of its own (0000-00-00) is left out: nothing says which period it is. A first order's line (due on or before
+     * the item's regdate; a pro rata order's nextduedate is ahead of it from the start) counts only once its invoice is
+     * older than ABANDONED_ORDER_DAYS: a young order is the customer's to pay (review of #775). The runbook's pre-dump
+     * queries, the same sets. A source without these tables (a test's): none.
+     *
+     * @return array<int, list<string>> invoice => what it bills late («service #id», «addon #id»)
+     */
+    private function staleRenewals(): array
+    {
+        if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        // A first order's line (due on or before the day the item was made; with pro rata its nextduedate is already ahead)
+        // is the customer's order, not a leftover, while it is young: only one older than an abandoned order's days.
+        $young = $this->pdo->quote(now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString());
+        $query = fn (string $from, string $type, string $where, string $first) => $this->pdo->query("SELECT DISTINCT i.id, s.id AS item FROM {$from}
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate{$first}
+            AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded') ORDER BY i.id, s.id")->fetchAll(PDO::FETCH_ASSOC);
+        $stale = function (string $from, string $type, string $where) use ($query, $young) {
+            try {
+                return $query($from, $type, $where, " AND (ii.duedate > s.regdate OR i.date < {$young})");
+            } catch (PDOException) {
+                return $query($from, $type, $where, ''); // no regdate or invoice date in the source (a test's): every such line
+            }
+        };
+        $found = [];
+        foreach ($stale('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')") as $row) {
+            $found[(int) $row['id']][] = "service #{$row['item']}";
+        }
+        foreach (!$this->sourceHas('tblhostingaddons') ? [] : $stale('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
+            "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN (" . $this->endedStatuses() . ') AND s.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ')') as $row) {
+            $found[(int) $row['id']][] = "addon #{$row['item']}";
+        }
+        ksort($found);
+
+        return $found;
+    }
+
+    /** Days after its payment a WHMCS domain order still plain «Pending» refuses the import (stalePaidDomainOrders). */
+    public const STALE_PAID_ORDER_DAYS = 30;
+
+    /**
+     * WHMCS domains still plain «Pending» (never sent to a registrar there) whose register or transfer line is on an
+     * invoice Paid more than STALE_PAID_ORDER_DAYS ago (by its datepaid, else its date): a registration that failed and was
+     * settled outside WHMCS, the row never closed. Imported, the first cron would send it to the registrar
+     * (DomainOrderFulfilment::due has no age limit; sweep 7 S7-IMPORT-2). The import refuses to run on them (handle): staff
+     * set them Cancelled or Active in WHMCS. A younger one is sent from here as before (R3-2 of #535), and one imported
+     * active (WhmcsDomainImport::registeredWhilePending: it has an expiry ahead) is never sent, so not refused. The unpaid
+     * twin is abandonedOrders'. A source without these tables (a test's): none.
+     *
+     * @return list<int> tbldomains ids
+     */
+    private function stalePaidDomainOrders(): array
+    {
+        if (!$this->sourceHas('tbldomains') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        $query = $this->pdo->prepare("SELECT DISTINCT d.id, d.type, d.expirydate, d.registrationdate,
+            (SELECT COUNT(*) FROM tblinvoiceitems r JOIN tblinvoices ri ON ri.id = r.invoiceid WHERE r.type = 'Domain' AND r.relid = d.id AND ri.status = 'Paid') AS renewals
+            FROM tbldomains d JOIN tblinvoiceitems ii ON ii.type IN ('DomainRegister', 'DomainTransfer') AND ii.relid = d.id
+            JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE d.status = 'Pending' AND i.status = 'Paid' AND (CASE WHEN i.datepaid > '0000-00-00' THEN i.datepaid ELSE i.date END) < ?
+            ORDER BY d.id");
+        $query->execute([now()->subDays(self::STALE_PAID_ORDER_DAYS)->toDateString()]);
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($query->fetchAll(PDO::FETCH_ASSOC),
+            fn (array $row) => !WhmcsDomainImport::registeredWhilePending(
+                stripos((string) $row['type'], 'transfer') !== false ? DomainStatus::PendingTransfer : DomainStatus::PendingRegister, $row, (int) $row['renewals'] > 0))));
+    }
+
     /** The addon cycles with no next period here (WhmcsAddonImport: no expiry, never renewed): left out of the addon checks. */
     private const NOT_RECURRING_ADDON_CYCLES = ['Free Account', 'One Time', 'Free'];
 
@@ -3475,21 +3580,56 @@ class ImportFromWhmcs extends Command
         $live = $this->quoted(WhmcsAddonImport::LIVE);
         $ended = $this->endedStatuses();
 
-        return $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
+        return $this->pdo->query('SELECT a.id, a.hostingid, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
             . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
             . ' AND a.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ') ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
-     * Those off their service's billing day (not on its day of the month: WhmcsAddonImport::onServiceDay), or of a service
-     * with no next due date: the import refuses to run on them. The runbook's pre-dump check.
+     * Those not due on their service's date (owner 2026-11-10, sweep 7 S7-LATEST-FIXES-1: the date itself; the same day in
+     * another month is another date since an addon has its service's cycle), or of a service with no next due date: the
+     * import refuses to run on them. Two shapes are taken as they are, the pair whole periods apart
+     * (WhmcsAddonImport::periodsBehind) because one of the two has not paid its period yet: the addon BEHIND its service
+     * with its own renewal unpaid (an unpaid «Addon» line due on the addon's nextduedate), and its mirror, the addon AHEAD
+     * of its service whose own renewal is unpaid (an unpaid «Hosting» line due on the service's nextduedate; review of
+     * #775, REV-775-4: no change in WHMCS leaves the money alone). Paid here, the one behind catches up and both renew
+     * together. The runbook's pre-dump check.
      *
      * @return list<int> tblhostingaddons ids
      */
     private function addonsApart(): array
     {
-        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(),
-            fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));
+        $unpaid = null;
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(), function (array $row) use (&$unpaid) {
+            [$cycle, $addonDue, $serviceDue] = [(string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']];
+            $behind = WhmcsAddonImport::periodsBehind($cycle, $addonDue, $serviceDue);
+            if ($behind === 0) {
+                return false;
+            }
+            $unpaid ??= ['Addon' => $this->unpaidRenewals('tblhostingaddons', 'Addon'), 'Hosting' => $this->unpaidRenewals('tblhosting', 'Hosting')];
+
+            return !($behind > 0 ? isset($unpaid['Addon'][(int) $row['id']])
+                : (WhmcsAddonImport::periodsBehind($cycle, $serviceDue, $addonDue) > 0 && isset($unpaid['Hosting'][(int) $row['hostingid']])));
+        })));
+    }
+
+    /**
+     * The WHMCS addons (or services) whose renewal for the period they are in (an «Addon» / «Hosting» line due on their
+     * own nextduedate) is on an invoice imported unpaid (invoiceStatus: Collections and Payment Pending too): overdue, not
+     * misdated. A source without the invoice tables (a test's): none.
+     *
+     * @return array<int, true>
+     */
+    private function unpaidRenewals(string $table, string $type): array
+    {
+        if (!$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+
+        return array_fill_keys(array_map('intval', $this->pdo->query("SELECT DISTINCT s.id FROM {$table} s
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id AND ii.duedate = s.nextduedate JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE s.nextduedate > '0000-00-00' AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')")->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
     /**

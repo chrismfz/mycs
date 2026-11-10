@@ -374,6 +374,11 @@ final class RenewalBilling
         // Past its last recoverable day (review 4): nothing to renew any more; staff decide.
         $lastDay = $domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at;
         if ($domain->status !== DomainStatus::Active && $lastDay->copy()->startOfDay()->lessThan(today())) {
+            // Its renewal from this expiry was given up by the cron and told to staff then (domain_invoices_cancelled,
+            // sweep 7 S7-DOMAINS-1): not said again every night.
+            if (($domain->meta['renewal_given_up'] ?? null) === $periodStart->toDateString()) {
+                return 0;
+            }
             $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: past its last recoverable day ({$lastDay->toDateString()}): not billed.");
 
             return 0;

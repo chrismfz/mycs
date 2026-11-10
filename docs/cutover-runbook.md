@@ -158,17 +158,65 @@ credentials. Το import της ημέρας τα φέρνει όλα:
      μένουν στην ημέρα χρέωσής της (ο έλεγχος `addonsApart`). Μετά ξανά dump.
   2. Αν το import αρνηθεί («WHMCS live service(s) or addon(s) whose renewal invoice was cancelled or deleted and next invoice date moved past it»):
      το ίδιο, και ξανά import. Τίποτα δεν έχει αδειάσει.
+- **Ξεχασμένα απλήρωτα τιμολόγια ανανέωσης (sweep 7 S7-IMPORT-1, απόφαση ιδιοκτήτη 2026-11-10): ακυρώνονται ή
+  τακτοποιούνται στο WHMCS πριν από το τελικό dump.** Ένα τιμολόγιο που έρχεται απλήρωτο (Unpaid, Collections, Payment Pending) με γραμμή ανανέωσης περιόδου που η
+  ζωντανή υπηρεσία (ή το ζωντανό addon) έχει ήδη περάσει (η `duedate` της γραμμής είναι πριν από το `nextduedate`: το staff
+  μετακίνησε την ημερομηνία με το χέρι, ή πληρώθηκε ένα διπλό) αγνοείται από το WHMCS. Εδώ θα μετρούσε ως «η ανανέωση έχει
+  ήδη τιμολογηθεί»: η επόμενη περίοδος δεν θα τιμολογούνταν και η υπηρεσία θα έμπαινε σε αναστολή. Ο importer **αρνείται να
+  τρέξει** (και με `--dry-run`, πριν αδειάσει οτιδήποτε) και τα ονομάζει (`staleRenewals`: τιμολόγιο και `service #id` ή
+  `addon #id`). Μια ληξιπρόθεσμη ανανέωση της **τρέχουσας** περιόδου (γραμμή με `duedate` = `nextduedate`) δεν πιάνεται: είναι
+  χρέος και έρχεται όπως είναι.
+  1. Ακριβώς πριν από το dump, υπηρεσίες: `SELECT DISTINCT i.id, s.id FROM tblhosting s JOIN tblinvoiceitems ii ON ii.type =
+     'Hosting' AND ii.relid = s.id JOIN tblinvoices i ON i.id = ii.invoiceid WHERE s.domainstatus IN ('Active', 'Suspended')
+     AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate AND (ii.duedate >
+     s.regdate OR i.date < CURDATE() - INTERVAL 7 DAY) AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')` =
+     καμία γραμμή (μια πρώτη παραγγελία, γραμμή με `duedate` ως και το `regdate`, μετρά μόνο όταν το τιμολόγιό της είναι
+     πάνω από 7 μέρες παλιό). Addons: `SELECT DISTINCT i.id, s.id FROM
+     tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid JOIN tblinvoiceitems ii ON ii.type = 'Addon' AND ii.relid =
+     s.id JOIN tblinvoices i ON i.id = ii.invoiceid WHERE s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN
+     ('Terminated', 'Cancelled', 'Fraud') AND s.billingcycle NOT IN ('Free Account', 'One Time', 'Free') AND s.nextduedate >
+     '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate AND (ii.duedate > s.regdate OR i.date <
+     CURDATE() - INTERVAL 7 DAY) AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')` = καμία γραμμή. Έλεγχος 2026-11-10 στα αντίγραφα: καμία σε καμία εταιρεία.
+     Όσα βγουν, στο WHMCS: «Mark Cancelled» αν δεν οφείλεται πια, ή πληρωμή/τακτοποίηση αν οφείλεται (τότε το `Next Due
+     Date` της υπηρεσίας να είναι το σωστό). Μετά ξανά dump.
+  2. Αν το import αρνηθεί («WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already
+     past (or a first order still unpaid after 7 days)»): το ίδιο, και ξανά import. Τίποτα δεν έχει αδειάσει.
+- **Παλιές πληρωμένες παραγγελίες domain που έμειναν «Pending» (sweep 7 S7-IMPORT-2, απόφαση ιδιοκτήτη 2026-11-10):
+  κλείνουν στο WHMCS πριν από το τελικό dump.** Ένα domain σκέτο «Pending» με πληρωμένη παραγγελία στέλνεται στον registrar
+  από το πρώτο cron μετά το cut-over (όπως είναι γραμμένο στο `importer.md`). Αν η πληρωμή είναι πάνω από **30 μέρες** πριν,
+  συνήθως η καταχώριση απέτυχε και τακτοποιήθηκε εκτός WHMCS: ο importer **αρνείται να τρέξει** (και με `--dry-run`) και
+  ονομάζει τα domains (`stalePaidDomainOrders`). Νεότερες στέλνονται όπως πριν.
+  1. Ακριβώς πριν από το dump: `SELECT DISTINCT d.id FROM tbldomains d JOIN tblinvoiceitems ii ON ii.type IN
+     ('DomainRegister', 'DomainTransfer') AND ii.relid = d.id JOIN tblinvoices i ON i.id = ii.invoiceid WHERE d.status =
+     'Pending' AND i.status = 'Paid' AND (CASE WHEN i.datepaid > '0000-00-00' THEN i.datepaid ELSE i.date END) < CURDATE() -
+     INTERVAL 30 DAY` = καμία γραμμή (ο importer αφήνει έξω όσα έχουν λήξη στο μέλλον και έρχονται active). Έλεγχος
+     2026-11-10 στα αντίγραφα: καμία σε καμία εταιρεία (κανένα domain «Pending»). Όσα βγουν, στο domain στο WHMCS: status
+     **Cancelled** αν δεν το θέλει πια ο πελάτης (και refund ή πίστωση αν οφείλεται), ή **Active** με τη σωστή λήξη αν
+     καταχωρίστηκε στο μεταξύ. Μετά ξανά dump.
+  2. Αν το import αρνηθεί («WHMCS domain order(s) paid more than 30 days ago and still «Pending»»): το ίδιο, και ξανά
+     import. Τίποτα δεν έχει αδειάσει.
 - **Ποσότητα > 1 (sweep IMPORT-1, `sweeps/2026-11-07.md`): καμία πριν από το τελικό dump, αλλιώς έλεγχος.** Ο importer
   γράφει τιμή = `amount` (addon: `recurring`) και ποσότητα = `qty`, και η ανανέωση χρεώνει το γινόμενο. Αν στο WHMCS το
   `amount` είναι ήδη το σύνολο, κάθε ανανέωση χρεώνει `qty` φορές. Έλεγχος 2026-11-06: καμία σε καμία εταιρεία.
   Ακριβώς πριν από το dump: `SELECT COUNT(*) FROM tblhosting WHERE qty > 1 AND domainstatus IN ('Active','Suspended')` και
   `SELECT COUNT(*) FROM tblhostingaddons WHERE qty > 1 AND status IN ('Active','Suspended')` = 0. Αν βγει κάποιο, συγκρίνουμε
   ένα με την τελευταία γραμμή ανανέωσής του (`tblinvoiceitems.amount`) πριν από το import.
-- **Addons με άλλη λήξη από τη γονική (απόφαση ιδιοκτήτη 2026-11-07): με το χέρι, πριν από το τελικό dump.** Ένα addon που
-  λήγει έξω από τη μέρα χρέωσης της γονικής του **σταματά το import** (2026-11-08: εδώ ένα addon έχει πάντα τη λήξη της
+- **Addons με άλλη λήξη από τη γονική (απόφαση ιδιοκτήτη 2026-11-07): με το χέρι, πριν από το τελικό dump.** Ένα addon με
+  άλλο `nextduedate` από τη γονική του **σταματά το import** (2026-11-08: εδώ ένα addon έχει πάντα τη λήξη της
   γονικής): το import τα ονομάζει και δεν γράφει τίποτα. Αποφασίστηκε να παίρνει τη λήξη της γονικής, με το χέρι στο WHMCS
-  (`nextduedate` του addon = της γονικής), χωρίς συμψηφισμό για τις μέρες που χάνονται ή χαρίζονται. Ο έλεγχος της μέρας:
-  ίδια μέρα του μήνα, με την 29η–31η κομμένη σε μικρό μήνα (`WhmcsAddonImport::onServiceDay`, REV-KISS-2, sweep 5).
+  (`nextduedate` του addon = της γονικής), χωρίς συμψηφισμό για τις μέρες που χάνονται ή χαρίζονται. **Από 2026-11-10 (sweep 7
+  S7-LATEST-FIXES-1, απόφαση ιδιοκτήτη) ο έλεγχος είναι η ίδια η ημερομηνία**, όχι η ίδια μέρα του μήνα: με ίδιο κύκλο, η
+  ίδια μέρα σε άλλον μήνα δεν είναι η λήξη της γονικής. Δύο σχήματα έρχονται όπως είναι, το ζευγάρι ακέραιες περιόδους μακριά (η 29η–31η
+  κομμένη σε μικρό μήνα, `WhmcsAddonImport::periodsBehind`) επειδή το ένα από τα δύο δεν έχει πληρώσει ακόμη την περίοδό του:
+  το addon **πίσω** από τη γονική με απλήρωτη τη δική του ανανέωση (γραμμή `Addon` με `duedate` = το `nextduedate` του addon σε
+  απλήρωτο τιμολόγιο), και το αντίστροφο, το addon **μπροστά** από τη γονική που έχει απλήρωτη τη δική της ανανέωση (γραμμή
+  `Hosting` με `duedate` = το `nextduedate` της γονικής· review του #775, REV-775-4). **Το δεύτερο δεν ευθυγραμμίζεται με το
+  χέρι:** δεν υπάρχει αλλαγή στο WHMCS που να αφήνει τα χρήματα όπως είναι (το addon πίσω = ξαναχρεώνεται μήνας που πλήρωσε·
+  η γονική μπροστά = χαρίζεται ο απλήρωτος μήνας της και το τιμολόγιό του σταματά το import ως ξεχασμένο). Στο MyCS το addon
+  ανανεώνεται μόνο του στην ώρα του, η γονική δεν τιμολογείται ξανά όσο είναι ανοιχτή η ανανέωσή της, και μόλις αυτή πληρωθεί
+  λήγουν μαζί· ως τότε η αλλαγή κύκλου της γονικής αρνείται (`addons.md`). **Έλεγχος 2026-11-10: το addon #170 του myip
+  (μηνιαίο) είναι αυτό το σχήμα, έναν μήνα μπροστά από τη γονική του με απλήρωτη την ανανέωσή της: έρχεται όπως είναι,
+  καμία ενέργεια.** Nixpal: κανένα addon.
   **Ένα addon με άλλο κύκλο από τη γονική του σταματά κι αυτό το import** (απόφαση ιδιοκτήτη 2026-11-09: ένα addon έχει
   πάντα και τον κύκλο της γονικής, ώστε να ανανεώνεται κάθε φορά στο τιμολόγιό της· πριν δεχόμασταν ένα μηνιαίο addon σε
   ετήσια υπηρεσία στη μέρα της). Με το χέρι στο WHMCS: `Billing Cycle` του addon = της γονικής, `Recurring Amount` η τιμή του
@@ -183,12 +231,14 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   2026-11-06: 3 στο myip (#160, #169, #170· το #160 είναι Suspended ενώ η γονική του είναι Active: να δει κάποιος γιατί), κανένα
   στη nixpal. Ακριβώς πριν από το dump: `SELECT a.id FROM tblhostingaddons a JOIN tblhosting h ON h.id = a.hostingid WHERE
   a.status IN ('Active','Suspended','Pending') AND h.domainstatus IN ('Active','Suspended','Pending') AND a.billingcycle NOT IN
-  ('Free Account','One Time','Free') AND a.nextduedate <> h.nextduedate` δίνει τις υποψήφιες· όσες από αυτές είναι στη μέρα
-  της γονικής, μένουν ως έχουν. Το
+  ('Free Account','One Time','Free') AND a.nextduedate <> h.nextduedate` δίνει τις υποψήφιες· από αυτές μένει ως έχει
+  μόνο το ζευγάρι που απέχει ακέραιες περιόδους επειδή αυτό που είναι πίσω (addon ή γονική) έχει απλήρωτη την ανανέωσή του. Το
   dry run του import δίνει την τελική λίστα.
 - **Παλιά ανοιχτά τιμολόγια (sweep 2, F-RENEWAL-CYCLE-2):** ένα ανοιχτό τιμολόγιο του WHMCS με γραμμή της υπηρεσίας χωρίς
   περίοδο μετράει στο MyCS ως ανανέωση ήδη τιμολογημένη, και οι επόμενες δεν βγαίνουν ώσπου να πληρωθεί ή να ακυρωθεί. Πριν από
-  το dump: τα ανοιχτά τιμολόγια που δεν θα πληρωθούν πια (παλιά, ξεχασμένα) ακυρώνονται στο WHMCS.
+  το dump: τα ανοιχτά τιμολόγια που δεν θα πληρωθούν πια (παλιά, ξεχασμένα) ακυρώνονται στο WHMCS. Όσα είναι περιόδου που η
+  υπηρεσία έχει ήδη περάσει τα αρνείται πια το ίδιο το import (S7-IMPORT-1, παραπάνω)· ένα απλήρωτο της τρέχουσας περιόδου
+  που δεν θα πληρωθεί μένει στην κρίση του staff.
 - **Γίνονται ήδη από τον importer:** οι «Free Account» μπαίνουν σε plan με 0,00, χωρίς λήξη και με κλειδωμένη τιμή
   (#594). Η ρύθμιση `credits_on_downgrade` έρχεται από το WHMCS (#596).
 - **Ρυθμίσεις του myip που το import δεν μπορεί να φέρει (WG-17, απόφαση ιδιοκτήτη 2026-11-05):**
