@@ -48,6 +48,17 @@ return [
     'upgrade_cycle_change_pending' => 'A billing cycle change is set for this service\'s next renewal: take it back first (Change billing cycle, keep the current one), then change the package.',
     'upgrade_cycle_change_pending_parent' => 'A billing cycle change is set for the next renewal of the main service #:id, and this addon follows it: take it back there first (on the main service: Change billing cycle, keep the current one), then change the package.',
     'upgrade_cycle_not_started' => 'The billing cycle of this service changes on :date, with its renewal: a package change is available from that day.',
+    'change_package' => [
+        'refused' => [
+            'no_plan' => 'It has no product or plan: set them on the form first.',
+            'not_running' => 'It is :status, and a package change is priced on the days left of a running period (active or suspended). Change its product, plan and price on the form instead.',
+            'pending_change' => 'A change is waiting for payment: record the payment of its invoice, or cancel the change under «Package changes» first.',
+            'cancelling' => 'A cancellation is requested: an upgrade of a service about to end would only be refunded. Delete the cancellation request first, or change its product, plan and price on the form.',
+            'order_unpaid' => 'Its order is unpaid: an upgrade would reprice the order\'s line. Record the payment of its first invoice first, or change its product, plan and price on the form.',
+            'no_due_date' => 'It has no due date, so there are no days left to price: set its due date on the form first, or change its product, plan and price there.',
+            'cycle_not_started_staff' => 'Until then: wait, or change its product and plan by hand on this page and bill the difference yourself.',
+        ],
+    ],
     'upgrade_waiting' => 'A package change of this service is waiting for payment (invoice #:invoice): pay it, or have the package change cancelled first. To cancel it, contact us.',
     'upgrade_invoice_open' => 'An upgrade invoice of this service is open (#:invoice): pay it or cancel it first. To cancel it, contact us.',
     'upgrade_summary' => 'Upgrade Summary',

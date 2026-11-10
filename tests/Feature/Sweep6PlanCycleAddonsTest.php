@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Tests\TestCase;
+use Throwable;
 
 /**
  * Sweep 6, adversarial verification of «plan-cycle-addons»: change of cycle, upgrades and addons, each test failing
@@ -165,9 +166,15 @@ class Sweep6PlanCycleAddonsTest extends TestCase
 
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'S6 ' . uniqid(), 'permissions' => ['*']])->id]);
-        $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->callAction('changePackage', ['product_id' => $b->id])
-            ->assertNotified('Not changed');
+        // Said before the form is filled in (owner 2026-11-10): the action is there, disabled, with the way out as its tooltip.
+        $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->assertActionVisible('changePackage')->assertActionDisabled('changePackage');
+        $this->assertSame(__('services.upgrade_cycle_change_pending'), (string) $page->instance()->getAction('changePackage')->getTooltip());
+        try {
+            $page->callAction('changePackage', ['product_id' => $b->id]);
+        } catch (Throwable) {
+            // a disabled action cannot be called by the testing helper: what counts is what was made
+        }
         $this->assertSame(0, ServiceUpgrade::query()->where('service_id', $service->id)->count());
         $this->assertSame($aYearly->id, (int) $service->fresh()->next_plan_id, 'the yearly choice stands');
     }

@@ -42,8 +42,11 @@ final class ChangePackage
             ->label('Upgrade/Downgrade')
             ->icon('ri-arrow-up-down-line')
             ->authorize('update')
+            // Always in the menu (owner 2026-11-10, docs/staff-freedom.md): when it does not apply it is disabled, with why
+            // and staff's way through as its tooltip, rather than gone without a word. A disabled action is not mounted.
             // Not the catalog on every load of the page: the products are listed once the modal opens.
-            ->visible(fn (Service $record) => self::refusal($record) === null)
+            ->disabled(fn (Service $record) => self::refusal($record) !== null)
+            ->tooltip(fn (Service $record) => self::refusal($record))
             ->modalHeading('Upgrade/Downgrade')
             ->modalDescription(fn (Service $record) => "Related service: {$record->product?->name}"
                 . ($record->domain ? " ({$record->domain})" : ''))
@@ -84,6 +87,13 @@ final class ChangePackage
             ])
             ->modalSubmitActionLabel('Create order')
             ->action(function (array $data, Service $record, Action $action, $livewire): void {
+                // Read again: it may have changed since the page was loaded (a request, a change of cycle).
+                if (($refused = self::refusal($record->refresh())) !== null) {
+                    Notification::make()->danger()->title('Not changed')->body($refused)->send();
+                    $action->halt();
+
+                    return;
+                }
                 $product = self::targets($record)->firstWhere('id', (int) $data['product_id']);
                 if ($product === null) {
                     Notification::make()->danger()->title('Not changed')->body('This product is not available for this service.')->send();
@@ -141,34 +151,44 @@ final class ChangePackage
     /** The customer's refusal with its date, and staff's way through meanwhile. */
     private static function cycleNotStarted(Service $service): string
     {
-        return PlaceUpgrade::cycleNotStarted($service)
-            . ' Until then: wait, or change its product and plan by hand on this page and bill the difference yourself.';
+        return PlaceUpgrade::cycleNotStarted($service) . ' ' . __('services.change_package.refused.cycle_not_started_staff');
     }
 
-    /** Why staff cannot change its package now, or null. */
+    /**
+     * Why staff cannot change its package now, with their way through, or null. The checks stay (without them the change
+     * is priced on a period that is unpaid or not there); the service's form stays open for product, plan and price.
+     */
     public static function refusal(Service $service): ?string
     {
         if ($service->plan === null || $service->product === null) {
-            return 'It has no product or plan.';
+            return __('services.change_package.refused.no_plan');
         }
         if (!in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
-            return 'It does not run.';
+            return __('services.change_package.refused.not_running', ['status' => $service->status]);
         }
         if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->exists()) {
-            return 'A change is waiting for payment.';
+            return __('services.change_package.refused.pending_change');
         }
         // A cancellation asked for: an upgrade of a service about to end would only be refunded (CR-10, as the customer's
         // page; CR-2 of #638). Staff take the cancellation back first.
-        if ($service->cancellation !== null) {
-            return 'A cancellation is requested.';
+        if ($service->cancellation()->exists()) {
+            return __('services.change_package.refused.cancelling');
         }
         // Set up before its order was paid: an upgrade would reprice the order's line (adversarial A5).
         if ($service->orderUnpaid()) {
-            return 'Its order is unpaid.';
+            return __('services.change_package.refused.order_unpaid');
         }
         // A recurring one with no due date is never billed: an upgrade would keep the dearer product for good (ADV-594-2).
         if ($service->plan->type === 'recurring' && $service->expires_at === null) {
-            return 'It has no due date.';
+            return __('services.change_package.refused.no_due_date');
+        }
+        // What PlaceUpgrade refuses under its lock, said before the form is filled in: a change of cycle set for its
+        // next renewal, or made for a period that has not started (S7-PLAN-CYCLE-ADDONS-2).
+        if ($service->next_plan_id !== null) {
+            return PlaceUpgrade::cycleChangePending($service);
+        }
+        if ($service->planStartsOn() !== null) {
+            return self::cycleNotStarted($service);
         }
 
         return null;

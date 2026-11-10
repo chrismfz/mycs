@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource\ChangePackage;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\RelationManagers\UpgradesRelationManager;
 use App\Livewire\Services\Upgrade;
@@ -275,8 +276,9 @@ class ServiceUpgradeHistoryTest extends TestCase
         PlaceUpgrade::handle($service, $this->large, [], ServiceUpgrade::SOURCE_CLIENT);
 
         $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->assertActionHidden('changePackage');
+            ->assertActionVisible('changePackage')->assertActionDisabled('changePackage'); // shown with why (owner 2026-11-10)
 
+        $this->assertSame(__('services.change_package.refused.pending_change'), ChangePackage::refusal($service->fresh()));
         $this->assertSame(PlaceUpgrade::NOT_UPGRADABLE, PlaceUpgrade::handle($service, $this->large, [], ServiceUpgrade::SOURCE_STAFF)->outcome);
         $this->assertSame(1, ServiceUpgrade::query()->count());
     }
@@ -339,7 +341,8 @@ class ServiceUpgradeHistoryTest extends TestCase
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'leaving']);
 
         $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->assertActionHidden('changePackage');
+            ->assertActionVisible('changePackage')->assertActionDisabled('changePackage'); // shown with why (owner 2026-11-10)
+        $this->assertSame(__('services.change_package.refused.cancelling'), ChangePackage::refusal($service->fresh()));
     }
 
     /** CR-3: nothing due (its period ended) is shown as applied at once, which it is. */
