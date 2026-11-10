@@ -3,6 +3,8 @@
 namespace App\Admin\Resources\InvoiceTransactions\Tables;
 
 use App\Admin\Actions\DeleteInvoiceTransaction;
+use App\Admin\Actions\EditInvoiceTransaction;
+use App\Admin\Actions\UndoRefundAction;
 use App\Admin\Resources\InvoiceResource;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\InvoiceTransaction;
@@ -61,6 +63,8 @@ class InvoiceTransactionsTable
             ])
             ->defaultSort('id', 'desc') // as created, by the primary key
             ->recordActions([
+                UndoRefundAction::make(),
+                EditInvoiceTransaction::make(),
                 DeleteAction::make()
                     ->schema([DeleteInvoiceTransaction::negativeCreditField()])
                     ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false))),

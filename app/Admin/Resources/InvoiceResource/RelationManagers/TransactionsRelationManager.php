@@ -3,6 +3,8 @@
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\DeleteInvoiceTransaction;
+use App\Admin\Actions\EditInvoiceTransaction;
+use App\Admin\Actions\UndoRefundAction;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
@@ -198,6 +200,9 @@ class TransactionsRelationManager extends RelationManager
                             Auth::user()->can('update', $record)
                     )
                     ->modalSubmitAction(fn (Action $action) => $action->label(__('invoices.refund'))),
+                // Staff's corrections (owner 2026-11-10, docs/staff-freedom.md): one payment or one refund at a time.
+                UndoRefundAction::make(),
+                EditInvoiceTransaction::make(),
                 DeleteAction::make()
                     ->schema([DeleteInvoiceTransaction::negativeCreditField()])
                     ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false)))

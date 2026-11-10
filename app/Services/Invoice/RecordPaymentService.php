@@ -104,7 +104,7 @@ class RecordPaymentService
      * (gateway_refunds «waiting», by the payment's id there), are recorded now (PR 2c-2, F3), once this commits. Those of
      * the payment's own gateway account; a payment with no gateway (staff typed the id) takes any gateway's.
      */
-    private function applyWaitingRefunds(?InvoiceTransaction $transaction): void
+    public function applyWaitingRefunds(?InvoiceTransaction $transaction): void
     {
         if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || $transaction->transaction_id === null || $transaction->is_credit_transaction) {
             return;

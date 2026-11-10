@@ -261,7 +261,8 @@ class CreditAutoApply
         }
         // Staff refunded money of this invoice to credit (PR 2c): paid straight back into it, the refund would be undone
         // and the invoice could never be cancelled (code review and adversarial review of 2c).
-        if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)->exists()) {
+        if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
+            ->whereDoesntHave('reversal')->exists()) { // not one staff undid since (UndoRefund, REV-781-9)
             return false;
         }
         // A domain's renewal the customer no longer renews, or of a domain gone (D5b, adversarial ADV-5): not credit's.

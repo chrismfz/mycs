@@ -23,6 +23,7 @@ use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\UndoRefund;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
@@ -111,7 +112,8 @@ class InvoiceObserver
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
         // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
-        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {
+        // But for staff undoing one of its refunds (UndoRefund, owner 2026-11-10): it holds money again.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED && !UndoRefund::undoing()) {
             throw new DisplayException(__('A refunded invoice stays refunded: bill the customer on a new invoice.'));
         }
         // Read locked: Invoice::save holds the payment locks for a change to cancelled or refunded.
@@ -382,6 +384,10 @@ class InvoiceObserver
         }
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+            self::renewalLines($invoice, domains: true)->update(['forgone_at' => null]);
+        }
+        // Refunded no more (staff undid its refund, UndoRefund): the periods its refund gave up are its own again.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {
             self::renewalLines($invoice, domains: true)->update(['forgone_at' => null]);
         }
 

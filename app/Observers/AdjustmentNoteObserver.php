@@ -11,6 +11,7 @@ use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Ekdosi\EkdosiRequest;
+use App\Services\Invoice\UndoRefund;
 
 class AdjustmentNoteObserver
 {
@@ -111,12 +112,16 @@ class AdjustmentNoteObserver
         if (array_diff($dirty, ['status', ...self::EDITABLE]) !== []) {
             throw new DisplayException(__('An adjustment note keeps its invoice and its number: only its description and amount are edited.'));
         }
-        if (array_intersect($dirty, self::EDITABLE) !== [] && !$adjustmentNote->isVoidableByStaff()) {
+        if (array_intersect($dirty, self::EDITABLE) !== [] && !$adjustmentNote->isVoidableByStaff() && !UndoRefund::undoing()) {
             throw new DisplayException(__('This note follows a refund or a cancellation: it is not edited by hand.'));
         }
+        // Voided only with its refund, when staff undo that (UndoRefund, owner 2026-11-10).
         if ($adjustmentNote->isDirty('status') && $adjustmentNote->is_refund
-            && $adjustmentNote->status !== AdjustmentNoteStatus::Active) {
+            && $adjustmentNote->status !== AdjustmentNoteStatus::Active && !UndoRefund::undoing()) {
             throw new DisplayException(__('A refund\'s adjustment note follows its refund: it is never voided.'));
+        }
+        if ($adjustmentNote->isDirty('status') && $adjustmentNote->status === AdjustmentNoteStatus::Active && UndoRefund::undone($adjustmentNote)) {
+            throw new DisplayException(__('invoices.refund_undo.note_stays_voided'));
         }
         if ($dirty !== []) {
             self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
