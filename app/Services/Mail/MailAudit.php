@@ -8,10 +8,15 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\Staff;
+use App\Models\TicketMailId;
 use App\Models\TicketMessage;
+use App\Support\Redact;
+use App\Support\Tickets\GuestLinks;
+use App\Support\Tickets\TicketMailer;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
+use MyCS\TicketMail\MessageId;
 
 /** The mail audit's helpers (docs/mail.md): what a mail is about, and staff's resend. */
 class MailAudit
@@ -126,8 +131,39 @@ class MailAudit
         ]);
         $mail = new ResentMail($original->subject, $original->body);
         $mail->email_log_id = $log->id;
+        self::asTicketMail($original, $to, $log, $mail);
         Mail::to($to)->cc($cc)->bcc($bcc)->queue($mail);
 
         return $log;
+    }
+
+    /**
+     * A ticket's mail sent again to the address it was for goes out as a ticket's mail (sweep 7, S7-TICKETS-MAIL-2): with
+     * a Message-ID of ours, so the first send's own code (TicketReplyEmailListener) writes Reply-To, the thread and the
+     * loop header, and the answer joins the ticket. One that never went out keeps the id kept for it; one that did gets
+     * a new one (a second mail with the same Message-ID is dropped by some mailboxes). A guest's link, masked in the
+     * log, is issued anew, to the guest's own address only. To another address it stays a copy of the log: a ticket's
+     * Message-ID and a guest's link are keys (docs/tickets.md §3 Γ, Δ).
+     */
+    private static function asTicketMail(EmailLog $original, string $to, EmailLog $log, ResentMail $mail): void
+    {
+        if (!is_string($original->message_id) || !MessageId::isOurs($original->message_id) || strcasecmp(trim($to), trim((string) $original->to)) !== 0) {
+            return;
+        }
+        $key = TicketMailId::query()->where('message_id', $original->message_id)->with('ticket')->first();
+        $ticket = $key?->ticket;
+        if ($key === null || $ticket === null) {
+            return;
+        }
+        if ($original->sending_at !== null || $original->status === EmailLog::STATUS_SENT) {
+            $key = TicketMailId::query()->create(['ticket_id' => $key->ticket_id, 'ticket_message_id' => $key->ticket_message_id,
+                'message_id' => MessageId::generate(TicketMailer::domain($ticket)), 'kind' => $key->kind, 'recipient' => $key->recipient]);
+        }
+        $mail->threadMessageId = $key->message_id;
+        $log->forceFill(['message_id' => $key->message_id])->save();
+        $masked = 'href="' . Redact::MASK . '"';
+        if ($ticket->isGuest() && strcasecmp(trim($to), trim((string) $ticket->guest_email)) === 0 && str_contains($mail->renderedHtml, $masked)) {
+            $mail->renderedHtml = str_replace($masked, 'href="' . e(GuestLinks::issue($ticket)) . '"', $mail->renderedHtml);
+        }
     }
 }

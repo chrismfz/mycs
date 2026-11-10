@@ -24,6 +24,12 @@ class ResentMail extends Mailable implements ShouldBeEncrypted
 
     public $email_log_id;
 
+    /**
+     * A ticket's mail sent again to the address it was for: the Message-ID of ours it goes out with, so
+     * TicketReplyEmailListener writes its headers as on the first send (MailAudit::resend).
+     */
+    public ?string $threadMessageId = null;
+
     public function __construct(public string $renderedSubject, public string $renderedHtml) {}
 
     public function envelope(): Envelope
