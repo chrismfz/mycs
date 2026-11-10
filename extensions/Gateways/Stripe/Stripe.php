@@ -987,18 +987,34 @@ class Stripe extends Gateway
 
         if ($stripeCustomerId) {
             // Only Stripe's own «no such customer» (or one it deleted) makes a new one. Anything else (a timeout, a 5xx, a
-            // 429) says nothing of the customer: the account's saved cards are attached to it, and a new customer in its
-            // place could never charge them again (S7-PAYMENTS-2). The checkout or the new card is refused for now.
+            // 429, a key it refuses) says nothing of the customer: the account's saved cards are attached to it, and a new
+            // customer in its place could never charge them again (S7-PAYMENTS-2). The checkout or the new card is refused
+            // for now. A key of the other mode is answered with the same 404 («a similar object exists in live mode, but a
+            // test mode key was used», and the reverse): the customer exists, the key is wrong (REV-774-5).
             try {
                 $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
                 if (!isset($customer->deleted)) {
                     return $customer;
                 }
             } catch (Exception $e) {
-                if (!$e instanceof RequestException || $e->response->status() !== 404 || $e->response->json('error.code') !== 'resource_missing') {
+                $gone = $e instanceof RequestException && $e->response->status() === 404 && $e->response->json('error.code') === 'resource_missing';
+                $otherMode = $gone && str_contains((string) $e->response->json('error.message'), 'similar object exists in');
+                if (!$gone || $otherMode) {
                     report($e);
+                    if (self::noAnswer($e)) {
+                        throw new DisplayException(__('The payment provider did not answer. Nothing was charged: please try again in a few minutes.'));
+                    }
+                    // Not an outage: Stripe refuses the key, or the key is of the other mode. Trying again does not help
+                    // the customer; staff are told (once an hour) and fix the gateway's settings.
+                    if (Cache::add('stripe-customer-read-refused', true, now()->addHour())) {
+                        $message = $otherMode
+                            ? 'Stripe says the customer ' . $stripeCustomerId->value . ' of client #' . $user->id . ' exists in the other mode (live/test) than the secret key saved in the Stripe gateway: the key\'s mode does not match the stored customers. Their checkouts and new cards are refused, and the customer was kept, until the key is the right one.'
+                            : 'Stripe refused to read the customer ' . $stripeCustomerId->value . ' of client #' . $user->id . ' (HTTP ' . ($e instanceof RequestException ? $e->response->status() : '?') . '): check the secret key saved in the Stripe gateway. Checkouts and new cards of accounts with a Stripe customer are refused until it works.';
+                        PaymentsLog::warning($message, ['client_id' => $user->id]);
+                        NotificationHelper::sendSystemEmailNotification('Stripe: customers cannot be read', e($message));
+                    }
 
-                    throw new DisplayException(__('The payment provider did not answer. Nothing was charged: please try again in a few minutes.'));
+                    throw new DisplayException(__('This payment method is not available right now. We have been told and are looking into it: please pay another way, or try again later.'));
                 }
             }
         }

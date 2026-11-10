@@ -92,8 +92,34 @@ class RecordPaymentService
         foreach ($notices as $notice) {
             $this->notify($notice, $invoiceId, $transactionId, $gateway);
         }
+        $this->applyWaitingRefunds($transaction);
 
         return $transaction;
+    }
+
+    /**
+     * The one place a payment becomes money here, whoever recorded it (a gateway's event, staff's «Add payment» completing
+     * a processing one: REV-774-3): the refunds and chargebacks its gateway reported before that, which waited for it
+     * (gateway_refunds «waiting», by the payment's id there), are recorded now (PR 2c-2, F3), once this commits. Those of
+     * the payment's own gateway account; a payment with no gateway (staff typed the id) takes any gateway's.
+     */
+    private function applyWaitingRefunds(?InvoiceTransaction $transaction): void
+    {
+        if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || $transaction->transaction_id === null || $transaction->is_credit_transaction) {
+            return;
+        }
+        $reference = (string) $transaction->transaction_id;
+        $extension = $transaction->gateway?->extension;
+        DB::afterCommit(function () use ($reference, $extension) {
+            try {
+                GatewayRefund::query()->where('payment_reference', $reference)->whereIn('origin', GatewayRefund::WAITING_ORIGINS)
+                    ->when($extension !== null, fn ($waiting) => $waiting->whereIn('gateway', ExtensionHelper::accountExtensions((string) $extension)))
+                    ->distinct()->pluck('gateway')
+                    ->each(fn ($gateway) => ExtensionHelper::applyWaitingRefunds((string) $gateway, $reference));
+            } catch (\Throwable $e) {
+                report($e); // they keep waiting: the gateway's next event of the payment applies them
+            }
+        });
     }
 
     /**
@@ -459,7 +485,10 @@ class RecordPaymentService
             // chargeback the gateway made is real money given back, recorded here or not (another currency, matched to a
             // refund by hand): the payment stays, as one with refunds does. What moved no money goes with the payment.
             $reported = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->orderBy('id')->lockForUpdate()->get();
-            $kept = $reported->reject(fn (GatewayRefund $record) => in_array($record->origin, [...GatewayRefund::NO_MONEY_ORIGINS, ...GatewayRefund::WAITING_ORIGINS], true));
+            // One still «waiting» goes on waiting only for a payment that never succeeded; on a succeeded payment it is a
+            // refund the gateway made that was not applied (yet): refused as the others (REV-774-4).
+            $detached = $transaction->status === InvoiceTransactionStatus::Succeeded ? [] : GatewayRefund::WAITING_ORIGINS;
+            $kept = $reported->reject(fn (GatewayRefund $record) => in_array($record->origin, [...GatewayRefund::NO_MONEY_ORIGINS, ...$detached], true));
             if ($kept->isNotEmpty()) {
                 throw new DisplayException(__('The gateway refunded or charged back this payment (:records): it cannot be deleted, its refund history and gateway transaction id must stay. If that refund is not recorded on the payment, record it with «Refund», by hand.',
                     ['records' => $kept->map(fn (GatewayRefund $record) => $record->reference)->implode(', ')]));
@@ -553,7 +582,7 @@ class RecordPaymentService
             // A refund or a chargeback still waiting for this payment to succeed (it never did) keeps waiting, by the payment's
             // id at the gateway: a success reported later records it then. The rest moved no money and goes with the payment.
             if ($reported->isNotEmpty()) {
-                GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::WAITING_ORIGINS)->modelKeys())->update(['invoice_transaction_id' => null]);
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', $detached)->modelKeys())->update(['invoice_transaction_id' => null]);
                 GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::NO_MONEY_ORIGINS)->modelKeys())->delete();
                 PaymentsLog::info("Payment #{$transaction->id} of invoice #{$invoice->id} deleted with what its gateway reported on it.", [
                     'transaction_id' => $transaction->transaction_id,

@@ -163,6 +163,23 @@ class Sweep7DeletePaymentGatewayRecordsTest extends TestCase
         $this->assertSame(1, MoneyEvent::query()->where('invoice_id', $this->invoice->id)->count());
     }
 
+    /** REV-774-4: a refund still «waiting» on a payment that did succeed is a refund the gateway made: refused, kept on it. */
+    public function test_a_waiting_refund_on_a_succeeded_payment_refuses_the_deletion(): void
+    {
+        $payment = $this->paid();
+        $waiting = GatewayRefund::query()->create(['invoice_transaction_id' => $payment->id, 'gateway' => 'Stripe', 'reference' => 're_not_applied',
+            'payment_reference' => 'pi_1', 'amount' => '40.00', 'currency_code' => 'USD', 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_WAITING]);
+
+        try {
+            (new RecordPaymentService)->deleteTransaction($payment);
+            $this->fail('a succeeded payment with a refund waiting on it was deleted');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('re_not_applied', $e->getMessage());
+        }
+        $this->assertNotNull($payment->fresh());
+        $this->assertSame($payment->id, $waiting->fresh()->invoice_transaction_id);
+    }
+
     /**
      * A refund reported for a payment still processing waits for it. Staff delete the payment (it never came): the refund
      * keeps waiting by the payment's id, and the success the gateway reports later is recorded with its refund.
