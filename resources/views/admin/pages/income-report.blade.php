@@ -4,6 +4,7 @@
     $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => $currencyModel], tax: 0))->format($amount);
 @endphp
 <x-filament-panels::page>
+    <p class="text-sm font-semibold text-warning-600 dark:text-warning-400">{{ \App\Services\Reports\IncomeReport::notice() }}</p>
     <div class="flex flex-wrap items-end gap-4">
         <label class="text-sm">
             {{ __('Year') }}
@@ -21,7 +22,7 @@
                 @endforeach
             </select>
         </label>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own; credit purchases are not income.') }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year as they stand today, by their payment date: a chargeback, a deleted payment or a correction made later changes a past year. A refund or credit note made in the year on an earlier invoice is a row of its own, as is the credit a downgrade or a change of cycle gave; credit purchases are not income.') }}</p>
     </div>
 
     <x-filament::section :heading="__('By month')">

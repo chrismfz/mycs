@@ -815,7 +815,7 @@ class PayPal extends Gateway
             ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
                 abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
         } elseif (in_array($body['event_type'], ['PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.DECLINED'], true) && isset($body['resource']['id'])) {
-            return $this->captureDenied((string) $body['resource']['id'], $body['event_type']);
+            return $this->captureDenied((string) $body['resource']['id'], $body['event_type'], (array) $body['resource']);
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
             try {
@@ -858,14 +858,28 @@ class PayPal extends Gateway
      * money came, and left «succeeded» with no payment it would read as taken and not recorded, holding the invoice
      * (REV-PAYMENTS-1). Only our processing capture: a succeeded one is never undone here, and an id we have no processing
      * record of is nothing to change.
+     *
+     * A denial that comes before its PENDING capture is recorded here (pay() and capture() record it after PayPal's answer,
+     * in another request; REV-766-2): the capture names its invoice (`invoice_id`, ours by its mark), so a failed payment
+     * is left for it and the PENDING record that follows is ignored (a failed payment never goes back to processing).
+     *
+     * @param  array<string, mixed>  $resource
      */
-    private function captureDenied(string $captureId, string $event)
+    private function captureDenied(string $captureId, string $event, array $resource = [])
     {
         $payment = $captureId === '' ? null : InvoiceTransaction::query()->where('transaction_id', $captureId)
             ->where('is_credit_transaction', false)->where('status', InvoiceTransactionStatus::Processing)
             ->whereHas('gateway', fn ($gateway) => $gateway->where('extension', 'PayPal'))
             ->orderBy('id')->first();
         if ($payment === null) {
+            $invoiceId = GatewayReference::invoiceIdFromPaypal($resource['invoice_id'] ?? null);
+            $amount = $resource['amount']['value'] ?? null;
+            if ($captureId !== '' && $invoiceId !== null && is_numeric($amount) && Invoice::query()->whereKey($invoiceId)->exists()
+                && !InvoiceTransaction::query()->where('transaction_id', $captureId)->exists()) {
+                ExtensionHelper::addFailedPayment($invoiceId, 'PayPal', $amount, null, $captureId, $resource['amount']['currency_code'] ?? null);
+
+                return response()->json(['status' => 'success']);
+            }
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'capture_not_processing', ['external_id' => $captureId ?: null]);
 
             return response()->json(['status' => 'ignored']);

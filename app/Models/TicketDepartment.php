@@ -62,7 +62,7 @@ class TicketDepartment extends Model implements Auditable
     public function mailboxSettings(): MailboxSettings
     {
         return new MailboxSettings((string) $this->imap_host, $this->imap_port ?: ($this->imap_encryption === 'starttls' ? 143 : 993),
-            (string) $this->imap_encryption, (string) $this->imap_username, (string) $this->imap_password, $this->imap_folder ?: 'INBOX');
+            (string) $this->imap_encryption, (string) $this->imap_username, (string) $this->imap_password, $this->imap_folder ?: 'INBOX', since: $this->mail_since);
     }
 
     /** The addresses that are ours (its own and its login): a mail from them is a loop, never a ticket. */

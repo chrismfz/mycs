@@ -28,6 +28,9 @@ class CreateClient extends CreateRecord
                 'last_name' => $data['last_name'],
                 'email' => $data['email'],
                 'password' => $data['password'],
+                // Typed by staff, who vouch for it (S6-TICKETS-MAIL-1): its mail to support reaches this account. «Email
+                // Verified» on the user takes it back.
+                'email_verified_at' => now(),
             ]);
             $staff = Auth::guard('staff')->user();
             $client = Client::openFor($owner, grantedBy: $staff instanceof Staff ? $staff : null);

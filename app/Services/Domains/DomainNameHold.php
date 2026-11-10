@@ -129,7 +129,10 @@ final class DomainNameHold
     private static function entitled(Domain $domain): bool
     {
         if ($domain->status === DomainStatus::Expired) {
-            return $domain->inRecoveryWindow() || self::renewalWaiting($domain);
+            // A renewal staff closed «not renewed» keeps no hold (S6-DOMAINS-1): the name is free once the window ends.
+            // Their Retry takes it back (claim()), if no one has it by then.
+            return $domain->inRecoveryWindow() || DomainRenewalService::waitingLines()->where('reference_id', $domain->id)->get()
+                ->contains(fn (InvoiceItem $line) => !DomainRenewalService::closedUnrenewed($line));
         }
         if (!$domain->status->isPending()) {
             return true; // holds by its status, or not at all: nothing to release

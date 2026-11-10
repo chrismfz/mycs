@@ -32,6 +32,7 @@ use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
+use App\Observers\InvoiceObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
@@ -709,14 +710,14 @@ class ExtensionHelper
      *
      * @param  Invoice|int  $invoice
      */
-    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null, ?string $paymentGroup = null)
+    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null, ?string $paymentGroup = null, bool $onItsWayNow = false)
     {
         if (isset($gateway)) {
             $gateway = Gateway::where('extension', $gateway)->first();
         }
 
         $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency,
-            paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup);
+            paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup, onItsWayNow: $onItsWayNow);
         // Refunds that arrived before their payment was money here are recorded now (PR 2c-2, F3).
         if ($transaction instanceof InvoiceTransaction && $gateway !== null && $transactionId !== null && $transaction->status === InvoiceTransactionStatus::Succeeded) {
             $extension = $gateway->extension;
@@ -732,9 +733,13 @@ class ExtensionHelper
         return $transaction;
     }
 
-    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null, ?string $paymentGroup = null)
+    /**
+     * A failed payment stays failed when an event says «processing» (a late or repeated one: S6-PAYMENTS-1), unless
+     * $onItsWayNow: the gateway was asked just now and the payment is on its way (a new attempt under the same id).
+     */
+    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null, ?string $paymentGroup = null, bool $onItsWayNow = false)
     {
-        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency, paymentGroup: $paymentGroup);
+        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency, paymentGroup: $paymentGroup, onItsWayNow: $onItsWayNow);
     }
 
     public static function addFailedPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)
@@ -1579,7 +1584,12 @@ class ExtensionHelper
                     // Read under the locks: refresh() would read this transaction's older snapshot (code review M4).
                     $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
                     if ($invoice->status === Invoice::STATUS_PAID && $invoice->remaining > 0) {
-                        $invoice->update(['status' => Invoice::STATUS_UNPAID]);
+                        // Always recorded, also when an item it bills moved to another customer or was deleted since
+                        // (S6-MONEY-LEDGER-2): staff decide what the invoice becomes.
+                        $invoice->owedAgainAfterChargeback();
+                        if (InvoiceObserver::billsItemOfAnother($invoice)) {
+                            $staff = ($staff ?? '') . 'The invoice bills an item that moved to another customer or was deleted: a payment of it would not renew anything of this customer. Settle it by hand. ';
+                        }
                     }
                 }
                 GatewayRefund::create(['recorded_amount' => $record / 100, 'money_event_id' => $event?->id, 'credit_taken' => $fromCredit / 100,

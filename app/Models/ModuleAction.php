@@ -505,6 +505,11 @@ class ModuleAction extends Model
         // without one nothing would (code review 5): a registration is Active for its years, a transfer Active (its
         // expiry for staff to set, listed under «Records to check»). Under the domain's registrar lock (code review 10).
         if (in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true)) {
+            // An ended domain (REV-769-5): «done» would use up its payment for a domain that stays cancelled, listed nowhere.
+            $ended = Domain::query()->find($this->domain_id);
+            if ($ended !== null && $ended->status->isTerminal()) {
+                throw new RuntimeException(__('domains.order.done_by_hand_ended', ['domain' => $ended->fqdn, 'status' => $ended->status->value]));
+            }
             Cache::lock("domain-registrar:{$this->domain_id}", 600)->block(15, fn () => DB::transaction(function () use ($staff) {
                 $domain = Domain::query()->lockForUpdate()->find($this->domain_id);
                 if ($domain !== null) {

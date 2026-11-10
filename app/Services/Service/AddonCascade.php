@@ -128,7 +128,7 @@ final class AddonCascade
                 && CarbonImmutable::parse($addon->expires_at)->startOfDay()->greaterThan(CarbonImmutable::today());
             $addon->forceFill(['status' => $parent->status])->save();
             $own = CancelPendingUpgrades::forService($addon, $reason);
-            $own += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()), $reason, $addon);
+            $own += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $addon), $reason, $addon);
             if ($paidAhead) {
                 $own['paid_ahead'] = new DisplayException("Addon #{$addon->id} was paid until {$addon->expires_at->toDateString()}: refund or credit the unused time if due.");
             }

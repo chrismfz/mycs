@@ -4,9 +4,14 @@ namespace App\Services\Reports;
 
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
+use App\Enums\MoneyEventKind;
 use App\Models\AdjustmentNote;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\MoneyEvent;
+use App\Services\Money\MoneyTrail;
+use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
@@ -14,16 +19,30 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * A year's income for the accountant (ROADMAP 6; nixpal's accountant wants a spreadsheet of the year's income), as cash:
- * every invoice paid in the year (paid_at, WHMCS datepaid; one refunded since too), with its net, tax and total, its
- * customer and how it was paid; and every refund or credit note made in the year on an invoice paid in an earlier one,
- * as a row of its own, negative (review F3 of #280: a year sent to the accountant never changes afterwards). A note
- * made before the year ended is on its invoice's row. Credit purchases (add funds) are never income. One currency.
+ * A year's income (ROADMAP 6), as cash. Informative: fiscal documents and their corrections are Ekdosi's, and the
+ * accountant works from there (owner 2026-11-10). It shows the invoices paid in the year as they stand today (paid_at,
+ * WHMCS datepaid; one refunded since too), with net, tax and total, customer and how each was paid. So a chargeback, a
+ * deleted payment or a staff correction after the year's end changes it: an invoice open again is no longer listed,
+ * and one paid again is listed on its new date. Nothing is kept to hold a past year still.
+ *
+ * A refund or credit note made in the year on an invoice paid in an earlier one is a row of its own, negative; one made
+ * before the year ended is on its invoice's row. Credit purchases (add funds) are never income. One currency.
+ *
+ * The credit a downgrade or a change of cycle gave (the journal's credit_in of those causes, read only) is a negative
+ * row in the year it was given (sweep 6, S6-TAX-EKDOSI-1): its money came in on the invoice first paid and is counted
+ * again on the invoice that credit pays. Gross, split into net and tax at the customer's VAT rate today: an estimate,
+ * the journal keeps no split. Imported credit is left out (its WHMCS years are as WHMCS had them).
  */
 final class IncomeReport
 {
     /** Rows shown on the page; the export holds them all (review F2 of #280). */
     public const SHOWN = 200;
+
+    /** The line on the page and at the top of the export. */
+    public static function notice(): string
+    {
+        return __('Informative. Fiscal documents are issued in Ekdosi.');
+    }
 
     /**
      * @return array{invoices: list<array{paid_at: CarbonImmutable, number: string, client: string, country: string, vat: string,
@@ -73,6 +92,21 @@ final class IncomeReport
             $gross = self::cents($line->gross);
             $net = $gross === 0 ? $amount : (int) round($amount * self::cents($line->net) / $gross);
             $add(self::row($note->invoice, CarbonImmutable::instance($note->created_at), $net, $amount, __('Refund or credit note')));
+        }
+
+        // The credit a downgrade or a change of cycle gave in the year: taken off, as the invoice it pays counts it again.
+        $credits = MoneyEvent::query()->where('kind', MoneyEventKind::CreditIn->value)->where('currency_code', $currency)
+            ->whereIn('cause', [MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::CAUSE_CYCLE_CHANGE])->where('source', '!=', MoneyTrail::SOURCE_IMPORT)
+            ->where('occurred_at', '>=', $from)->where('occurred_at', '<', $until)->whereDoesntHave('reversal')
+            ->with(['client.primaryContact', 'client.ownerGrant.user'])->orderBy('occurred_at')->orderBy('id')->get();
+        foreach ($credits as $event) {
+            $gross = self::cents($event->amount);
+            $rate = $event->client !== null ? OrderPricing::taxRate($event->client) : null;
+            $net = $rate === null ? $gross : BigDecimal::of($gross)->multipliedBy(100)
+                ->dividedBy(BigDecimal::of($rate)->plus(100), 0, RoundingMode::HalfUp)->toInt();
+            $add(self::entry(CarbonImmutable::instance($event->occurred_at), '', (string) ($event->client->name ?? ''), $event->client,
+                (string) ($event->client?->primaryContact->country ?? ''), -$net, -$gross,
+                $event->cause === MoneyTrail::CAUSE_DOWNGRADE ? __('Credit given for a downgrade') : __('Credit given for a change of cycle')));
         }
 
         usort($rows, fn ($a, $b) => [$a['paid_at'], $a['number']] <=> [$b['paid_at'], $b['number']]);
@@ -155,21 +189,30 @@ final class IncomeReport
     /** @return array<string, mixed> */
     private static function row(Invoice $invoice, CarbonImmutable $when, int $net, int $total, string $paidWith): array
     {
-        $contact = $invoice->client?->primaryContact;
+        // As issued where the invoice kept it (its snapshot's country, F4 of #280); the VAT number is the customer's now.
+        // A rule for every country ('all', as WhmcsTaxImport maps WHMCS's «any») says nothing of the customer's: the
+        // customer's country now then (sweep TAX-REPORTS-3).
+        return self::entry($when, (string) ($invoice->number ?: $invoice->id), (string) $invoice->user_name, $invoice->client,
+            (string) (self::issuedCountry($invoice->snapshot?->tax_country) ?? $invoice->client?->primaryContact->country ?? ''), $net, $total, $paidWith);
+    }
 
+    /**
+     * A row: an invoice's, or one without an invoice (credit given).
+     *
+     * @return array<string, mixed>
+     */
+    private static function entry(CarbonImmutable $when, string $number, string $name, ?Client $client, string $country, int $net, int $total, string $what): array
+    {
         return [
             'paid_at' => $when,
-            'number' => (string) ($invoice->number ?: $invoice->id),
-            'client' => (string) $invoice->user_name,
-            // As issued where the invoice kept it (its snapshot's country, F4 of #280); the VAT number is the customer's now.
-            // A rule for every country ('all', as WhmcsTaxImport maps WHMCS's «any») says nothing of the customer's: the
-            // customer's country now then (sweep TAX-REPORTS-3).
-            'country' => (string) (self::issuedCountry($invoice->snapshot?->tax_country) ?? $contact->country ?? ''),
-            'vat' => (string) ($contact->vat_number ?? ''),
+            'number' => $number,
+            'client' => $name,
+            'country' => $country,
+            'vat' => (string) ($client?->primaryContact->vat_number ?? ''),
             'net' => self::money($net),
             'tax' => self::money($total - $net),
             'total' => self::money($total),
-            'paid_with' => $paidWith,
+            'paid_with' => $what,
             'net_cents' => $net,
             'total_cents' => $total,
         ];

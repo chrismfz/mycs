@@ -496,6 +496,9 @@ class RenewalGroupingAdversarialTest extends TestCase
             updated_at TEXT, created_at TEXT, credit REAL, currency INT, taxexempt INT, separateinvoices INT)');
         $whmcs->exec('CREATE TABLE tblusers (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, password TEXT, email_verified_at TEXT)');
         $whmcs->exec('CREATE TABLE tblusers_clients (auth_user_id INT, client_id INT, owner INT)');
+        // Every WHMCS has it (the import refuses a source without); the accounts' currencies are read from it.
+        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'EUR')");
         foreach ([[9101, 1], [9102, 0]] as [$id, $separate]) {
             $whmcs->exec("INSERT INTO tblclients VALUES ({$id}, 'A', 'B', 'c{$id}@example.test', '', '2024-01-02 10:00:00', '2024-01-02 10:00:00', 0, 1, 0, {$separate})");
             $whmcs->exec("INSERT INTO tblusers VALUES ({$id}, 'A', 'B', 'c{$id}@example.test', 'x', NULL)");

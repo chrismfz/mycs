@@ -19,6 +19,7 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Order\OrderPricing;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\ItemPaymentMethod;
+use App\Services\Service\AddonCycle;
 use App\Services\Service\RenewServiceService;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
@@ -124,8 +125,9 @@ final class RenewalBilling
             return 0;
         }
 
-        // Does the service have already an open (pending or draft) invoice?
-        if ($service->renewalInvoices()->whereIn('status', Invoice::OPEN_STATUSES)->exists() || $service->cancellation()->exists()) {
+        // Does the service have already an open (pending or draft) invoice? Its customer's: one of another customer (the
+        // first customer's, charged back after the service moved here: REV-766-3) is not this service's renewal on its way.
+        if ($service->renewalInvoices()->whereIn('status', Invoice::OPEN_STATUSES)->where('invoices.client_id', $service->client_id)->exists() || $service->cancellation()->exists()) {
             return 0;
         }
         // A payment of it still to be applied (BIL-9): its date has not moved yet, billing now would ask for it twice.
@@ -189,8 +191,8 @@ final class RenewalBilling
         // A change of cycle «from the next renewal» (SVC-14b): this period is the first of the plan set to come, at its
         // price. One no longer of the service's product (staff moved it since) is dropped.
         if ($service->next_plan_id !== null) {
-            $next = $service->nextPlan;
-            if ($next !== null && $next->priceable_type === Product::class && (int) $next->priceable_id === (int) $service->product_id) {
+            $next = self::billedPlan($service);
+            if ($next !== null && (int) $next->id === (int) $service->next_plan_id) {
                 $service->plan_id = $next->id;
                 $service->setRelation('plan', $next);
                 $service->price = (float) $service->calculatePrice();
@@ -316,14 +318,21 @@ final class RenewalBilling
 
     /**
      * The plan a service's next renewal bills: the one set «from the next renewal» (SVC-14b) while it is of its product,
-     * as billRenewal applies it, else its own. The cron reads its days from it (ADV-660-1a/b, R660-1).
+     * as billRenewal applies it, else its own. The cron reads its days from it (ADV-660-1a/b, R660-1). An addon's counts
+     * only while its parent is on that cycle or moves to it (docs/addons.md, 2026-11-09): its parent's change taken away
+     * any other way (an upgrade to another product, staff's edit), the addon's is dropped, never applied on its own.
      */
     public static function billedPlan(Service $service): ?Plan
     {
         $next = $service->next_plan_id !== null ? $service->nextPlan : null;
+        if ($next === null || $next->priceable_type !== Product::class || (int) $next->priceable_id !== (int) $service->product_id) {
+            return $service->plan;
+        }
+        if ($service->isAddon() && ($service->parent === null || !AddonCycle::same($next, self::billedPlan($service->parent)))) {
+            return $service->plan;
+        }
 
-        return $next !== null && $next->priceable_type === Product::class && (int) $next->priceable_id === (int) $service->product_id
-            ? $next : $service->plan;
+        return $next;
     }
 
     /** The farthest of the services' invoice days: what the cron looks ahead to before each service's own (serviceInvoiceDays). */

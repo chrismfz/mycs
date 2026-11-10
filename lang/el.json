@@ -116,6 +116,7 @@
     "This transaction id belongs to a payment on invoice #:invoice: nothing was recorded here.": "Αυτό το transaction id ανήκει σε πληρωμή του τιμολογίου #:invoice: δεν καταγράφηκε τίποτα εδώ.",
     "This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.": "Αυτό το note ακολουθεί μια επιστροφή ή μια ακύρωση, ή το τιμολόγιό του είναι οριστικοποιημένο: δεν ακυρώνεται με το χέρι.",
     "An invoice is created unpaid: it becomes paid when its payment is recorded.": "Ένα τιμολόγιο δημιουργείται ανεξόφλητο: γίνεται εξοφλημένο όταν καταγραφεί η πληρωμή του.",
+    "An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).": "Ένα τιμολόγιο που αγοράζει πίστωση λογαριασμού δεν παίρνει adjustment note ούτε έκπτωση: άλλαξε το ποσό της γραμμής του (ή ακύρωσέ το και φτιάξε νέο).",
     "A credit purchase becomes paid only when its payment covers the credit it buys.": "Μια αγορά πίστωσης γίνεται εξοφλημένη μόνο όταν η πληρωμή της καλύπτει την πίστωση που αγοράζει.",
     "A paid invoice keeps its lines: set it back to unpaid first.": "Ένα εξοφλημένο τιμολόγιο κρατά τις γραμμές του: γύρισέ το πρώτα σε Απλήρωτο.",
     "A paid invoice keeps its total: set it back to unpaid to change its adjustment notes.": "Ένα εξοφλημένο τιμολόγιο κρατά το σύνολό του: γύρισέ το σε Απλήρωτο για να αλλάξεις τα adjustment notes του.",
@@ -271,6 +272,7 @@
     "This contact is not available.": "Αυτή η επαφή δεν είναι διαθέσιμη.",
     "Its period is billed again by invoice #:id: cancel that one first.": "Η περίοδός του χρεώνεται ξανά από το τιμολόγιο #:id: ακυρώστε πρώτα εκείνο.",
     "This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).": "Αυτό το ακυρωμένο τιμολόγιο καταγράφει περίοδο υπηρεσίας που δεν χρεώνεται: κρατιέται (ανοίξτε το ξανά για να χρεωθεί η περίοδος).",
+    "This invoice buys account credit and has payments: its lines keep their amounts. Refund the payment back first, then cancel it and make a new one with the right amount.": "Αυτό το τιμολόγιο αγοράζει πίστωση λογαριασμού και έχει πληρωμές: οι γραμμές του κρατούν τα ποσά τους. Επιστρέψτε πρώτα την πληρωμή πίσω, μετά ακυρώστε το και φτιάξτε νέο με το σωστό ποσό.",
     "This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.": "Αυτό το τιμολόγιο έχει πληρωμές: οι γραμμές του κρατούν τα ποσά τους. Επιστρέψτε πρώτα την πληρωμή (πίσω ή σε πίστωση λογαριασμού) ή δώστε έκπτωση με σημείωμα.",
     "Separate invoices": "Ξεχωριστά τιμολόγια",
     "Charge renewals automatically": "Αυτόματη χρέωση ανανεώσεων",
@@ -887,7 +889,6 @@
     "Count": "Πλήθος",
     "Refund or credit note": "Επιστροφή ή πιστωτικό",
     "The first :count; the export holds them all.": "Τα πρώτα :count· το export τα περιέχει όλα.",
-    "Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος, με βάση την ημερομηνία πληρωμής· μια επιστροφή ή ένα πιστωτικό του έτους σε παλαιότερο τιμολόγιο είναι δική του γραμμή· οι αγορές πίστωσης δεν είναι έσοδο.",
     "Offer": "Προσφορά",
     "Offers": "Προσφορές",
     "Link": "Σύνδεσμος",
@@ -1742,5 +1743,10 @@
     "Invalid code.": "Λάθος κωδικός.",
     "You have an unpaid invoice for credits. Please pay the invoice before adding more credits.": "Έχετε απλήρωτο τιμολόγιο για πίστωση. Πληρώστε το πριν προσθέσετε άλλη πίστωση.",
     "An open invoice of this service was paid meanwhile: try again.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας πληρώθηκε στο μεταξύ: δοκιμάστε ξανά.",
-    "Addon #:id is paid another way than this service: change it from the next renewal, or set the addon's payment as the service's first.": "Το addon #:id πληρώνεται με άλλον τρόπο από την υπηρεσία: αλλάξτε τον κύκλο από την επόμενη ανανέωση, ή ορίστε πρώτα την πληρωμή του addon όπως της υπηρεσίας."
+    "Addon #:id is paid another way than this service: change it from the next renewal, or set the addon's payment as the service's first.": "Το addon #:id πληρώνεται με άλλον τρόπο από την υπηρεσία: αλλάξτε τον κύκλο από την επόμενη ανανέωση, ή ορίστε πρώτα την πληρωμή του addon όπως της υπηρεσίας.",
+    "A line keeps what it bills: delete it and add a new line instead.": "Μια γραμμή κρατά αυτό που χρεώνει: σβήστε τη και προσθέστε νέα γραμμή.",
+    "Credit given for a downgrade": "Πίστωση από υποβάθμιση",
+    "Credit given for a change of cycle": "Πίστωση από αλλαγή κύκλου",
+    "Invoices paid in the year as they stand today, by their payment date: a chargeback, a deleted payment or a correction made later changes a past year. A refund or credit note made in the year on an earlier invoice is a row of its own, as is the credit a downgrade or a change of cycle gave; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος όπως είναι σήμερα, με την ημερομηνία πληρωμής: ένα chargeback, μια διαγραφή πληρωμής ή μια διόρθωση που γίνεται αργότερα αλλάζει ένα περασμένο έτος. Μια επιστροφή ή ένα πιστωτικό του έτους σε παλαιότερο τιμολόγιο είναι δική του γραμμή, όπως και η πίστωση που έδωσε μια υποβάθμιση ή μια αλλαγή κύκλου· οι αγορές πίστωσης δεν είναι έσοδο.",
+    "Informative. Fiscal documents are issued in Ekdosi.": "Ενημερωτικό. Τα φορολογικά παραστατικά εκδίδονται στο Ekdosi."
 }
