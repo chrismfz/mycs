@@ -14,6 +14,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class IdempotencyKey
 {
+    /** How long a request may be «still running» before its key is free again (it is freed at once when it ends). */
+    private const RUNNING_SECONDS = 900;
+
     public function handle(Request $request, Closure $next): Response
     {
         $header = $request->header('Idempotency-Key');
@@ -26,7 +29,9 @@ class IdempotencyKey
         $slot = 'api-idempotency:' . hash('sha256', $request->attributes->get('api_key')?->getKey() . '|' . $request->path() . '|' . $header);
         $body = hash('sha256', $request->getContent());
         // One at a time: a repeat that arrives while the first is still being made is told so, and made by neither.
-        if (!Cache::add($slot . ':running', true, 60)) {
+        // The marker outlives any request (a slow gateway, lock waits: review of #782, REV-782-R2-1) and is taken off
+        // when this one ends; after a crash the key answers 409 for that long, never a second run.
+        if (!Cache::add($slot . ':running', true, self::RUNNING_SECONDS)) {
             abort(409, 'A request with this Idempotency-Key is still being handled: ask again in a moment.');
         }
         try {
