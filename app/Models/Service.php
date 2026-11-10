@@ -161,6 +161,7 @@ class Service extends Model implements Auditable
         'accepted_send_email' => 'boolean',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
+        'plan_from' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',
         'password' => 'encrypted',
     ];
@@ -1302,6 +1303,19 @@ class Service extends Model implements Auditable
                 // would keep the dearer product for good (adversarial ADV-594-2). Staff give it a date first.
                 && !($this->plan->type === 'recurring' && $this->expires_at === null)
         );
+    }
+
+    /**
+     * The day its plan starts to count, while that day is ahead: the cron put it on the plan of a change of cycle «from the
+     * next renewal» when it billed that renewal, and the period paid on the old cycle still runs. Until then a package
+     * change is refused, for staff too (PlaceUpgrade::CYCLE_NOT_STARTED): its difference would be the new cycle's prices
+     * over the old period's days, 10 times too much from a month to a year (S7-PLAN-CYCLE-ADDONS-2). Null otherwise.
+     */
+    public function planStartsOn(): ?CarbonImmutable
+    {
+        $from = $this->plan_from;
+
+        return $from !== null && $from->startOfDay()->greaterThan(CarbonImmutable::today()) ? $from->startOfDay() : null;
     }
 
     /**

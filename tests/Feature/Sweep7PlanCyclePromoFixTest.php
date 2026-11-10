@@ -153,4 +153,78 @@ class Sweep7PlanCyclePromoFixTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $charge->invoice->fresh()->status, 'the charge is still owed');
         $this->assertSame($yearly->id, (int) $service->fresh()->next_plan_id);
     }
+
+    // --- S7-PLAN-CYCLE-ADDONS-2 ---
+
+    /** Monthly 12.00 paid to 2026-07-10, a change to yearly from the next renewal, applied by the cron on 2026-07-03. */
+    private function switchedByTheCron(): array
+    {
+        Carbon::setTestNow('2026-07-02 10:00:00');
+        $product = Product::factory()->create(['name' => 'Hosting', 'server_id' => null, 'stock' => null]);
+        $monthly = $this->plan($product, 'month', 12.00);
+        $yearly = $this->plan($product, 'year', 120.00);
+        $bigger = Product::factory()->create(['name' => 'Bigger', 'server_id' => null, 'stock' => null]);
+        $this->plan($bigger, 'month', 24.00);
+        $this->plan($bigger, 'year', 240.00);
+        DB::table('product_upgrades')->insert(['product_id' => $product->id, 'upgrade_id' => $bigger->id]);
+        $service = $this->service($product, $monthly, 12.00, '2026-07-10');
+        $this->line($service, '2026-06-10', '2026-07-10', 12.00, Invoice::STATUS_PAID);
+        ChangeCycle::apply($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+        Carbon::setTestNow('2026-07-03 10:00:00');
+        $this->artisan('app:cron-job');
+        $service = $service->fresh();
+        $this->assertSame([$yearly->id, '2026-07-10', '2026-07-10'], [(int) $service->plan_id, $service->expires_at->toDateString(), $service->plan_from?->toDateString()]);
+
+        return [$service, $bigger, $monthly];
+    }
+
+    public function test_a_package_change_is_refused_with_its_date_until_the_period_of_the_new_cycle_starts(): void
+    {
+        [$service, $bigger] = $this->switchedByTheCron();
+
+        $this->assertSame('2026-07-10', $service->planStartsOn()?->toDateString());
+        foreach ([ServiceUpgrade::SOURCE_CLIENT, ServiceUpgrade::SOURCE_STAFF] as $source) {
+            $placed = PlaceUpgrade::handle($service, $bigger, [], $source);
+            $this->assertSame(PlaceUpgrade::CYCLE_NOT_STARTED, $placed->outcome, "refused for {$source} too: no price is right until then");
+        }
+        $this->assertSame(0, ServiceUpgrade::query()->count());
+        $this->assertSame(0, InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->count());
+        foreach (['en', 'el'] as $locale) {
+            app()->setLocale($locale);
+            $this->assertStringContainsString('10/07/2026', PlaceUpgrade::cycleNotStarted($service));
+            $this->assertStringNotContainsString('services.', PlaceUpgrade::cycleNotStarted($service));
+        }
+        app()->setLocale('en');
+    }
+
+    public function test_from_the_day_the_new_period_starts_the_package_change_is_priced_by_the_new_cycle(): void
+    {
+        [$service, $bigger] = $this->switchedByTheCron();
+        $renewal = $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->sole();
+        $this->assertSame('120.00', number_format((float) $renewal->total, 2, '.', ''), 'the first year, billed by the cron');
+        ExtensionHelper::addPayment($renewal->id, null, 120.00, null, 's7-pca-2', currency: 'USD');
+        $this->assertSame('2027-07-10', $service->fresh()->expires_at->toDateString());
+
+        // Paid ahead, the old month still runs: still refused, to its day.
+        $this->assertSame(PlaceUpgrade::CYCLE_NOT_STARTED, PlaceUpgrade::handle($service->fresh(), $bigger, [], ServiceUpgrade::SOURCE_CLIENT)->outcome);
+
+        Carbon::setTestNow('2026-07-10 10:00:00');
+        $this->assertNull($service->fresh()->planStartsOn());
+        $placed = PlaceUpgrade::handle($service->fresh(), $bigger, [], ServiceUpgrade::SOURCE_CLIENT);
+        $this->assertSame(PlaceUpgrade::INVOICED, $placed->outcome);
+        $this->assertSame('120.00', number_format((float) $placed->invoice->fresh()->total, 2, '.', ''), 'the year\'s difference (240 − 120) for the whole year ahead');
+    }
+
+    public function test_a_change_of_cycle_now_starts_the_plan_today(): void
+    {
+        [$service, , $monthly] = $this->switchedByTheCron();
+
+        // Staff put it back on the monthly cycle, now: the days left of the month paid are credited, a new month starts today.
+        $this->assertNull(ChangeCycle::refusal($service, $monthly, ChangeCycle::NOW));
+        ChangeCycle::apply($service, $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $service = $service->fresh();
+        $this->assertSame([$monthly->id, null], [(int) $service->plan_id, $service->plan_from]);
+        $this->assertNull($service->planStartsOn());
+    }
 }

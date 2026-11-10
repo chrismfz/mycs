@@ -97,6 +97,7 @@ final class ChangePackage
                 $why = match ($placed->outcome) {
                     PlaceUpgrade::NOT_UPGRADABLE => 'Another change of this service is waiting for payment: pay its invoice, or cancel the change under «Package changes» first.',
                     PlaceUpgrade::CYCLE_CHANGE_PENDING, PlaceUpgrade::PARENT_CYCLE_CHANGE_PENDING => PlaceUpgrade::cycleChangePending($record),
+                    PlaceUpgrade::CYCLE_NOT_STARTED => self::cycleNotStarted($record),
                     PlaceUpgrade::UPGRADE_INVOICE_OPEN => 'An upgrade invoice of this service is open (#' . ($placed->invoice->number ?? $placed->invoice?->id)
                         . "): record its payment, or cancel it first («Cancel Invoice» on invoice #{$placed->invoice?->id}).",
                     PlaceUpgrade::INVALID => 'The new product has no plan for this billing cycle in this currency.',
@@ -135,6 +136,13 @@ final class ChangePackage
                         : ($placed->discount !== null ? 'The difference was waived: nothing charged, applied now.' : 'Nothing to pay now.')) . $credit)
                     ->send();
             });
+    }
+
+    /** The customer's refusal with its date, and staff's way through meanwhile. */
+    private static function cycleNotStarted(Service $service): string
+    {
+        return PlaceUpgrade::cycleNotStarted($service)
+            . ' Until then: wait, or change its product and plan by hand on this page and bill the difference yourself.';
     }
 
     /** Why staff cannot change its package now, or null. */
@@ -266,6 +274,10 @@ final class ChangePackage
             return 'Choose a product.';
         }
         [$upgrade, $choices, $product] = $draft;
+        // No price to show: it would be the new cycle's over the old period's days (S7-PLAN-CYCLE-ADDONS-2).
+        if ($service->planStartsOn() !== null) {
+            return self::cycleNotStarted($service);
+        }
         if ($upgrade->needsStaff()) {
             return 'The catalog has no price for it in the service\'s currency: change it by hand.';
         }

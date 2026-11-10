@@ -392,6 +392,7 @@ final class ChangeCycle
             $end = $quote['end'] ?? $start;
             $locked->plan_id = $plan->id;
             $locked->next_plan_id = null;
+            $locked->plan_from = null; // its plan counts from today
             $locked->setRelation('plan', $plan);
             $locked->price = (float) $quote['price'];
             $locked->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
@@ -421,6 +422,7 @@ final class ChangeCycle
                 ['end' => $until, 'line' => $amount, 'plan' => $to] = $quote['addons'][$addon->id];
                 if ($amount !== null && $until !== null && $to !== null) {
                     $addon->plan_id = $to->id;
+                    $addon->plan_from = null;
                     $addon->setRelation('plan', $to);
                     $addon->price = (float) $amount;
                     $addon->price_locked = false; // its new plan's catalog price, as its parent's
