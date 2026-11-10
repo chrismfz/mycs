@@ -115,6 +115,19 @@ class ServiceUpgrade extends Model implements Auditable
         return $this->belongsTo(Invoice::class);
     }
 
+    /**
+     * The open invoice of an upgrade of $service, the earliest: a pending upgrade's own, or the shortfall of a completed
+     * one (ServiceUpgradeService::billShortfall). Their lines name the upgrade, so Service::invoices() does not see them
+     * (S6-PLAN-CYCLE-ADDONS-2).
+     */
+    public static function openInvoiceOf(Service $service): ?Invoice
+    {
+        return Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+            ->whereHas('items', fn ($line) => $line->where('reference_type', self::class)
+                ->whereIn('reference_id', self::query()->where('service_id', $service->id)->select('id')))
+            ->orderBy('id')->first();
+    }
+
     /** @return MorphMany<ServiceConfig, $this> */
     public function configs(): MorphMany
     {

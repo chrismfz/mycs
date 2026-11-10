@@ -27,7 +27,9 @@ use Throwable;
  * - a downgrade (or a change that costs nothing now): applied at once, 0.00 now; the new amount from the next renewal;
  *   credit for the days left only with «Credit on downgrade» and credits on.
  *
- * Under the service's lock: a second change while one is pending is refused.
+ * Under the service's lock: a second change while one is pending is refused, any change while a change of cycle «from the
+ * next renewal» is set, and a downgrade while an invoice of an earlier upgrade is open (owner 2026-11-10: each refusal
+ * names the way through, and staff take it: the change taken back, the invoice paid or cancelled).
  *
  * Staff may give a discount on an upgrade's difference (owner 2026-11-06, docs/decisions.md, SVC-14): a percentage, an
  * amount to pay (with tax), or all of it. Its invoice has the upgrade's line at the full difference and a negative
@@ -37,6 +39,18 @@ final class PlaceUpgrade
 {
     /** It is not upgradable now (a change pending meanwhile). */
     public const NOT_UPGRADABLE = 'not_upgradable';
+
+    /**
+     * A change of cycle «from the next renewal» is set (`next_plan_id`): the cron would apply it under a pending upgrade,
+     * priced for the old cycle (S6-PLAN-CYCLE-ADDONS-1). Taken back first (one click), then the package changes.
+     */
+    public const CYCLE_CHANGE_PENDING = 'cycle_change_pending';
+
+    /**
+     * A downgrade while an invoice of an earlier upgrade is open (`invoice`: the shortfall of a completed one): it would
+     * keep billing the dearer plan for days now on the cheaper one (S6-PLAN-CYCLE-ADDONS-2). Paid or cancelled first.
+     */
+    public const UPGRADE_INVOICE_OPEN = 'upgrade_invoice_open';
 
     /** No plan of the new product for its cycle in its currency. */
     public const INVALID = 'invalid';
@@ -176,6 +190,9 @@ final class PlaceUpgrade
         if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->count() != 0) {
             return new self(self::NOT_UPGRADABLE);
         }
+        if ($service->next_plan_id !== null) {
+            return new self(self::CYCLE_CHANGE_PENDING);
+        }
 
         // Another product, read again under its lock (sweep UPGRADES-6): what the page listed may have changed since. Not
         // retired; for the customer, still an upgrade of theirs; and stock for it, less what pending upgrades to it hold
@@ -228,6 +245,9 @@ final class PlaceUpgrade
         }
 
         $price = $upgrade->calculatePrice();
+        if ($price->price < 0 && ($open = ServiceUpgrade::openInvoiceOf($service)) !== null) {
+            return new self(self::UPGRADE_INVOICE_OPEN, invoice: $open);
+        }
 
         // Staff's discount, priced now under the lock (the difference shrinks by the day): only on an upgrade, never more
         // than it. One that takes nothing off is no discount.

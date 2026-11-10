@@ -51,7 +51,7 @@ use MyCS\Pricing\LinePricer;
  *
  * The new recurring amount is the new plan's catalog price with the service's options and coupon (as an upgrade, decided
  * 2026-10-14: a staff price is not carried over). Refused while a gateway subscription bills the service (it charges its
- * own cycle), an upgrade waits, a cancellation is asked for, an open invoice of it has money on it, or a coupon priced by
+ * own cycle), an upgrade waits (now: any invoice of an upgrade is open, its shortfall too), a cancellation is asked for, an open invoice of it has money on it, or a coupon priced by
  * the cycle runs (one for a number of cycles, or a fixed amount: a cycle change would stretch or shrink it, S3).
  */
 final class ChangeCycle
@@ -167,8 +167,18 @@ final class ChangeCycle
         if ((string) $service->subscription_id !== '') {
             return __('A subscription bills this service: cancel it first.');
         }
-        if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->exists()) {
-            return __('An upgrade of this service is waiting for payment.');
+        // An upgrade waiting for payment, either way (S6-PLAN-CYCLE-ADDONS-1: the cron would apply the new cycle under it,
+        // and its payment put the service back on the old one). And now, any open invoice of an upgrade, the shortfall
+        // of a completed one too (S6-PLAN-CYCLE-ADDONS-2: its lines name the upgrade, the cancellation below would not
+        // see it, and it would bill the dearer plan for days credited and billed again). Each message names the way
+        // through (owner 2026-11-10): paid, or cancelled by staff (the pending upgrade under «Package changes», the
+        // shortfall's invoice on its page), the change goes ahead.
+        $pending = $service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->orderBy('id')->first();
+        if ($pending !== null) {
+            return __('services.upgrade_waiting', ['invoice' => $pending->invoice?->number ?? $pending->invoice_id]);
+        }
+        if ($mode === self::NOW && ($open = ServiceUpgrade::openInvoiceOf($service)) !== null) {
+            return __('services.upgrade_invoice_open', ['invoice' => $open->number ?? $open->id]);
         }
         if ($service->cancellation()->exists()) {
             return __('This service is to be cancelled.');

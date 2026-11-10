@@ -2,15 +2,20 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource\Pages\EditService;
+use App\Admin\Resources\ServiceResource\RelationManagers\UpgradesRelationManager;
 use App\Exceptions\DisplayException;
+use App\Livewire\Services\Upgrade;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\MoneyTrail;
@@ -18,16 +23,20 @@ use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
  * Sweep 6, adversarial verification of «plan-cycle-addons»: change of cycle, upgrades and addons, each test failing
- * for the reason reported.
+ * for the reason reported. With the fixes (owner 2026-11-10): findings 1 and 2 were cut (refused, the message naming the
+ * way through), so their tests now pin the refusal and staff's way through it; finding 4's test lives, rewritten, in
+ * Sweep6AddonsFollowCycleTest (#765).
  */
 class Sweep6PlanCycleAddonsTest extends TestCase
 {
@@ -100,11 +109,12 @@ class Sweep6PlanCycleAddonsTest extends TestCase
     }
 
     /**
-     * S6-PLAN-CYCLE-ADDONS-1: an upgrade placed while a change of cycle «from the next renewal» is set. The cron applies
-     * the yearly plan when it bills the renewal; the pending upgrade (priced for the monthly cycle) then reads as a
-     * downgrade, its line falls to 0.00, and its payment puts the service back on a monthly plan.
+     * S6-PLAN-CYCLE-ADDONS-1: an upgrade placed while a change of cycle «from the next renewal» is set. The cron applied
+     * the yearly plan when it billed the renewal; the pending upgrade (priced for the monthly cycle) then read as a
+     * downgrade, its line fell to 0.00, and its payment put the service back on a monthly plan. Cut (owner 2026-11-10):
+     * no change of package while the change of cycle is set; taken back (one click), the upgrade is placed.
      */
-    public function test_an_upgrade_after_a_cycle_change_set_for_the_next_renewal_is_not_given_away(): void
+    public function test_an_upgrade_after_a_cycle_change_set_for_the_next_renewal_is_refused_until_it_is_taken_back(): void
     {
         Carbon::setTestNow('2026-11-10 10:00:00');
         $a = Product::factory()->create(['name' => 'Basic']);
@@ -119,27 +129,54 @@ class Sweep6PlanCycleAddonsTest extends TestCase
         ChangeCycle::apply($service, $aYearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
         $this->assertSame($aYearly->id, (int) $service->fresh()->next_plan_id);
 
-        // Then an upgrade to Pro: nothing refuses it.
-        $placed = PlaceUpgrade::handle($service->fresh(), $b, [], ServiceUpgrade::SOURCE_STAFF);
-        if ($placed->outcome !== PlaceUpgrade::INVOICED) {
-            $this->markTestSkipped("The upgrade was not invoiced ({$placed->outcome}): refused as it should be.");
+        // Then an upgrade to Pro, by the customer or by staff: refused, nothing made.
+        foreach ([ServiceUpgrade::SOURCE_CLIENT, ServiceUpgrade::SOURCE_STAFF] as $source) {
+            $placed = PlaceUpgrade::handle($service->fresh(), $b, [], $source);
+            $this->assertSame(PlaceUpgrade::CYCLE_CHANGE_PENDING, $placed->outcome);
         }
-        $upgrade = $placed->upgrade->fresh();
-        $this->assertTrue(BigDecimal::of((string) $this->upgradeLine($upgrade)->price)->isPositive());
+        $this->assertSame(0, ServiceUpgrade::query()->where('service_id', $service->id)->count());
+        $this->assertSame(0, InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->count());
+        // The message names the way out, in both languages.
+        foreach (['en' => 'take it back', 'el' => 'πάρτε την πίσω'] as $locale => $wayOut) {
+            $this->assertStringContainsString($wayOut, __('services.upgrade_cycle_change_pending', [], $locale));
+        }
 
-        // The cron bills the renewal 7 days ahead (the yearly plan applied), and follows the upgrade's price.
-        Carbon::setTestNow('2026-11-25 10:00:00');
-        $this->artisan('app:cron-job');
-
-        $service->refresh();
-        $line = $this->upgradeLine($upgrade->fresh());
-        // Still owed: Pro over Basic for the 6 days left (20 - 10 a month), not 0.00 (an upgrade for free).
-        $this->assertTrue(BigDecimal::of((string) $line->price)->isPositive(),
-            "The pending upgrade's line was repriced to {$line->price}: the upgrade's days are given away once the yearly plan is applied.");
+        // Taken back (its own plan, from the next renewal), the upgrade is placed.
+        ChangeCycle::apply($service->fresh(), $aMonthly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
+        $this->assertNull($service->fresh()->next_plan_id);
+        $this->assertSame(PlaceUpgrade::INVOICED, PlaceUpgrade::handle($service->fresh(), $b, [], ServiceUpgrade::SOURCE_STAFF)->outcome);
     }
 
-    /** S6-PLAN-CYCLE-ADDONS-1, its payment: the service goes back to a monthly plan, the customer's yearly choice undone. */
-    public function test_paying_that_upgrade_keeps_the_yearly_cycle_the_renewal_applied(): void
+    /** S6-PLAN-CYCLE-ADDONS-1 on the pages: the customer's upgrade page sends them back with the way out; staff's «Upgrade/Downgrade» says the same and makes nothing. */
+    public function test_the_upgrade_pages_refuse_while_a_cycle_change_is_set_for_the_next_renewal(): void
+    {
+        Carbon::setTestNow('2026-11-10 10:00:00');
+        $a = Product::factory()->create(['name' => 'Basic', 'server_id' => null, 'stock' => null]);
+        $aMonthly = $this->plan($a, 'month', 10.00);
+        $aYearly = $this->plan($a, 'year', 120.00);
+        $b = Product::factory()->create(['name' => 'Pro', 'server_id' => null, 'stock' => null]);
+        $this->plan($b, 'month', 20.00);
+        DB::table('product_upgrades')->insert(['product_id' => $a->id, 'upgrade_id' => $b->id]);
+        $user = User::factory()->create();
+        $service = $this->service($a, $aMonthly, 10.00, '2026-11-01', '2026-12-01', ['client_id' => $user->client()->id]);
+        ChangeCycle::apply($service, $aYearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+
+        $this->livewireAs($user)->test(Upgrade::class, ['service' => $service->fresh()])->assertRedirect(route('services.show', $service));
+
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'S6 ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->callAction('changePackage', ['product_id' => $b->id])
+            ->assertNotified('Not changed');
+        $this->assertSame(0, ServiceUpgrade::query()->where('service_id', $service->id)->count());
+        $this->assertSame($aYearly->id, (int) $service->fresh()->next_plan_id, 'the yearly choice stands');
+    }
+
+    /**
+     * S6-PLAN-CYCLE-ADDONS-1, the other way: no change of cycle «from the next renewal» while an upgrade waits for its
+     * payment. The message names its invoice; staff cancel the pending change and the change of cycle goes ahead.
+     */
+    public function test_a_cycle_change_from_the_next_renewal_is_refused_while_an_upgrade_waits_and_goes_once_staff_cancel_it(): void
     {
         Carbon::setTestNow('2026-11-10 10:00:00');
         $a = Product::factory()->create(['name' => 'Basic']);
@@ -147,27 +184,38 @@ class Sweep6PlanCycleAddonsTest extends TestCase
         $aYearly = $this->plan($a, 'year', 120.00);
         $b = Product::factory()->create(['name' => 'Pro']);
         $this->plan($b, 'month', 20.00);
-        $this->plan($b, 'year', 240.00);
         $service = $this->service($a, $aMonthly, 10.00, '2026-11-01', '2026-12-01');
-        ChangeCycle::apply($service, $aYearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
-        $placed = PlaceUpgrade::handle($service->fresh(), $b, [], ServiceUpgrade::SOURCE_STAFF);
-        if ($placed->outcome !== PlaceUpgrade::INVOICED) {
-            $this->markTestSkipped("The upgrade was not invoiced ({$placed->outcome}): refused as it should be.");
+        $placed = PlaceUpgrade::handle($service, $b, [], ServiceUpgrade::SOURCE_STAFF);
+        $this->assertSame(PlaceUpgrade::INVOICED, $placed->outcome);
+
+        foreach ([MoneyTrail::SOURCE_SYSTEM, MoneyTrail::SOURCE_STAFF] as $source) {
+            try {
+                ChangeCycle::apply($service->fresh(), $aYearly, ChangeCycle::NEXT_RENEWAL, $source);
+                $this->fail('A change of cycle from the next renewal went through while an upgrade waits for payment.');
+            } catch (DisplayException $e) {
+                $this->assertSame(__('services.upgrade_waiting', ['invoice' => $placed->invoice->number ?? $placed->invoice->id]), $e->getMessage());
+            }
         }
-        $upgrade = $placed->upgrade->fresh();
+        $this->assertNull($service->fresh()->next_plan_id);
+        foreach (['en' => ['pay it', 'cancelled'], 'el' => ['πληρώστε το', 'ακυρώστε']] as $locale => $wayOut) {
+            foreach ($wayOut as $words) {
+                $this->assertStringContainsString($words, __('services.upgrade_waiting', ['invoice' => 7], $locale));
+            }
+        }
 
-        Carbon::setTestNow('2026-11-25 10:00:00');
-        $this->artisan('app:cron-job');
-        $this->assertSame($aYearly->id, (int) $service->fresh()->plan_id, 'the renewal applied the yearly plan');
-        $invoice = $upgrade->fresh()->invoice;
-        // Its line at 0.00 now: closed as paid by staff («Close as paid», settle) or by the customer paying nothing.
-        $this->assertSame('0.00', number_format((float) $invoice->total, 2, '.', ''));
-        $this->assertTrue((new RecordPaymentService)->settle($invoice));
-        $this->assertSame(ServiceUpgrade::STATUS_COMPLETED, $upgrade->fresh()->status);
+        // Staff's way through: «Cancel» on the pending change («Package changes» on the service's page), then the change.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'S6 ' . uniqid(), 'permissions' => ['*']])->id]), 'staff');
+        Livewire::test(UpgradesRelationManager::class, ['ownerRecord' => $service->fresh(), 'pageClass' => EditService::class])
+            ->assertTableActionVisible('cancel', $placed->upgrade)
+            ->callTableAction('cancel', $placed->upgrade)
+            ->assertTableActionHidden('cancel', $placed->upgrade);
+        $this->assertSame(ServiceUpgrade::STATUS_CANCELLED, $placed->upgrade->fresh()->status);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $placed->invoice->fresh()->status, 'its invoice goes with it');
+        $this->assertSame($a->id, (int) $service->fresh()->product_id, 'never applied');
 
-        $plan = $service->fresh()->plan;
-        $this->assertSame('year', $plan->billing_unit,
-            "Paid, the upgrade put the service on a {$plan->billing_unit}ly plan: the yearly cycle the customer chose is undone.");
+        ChangeCycle::apply($service->fresh(), $aYearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
+        $this->assertSame($aYearly->id, (int) $service->fresh()->next_plan_id);
     }
 
     /**
@@ -203,18 +251,56 @@ class Sweep6PlanCycleAddonsTest extends TestCase
             ->whereHas('items', fn ($q) => $q->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id))->sole();
         $this->assertSame(Invoice::STATUS_UNPAID, $shortfall->status);
 
-        // Dec 5: staff change the cycle «now» to Pro yearly: the December period is credited and a new year billed.
+        // Dec 5: staff change the cycle «now» to Pro yearly. Cut (owner 2026-11-10): refused while that invoice is open,
+        // the message naming it.
         Carbon::setTestNow('2026-12-05 10:00:00');
         try {
             ChangeCycle::apply($service->fresh(), $bYearly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
-        } catch (DisplayException) {
-            $this->assertTrue(true, 'refused while the shortfall is open: fine');
-
-            return;
+            $this->fail('The upgrade\'s shortfall (Pro over Basic, Dec 1 - Jan 1) stays open after a new yearly Pro period from Dec 5 was billed in full.');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('services.upgrade_invoice_open', ['invoice' => $shortfall->number ?? $shortfall->id]), $e->getMessage());
         }
+        $this->assertSame(Invoice::STATUS_UNPAID, $shortfall->fresh()->status);
+        $this->assertSame('2027-01-01', $service->fresh()->expires_at->toDateString(), 'nothing changed');
 
-        $this->assertNotContains($shortfall->fresh()->status, Invoice::OPEN_STATUSES,
-            'The upgrade\'s shortfall (Pro over Basic, Dec 1 - Jan 1) stays open after a new yearly Pro period from Dec 5 was billed in full.');
+        // A downgrade (back to Basic) is refused the same way: the shortfall would keep billing Pro for days on Basic.
+        $down = PlaceUpgrade::handle($service->fresh(), $a, [], ServiceUpgrade::SOURCE_STAFF);
+        $this->assertSame(PlaceUpgrade::UPGRADE_INVOICE_OPEN, $down->outcome);
+        $this->assertSame($shortfall->id, $down->invoice?->id);
+        $this->assertSame($b->id, (int) $service->fresh()->product_id);
+        $this->assertSame(1, ServiceUpgrade::query()->where('service_id', $service->id)->count(), 'the refused downgrade left no row');
+
+        // Staff's way through: «Cancel» on the shortfall invoice, then the change of cycle now goes ahead.
+        $shortfall->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Cycle changed instead']);
+        $invoice = ChangeCycle::apply($service->fresh(), $bYearly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+        $this->assertNotNull($invoice);
+        $this->assertSame($bYearly->id, (int) $service->fresh()->plan_id);
+        $this->assertNull(ServiceUpgrade::openInvoiceOf($service->fresh()), 'no upgrade invoice left open');
+    }
+
+    /** S6-PLAN-CYCLE-ADDONS-2, the downgrade: once the shortfall is paid (or cancelled), a downgrade is placed as before. */
+    public function test_a_downgrade_goes_ahead_once_the_upgrade_shortfall_is_paid(): void
+    {
+        Carbon::setTestNow('2026-11-10 10:00:00');
+        $a = Product::factory()->create(['name' => 'Basic']);
+        $aMonthly = $this->plan($a, 'month', 10.00);
+        $b = Product::factory()->create(['name' => 'Pro']);
+        $this->plan($b, 'month', 20.00);
+        $service = $this->service($a, $aMonthly, 10.00, '2026-11-01', '2026-12-01');
+        $upgrade = PlaceUpgrade::handle($service, $b, [], ServiceUpgrade::SOURCE_STAFF)->upgrade;
+
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        $this->artisan('app:cron-job');
+        $this->pay(InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $service->id)
+            ->whereDate('period_start', '2026-12-01')->sole()->invoice, 'renewal');
+        $this->pay($upgrade->fresh()->invoice, 'upgrade');
+        $shortfall = ServiceUpgrade::openInvoiceOf($service->fresh());
+        $this->assertNotNull($shortfall, 'the December days at Pro, billed apart');
+        $this->assertSame(PlaceUpgrade::UPGRADE_INVOICE_OPEN, PlaceUpgrade::handle($service->fresh(), $a, [], ServiceUpgrade::SOURCE_STAFF)->outcome);
+
+        $this->pay($shortfall, 'shortfall');
+        $this->assertSame(PlaceUpgrade::APPLIED, PlaceUpgrade::handle($service->fresh(), $a, [], ServiceUpgrade::SOURCE_STAFF)->outcome);
+        $this->assertSame($a->id, (int) $service->fresh()->product_id);
     }
 
     /**
@@ -253,35 +339,5 @@ class Sweep6PlanCycleAddonsTest extends TestCase
         // What was paid for 240 days, 230 of them left: 75.61, not 78.90 x 230 / 300 = 60.49.
         $this->assertEqualsWithDelta(75.61, (float) (string) $upgradePart, 0.02,
             "The upgrade's part of the credit is {$upgradePart}: its money is spread from the day it was placed, not from the days it paid for.");
-    }
-
-    /**
-     * S6-PLAN-CYCLE-ADDONS-4: an addon's change of cycle «from the next renewal» moves it off its parent's due date (the
-     * owner's rule: an addon has its parent's expiry).
-     */
-    public function test_an_addons_cycle_change_from_the_next_renewal_keeps_its_parents_due_date(): void
-    {
-        Carbon::setTestNow('2026-11-10 10:00:00');
-        $host = Product::factory()->create(['name' => 'Server']);
-        $hostYearly = $this->plan($host, 'year', 600.00);
-        $extra = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true]);
-        $extraMonthly = $this->plan($extra, 'month', 5.00);
-        $extraYearly = $this->plan($extra, 'year', 50.00);
-        $parent = $this->service($host, $hostYearly, 600.00, '2026-03-01', '2027-03-01');
-        // A monthly addon on the parent's billing day (AddAddon::alignedEnd): due Dec 1.
-        $addon = $this->service($extra, $extraMonthly, 5.00, '2026-11-01', '2026-12-01',
-            ['client_id' => $parent->client_id, 'parent_service_id' => $parent->id]);
-
-        ChangeCycle::apply($addon, $extraYearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
-
-        // The cron bills its renewal, in the yearly plan.
-        Carbon::setTestNow('2026-11-25 10:00:00');
-        $this->artisan('app:cron-job');
-
-        $line = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $addon->id)
-            ->whereDate('period_start', '2026-12-01')->sole();
-        $this->assertSame($extraYearly->id, (int) $addon->fresh()->plan_id);
-        $this->assertSame('2027-03-01', $line->period_end->toDateString(),
-            "The addon's yearly period runs to {$line->period_end->toDateString()}, past its parent's due date 2027-03-01.");
     }
 }

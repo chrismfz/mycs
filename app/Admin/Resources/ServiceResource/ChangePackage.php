@@ -95,7 +95,9 @@ final class ChangePackage
                 $placed = PlaceUpgrade::handle($record, $product, PlaceUpgrade::defaultChoices($record, $product), ServiceUpgrade::SOURCE_STAFF,
                     Auth::guard('staff')->id(), $mode, $value);
                 $why = match ($placed->outcome) {
-                    PlaceUpgrade::NOT_UPGRADABLE => 'Another change of this service is waiting for payment.',
+                    PlaceUpgrade::NOT_UPGRADABLE => 'Another change of this service is waiting for payment: pay its invoice, or cancel the change under «Package changes» first.',
+                    PlaceUpgrade::CYCLE_CHANGE_PENDING => __('services.upgrade_cycle_change_pending'),
+                    PlaceUpgrade::UPGRADE_INVOICE_OPEN => __('services.upgrade_invoice_open', ['invoice' => $placed->invoice->number ?? $placed->invoice?->id]),
                     PlaceUpgrade::INVALID => 'The new product has no plan for this billing cycle in this currency.',
                     PlaceUpgrade::UNCHANGED => 'It already has this product.',
                     PlaceUpgrade::NEEDS_STAFF => 'The catalog has no price for it in the service\'s currency: change it by hand.',
