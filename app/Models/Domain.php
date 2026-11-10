@@ -533,6 +533,20 @@ class Domain extends Model implements Auditable
     }
 
     /**
+     * The domains lapsedForGood, of $among when given: what neither account credit nor a saved card pays a renewal of by
+     * itself (CreditAutoApply::eligible, AutoCharge::due: the one place both ask).
+     *
+     * @param  iterable<int>|null  $among
+     * @return list<int>
+     */
+    public static function lapsedForGoodIds(?iterable $among = null): array
+    {
+        return self::query()->with('domainTld')->whereIn('status', self::lapsedValues())->whereNotNull('expires_at')
+            ->when($among !== null, fn ($query) => $query->whereIn('id', collect($among)->all()))->get()
+            ->filter(fn (self $domain) => $domain->lapsedForGood())->map(fn (self $domain) => (int) $domain->id)->values()->all();
+    }
+
+    /**
      * The last day of its redemption (D5a): the registrar's date, else the end of its grace (or its expiry) plus the
      * redemption days; null when it has none.
      */

@@ -11,6 +11,7 @@ use App\Models\DomainTldPrice;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\Import\WhmcsDomainImport;
@@ -172,6 +173,39 @@ class Sweep7DomainsFixTest extends TestCase
         $this->cron();
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(1, $this->told('dead.com'));
+    }
+
+    /**
+     * Review of #775 (REV-775-1): the notice says what was done. On an invoice shared with a service only the domain's line
+     * goes, and the notice says so (not «cancelled»); the domain keeps that this expiry's renewal was given up, which is
+     * what keeps the billing step quiet after it. Alone on its invoice: cancelled, said so.
+     */
+    public function test_the_notice_says_whether_the_invoice_was_cancelled_or_only_the_line_removed(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'status' => Service::STATUS_ACTIVE, 'currency_code' => 'EUR', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-01']);
+        config(['settings.cronjob_suspend_enabled' => false, 'settings.cronjob_terminate_enabled' => false, 'settings.domain_reminder_days' => '']);
+        $shared = $this->domain('shared');
+        Carbon::setTestNow('2026-10-26 10:00:00');
+        $this->cron();
+        $invoice = $this->renewalInvoice($shared);
+        $this->assertTrue($invoice->items()->where('reference_type', Service::class)->where('reference_id', $service->id)->exists(), 'precondition: one invoice for both');
+        $alone = $this->domain('alone', ['expires_at' => '2026-11-10']);
+        Carbon::setTestNow('2026-11-05 10:00:00');
+        $this->cron();
+        $aloneInvoice = $this->renewalInvoice($alone);
+        $this->assertNotSame($invoice->id, $aloneInvoice->id);
+
+        Carbon::setTestNow('2026-12-11 10:00:00'); // both past expiry + 30
+        DB::table('domains')->whereIn('id', [$shared->id, $alone->id])->update(['status' => DomainStatus::Expired->value]);
+        $this->cron();
+
+        $mail = (string) EmailLog::query()->where('subject', 'Cron Job: needs staff attention')->latest('id')->value('body');
+        $this->assertStringContainsString("shared.com: expired and past its last recoverable day (2026-12-01): its renewal line removed from invoice(s) #{$invoice->id}", $mail);
+        $this->assertStringContainsString("alone.com: expired and past its last recoverable day (2026-12-10): its open renewal invoice(s) #{$aloneInvoice->id} cancelled", $mail);
+        $this->assertSame([Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED], [$invoice->fresh()->status, $aloneInvoice->fresh()->status]);
+        $this->assertSame(['2026-11-01', '2026-11-10'], [$shared->fresh()->meta['renewal_given_up'], $alone->fresh()->meta['renewal_given_up']]);
     }
 
     /** Both stage days known (.gr's: 15 and 0) and a row its registrar has not ended (still «grace»): day 15 open, day 16 cancelled. */

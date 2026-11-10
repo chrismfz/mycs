@@ -470,28 +470,35 @@ class CronJob extends Command
                         continue;
                     }
                     // Not one staff reopened after this cancelled it (ADV-6): theirs to decide, not cancelled every night.
+                    // Nor, of a lapsed one, a renewal billed after its last recoverable day (review of #775, REV-775-2):
+                    // staff's on purpose (a restore agreed with the customer, a redemption longer than the days assumed).
+                    $ownLines = fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id));
                     $invoices = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
                         ->where(fn ($q) => $q->whereNull('cancellation_reason')->orWhereNotIn('cancellation_reason', $reasons))
-                        ->whereHas('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id)))->get();
+                        ->whereHas('items', fn ($line) => $lapsed ? $ownLines($line)->where('created_at', '<=', $domain->recoveryEndsOn()?->endOfDay()) : $ownLines($line))->get();
                     $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.' . ($lapsed ? 'domain_lapsed' : 'domain_lost')), $domain);
                     // One kept open for staff (it holds money, it was renewed at the registrar): told once a month per
                     // reason, not every night (review F6).
                     $this->leftOpen(array_filter($left, fn ($reason, $key) => !$reason instanceof DisplayException
                         || Cache::add('domain-lost-left-open:' . $key . ':' . sha1($reason->getMessage()), true, now()->addDays(30)), ARRAY_FILTER_USE_BOTH));
                     // What was done (ADV-4, F5): cancelled, or the domain's lines taken off.
-                    $done = Invoice::query()->whereKey($invoices->pluck('id'))->where(fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED)
-                        ->orWhereDoesntHave('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id))))->pluck('id');
-                    $number += $done->count();
-                    // Still «{status}» here, nothing says it ended: staff are told, once (the invoice is cancelled once), and
-                    // its period is given up as when staff cancel one (forgone_at), so the billing step does not say «past
-                    // its last recoverable day: not billed» about it every night after this.
-                    if ($lapsed && $done->isNotEmpty()) {
-                        InvoiceItem::query()->whereIn('invoice_id', Invoice::query()->select('id')->whereKey($done)->where('status', Invoice::STATUS_CANCELLED))
-                            ->where('reference_type', Domain::class)->where('reference_id', $domain->id)->whereNull('kind')->whereNull('forgone_at')
-                            ->update(['forgone_at' => now()]);
+                    $cancelled = Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->pluck('id');
+                    $removed = Invoice::query()->whereKey($invoices->pluck('id'))->where('status', '!=', Invoice::STATUS_CANCELLED)
+                        ->whereDoesntHave('items', $ownLines)->pluck('id');
+                    $number += $cancelled->count() + $removed->count();
+                    // Still «{status}» here, nothing says it ended: staff are told what was done, once, and the domain keeps
+                    // that the renewal from this expiry was given up (meta.renewal_given_up: a line taken off a shared
+                    // invoice leaves nothing else to say so), so the billing step does not say «past its last recoverable
+                    // day: not billed» about it every night after this (RenewalBilling; review of #775, REV-775-1).
+                    if ($lapsed && ($cancelled->isNotEmpty() || $removed->isNotEmpty())) {
+                        $domain->forceFill(['meta' => ['renewal_given_up' => $domain->expires_at->toDateString()] + ($domain->meta ?? [])])->save();
+                        $done = implode(' and ', array_filter([
+                            $cancelled->isEmpty() ? null : 'its open renewal invoice(s) #' . $cancelled->implode(', #') . ' cancelled',
+                            $removed->isEmpty() ? null : 'its renewal line removed from invoice(s) #' . $removed->implode(', #') . ' (left open for what else they bill)',
+                        ]));
                         $this->notices["domain_invoices_cancelled domain #{$domain->id}"] = new DisplayException("Domain #{$domain->id} {$domain->fqdn}: {$domain->status->value}"
-                            . " and past its last recoverable day ({$domain->recoveryEndsOn()?->toDateString()}): its open renewal invoice(s) #" . $done->implode(', #')
-                            . ' cancelled (credit paid on them is back on the account). Check it at its registrar: mark it deleted or transferred away, or renew it by hand and reopen the invoice.');
+                            . " and past its last recoverable day ({$domain->recoveryEndsOn()?->toDateString()}): {$done}"
+                            . ' (credit paid on them is back on the account). Check it at its registrar: mark it deleted or transferred away, or renew it by hand and bill it again.');
                     }
                 }
 

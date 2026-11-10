@@ -272,8 +272,7 @@ class CreditAutoApply
         }
         // Nor of one lapsed past its last recoverable day (sweep 7 S7-DOMAINS-1): the cron cancels this invoice tonight
         // (domain_invoices_cancelled, the same rule); a payment the customer makes on purpose is theirs to make.
-        if ($domains->isNotEmpty() && Domain::query()->with('domainTld')->whereIn('id', $domains)->whereIn('status', Domain::lapsedValues())->get()
-            ->contains(fn (Domain $domain) => $domain->lapsedForGood())) {
+        if ($domains->isNotEmpty() && Domain::lapsedForGoodIds($domains) !== []) {
             return false;
         }
         $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();
