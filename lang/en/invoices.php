@@ -142,6 +142,7 @@ return [
         'gateway_identity' => 'The gateway recorded this payment: its transaction id and gateway stay as the gateway gave them (its refunds and replays are matched by them).',
         'before_cut_over' => 'This invoice was paid before the cut-over, its document was issued then: the amount and the invoice of its payment stay. Its transaction id, gateway and fee can be corrected; anything else is corrected in Ekdosi.',
         'target_before_cut_over' => 'That invoice was paid before the cut-over, its document was issued then: no payment is moved onto it.',
+        'target_status' => 'A payment moves only onto an unpaid, draft or paid invoice: that one is cancelled or refunded.',
         'other_customer' => 'A payment moves only to another invoice of the same customer, in the same currency.',
         'duplicate_id' => 'This transaction id is already recorded on a payment of invoice #:invoice: a gateway\'s event for it would be taken for that one. Nothing was changed.',
         'gateway_move' => 'The gateway recorded this payment on this invoice: it is not moved (what the gateway reported on it, a dispute or a refund, would be left behind and recorded again). Refund it at the gateway, or record a correction by hand (refund it to account credit here and pay the other invoice with the credit).',

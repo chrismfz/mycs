@@ -374,6 +374,20 @@ return [
                 'view' => 'View Invoice Items',
                 'delete' => 'Delete Invoice Items',
             ],
+            // Payments, refunds and adjustment notes of an invoice (owner 2026-11-10, docs/staff-freedom.md): what the
+            // panel's tables do, with the role permission of the same name.
+            'invoice_transactions' => [
+                'create' => 'Record Payments',
+                'update' => 'Refund Payments and Undo Refunds',
+                'view' => 'View Payments',
+                'delete' => 'Edit and Delete Payments',
+            ],
+            'adjustment_notes' => [
+                'create' => 'Create Adjustment Notes',
+                'update' => 'Update and Void Adjustment Notes',
+                'view' => 'View Adjustment Notes',
+                'delete' => 'Delete Adjustment Notes',
+            ],
             'tickets' => [
                 'create' => 'Create Tickets',
                 'update' => 'Update Tickets',

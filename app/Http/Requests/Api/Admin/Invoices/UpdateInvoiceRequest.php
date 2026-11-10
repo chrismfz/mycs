@@ -20,11 +20,12 @@ class UpdateInvoiceRequest extends AdminApiRequest
             'due_at' => 'sometimes|nullable|date',
             /**
              * `paid` when nothing is left to pay (a zero or fully paid invoice); with something left, 422 (the payment
-             * is recorded instead, docs/money-trail.md MT-1c) unless `paid_without_payment` is true.
+             * is recorded instead, docs/money-trail.md MT-1c) unless `paid_without_payment` is true. `draft`: an unpaid
+             * invoice set back to a draft, as the panel's status select does (never a paid, cancelled or refunded one).
              *
              * @default unpaid
              */
-            'status' => 'sometimes|required|string|in:unpaid,paid,cancelled',
+            'status' => 'sometimes|required|string|in:draft,unpaid,paid,cancelled',
             /**
              * With `status: paid` on an unpaid invoice that still owes: mark it paid with no payment recorded (its
              * services are renewed; no payment row is made). Never a credit purchase (422).
