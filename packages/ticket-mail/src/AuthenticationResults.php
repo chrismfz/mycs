@@ -6,9 +6,14 @@ namespace MyCS\TicketMail;
  * Who really sent a mail (docs/tickets.md §3 Β), from the Authentication-Results (RFC 8601) of OUR receiving server
  * only. Any sender can write an Authentication-Results header, also with our authserv-id; our server adds its own on
  * top. So only the topmost one counts, and only when its authserv-id is ours: a forged one below it is ignored, and a
- * mail where ours is missing is unauthenticated. A From is authenticated by DMARC pass for its domain (which allows
- * a related domain, checked by our server with the public suffix list), or by DKIM or SPF pass of its domain or a
- * parent of it (never a subdomain of it: a third party may control one).
+ * mail where ours is missing is unauthenticated. One that does not read cleanly (see parse) vouches for nothing.
+ * A From is authenticated by DMARC pass for its domain (which allows a related domain, checked by our server with
+ * the public suffix list), or by DKIM or SPF pass of its domain or a parent of it (never a subdomain of it: a third
+ * party may control one).
+ *
+ * «Our server» is whichever server meets three points (docs/tickets.md, «Ο server παραλαβής»): it writes one such
+ * header, on top, on every mail it delivers (also its own authenticated users'); it removes a sender's own with its
+ * id; and it quotes or escapes the sender's text it copies into the header. Reading is safe only with the third.
  */
 final class AuthenticationResults
 {
@@ -27,11 +32,17 @@ final class AuthenticationResults
         }
 
         $parsed = self::parse($headers[0]);
-        if ($parsed === null || $parsed['authserv_id'] !== $authservId) {
+        if ($parsed === null) {
+            return new AuthVerdict(false, 'unreadable_results');
+        }
+        if ($parsed['authserv_id'] !== $authservId) {
             return new AuthVerdict(false, 'not_our_server');
         }
 
-        foreach ($parsed['results'] as $result) {
+        // DMARC's word first: when it passed, it is the reason staff read.
+        $results = $parsed['results'];
+        usort($results, fn (array $a, array $b) => ($b['method'] === 'dmarc') <=> ($a['method'] === 'dmarc'));
+        foreach ($results as $result) {
             if ($result['result'] !== 'pass') {
                 continue;
             }
@@ -55,86 +66,151 @@ final class AuthenticationResults
     }
 
     /**
-     * One Authentication-Results value: its authserv-id and each method's result with its properties.
+     * One Authentication-Results value: its authserv-id and each method's result with its properties. Null when it does
+     * not read cleanly, and then it vouches for nothing.
+     *
+     * Read as RFC 8601 §2.2 writes it, from a server that quotes or escapes the text a sender chose (the envelope
+     * sender, also inside the SPF comment): today's (rspamd) puts a value in double quotes as soon as it holds a
+     * character with a meaning here (parentheses, «;», «=», «/», a space…).
+     * - A quoted string is ONE opaque value, with its backslash escapes, as a property's value and inside a comment;
+     *   what it holds is never read as statements.
+     * - A comment ends at its «)»; a backslash-escaped character in it (also a parenthesis) is its text. A comment is
+     *   never a source of statements: one that holds a «;» outside quotes, another comment, or a parenthesis inside
+     *   quotes that is not escaped, is refused.
+     * - A statement is «method=result» and then «name=value» words only; the «ptype.property» ones are its
+     *   properties, each once. Nothing is read out of a comment or out of another value.
+     * - One DMARC result per mail, and a method that says «none» says nothing else.
+     * - Folding is CRLF (or LF) before a space or a tab; any other CR, LF or control character is refused.
+     * Whatever else (a quote or comment never closed, a stray «)» or backslash, a word outside this grammar, spaces
+     * around «=») is refused whole, never skipped.
      *
      * @return array{authserv_id: string, results: list<array{method: string, result: string, props: array<string, string>}>}|null
      */
     public static function parse(string $value): ?array
     {
-        $parts = self::statements(str_replace(["\r", "\n"], ' ', $value));
-        $id = strtolower((string) preg_replace('/\s+\d+$/', '', trim((string) array_shift($parts))));
-        if ($id === '' || preg_match('/^[a-z0-9._-]+$/', $id) !== 1) {
+        $statements = self::statements((string) preg_replace('/\r?\n(?=[ \t])/', '', $value));
+        if ($statements === null) {
+            return null;
+        }
+        // The authserv-id, and at most its version.
+        $first = array_map(fn (array $word) => $word[1] === null ? $word[0] : '"', array_shift($statements));
+        $id = strtolower($first[0] ?? '');
+        if (preg_match('/^[a-z0-9._-]+$/', $id) !== 1 || count($first) > 2 || (isset($first[1]) && !ctype_digit($first[1]))) {
             return null;
         }
 
         $results = [];
-        foreach ($parts as $part) {
-            // A method's result opens its statement; a quoted value is one token (the sender chose it).
-            if (preg_match('/^([a-z0-9_-]+)(?:\/\d+)?\s*=\s*([a-z]+)(.*)$/is', trim($part), $m) !== 1) {
+        $seen = [];
+        foreach ($statements as $words) {
+            // Nothing between two «;» (or after the last), or the «none» of a server that checked nothing.
+            if ($words === [] || (count($words) === 1 && $words[0][1] === null && strtolower($words[0][0]) === 'none')) {
                 continue;
             }
-            $props = [];
-            if (preg_match_all('/(?:^|\s)([a-z0-9_-]+\.[a-z0-9_.-]+)\s*=\s*("(?:[^"\\\\]|\\\\.)*"|[^\s"]+)/i', $m[3], $pairs, PREG_SET_ORDER) > 0) {
-                foreach ($pairs as $pair) {
-                    $props[strtolower($pair[1])] ??= strtolower(trim($pair[2], '"'));
-                }
+            [$plain, $quoted] = array_shift($words);
+            if ($quoted !== null || preg_match('/^([a-z0-9-]+)(?:\/\d+)?=([a-z]+)$/i', $plain, $m) !== 1) {
+                return null;
             }
-            $results[] = ['method' => strtolower($m[1]), 'result' => strtolower($m[2]), 'props' => $props];
+            [$method, $result] = [strtolower($m[1]), strtolower($m[2])];
+            $props = [];
+            foreach ($words as [$plain, $quoted]) {
+                // The name and its «=» are the server's own; the value is plain, quoted, or both («"local part"@domain»).
+                if (preg_match('/^([a-z0-9_-]+)(\.[a-z0-9_-]+)?=(.*)$/is', $plain, $pair) !== 1) {
+                    return null;
+                }
+                if ($pair[2] === '') {
+                    // «reason="…"», or a server's own word («action=none»): not a property.
+                    continue;
+                }
+                $name = strtolower($pair[1] . $pair[2]);
+                if (array_key_exists($name, $props)) {
+                    return null;
+                }
+                $props[$name] = strtolower($pair[3] . $quoted);
+            }
+            $seen[$method][] = $result;
+            $results[] = ['method' => $method, 'result' => $result, 'props' => $props];
+        }
+        foreach ($seen as $method => $said) {
+            if (count($said) > 1 && ($method === 'dmarc' || in_array('none', $said, true))) {
+                return null;
+            }
         }
 
         return ['authserv_id' => $id, 'results' => $results];
     }
 
     /**
-     * The statements of a header, split at the «;» outside quoted strings and comments, comments dropped (RFC 8601,
-     * RFC 5322). A «;» or a «dmarc=pass» inside the sender's quoted envelope address or a comment stays inside it.
+     * The words of each statement of a header (split at the «;» outside quotes and comments), comments dropped; null
+     * when it is not clean (see parse). A word is its text up to its first quote, and (when it has one) the rest of it
+     * with the quoted strings unescaped: what stands after that first quote is a value, never a name.
      *
-     * @return list<string>
+     * @return list<list<array{0: string, 1: ?string}>>|null
      */
-    private static function statements(string $value): array
+    private static function statements(string $value): ?array
     {
         $statements = [];
-        $current = '';
-        $quoted = false;
-        $depth = 0;
+        $words = [];
+        // The word being read: its text up to its first quote, and what stands from that quote on (null: no quote yet).
+        $plain = '';
+        $rest = null;
         $length = strlen($value);
         for ($i = 0; $i < $length; $i++) {
             $char = $value[$i];
-            if ($char === '\\' && ($quoted || $depth > 0) && $i + 1 < $length) {
-                if ($depth === 0) {
-                    $current .= $char . $value[$i + 1];
-                }
-                $i++;
-
-                continue;
-            }
-            if ($depth > 0) {
-                $depth += $char === '(' ? 1 : ($char === ')' ? -1 : 0);
-                if ($depth === 0) {
-                    $current .= ' ';
-                }
-
-                continue;
-            }
-            if ($quoted) {
-                $current .= $char;
-                $quoted = $char !== '"';
-
-                continue;
+            if ($char !== "\t" && (ord($char) < 32 || ord($char) === 127)) {
+                return null;
             }
             if ($char === '"') {
-                $quoted = true;
-                $current .= $char;
-            } elseif ($char === '(') {
-                $depth = 1;
-            } elseif ($char === ';') {
-                $statements[] = $current;
-                $current = '';
+                // A quoted string, to its closing quote: part of this word.
+                $rest ??= '';
+                for ($i++; $i < $length && $value[$i] !== '"'; $i++) {
+                    $i += $value[$i] === '\\' ? 1 : 0;
+                    $rest .= $value[$i] ?? '';
+                }
+                if ($i >= $length) {
+                    return null;
+                }
+
+                continue;
+            }
+            if ($char === ')' || $char === '\\') {
+                return null;
+            }
+            if ($char === '(') {
+                // A comment, to its «)»: it ends the word and leaves nothing. A parenthesis inside quotes in it is refused,
+                // or one quote in the sender's text could carry the comment over the server's own «)».
+                $inQuotes = false;
+                for ($i++; $i < $length && ($inQuotes || $value[$i] !== ')'); $i++) {
+                    if ($value[$i] === '\\') {
+                        $i++;
+                    } elseif ($value[$i] === '"') {
+                        $inQuotes = !$inQuotes;
+                    } elseif ($value[$i] === '(' || $value[$i] === ')' || (!$inQuotes && $value[$i] === ';')) {
+                        return null;
+                    }
+                }
+                if ($i >= $length) {
+                    return null;
+                }
+            }
+            if ($char === '(' || $char === ';' || $char === ' ' || $char === "\t") {
+                if ($plain !== '' || $rest !== null) {
+                    $words[] = [$plain, $rest];
+                    [$plain, $rest] = ['', null];
+                }
+                if ($char === ';') {
+                    $statements[] = $words;
+                    $words = [];
+                }
+            } elseif ($rest !== null) {
+                $rest .= $char;
             } else {
-                $current .= $char;
+                $plain .= $char;
             }
         }
-        $statements[] = $current;
+        if ($plain !== '' || $rest !== null) {
+            $words[] = [$plain, $rest];
+        }
+        $statements[] = $words;
 
         return $statements;
     }

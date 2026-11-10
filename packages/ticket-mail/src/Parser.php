@@ -80,7 +80,7 @@ final class Parser
             to: self::addresses($message, 'To'),
             cc: self::addresses($message, 'Cc'),
             date: self::date($message),
-            authenticationResults: array_map(fn ($header) => trim($header->getRawValue()), $message->getAllHeadersByName('Authentication-Results')),
+            authenticationResults: self::exactHeaders($message, 'Authentication-Results'),
             headers: $headers,
             attachments: $kept,
             refused: $refused,
@@ -88,6 +88,25 @@ final class Parser
             tooLarge: $tooLarge,
             size: $size,
         );
+    }
+
+    /**
+     * The values of the headers with exactly this name (in any case), top first. The MIME library finds a header by
+     * its letters and digits alone, so «Authentication_Results» or «Authentication Results» would answer to
+     * «Authentication-Results»: a header our server neither writes nor removes, and so the sender's own.
+     *
+     * @return list<string>
+     */
+    public static function exactHeaders(IMessage $message, string $name): array
+    {
+        $values = [];
+        foreach ($message->getAllHeadersByName($name) as $header) {
+            if (strcasecmp($header->getName(), $name) === 0) {
+                $values[] = trim($header->getRawValue());
+            }
+        }
+
+        return $values;
     }
 
     /** @return array{0: string, 1: bool} the text (the plain part, or the HTML one as text) and whether it was cut */
