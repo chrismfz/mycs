@@ -27,6 +27,7 @@ use App\Services\Billing\ClientGroupPricing;
 use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
+use App\Services\Import\WhmcsClientCurrency;
 use App\Services\Import\WhmcsContactImport;
 use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsCustomFieldImport;
@@ -943,14 +944,10 @@ class ImportFromWhmcs extends Command
 
                 // Credits
                 if ($record['credit'] > 0) {
-                    $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                    $currency->bindValue(':id', $record['currency'], PDO::PARAM_INT);
-                    $currency->execute();
-                    $currency = $currency->fetch(PDO::FETCH_ASSOC);
                     array_push($credits, [
                         'client_id' => $record['id'],
                         'amount' => $record['credit'],
-                        'currency_code' => $currency['code'] ?? null,
+                        'currency_code' => $this->currencies()->code((int) $record['id']),
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -974,6 +971,13 @@ class ImportFromWhmcs extends Command
                 . implode(', #', $this->ownerless) . '). Give each an owner in WHMCS before the final import.');
         }
         $this->importedClients = null; // read again, now that they are in
+        // An account whose currency is 0 or a deleted one: WHMCS bills it in its default currency, and so is it imported
+        // (owner's decision 2026-11-08, sweep 6 S6-IMPORT-1). Named by id, so staff can set it in WHMCS or check it here.
+        $defaulted = array_values(array_diff($this->currencies()->defaulted, $this->ownerless));
+        if ($defaulted !== []) {
+            $this->warn(count($defaulted) . ' WHMCS account(s) whose currency names no currency, imported in the default currency '
+                . $this->currencies()->default . ' (#' . implode(', #', $defaulted) . ').');
+        }
         $this->reportCountries();
     }
 
@@ -1383,7 +1387,7 @@ class ImportFromWhmcs extends Command
                 }
                 // Listed for staff: each live one on a plan with no price in its currency (made here, a cycle WHMCS no longer
                 // sells, or one priced in another currency only): «Recalculate price» would make it 0.00 (review of #628).
-                $currency = (string) ($user['code'] ?? '');
+                $currency = $user['code'];
                 if ($planId !== null && !$freeAccount && $live
                     && ($unpriced["{$planId}|{$currency}"] ??= !DB::table('prices')->where('plan_id', $planId)->where('currency_code', $currency)->exists())) {
                     $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
@@ -2520,11 +2524,12 @@ class ImportFromWhmcs extends Command
 
     /** @return array<int, true> */
     /**
-     * The currency of an account imported here (its tblcurrencies row), or null: an account WHMCS gives no currency, or
-     * one skipped (no owner login, importUsers). Its orders, services and invoices are not imported then: never a row of
-     * an account that is not here (sweep IMPORT-2: an overdue invoice of none stopped the reminders' run).
+     * The currency of an account imported here, or null for one skipped (no owner login, importUsers): its orders,
+     * services and invoices are not imported then, never a row of an account that is not here (sweep IMPORT-2: an overdue
+     * invoice of none stopped the reminders' run). An account whose WHMCS currency names no currency takes the company's
+     * default (WhmcsClientCurrency, sweep 6 S6-IMPORT-1).
      *
-     * @return array<string, mixed>|null
+     * @return array{code: string}|null
      */
     private function clientCurrency(int $clientId): ?array
     {
@@ -2532,14 +2537,14 @@ class ImportFromWhmcs extends Command
         if (!isset($this->importedClients[$clientId])) {
             return null;
         }
-        if (!array_key_exists($clientId, $this->clientCurrencies)) {
-            $stmt = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-            $stmt->bindValue(':client_id', $clientId, PDO::PARAM_INT);
-            $stmt->execute();
-            $this->clientCurrencies[$clientId] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        }
 
-        return $this->clientCurrencies[$clientId];
+        return ['code' => $this->currencies()->code($clientId)];
+    }
+
+    /** Each WHMCS account's currency, read once. */
+    private function currencies(): WhmcsClientCurrency
+    {
+        return $this->clientCurrencies ??= new WhmcsClientCurrency($this->pdo);
     }
 
     /** @var list<int> WHMCS invoices imported without their number (another invoice's) */
@@ -2562,8 +2567,7 @@ class ImportFromWhmcs extends Command
     /** @var array<int, true>|null the accounts imported here, read once after importUsers */
     private ?array $importedClients = null;
 
-    /** @var array<int, array<string, mixed>|null> */
-    private array $clientCurrencies = [];
+    private ?WhmcsClientCurrency $clientCurrencies = null;
 
     /** @var list<int> WHMCS accounts with no owner login, skipped by importUsers */
     private array $ownerless = [];
@@ -3374,7 +3378,7 @@ class ImportFromWhmcs extends Command
         foreach ($parents as $parent) {
             $parentId = (int) $parent['id'];
             $payments = $this->rows('SELECT id, amountin, amountout, transid, date FROM tblaccounts WHERE invoiceid = ? ORDER BY date, id', [$parentId]);
-            $currency = $this->row('SELECT code FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = ? LIMIT 1) LIMIT 1', [$parent['userid']]);
+            $currency = $this->clientCurrency((int) $parent['userid']);
             if ($currency === null) {
                 continue;
             }

@@ -611,12 +611,11 @@ class WhmcsMoneyJournal
     /** @return array<int, string> customer id => its currency, for the customers imported */
     private function clientCurrencies(): array
     {
-        $imported = DB::table('clients')->pluck('id')->flip();
+        // One whose currency names no currency: the default, as everything of it was imported (WhmcsClientCurrency).
+        $whmcs = new WhmcsClientCurrency($this->whmcs);
         $currencies = [];
-        foreach ($this->rows('SELECT c.id, cur.code FROM tblclients c JOIN tblcurrencies cur ON cur.id = c.currency') as $row) {
-            if (isset($imported[(int) $row['id']])) {
-                $currencies[(int) $row['id']] = (string) $row['code'];
-            }
+        foreach (DB::table('clients')->pluck('id') as $id) {
+            $currencies[(int) $id] = $whmcs->code((int) $id);
         }
 
         return $currencies;
