@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\ClientController;
 use App\Http\Controllers\Api\Admin\CreditController;
 use App\Http\Controllers\Api\Admin\InvoiceController;
 use App\Http\Controllers\Api\Admin\InvoiceItemController;
+use App\Http\Controllers\Api\Admin\InvoicePaymentController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\ProductController;
 use App\Http\Controllers\Api\Admin\ServiceController;
@@ -44,4 +45,18 @@ Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => '
         'tickets' => TicketController::class,
         'ticket-messages' => TicketMessageController::class,
     ]);
+
+    // An invoice's payments and refunds, as the panel's table corrects them (owner 2026-11-10,
+    // docs/staff-freedom.md): each id belongs to the invoice in the URL (scoped: 404 otherwise).
+    Route::scopeBindings()->prefix('invoices/{invoice}')->name('invoices.')->group(function () {
+        Route::get('payments', [InvoicePaymentController::class, 'index'])->name('payments.index');
+        Route::post('payments', [InvoicePaymentController::class, 'store'])->name('payments.store');
+        Route::get('payments/{transaction}', [InvoicePaymentController::class, 'show'])->name('payments.show');
+        Route::put('payments/{transaction}', [InvoicePaymentController::class, 'update'])->name('payments.update');
+        Route::delete('payments/{transaction}', [InvoicePaymentController::class, 'destroy'])->name('payments.destroy');
+        Route::get('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refunds'])->name('payments.refunds.index');
+        Route::post('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refund'])->name('payments.refunds.store');
+        Route::delete('payments/{transaction}/refunds/{refund}', [InvoicePaymentController::class, 'undoRefund'])->whereNumber('refund')->name('payments.refunds.destroy');
+
+    });
 });

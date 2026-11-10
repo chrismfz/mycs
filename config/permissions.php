@@ -374,6 +374,14 @@ return [
                 'view' => 'View Invoice Items',
                 'delete' => 'Delete Invoice Items',
             ],
+            // Payments and refunds of an invoice (owner 2026-11-10, docs/staff-freedom.md): what the
+            // panel's tables do, with the role permission of the same name.
+            'invoice_transactions' => [
+                'create' => 'Record Payments',
+                'update' => 'Refund Payments and Undo Refunds',
+                'view' => 'View Payments',
+                'delete' => 'Edit and Delete Payments',
+            ],
             'tickets' => [
                 'create' => 'Create Tickets',
                 'update' => 'Update Tickets',

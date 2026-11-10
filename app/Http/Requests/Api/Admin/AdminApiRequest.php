@@ -6,6 +6,14 @@ use Illuminate\Foundation\Http\FormRequest;
 
 abstract class AdminApiRequest extends FormRequest
 {
+    /**
+     * An amount of money: a decimal string with two places at most, as the panel's fields take it. Never a float, an
+     * exponent or a sign (a note's amount adds its own).
+     */
+    protected const AMOUNT = 'regex:/^\d{1,9}(\.\d{1,2})?$/';
+
+    protected const SIGNED_AMOUNT = 'regex:/^-?\d{1,9}(\.\d{1,2})?$/';
+
     protected $permission;
 
     /**
