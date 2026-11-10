@@ -781,7 +781,7 @@ class Service extends Model implements Auditable
             // Service, upgrades, then invoices: the order ServiceUpgradeService and the cron take.
             $reason = __('invoices.cancellation_reasons.service_terminated');
             $left = CancelPendingUpgrades::forService($locked, $reason);
-            $left += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()), $reason, $locked);
+            $left += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $locked), $reason, $locked);
             if ($locked->product?->stock !== null) {
                 $locked->product->increment('stock', $locked->quantity);
             }
