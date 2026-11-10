@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\ApiKey;
 use App\Models\Credit;
@@ -20,12 +21,17 @@ use App\Models\User;
 use App\Services\Invoice\EditPayment;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\UndoRefund;
+use App\Services\Money\GatewayReference;
 use App\Services\Money\MoneyCheck;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use MyCS\Extensions\Gateways\Mollie\Mollie;
 use Tests\Concerns\ImportedWhmcsInvoices;
 use Tests\TestCase;
 
@@ -51,6 +57,8 @@ class StaffFreedomApiPaymentsTest extends TestCase
     {
         parent::setUp();
         Queue::fake();
+        Http::preventStrayRequests(); // no test here reaches a gateway: what one needs is faked
+        Cache::flush();
         Carbon::setTestNow('2026-09-20 10:00:00');
         $this->user = User::factory()->create();
         $product = $this->createProduct();
@@ -488,5 +496,130 @@ class StaffFreedomApiPaymentsTest extends TestCase
         $this->withToken($token)->getJson(route('api.v1.admin.invoices.payments.refunds.index', [502, $charge]))->assertOk()->assertJsonCount(0, 'data');
         $this->withToken($token)->deleteJson(route('api.v1.admin.invoices.payments.refunds.destroy', [502, $charge, $event->id]), ['money_left_at_gateway' => true])->assertNotFound();
         $this->assertSame($before, [$this->state(502), (string) $charge->fresh()->refunded_amount]);
+    }
+
+    // ---------------------------------------------------------------- review of #782
+
+    /** REV-782-1, the rule in EditPayment itself: the panel's service refuses what its select never offered. */
+    public function test_kept_a_payment_moves_only_onto_an_unpaid_draft_or_paid_invoice(): void
+    {
+        $payment = $this->paid();
+        Invoice::query()->findOrFail(502)->update(['status' => Invoice::STATUS_CANCELLED]);
+
+        $this->withToken($this->token())->putJson(route('api.v1.admin.invoices.payments.update', [501, $payment]), ['invoice_id' => 502])
+            ->assertStatus(422)->assertJsonPath('message', __('invoices.payment_edit.target_status'));
+        try {
+            (new EditPayment)->handle($payment, ['invoice_id' => 502]);
+            $this->fail('The service moved a payment onto a cancelled invoice.');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('invoices.payment_edit.target_status'), $e->getMessage());
+        }
+        $this->assertSame([[Invoice::STATUS_PAID, 0, 1000], Invoice::STATUS_CANCELLED, '0.00'], [$this->state(501), $this->state(502)[0], $this->credit()]);
+    }
+
+    /** REV-782-3: with an Idempotency-Key a POST sent again is made once; another key is another request. */
+    public function test_a_money_post_sent_again_with_its_idempotency_key_is_made_once(): void
+    {
+        Invoice::query()->whereKey(502)->update(['status' => Invoice::STATUS_DRAFT]); // nothing open for the credit to pay
+        $payment = $this->paid();
+        $token = $this->token();
+        $url = route('api.v1.admin.invoices.payments.refunds.store', [501, $payment]);
+        $body = ['amount' => '2.00', 'method' => 'manual', 'notify' => false];
+        $send = fn (string $key, array $body, ?string $as = null) => $this->withToken($as ?? $token)->withHeader('Idempotency-Key', $key)->postJson($url, $body);
+        $key = (string) Str::uuid();
+
+        $first = $send($key, $body)->assertOk();
+        $again = $send($key, $body)->assertOk()->assertHeader('Idempotency-Replayed', 'true');
+        $this->assertSame($first->json(), $again->json(), 'the first answer, as it was');
+        $this->assertSame('2.00', (string) $payment->fresh()->refunded_amount, 'one refund');
+        // The same key with another body is no retry.
+        $send($key, ['amount' => '3.00', 'method' => 'manual', 'notify' => false])->assertStatus(422);
+        $this->assertSame('2.00', (string) $payment->fresh()->refunded_amount);
+        // Another key, and the same key from another API key, are requests of their own.
+        $send((string) Str::uuid(), $body)->assertOk()->assertHeaderMissing('Idempotency-Replayed');
+        $send($key, $body, $this->token())->assertOk()->assertHeaderMissing('Idempotency-Replayed');
+        $this->assertSame('6.00', (string) $payment->fresh()->refunded_amount, 'three refunds in all');
+        // A refusal is not kept: asked again, it is judged again.
+        $refused = (string) Str::uuid();
+        $send($refused, ['amount' => '9.00', 'method' => 'manual', 'notify' => false])->assertStatus(422);
+        $send($refused, ['amount' => '1.00', 'method' => 'manual', 'notify' => false])->assertOk();
+        $send('short', $body)->assertStatus(422);
+        $send(str_repeat('a', 101), $body)->assertStatus(422);
+        $this->assertSame('7.00', (string) $payment->fresh()->refunded_amount);
+        $this->flushHeaders();
+
+        // A payment with no transaction id, and a note: the other two POSTs that write money.
+        $pay = (string) Str::uuid();
+        foreach ([1, 2] as $try) {
+            $this->withToken($token)->withHeader('Idempotency-Key', $pay)->postJson(route('api.v1.admin.invoices.payments.store', 501), ['amount' => '1.00'])->assertCreated();
+        }
+        $this->assertSame(2, InvoiceTransaction::query()->where('invoice_id', 501)->count(), 'the payment of 10.00 and one of 1.00');
+        $this->flushHeaders();
+        $noteToken = $this->token(['admin.adjustment_notes.create']);
+        foreach ([1, 2] as $try) {
+            $this->withToken($noteToken)->withHeader('Idempotency-Key', $pay)->postJson(route('api.v1.admin.invoices.adjustment-notes.store', 502), ['amount' => '-1.00', 'description' => 'x'])->assertCreated();
+        }
+        $this->assertSame(1, Invoice::query()->findOrFail(502)->adjustmentNotes()->count());
+        $this->flushHeaders();
+        // Without the header, as before: each POST is made.
+        $this->withToken($token)->postJson($url, ['amount' => '0.50', 'method' => 'manual', 'notify' => false])->assertOk();
+        $this->withToken($token)->postJson($url, ['amount' => '0.50', 'method' => 'manual', 'notify' => false])->assertOk();
+        $this->assertSame('8.00', (string) $payment->fresh()->refunded_amount);
+    }
+
+    /** The bounds of what a payment takes (review of #782): a fee within its amount, a clean id, a real day. */
+    public function test_kept_a_payments_fields_are_bounded(): void
+    {
+        $token = $this->token();
+        $this->record(501, ['amount' => '5.00', 'fee' => '5.01'], $token)->assertStatus(422)->assertJsonValidationErrors('fee');
+        $this->record(501, ['amount' => '5.00', 'transaction_id' => "tr\u{0000}1"], $token)->assertStatus(422)->assertJsonValidationErrors('transaction_id');
+        $this->record(501, ['amount' => '5.00', 'transaction_id' => "tr\n1"], $token)->assertStatus(422)->assertJsonValidationErrors('transaction_id');
+        $this->record(501, ['amount' => '5.00', 'transaction_id' => str_repeat('a', 256)], $token)->assertStatus(422)->assertJsonValidationErrors('transaction_id');
+        $this->record(501, ['amount' => '5.00', 'paid_at' => '1999-12-31'], $token)->assertStatus(422)->assertJsonValidationErrors('paid_at');
+        $this->record(501, ['amount' => '5.00', 'paid_at' => '2026-02-30'], $token)->assertStatus(422)->assertJsonValidationErrors('paid_at');
+        $this->assertSame(0, InvoiceTransaction::query()->where('invoice_id', 501)->count());
+
+        $this->record(501, ['amount' => '5.00', 'fee' => '5.00', 'transaction_id' => 'ΤΡ-501/α', 'paid_at' => '2000-01-01'], $token)->assertCreated();
+        $payment = InvoiceTransaction::query()->where('invoice_id', 501)->sole();
+        $edit = fn (array $body) => $this->withToken($token)->putJson(route('api.v1.admin.invoices.payments.update', [501, $payment]), $body)->assertStatus(422);
+        $edit(['fee' => '5.01'])->assertJsonValidationErrors('fee');
+        $edit(['amount' => '4.00'])->assertJsonValidationErrors('fee'); // below the fee it has
+        $edit(['fee' => '4.50', 'amount' => '4.00'])->assertJsonValidationErrors('fee');
+        $edit(['transaction_id' => "a\tb"])->assertJsonValidationErrors('transaction_id');
+        $edit(['paid_at' => '1999-12-31'])->assertJsonValidationErrors('paid_at');
+    }
+
+    /** The gateway's own refund, by the panel's call (ExtensionHelper::refund), against a faked Mollie: no request leaves. */
+    public function test_a_refund_through_the_gateway_is_the_panels_call_and_is_recorded_once(): void
+    {
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Mollie'], ['name' => 'Mollie', 'type' => 'gateway']);
+        $gateway->settings()->updateOrCreate(['key' => 'api_key'], ['value' => 'test_key']);
+        (new Mollie(['api_key' => 'test_key']))->boot();
+        $api = 'https://api.mollie.com/v2/payments/tr_m1';
+        $made = [];
+        Http::fake([
+            $api . '/refunds' => function ($request) use (&$made) {
+                if ($request->method() === 'GET') {
+                    return Http::response(['_embedded' => ['refunds' => $made]]);
+                }
+                $made[] = ['id' => 're_' . (count($made) + 1), 'status' => 'pending', 'amount' => $request->data()['amount']];
+
+                return Http::response(end($made));
+            },
+            $api . '/chargebacks' => Http::response(['_embedded' => ['chargebacks' => []]]),
+            $api => fn () => Http::response(['id' => 'tr_m1', 'status' => 'paid', 'amount' => ['value' => '10.00', 'currency' => 'EUR'],
+                '_links' => ['refunds' => ['href' => $api . '/refunds']], 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => 502]]),
+        ]);
+        $charge = ExtensionHelper::addPayment(502, 'Mollie', 10.00, transactionId: 'tr_m1', currency: 'EUR');
+        $this->assertArrayHasKey('gateway', TransactionsRelationManager::refundMethods($charge), 'the form offers it for this payment');
+
+        $this->withToken($this->token())->postJson(route('api.v1.admin.invoices.payments.refunds.store', [502, $charge]), ['amount' => '4.00', 'method' => 'gateway', 'notify' => false])
+            ->assertOk()->assertJsonPath('data.attributes.refunded_amount', '4.00');
+
+        $this->assertCount(1, $made, 'one refund asked of the gateway');
+        $this->assertSame('4.00', $made[0]['amount']['value']);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 600], $this->state(502));
+        $this->assertSame(UndoRefund::BY_GATEWAY, UndoRefund::kind(UndoRefund::refunds($charge)->sole()));
+        $this->assertSame(1, GatewayRefund::query()->where('reference', 're_1')->count());
     }
 }

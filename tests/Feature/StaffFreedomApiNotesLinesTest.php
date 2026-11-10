@@ -20,6 +20,7 @@ use Dedoc\Scramble\Generator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\ImportedWhmcsInvoices;
 use Tests\TestCase;
@@ -46,6 +47,7 @@ class StaffFreedomApiNotesLinesTest extends TestCase
     {
         parent::setUp();
         Queue::fake();
+        Http::preventStrayRequests(); // no test here reaches a gateway
         Carbon::setTestNow('2026-10-05 10:00:00');
         config(['settings.credits_enabled' => true]);
         $client = User::factory()->create()->client();
@@ -264,6 +266,32 @@ class StaffFreedomApiNotesLinesTest extends TestCase
         $this->assertSame([800, 400], $this->money());
         $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $this->invoice->items()->whereNotNull('reference_type')->sole()))->assertStatus(422);
         $this->assertSame(2, $this->invoice->items()->count());
+    }
+
+    /** The bounds of a line (review of #782): what today's clients send stays valid, what no invoice bills is refused. */
+    public function test_kept_a_lines_price_quantity_and_description_are_bounded(): void
+    {
+        $token = $this->token(self::LINES);
+        $store = fn (array $body) => $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => 502, 'description' => 'x', 'quantity' => 1, 'price' => '1.00', 'taxed' => false, ...$body]);
+
+        foreach (['1e3', '-1e400', '1.999', '1234567890.00', '0x1A', '1,50', INF] as $price) {
+            $store(['price' => $price])->assertStatus(422)->assertJsonValidationErrors('price');
+        }
+        $store(['quantity' => 1001])->assertStatus(422)->assertJsonValidationErrors('quantity');
+        $store(['description' => str_repeat('α', 40000)])->assertStatus(422)->assertJsonValidationErrors('description'); // 80000 bytes
+        $this->assertSame(1, $this->invoice->items()->count());
+
+        // As clients send them today: a JSON number, a decimal string, a whole number.
+        foreach ([10, 10.5, '10.50', '7', 0] as $price) {
+            $store(['price' => $price, 'quantity' => 1000, 'description' => str_repeat('α', 30000)])->assertSuccessful();
+        }
+        $line = $this->invoice->items()->whereNull('reference_type')->first();
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '1e2'])->assertStatus(422)->assertJsonValidationErrors('price');
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['quantity' => 1001])->assertStatus(422)->assertJsonValidationErrors('quantity');
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => 12.25, 'quantity' => 2])->assertSuccessful();
+        // A note's description, by bytes too.
+        $this->withToken($this->token(self::NOTES))->postJson(route('api.v1.admin.invoices.adjustment-notes.store', 502), ['amount' => '-1.00', 'description' => str_repeat('α', 40000)])
+            ->assertStatus(422)->assertJsonValidationErrors('description');
     }
 
     // ---------------------------------------------------------------- status
