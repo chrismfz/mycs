@@ -238,7 +238,7 @@ final class MoveToClient
             if ($invoice->status === Invoice::STATUS_DRAFT) {
                 $why = match (true) {
                     // A draft Ekdosi issued a document for (in one account's ΑΦΜ) stays with it (R2-4 of #459).
-                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]),
+                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: issued is final. It is not merged, split or moved; a correction is made in Ekdosi.', ['invoice' => $label]),
                     !$whole => __('clients.move.draft_split', ['invoices' => $label]),
                     $invoice->hasPayments(lock: true) => __('clients.move.paid_in_part', ['invoices' => $label]),
                     default => null,

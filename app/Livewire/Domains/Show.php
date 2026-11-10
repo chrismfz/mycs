@@ -617,7 +617,7 @@ class Show extends Component
 
             return;
         }
-        $this->notify(__('services.payment_method_saved'), 'success');
+        $this->notify(ItemPaymentMethod::notice(__('services.payment_method_saved'), 'services.payment_method_saved_open_kept'), 'success');
     }
 
     /**
@@ -634,7 +634,7 @@ class Show extends Component
             return;
         }
         ItemPaymentMethod::setAutoCharge($this->domain, $on);
-        $this->notify($on ? __('services.auto_charge_turned_on') : __('services.auto_charge_turned_off'), 'success');
+        $this->notify($on ? __('services.auto_charge_turned_on') : ItemPaymentMethod::notice(__('services.auto_charge_turned_off'), 'services.auto_charge_turned_off_open_whole'), 'success');
     }
 
     private function setsPaymentMethod(): bool

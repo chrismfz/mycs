@@ -5,7 +5,6 @@ namespace App\Services\Invoice;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Services\Ekdosi\EkdosiRequest;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -14,8 +13,8 @@ use Illuminate\Support\Facades\DB;
  * takes the earliest due date, so a merge never delays a suspension. The others are kept, cancelled, «merged into #X»
  * (WHMCS deletes them): no credit note (they bill nothing any more) and no period given up on (their lines moved, Δ3).
  *
- * Refused (InvoiceLineMove::refusal): any invoice not unpaid, with payments, a credit note, a line already applied, a
- * credit purchase or a gateway subscription; another customer or currency; billed to another name, address or tax (a
+ * Refused (InvoiceLineMove::refusal): any invoice not unpaid, one that is Ekdosi's (a document, a request, an account with
+ * «immediate invoicing»), with payments, a credit note, a line already applied, a credit purchase or a gateway subscription; another customer or currency; billed to another name, address or tax (a
  * merge never re-taxes a line); a debt kept for an ended service (Δ3a) with one that is not.
  */
 final class MergeInvoices
@@ -67,8 +66,6 @@ final class MergeInvoices
             if ($issued !== null && $target->created_at !== null && $issued->lt($target->created_at)) {
                 Invoice::query()->whereKey($target->id)->update(['created_at' => $issued]);
             }
-            // A request to Ekdosi (E5) was for the target's own lines: with others merged in, staff send it again (review of #478).
-            EkdosiRequest::forget((int) $target->id, 'merged_into');
             foreach ($sources as $source) {
                 $source->keep_periods_billable = true; // nothing left on it to give up on
                 $source->merged_into_id = $target->id;
