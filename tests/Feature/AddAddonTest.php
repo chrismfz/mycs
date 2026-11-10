@@ -13,7 +13,6 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
-use App\Models\ServiceCancellation;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
@@ -186,12 +185,12 @@ class AddAddonTest extends TestCase
         [$product, $plan] = $this->addonProduct(quantity: 'disabled');
         [$onlyProxmox, $proxmoxPlan] = $this->addonProduct(targets: ['module:Proxmox']);
         $ended = $this->parent(status: 'terminated');
-        $cancelling = $this->parent();
-        ServiceCancellation::query()->create(['service_id' => $cancelling->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
+        $pending = $this->parent(status: 'pending');
 
         foreach ([
             [fn () => (new AddAddon)->handle($ended, $product, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_status'],
-            [fn () => (new AddAddon)->handle($cancelling, $product, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_cancelling'],
+            // One not started yet has its own reason; one to be cancelled takes an addon now (owner 2026-11-10, StaffFreedomServicesTest).
+            [fn () => (new AddAddon)->handle($pending, $product, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_pending'],
             [fn () => (new AddAddon)->handle($parent, $product, 2, null, false, AddAddon::PRORATED), 'services.addons.add.quantity'],
             [fn () => (new AddAddon)->handle($this->parent('2026-11-01'), $product, 1, null, false, AddAddon::NO_INVOICE), 'services.addons.add.no_due_date'],
             [fn () => (new AddAddon)->handle($parent, $product, 1, '-1', false, AddAddon::PRORATED), 'services.addons.add.price_negative'],

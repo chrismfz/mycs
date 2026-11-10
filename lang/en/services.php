@@ -537,7 +537,9 @@ return [
         'add' => [
             'refused_addon' => 'An addon cannot have addons of its own.',
             'refused_status' => 'Addons are added to a service that runs (active or suspended).',
-            'refused_cancelling' => 'This service is being cancelled: no addon is added to it.',
+            'refused_pending' => 'This service has not started yet, so it has no period to prorate an addon to: start it first (accept its order, or set it Active with its due date), then add the addon. Or create the addon by hand (Services → New, «Addon of») with its own date and price.',
+            'cancelling_note' => 'This service has a cancellation request for the end of its period (:date): the addon is billed up to that date and ends with it, never renewed.',
+            'cancelling_note_now' => 'This service has a cancellation request: the addon ends with it. Paid for days it does not get, the refund or credit is yours to give.',
             'no_due_date' => 'The service has no due date ahead to prorate to: renew it first (an addon always shares its due date).',
             'start_unknown' => 'Choose how it is billed.',
             'not_for_this' => ':addon cannot be added to this service.',

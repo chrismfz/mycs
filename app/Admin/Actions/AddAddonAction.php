@@ -42,7 +42,13 @@ class AddAddonAction extends Action
         $this->label(__('services.addons.add.action'))
             ->icon('ri-puzzle-line')
             ->color('gray')
-            ->visible(fn (Service $record) => AddAddon::refusal($record) === null)
+            // Not on an addon or an ended service. On one not started yet it is shown, disabled, with why and staff's way
+            // through (owner 2026-11-10: a reason, not a button that is gone).
+            ->visible(fn (Service $record) => AddAddon::refusal($record) === null || $record->status === Service::STATUS_PENDING)
+            ->disabled(fn (Service $record) => AddAddon::refusal($record) !== null)
+            ->tooltip(fn (Service $record) => AddAddon::refusal($record))
+            // To be cancelled: the addon ends with it, said before it is added.
+            ->modalDescription(fn (Service $record) => AddAddon::cancellationNote($record))
             ->authorize(fn () => Gate::allows('has-permission', 'admin.services.create'))
             ->modalWidth('2xl')
             ->modalSubmitActionLabel(__('services.addons.add.action'))
