@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -187,7 +188,11 @@ class Sweep7PlanCycleAddonsTest extends TestCase
             return; // refused until the renewal is settled: a right outcome
         }
         $this->assertSame('1.97', ChangeCycle::quote($service, $monthly, ChangeCycle::NOW)['credit'], '6 of 365 days of 120.00, paid in WHMCS');
-        ChangeCycle::apply($service, $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+        $invoice = ChangeCycle::apply($service, $monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+        // Adapted with the fix (the assertions from here on never ran on main): the new period is billed, unpaid (no
+        // credit auto-use, no saved method in this test), so the due date is today until it is paid; then a month on.
+        $this->assertSame('2026-07-26', $service->fresh()->expires_at->toDateString());
+        ExtensionHelper::addPayment($invoice->id, null, (float) $invoice->fresh()->total, null, 's7-pca-3', currency: 'USD');
         $this->assertSame('2026-08-26', $service->fresh()->expires_at->toDateString());
         $this->assertSame('1.97', number_format((float) Credit::query()->where('client_id', $service->client_id)->sum('amount'), 2, '.', ''));
     }

@@ -227,4 +227,32 @@ class Sweep7PlanCyclePromoFixTest extends TestCase
         $this->assertSame([$monthly->id, null], [(int) $service->plan_id, $service->plan_from]);
         $this->assertNull($service->planStartsOn());
     }
+
+    // --- S7-PLAN-CYCLE-ADDONS-3 ---
+
+    public function test_a_refunded_period_with_the_next_renewal_open_gives_no_credit(): void
+    {
+        Carbon::setTestNow('2026-07-26 10:00:00');
+        $product = Product::factory()->create(['name' => 'Hosting']);
+        $yearly = $this->plan($product, 'year', 120.00);
+        $service = $this->service($product, $yearly, 120.00, '2026-08-01');
+        // The period it is in was billed here and refunded; its next renewal is open: no day of it is paid for.
+        $this->line($service, '2025-08-01', '2026-08-01', 120.00, Invoice::STATUS_REFUNDED);
+        $this->line($service, '2026-08-01', '2027-08-01', 120.00, Invoice::STATUS_UNPAID);
+
+        $this->assertSame('0.00', ChangeCycle::unused($service->fresh(), CarbonImmutable::today()));
+    }
+
+    public function test_a_period_paid_here_is_credited_from_its_line_with_the_next_renewal_open(): void
+    {
+        Carbon::setTestNow('2026-07-26 10:00:00');
+        $product = Product::factory()->create(['name' => 'Hosting']);
+        $yearly = $this->plan($product, 'year', 120.00);
+        $service = $this->service($product, $yearly, 120.00, '2026-08-01');
+        // Paid here at 73.00 (an offer), not the 120.00 it renews at: the credit is from what was paid.
+        $this->line($service, '2025-08-01', '2026-08-01', 73.00, Invoice::STATUS_PAID);
+        $this->line($service, '2026-08-01', '2027-08-01', 120.00, Invoice::STATUS_UNPAID);
+
+        $this->assertSame('1.20', ChangeCycle::unused($service->fresh(), CarbonImmutable::today()), '6 of 365 days of 73.00');
+    }
 }

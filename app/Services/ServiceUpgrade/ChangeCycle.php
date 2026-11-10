@@ -506,8 +506,8 @@ final class ChangeCycle
     /**
      * What is left of the period paid on $today, as it was paid (with its line's tax, B2; without its setup fee or what its
      * invoice gave back, PaidForPeriod: sweep 2): each paid line covering today,
-     * for its days after today; nothing when none is paid (adversarial F5). A service with no period line at all
-     * (imported without one): its price, with tax, for its days left that were paid before the cut-over, up to its expiry
+     * for its days after today; nothing when none is paid (adversarial F5). A service with no line of the period
+     * it is in (imported without one; its first renewal here, from the expiry on, may be issued already): its price, with tax, for its days left that were paid before the cut-over, up to its expiry
      * or to the first day a cancelled or refunded line holds, whichever comes first: the days on such a line were not paid
      * for, nothing for them (sweep 4 E-PAYMENT-CREDIT-1: a refund in full, then a downgrade or a cycle change «now», gave
      * the refunded days back as credit), but the days before it still were (REV4-E-1: an imported service whose first
@@ -517,7 +517,11 @@ final class ChangeCycle
     public static function unused(Service $service, CarbonImmutable $today): string
     {
         $lines = self::paidCovering($service, $today);
-        if ($lines->isEmpty() && $service->livePeriodLines()->isEmpty()) {
+        // No line of the period it is in: none at all, or only renewals from its expiry on (the first one the cron issued
+        // here, open: until it is paid the period paid in WHMCS still runs, S7-PLAN-CYCLE-ADDONS-3).
+        $expiry = $service->expires_at === null ? null : CarbonImmutable::instance($service->expires_at)->startOfDay();
+        if ($lines->isEmpty() && $service->livePeriodLines()->every(fn (InvoiceItem $line) => $expiry !== null
+            && $line->period_start->startOfDay()->greaterThanOrEqualTo($expiry))) {
             [$start, $end] = self::importedPeriod($service, $today);
             if ($start === null || $end === null || !$end->greaterThan($today->startOfDay())) {
                 return '0.00';
