@@ -440,6 +440,20 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $this->assertSame(2, $mails(), 'a week later, still there');
     }
 
+    /** A rehearsal's check (docs/cutover-runbook.md): the one rule, no mail, the counts and ids by kind. */
+    public function test_the_command_runs_the_rule_alone_and_prints_counts_and_ids_by_kind(): void
+    {
+        $none = $this->service(null);
+        $other = $this->service(null);
+        $late = $this->service('2026-10-01');
+
+        $this->artisan('mycs:money-check', ['--rule' => ['service_unbilled']])
+            ->expectsOutputToContain("service_unbilled no_due_date: 2 (services {$none->id}, {$other->id})")
+            ->expectsOutputToContain("service_unbilled past_due: 1 (services {$late->id})")
+            ->assertExitCode(1);
+        $this->assertSame(0, DB::table('email_logs')->where('subject', 'like', 'Money check:%')->count(), 'one rule asked for: no mail');
+    }
+
     public function test_two_hundred_services_cost_a_fixed_number_of_queries(): void
     {
         $count = function (): int {

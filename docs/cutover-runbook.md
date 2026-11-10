@@ -48,6 +48,11 @@ credentials. Το import της ημέρας τα φέρνει όλα:
     module θα αρνηθεί να κάνει suspend, unsuspend, terminate ή login (ο λογαριασμός με το username τους έχει άλλο κύριο
     domain). Για καθεμία: διορθώνεται το domain της υπηρεσίας (αν άλλαξε στο WHM) ή το username της (αν είναι άλλου), και
     ξανά ώσπου να πει «every service's domain is its account's». Αλλιώς κάθε τέτοια αναστολή γίνεται εργασία του staff.
+  - **Υπηρεσίες που τρέχουν χωρίς να χρεώνονται (`service_unbilled`, 2026-11-10):** μετά το import (και σε κάθε πρόβα),
+    `php artisan mycs:money-check --rule=service_unbilled` (μόνο διαβάζει· με `--rule` δεν στέλνει email). Τυπώνει τα
+    ευρήματα και, ανά είδος, πόσα και ποια ids: `service_unbilled no_due_date: N (services …)`, `period_not_paid`,
+    `past_due`, `addon_of_ended` (τι σημαίνει το καθένα και τι κάνει το staff: `money-trail.md` §5). Τα νούμερα μπαίνουν
+    στην αναφορά της πρόβας· ό,τι βγει διορθώνεται στο WHMCS πριν από το dump, ή το αναλαμβάνει το staff την πρώτη μέρα.
   - **Offline VM (myip: Hetzner Cloud) και «Manual (offline)» (προϊόντα χωρίς module):** καμία ρύθμιση. Κάθε ενέργεια
     γίνεται εργασία στα Pending Module Actions. Στη λίστα του import, όποια υπηρεσία δεν είναι μηχάνημα (SSL, license)
     μεταφέρεται όπου ταιριάζει.

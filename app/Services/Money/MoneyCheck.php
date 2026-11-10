@@ -41,6 +41,9 @@ final class MoneyCheck
     /** @var list<array{rule: string, subject: string, detail: string}> */
     private array $findings = [];
 
+    /** @var array<string, list<int>> the last run's service_unbilled: kind => service ids (the command prints them) */
+    public array $unbilled = [];
+
     /**
      * Every rule, or the ones named.
      *
@@ -397,7 +400,9 @@ final class MoneyCheck
      */
     private function serviceUnbilled(): void
     {
+        $this->unbilled = [];
         foreach ((new UnbilledServices)->find() as $finding) {
+            $this->unbilled[$finding['kind']][] = $finding['service'];
             $this->add('service_unbilled', "service #{$finding['service']}", $finding['detail']);
         }
     }
