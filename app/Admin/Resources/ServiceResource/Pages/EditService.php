@@ -41,6 +41,7 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
@@ -280,15 +281,17 @@ class EditService extends EditRecord
             ActionGroup::make([
                 DeleteAction::make()
                     // Its addons still running go with it (owner 2026-11-10, as WHMCS): named here, before staff confirm.
-                    ->modalDescription(fn (Service $record) => ($addons = DeleteService::addonList($record)) !== ''
-                        ? __('services.addons.delete_with', ['addons' => $addons]) : null)
+                    ->modalDescription(fn (Service $record) => DeleteService::confirmation($record))
                     ->form(function (DeleteAction $action) use ($record) {
                         // A record of an account already gone (terminated straight on the server): untick to delete only it.
+                        // The addons the confirmation names, as it opened: one fastened since is not deleted unseen (REV-779-3).
+                        $shown = Hidden::make('addonIds')->default(fn () => DeleteService::runningAddons($record)->pluck('id')->all());
                         if ($record->isEnded() || $record->status === Service::STATUS_PENDING || !$record->hasServerActions()) {
-                            return [];
+                            return [$shown];
                         }
 
                         return [
+                            $shown,
                             Checkbox::make('deleteExtensionServer')
                                 ->label('Also trigger deletion of server')
                                 ->default(true),
@@ -296,7 +299,8 @@ class EditService extends EditRecord
                     })
                     ->action(function (array $data, Service $record): void {
                         try {
-                            (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false), withAddons: true);
+                            $result = (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false),
+                                withAddons: array_values((array) ($data['addonIds'] ?? [])));
                         } catch (DisplayException $e) {
                             Notification::make('Error')->title(__('Service not deleted'))->body(e($e->getMessage()))->danger()->send();
 
@@ -312,6 +316,10 @@ class EditService extends EditRecord
 
                             // Kept: deleting it would orphan the account on the server and lose its username.
                             return;
+                        }
+                        if (($note = DeleteService::resultNote($result)) !== null) {
+                            $told = Notification::make()->title(__('Service deleted'))->body(e($note));
+                            ($result['kept'] !== [] ? $told->warning()->persistent() : $told->success())->send();
                         }
                         $this->redirect(ServiceResource::getUrl());
                     }),

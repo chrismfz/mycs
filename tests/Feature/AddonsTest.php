@@ -340,7 +340,12 @@ class AddonsTest extends TestCase
         (new DeleteService)->handle($parent, withAddons: true);
 
         $this->assertNull($parent->fresh());
-        $this->assertNull($addon->fresh(), 'a running addon goes with it');
+        // This main service has no account a delete terminates (no module), so it covers nothing on a machine: the addon
+        // that was set up is kept, terminated, with its task for staff (REV-779-2). With an account it is deleted
+        // (StaffFreedomServicesTest).
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
+        $this->assertNull($addon->fresh()->parent_service_id);
+        $this->assertTrue(ModuleAction::openTaskKeeps($addon->id));
         $this->assertNull($ended->fresh()->parent_service_id, 'an ended addon stays, on its own');
     }
 

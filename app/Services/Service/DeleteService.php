@@ -3,7 +3,9 @@
 namespace App\Services\Service;
 
 use App\Exceptions\DisplayException;
+use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -14,6 +16,7 @@ use App\Services\Money\PaymentsLog;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Deleting a service, whatever its status (audit sweep DATA-2, SVC-7, AUTH-9): one way for every path (its page,
@@ -40,24 +43,58 @@ use Illuminate\Support\Facades\DB;
  * its machine covers its addons, so no addon gets a task of its own); then, in one transaction, the service is locked,
  * its addons by id, then each one's upgrades, customer and invoices (docs/money-trail.md §2): the addons go, then the
  * service, or nothing does. Ended addons stay as services of their own (the foreign key clears their parent).
+ * Review of #779: the page passes the addons staff were shown (one fastened since refuses); a main service with no account
+ * of its own to terminate leaves each set-up addon terminated with its task for staff (handle); and when the delete ends as
+ * «terminated, not deleted», the common invoices still go as one (AddonCascade::end).
  */
 class DeleteService
 {
-    public function handle(Service $service, bool $terminate = false, bool $withAddons = false): void
+    /**
+     * @param  bool|array<int, mixed>  $withAddons  true: its running addons, whichever they are now (the API's flag, the bulk
+     *                                              tick); a list of ids: only those staff were shown in the confirmation
+     *                                              (another one fastened since refuses, named: REV-779-3)
+     * @return array{deleted: list<string>, kept: list<string>} its addons deleted with it, and those kept, terminated, each
+     *                                                          with its task for staff («#12 Extra IPv4 ×2»)
+     */
+    public function handle(Service $service, bool $terminate = false, bool|array $withAddons = false): array
     {
         $addons = self::runningAddons($service);
-        if ($addons->isNotEmpty() && !$withAddons) {
+        if ($addons->isNotEmpty() && $withAddons === false) {
             throw new DisplayException(__('services.addons.delete_parent'));
+        }
+        if (is_array($withAddons)) {
+            $shown = array_map('intval', $withAddons);
+            $unseen = $addons->reject(fn (Service $addon) => in_array((int) $addon->id, $shown, true));
+            if ($unseen->isNotEmpty()) {
+                throw new DisplayException(__('services.addons.delete_addons_changed', ['addons' => self::labels($unseen)->implode(', ')]));
+            }
         }
         // Before anything outside the database (the server, the gateway): nothing is touched when one refuses.
         if (!$this->check($service, $addons)) {
-            return; // already deleted (a double click, two calls): nothing outside the database is touched
+            return ['deleted' => [], 'kept' => []]; // already deleted (a double click, two calls): nothing outside the database is touched
         }
-        // Those with something done outside the database: the server's account, a subscription.
+        // Those with something done outside the database: the server's account, a task for staff, a subscription.
         $outside = [];
-        if ($terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->hasServerActions()) {
+        $terminated = $terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->hasServerActions();
+        if ($terminated) {
             ExtensionHelper::terminateServer($service); // throws when the server refuses: nothing is deleted
             $outside[] = $service;
+        }
+        // Its account terminated here covers its addons on that machine, and so does one staff chose to leave (the tick
+        // off: a record only). A service with no account of its own to terminate (no module, or not started) covers
+        // nothing (REV-779-2): each addon that was set up is ended as an addon deleted alone is, kept, terminated, with
+        // its «terminate by hand» task, so somebody takes it off the machine it is on.
+        $byHand = collect();
+        if (!$terminated && self::leavesAddonsToStaff($service)) {
+            foreach ($addons->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]) as $addon) {
+                try {
+                    ExtensionHelper::terminateServer($addon);
+                } catch (NothingToDoOnServer) {
+                    continue; // its main service has ended: nothing left on its machine
+                }
+                $byHand->push($addon);
+                $outside[] = $addon;
+            }
         }
         foreach ([$service, ...$addons] as $one) {
             if ($this->endSubscription($one) && !in_array($one, $outside, true)) {
@@ -66,19 +103,67 @@ class DeleteService
         }
 
         try {
-            $this->deleteUnderLock($service, self::ids($addons));
-        } catch (DisplayException $e) {
-            // Money landed between the check and now (D2 of #82), after the account or the subscription went: the
-            // service is not left running without them. Marked terminated (its open invoices and its addons with it),
-            // staff told.
-            foreach ($outside as $one) {
-                $one->markTerminated();
+            $this->deleteUnderLock($service, self::ids($addons), self::ids($byHand));
+        } catch (Throwable $e) {
+            if ($outside === []) {
+                throw $e;
             }
-            if (in_array($service, $outside, true)) {
-                throw new DisplayException(__('The service was terminated but not deleted: :reason', ['reason' => $e->getMessage()]));
-            }
-            throw $e;
+            throw $this->leftTerminated($service, $addons, $outside, $e);
         }
+
+        return ['deleted' => self::labels($addons->diff($byHand))->all(), 'kept' => self::labels($byHand)->all()];
+    }
+
+    /**
+     * The delete failed after the account, a task or a subscription went (money landed between the check and now: D2 of
+     * #82; a task its termination left; an error): none is left running without them. Marked terminated (their open
+     * invoices with them, a main service's addons too, as one: AddonCascade), and staff are told which, an addon by name.
+     * An error that is not a refusal is reported and mailed to staff once: the account is gone on the server while the
+     * service is still in MyCS, and nobody would know from an error page.
+     *
+     * @param  Collection<int, Service>  $addons
+     * @param  list<Service>  $outside
+     */
+    private function leftTerminated(Service $service, Collection $addons, array $outside, Throwable $e): DisplayException
+    {
+        $failed = [];
+        foreach ($outside as $one) {
+            try {
+                $one->markTerminated();
+            } catch (Throwable $again) {
+                report($again);
+                $failed[] = "#{$one->id}";
+            }
+        }
+        $reason = $e->getMessage();
+        if (!$e instanceof DisplayException) {
+            report($e);
+            $reason = __('services.delete_error', ['error' => class_basename($e)]);
+            $ids = implode(', ', array_map(fn (Service $one) => "#{$one->id}", $outside));
+            try {
+                NotificationHelper::sendSystemEmailNotification("Service #{$service->id}: deleted on the server, still in MyCS", e(
+                    "The delete of service #{$service->id} failed with an error (" . class_basename($e) . ', in the log) after something was done outside MyCS '
+                    . "(the account deleted on the server, a task for staff, a subscription cancelled) for: {$ids}. They are kept in MyCS, marked terminated"
+                    . ($failed !== [] ? ', except ' . implode(', ', $failed) . ', which could not be marked: set their status by hand' : '')
+                    . '. Check them, then delete them again.'));
+            } catch (Throwable $again) {
+                report($again);
+            }
+        }
+        if (in_array($service, $outside, true)) {
+            return new DisplayException(__('The service was terminated but not deleted: :reason', ['reason' => $reason])
+                . ($addons->isNotEmpty() ? ' ' . __('services.addons.delete_ended_with', ['addons' => self::labels($addons)->implode(', ')]) : ''));
+        }
+
+        return new DisplayException(__('services.addons.delete_addons_terminated', [
+            'addons' => self::labels(collect($outside))->implode(', '), 'reason' => $reason,
+        ]));
+    }
+
+    /** No account of its own that a delete terminates or staff choose to leave: its set-up addons get their own tasks. */
+    private static function leavesAddonsToStaff(Service $service): bool
+    {
+        return $service->status === Service::STATUS_PENDING || !$service->hasServerActions();
     }
 
     /**
@@ -92,11 +177,50 @@ class DeleteService
             ->with('product')->orderBy('id')->get();
     }
 
-    /** What the confirmation names: «#12 Extra IPv4 ×2, #13 Backup». */
-    public static function addonList(Service $service): string
+    /**
+     * «#12 Extra IPv4 ×2», «#13 Backup».
+     *
+     * @param  Collection<int, Service>  $addons
+     * @return Collection<int, string>
+     */
+    private static function labels(Collection $addons): Collection
     {
-        return self::runningAddons($service)->map(fn (Service $addon) => "#{$addon->id} " . ($addon->product->name ?? '')
-            . ((int) $addon->quantity > 1 ? " ×{$addon->quantity}" : ''))->implode(', ');
+        return $addons->map(fn (Service $addon) => "#{$addon->id} " . ($addon->product->name ?? '')
+            . ((int) $addon->quantity > 1 ? " ×{$addon->quantity}" : ''))->values();
+    }
+
+    /**
+     * What staff confirm on its page, or null without running addons: those that go with it, by name, and those that
+     * are kept, terminated, with a task (its own account is not terminated by this delete: leavesAddonsToStaff).
+     */
+    public static function confirmation(Service $service): ?string
+    {
+        $addons = self::runningAddons($service);
+        if ($addons->isEmpty()) {
+            return null;
+        }
+        $byHand = self::leavesAddonsToStaff($service) ? $addons->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]) : collect();
+
+        return __('services.addons.delete_with', ['addons' => self::labels($addons)->implode(', ')])
+            . ($byHand->isNotEmpty() ? ' ' . __('services.addons.delete_with_tasks', ['addons' => self::labels($byHand)->implode(', ')]) : '');
+    }
+
+    /**
+     * What staff are told once it is deleted, or null: its addons deleted with it, and those kept with their task.
+     *
+     * @param  array{deleted: list<string>, kept: list<string>}  $result
+     */
+    public static function resultNote(array $result): ?string
+    {
+        $parts = [];
+        if ($result['deleted'] !== []) {
+            $parts[] = __('services.addons.deleted_with', ['addons' => implode(', ', $result['deleted'])]);
+        }
+        if ($result['kept'] !== []) {
+            $parts[] = __('services.addons.kept_with_task', ['addons' => implode(', ', $result['kept'])]);
+        }
+
+        return $parts === [] ? null : implode(' ', $parts);
     }
 
     /**
@@ -136,11 +260,11 @@ class DeleteService
         return true;
     }
 
-    /** @param  array<string, \Throwable>  $left */
+    /** @param  array<string, Throwable>  $left */
     private static function leftOpen(array $left): string
     {
         return __('This service cannot be deleted yet: :reasons', [
-            'reasons' => implode(' ', array_map(fn (\Throwable $reason) => $reason->getMessage(), $left)),
+            'reasons' => implode(' ', array_map(fn (Throwable $reason) => $reason->getMessage(), $left)),
         ]);
     }
 
@@ -181,10 +305,13 @@ class DeleteService
         return true;
     }
 
-    /** @param  list<int>  $confirmed  its running addons staff confirmed, deleted with it */
-    private function deleteUnderLock(Service $service, array $confirmed = []): void
+    /**
+     * @param  list<int>  $confirmed  its running addons staff confirmed, deleted with it
+     * @param  list<int>  $byHand  those of them kept, terminated, with the task for staff made a moment ago
+     */
+    private function deleteUnderLock(Service $service, array $confirmed = [], array $byHand = []): void
     {
-        DB::transaction(function () use ($service, $confirmed) {
+        DB::transaction(function () use ($service, $confirmed, $byHand) {
             $held = $this->cancelUnderLock($service, $confirmed);
             if ($held === null) {
                 return;
@@ -197,23 +324,35 @@ class DeleteService
                 throw new DisplayException(__('services.delete_open_task'));
             }
             foreach ($addons as $addon) {
-                if (ModuleAction::openTaskKeeps($addon->id)) {
+                $kept = in_array((int) $addon->id, $byHand, true);
+                if (!$kept && ModuleAction::openTaskKeeps($addon->id)) {
                     throw self::named($addon, __('services.delete_open_task'));
                 }
+                $this->drop($addon, keep: $kept);
             }
-            foreach ([...$addons, $locked] as $one) {
-                if (!$one->isEnded() && $one->product?->stock !== null) {
-                    $one->product->increment('stock', $one->quantity);
-                }
-                $one->properties()->delete();
-                $one->delete(); // its options go in ServiceObserver::deleted
-            }
+            $this->drop($locked);
         });
+    }
+
+    /** Its stock back and the row gone; $keep: the row stays, terminated (its task for staff is open), on its own. */
+    private function drop(Service $service, bool $keep = false): void
+    {
+        if (!$service->isEnded() && $service->product?->stock !== null) {
+            $service->product->increment('stock', $service->quantity);
+        }
+        if ($keep) {
+            // Its open invoices went with the group's; its main service goes next (the foreign key clears it).
+            $service->forceFill(['status' => Service::STATUS_TERMINATED])->save();
+
+            return;
+        }
+        $service->properties()->delete();
+        $service->delete(); // its options go in ServiceObserver::deleted
     }
 
     /**
      * @param  list<int>  $confirmed
-     * @return array<string, \Throwable>|null what the cancellation would leave open, nothing kept; null: no service
+     * @return array<string, Throwable>|null what the cancellation would leave open, nothing kept; null: no service
      */
     private function dryRun(Service $service, array $confirmed): ?array
     {
@@ -238,7 +377,7 @@ class DeleteService
      * addon's line gone, the credit renews a service that is deleted a moment later (as REV2-KISS-1).
      *
      * @param  list<int>  $confirmed
-     * @param  array<string, \Throwable>|null  $left  filled instead of refusing (the dry run)
+     * @param  array<string, Throwable>|null  $left  filled instead of refusing (the dry run)
      * @return array{0: Service, 1: Collection<int, Service>}|null
      */
     private function cancelUnderLock(Service $service, array $confirmed, ?array &$left = null): ?array

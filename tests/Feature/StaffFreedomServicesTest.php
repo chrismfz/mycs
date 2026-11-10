@@ -12,6 +12,7 @@ use App\Models\ApiKey;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\Credit;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
@@ -32,6 +33,8 @@ use App\Services\Money\MoneyTrail;
 use App\Services\Service\AddAddon;
 use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
+use Exception;
+use Filament\Notifications\Notification;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -41,10 +44,10 @@ use MyCS\Extensions\Servers\FlakyServer\FlakyServer;
 use PDO;
 use ReflectionMethod;
 use ReflectionProperty;
+use RuntimeException;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
-use Throwable;
 
 /**
  * Staff's freedom on services (owner 2026-11-10, docs/staff-freedom.md): three refusals loosened, each with what staff
@@ -124,6 +127,18 @@ class StaffFreedomServicesTest extends TestCase
         return Staff::factory()->create(['role_id' => Role::create(['name' => 'All' . uniqid(), 'permissions' => ['*']])->id]);
     }
 
+    /** On a (fake) server module: it has an account, which a delete terminates or, the tick off, leaves (a record only). */
+    private function onModule(Service $service): Service
+    {
+        require_once __DIR__ . '/../Fixtures/FlakyServer.php';
+        FlakyServer::$failures = 0;
+        FlakyServer::$calls = [];
+        $server = Server::query()->firstOrCreate(['name' => 'Flaky', 'extension' => 'FlakyServer', 'type' => 'server'], ['enabled' => true]);
+        $service->product->update(['server_id' => $server->id]);
+
+        return $service->fresh();
+    }
+
     private function refused(callable $do): string
     {
         try {
@@ -138,7 +153,7 @@ class StaffFreedomServicesTest extends TestCase
 
     public function test_confirmed_a_main_service_is_deleted_with_its_running_addons_and_nothing_is_left_payable(): void
     {
-        $parent = $this->parent();
+        $parent = $this->onModule($this->parent());
         $active = $this->addon($parent, stock: 2);
         $pending = $this->addon($parent, 'pending', name: 'Extra disk');
         $ended = $this->addon($parent, 'cancelled', name: 'Old backup');
@@ -157,6 +172,7 @@ class StaffFreedomServicesTest extends TestCase
         $this->assertSame(2, $paid->items()->count());
         $this->assertSame(0, Credit::query()->count(), 'nothing is credited or refunded by a delete');
         $this->assertSame(3, (int) $active->product->fresh()->stock, 'the addon\'s stock is back');
+        $this->assertSame(0, ModuleAction::query()->count(), 'the tick off on a service with an account: a record only, no task for anyone');
     }
 
     /**
@@ -167,7 +183,7 @@ class StaffFreedomServicesTest extends TestCase
     public function test_credit_on_their_common_renewal_goes_back_and_pays_for_nothing(): void
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => false]);
-        $parent = $this->parent();
+        $parent = $this->onModule($this->parent());
         $addon = $this->addon($parent);
         $renewal = $this->openInvoiceFor($parent, $addon);
         (new CreditLedger)->add((int) $parent->client_id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'test');
@@ -237,14 +253,13 @@ class StaffFreedomServicesTest extends TestCase
         $addon = $this->addon($parent);
         $renewal = $this->openInvoiceFor($parent, $addon);
 
-        $thrown = null;
         try {
             (new DeleteService)->handle($parent->fresh(), terminate: true, withAddons: true);
-        } catch (Throwable $e) {
-            $thrown = $e;
+            $this->fail('deleted although the server refused');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('terminateServer failed', $e->getMessage(), 'the server\'s own refusal, nothing else');
         }
 
-        $this->assertNotNull($thrown, 'deleted although the server refused');
         $this->assertSame(Service::STATUS_ACTIVE, $addon->fresh()?->status, 'an addon is not deleted before its service\'s account is gone: it would never be billed again');
         $this->assertSame(Service::STATUS_ACTIVE, $parent->fresh()?->status);
         $this->assertSame(Invoice::STATUS_UNPAID, $renewal->fresh()->status);
@@ -253,12 +268,7 @@ class StaffFreedomServicesTest extends TestCase
 
     public function test_with_the_account_deleted_on_the_server_the_addons_go_with_no_task_of_their_own(): void
     {
-        require_once __DIR__ . '/../Fixtures/FlakyServer.php';
-        FlakyServer::$failures = 0;
-        FlakyServer::$calls = [];
-        $parent = $this->parent();
-        $server = Server::query()->create(['name' => 'Flaky', 'extension' => 'FlakyServer', 'type' => 'server', 'enabled' => true]);
-        $parent->product->update(['server_id' => $server->id]);
+        $parent = $this->onModule($this->parent());
         $this->addon($parent);
 
         (new DeleteService)->handle($parent->fresh(), terminate: true, withAddons: true);
@@ -268,9 +278,160 @@ class StaffFreedomServicesTest extends TestCase
         $this->assertSame(0, ModuleAction::query()->open()->count());
     }
 
-    public function test_the_page_names_the_addons_before_staff_confirm_and_deletes_them_with_it(): void
+    // ---- Review of #779 ----
+
+    private function creditOn(Invoice $invoice, int $cents): void
+    {
+        config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => false]);
+        (new CreditLedger)->add((int) $invoice->client_id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'test');
+        (new RecordPaymentService)->payWithCredit($invoice->id, upToCents: $cents);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'partly paid by credit');
+    }
+
+    private function credit(Service $service): string
+    {
+        return number_format((float) Credit::query()->where('client_id', $service->client_id)->value('amount'), 2, '.', '');
+    }
+
+    /** REV-779-1 at its root: a main service that staff terminate ends its addons, and their common renewal goes as one. */
+    public function test_terminated_by_staff_the_credit_on_the_common_renewal_comes_back_once_and_pays_nothing(): void
     {
         $parent = $this->parent();
+        $addon = $this->addon($parent);
+        $renewal = $this->openInvoiceFor($parent, $addon);
+        $this->creditOn($renewal, 1000);
+
+        $parent->markTerminated();
+
+        $this->assertSame([Service::STATUS_TERMINATED, Service::STATUS_TERMINATED], [$parent->fresh()->status, $addon->fresh()->status]);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $renewal->fresh()->status, 'not paid with the credit for a service that ended');
+        $this->assertSame('10.00', $this->credit($parent), 'back once: not 0.00 (spent), not more than was put on it');
+    }
+
+    /** The same when the cron terminates it (overdue past Terminate Days), its addon suspended with it. */
+    public function test_terminated_by_the_cron_the_credit_on_the_common_renewal_comes_back_once_and_pays_nothing(): void
+    {
+        $parent = $this->parent('2026-10-01', 'suspended');
+        $parent->forceFill(['dunning_suspended_at' => now()->subDays(30), 'suspend_reason' => 'Overdue on Payment'])->save();
+        $addon = $this->addon($parent, 'suspended');
+        $addon->forceFill(['suspend_reason' => Service::SUSPEND_REASON_PARENT])->save();
+        $renewal = $this->openInvoiceFor($parent, $addon);
+        $this->creditOn($renewal, 1000);
+        config(['settings.cronjob_order_terminate' => 10]);
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame([Service::STATUS_TERMINATED, Service::STATUS_TERMINATED], [$parent->fresh()->status, $addon->fresh()->status]);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $renewal->fresh()->status);
+        $this->assertSame('10.00', $this->credit($parent));
+    }
+
+    /** And for an invoice of WHMCS, as the importer leaves it (lines without a period): parent and addon on one invoice. */
+    public function test_an_imported_common_invoice_goes_as_one_when_the_imported_service_is_terminated(): void
+    {
+        [$command, $whmcs] = $this->whmcs();
+        $product = Product::factory()->create(['id' => 11, 'name' => 'Business 10',
+            'category_id' => Category::create(['name' => 'Shared Hosting', 'slug' => 'shared-hosting'])->id]);
+        $plan = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'Monthly',
+            'billing_unit' => 'month', 'billing_period' => 1, 'type' => 'recurring']);
+        Price::factory()->create(['plan_id' => $plan->id, 'price' => 10, 'setup_fee' => 0, 'currency_code' => 'USD']);
+        $whmcs->exec("INSERT INTO tblhosting VALUES (1692, {$this->client->id}, 'Active', '2026-12-15', '2026-12-15')");
+        $parent = Service::factory()->create(['id' => 1692, 'client_id' => $this->client->id, 'product_id' => $product->id, 'plan_id' => $plan->id,
+            'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-12-15']);
+        $whmcs->exec("INSERT INTO tblhostingaddons (id, hostingid, addonid, userid, name, recurring, billingcycle, tax, status, regdate, nextduedate, nextinvoicedate)
+            VALUES (123, 1692, 26, {$this->client->id}, '', 3, 'Monthly', '1', 'Active', '2025-05-15', '2026-12-15', '2026-12-15')");
+        $whmcs->exec("INSERT INTO tblinvoices VALUES (951, {$this->client->id}, '', '2026-11-18', '2026-12-15', NULL, 'Unpaid', 13, 0, 0)");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6002, 951, {$this->client->id}, 'Hosting', 1692, 'Business 10', 10, 0, '2026-12-15')");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6003, 951, {$this->client->id}, 'Addon', 123, 'Dedicated IP', 3, 0, '2026-12-15')");
+        foreach (['importAddons', 'importInvoices', 'importInvoiceItems'] as $step) {
+            (new ReflectionMethod($command, $step))->invoke($command);
+        }
+        $addon = Service::query()->where('whmcs_addon_id', 123)->sole();
+        $invoice = Invoice::query()->findOrFail(951);
+        $this->assertTrue($invoice->items->every(fn (InvoiceItem $line) => $line->period_start === null), 'lines without a period');
+        $this->creditOn($invoice, 1000);
+
+        $parent->fresh()->markTerminated();
+
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
+        $this->assertSame('10.00', $this->credit($parent));
+    }
+
+    /** The delete that ends as «terminated, not deleted» names the addons that ended with the service. */
+    public function test_terminated_but_not_deleted_names_the_addons_that_ended_with_it(): void
+    {
+        $parent = $this->parent();
+        $server = Server::query()->create(['name' => 'Rack', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
+        $parent->product->update(['server_id' => $server->id]);
+        $addon = $this->addon($parent);
+
+        $message = $this->refused(fn () => (new DeleteService)->handle($parent->fresh(), terminate: true, withAddons: true));
+
+        $this->assertStringContainsString('terminated but not deleted', $message);
+        $this->assertStringContainsString(__('services.addons.delete_ended_with', ['addons' => "#{$addon->id} Extra IPv4"]), $message);
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
+    }
+
+    /** An error (not a refusal) after the account went on the server: no error page and a running service; staff are told. */
+    public function test_an_error_after_the_account_is_gone_leaves_it_terminated_and_tells_staff(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $parent = $this->onModule($this->parent());
+        Service::deleting(fn () => throw new RuntimeException('the database went away'));
+
+        $message = $this->refused(fn () => (new DeleteService)->handle($parent, terminate: true));
+
+        $this->assertSame(['terminate'], FlakyServer::$calls);
+        $this->assertStringContainsString('terminated but not deleted', $message);
+        $this->assertStringContainsString('RuntimeException', $message);
+        $this->assertSame(Service::STATUS_TERMINATED, $parent->fresh()->status, 'not left running with no account');
+        $this->assertTrue(EmailLog::query()->where('subject', "Service #{$parent->id}: deleted on the server, still in MyCS")->exists());
+    }
+
+    /**
+     * REV-779-2: a main service with no account of its own that this delete terminates (not started, or no module) does
+     * not cover its addons. One that was set up is kept, terminated, with its task for staff, as when it is deleted alone;
+     * one that never started goes. Staff read it in the confirmation and in the result.
+     */
+    public function test_under_a_service_with_no_account_to_terminate_a_set_up_addon_is_kept_with_its_task(): void
+    {
+        $parent = $this->parent(status: 'pending', attributes: ['expires_at' => null]);
+        $setUp = $this->addon($parent);
+        $setUp->forceFill(['expires_at' => '2026-12-01'])->save();
+        $never = $this->addon($parent, 'pending', name: 'Extra disk');
+        $own = $this->openInvoiceFor($setUp);
+        $this->assertStringContainsString(__('services.addons.delete_with_tasks', ['addons' => "#{$setUp->id} Extra IPv4"]), (string) DeleteService::confirmation($parent));
+
+        $result = (new DeleteService)->handle($parent, withAddons: [$setUp->id, $never->id]);
+
+        $this->assertSame(['deleted' => ["#{$never->id} Extra disk"], 'kept' => ["#{$setUp->id} Extra IPv4"]], $result);
+        $this->assertNull($parent->fresh());
+        $this->assertNull($never->fresh());
+        $this->assertSame(Service::STATUS_TERMINATED, $setUp->fresh()->status);
+        $this->assertNull($setUp->fresh()->parent_service_id, 'on its own, until staff close its task and delete it');
+        $task = ModuleAction::query()->open()->where('service_id', $setUp->id)->sole();
+        $this->assertSame(['terminate', ModuleAction::SUBJECT_BY_HAND], [$task->action, $task->subject]);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $own->fresh()->status, 'not left to pay for an addon that ended');
+        $this->assertStringContainsString("#{$setUp->id} Extra IPv4", (string) DeleteService::resultNote($result));
+    }
+
+    /** REV-779-3: the addons staff were shown are the ones deleted; one fastened since refuses, named. */
+    public function test_an_addon_not_in_the_confirmation_refuses_the_delete_by_name(): void
+    {
+        $parent = $this->onModule($this->parent());
+        $seen = $this->addon($parent);
+        $unseen = $this->addon($parent, name: 'Backup 50GB');
+
+        $message = $this->refused(fn () => (new DeleteService)->handle($parent, withAddons: [$seen->id]));
+
+        $this->assertSame(__('services.addons.delete_addons_changed', ['addons' => "#{$unseen->id} Backup 50GB"]), $message);
+        $this->assertSame(3, Service::query()->count());
+    }
+
+    public function test_the_page_names_the_addons_before_staff_confirm_and_deletes_them_with_it(): void
+    {
+        $parent = $this->onModule($this->parent());
         $addon = $this->addon($parent);
         $this->addon($parent, 'terminated', name: 'Old backup');
 
@@ -287,7 +448,7 @@ class StaffFreedomServicesTest extends TestCase
 
     public function test_bulk_delete_follows_the_same_rule(): void
     {
-        $kept = $this->parent();
+        $kept = $this->onModule($this->parent());
         $keptAddon = $this->addon($kept);
         $this->livewireAs($this->staff())->test(ListService::class)
             ->callTableBulkAction('delete', [$kept], ['deleteExtensionServer' => false])
@@ -297,13 +458,15 @@ class StaffFreedomServicesTest extends TestCase
 
         // Ticked, the addon selected too: the main service takes it, whatever the order of the rows.
         $this->livewireAs($this->staff())->test(ListService::class)
-            ->callTableBulkAction('delete', [$keptAddon, $kept], ['deleteExtensionServer' => false, 'withAddons' => true]);
+            ->callTableBulkAction('delete', [$keptAddon, $kept], ['deleteExtensionServer' => false, 'withAddons' => true])
+            ->assertNotified(Notification::make()->success()->title(__('Deleted with their addons'))->persistent()
+                ->body("#{$kept->id}: " . __('services.addons.deleted_with', ['addons' => "#{$keptAddon->id} Extra IPv4"])));
         $this->assertSame(0, Service::query()->count());
     }
 
     public function test_the_api_needs_its_flag(): void
     {
-        $parent = $this->parent();
+        $parent = $this->onModule($this->parent());
         $addon = $this->addon($parent);
         $renewal = $this->openInvoiceFor($parent, $addon);
         $token = 'PAYM' . bin2hex(random_bytes(8));
@@ -335,6 +498,7 @@ class StaffFreedomServicesTest extends TestCase
         $parent = Service::factory()->create(['id' => 1692, 'client_id' => $this->client->id, 'product_id' => $product->id, 'plan_id' => $plan->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-12-15',
             'domain' => 'site1692.example.test']);
+        $parent = $this->onModule($parent);
         $whmcs->exec("INSERT INTO tblhostingaddons (id, hostingid, addonid, userid, name, recurring, billingcycle, tax, status, regdate, nextduedate, nextinvoicedate)
             VALUES (123, 1692, 26, {$this->client->id}, '', 3, 'Monthly', '1', 'Active', '2025-05-15', '2026-12-15', '2026-12-15')");
         // Paid: 2026-11-15 to 12-15, both on one invoice. Open: the next renewal, made early.
@@ -429,12 +593,8 @@ class StaffFreedomServicesTest extends TestCase
                 ->assertActionDisabled('changePackage');
             $this->assertSame($why, (string) $page->instance()->getAction('changePackage')->getTooltip(), $name);
             $this->assertSame($why, ChangePackage::refusal($service->fresh()), $name);
-            // Disabled is refused by the server too, not only greyed out: nothing is placed.
-            try {
-                $page->callAction('changePackage', ['product_id' => $other->id]);
-            } catch (Throwable) {
-                // the testing helper cannot call a disabled action: what counts is what was made
-            }
+            // Disabled is refused by the server too, not only greyed out: asked for directly, it does not open.
+            $page->mountAction('changePackage')->assertActionNotMounted();
         }
 
         $this->assertSame(1, ServiceUpgrade::query()->count(), 'only the one that was waiting already');
@@ -545,7 +705,8 @@ class StaffFreedomServicesTest extends TestCase
 
         $staff = $this->staff();
         $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $pending->getRouteKey()])
-            ->assertActionVisible('addAddon')->assertActionDisabled('addAddon');
+            ->assertActionVisible('addAddon')->assertActionDisabled('addAddon')
+            ->mountAction('addAddon')->assertActionNotMounted();
         $this->assertSame(__('services.addons.add.refused_pending'), (string) $page->instance()->getAction('addAddon')->getTooltip());
         $this->livewireAs($staff)->test(EditService::class, ['record' => $addon->getRouteKey()])->assertActionHidden('addAddon');
         $this->livewireAs($staff)->test(EditService::class, ['record' => $ended->getRouteKey()])->assertActionHidden('addAddon');

@@ -659,6 +659,7 @@ class ServiceResource extends Resource
             ])
             ->action(function (Collection $records, array $data): void {
                 $kept = [];
+                $with = [];
                 // Main services first, each with its addons: an addon selected too is gone by its turn (nothing to do).
                 foreach ($records->sortBy(fn (Model $service) => [$service->getAttribute('parent_service_id') !== null, $service->getKey()]) as $service) {
                     /** @var Service $service */
@@ -668,13 +669,20 @@ class ServiceResource extends Resource
                         continue;
                     }
                     try {
-                        (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false), (bool) ($data['withAddons'] ?? false));
+                        $result = (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false), (bool) ($data['withAddons'] ?? false));
+                        if (($note = DeleteService::resultNote($result)) !== null) {
+                            $with[] = "#{$service->getKey()}: {$note}";
+                        }
                     } catch (Throwable $e) {
                         if (!$e instanceof DisplayException) {
                             report($e);
                         }
                         $kept[] = "#{$service->id}: {$e->getMessage()}";
                     }
+                }
+                // What went with each main service, and what was kept with a task: said, not only done (REV-779-3).
+                if ($with !== []) {
+                    Notification::make()->success()->title(__('Deleted with their addons'))->body(implode("\n", $with))->persistent()->send();
                 }
                 if ($kept !== []) {
                     Notification::make()->danger()->title(__('Not deleted'))->body(implode("\n", $kept))->persistent()->send();
