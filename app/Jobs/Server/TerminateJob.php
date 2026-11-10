@@ -5,12 +5,14 @@ namespace App\Jobs\Server;
 use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 
 class TerminateJob implements ShouldQueue
 {
@@ -31,7 +33,13 @@ class TerminateJob implements ShouldQueue
         $this->taken();
         // Every caller ends the service before dispatching: one revived since (staff, a payment) keeps its account,
         // whether this runs late, as a retry or from Pending Module Actions (audit SVC-11).
-        if (!$this->service->fresh()?->isEnded()) {
+        // Read under the service's lock, right before the module call (what it deletes cannot be brought back): a change
+        // of its status still being written is waited for. Its open row is closed: there is nothing left to retry.
+        $ended = DB::transaction(fn () => (bool) Service::query()->whereKey($this->service->getKey())->lockForUpdate()->first()?->isEnded());
+        if (!$ended) {
+            ModuleAction::query()->open()->where('service_id', $this->service->id)->where('action', 'terminate')->whereNull('subject')
+                ->update(['status' => ModuleAction::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'no longer ended: not terminated', 'updated_at' => now()]);
+
             return;
         }
         $data = [];
