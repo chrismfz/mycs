@@ -101,8 +101,10 @@ class InvoiceObserver
         // R2-2 of #357). Staff bill the new customer on a new invoice.
         if ($invoice->isDirty('status') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
             && in_array($invoice->status, Invoice::OPEN_STATUSES, true)
-            && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
-                ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id)) {
+            // Not a chargeback's paid to unpaid: the bank took the money, so it is always recorded and staff are told
+            // (S6-MONEY-LEDGER-2; Invoice::owedAgainAfterChargeback).
+            && !$invoice->becomingOwedAfterChargeback()
+            && self::billsItemOfAnother($invoice)) {
             throw new DisplayException(__('This invoice bills an item that moved to another customer: it is not opened again. Bill that customer on a new invoice.'));
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
@@ -220,6 +222,13 @@ class InvoiceObserver
         if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
             throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
         }
+    }
+
+    /** A line of it bills a service or domain that is another customer's now (MoveToClient), or deleted. */
+    public static function billsItemOfAnother(Invoice $invoice): bool
+    {
+        return $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
+            ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id);
     }
 
     /** The credit its lines still have to give (applied lines gave theirs already). Lines read locked. */

@@ -312,6 +312,33 @@ class Invoice extends Model implements Auditable
         return parent::save($options);
     }
 
+    /** Set only while owedAgainAfterChargeback() saves: this model, this one save. */
+    private bool $chargedBack = false;
+
+    /**
+     * A chargeback is always recorded (S6-MONEY-LEDGER-2): its paid invoice becomes unpaid even when an item it bills
+     * moved to another customer or was deleted since, which InvoiceObserver refuses for every other reopening. Only
+     * paid to unpaid, only from ExtensionHelper::chargebackAtGateway, under its locks. Staff are told there.
+     */
+    public function owedAgainAfterChargeback(): void
+    {
+        if ($this->status !== self::STATUS_PAID) {
+            throw new \LogicException('Only a paid invoice is owed again after a chargeback.');
+        }
+        $this->chargedBack = true;
+        try {
+            $this->update(['status' => self::STATUS_UNPAID]);
+        } finally {
+            $this->chargedBack = false;
+        }
+    }
+
+    /** True only inside owedAgainAfterChargeback(), for the paid to unpaid change it makes (InvoiceObserver). */
+    public function becomingOwedAfterChargeback(): bool
+    {
+        return $this->chargedBack && $this->getOriginal('status') === self::STATUS_PAID && $this->status === self::STATUS_UNPAID;
+    }
+
     /** Hold the payment locks through both the observer's guard and the actual DELETE. */
     public function delete(): ?bool
     {

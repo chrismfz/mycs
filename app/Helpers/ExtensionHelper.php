@@ -32,6 +32,7 @@ use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
+use App\Observers\InvoiceObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
@@ -1579,7 +1580,12 @@ class ExtensionHelper
                     // Read under the locks: refresh() would read this transaction's older snapshot (code review M4).
                     $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
                     if ($invoice->status === Invoice::STATUS_PAID && $invoice->remaining > 0) {
-                        $invoice->update(['status' => Invoice::STATUS_UNPAID]);
+                        // Always recorded, also when an item it bills moved to another customer or was deleted since
+                        // (S6-MONEY-LEDGER-2): staff decide what the invoice becomes.
+                        $invoice->owedAgainAfterChargeback();
+                        if (InvoiceObserver::billsItemOfAnother($invoice)) {
+                            $staff = ($staff ?? '') . 'The invoice bills an item that moved to another customer or was deleted: a payment of it would not renew anything of this customer. Settle it by hand. ';
+                        }
                     }
                 }
                 GatewayRefund::create(['recorded_amount' => $record / 100, 'money_event_id' => $event?->id, 'credit_taken' => $fromCredit / 100,
