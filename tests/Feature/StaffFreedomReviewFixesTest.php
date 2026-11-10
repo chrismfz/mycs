@@ -34,6 +34,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use MyCS\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
@@ -230,6 +231,23 @@ class StaffFreedomReviewFixesTest extends TestCase
             $this->assertStringContainsString('marked paid by staff', $e->getMessage());
         }
         $this->assertNotNull(Invoice::query()->find(502));
+    }
+
+    /** The cron's replay of a paid invoice whose lines were not applied (BIL-9): one paid by hand is applied, as staff meant. */
+    public function test_the_crons_replay_applies_a_paid_by_hand_invoice_whose_apply_failed(): void
+    {
+        $marked = $this->byHand();
+        // As if the work after the commit had failed: its line not applied, the service not renewed, the marker left.
+        DB::table('invoice_items')->where('invoice_id', 502)->update(['applied_at' => null, 'period_start' => null, 'period_end' => null]);
+        DB::table('services')->where('id', 31)->update(['expires_at' => '2026-10-10 00:00:00']);
+        DB::table('invoices')->where('id', 502)->update(['apply_pending_since' => now()->subHour()]);
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertNull($marked->fresh()->apply_pending_since);
+        $this->assertNotNull($marked->items()->sole()->applied_at, 'applied, not left as «refunded or moved to credit»');
+        $this->assertSame('2026-11-10', Service::query()->findOrFail(31)->expires_at->toDateString());
+        $this->assertNotNull($marked->fresh()->paid_by_staff_at);
     }
 
     // ---------------------------------------------------------------- REV-780-4: the permission
