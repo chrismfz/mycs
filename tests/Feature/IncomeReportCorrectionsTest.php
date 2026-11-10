@@ -189,7 +189,31 @@ class IncomeReportCorrectionsTest extends TestCase
 
         $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2026), 'once in 2026, not twice');
         $this->assertSame([2, '0.00', '0.00', '0.00'], $this->totals(2027));
-        $this->assertSame(['-124.00', '124.00'], collect($this->rows(2027))->pluck(1)->sort()->values()->all());
+        $this->assertSame([['2027-02-10', '-124.00', 'Reopened: chargeback or payment deleted'], ['2027-04-01', '124.00', 'Stripe']], $this->rows(2027));
+
+        // Disputed again a year later: off in 2028, and 2026 and 2027 as they were.
+        Carbon::setTestNow('2028-03-01 10:00:00');
+        $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb2', 124.00, 'eur'));
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $this->assertSame([1, '100.00', '24.00', '124.00'], $this->totals(2026));
+        $this->assertSame([2, '0.00', '0.00', '0.00'], $this->totals(2027));
+        $this->assertSame([1, '-100.00', '-24.00', '-124.00'], $this->totals(2028));
+    }
+
+    public function test_a_dispute_lost_in_the_year_it_was_paid_and_won_the_next_year_leaves_the_first_year_as_sent(): void
+    {
+        $invoice = $this->paid('2026-12-05 10:00:00', 'pi_cb');
+        Carbon::setTestNow('2026-12-28 10:00:00');
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur');
+        $sent = $this->totals(2026);
+        $this->assertSame([0, '0.00', '0.00', '0.00'], $sent);
+
+        Carbon::setTestNow('2027-02-01 10:00:00');
+        $this->assertTrue(ExtensionHelper::chargebackReversedAtGateway('Stripe', 'pi_cb', 'dp_cb', 124.00, 'eur'));
+        $this->assertSame('2026', $invoice->fresh()->paid_at->format('Y'));
+
+        $this->assertSame($sent, $this->totals(2026));
+        $this->assertSame([['2027-02-01', '124.00', 'Stripe']], $this->rows(2027));
     }
 
     public function test_a_payment_deleted_in_a_later_year_and_the_invoice_changed_since(): void

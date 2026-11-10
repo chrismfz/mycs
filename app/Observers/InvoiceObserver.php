@@ -12,6 +12,7 @@ use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceReopening;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Services\Domains\DomainNameHold;
@@ -338,6 +339,10 @@ class InvoiceObserver
         if ($invoice->wasChanged('status') && in_array($invoice->getOriginal('status'), [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)
             && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true) && $invoice->getOriginal('paid_at') !== null) {
             IncomeReport::reopened($invoice, CarbonImmutable::parse($invoice->getOriginal('paid_at')));
+        }
+        // Paid again: the day it was (its paid_at is its last payment's date, an earlier one when a dispute is won).
+        if ($invoice->wasChanged('status') && $invoice->status === Invoice::STATUS_PAID) {
+            InvoiceReopening::query()->where('invoice_id', $invoice->id)->whereNull('paid_again_at')->update(['paid_again_at' => CarbonImmutable::now()]);
         }
         // Another customer (staff's edit, the API, MoveToClient): taxed and addressed as the new one's (sweep 9γ, owner
         // 2026-10-30), after its Ekdosi request is gone as «moved» (code review F4 of #554). Only an open one moves (or one

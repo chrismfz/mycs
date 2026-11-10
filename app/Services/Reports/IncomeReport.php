@@ -32,8 +32,9 @@ use Illuminate\Support\Facades\DB;
  *   gross, split into net and tax at the customer's VAT rate (the journal keeps no split).
  * - A paid invoice open again in a later year (a chargeback, a deleted payment, staff's «back to unpaid»;
  *   InvoiceReopening, written by InvoiceObserver): it stays in the year it was paid, as it was then, and is taken off
- *   in the year it was reopened. Paid again, it counts when it is paid again, never before its reopening. One reopened
- *   in the year it was paid leaves no rows: that year is still open, as before.
+ *   in the year it was reopened. Paid again, it counts on the day it was paid again (kept with the reopening: a
+ *   dispute won gives paid_at the first payment's date back). One reopened in the year it was paid leaves no rows of
+ *   its own: that year is still open, as before.
  */
 final class IncomeReport
 {
@@ -50,21 +51,22 @@ final class IncomeReport
     {
         $from = CarbonImmutable::create($year)->startOfYear();
         $until = $from->addYear();
-        // Reopened in a later year than they were paid (few: every one of the currency is read), oldest first.
+        // The reopenings (few: every one of the currency is read), oldest first.
         $reopenings = InvoiceReopening::query()->whereRelation('invoice', 'currency_code', $currency)
             ->with(['invoice.snapshot', 'invoice.client.primaryContact', 'invoice.client.ownerGrant.user', 'invoice.transactions.gateway'])
-            ->orderBy('reopened_at')->orderBy('id')->get()
-            ->filter(fn (InvoiceReopening $r) => $r->invoice !== null && $r->reopened_at->year > $r->paid_at->year)->values();
+            ->orderBy('reopened_at')->orderBy('id')->get()->filter(fn (InvoiceReopening $r) => $r->invoice !== null)->values();
         // Paid again with a date before its reopening (a dispute won gives the first payment's date back): it counts
-        // from the reopening, as the first time is already in its own year.
+        // on the day it was paid again, as the first time is already in its own year.
         $moved = [];
         foreach ($reopenings as $reopening) {
             $invoice = $reopening->invoice;
             if (in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true) && $invoice->paid_at !== null
                 && $reopening->reopened_at->greaterThan($invoice->paid_at)) {
-                $moved[(int) $invoice->id] = $reopening->reopened_at;
+                $moved[(int) $invoice->id] = $reopening->paid_again_at ?? $reopening->reopened_at;
             }
         }
+        // Reopened in the year it was paid: no rows of its own, that year was still open.
+        $reopenings = $reopenings->filter(fn (InvoiceReopening $r) => $r->reopened_at->year > $r->paid_at->year)->values();
         $movedIn = array_keys(array_filter($moved, fn (CarbonImmutable $at) => $at->greaterThanOrEqualTo($from) && $at->lessThan($until)));
         $movedBefore = array_keys(array_filter($moved, fn (CarbonImmutable $at) => $at->lessThan($from)));
         $paid = Invoice::query()->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->where('currency_code', $currency)
@@ -203,6 +205,11 @@ final class IncomeReport
         $line = self::lines([(int) $invoice->id])[$invoice->id] ?? null;
         if ($line === null) {
             return;
+        }
+        // Paid again by its first payment after an earlier reopening (a dispute won): the day it was paid again.
+        $last = InvoiceReopening::query()->where('invoice_id', $invoice->id)->orderByDesc('id')->first();
+        if ($last !== null && $last->reopened_at->greaterThan($paidAt)) {
+            $paidAt = $last->paid_again_at ?? $last->reopened_at;
         }
         InvoiceReopening::query()->create(['invoice_id' => $invoice->id, 'paid_at' => $paidAt, 'reopened_at' => CarbonImmutable::now(),
             'net' => self::money(self::cents($line->net)), 'total' => self::money(self::cents($line->gross))]);
