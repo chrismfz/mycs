@@ -1214,6 +1214,8 @@ class ExtensionHelper
         // it rather than recorded twice. Only a whole match; staff check it either way (F1).
         $byHand = (int) MoneyEvent::query()->where('kind', MoneyEventKind::Refund->value)->where('invoice_transaction_id', $payment->id)
             ->where('source', MoneyTrail::SOURCE_LOCAL)->where(fn ($query) => $query->whereNull('cause')->orWhere('cause', '!=', MoneyTrail::CAUSE_CHARGEBACK))
+            // Not one staff undid since (UndoRefund, REV-781-1): no by-hand refund stands that this one could be.
+            ->whereDoesntHave('reversal')
             ->get()->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount));
         $matched = (int) GatewayRefund::query()->where('invoice_transaction_id', $payment->id)->where('origin', GatewayRefund::ORIGIN_HAND)
             ->get()->sum(fn (GatewayRefund $refund) => RecordPaymentService::toCents($refund->amount));
@@ -1341,7 +1343,9 @@ class ExtensionHelper
     private static function creditedParts(InvoiceTransaction $payment, int $take, int $allocated = 0): array
     {
         $events = MoneyEvent::query()->where('invoice_transaction_id', $payment->id)->whereNotNull('cause')
-            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value, MoneyEventKind::Refund->value])->get();
+            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value, MoneyEventKind::Refund->value])
+            // Credit given and taken back by its reversal (a refund to credit staff undid, UndoRefund) was never left.
+            ->where(fn ($live) => $live->where('kind', '!=', MoneyEventKind::CreditIn->value)->orWhereDoesntHave('reversal'))->get();
         $sum = fn (MoneyEventKind $kind) => $events->where('kind', $kind)->groupBy('cause')
             ->map(fn ($group) => (int) $group->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount)));
         [$in, $out, $refunded] = [$sum(MoneyEventKind::CreditIn), $sum(MoneyEventKind::CreditOut), $sum(MoneyEventKind::Refund)];

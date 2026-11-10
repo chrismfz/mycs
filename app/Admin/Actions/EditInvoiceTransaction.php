@@ -21,7 +21,8 @@ use Livewire\Component;
 /**
  * «Edit» on a recorded payment, from any admin table (owner 2026-11-10, sweep 7 TIGHT-INVOICES-PAYMENTS-15): through
  * EditPayment, which changes what moves no money in place and does the rest as «delete + record again». For the
- * payments staff may delete, with the same permission; no bulk.
+ * payments staff may delete, with the same permission; its amount and invoice also need the permission to record
+ * payments. No bulk.
  */
 class EditInvoiceTransaction
 {
@@ -37,11 +38,13 @@ class EditInvoiceTransaction
                 'gateway_id' => $record->gateway_id, 'transaction_id' => $record->transaction_id, 'fee' => $record->fee,
             ])
             ->schema([
+                // A disabled field is not submitted: what the gateway recorded stays as it is, and money is moved only by
+                // staff who may record payments (EditPayment checks both again).
                 Select::make('invoice_id')->label(__('invoices.payment_edit.invoice'))
-                    ->options(fn (InvoiceTransaction $record): array => self::invoices($record))->required(),
-                // A disabled field is not submitted: what the gateway recorded stays as it is.
+                    ->options(fn (InvoiceTransaction $record): array => self::invoices($record))->required()
+                    ->disabled(fn (InvoiceTransaction $record): bool => !self::mayMove($record)),
                 TextInput::make('amount')->label(__('invoices.amount'))->numeric()->required()
-                    ->disabled(fn (InvoiceTransaction $record): bool => EditPayment::recordedByGateway($record)),
+                    ->disabled(fn (InvoiceTransaction $record): bool => !self::mayMove($record)),
                 DatePicker::make('paid_at')->label(__('invoices.payment_edit.date'))->maxDate(now())->required(),
                 Select::make('gateway_id')->label('Gateway')->options(fn (): array => Gateway::query()->orderBy('name')->pluck('name', 'id')->all())
                     ->disabled(fn (InvoiceTransaction $record): bool => EditPayment::recordedByGateway($record)),
@@ -68,6 +71,12 @@ class EditInvoiceTransaction
             ->visible(fn (InvoiceTransaction $record): bool => $record->status === InvoiceTransactionStatus::Succeeded
                 && !$record->is_credit_transaction && $record->source_transaction_id === null
                 && (bool) Auth::user()?->can('delete', $record));
+    }
+
+    /** Its amount and invoice: not a payment its gateway recorded, and only with the permission to record payments. */
+    private static function mayMove(InvoiceTransaction $record): bool
+    {
+        return !EditPayment::recordedByGateway($record) && (bool) Auth::user()?->can('create', InvoiceTransaction::class);
     }
 
     /** @return array<int, string> the customer's invoices in the payment's currency a payment can be on, newest first */

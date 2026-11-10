@@ -53,7 +53,6 @@ class StaffFreedomEditPaymentTest extends TestCase
         parent::setUp();
         Queue::fake();
         Carbon::setTestNow('2026-09-20 10:00:00');
-        config(['settings.credits_enabled' => true]);
         $this->user = User::factory()->create();
         $product = $this->createProduct();
         $product->plan->update(['name' => 'Monthly']);
@@ -64,6 +63,8 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->whmcsInvoice(501, 'Unpaid', [31 => 10.0], due: '2026-09-10');
         $this->whmcsInvoice(502, 'Unpaid', [32 => 10.0], due: '2026-09-25');
         $this->importWhmcs();
+        // After the import: its last step reloads the settings.
+        $this->storeSettings(['credits_enabled' => true]);
         $this->imported(501);
         $this->imported(502);
         // Paid here, after the cut-over: its line takes its period (to 2026-10-10) and is applied, as any payment does.
@@ -223,12 +224,12 @@ class StaffFreedomEditPaymentTest extends TestCase
 
         $this->assertSame('5.00', (string) $payment->credited_amount, 'what the invoice cannot take is credit, as for any payment');
         $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(501));
-        $this->assertSame('5.00', $this->credit(), 'not applied yet: the after-commit pass runs with the test\'s transaction');
+        // The credit pays the customer's open invoice at once (auto-apply, after the commit): it is spent.
+        $this->assertSame('0.00', $this->credit());
+        $this->assertSame([Invoice::STATUS_UNPAID, 500, 500], $this->state(502));
         $this->assertMoneyClean();
 
-        // The customer spends it; the amount is then put right.
-        (new RecordPaymentService)->payWithCredit(502);
-        $this->assertSame('0.00', $this->credit());
+        // The amount is then put right.
         $message = $this->refused(fn () => (new EditPayment)->handle($payment, ['amount' => '10.00']));
         $this->assertSame(__('Part of this payment became account credit and the customer has already used it: delete it on its own and confirm that their credit goes negative (they owe it).'), $message);
         $this->assertSame('15.00', (string) $payment->fresh()->amount, 'refused whole: nothing deleted');
@@ -272,9 +273,9 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertMoneyClean();
     }
 
-    public function test_a_payment_its_gateway_recorded_keeps_its_amount_and_id_but_moves_and_takes_a_date_and_fee(): void
+    public function test_a_payment_its_gateway_recorded_keeps_its_amount_id_and_invoice_and_takes_a_date_and_fee(): void
     {
-        $stripe = Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
+        Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
         $charge = ExtensionHelper::addPayment(502, 'Stripe', 10.00, null, 'ch_502');
         $this->assertTrue(EditPayment::recordedByGateway($charge));
         $this->assertFalse(EditPayment::recordedByGateway($this->payment), 'what staff typed is theirs to correct');
@@ -282,20 +283,38 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertSame(__('invoices.payment_edit.gateway_amount'), $this->refused(fn () => (new EditPayment)->handle($charge, ['amount' => '9.00'])));
         $this->assertSame(__('invoices.payment_edit.gateway_identity'), $this->refused(fn () => (new EditPayment)->handle($charge, ['transaction_id' => 'ch_other'])));
         $this->assertSame(__('invoices.payment_edit.gateway_identity'), $this->refused(fn () => (new EditPayment)->handle($charge, ['gateway_id' => null])));
+        // Not moved either (the cut of REV-781-3): what the gateway reported on it would be left behind.
+        $this->assertSame(__('invoices.payment_edit.gateway_move'), $this->refused(fn () => (new EditPayment)->handle($charge, ['invoice_id' => 501])));
         // The form does not offer them (a disabled field is not submitted), so what staff type there changes nothing.
-        $this->table(502)->callTableAction('editPayment', $charge, data: ['paid_at' => '2026-09-19', 'fee' => '0.45'])->assertHasNoTableActionErrors();
-        $this->assertSame(['10.00', 'ch_502', '0.45', '2026-09-19'], [(string) $charge->fresh()->amount, $charge->fresh()->transaction_id, (string) $charge->fresh()->fee, $charge->fresh()->created_at->toDateString()]);
+        $this->table(502)->callTableAction('editPayment', $charge, data: ['paid_at' => '2026-09-19', 'fee' => '0.45', 'amount' => '9.00', 'invoice_id' => 501])
+            ->assertHasNoTableActionErrors();
 
-        // Moved: 502 is open again, and 501 (paid already) takes nothing, so it is the customer's credit, as «Add payment» there.
-        $moved = (new EditPayment)->handle($charge->fresh(), ['invoice_id' => 501]);
-
-        $this->assertSame([Invoice::STATUS_UNPAID, 1000, 0], $this->state(502));
-        $this->assertSame(['10.00', '10.00', $stripe->id, 'ch_502'], [(string) $moved->amount, (string) $moved->credited_amount, $moved->gateway_id, $moved->transaction_id]);
-        $this->assertTrue(EditPayment::recordedByGateway($moved), 'still the gateway\'s payment: its journal entry keeps the provider\'s id');
-        // The webhook's replay of it, on the invoice it was started on, records nothing.
-        $replay = ExtensionHelper::addPayment(502, 'Stripe', 10.00, null, 'ch_502');
-        $this->assertSame($moved->id, $replay->id);
+        $same = $charge->fresh();
+        $this->assertSame(['10.00', 'ch_502', '0.45', '2026-09-19', 502], [(string) $same->amount, $same->transaction_id, (string) $same->fee, $same->created_at->toDateString(), $same->invoice_id]);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(502));
+        // The webhook's replay of it records nothing.
+        $this->assertSame($charge->id, ExtensionHelper::addPayment(502, 'Stripe', 10.00, null, 'ch_502')->id);
         $this->assertSame(1, InvoiceTransaction::query()->where('transaction_id', 'ch_502')->count());
+        $this->assertMoneyClean();
+    }
+
+    public function test_an_id_or_gateway_corrected_in_place_takes_what_waited_for_it_and_ekdosi_keeps_money_and_dates(): void
+    {
+        // Issued is final: an invoice with a document, or sent to Ekdosi, keeps its payments' money and dates.
+        $document = EkdosiDocument::query()->create(['invoice_id' => 501, 'mark' => '400001234560501', 'code' => 'ΤΙΜ501']);
+        foreach ([['amount' => '8.00'], ['invoice_id' => 502], ['paid_at' => Carbon::parse('2026-09-19 10:00:00')]] as $change) {
+            $this->assertSame(__('invoices.payment_edit.ekdosi', ['invoice' => 501]), $this->refused(fn () => (new EditPayment)->handle($this->payment, $change)));
+        }
+        (new EditPayment)->handle($this->payment, ['fee' => '0.10']); // what moves nothing is still corrected
+        $document->delete();
+        Invoice::query()->whereKey(502)->update(['ekdosi_requested_at' => now()]);
+        $this->assertSame(__('invoices.payment_edit.ekdosi_request', ['invoice' => 502]), $this->refused(fn () => (new EditPayment)->handle($this->payment, ['invoice_id' => 502])));
+        Invoice::query()->whereKey(502)->update(['ekdosi_requested_at' => null]);
+        Invoice::query()->whereKey(501)->update(['ekdosi_requested_at' => now()]);
+        $this->assertSame(__('invoices.payment_edit.ekdosi_request', ['invoice' => 501]), $this->refused(fn () => (new EditPayment)->handle($this->payment, ['amount' => '8.00'])));
+
+        $this->assertSame(['10.00', '0.10', 501], [(string) $this->payment->fresh()->amount, (string) $this->payment->fresh()->fee, $this->payment->fresh()->invoice_id]);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(501));
         $this->assertMoneyClean();
     }
 
@@ -322,9 +341,11 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertTrue(EkdosiDocument::issuedBeforeCutOver(480));
         $paidAt = Invoice::query()->findOrFail(480)->paid_at;
 
-        foreach ([['amount' => '8.00'], ['invoice_id' => 502], ['paid_at' => Carbon::parse('2026-09-19 10:00:00')]] as $change) {
+        foreach ([['amount' => '8.00'], ['invoice_id' => 502]] as $change) {
             $this->assertSame(__('invoices.payment_edit.before_cut_over'), $this->refused(fn () => (new EditPayment)->handle($old, $change)));
         }
+        // The date WHMCS recorded: never corrected here, whatever was recorded on the invoice since.
+        $this->assertSame(__('invoices.payment_edit.date_imported'), $this->refused(fn () => (new EditPayment)->handle($old, ['paid_at' => Carbon::parse('2026-09-19 10:00:00')])));
         $this->assertSame(__('invoices.payment_edit.target_before_cut_over'), $this->refused(fn () => (new EditPayment)->handle($this->payment, ['invoice_id' => 480])));
         $this->table(480)->callTableAction('editPayment', $old, data: ['amount' => '8.00'])->assertNotified(__('invoices.payment_edit.refused'));
 
@@ -348,7 +369,7 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertFalse(EkdosiDocument::issuedBeforeCutOver(480));
 
         // Its lines were never applied here: deleted and recorded again, the invoice would be paid again and renew service 31.
-        $this->assertSame(__('invoices.payment_edit.before_cut_over'), $this->refused(fn () => (new EditPayment)->handle($old, ['amount' => '10.01'])));
+        $this->assertSame(__('invoices.payment_edit.would_renew'), $this->refused(fn () => (new EditPayment)->handle($old, ['amount' => '10.01'])));
 
         $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(480));
         $this->assertPeriodUntouched();
@@ -357,8 +378,8 @@ class StaffFreedomEditPaymentTest extends TestCase
 
     public function test_kept_a_credit_payment_and_one_that_did_not_arrive_are_not_edited(): void
     {
-        (new RecordPaymentService)->handle(501, null, '4.00', transactionId: 'over', enteredByStaff: true); // paid already: credit
-        $byCredit = (new RecordPaymentService)->payWithCredit(502);
+        (new RecordPaymentService)->handle(501, null, '4.00', transactionId: 'over', enteredByStaff: true); // paid already: credit, which pays 502
+        $byCredit = InvoiceTransaction::query()->where('invoice_id', 502)->where('is_credit_transaction', true)->sole();
         $processing = ExtensionHelper::addProcessingPayment(502, null, 6.00, null, 'sepa-1');
 
         $this->assertSame(__('invoices.payment_edit.credit_payment'), $this->refused(fn () => (new EditPayment)->handle($byCredit, ['amount' => '1.00'])));
@@ -379,5 +400,15 @@ class StaffFreedomEditPaymentTest extends TestCase
             ->test(TransactionsRelationManager::class, ['ownerRecord' => Invoice::query()->findOrFail(501), 'pageClass' => EditInvoice::class])
             ->assertTableActionHidden('editPayment', $this->payment);
         $this->table()->assertTableActionVisible('editPayment', $this->payment);
+
+        // May delete but not record payments: what moves nothing is theirs to correct; an amount or another invoice is not.
+        $deleter = Staff::factory()->create(['role_id' => Role::create(['name' => 'Deleter', 'permissions' => [
+            'admin.invoices.viewAny', 'admin.invoices.view', 'admin.invoices.update', 'admin.invoice_transactions.viewAny', 'admin.invoice_transactions.view', 'admin.invoice_transactions.delete',
+        ]])->id]);
+        $this->actingAs($deleter);
+        $this->assertSame(__('invoices.payment_edit.may_not_record'), $this->refused(fn () => (new EditPayment)->handle($this->payment, ['amount' => '11.00'])));
+        $this->assertSame(__('invoices.payment_edit.may_not_record'), $this->refused(fn () => (new EditPayment)->handle($this->payment, ['invoice_id' => 502])));
+        (new EditPayment)->handle($this->payment, ['fee' => '0.20']);
+        $this->assertSame(['10.00', '0.20'], [(string) $this->payment->fresh()->amount, (string) $this->payment->fresh()->fee]);
     }
 }

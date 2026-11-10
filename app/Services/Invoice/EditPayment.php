@@ -9,9 +9,12 @@ use App\Helpers\ExtensionHelper;
 use App\Models\EkdosiDocument;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
+use App\Models\Staff;
 use App\Services\Money\MoneyTrail;
+use App\Support\Actor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Events\AuditCustom;
@@ -27,9 +30,11 @@ use OwenIt\Auditing\Events\AuditCustom;
  *   recorded again, in one transaction, by RecordPaymentService::deleteTransaction and ::recordByStaff. No money rule is
  *   written here: whatever a deletion or «Add payment» refuses, asks or does, this does.
  *
- * Refused here: a payment that did not arrive, one made with account credit (delete it: the credit goes back), the
- * amount, id and gateway of a payment its gateway recorded (it is what the gateway took), and the amount, invoice and
- * date of a payment on an invoice paid before the cut-over (EkdosiDocument::issuedBeforeCutOver).
+ * Refused here: a payment that did not arrive; one made with account credit (delete it: the credit goes back); the
+ * amount, id, gateway and invoice of a payment its gateway recorded (it is what the gateway took, where it took it); the
+ * date of a payment the importer brought, of one on an invoice with a fiscal document from Ekdosi, and of one on an
+ * invoice staff marked paid by hand; the amount and invoice of a payment on an invoice paid before the cut-over, with a
+ * document from Ekdosi or sent to Ekdosi. Moving money also needs the permission to record payments.
  */
 class EditPayment
 {
@@ -77,22 +82,39 @@ class EditPayment
             if ($dated && $paidAt->isFuture()) {
                 throw new DisplayException(__('invoices.payment_edit.future'));
             }
-            $byGateway = self::recordedByGateway($payment);
-            if ($byGateway && $cents !== $was) {
-                throw new DisplayException(__('invoices.payment_edit.gateway_amount'));
+            // Recording money needs the permission to record payments, as «Add payment» does (REV-781-6).
+            $actor = Actor::current();
+            if ($moves && $actor instanceof Staff && !$actor->hasPermission('admin.invoice_transactions.create')) {
+                throw new DisplayException(__('invoices.payment_edit.may_not_record'));
             }
-            if ($byGateway && $renamed) {
-                throw new DisplayException(__('invoices.payment_edit.gateway_identity'));
+            // What its gateway recorded is the gateway's: its amount, its id, and the invoice it is on (moved, it would
+            // leave behind what the gateway reported on it, a won chargeback or a failed refund, and a replay of that
+            // event would then be recorded again: REV-781-3). Its date and fee are corrected.
+            if (self::recordedByGateway($payment) && ($moves || $renamed)) {
+                throw new DisplayException(__($cents !== $was ? 'invoices.payment_edit.gateway_amount'
+                    : ($moves ? 'invoices.payment_edit.gateway_move' : 'invoices.payment_edit.gateway_identity')));
             }
-            // Paid in WHMCS, its document issued there. A new amount or invoice would write MyCS money events on it (and
-            // open it again); a new date would move its paid date, by which Ekdosi's feed takes invoices (`since`).
-            if (($moves || $dated) && EkdosiDocument::issuedBeforeCutOver($invoice->id)) {
+            // The date WHMCS recorded is not corrected here: the invoice's paid date follows it, and Ekdosi's feed takes
+            // invoices by that date (`since`). Whatever was recorded on the invoice since (REV-781-5).
+            if ($dated && self::imported($payment)) {
+                throw new DisplayException(__('invoices.payment_edit.date_imported'));
+            }
+            // deleteTransaction tells «paid by hand before this payment» by the two times (REV-780-3-1): a payment's
+            // date is not moved across staff's word (REV-781-7).
+            if ($dated && $invoice->paid_by_staff_at !== null) {
+                throw new DisplayException(__('invoices.payment_edit.date_paid_by_staff'));
+            }
+            // Paid in WHMCS, its document issued there: a new amount or invoice would write MyCS money events on it and
+            // open it again.
+            if ($moves && EkdosiDocument::issuedBeforeCutOver($invoice->id)) {
                 throw new DisplayException(__('invoices.payment_edit.before_cut_over'));
             }
-            // Paid in WHMCS and touched here since (no longer «all the importer's»): open and paid again, its lines,
-            // never applied here, would renew their services a second time.
+            // Open and paid again, its lines, never applied here, would renew their services a second time.
             if ($moves && self::paidAgainWouldRenew($invoice)) {
-                throw new DisplayException(__('invoices.payment_edit.before_cut_over'));
+                throw new DisplayException(__('invoices.payment_edit.would_renew'));
+            }
+            if ($moves || $dated) {
+                self::refuseEkdosis($invoice);
             }
 
             if ($moves) {
@@ -106,6 +128,7 @@ class EditPayment
                     if (EkdosiDocument::issuedBeforeCutOver($target->id)) {
                         throw new DisplayException(__('invoices.payment_edit.target_before_cut_over'));
                     }
+                    self::refuseEkdosis($target);
                 }
                 $gateway = $gatewayId === null ? null : Gateway::query()->find($gatewayId);
                 $at = $paidAt ?? $payment->created_at;
@@ -113,7 +136,7 @@ class EditPayment
                 // it, the invoice open again, the target paid, an id already recorded) is theirs.
                 $payments->deleteTransaction($payment, $allowNegativeCredit);
 
-                return $payments->recordByStaff($target, $gateway, number_format($cents / 100, 2, '.', ''), $reference, $fee, $at, recordedByGateway: $byGateway);
+                return $payments->recordByStaff($target, $gateway, number_format($cents / 100, 2, '.', ''), $reference, $fee, $at);
             }
 
             if ($renamed && $reference !== null && ($twin = self::twin($payment, $invoice, $reference, $gatewayId)) !== null) {
@@ -142,6 +165,11 @@ class EditPayment
                 $invoice->paid_at = Carbon::parse($last())->toImmutable();
                 $invoice->save();
             }
+            // The refunds and chargebacks its gateway reported for the id it has now, which waited for a payment with it,
+            // are recorded, as when a payment is added with that id (REV-781-4).
+            if ($renamed) {
+                $payments->applyWaitingRefunds($payment);
+            }
 
             return $payment;
         });
@@ -149,7 +177,7 @@ class EditPayment
 
     /**
      * Whether its gateway recorded it (a webhook, a charge): its journal entry holds the provider's id, which an entry
-     * staff typed never does (MoneyTrail). Its amount, id and gateway are what the gateway says.
+     * staff typed never does (MoneyTrail). Its amount, id, gateway and invoice are what the gateway says.
      */
     public static function recordedByGateway(InvoiceTransaction $payment): bool
     {
@@ -157,17 +185,40 @@ class EditPayment
             ->whereNotNull('external_reference')->whereDoesntHave('reversal')->exists();
     }
 
+    /** Whether the importer brought it (its journal entry is the importer's): what WHMCS recorded. */
+    public static function imported(InvoiceTransaction $payment): bool
+    {
+        return MoneyEvent::query()->where('invoice_transaction_id', $payment->id)->where('kind', MoneyEventKind::Payment->value)
+            ->where('source', MoneyTrail::SOURCE_IMPORT)->whereDoesntHave('reversal')->exists();
+    }
+
+    /**
+     * Issued is final (docs/ekdosi-bridge.md): the money and the paid date of an invoice with a fiscal document from
+     * Ekdosi stay; one sent to Ekdosi (a request) was sent with them as they stood, and is withdrawn first.
+     */
+    private static function refuseEkdosis(Invoice $invoice): void
+    {
+        if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
+            throw new DisplayException(__('invoices.payment_edit.ekdosi', ['invoice' => $invoice->id]));
+        }
+        if ($invoice->ekdosi_requested_at !== null) {
+            throw new DisplayException(__('invoices.payment_edit.ekdosi_request', ['invoice' => $invoice->id]));
+        }
+    }
+
     /**
      * An invoice paid in WHMCS comes with lines that point at their services and were never applied here (the period was
      * given there). Paid AGAIN here (after a deletion, an undone refund), those lines would be applied: a second period
      * for the same money. Whether it is one: it was paid once (paid_at is never cleared), with money of the importer's on
-     * it, and has a line of something not applied. One imported unpaid and first paid here is not: its payment applies it.
+     * it, and has a line a payment would apply (a period or an order; never a charge or a discount, which are applied by
+     * nothing). One imported unpaid and first paid here is not: its payment applies it.
      */
     public static function paidAgainWouldRenew(Invoice $invoice): bool
     {
         return $invoice->paid_at !== null && MoneyEvent::query()->where('invoice_id', $invoice->id)->where('kind', MoneyEventKind::Payment->value)
             ->where('source', MoneyTrail::SOURCE_IMPORT)->exists()
-            && $invoice->items()->whereNotNull('reference_type')->whereNull('applied_at')->exists();
+            && $invoice->items()->whereNotNull('reference_type')->whereNull('applied_at')
+                ->where(fn ($line) => $line->whereNull('kind')->orWhereNotIn('kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))->exists();
     }
 
     /**

@@ -63,7 +63,7 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         $this->whmcsInvoice(503, 'Unpaid', [32 => 10.0], due: '2026-10-25');
         $this->importWhmcs();
         // After the import: its last step reloads the settings, and a value set before it is lost (credit auto-apply off).
-        config(['settings.credits_enabled' => true]);
+        $this->storeSettings(['credits_enabled' => true]);
         $this->imported(501);
         $this->imported(502);
         $this->payment = (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(501), null, '10.00', 'tr_501');
@@ -202,12 +202,19 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(502), 'precondition: won, paid again');
         $this->assertFalse(ExtensionHelper::chargebackAtGateway('Stripe', 'ch_502', 'dp_1', 10.00, 'EUR'), 'control: before the move its replay records nothing');
 
-        $moved = (new EditPayment)->handle($charge->fresh(), ['invoice_id' => 503]);
-        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(503));
+        // The fix is a cut (owner's KISS, coordinator 2026-11-10): a payment its gateway recorded is not moved at all, so
+        // its row, its id and what the gateway reported on it stay together. The arrange became the refusal; the claim stays.
+        try {
+            (new EditPayment)->handle($charge->fresh(), ['invoice_id' => 503]);
+            $this->fail('A gateway-recorded payment was moved.');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('invoices.payment_edit.gateway_move'), $e->getMessage());
+        }
+        $this->assertSame(502, $charge->fresh()->invoice_id);
 
-        $this->assertFalse(ExtensionHelper::chargebackAtGateway('Stripe', 'ch_502', 'dp_1', 10.00, 'EUR'), 'the same replay after the move');
-        $this->assertSame('0.00', (string) $moved->fresh()->refunded_amount);
-        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(503), 'the bank gave the money back: it is on the invoice');
+        $this->assertFalse(ExtensionHelper::chargebackAtGateway('Stripe', 'ch_502', 'dp_1', 10.00, 'EUR'), 'the same replay after the attempt');
+        $this->assertSame('0.00', (string) $charge->fresh()->refunded_amount);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(502), 'the bank gave the money back: it is on the invoice');
     }
 
     /**
@@ -223,11 +230,17 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         (new UndoRefund)->handle($charge, $this->refund($charge)->id, moneyLeftAtGateway: true);
         $this->assertFalse(ExtensionHelper::refundedAtGateway('Stripe', 'ch_502', 're_1', 4.00, 'EUR'), 'control: before the move its late event records nothing');
 
-        $moved = (new EditPayment)->handle($charge->fresh(), ['invoice_id' => 503]);
+        // As REV-781-3a: with the cut the move is refused, and the «failed» record stays with its payment.
+        try {
+            (new EditPayment)->handle($charge->fresh(), ['invoice_id' => 503]);
+            $this->fail('A gateway-recorded payment was moved.');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('invoices.payment_edit.gateway_move'), $e->getMessage());
+        }
 
-        $this->assertFalse(ExtensionHelper::refundedAtGateway('Stripe', 'ch_502', 're_1', 4.00, 'EUR'), 'the same late event after the move');
-        $this->assertSame('0.00', (string) $moved->fresh()->refunded_amount);
-        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(503));
+        $this->assertFalse(ExtensionHelper::refundedAtGateway('Stripe', 'ch_502', 're_1', 4.00, 'EUR'), 'the same late event after the attempt');
+        $this->assertSame('0.00', (string) $charge->fresh()->refunded_amount);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(502));
     }
 
     /**
@@ -328,7 +341,14 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         $this->assertTrue($invoice->paid_by_staff_at->greaterThan($this->payment->fresh()->created_at), 'precondition: the word came after the payment, for the raise');
         Carbon::setTestNow('2026-09-25 12:00:00');
 
-        (new EditPayment)->handle($this->payment->fresh(), ['paid_at' => Carbon::parse('2026-09-22 10:00:00')]);
+        // The fix (the smaller of the two offered: «date» IS created_at, no second column): the date of a payment on an
+        // invoice that carries staff's word is not moved, so the two times deleteTransaction compares stay as recorded.
+        try {
+            (new EditPayment)->handle($this->payment->fresh(), ['paid_at' => Carbon::parse('2026-09-22 10:00:00')]);
+            $this->fail('The date of a payment on an invoice paid by staff\'s word was moved.');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('invoices.payment_edit.date_paid_by_staff'), $e->getMessage());
+        }
         (new RecordPaymentService)->deleteTransaction($this->payment->fresh());
 
         $this->assertSame(Invoice::STATUS_UNPAID, $this->state(501)[0], 'its only payment is gone: staff\'s word was for the 2.00 of the raise (REV-780-3-1)');

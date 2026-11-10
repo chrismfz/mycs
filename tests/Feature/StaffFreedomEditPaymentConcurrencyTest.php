@@ -50,7 +50,7 @@ class StaffFreedomEditPaymentConcurrencyTest extends TestCase
     {
         parent::setUp();
         $this->beforeApplicationDestroyed(fn () => $this->truncateDatabaseTables());
-        config(['settings.credits_enabled' => true]);
+        $this->storeSettings(['credits_enabled' => true]);
         $client = User::factory()->create()->client();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
         $this->invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()]);

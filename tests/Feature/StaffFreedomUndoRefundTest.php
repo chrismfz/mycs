@@ -58,7 +58,6 @@ class StaffFreedomUndoRefundTest extends TestCase
         parent::setUp();
         Queue::fake();
         Carbon::setTestNow('2026-09-20 10:00:00');
-        config(['settings.credits_enabled' => true]);
         $this->user = User::factory()->create();
         $product = $this->createProduct();
         $product->plan->update(['name' => 'Monthly']);
@@ -69,6 +68,8 @@ class StaffFreedomUndoRefundTest extends TestCase
         $this->whmcsInvoice(501, 'Unpaid', [31 => 10.0], due: '2026-09-10');
         $this->whmcsInvoice(502, 'Unpaid', [32 => 10.0], due: '2026-09-25');
         $this->importWhmcs();
+        // After the import: its last step reloads the settings.
+        $this->storeSettings(['credits_enabled' => true]);
         $this->imported(501);
         $this->payment = (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(501), null, '10.00', 'tr_501');
         Filament::setCurrentPanel(Filament::getPanel('admin'));
@@ -147,6 +148,7 @@ class StaffFreedomUndoRefundTest extends TestCase
 
     public function test_a_refund_by_hand_is_undone_exactly_and_the_payment_follows_the_normal_rules_again(): void
     {
+        Invoice::query()->whereKey(502)->update(['status' => Invoice::STATUS_DRAFT]); // nothing open for credit to pay
         ExtensionHelper::refundLocally($this->payment, 3.00, notify: false);
         $this->assertSame([Invoice::STATUS_PAID, 0, 700], $this->state());
         $note = AdjustmentNote::query()->where('invoice_id', 501)->where('is_refund', true)->sole();

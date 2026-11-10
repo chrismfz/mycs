@@ -49,9 +49,6 @@ class RecordPaymentService
     /** The excess goes on to other invoices in the same transaction (PayInvoices, MassPay): it is not news for staff (F1 CR-1). */
     private bool $excessIsSpread = false;
 
-    /** Staff re-recording a payment its gateway recorded (EditPayment, a re-point): its journal entry keeps the provider's id. */
-    private bool $recordedByGateway = false;
-
     public function handle(
         Invoice|int $invoice,
         ?Gateway $gateway,
@@ -107,7 +104,7 @@ class RecordPaymentService
      * (gateway_refunds «waiting», by the payment's id there), are recorded now (PR 2c-2, F3), once this commits. Those of
      * the payment's own gateway account; a payment with no gateway (staff typed the id) takes any gateway's.
      */
-    private function applyWaitingRefunds(?InvoiceTransaction $transaction): void
+    public function applyWaitingRefunds(?InvoiceTransaction $transaction): void
     {
         if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || $transaction->transaction_id === null || $transaction->is_credit_transaction) {
             return;
@@ -239,7 +236,7 @@ class RecordPaymentService
                 // Staff completing a gateway's processing payment: the money still came through that gateway.
                 $source = MoneyTrail::sourceFor($gateway ?? $transaction->gateway, $isCreditTransaction || (bool) $transaction->is_credit_transaction);
                 // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
-                $reference = ($enteredByStaff && !$this->recordedByGateway) || $transaction->gateway_id === null ? null : $transaction->transaction_id;
+                $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
                 // A customer's Mass Pay (F2): the checkout was opened on the invoice due first for the group's total, and the
                 // gateway returned the group with the payment (or a processing payment was linked to it). What that invoice
@@ -420,10 +417,9 @@ class RecordPaymentService
      * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, more than
      *                          what is left, or a transaction id already recorded or belonging to another invoice
      */
-    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false, bool $excessIsSpread = false, bool $recordedByGateway = false): InvoiceTransaction
+    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false, bool $excessIsSpread = false): InvoiceTransaction
     {
         $this->excessIsSpread = $excessIsSpread;
-        $this->recordedByGateway = $recordedByGateway;
 
         if (self::toCents($amount) <= 0) {
             throw new DisplayException(__('The amount must be positive.'));

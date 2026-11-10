@@ -120,11 +120,10 @@ class UndoRefund
             }
 
             $cents = RecordPaymentService::toCents($refund->amount);
-            $trail = new MoneyTrail;
-            if ($refund->kind === MoneyEventKind::CreditIn) {
-                $this->takeCreditBack($invoice, $payment, $refund, $cents, $allowNegativeCredit);
-            } else {
-                $reported = self::reported($refund, lock: true);
+            $toCredit = $refund->kind === MoneyEventKind::CreditIn;
+            $column = $toCredit ? 'credited_amount' : 'refunded_amount';
+            $reported = $toCredit ? null : self::reported($refund, lock: true);
+            if (!$toCredit) {
                 if (($refund->source !== MoneyTrail::SOURCE_LOCAL || $reported !== null) && !$moneyLeftAtGateway) {
                     throw new DisplayException(__('invoices.refund_undo.gateway_unconfirmed'));
                 }
@@ -137,18 +136,43 @@ class UndoRefund
                 if (RecordPaymentService::toCents($payment->refunded_amount) < $cents) {
                     throw new DisplayException(__('invoices.refund_undo.gone'));
                 }
-                $payment->update(['refunded_amount' => (RecordPaymentService::toCents($payment->refunded_amount) - $cents) / 100]);
-                $trail->reverse($refund, MoneyTrail::CAUSE_REFUND_UNDONE);
+            }
+
+            // The order matters (REV-781-2): saving the payment tells the listener that closes a covered invoice, and it
+            // must read the final state. So first the journal and the credit, then the refund's note, then what the
+            // invoice will hold is checked, and the payment row is saved last. The status follows once, from that.
+            self::$undoing = true;
+            try {
+                $toCredit ? $this->takeCreditBack($invoice, $payment, $refund, $cents, $allowNegativeCredit)
+                    : (new MoneyTrail)->reverse($refund, MoneyTrail::CAUSE_REFUND_UNDONE);
                 // Its record at the gateway: «failed» is one that moved no money, known by its id (a late event of it
                 // records nothing; the payment's deletion takes it along).
                 $reported?->update(['origin' => GatewayRefund::ORIGIN_FAILED, 'recorded_amount' => 0]);
-            }
-
-            self::$undoing = true;
-            try {
                 $note = self::noteOf($invoice, $payment, $refund);
                 $note?->update(['status' => AdjustmentNoteStatus::Voided, 'description' => $note->description . self::NOTE_MARK]);
-                $this->statusFollows($invoice->id);
+
+                $after = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
+                $remaining = RecordPaymentService::toCents($after->remaining) - $cents;
+                // More than it bills, whatever its status: not left on it, nor turned into credit by a side effect.
+                if ($remaining < 0) {
+                    throw new DisplayException(__('invoices.refund_undo.over', [
+                        'amount' => number_format(-$remaining / 100, 2, '.', '') . ' ' . $after->currency_code,
+                    ]));
+                }
+                $paidAgain = $remaining === 0 && ($after->status === Invoice::STATUS_REFUNDED
+                    || ($after->status === Invoice::STATUS_UNPAID && $after->items->isNotEmpty()));
+                // Paid in WHMCS, its lines never applied here: paid again they would renew their services a second time.
+                if ($paidAgain && EditPayment::paidAgainWouldRenew($after)) {
+                    throw new DisplayException(__('invoices.refund_undo.would_renew'));
+                }
+
+                // An open invoice that is covered now is closed by the payments' own listener, on this save.
+                $payment->update([$column => (RecordPaymentService::toCents($payment->{$column}) - $cents) / 100]);
+                if ($after->status === Invoice::STATUS_REFUNDED) {
+                    $after->unsetRelations();
+                    $after->status = $paidAgain ? Invoice::STATUS_PAID : Invoice::STATUS_UNPAID;
+                    $after->save();
+                }
             } finally {
                 self::$undoing = false;
             }
@@ -171,33 +195,9 @@ class UndoRefund
         if ($balance < 0 && !$allowNegativeCredit) {
             throw new DisplayException(__('invoices.refund_undo.credit_spent'));
         }
-        $payment->update(['credited_amount' => ($credited - $cents) / 100]);
         $credit->amount = $balance / 100;
         (new MoneyTrail)->reverse($refund, MoneyTrail::CAUSE_REFUND_UNDONE, $credit);
         $credit->save();
-    }
-
-    /**
-     * The invoice after the undo, read under the locks: refunded, it holds money again and is paid (or owes, when its
-     * total changed since); open and covered again, paid. A paid one stays paid and shows its balance.
-     */
-    private function statusFollows(int $invoiceId): void
-    {
-        $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail()->withLockedBalance();
-        $remaining = RecordPaymentService::toCents($invoice->remaining);
-        if ($invoice->status === Invoice::STATUS_REFUNDED && $remaining < 0) {
-            throw new DisplayException(__('invoices.refund_undo.over'));
-        }
-        $paidAgain = $remaining === 0 && ($invoice->status === Invoice::STATUS_REFUNDED
-            || ($invoice->status === Invoice::STATUS_UNPAID && $invoice->items->isNotEmpty()));
-        // Paid in WHMCS, its lines never applied here: paid again they would renew their services a second time.
-        if ($paidAgain && EditPayment::paidAgainWouldRenew($invoice)) {
-            throw new DisplayException(__('invoices.refund_undo.would_renew'));
-        }
-        if ($paidAgain || $invoice->status === Invoice::STATUS_REFUNDED) {
-            $invoice->status = $paidAgain ? Invoice::STATUS_PAID : Invoice::STATUS_UNPAID;
-            $invoice->save();
-        }
     }
 
     /**
