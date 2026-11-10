@@ -144,20 +144,21 @@ class ServiceObserver
         }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
             // Back to active, the cron is kept from suspending it again at once: a hold, as «Do not suspend until» shows
-            // it, unless a later one is set (staff clear or change it as any hold).
-            // From a suspension for non-payment (a payment, or staff), with a suspension window set: through today (the
-            // hourly run would suspend it again within the hour: review of #411); tomorrow the rule applies as ever.
-            // Without a window the cron runs once a day, as before.
-            // From any other suspension (staff's by hand, an addon's with its parent), past its due date: through Suspend
-            // Days from today. It was not billed while suspended, so the next run bills the due period, and its customer
-            // gets the invoice and that time to pay it (owner 2026-11-10, S6-CRON-BILLING-1/2). A payment never brings
-            // such a one back (RenewServiceService: staff's suspension stays theirs), except an addon with its paid
-            // parent: one whose own period is on that paid invoice, about to be applied, needs no hold.
-            if ($service->status === Service::STATUS_ACTIVE) {
+            // it, unless a later one is set. A date staff set or cleared in this same save is theirs (REV-772-2).
+            // From a suspension for non-payment (the cron's mark still on it: a payment, or staff), with a suspension
+            // window set: through today (the hourly run would suspend it again within the hour: review of #411); tomorrow
+            // the rule applies as ever. Without a window the cron runs once a day, as before.
+            // From anything else but pending (staff's own suspension, also their «Suspend» of one the cron suspended, which
+            // takes its mark, REV-772-3; an addon's with its parent; cancelled or terminated, brought back by staff,
+            // REV-772-1), past its due date: through Suspend Days from today. It was not billed meanwhile, so the next run
+            // bills the due period, and its customer gets the invoice and that time to pay it (owner 2026-11-10,
+            // S6-CRON-BILLING-1/2). Only staff bring such a one back, except an addon with its paid parent: one whose own
+            // period is on that paid invoice, about to be applied, needs no hold. A pending one's start has its own dates.
+            if ($service->status === Service::STATUS_ACTIVE && !$service->isDirty('suspend_hold_until')) {
                 $today = Carbon::today();
                 $hold = match (true) {
                     $service->getOriginal('dunning_suspended_at') !== null => DunningWindow::always() ? null : $today,
-                    $service->getOriginal('status') === Service::STATUS_SUSPENDED && $service->expires_at !== null
+                    $service->getOriginal('status') !== Service::STATUS_PENDING && $service->expires_at !== null
                         && Carbon::parse($service->expires_at)->startOfDay()->lt($today)
                         && !Service::query()->whereKey($service->id)->whereExists(fn ($line) => RenewalBilling::paidLineToApply($line))->exists() => $today->copy()->addDays(DunningRules::days('cronjob_order_suspend', 8)),
                     default => null,

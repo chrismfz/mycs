@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * Independent and adversarial review of #772 (the hold in place of #770's issue-date rule). Each test fails on the PR's
- * head and says what it expects instead; none is fixed here. Invented fixtures only. Today is 2026-10-05, Suspend Days 8.
+ * Independent and adversarial review of #772 (the hold in place of #770's issue-date rule). REV-772-1 and -2 are fixed
+ * (ServiceObserver::updating); REV-772-3 is accepted and its test pins what was accepted. Invented fixtures only. Today is 2026-10-05, Suspend Days 8.
  */
 class Sweep7SuspendHoldReviewTest extends TestCase
 {
@@ -118,14 +118,13 @@ class Sweep7SuspendHoldReviewTest extends TestCase
     }
 
     /**
-     * REV-772-3 (low). «Staff's unsuspension of an unpaid service gives no time on its own» (the PR, docs/decisions.md)
-     * holds only while the cron's mark is there. Staff's «Suspend» on a service the cron suspended (to keep a payment
-     * from lifting it, or to run the module again) clears the mark (Service::placeOnHold): from then on it counts as
-     * «not billed while suspended», though its renewal has been open and unpaid for weeks. Due 09-10, invoice issued
-     * 08-27, suspended by the cron on 09-19, «Suspend» by staff on 09-25, «Unsuspend» on 10-20 (40 days past due):
-     * it gets a hold through 10-28 and runs unpaid; each further Suspend / Unsuspend gives eight days more.
+     * REV-772-3 (low), accepted (owner 2026-11-10): staff's «Suspend» on a service the cron suspended takes the cron's
+     * mark (Service::placeOnHold), so their later «Unsuspend» of it, still unpaid, gives the hold as for any suspension of
+     * theirs. It is staff's own act, twice, and the hold is theirs to clear. Due 09-10, invoice issued 08-27, suspended
+     * by the cron on 09-19, «Suspend» by staff on 09-25, «Unsuspend» on 10-20: held through 10-28; cleared, the next run
+     * suspends it.
      */
-    public function test_rev_772_3_an_unpaid_service_billed_weeks_ago_gets_no_time_from_staffs_suspend_and_unsuspend(): void
+    public function test_rev_772_3_staffs_suspend_then_unsuspend_of_an_unpaid_service_gives_the_hold_and_staff_can_clear_it(): void
     {
         $service = $this->service('2026-09-10');
         $this->billedAhead($service);
@@ -140,7 +139,35 @@ class Sweep7SuspendHoldReviewTest extends TestCase
         $this->cronOn('2026-10-21');
 
         $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->sole()->status, 'precondition: the invoice of 08-27 is still the one to pay');
-        $this->assertSame([Service::STATUS_SUSPENDED, null], [$service->fresh()->status, $this->hold($service)],
-            'unpaid, billed 54 days ago: suspended again by the next run, as the unsuspension of any unpaid service');
+        $this->assertSame([Service::STATUS_ACTIVE, '2026-10-28'], [$service->fresh()->status, $this->hold($service)], 'accepted: staff\'s own suspension lifted, held');
+
+        Carbon::setTestNow('2026-10-21 12:00:00');
+        $this->livewireAs($this->staff())->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->fillForm(['suspend_hold_until' => null])->call('save')->assertHasNoFormErrors();
+        $this->cronOn('2026-10-22');
+        $this->assertSame([Service::STATUS_SUSPENDED, null], [$service->fresh()->status, $this->hold($service)], 'staff cleared it: suspended by the next run');
+    }
+
+    /** REV-772-2, the other half: a hold staff clear in the same save as the unsuspension stays cleared. */
+    public function test_rev_772_2_a_hold_staff_clear_in_the_same_save_as_the_unsuspension_stays_cleared(): void
+    {
+        $service = $this->service('2026-09-01', attributes: ['status' => Service::STATUS_SUSPENDED, 'suspend_reason' => 'Abuse', 'suspend_hold_until' => '2026-10-06']);
+
+        $service->applyStaffChanges(['status' => Service::STATUS_ACTIVE, 'suspend_hold_until' => null]);
+
+        $this->assertSame([Service::STATUS_ACTIVE, null], [$service->fresh()->status, $this->hold($service)]);
+    }
+
+    /** REV-772-1, the edges: terminated as cancelled; not past due, none; a pending one's start keeps its own dates. */
+    public function test_rev_772_1_terminated_gets_the_hold_and_pending_or_not_due_do_not(): void
+    {
+        $terminated = $this->service('2026-09-01', attributes: ['status' => Service::STATUS_TERMINATED]);
+        $notDue = $this->service('2026-11-01', attributes: ['status' => Service::STATUS_CANCELLED]);
+        $pending = $this->service('2026-09-01', attributes: ['status' => Service::STATUS_PENDING, 'activated_at' => '2026-08-01']);
+        foreach ([$terminated, $notDue, $pending] as $service) {
+            $service->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+        }
+
+        $this->assertSame(['2026-10-13', null, null], [$this->hold($terminated), $this->hold($notDue), $this->hold($pending)]);
     }
 }
