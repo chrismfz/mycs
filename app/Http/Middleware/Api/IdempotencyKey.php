@@ -20,7 +20,7 @@ class IdempotencyKey
         if ($header === null) {
             return $next($request);
         }
-        if (!is_string($header) || !preg_match('/^[A-Za-z0-9._:-]{8,100}$/', $header)) {
+        if (!preg_match('/^[A-Za-z0-9._:-]{8,100}$/', $header)) {
             abort(422, 'The Idempotency-Key header is 8 to 100 letters, digits, dots, colons, dashes or underscores (a UUID).');
         }
         $slot = 'api-idempotency:' . hash('sha256', $request->attributes->get('api_key')?->getKey() . '|' . $request->path() . '|' . $header);
