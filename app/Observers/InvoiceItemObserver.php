@@ -44,9 +44,6 @@ class InvoiceItemObserver
      */
     private static function refuseDiscountOnCreditPurchase(InvoiceItem $line): void
     {
-        if ($line->invoice_id === null) {
-            return;
-        }
         $others = InvoiceItem::query()->where('invoice_id', $line->invoice_id)->when($line->exists, fn ($query) => $query->whereKeyNot($line->getKey()));
         $discount = bccomp((string) ($line->price ?? 0), '0', 4) < 0;
         if (($discount && ($line->reference_type === Credit::class || (clone $others)->where('reference_type', Credit::class)->exists()))
