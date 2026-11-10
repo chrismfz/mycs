@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\Admin\Payments;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /** The panel's «Add Payment» and «Mark Paid» (RecordPaymentService::recordByStaff). */
 class CreatePaymentRequest extends AdminApiRequest
@@ -30,11 +31,11 @@ class CreatePaymentRequest extends AdminApiRequest
              *
              * @example 2026-11-10
              */
-            'paid_at' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'paid_at' => ['sometimes', 'nullable', ...self::PAID_AT],
             // The payment method; none is «Manual».
             'gateway_id' => ['sometimes', 'nullable', 'integer', Rule::exists('extensions', 'id')->where('type', 'gateway')],
             // Recorded once: the same id again is refused (422), nothing is added.
-            'transaction_id' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'transaction_id' => ['sometimes', 'nullable', ...self::TRANSACTION_ID],
             'fee' => ['sometimes', 'nullable', 'string', self::AMOUNT],
             // «Mark Paid»: more than what is left to pay is refused instead of becoming account credit.
             'up_to_remaining' => ['sometimes', 'boolean'],
@@ -44,5 +45,14 @@ class CreatePaymentRequest extends AdminApiRequest
              */
             'reopen' => ['sometimes', 'boolean'],
         ];
+    }
+
+    public function after(): array
+    {
+        return [function (Validator $validator) {
+            if ($validator->errors()->isEmpty() && self::feeAbove($this->input('fee'), $this->input('amount'))) {
+                $validator->errors()->add('fee', __('The fee cannot be above the amount.'));
+            }
+        }];
     }
 }

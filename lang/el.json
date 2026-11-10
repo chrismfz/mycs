@@ -571,6 +571,8 @@
     "Only a domain line takes a kind.": "Μόνο μια γραμμή domain δέχεται είδος.",
     "Only a line that bills nothing (no reference) takes a negative price.": "Αρνητική τιμή δέχεται μόνο γραμμή που δεν χρεώνει κάτι (χωρίς αναφορά).",
     "Only an unpaid invoice is set back to a draft.": "Μόνο ένα απλήρωτο τιμολόγιο γυρίζει σε πρόχειρο.",
+    "The fee cannot be above the amount.": "Η προμήθεια δεν μπορεί να ξεπερνά το ποσό.",
+    "The :attribute is too long.": "Το πεδίο :attribute είναι πολύ μεγάλο.",
     "This payment does not go back that way.": "Αυτή η πληρωμή δεν επιστρέφεται με αυτόν τον τρόπο.",
     "customer": "πελάτη",
     "Upcoming domain renewals": "Επερχόμενες ανανεώσεις domains",

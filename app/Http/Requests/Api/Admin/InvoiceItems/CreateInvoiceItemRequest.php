@@ -17,10 +17,11 @@ class CreateInvoiceItemRequest extends AdminApiRequest
     {
         return [
             'invoice_id' => 'required|exists:invoices,id',
-            'description' => 'required|string|max:65535',
+            'description' => ['required', 'string', 'max:65535', self::maxBytes()],
             // Negative on a line that bills nothing (no reference): a discount, as the panel's form takes it.
-            'price' => 'required|numeric',
-            'quantity' => 'required|integer|min:1',
+            // A plain decimal, two places at most, nine digits before them: never an exponent (REV-782-5).
+            'price' => ['required', 'numeric', self::SIGNED_AMOUNT],
+            'quantity' => 'required|integer|min:1|max:' . self::MAX_QUANTITY,
             'taxed' => 'sometimes|boolean',
             'reference_type' => 'nullable',
             'reference_id' => 'nullable',

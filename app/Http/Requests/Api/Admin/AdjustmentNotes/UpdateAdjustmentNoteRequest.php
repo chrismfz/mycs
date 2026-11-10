@@ -13,7 +13,7 @@ class UpdateAdjustmentNoteRequest extends AdminApiRequest
     {
         return [
             'amount' => ['sometimes', 'required', 'string', self::SIGNED_AMOUNT],
-            'description' => ['sometimes', 'required', 'string', 'max:65535'],
+            'description' => ['sometimes', 'required', 'string', 'max:65535', self::maxBytes()],
         ];
     }
 }

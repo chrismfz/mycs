@@ -12,11 +12,12 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'description' => 'sometimes|string|max:65535',
-            'quantity' => 'sometimes|integer|min:1',
+            'description' => ['sometimes', 'string', 'max:65535', self::maxBytes()],
+            'quantity' => 'sometimes|integer|min:1|max:' . self::MAX_QUANTITY,
             'taxed' => 'sometimes|boolean',
             // Negative on a line that bills nothing (no reference): a discount, as the panel's form takes it.
-            'price' => 'sometimes|numeric',
+            // A plain decimal, two places at most, nine digits before them: never an exponent (REV-782-5).
+            'price' => ['sometimes', 'numeric', self::SIGNED_AMOUNT],
             'reference_type' => 'sometimes|nullable',
             'reference_id' => 'sometimes|nullable',
         ];
