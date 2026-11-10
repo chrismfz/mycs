@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\ClientController;
 use App\Http\Controllers\Api\Admin\CreditController;
+use App\Http\Controllers\Api\Admin\InvoiceAdjustmentNoteController;
 use App\Http\Controllers\Api\Admin\InvoiceController;
 use App\Http\Controllers\Api\Admin\InvoiceItemController;
 use App\Http\Controllers\Api\Admin\InvoicePaymentController;
@@ -46,7 +47,7 @@ Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => '
         'ticket-messages' => TicketMessageController::class,
     ]);
 
-    // An invoice's payments and refunds, as the panel's table corrects them (owner 2026-11-10,
+    // An invoice's payments, refunds and adjustment notes, as the panel's tables correct them (owner 2026-11-10,
     // docs/staff-freedom.md): each id belongs to the invoice in the URL (scoped: 404 otherwise).
     Route::scopeBindings()->prefix('invoices/{invoice}')->name('invoices.')->group(function () {
         Route::get('payments', [InvoicePaymentController::class, 'index'])->name('payments.index');
@@ -58,5 +59,11 @@ Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => '
         Route::post('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refund'])->name('payments.refunds.store');
         Route::delete('payments/{transaction}/refunds/{refund}', [InvoicePaymentController::class, 'undoRefund'])->whereNumber('refund')->name('payments.refunds.destroy');
 
+        Route::get('adjustment-notes', [InvoiceAdjustmentNoteController::class, 'index'])->name('adjustment-notes.index');
+        Route::post('adjustment-notes', [InvoiceAdjustmentNoteController::class, 'store'])->name('adjustment-notes.store');
+        Route::put('adjustment-notes/{adjustment_note}', [InvoiceAdjustmentNoteController::class, 'update'])->name('adjustment-notes.update');
+        Route::post('adjustment-notes/{adjustment_note}/void', [InvoiceAdjustmentNoteController::class, 'void'])->name('adjustment-notes.void');
+        Route::post('adjustment-notes/{adjustment_note}/unvoid', [InvoiceAdjustmentNoteController::class, 'unvoid'])->name('adjustment-notes.unvoid');
+        Route::delete('adjustment-notes/{adjustment_note}', [InvoiceAdjustmentNoteController::class, 'destroy'])->name('adjustment-notes.destroy');
     });
 });
