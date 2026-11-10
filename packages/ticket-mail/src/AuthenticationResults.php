@@ -11,8 +11,9 @@ namespace MyCS\TicketMail;
  * the public suffix list), or by DKIM or SPF pass of its domain or a parent of it (never a subdomain of it: a third
  * party may control one).
  *
- * «Our server» is rspamd (mailcow): it quotes the sender's text wherever it copies it. A server that copies it
- * unquoted into a comment is not supported for vouching (docs/tickets.md, sweep 7).
+ * «Our server» is whichever server meets three points (docs/tickets.md, «Ο server παραλαβής»): it writes one such
+ * header, on top, on every mail it delivers (also its own authenticated users'); it removes a sender's own with its
+ * id; and it quotes or escapes the sender's text it copies into the header. Reading is safe only with the third.
  */
 final class AuthenticationResults
 {
@@ -68,9 +69,9 @@ final class AuthenticationResults
      * One Authentication-Results value: its authserv-id and each method's result with its properties. Null when it does
      * not read cleanly, and then it vouches for nothing.
      *
-     * Read as RFC 8601 §2.2 writes it and as rspamd (mailcow, the one server we support as «ours») fills it: rspamd
-     * puts a value in double quotes as soon as it holds a character with a meaning here (parentheses, «;», «=», «/»,
-     * a space…), so the text a sender chose (the envelope sender, also inside the SPF comment) arrives quoted.
+     * Read as RFC 8601 §2.2 writes it, from a server that quotes or escapes the text a sender chose (the envelope
+     * sender, also inside the SPF comment): today's (rspamd) puts a value in double quotes as soon as it holds a
+     * character with a meaning here (parentheses, «;», «=», «/», a space…).
      * - A quoted string is ONE opaque value, with its backslash escapes, as a property's value and inside a comment;
      *   what it holds is never read as statements.
      * - A comment ends at its «)»; a backslash-escaped character in it (also a parenthesis) is its text. A comment is

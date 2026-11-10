@@ -143,4 +143,32 @@ class Sweep7AuthenticationResultsTest extends TestCase
         $ticket = $this->fetch(['mymail.myip.test; dkim=pass header.d=victim.example; dmarc=pass header.from=victim.example'], 'owner@victim.example, attacker@evil.example');
         $this->assertNull($ticket);
     }
+
+    /** The check staff run after a server change: one real mail's headers, the verdicts only. */
+    public function test_the_auth_check_command_prints_the_verdicts_and_nothing_of_the_mail(): void
+    {
+        $results = "mail.example.net;\r\n\tdkim=pass header.d=bank.example header.s=sel1 header.b=AbCdEf12;\r\n"
+            . "\tdmarc=pass (policy=quarantine) header.from=bank.example;\r\n"
+            . "\tspf=pass (mail.example.net: domain of Alerts@bank.example designates 192.0.2.76 as permitted sender) smtp.mailfrom=Alerts@bank.example";
+        $file = tempnam(sys_get_temp_dir(), 'authcheck');
+        file_put_contents($file, "Authentication-Results: mail.example.net;\r\n\tarc=pass (\"example.net:s=dkim:i=1\")\r\n"
+            . "ARC-Seal: i=1; a=rsa-sha256; d=example.net; s=dkim; cv=none; t=1794300000;\r\n\tb=AAAA\r\n"
+            . "ARC-Message-Signature: i=1; a=rsa-sha256; d=example.net; s=dkim; h=from; bh=AAAA; b=AAAA\r\n"
+            . "ARC-Authentication-Results: i=1; {$results}\r\nFrom: Alerts@bank.example\r\nSubject: Secret subject\r\n\r\nSecret body\r\n");
+
+        $this->artisan('app:mail-auth-check', ['file' => $file, '--bank' => true, '--authserv' => 'mail.example.net', '--sealer' => 'example.net'])
+            ->expectsOutput('bank mail.example.net: header on top yes, readable yes, VOUCHED (arc:dkim_dmarc_pass)')
+            ->doesntExpectOutputToContain('Secret')->assertSuccessful();
+        // As a ticket, by the department's own authserv-id: the forwarded copy's top header vouches for no From.
+        $this->artisan('app:mail-auth-check', ['file' => $file])
+            ->expectsOutput('tickets mymail.myip.test: header on top no, readable yes, not vouched (not_our_server)')->assertSuccessful();
+
+        file_put_contents($file, "Authentication-Results: {$results}\nFrom: Alerts@bank.example\n");
+        $this->artisan('app:mail-auth-check', ['file' => $file, '--authserv' => 'mail.example.net'])
+            ->expectsOutput('tickets mail.example.net: header on top yes, readable yes, VOUCHED (dmarc_pass)')->assertSuccessful();
+        $this->artisan('app:mail-auth-check', ['file' => $file, '--authserv' => 'mail.example.net', '--from' => 'owner@victim.example'])
+            ->expectsOutput('tickets mail.example.net: header on top yes, readable yes, not vouched (no_aligned_pass)')->assertSuccessful();
+        $this->artisan('app:mail-auth-check', ['file' => $file, '--bank' => true])->assertFailed();
+        unlink($file);
+    }
 }
