@@ -1110,7 +1110,7 @@ class CronJob extends Command
             return 0; // Enable Termination off (as WHMCS)
         }
         // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
-        // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
+        // least «minimum days suspended» ago (7 by default; never on the day of the suspension, audit sweep
         // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
         foreach ($this->terminable()->tap(self::parentsFirst(...))->pluck('id') as $id) {
             try {

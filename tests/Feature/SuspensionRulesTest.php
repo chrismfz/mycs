@@ -109,6 +109,10 @@ class SuspensionRulesTest extends TestCase
 
         Carbon::setTestNow('2026-10-21 03:00:00'); // the next day: Termination Days are long past (as WHMCS)
         $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'nor the day after: «minimum days suspended» is 7 by default (S7-CRON-BILLING-1)');
+
+        Carbon::setTestNow('2026-10-27 03:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
     }
 

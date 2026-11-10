@@ -54,7 +54,7 @@ final class DunningRules
             ->whereNotNull('dunning_suspended_at')
             ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'))
             ->whereDate('expires_at', '<', $asOf->copy()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', $asOf->copy()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString())
+            ->whereDate('dunning_suspended_at', '<=', $asOf->copy()->subDays(self::days('cronjob_terminate_min_suspended_days', 7))->toDateString())
             ->whereNotExists(fn ($line) => $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
                 ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
                 ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
