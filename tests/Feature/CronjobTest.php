@@ -190,7 +190,7 @@ class CronjobTest extends TestCase
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);
-        // Its renewal was billed before it was due (nothing is suspended for an invoice issued fewer than Suspend Days ago).
+        // Its renewal was billed before it was due, as the cron does.
         $this->billedAhead($service);
         // And one due in 3 days, not billed yet: the run bills it (it used to bill the overdue one itself).
         $dueSoon = Service::factory()->create([

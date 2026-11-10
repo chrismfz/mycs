@@ -119,14 +119,6 @@ final class ChangeCycle
             return $why;
         }
         $back = (int) $plan->id === (int) $service->plan_id;
-        // Past due, the customer's change would cancel the open renewal and the cron issue it again, with a new issue
-        // date: Suspend Days from then (DunningRules), again and again, never suspended (REV-770-1). They pay first.
-        // Staff keep it: their cancel and re-issue gives the customer Suspend Days, on purpose. Taking a change back
-        // cancels nothing.
-        if (!$staff && !$back && $service->expires_at !== null
-            && CarbonImmutable::instance($service->expires_at)->startOfDay()->lessThan(CarbonImmutable::today())) {
-            return __('services.change_cycle_past_due');
-        }
         // Suspended, its open renewal is what brings it and its addons back: cancelled for the new cycle, the cron bills
         // it again without its addons (suspended with it, they are not billed apart), and they fall overdue on their own
         // the night after it is paid (REV-765-2). Pay first.

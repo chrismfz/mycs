@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Exceptions\DisplayException;
 use App\Livewire\Services\Show;
 use App\Models\Client;
 use App\Models\Invoice;
@@ -23,8 +22,9 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * Independent and adversarial review of #770 (sweep 6: no suspension for a just-issued invoice; an upgrade and a change
- * of cycle never wait together). Each test fails for the reason its finding reports (REV-770-n). Invented fixtures only.
+ * Independent and adversarial review of #770 (sweep 6: an upgrade and a change of cycle never wait together; its rule «no
+ * suspension for a just-issued invoice» was taken back on 2026-11-10, and the REV-770-1 tests now pin that a customer's
+ * change of cycle does not move the suspension day). Invented fixtures only.
  */
 class Sweep6SuspendUpgradesReviewTest extends TestCase
 {
@@ -92,14 +92,13 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
     }
 
     /**
-     * REV-770-1. The customer's own «Change billing cycle» (Livewire\Services\Show::changeCycle → ChangeCycle::apply,
-     * NEXT_RENEWAL) cancels the open renewal of the old cycle and the next daily run bills the period again: a new
-     * invoice, issued that night. Before #770 the service was suspended by its due date all the same (WHMCS). Now the
-     * clock starts again at the new invoice: monthly, due 10-15, invoice issued 10-08, to be suspended on 10-24. On
-     * 10-23 the customer sets «yearly from the next renewal» and takes it straight back (two clicks, nothing to pay):
-     * the run of 10-24 issues a new monthly invoice and does not suspend.
+     * REV-770-1, after the issue-date rule was taken back (owner 2026-11-10, sweep 7): the customer's own «Change billing
+     * cycle» (Livewire\Services\Show::changeCycle → ChangeCycle::apply, NEXT_RENEWAL) is allowed past due again. It
+     * cancels the open renewal and the next daily run bills the period again, but the suspension counts from the due
+     * date, not from that new invoice: monthly, due 10-15, to be suspended on 10-24. On 10-23 the customer sets «yearly
+     * from the next renewal» and takes it straight back: the run of 10-24 suspends the service all the same.
      */
-    public function test_rev_770_1_a_customer_does_not_put_off_the_suspension_by_changing_the_cycle_and_taking_it_back(): void
+    public function test_rev_770_1_a_customer_past_due_may_change_the_cycle_and_is_suspended_on_the_original_day(): void
     {
         [$service, $monthly, $yearly] = $this->monthlyWithYearly('2026-10-15');
         $this->cronOn('2026-10-08');
@@ -109,62 +108,60 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
 
         Carbon::setTestNow('2026-10-23 12:00:00');
         // On their service's page: «Change billing cycle» to yearly, then again, back to monthly.
-        foreach ([$yearly, $monthly] as $plan) {
-            $this->livewireAs($this->user)->test(Show::class, ['service' => $service->fresh()])
-                ->set('cyclePlan', $plan->id)->call('changeCycle')->assertHasNoErrors();
-        }
-        $this->assertNull($service->fresh()->next_plan_id, 'precondition: taken back, the service is as it was');
-        // The fix (REV-770-1): past due, the customer's change is refused («pay the open invoice first»), so the open
-        // renewal stays, with its issue date. The reviewer's precondition here was the hole itself (the renewal gone).
-        $this->assertSame(['2026-10-08'], $this->openIssuedOn($service), 'its open renewal is not cancelled by a customer past due');
+        $this->livewireAs($this->user)->test(Show::class, ['service' => $service->fresh()])
+            ->set('cyclePlan', $yearly->id)->call('changeCycle')->assertHasNoErrors();
+        $this->assertSame($yearly->id, (int) $service->fresh()->next_plan_id, 'past due, the customer changes the cycle himself');
+        $this->assertSame([], $this->openIssuedOn($service), 'the open renewal of the old cycle is cancelled');
+        $this->livewireAs($this->user)->test(Show::class, ['service' => $service->fresh()])
+            ->set('cyclePlan', $monthly->id)->call('changeCycle')->assertHasNoErrors();
+        $this->assertNull($service->fresh()->next_plan_id, 'taken back, the service is as it was');
 
         $this->cronOn('2026-10-24');
 
+        $this->assertSame('2026-10-15', $service->fresh()->expires_at->toDateString(), 'nothing was paid');
         $this->assertSame('suspended', $service->fresh()->status,
-            'due 10-15, nothing paid, Suspend Days 8: not suspended on 10-24, its renewal was issued again tonight ('
-            . implode(', ', $this->openIssuedOn($service)) . ') after the customer changed the cycle and took it back');
+            'due 10-15, Suspend Days 8: suspended on 10-24, whatever day its renewal was issued again (' . implode(', ', $this->openIssuedOn($service)) . ')');
     }
 
     /**
      * REV-770-1, repeated: once a week the customer switches the cycle (monthly → yearly → monthly …, each «from the
-     * next renewal», nothing charged). Each switch cancels the open renewal and the night's run issues a new one, so the
-     * invoice is never Suspend Days old. Due 10-15; on 12-20 (66 days past due, past Termination Days 60) it still runs,
-     * nothing paid: never suspended, so never terminated either.
+     * next renewal», nothing charged). Each switch cancels the open renewal and the night's run issues a new one. None
+     * of it moves the suspension: due 10-15, suspended on 10-24, and ended past Termination Days.
      */
-    public function test_rev_770_1_a_customer_switching_the_cycle_every_week_is_still_suspended(): void
+    public function test_rev_770_1_a_customer_switching_the_cycle_every_week_is_suspended_on_the_original_day(): void
     {
         [$service, $monthly, $yearly] = $this->monthlyWithYearly('2026-10-15');
         $this->cronOn('2026-10-08');
 
         $to = $yearly;
+        $switched = 0;
         for ($day = Carbon::parse('2026-10-09'); $day->lte('2026-12-20'); $day->addDay()) {
-            // Every 7th day from 10-14, at noon: the other cycle, from the next renewal.
+            // Every 7th day from 10-14, at noon, while it runs: the other cycle, from the next renewal.
             if ($day->gte('2026-10-14') && (int) Carbon::parse('2026-10-14')->diffInDays($day) % 7 === 0 && $service->fresh()->status === 'active') {
                 Carbon::setTestNow($day->toDateString() . ' 12:00:00');
-                // The fix refuses the customer's change once the service is past due (the message: pay first): the
-                // reviewer's test let it through and asked for the suspension all the same; either way it must be suspended.
-                try {
-                    ChangeCycle::apply($service->fresh(), $to, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
-                    $to = (int) $to->id === (int) $yearly->id ? $monthly : $yearly;
-                } catch (DisplayException $e) {
-                    $this->assertSame(__('services.change_cycle_past_due'), $e->getMessage());
-                }
+                ChangeCycle::apply($service->fresh(), $to, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+                $to = (int) $to->id === (int) $yearly->id ? $monthly : $yearly;
+                $switched++;
             }
             $this->cronOn($day->copy()->addDay()->toDateString());
+            if (($status = $service->fresh()->status) !== 'terminated') {
+                $this->assertSame($day->lt('2026-10-23') ? 'active' : 'suspended', $status,
+                    'run of ' . $day->copy()->addDay()->toDateString() . ': suspended from 10-24 on, not before, not later');
+            }
         }
 
         $service->refresh();
+        $this->assertSame(2, $switched, 'the customer switched on 10-14 and, past due, on 10-21');
         $this->assertSame('2026-10-15', $service->expires_at->toDateString(), 'precondition: nothing was ever paid');
-        $this->assertNotSame('active', $service->status,
-            'due 10-15 and never paid, still running on 12-21: each change of cycle had its renewal issued again (open now, issued '
-            . implode(', ', $this->openIssuedOn($service)) . ')');
+        $this->assertSame('terminated', $service->status, 'past Termination Days (60) it ended, as any service never paid');
     }
 
     /**
      * REV-770-2. An open renewal with no issue date (`created_at` NULL: the importer writes NULL for a WHMCS invoice
      * whose `date` is 0000-00-00 or unreadable, ImportFromWhmcs::validateDate) is neither «no open invoice» nor «issued
      * Suspend Days ago»: its service is never suspended, however long overdue. Before #770 the default rule did not read
-     * the invoice at all. Here: due 09-01, never paid, the run of 10-20 (49 days past due).
+     * the invoice at all, and since the rule was taken back (2026-11-10) it does not again: kept as a regression. Here: due
+     * 09-01, never paid, the run of 10-20 (49 days past due).
      */
     public function test_rev_770_2_an_open_invoice_without_an_issue_date_does_not_keep_its_service_from_suspension_for_good(): void
     {
@@ -209,28 +206,6 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
         $named = ChangeCycle::refusal($addon->fresh(), $ipMonthly, ChangeCycle::NEXT_RENEWAL);
         $this->assertTrue($placed->outcome !== PlaceUpgrade::CYCLE_CHANGE_PENDING || $named === null,
             'the addon is told «' . __('services.upgrade_cycle_change_pending', [], 'en') . '», and taking it back on the addon answers «' . $named . '»');
-    }
-
-    /** REV-770-1, the fix: past due the customer is told to pay first (el + en), taking a change back still works, and staff keep the change. */
-    public function test_rev_770_1_past_due_the_customer_is_refused_and_staff_are_not(): void
-    {
-        [$service, $monthly, $yearly] = $this->monthlyWithYearly('2026-10-15');
-        $this->cronOn('2026-10-08');
-        Carbon::setTestNow('2026-10-15 12:00:00');
-        $this->assertNull(ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM), 'on its due day: not past due yet');
-
-        Carbon::setTestNow('2026-10-16 12:00:00');
-        $this->assertSame(__('services.change_cycle_past_due'), ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM));
-        foreach (['en' => 'pay its open invoice first', 'el' => 'πληρώστε πρώτα το ανοιχτό τιμολόγιό της'] as $locale => $wayOut) {
-            $this->assertStringContainsString($wayOut, __('services.change_cycle_past_due', [], $locale));
-        }
-
-        // Staff: the change goes (their cancel and re-issue gives Suspend Days, as documented), and they take it back.
-        ChangeCycle::apply($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
-        $this->assertSame($yearly->id, (int) $service->fresh()->next_plan_id);
-        // The customer may still take a change back (it cancels nothing).
-        ChangeCycle::apply($service->fresh(), $monthly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
-        $this->assertNull($service->fresh()->next_plan_id);
     }
 
     /** REV-770-3, the fix: the addon's refusal names the main service, in both languages. */

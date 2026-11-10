@@ -50,8 +50,7 @@ class Adv681Test extends TestCase
             'status' => 'active', 'expires_at' => now()->startOfDay()->subDays($expiredDaysAgo)->addHours(12), 'currency_code' => 'USD', 'price' => 10.00,
             'quantity' => 1,
         ] + $extra);
-        // Past due and running: its renewal was billed before its due date, as the cron does (nothing is suspended for an
-        // invoice issued fewer than Suspend Days ago; one the cron bills for the first time tonight waits those days).
+        // Past due and running: its renewal was billed before its due date, as the cron does.
         if ($expiredDaysAgo > 0 && $service->status === 'active') {
             $this->billedAhead($service);
         }

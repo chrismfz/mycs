@@ -232,7 +232,9 @@ class RevKissAddonsTest extends TestCase
         $ip = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true]);
         $ipMonthly = $this->plan($ip, 'month', 3.00);
         $suspended = ['status' => Service::STATUS_SUSPENDED];
-        $parent = $this->service($hosting, $monthly, '2026-12-01', 10.00, $suspended + ['suspend_reason' => 'Overdue on Payment']);
+        // Suspended by the cron for non-payment (its mark with its reason): staff's unsuspension gives it no hold. One staff
+        // suspended by hand comes back held for Suspend Days, its addons with it (Sweep7SuspendHoldTest).
+        $parent = $this->service($hosting, $monthly, '2026-12-01', 10.00, $suspended + ['suspend_reason' => 'Overdue on Payment', 'dunning_suspended_at' => '2026-12-10']);
         $shared = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);
         $none = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);
         $own = $this->service($ip, $ipMonthly, '2026-12-01', 3.00, $suspended + ['parent_service_id' => $parent->id, 'suspend_reason' => Service::SUSPEND_REASON_PARENT]);

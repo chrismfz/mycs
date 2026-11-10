@@ -81,7 +81,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
     {
         // Due when its period starts, as the cron's renewal invoices (suspension needs an overdue invoice, BIL-5).
         $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now(),
-            // Issued a week before its period, as the cron bills ahead (nothing is suspended for an invoice issued fewer than Suspend Days ago).
+            // Issued a week before its period, as the cron bills ahead.
             'created_at' => $start === null ? now() : Carbon::parse($start)->subWeek()]);
         $invoice->items()->create([
             'reference_id' => $service->id,

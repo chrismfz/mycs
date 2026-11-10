@@ -138,9 +138,7 @@ abstract class TestCase extends BaseTestCase
 
     /**
      * The open renewal invoice a service past its due date would have: for the period from its due date, due then, issued
-     * $days before it (as the cron bills ahead). Dunning fixtures need it since 2026-11-10 (S6-CRON-BILLING-1/2): nothing
-     * is suspended for an invoice issued fewer than Suspend Days ago, so a service the run bills for the first time is
-     * not suspended by that run.
+     * $days before it (as the cron bills ahead). For dunning fixtures: a service past due as the cron would have left it.
      */
     protected function billedAhead(Service $service, int $days = 14): Invoice
     {

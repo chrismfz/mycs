@@ -48,7 +48,7 @@ class SuspensionWindowTest extends TestCase
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
         // Its renewal billed a week before it was due, as the daily run does before any suspension (the hourly run leaves
-        // an unbilled period to it; nothing is suspended for an invoice issued fewer than Suspend Days ago).
+        // an unbilled period to it).
         if ($service->expires_at !== null && $service->status === Service::STATUS_ACTIVE) {
             $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at,
                 'created_at' => Carbon::parse($service->expires_at)->subWeek()]);
