@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\SendToEkdosi;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\Gateway;
@@ -10,6 +12,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\TaxRate;
 use App\Models\User;
+use App\Services\Invoice\MergeInvoices;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\SplitInvoice;
 use Illuminate\Console\Scheduling\Schedule;
@@ -36,6 +39,10 @@ use Throwable;
  *            MARK is still refused.
  * REV-777-3  Ekdosi: the document of the invoice as it was BEFORE a split is now accepted once the invoice is paid (or
  *            sent again): before the PR it was refused. The author's «known limit»; here with its amounts.
+ *            (REV-777-1/2/3: that fix was taken out of #777 and the three stood incomplete, as the specification. Closed
+ *            by the owner's rule of 2026-11-10, «issued is final»: an invoice that is Ekdosi's is not split, merged or
+ *            moved, and the write-back no longer asks about a split. -1 holds as written; -2 and -3 are rewritten for
+ *            the rule, each saying what it asked before.)
  * REV-777-4  cPanel: «Login to Webmail» (a customer's SSO, same create_user_session) is not guarded.
  * REV-777-5  cPanel: the same domain written another way (www., a trailing dot, an IDN in Unicode against WHM's
  *            punycode) is «another account»: suspend, terminate, login and password refused for the customer's own account.
@@ -97,25 +104,25 @@ class Sweep7SmallReviewTest extends TestCase
 
     /**
      * REV-777-1. Monday: the customer's bank transfer arrives. Tuesday: staff split the (still unpaid) invoice. Wednesday:
-     * staff record the transfer with its date, Monday («Payment date», MT-1c): InvoiceObserver sets paid_at to the date of
-     * the last payment, Monday. Ekdosi reads the Inbox on Wednesday (the invoice as the split left it), issues, writes
-     * back: split_at (Tuesday) > paid_at (Monday) → 409 invoice_changed, for good (a paid invoice is never split again,
-     * its paid_at never moves). The same with account credit from an older payment (spendCredit dates it as its source).
+     * staff record the transfer with its date, Monday («Payment date», MT-1c): paid_at is Monday, before the split. Ekdosi
+     * reads the Inbox on Wednesday (the invoice as the split left it), issues, writes back.
+     *
+     * Written against the reverted design of #777 (split_at against paid_at: refused for good). By the owner's rule
+     * (2026-11-10, «issued is final») no time is compared: the invoice was not Ekdosi's when it was split (unpaid, not
+     * sent), so the split is older than what Ekdosi read and the MARK is taken.
      */
     public function test_rev_777_1_a_split_invoice_paid_by_a_transfer_dated_before_the_split_takes_its_document(): void
     {
-        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
-
         [$invoice, $line] = $this->invoice();
         $monday = now()->toImmutable();
         $this->travel(1)->days();
-        (new SplitInvoice)->handle($invoice->id, [$line]);
+        $new = (new SplitInvoice)->handle($invoice->id, [$line]);
         $this->travel(1)->days();
         (new RecordPaymentService)->handle($invoice->id, Gateway::query()->where('extension', 'BankTransfer')->sole(), (string) $invoice->fresh()->total,
             transactionId: 'BANK-MON', enteredByStaff: true, paidAt: $monday);
         $invoice = $invoice->fresh();
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
-        $this->assertTrue($invoice->paid_at->lt(Invoice::query()->where('split_from_id', $invoice->id)->sole()->split_at), 'precondition: paid_at is the transfer\'s date, before the split');
+        $this->assertTrue($invoice->paid_at->lt($new->getRawOriginal('updated_at')), 'precondition: paid_at is the transfer\'s date, before the split');
 
         // Ekdosi reads the Inbox now: the invoice of one line, 124.00.
         $read = collect($this->bridge(['op' => 'invoices'])->assertOk()->json('invoices'))->firstWhere('id', $invoice->id);
@@ -123,61 +130,99 @@ class Sweep7SmallReviewTest extends TestCase
         $this->assertEqualsWithDelta(124.00, (float) $read['total'], 0.001);
 
         $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077701', 'code' => 'TPY-1'])
-            ->assertOk(); // 409 invoice_changed «Split since», though Ekdosi read it after the split
+            ->assertOk(); // was 409 invoice_changed «Split since», though Ekdosi read it after the split
     }
 
     /**
      * REV-777-2. An account with «immediate invoicing» (τιμολόγιο πριν την πληρωμή, E3): Ekdosi reads its unpaid invoices
-     * by `invoices {status: Unpaid, userids}` with no «Send to Ekdosi» and no payment. Staff split one before Ekdosi read
-     * it: $since is null → «any split is after the read» → refused. The document exists at AADE, MyCS has no MARK for it:
-     * add_payment answers no_active_document, and once paid it is back in the Inbox for a second document.
+     * by `invoices {status: Unpaid, userids}` with no «Send to Ekdosi» and no payment, so MyCS cannot know whether one was
+     * read before or after a split.
+     *
+     * Rewritten for the owner's rule (2026-11-10; it asked for «split before the read → MARK taken», which needs a read
+     * time): such an invoice is Ekdosi's from the day it is issued and is not split, merged or moved at all (staff cancel
+     * it and issue new ones). Whenever Ekdosi read it, it read the invoice as it still is, and its MARK is taken.
      */
-    public function test_rev_777_2_an_immediate_invoicing_accounts_unpaid_invoice_split_before_ekdosi_read_it_takes_its_document(): void
+    public function test_rev_777_2_an_immediate_invoicing_accounts_unpaid_invoice_is_not_split_or_merged_and_takes_its_document(): void
     {
-        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
-
         $this->client->forceFill(['immediate_invoicing' => true])->save();
         [$invoice, $line] = $this->invoice();
-        (new SplitInvoice)->handle($invoice->id, [$line]);
+        [$other] = $this->invoice();
+
+        foreach ([
+            fn () => (new SplitInvoice)->handle($invoice->id, [$line]),
+            fn () => (new MergeInvoices)->handle($invoice->id, [$other->id]),
+        ] as $move) {
+            $why = $this->attempt($move);
+            $this->assertInstanceOf(DisplayException::class, $why, 'an invoice Ekdosi reads with no request was split or merged');
+            $this->assertStringContainsString('immediate invoicing', $why->getMessage());
+        }
         $this->travel(1)->days();
 
-        // Ekdosi reads it now, as E3 does: the invoice as the split left it.
+        // Ekdosi reads it now, as E3 does: the invoice as it was issued.
         $read = collect($this->bridge(['op' => 'invoices', 'status' => 'Unpaid', 'userids' => [$this->client->id]])->assertOk()->json('invoices'))->firstWhere('id', $invoice->id);
         $this->assertNotNull($read, 'precondition: the unpaid invoice is Ekdosi\'s to read');
-        $this->assertEqualsWithDelta(124.00, (float) $read['total'], 0.001);
+        $this->assertEqualsWithDelta(148.80, (float) $read['total'], 0.001);
 
-        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077702', 'code' => 'TIM-2'])
-            ->assertOk(); // 409 invoice_changed
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077702', 'code' => 'TIM-2'])->assertOk();
+        $this->assertEqualsWithDelta(148.80, (float) $invoice->fresh()->total, 0.001, 'the document and the invoice are of one total');
+
+        // Not Ekdosi's without the bridge, nor for another account: split as before.
+        config(['settings.ekdosi_enabled' => false]);
+        $this->assertInstanceOf(Invoice::class, (new SplitInvoice)->handle($other->id, [(int) $other->items()->orderByDesc('id')->value('id')]));
     }
 
     /**
-     * REV-777-3 (the PR's «known limit», with its amounts). Staff send the invoice to Ekdosi on credit; Ekdosi reads it:
-     * two lines, 148.80. Staff split it (the request is withdrawn): 124.00 stays, 24.80 moves to a new invoice. The
-     * customer pays the 124.00. Ekdosi issues from what it read (it keeps what it reads in its Inbox until staff issue
-     * there) and writes back a document of 148.80: before the PR 409 invoice_changed («Άλλαξε στη MyCS»); now accepted.
-     * The invoice of 124.00 is filed under a document of 148.80, and the 24.80 that moved is in the Inbox again: billed twice.
+     * REV-777-3 (the reverted PR's «known limit», with its amounts). Staff send the invoice to Ekdosi on credit; Ekdosi
+     * reads it: two lines, 148.80. Staff split it: 124.00 would stay, 24.80 move. Ekdosi issues from what it read and
+     * writes back a document of 148.80: the invoice of 124.00 filed under it, the 24.80 in the Inbox again, billed twice.
+     *
+     * Rewritten for the owner's rule (2026-11-10; it asked for the write-back to refuse, 409, which main did by refusing
+     * every split for ever): the split is refused when staff try it, with the way through, so the wrong document cannot
+     * arise. The document of 148.80 is the invoice's own and is taken.
      */
-    public function test_rev_777_3_a_document_of_the_invoice_as_it_was_before_a_split_is_not_accepted_once_it_is_paid(): void
+    public function test_rev_777_3_an_invoice_sent_to_ekdosi_is_not_split_so_its_document_is_never_of_another_total(): void
     {
-        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
-
         [$invoice, $line] = $this->invoice();
         Invoice::query()->whereKey($invoice->id)->update(['ekdosi_requested_at' => now()]);
         $read = collect($this->bridge(['op' => 'invoices', 'status' => 'requested'])->assertOk()->json('invoices'))->firstWhere('id', $invoice->id);
         $this->assertEqualsWithDelta(148.80, (float) $read['total'], 0.001, 'precondition: Ekdosi read the invoice of two lines');
 
         $this->travel(1)->hours();
-        $new = (new SplitInvoice)->handle($invoice->id, [$line]);
-        $this->assertNull($invoice->fresh()->ekdosi_requested_at, 'precondition: the split withdrew the request');
-        $this->travel(1)->hours();
-        ExtensionHelper::addPayment($invoice->fresh(), 'BankTransfer', (string) $invoice->fresh()->total, transactionId: 'TX-3');
-        $this->assertEqualsWithDelta(124.00, (float) $invoice->fresh()->total, 0.001);
+        $why = $this->attempt(fn () => (new SplitInvoice)->handle($invoice->id, [$line]));
+        $this->assertInstanceOf(DisplayException::class, $why, 'split after it was sent to Ekdosi');
+        $this->assertStringContainsString('withdraw the request', $why->getMessage());
+        $this->assertNotNull($invoice->fresh()->ekdosi_requested_at, 'the request stays');
+        $this->assertSame(0, Invoice::query()->where('split_from_id', $invoice->id)->count());
 
-        // The document of 148.80, from the first read.
-        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077703', 'code' => 'TIM-3'])
-            ->assertStatus(409)->assertJsonPath('error', 'invoice_changed'); // 200: accepted
-        $this->assertSame(0, $invoice->ekdosiDocuments()->count());
-        $this->assertSame(Invoice::STATUS_UNPAID, $new->fresh()->status);
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077703', 'code' => 'TIM-3'])->assertOk();
+        $this->assertEqualsWithDelta(148.80, (float) $invoice->fresh()->total, 0.001);
+    }
+
+    /**
+     * REV-777-3, what the rule does not cover, DOCUMENTED and not coded (docs/ekdosi-bridge.md, «Ό,τι δεν καλύπτει ο
+     * κανόνας»): staff withdraw the request, split, and Ekdosi still issues the copy it staged at its first read. MyCS
+     * cannot tell that copy from a fresh read (K1 sends no fingerprint), so the MARK is taken: 148.80 on an invoice now
+     * of 124.00. Staff delete the staged copy in Ekdosi's inbox when they withdraw (the action's confirmation says so).
+     * Pinned so that whoever changes it sees the case.
+     */
+    public function test_rev_777_3_documented_gap_a_copy_ekdosi_staged_before_a_withdrawal_is_still_accepted(): void
+    {
+        [$invoice, $line] = $this->invoice();
+        SendToEkdosi::request([$invoice], true);
+        $this->bridge(['op' => 'invoices', 'status' => 'requested'])->assertOk();
+        $this->assertStringContainsString('archive it there', (string) SendToEkdosi::withdraw()->getModalDescription());
+
+        SendToEkdosi::request([$invoice->fresh()], false);
+        (new SplitInvoice)->handle($invoice->id, [$line]);
+        ExtensionHelper::addPayment($invoice->fresh(), 'BankTransfer', (string) $invoice->fresh()->total, transactionId: 'TX-3');
+
+        $this->bridge(['op' => 'mark', 'invoice_id' => $invoice->id, 'mark' => '400000000077704', 'code' => 'TIM-4'])->assertOk();
+        // With the fingerprint of the first read (an Ekdosi that sends it) the same document is refused.
+        [$again, $second] = $this->invoice();
+        $fingerprint = $this->bridge(['op' => 'invoice', 'invoice_id' => $again->id])->assertOk()->json('invoice.mycs.fingerprint');
+        (new SplitInvoice)->handle($again->id, [$second]);
+        $this->bridge(['op' => 'mark', 'invoice_id' => $again->id, 'mark' => '400000000077705', 'fingerprint' => $fingerprint])
+            ->assertStatus(409)->assertJsonPath('error', 'invoice_changed');
     }
 
     private function cpanelService(string $domain): Service
