@@ -35,7 +35,7 @@ final class MoneyCheck
         'paid_balance', 'open_settled', 'cancelled_applied', 'cancelled_holds_money', 'paid_not_applied',
         'paid_for_cancelled', 'open_for_cancelled',
         'credit_journal', 'credit_negative', 'payment_not_journaled', 'journal_without_payment', 'refund_journal',
-        'over_refunded', 'duplicate_gateway_id', 'gateway_received', 'line_totals',
+        'over_refunded', 'duplicate_gateway_id', 'gateway_received', 'line_totals', 'service_unbilled',
     ];
 
     /** @var list<array{rule: string, subject: string, detail: string}> */
@@ -388,6 +388,18 @@ final class MoneyCheck
                 "succeeded {$row->times} times (" . InvoiceTransaction::query()->where('transaction_id', $row->transaction_id)
                     ->where('status', InvoiceTransactionStatus::Succeeded->value)->orderBy('id')->pluck('id')
                     ->map(fn ($id) => "#{$id}")->implode(', ') . ')'));
+    }
+
+    /**
+     * A service that runs without being billed (owner 2026-11-10; UnbilledServices): no due date, a period given by an
+     * invoice that is not paid, past due with nothing asking for the money, the addon of an ended service. About the
+     * service, by its id: the same finding the next day, so staff are mailed once, then weekly while it stays.
+     */
+    private function serviceUnbilled(): void
+    {
+        foreach ((new UnbilledServices)->find() as $finding) {
+            $this->add('service_unbilled', "service #{$finding['service']}", $finding['detail']);
+        }
     }
 
     /** A gateway request whose row never closed: the request died (a fatal error, a timeout) and its money is unknown. */
