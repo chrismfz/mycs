@@ -9,6 +9,7 @@ use App\Models\Domain;
 use App\Models\DomainOwnerChange;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Domains\DomainNameHold;
@@ -17,6 +18,7 @@ use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use App\Support\AfterCommit;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Throwable;
 
 class ProcessPaidInvoiceService
@@ -54,6 +56,19 @@ class ProcessPaidInvoiceService
                         $domain = Domain::query()->find($domainId);
                         if ($domain !== null && $domain->status->isPending() && !DomainNameHold::claim($domain)) {
                             DomainNameHold::refuse($domain, $item);
+
+                            return;
+                        }
+                        // Paid after its row ended (S6-DOMAINS-2: imported cancelled as «also live as …», or cancelled by
+                        // staff with its invoice left open): nothing is sent, so staff are told (one open task per line), to refund
+                        // it or open the order again. Never refunded or registered on its own.
+                        if ($domain !== null && $domain->status->isTerminal()) {
+                            $action = $item->kind === InvoiceItem::KIND_TRANSFER ? ModuleAction::DOMAIN_TRANSFER : ModuleAction::DOMAIN_REGISTER;
+                            // One open task per line: a later payment of it, after staff closed the first, tells them again (REV-769-4).
+                            if (!ModuleAction::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $item->id)->where('action', $action)->exists()) {
+                                ModuleAction::domainFailed($domain, $item, $domain->effectiveRegistrarConnection()?->registrar,
+                                    new RuntimeException(__('domains.order.paid_ended', ['domain' => $domain->fqdn, 'status' => $domain->status->value])), $action);
+                            }
 
                             return;
                         }

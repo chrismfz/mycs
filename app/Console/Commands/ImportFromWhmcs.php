@@ -844,6 +844,9 @@ class ImportFromWhmcs extends Command
                     'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
                     'language' => Locales::fromWhmcs($record['language'] ?? null),
                     'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? null : (($record['email_verified_at'] ?? null) ?: null),
+                    // Its address as WHMCS had it (REV-769-1): mail to support from it reaches its account, as in WHMCS,
+                    // verified or not (InboundRouter::routes). Never «verified»: the provider login keeps refusing it.
+                    'imported_email_at' => now(),
                     'created_at' => $date($record['created_at'] ?? null),
                     'updated_at' => $date($record['updated_at'] ?? null),
                 ];
