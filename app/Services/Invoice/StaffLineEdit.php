@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
+use App\Models\Credit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use Closure;
@@ -52,8 +53,16 @@ final class StaffLineEdit
     {
         $open = in_array($invoice->status, Invoice::OPEN_STATUSES, true) || in_array($statusAfter, Invoice::OPEN_STATUSES, true);
         if ($open && self::holdsMoney($invoice)) {
-            throw new DisplayException(__('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'));
+            throw new DisplayException(self::linesKeepAmounts($invoice));
         }
+    }
+
+    /** Why its lines keep their amounts, and what staff can do: a credit purchase takes no discount and no refund to credit. */
+    public static function linesKeepAmounts(Invoice $invoice): string
+    {
+        return $invoice->items()->where('reference_type', Credit::class)->exists()
+            ? __('This invoice buys account credit and has payments: its lines keep their amounts. Refund the payment back first, then cancel it and make a new one with the right amount.')
+            : __('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.');
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
+use App\Exceptions\CreditPurchaseNotCovered;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
@@ -167,7 +168,7 @@ class InvoiceObserver
             // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative
             // line) brought its balance to zero.
             if (self::creditToGiveCents($invoice) > self::receivedCents($invoice)) {
-                throw new DisplayException(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
+                throw new CreditPurchaseNotCovered(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
             }
         }
         // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md §8): an invoice with a

@@ -59,6 +59,7 @@ class RecordPaymentService
         bool $enteredByStaff = false,
         ?\DateTimeInterface $paidAt = null,
         ?string $paymentGroup = null,
+        bool $onItsWayNow = false,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -76,7 +77,7 @@ class RecordPaymentService
 
         $notices = [];
         try {
-            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices, $paymentGroup);
+            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices, $paymentGroup, $onItsWayNow);
         } catch (ModelNotFoundException $e) {
             // A gateway paid an invoice that does not exist (deleted, or another app's): the gateway log keeps what it
             // charged and staff hear of it (MT-2a). Still thrown: the gateway is told it failed.
@@ -97,9 +98,9 @@ class RecordPaymentService
     /**
      * @param  list<string>  $notices
      */
-    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices, ?string $paymentGroup = null): ?InvoiceTransaction
+    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices, ?string $paymentGroup = null, bool $onItsWayNow = false): ?InvoiceTransaction
     {
-        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup) {
+        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup, $onItsWayNow) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway account (PayPal and PayPal_IPN are one: REV2-FGW-2), or recorded by staff
@@ -144,8 +145,9 @@ class RecordPaymentService
 
             // A failed payment never goes back to processing (S6-PAYMENTS-1): gateways deliver events out of order and
             // retry old ones, and a revived row would hold the invoice from every way of paying with nothing left to
-            // settle it. It may only become succeeded.
-            if ($existing !== null && $existing->status === InvoiceTransactionStatus::Failed && $status === InvoiceTransactionStatus::Processing) {
+            // settle it. It may only become succeeded. One exception, said by the caller: the gateway was asked and the
+            // payment is on its way now ($onItsWayNow: a new attempt on the same Stripe intent after a decline, REV-766-1).
+            if ($existing !== null && $existing->status === InvoiceTransactionStatus::Failed && $status === InvoiceTransactionStatus::Processing && !$onItsWayNow) {
                 GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'failed_stays_failed', [
                     'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
                     'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
@@ -226,12 +228,13 @@ class RecordPaymentService
                     }
                 }
                 // A credit purchase its payment could not turn paid (a discount on it from before these were refused,
-                // S6-MONEY-LEDGER-1): the money is recorded, the invoice stays open with no credit given. Staff are told.
-                if ($excess === 0 && $target->items->contains('reference_type', Credit::class)
+                // S6-MONEY-LEDGER-1): the money is recorded, the invoice stays open with no credit given. Staff are told,
+                // also when more than its discounted total was paid (the part over became credit; REV-766-4).
+                if ($target->items->contains('reference_type', Credit::class)
                     && Invoice::query()->whereKey($target->id)->value('status') === Invoice::STATUS_UNPAID
                     && self::toCents($target->fresh()->remaining) <= 0) {
-                    $notices[] = sprintf('Invoice #%d buys account credit and has a discount: its payment of %s %s is recorded, but it stays unpaid and gave no credit. Void the discount or refund the payment.',
-                        $target->id, number_format($cents / 100, 2, '.', ''), $target->currency_code);
+                    $notices[] = sprintf('Invoice #%d buys account credit and has a discount: %s %s of its payment is recorded on it, but the payment does not cover the credit it buys, so the invoice stays unpaid (with nothing left to pay) and gave no credit. The discount cannot be taken off while the payment is on it: refund the payment at the gateway and make a new purchase for the right amount.',
+                        $target->id, number_format(($cents - $excess) / 100, 2, '.', ''), $target->currency_code);
                 }
                 // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
                 // before the merge. What it left as credit pays the invoice its lines went to, first.

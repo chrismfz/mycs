@@ -40,7 +40,7 @@ class InvoiceItemObserver
     /**
      * A credit purchase («Add funds») takes no discount (S6-MONEY-LEDGER-1; as AdjustmentNoteObserver for a note): a
      * negative line next to the credit it buys, or credit bought on an invoice that has one. Its payment would never
-     * cover the credit, so it could not become paid. Staff cancel it and make a new one with the right amount. Only
+     * cover the credit, so it could not become paid. Staff change the amount of its line, or cancel it and make a new one. Only
      * while the credit is still to be given (applied_at empty).
      */
     private static function refuseDiscountOnCreditPurchase(InvoiceItem $line): void
@@ -50,7 +50,7 @@ class InvoiceItemObserver
         $givesCredit = $line->reference_type === Credit::class && $line->applied_at === null;
         if (($discount && ($givesCredit || (clone $others)->where('reference_type', Credit::class)->whereNull('applied_at')->exists()))
             || ($givesCredit && (clone $others)->where('price', '<', 0)->exists())) {
-            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: cancel it and make a new one with the right amount.'));
+            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).'));
         }
     }
 

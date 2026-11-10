@@ -5,6 +5,7 @@ namespace App\Listeners;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\InvoiceTransaction\Created;
 use App\Events\InvoiceTransaction\Updated;
+use App\Exceptions\CreditPurchaseNotCovered;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
@@ -40,11 +41,12 @@ class InvoiceTransactionCreatedListener
             if ($remaining === 0 || ($remaining < 0 && $invoice->status === Invoice::STATUS_DRAFT)) {
                 if ($remaining === 0) {
                     $invoice->status = Invoice::STATUS_PAID;
-                    // Refused (a credit purchase with a discount from before these were refused, S6-MONEY-LEDGER-1): the
-                    // payment is still recorded and the invoice stays open; staff are told (RecordPaymentService).
+                    // Refused as a credit purchase its payment does not cover (a discount on it from before these were
+                    // refused, S6-MONEY-LEDGER-1), and only that: the payment is still recorded and the invoice stays open;
+                    // staff are told (RecordPaymentService). Any other refusal is thrown as before.
                     try {
                         $invoice->save();
-                    } catch (DisplayException $e) {
+                    } catch (CreditPurchaseNotCovered $e) {
                         report($e);
                     }
                 }

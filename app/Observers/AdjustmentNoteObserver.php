@@ -42,7 +42,7 @@ class AdjustmentNoteObserver
     /**
      * A credit purchase («Add funds») gives the credit its lines say, for the money that arrived (InvoiceObserver): with
      * a note on it, the payment of what is left never covers the credit and the invoice cannot become paid
-     * (S6-MONEY-LEDGER-1). No staff note that lowers it: staff cancel it and make a new one with the right amount.
+     * (S6-MONEY-LEDGER-1). No staff note that lowers it: staff change the amount of its line (StaffLineEdit, while it has no payment), or cancel it and make a new one.
      * Only while it still has credit to give: one that gave its credit (charged back since, written off by a note)
      * and a note that raises it are as before.
      */
@@ -50,7 +50,7 @@ class AdjustmentNoteObserver
     {
         if ($note->isVoidableByStaff() && bccomp((string) $note->amount, '0', 4) < 0
             && InvoiceItem::query()->where('invoice_id', $note->invoice_id)->where('reference_type', Credit::class)->whereNull('applied_at')->exists()) {
-            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: cancel it and make a new one with the right amount.'));
+            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).'));
         }
     }
 
