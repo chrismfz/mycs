@@ -54,11 +54,11 @@ class AdjustmentNoteObserver
         return $status === AdjustmentNoteStatus::Active ? (int) round((float) ($original ? $note->getOriginal('amount') : $note->amount) * 100) : 0;
     }
 
-    /** A staff note never makes a paid invoice with no money on it owe without staff's word (Invoice::refuseOwingWithoutWord). */
+    /** A staff note that makes a paid invoice owe is staff's word for what it owes (Invoice::owesByStaffsWord). */
     private static function refuseOwing(AdjustmentNote $note, int $before, int $after): void
     {
         if ($note->isVoidableByStaff()) {
-            Invoice::refuseOwingWithoutWord($note->invoice_id, $after - $before);
+            Invoice::owesByStaffsWord($note->invoice_id, $after - $before);
         }
     }
 

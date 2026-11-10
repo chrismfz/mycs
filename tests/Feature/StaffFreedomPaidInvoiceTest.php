@@ -78,7 +78,7 @@ class StaffFreedomPaidInvoiceTest extends TestCase
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['staff_id' => $this->staff->id, 'name' => 'f', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
-            'permissions' => ['admin.invoice_items.update', 'admin.invoice_items.delete', 'admin.invoice_items.create']]);
+            'permissions' => ['admin.invoice_items.update', 'admin.invoice_items.delete', 'admin.invoice_items.create', 'admin.invoice_transactions.create']]);
 
         return $token;
     }
@@ -160,9 +160,14 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         $this->assertSame([], (new MoneyCheck)->run(['paid_balance', 'open_settled', 'credit_journal']));
     }
 
-    public function test_a_line_is_added_to_and_taken_off_a_paid_invoice(): void
+    /** The cut rule: free-text lines come and go; a line of a service is neither added nor removed, its price goes to 0.00. */
+    public function test_free_text_lines_are_added_and_removed_and_a_service_line_only_repriced_on_a_paid_invoice(): void
     {
         $token = $this->token();
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
+            'invoice_id' => $this->invoice->id, 'description' => 'Another month', 'price' => '10.00', 'quantity' => 1,
+            'reference_type' => Service::class, 'reference_id' => 31,
+        ])->assertStatus(422)->assertJsonFragment(['message' => __('This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not added to it. Make a new invoice for it.')]);
 
         $added = $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
             'invoice_id' => $this->invoice->id, 'description' => 'Extra IP', 'price' => '3.00', 'quantity' => 1, 'taxed' => false,
@@ -174,8 +179,8 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $extra))->assertNoContent();
         $this->assertSame([Invoice::STATUS_PAID, 1000, 0], $this->state());
 
-        // Kept (REV-780-1c): the line that gave the service its period is not removed from a paid invoice; its price is
-        // set to 0.00 instead. The same money is over, and the period stays given, paid for nothing.
+        // Kept (the cut rule): a line of a service is not removed from an invoice with a payment on it; its price is set to
+        // 0.00 instead. The same money is over, and the period stays given, paid for nothing.
         $hosting = $this->invoice->items()->where('reference_type', Service::class)->sole();
         $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $hosting))->assertStatus(422);
         $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $hosting), ['price' => '0.00'])->assertSuccessful();
@@ -311,6 +316,29 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         StaffLineEdit::run($this->invoice->id, true, fn () => $this->invoice->items()->sole()->update(['price' => '12.00']));
 
         $this->livewireAs($this->staff)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])
-            ->assertSeeHtml('data-paid-balance')->assertSee('Add payment')->assertActionHidden('closeAsPaid');
+            ->assertSeeHtml('data-paid-balance')->assertSee('Marked paid by staff, no payment: owes')->assertActionHidden('closeAsPaid');
+        $this->assertNotNull($this->invoice->fresh()->paid_by_staff_at, 'raised above its money: paid by staff\'s word for the rest');
+    }
+
+    /** REV-780-2-2: a raise that makes a paid invoice owe is staff's word, and needs the permission the tick needs. */
+    public function test_a_raise_that_makes_a_paid_invoice_owe_needs_the_permission_to_record_payments(): void
+    {
+        $line = $this->invoice->items()->sole();
+        $token = 'PAYM' . bin2hex(random_bytes(8));
+        ApiKey::create(['staff_id' => $this->staff->id, 'name' => 'no-pay', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+            'permissions' => ['admin.invoice_items.update', 'admin.invoice_items.create']]);
+
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '12.00'])->assertStatus(422);
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => $this->invoice->id, 'description' => 'Extra', 'price' => '3.00', 'quantity' => 1])->assertStatus(422);
+        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], $this->state());
+        // Lowering, or a raise it still covers, asks for nothing.
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '8.00'])->assertSuccessful();
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '10.00'])->assertSuccessful();
+        $this->assertNull($this->invoice->fresh()->paid_by_staff_at);
+
+        $this->withToken($this->token())->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '12.00'])->assertSuccessful();
+        $this->assertSame([Invoice::STATUS_PAID, 1200, 200], $this->state());
+        $this->assertSame('2026-09-20', $this->invoice->fresh()->paid_by_staff_at->toDateString());
+        $this->assertSame(['marked paid by staff, no payment: still to pay 2.00 EUR'], array_column((new MoneyCheck)->run(['paid_balance']), 'detail'));
     }
 }

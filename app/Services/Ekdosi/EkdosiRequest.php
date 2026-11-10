@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Support\Actor;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Events\AuditCustom;
 
@@ -53,15 +54,18 @@ final class EkdosiRequest
      */
     public static function changedInInbox(int $invoiceId, string $why): void
     {
-        if (!config('settings.ekdosi_enabled') || app()->bound($told = "ekdosi.inbox.told.{$invoiceId}")) {
+        if (!config('settings.ekdosi_enabled')) {
             return;
         }
         $invoice = Invoice::query()->with('client')->whereKey($invoiceId)->where('status', Invoice::STATUS_PAID)->first();
         if ($invoice === null || $invoice->client?->ignore_invoicing || EkdosiDocument::query()->where('invoice_id', $invoiceId)->where('state', EkdosiDocument::ACTIVE)->exists()) {
             return;
         }
-        app()->instance($told, true);
-        self::tellStaff($invoice, $why, inbox: true);
+        // Once per invoice for a while (a Save changes several lines), by a short cache key: never for a process's lifetime,
+        // which in a queue worker is days (review 2 of #780).
+        if (Cache::add("ekdosi.inbox.told.{$invoiceId}", true, 300)) {
+            self::tellStaff($invoice, $why, inbox: true);
+        }
     }
 
     /**

@@ -95,7 +95,7 @@ class InvoiceItemObserver
             $invoice->forceFill(LineTax::decide($invoice));
         }
         LineTax::apply($invoice);
-        Invoice::refuseOwingWithoutWord($invoice->invoice_id, $invoice->totalCents());
+        Invoice::owesByStaffsWord($invoice->invoice_id, $invoice->totalCents());
         self::recordWay($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
     }
@@ -159,7 +159,7 @@ class InvoiceItemObserver
             self::refuseOnFinalInvoice($invoice->getOriginal('invoice_id'));
             self::refuseOnFinalInvoice($invoice->invoice_id);
             self::refuseDiscountOnCreditPurchase($invoice);
-            Invoice::refuseOwingWithoutWord($invoice->invoice_id, $invoice->totalCents() - (int) round((float) $invoice->getOriginal('line_total') * 100));
+            Invoice::owesByStaffsWord($invoice->invoice_id, $invoice->totalCents() - (int) round((float) $invoice->getOriginal('line_total') * 100));
         }
         event(new InvoiceItemEvent\Updating($invoice));
     }
@@ -184,15 +184,6 @@ class InvoiceItemObserver
     public function deleting(InvoiceItem $invoice): void
     {
         self::refuseOnFinalInvoice($invoice->invoice_id);
-        // Kept (REV-780-1c): the line that gave a service its period is that period's record of what was paid for it. Gone
-        // from a paid invoice, the period would read as one paid before MyCS («imported without its lines») and its days
-        // left would come back as credit on a downgrade or a cycle change, on top of what «Close as paid» gave back.
-        // Staff set its price to 0.00 instead: the same money comes back, and the period stays given, paid for nothing.
-        if ($invoice->reference_type === Service::class && $invoice->applied_at !== null && $invoice->period_start !== null && $invoice->period_end !== null
-            && Invoice::query()->whereKey($invoice->invoice_id)->value('status') === Invoice::STATUS_PAID) {
-            throw new DisplayException(__('This line gave service #:service its period (to :until), which stays given: it is not removed from a paid invoice. Set its price to 0.00 instead.',
-                ['service' => $invoice->reference_id, 'until' => $invoice->period_end->format('d/m/Y')]));
-        }
     }
 
     /**

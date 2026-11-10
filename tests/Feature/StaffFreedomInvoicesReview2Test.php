@@ -174,7 +174,12 @@ class StaffFreedomInvoicesReview2Test extends TestCase
      * 20.00 is now split 100:10, so A's days «were paid» 18.18 and B's 1.82: a cycle change «now» of A credits 9.11 where
      * 5.01 was paid for its days left (and B, untouched, would get 0.91 for the 5.01 its customer paid).
      */
-    public function test_rev_780_2_3_a_raised_line_does_not_take_the_money_another_services_line_was_paid_with(): void
+    /**
+     * Accepted and documented (coordinator, second pass; docs/staff-freedom.md): the bound is per invoice, shared by the
+     * lines' totals as they stand. The reviewer's test, turned into a test of the documented behaviour: after the raise the
+     * two services' days are split by the new totals, and together they are worth no more than the money the invoice kept.
+     */
+    public function test_rev_780_2_3_documented_a_raised_line_takes_share_of_the_invoices_money_never_more_than_it_kept(): void
     {
         $yearly = $this->product('10.00', 'year');
         [$a, $invoice] = $this->serviceWithOpenRenewal($yearly, '10.00', '2026-03-01', '2027-03-01');
@@ -191,7 +196,10 @@ class StaffFreedomInvoicesReview2Test extends TestCase
         $invoice->items()->where('reference_id', $a->id)->sole()->update(['price' => '100.00']);
         $this->assertSame([Invoice::STATUS_PAID, 9000, 2000], [$invoice->fresh()->status, RecordPaymentService::toCents($invoice->fresh()->remaining), $this->received($invoice)]);
 
-        $this->assertSame($before, [ChangeCycle::unused($a->fresh(), CarbonImmutable::today()), ChangeCycle::unused($b->fresh(), CarbonImmutable::today())],
-            'no more money came in: each service\'s days are worth what was paid for them');
+        $after = [ChangeCycle::unused($a->fresh(), CarbonImmutable::today()), ChangeCycle::unused($b->fresh(), CarbonImmutable::today())];
+        $this->assertSame(['9.11', '0.91'], $after, 'the 20.00 split 100:10 by the totals as they stand: 18.18 and 1.82 a year');
+        $this->assertEqualsWithDelta(array_sum($before), array_sum($after), 0.011, 'together, what the invoice\'s money is worth for the days left: no more');
+        $this->assertLessThanOrEqual(2000 * 183 / 365 + 1, RecordPaymentService::toCents(array_sum($after)));
+        $this->assertNotNull($invoice->fresh()->paid_by_staff_at, 'and the invoice says it is paid by staff\'s word for the 90.00');
     }
 }

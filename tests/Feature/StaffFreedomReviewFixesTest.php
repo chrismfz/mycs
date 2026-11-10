@@ -284,38 +284,43 @@ class StaffFreedomReviewFixesTest extends TestCase
 
     // ---------------------------------------------------------------- no «paid, owes» without staff's word
 
-    /** A zero invoice closes as paid (main's rule); it does not come to owe afterwards by a line or a note. */
-    public function test_kept_a_paid_invoice_with_no_money_and_no_word_does_not_come_to_owe(): void
+    /** A zero invoice closes as paid (main's rule). Made to owe afterwards, it is paid by staff's word: the flag, and its permission. */
+    public function test_a_paid_invoice_made_to_owe_is_paid_by_staffs_word_and_needs_its_permission(): void
     {
         $discount = $this->invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'Courtesy']);
         $this->invoice->fresh()->update(['status' => Invoice::STATUS_PAID]); // nothing left to pay: allowed, as on main
         $paid = $this->invoice->fresh();
         $this->assertSame([Invoice::STATUS_PAID, null, 0], [$paid->status, $paid->paid_by_staff_at, RecordPaymentService::toCents($paid->remaining)]);
+        $line = $paid->items()->sole();
 
+        // Staff who may not record payments: every raise is refused, by a line or by a note (a key: StaffFreedomPaidInvoiceTest).
+        $editor = Staff::factory()->create(['role_id' => Role::create(['name' => 'Editor' . uniqid(),
+            'permissions' => ['admin.invoices.viewAny', 'admin.invoices.update', 'admin.adjustment_notes.update']])->id]);
+        $this->actingAs($editor, 'staff');
         foreach ([
             fn () => $discount->fresh()->update(['status' => AdjustmentNoteStatus::Voided]),
             fn () => $discount->fresh()->update(['amount' => -2]),
             fn () => $discount->fresh()->delete(),
             fn () => $paid->adjustmentNotes()->create(['type' => AdjustmentNoteType::Debit->value, 'amount' => 5, 'description' => 'Fee']),
-            fn () => $paid->items()->sole()->update(['price' => '30.00']),
-            fn () => $paid->items()->create(['description' => 'Extra', 'quantity' => 1, 'price' => '5.00']),
+            fn () => $line->fresh()->update(['price' => '30.00']),
         ] as $n => $raise) {
             try {
                 $raise();
-                $this->fail("change #{$n} left a paid invoice owing with no money and no word");
+                $this->fail("change #{$n} left a paid invoice owing without the permission");
             } catch (DisplayException $e) {
-                $this->assertStringContainsString('mark it paid by hand', $e->getMessage());
+                $this->assertStringContainsString('permission to record payments', $e->getMessage());
             }
         }
-        $this->assertSame(0, RecordPaymentService::toCents($this->invoice->fresh()->remaining));
-        // What lowers it, or changes nothing, is taken.
-        $paid->items()->sole()->update(['description' => 'Hosting, renamed', 'price' => '9.00']);
-        $this->assertSame(-100, RecordPaymentService::toCents($this->invoice->fresh()->remaining));
-        // And with staff's word it owes like any paid-by-hand invoice.
-        $marked = $this->byHand(Invoice::query()->create(['client_id' => $this->invoice->client_id, 'currency_code' => 'EUR', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID])
-            ->items()->create(['description' => 'Work', 'quantity' => 1, 'price' => '20.00', 'taxed' => false])->invoice);
-        $marked->items()->sole()->update(['price' => '25.00']);
-        $this->assertSame(2500, RecordPaymentService::toCents($marked->fresh()->remaining));
+        $this->assertSame([0, null], [RecordPaymentService::toCents($this->invoice->fresh()->remaining), $this->invoice->fresh()->paid_by_staff_at]);
+        // What lowers it asks for nothing.
+        $line->update(['description' => 'Hosting, renamed', 'price' => '9.00']);
+        $this->assertNull($this->invoice->fresh()->paid_by_staff_at);
+
+        // Staff who may record payments: the discount voided, it owes, and it is on record as paid by their word.
+        $this->actingAs($this->staff, 'staff');
+        $discount->fresh()->update(['status' => AdjustmentNoteStatus::Voided]);
+        $this->assertSame([Invoice::STATUS_PAID, 900], [$this->invoice->fresh()->status, RecordPaymentService::toCents($this->invoice->fresh()->remaining)]);
+        $this->assertNotNull($this->invoice->fresh()->paid_by_staff_at);
     }
 
     // ---------------------------------------------------------------- REV-780-2: a credit purchase that gave its credit

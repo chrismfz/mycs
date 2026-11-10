@@ -390,19 +390,47 @@ class Invoice extends Model implements Auditable
     }
 
     /**
-     * Kept (main's rule, REV-780): an invoice that is «paid» with no money on it and without staff's word (a zero invoice
-     * closed as paid) does not come to owe by a line or a note raised afterwards: that would be «paid by hand» without
-     * the tick and its permission. Staff set it back to unpaid first, or mark it paid by hand.
+     * A change (a line, a note) is about to raise what a PAID invoice bills by $raisedByCents. If it then owes more than its
+     * money, it is paid by staff's word for that part: `paid_by_staff_at` is set (REV-780-2-2), so the money check, the
+     * income report, the Ekdosi feed and the affiliates see one flag, and the change needs what the tick needs, the
+     * permission to record payments. So no route (lower a line to the money on it, set «paid», raise it again) ends
+     * «paid, owing» without the word. A change by the app itself (no staff member, no key) has nobody to ask.
      */
-    public static function refuseOwingWithoutWord(mixed $invoiceId, int $raisedByCents): void
+    public static function owesByStaffsWord(mixed $invoiceId, int $raisedByCents): void
     {
         if ($invoiceId === null || $raisedByCents <= 0) {
             return;
         }
-        $invoice = self::query()->with('transactions')->whereKey($invoiceId)->first();
-        if ($invoice !== null && $invoice->status === self::STATUS_PAID && $invoice->paid_by_staff_at === null && $invoice->moneyKeptCents() <= 0) {
-            throw new DisplayException(__('This invoice is paid with no payment on it (it billed nothing): it does not come to owe by a change. Set it back to unpaid first, or mark it paid by hand.'));
+        $invoice = self::query()->with(['items', 'transactions', 'adjustmentNotes'])->whereKey($invoiceId)->first();
+        if ($invoice === null || $invoice->status !== self::STATUS_PAID || $invoice->paid_by_staff_at !== null
+            || RecordPaymentService::toCents($invoice->remaining) + $raisedByCents <= 0) {
+            return;
         }
+        if (!self::actorMayRecordPayments()) {
+            throw new DisplayException(__('This invoice is paid: a change that makes it owe is «paid by hand» for that part, and needs the permission to record payments.'));
+        }
+        self::query()->whereKey($invoiceId)->update(['paid_by_staff_at' => now()]);
+    }
+
+    /** Whoever acts now may record payments: the Admin API key by its own list, a staff member by their role; the app itself, yes. */
+    public static function actorMayRecordPayments(): bool
+    {
+        $key = request()->attributes->get('api_key_permissions');
+        if (is_array($key)) {
+            return in_array('admin.invoice_transactions.create', $key, true);
+        }
+        $staff = auth('staff')->user(); // the panel's guard: a customer logged in is not the one changing it
+
+        return $staff === null || $staff->can('create', InvoiceTransaction::class);
+    }
+
+    /**
+     * It has a payment on it (succeeded or processing; paid, or unpaid again with its payment) or staff marked it paid by
+     * hand: the invoices whose lines that bill a service or a domain staff neither add nor remove (StaffLineEdit).
+     */
+    public function holdsMoneyOrWord(): bool
+    {
+        return $this->paid_by_staff_at !== null || $this->hasPayments();
     }
 
     /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */

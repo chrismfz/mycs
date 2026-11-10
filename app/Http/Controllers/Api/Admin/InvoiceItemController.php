@@ -53,7 +53,11 @@ class InvoiceItemController extends ApiController
     {
         // Validate and create the invoice item
         // Under the payment locks (StaffLineEdit); an invoice with payments takes it too (owner 2026-11-10).
-        $create = fn () => StaffLineEdit::run($request->validated('invoice_id'), true, fn () => InvoiceItem::create($request->validated()));
+        $create = fn () => StaffLineEdit::run($request->validated('invoice_id'), true, function (Invoice $invoice) use ($request) {
+            StaffLineEdit::refuseReferencedLine($invoice, $request->validated('reference_type'), 'add');
+
+            return InvoiceItem::create($request->validated());
+        });
         // A domain's renewal: the domain first (its lock order: domain, customer, invoice), so that the cron billing it
         // at the same moment does not bill the same year (F5 of #174).
         $invoiceItem = $this->guarded(fn () => $request->validated('kind') === InvoiceItem::KIND_RENEWAL
@@ -109,7 +113,10 @@ class InvoiceItemController extends ApiController
     public function destroy(DeleteInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Delete the invoice item
-        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, true, fn () => $invoiceItem->delete()));
+        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, true, function (Invoice $invoice) use ($invoiceItem) {
+            StaffLineEdit::refuseReferencedLine($invoice, $invoiceItem->reference_type, 'remove');
+            $invoiceItem->delete();
+        }));
 
         return $this->returnNoContent();
     }

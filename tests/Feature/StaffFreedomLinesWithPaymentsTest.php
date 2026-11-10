@@ -124,7 +124,8 @@ class StaffFreedomLinesWithPaymentsTest extends TestCase
         $this->assertSame([], (new MoneyCheck)->run(['paid_balance', 'open_settled', 'credit_journal']));
     }
 
-    public function test_a_line_is_added_and_one_taken_off_over_the_api_with_a_payment_on_it(): void
+    /** The cut rule on an unpaid invoice with a payment: free-text lines come and go, the service's line is only repriced. */
+    public function test_a_free_text_line_is_added_and_removed_and_the_service_line_only_repriced_with_a_payment_on_it(): void
     {
         $token = $this->token();
 
@@ -134,7 +135,24 @@ class StaffFreedomLinesWithPaymentsTest extends TestCase
         $this->assertSame([1500, 1100], [$this->cents($this->invoice->fresh()->total), $this->cents($this->invoice->fresh()->remaining)]);
 
         $hosting = $this->invoice->items()->where('reference_type', Service::class)->sole();
-        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $hosting))->assertNoContent();
+        $refused = $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $hosting))->assertStatus(422);
+        $this->assertStringContainsString('Set its price to 0.00 instead', (string) $refused->json('message'));
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
+            'invoice_id' => $this->invoice->id, 'description' => 'Another month', 'price' => '10.00', 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => 31,
+        ])->assertStatus(422);
+        // The form too: the row of the service's line taken out of it.
+        $page = $this->livewireAs($this->staff)->test(EditInvoice::class, ['record' => $this->invoice->getKey()]);
+        $rows = $page->get('data.items');
+        unset($rows['record-' . $hosting->id]);
+        $page->set('data.items', $rows)->call('save')->assertNotified(__('Invoice not saved'));
+        $this->assertSame(2, $this->invoice->items()->count());
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $hosting), ['price' => '0.00'])->assertSuccessful();
+        // And the free-text one goes, and comes back.
+        $setup = $this->invoice->items()->whereNull('reference_type')->sole();
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $setup))->assertNoContent();
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
+            'invoice_id' => $this->invoice->id, 'description' => 'Setup', 'price' => '5.00', 'quantity' => 1, 'taxed' => false,
+        ])->assertSuccessful();
 
         $fresh = $this->invoice->fresh();
         $this->assertSame([500, 100, Invoice::STATUS_UNPAID], [$this->cents($fresh->total), $this->cents($fresh->remaining), $fresh->status]);

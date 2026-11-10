@@ -156,9 +156,9 @@ class StaffCorrectionsAdversarialTest extends TestCase
     /**
      * I1 via the admin API (the B1 actor: an API key). The line is zeroed, the invoice marked paid (nothing left), the
      * line restored: a paid invoice with 100.00 to pay, and its service renewed one period without any money.
-     * As on main after the review of #780: a zero invoice closes as paid (main's rule), and one paid with no money on it
-     * and without staff's word («paid by hand», its tick and permission) does not come to owe by a change afterwards
-     * (Invoice::refuseOwingWithoutWord): the restore is refused.
+     * As on main after the reviews of #780: a zero invoice closes as paid (main's rule); a raise that would make a paid
+     * invoice owe is staff's word for what it owes and needs the permission to record payments
+     * (Invoice::owesByStaffsWord), which this key has not: the restore is refused.
      */
     public function test_api_line_edits_around_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {

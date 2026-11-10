@@ -52,6 +52,13 @@ class EditInvoice extends EditRecord
             // Filament's own transaction is a savepoint inside this one: «Saved» is sent just before the outer commit.
             $amountsChanged = false;
             StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification, &$amountsChanged) {
+                // A line of a service or a domain is not taken off an invoice that holds money or staff's word (the form adds
+                // only lines that reference nothing).
+                foreach (InvoiceItem::query()->where('invoice_id', $invoice->getKey())->whereNotNull('reference_type')->get(['id', 'reference_type']) as $line) {
+                    if (!array_key_exists('record-' . $line->id, $this->data['items'] ?? [])) {
+                        StaffLineEdit::refuseReferencedLine($invoice, $line->reference_type, 'remove');
+                    }
+                }
                 if ($amountsChanged = $this->linesChangeAmounts()) {
                     // A document issued while the form was open: the form now locks the amounts and would drop the change
                     // without a word (the observer never sees it); refused, as before the lock (adversarial ADV-1 of #483).
