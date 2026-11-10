@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use MyCS\Pricing\DifferenceDiscount;
 use MyCS\Pricing\DifferenceDiscountRefused;
+use WeakMap;
 
 /**
  * WHMCS's admin «Upgrade/Downgrade» (owner 2026-11-04): another product for the service, its cycle, and before anything is
@@ -36,6 +37,9 @@ use MyCS\Pricing\DifferenceDiscountRefused;
  */
 final class ChangePackage
 {
+    /** @var WeakMap<Service, array{0: ?string}>|null */
+    private static ?WeakMap $refusals = null;
+
     public static function action(): Action
     {
         return Action::make('changePackage')
@@ -88,7 +92,7 @@ final class ChangePackage
             ->modalSubmitActionLabel('Create order')
             ->action(function (array $data, Service $record, Action $action, $livewire): void {
                 // Read again: it may have changed since the page was loaded (a request, a change of cycle).
-                if (($refused = self::refusal($record->refresh())) !== null) {
+                if (($refused = self::refusal($record->refresh(), fresh: true)) !== null) {
                     Notification::make()->danger()->title('Not changed')->body($refused)->send();
                     $action->halt();
 
@@ -158,7 +162,19 @@ final class ChangePackage
      * Why staff cannot change its package now, with their way through, or null. The checks stay (without them the change
      * is priced on a period that is unpaid or not there); the service's form stays open for product, plan and price.
      */
-    public static function refusal(Service $service): ?string
+    public static function refusal(Service $service, bool $fresh = false): ?string
+    {
+        // Once per record and request: the action asks three times per render (disabled, tooltip, and again on submit,
+        // which reads it fresh). A record is a new object on every request, so nothing outlives what it was read for.
+        self::$refusals ??= new WeakMap;
+        if ($fresh || !isset(self::$refusals[$service])) {
+            self::$refusals[$service] = [self::refusalNow($service)];
+        }
+
+        return self::$refusals[$service][0];
+    }
+
+    private static function refusalNow(Service $service): ?string
     {
         if ($service->plan === null || $service->product === null) {
             return __('services.change_package.refused.no_plan');

@@ -23,7 +23,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
-use Throwable;
 
 /**
  * Adversarial review of fcbb8841 (service upgrade history, staff «Upgrade/Downgrade», UpgradeQuote, PlaceUpgrade).
@@ -154,12 +153,10 @@ class AdvUpgradeHistoryTest extends TestCase
         $service->cancellation()->create(['reason' => 'Moving', 'type' => 'end_of_period']);
         $this->assertFalse($service->fresh()->upgradable, 'the customer page refuses it');
 
-        try {
-            $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
-                ->callAction('changePackage', ['product_id' => $this->large->id]);
-        } catch (Throwable) {
-            // a hidden action cannot be called by the testing helper: what counts is what was made
-        }
+        // Shown disabled with why (owner 2026-11-10); asked for directly, it does not open.
+        $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()])
+            ->assertActionDisabled('changePackage')
+            ->mountAction('changePackage')->assertActionNotMounted();
 
         $this->assertSame(0, ServiceUpgrade::query()->count(), 'no change placed for a service about to end');
         $this->assertSame(0, Invoice::query()->count(), 'no upgrade invoice for a service about to end');
