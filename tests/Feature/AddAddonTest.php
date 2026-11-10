@@ -77,7 +77,7 @@ class AddAddonTest extends TestCase
         $parent->forceFill(['billing_day' => 1])->save();
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 3, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 3, null, false, AddAddon::PRORATED);
 
         $addon = $made['service']->fresh();
         $this->assertSame(Service::STATUS_PENDING, $addon->status);
@@ -92,14 +92,6 @@ class AddAddonTest extends TestCase
         $this->assertNull($made['invoice']->fresh()->finish_pending_at, 'finished: numbered and sent');
     }
 
-    public function test_a_monthly_addon_of_a_yearly_service_is_prorated_to_the_next_day_of_its_cycle(): void
-    {
-        $parent = $this->parent('2027-05-01', 'year');
-        [, $plan] = $this->addonProduct();
-
-        $this->assertSame('2026-12-01', AddAddon::alignedEnd($parent, $plan)->toDateString());
-    }
-
     /** Sweep CRON-BILLING-3: a parent on the 31st whose date is a clamped month end steps back on the 31st. */
     public function test_a_parent_on_the_31st_prorates_on_the_31st(): void
     {
@@ -111,29 +103,13 @@ class AddAddonTest extends TestCase
         $quote = AddAddon::quote($parent, $plan, '3.00', AddAddon::PRORATED);
         $this->assertSame('2027-02-28', $quote[1]->toDateString());
         $this->assertSame('1.50', $quote[2], '3.00 × 14 of the 28 days from 31 January, not 14 of 31 from 28 January');
-
-        Carbon::setTestNow('2027-03-20 10:00:00');
-        $yearly = $this->parent('2027-04-30', 'year');
-        $yearly->forceFill(['billing_day' => 31])->save();
-        $this->assertSame('2027-03-31', AddAddon::alignedEnd($yearly, $plan)->toDateString(), 'the 31st of March, not the 30th');
-    }
-
-    public function test_a_yearly_addon_of_a_monthly_service_is_prorated_to_the_parents_date(): void
-    {
-        $parent = $this->parent('2026-12-01');
-        [$product, $plan] = $this->addonProduct('year');
-
-        $quote = AddAddon::quote($parent, $plan, '120.00', AddAddon::PRORATED);
-
-        $this->assertSame('2026-12-01', $quote[1]->toDateString());
-        $this->assertSame('3.62', $quote[2], '120.00 × 11 of 365 days');
     }
 
     public function test_paid_it_starts_with_its_parents_date_and_staff_get_its_creation_task(): void
     {
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
 
         (new RecordPaymentService)->handle($made['invoice']->fresh(), null, $made['invoice']->fresh()->remaining, transactionId: 'addon-1');
 
@@ -149,7 +125,7 @@ class AddAddonTest extends TestCase
     {
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
         (new RecordPaymentService)->handle($made['invoice']->fresh(), null, $made['invoice']->fresh()->remaining, transactionId: 'addon-2');
 
         $billing = new RenewalBilling;
@@ -168,7 +144,7 @@ class AddAddonTest extends TestCase
         [$product, $plan] = $this->addonProduct();
 
         try {
-            (new AddAddon)->handle($parent, $product, $plan, 1, null, false, 'own_date', Carbon::parse('2026-11-25'));
+            (new AddAddon)->handle($parent, $product, 1, null, false, 'own_date', Carbon::parse('2026-11-25'));
             $this->fail('refused');
         } catch (DisplayException $e) {
             $this->assertSame(__('services.addons.add.start_unknown'), $e->getMessage());
@@ -182,7 +158,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
+        $made = (new AddAddon)->handle($parent, $product, 1, '0', false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertNull($made['invoice']);
@@ -197,7 +173,7 @@ class AddAddonTest extends TestCase
         $parent = $this->parent('2026-12-01', status: 'suspended');
         [$product, $plan] = $this->addonProduct();
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::NO_INVOICE);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::NO_INVOICE);
 
         $addon = $made['service']->fresh();
         $this->assertSame(Service::STATUS_SUSPENDED, $addon->status);
@@ -214,11 +190,11 @@ class AddAddonTest extends TestCase
         ServiceCancellation::query()->create(['service_id' => $cancelling->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
 
         foreach ([
-            [fn () => (new AddAddon)->handle($ended, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_status'],
-            [fn () => (new AddAddon)->handle($cancelling, $product, $plan, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_cancelling'],
-            [fn () => (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::PRORATED), 'services.addons.add.quantity'],
-            [fn () => (new AddAddon)->handle($this->parent('2026-11-01'), $product, $plan, 1, null, false, AddAddon::NO_INVOICE), 'services.addons.add.no_due_date'],
-            [fn () => (new AddAddon)->handle($parent, $product, $plan, 1, '-1', false, AddAddon::PRORATED), 'services.addons.add.price_negative'],
+            [fn () => (new AddAddon)->handle($ended, $product, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_status'],
+            [fn () => (new AddAddon)->handle($cancelling, $product, 1, null, false, AddAddon::PRORATED), 'services.addons.add.refused_cancelling'],
+            [fn () => (new AddAddon)->handle($parent, $product, 2, null, false, AddAddon::PRORATED), 'services.addons.add.quantity'],
+            [fn () => (new AddAddon)->handle($this->parent('2026-11-01'), $product, 1, null, false, AddAddon::NO_INVOICE), 'services.addons.add.no_due_date'],
+            [fn () => (new AddAddon)->handle($parent, $product, 1, '-1', false, AddAddon::PRORATED), 'services.addons.add.price_negative'],
         ] as [$add, $message]) {
             try {
                 $add();
@@ -228,7 +204,7 @@ class AddAddonTest extends TestCase
             }
         }
         try {
-            (new AddAddon)->handle($parent, $onlyProxmox, $proxmoxPlan, 1, null, false, AddAddon::PRORATED);
+            (new AddAddon)->handle($parent, $onlyProxmox, 1, null, false, AddAddon::PRORATED);
             $this->fail('it does not apply to this service');
         } catch (DisplayException $e) {
             $this->assertSame(__('services.addons.add.not_for_this', ['addon' => 'Extra IPv4']), $e->getMessage());
@@ -242,7 +218,7 @@ class AddAddonTest extends TestCase
         config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct(targets: ['product:' . $parent->product_id]);
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '0', false, AddAddon::NO_INVOICE);
+        $made = (new AddAddon)->handle($parent, $product, 1, '0', false, AddAddon::NO_INVOICE);
         $other = $this->createProduct()->product;
 
         $parent->fresh()->update(['product_id' => $other->id, 'plan_id' => $other->plans()->first()->id]);
