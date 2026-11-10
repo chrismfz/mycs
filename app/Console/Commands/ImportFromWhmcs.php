@@ -219,6 +219,18 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
+        // An unpaid renewal invoice of a period the live service or addon is already past (sweep 7 S7-IMPORT-1, owner
+        // 2026-11-10): here it would count as «the renewal is billed already», the next period would never be billed and
+        // the service would be suspended. Cancelled or settled in WHMCS before the dump.
+        if (($stale = $this->staleRenewals()) !== []) {
+            $this->error('WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past: '
+                . implode('; ', array_map(fn (int $invoice, array $of) => "#{$invoice} (" . implode(', ', $of) . ')', array_keys($stale), $stale))
+                . '. Here such an invoice would stand for the next renewal, which would never be billed: cancel it or settle it in WHMCS'
+                . ' (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
         // An addon always shares its parent's due date here (docs/addons.md, owner 2026-11-08): a live recurring one off its
         // service's billing day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
         if (($apart = $this->addonsApart()) !== []) {
@@ -3441,6 +3453,41 @@ class ImportFromWhmcs extends Command
         }
 
         return [...$services, ...array_map(fn (int $id) => "addon #{$id}", $addons)];
+    }
+
+    /**
+     * Unpaid WHMCS invoices (imported unpaid and payable: Unpaid, Collections) with a renewal line of a period its live
+     * service or addon is already past: a Hosting line of an Active or Suspended service, or an Addon line of an Active or
+     * Suspended recurring addon of a service not imported ended, whose own due date (ii.duedate, the period WHMCS billed
+     * with it) is before the item's nextduedate. WHMCS moves nextduedate on only when a period is paid (or staff move it by
+     * hand), so an unpaid renewal still owed has its line due ON nextduedate, however long overdue: never refused. One due
+     * before it is a leftover (the date moved by hand, a duplicate paid) that WHMCS ignores; here its line comes as «the
+     * renewal billed already» (serviceLineReference: no kind, no period) and the next period is never billed (sweep 7
+     * S7-IMPORT-1). The import refuses to run on them (handle): staff cancel or settle them in WHMCS. The runbook's
+     * pre-dump queries, the same sets. A source without these tables (a test's): none.
+     *
+     * @return array<int, list<string>> invoice => what it bills late («service #id», «addon #id»)
+     */
+    private function staleRenewals(): array
+    {
+        if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        $stale = fn (string $from, string $type, string $where) => $this->pdo->query("SELECT DISTINCT i.id, s.id AS item FROM {$from}
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate
+            AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') ORDER BY i.id, s.id")->fetchAll(PDO::FETCH_ASSOC);
+        $found = [];
+        foreach ($stale('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')") as $row) {
+            $found[(int) $row['id']][] = "service #{$row['item']}";
+        }
+        foreach (!$this->sourceHas('tblhostingaddons') ? [] : $stale('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
+            "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN (" . $this->endedStatuses() . ') AND s.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ')') as $row) {
+            $found[(int) $row['id']][] = "addon #{$row['item']}";
+        }
+        ksort($found);
+
+        return $found;
     }
 
     /** The addon cycles with no next period here (WhmcsAddonImport: no expiry, never renewed): left out of the addon checks. */

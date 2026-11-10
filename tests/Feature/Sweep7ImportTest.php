@@ -216,16 +216,65 @@ class Sweep7ImportTest extends TestCase
         $this->whmcsService($whmcs, 9701, $due, $due); // control
         $this->whmcsService($whmcs, 9702, $due, $due);
         $this->whmcsInvoice($whmcs, 9801, 'Unpaid', $old, [[98011, 'Hosting', 9702, "Hosting (example.test) ({$old})", 10, $old]]);
-        $this->assertSame([], $this->refusal($whmcs, 'cancelledRenewals'), 'no pre-dump check refuses it');
-        $this->assertSame([], $this->refusal($whmcs, 'abandonedOrders'), 'no pre-dump check refuses it');
-        $output = $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
-        $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail(9801)->status);
+        // The fix (owner 2026-11-10): refused before the dump, named by invoice and service; nothing is written.
+        $this->assertSame([9801 => ['service #9702']], $this->refusal($whmcs, 'staleRenewals'));
+        $this->refused($whmcs, 'WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past: #9801 (service #9702).');
+        // Staff cancel it in WHMCS, dump again: the import runs and the coming period is billed, as the control's.
+        $whmcs->exec("UPDATE tblinvoices SET status = 'Cancelled' WHERE id = 9801");
+        $this->assertSame([], $this->refusal($whmcs, 'staleRenewals'));
+        $this->import($whmcs, ['importServices', 'importInvoices', 'importInvoiceItems']);
+        $this->assertSame(Invoice::STATUS_CANCELLED, Invoice::query()->findOrFail(9801)->status);
 
         $this->cron();
 
         $this->assertSame(1, $this->billedFor(9701, $due), 'control: the service without a stale invoice is billed for the period due in 5 days');
-        $this->assertSame(1, $this->billedFor(9702, $due), 'the period due in 5 days is billed (as WHMCS would tonight): it is not. Its stale line: '
-            . json_encode(InvoiceItem::query()->findOrFail(98011)->only(['reference_type', 'reference_id', 'kind', 'period_start'])));
+        $this->assertSame(1, $this->billedFor(9702, $due), 'the period due in 5 days is billed (as WHMCS would tonight)');
+    }
+
+    /**
+     * S7-IMPORT-1, what is NOT refused. WHMCS moves nextduedate on only when the period is paid, so a renewal still owed
+     * has its line due on nextduedate, however long ago that was: a debt, imported as the open renewal it is. Nor a line
+     * of a period paid, cancelled, on its way (Payment Pending), or of a service imported ended.
+     */
+    public function test_s7_import_1_an_overdue_renewal_of_the_period_the_service_is_in_is_not_refused(): void
+    {
+        $whmcs = $this->whmcs();
+        $overdue = now()->subDays(40)->toDateString();
+        $old = now()->subYears(2)->toDateString();
+        $this->whmcsService($whmcs, 9711, $overdue, $overdue); // unpaid since 40 days: its line is due on its nextduedate
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Suspended' WHERE id = 9711");
+        $this->whmcsInvoice($whmcs, 9811, 'Unpaid', $overdue, [[98111, 'Hosting', 9711, 'Hosting', 10, $overdue]]);
+        $this->whmcsInvoice($whmcs, 9812, 'Collections', $overdue, [[98121, 'Hosting', 9711, 'Hosting', 10, $overdue]]);
+        $this->whmcsService($whmcs, 9712, now()->addDays(5)->toDateString(), now()->addDays(5)->toDateString());
+        $this->whmcsInvoice($whmcs, 9813, 'Paid', $old, [[98131, 'Hosting', 9712, 'Hosting', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9814, 'Cancelled', $old, [[98141, 'Hosting', 9712, 'Hosting', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9815, 'Payment Pending', $old, [[98151, 'Hosting', 9712, 'Hosting', 10, $old]]);
+        $this->whmcsInvoice($whmcs, 9816, 'Unpaid', $old, [[98161, 'Setup', 9712, 'Setup fee', 10, $old], [98162, 'Hosting', 9712, 'No date', 10, '0000-00-00']]);
+        $this->whmcsService($whmcs, 9713, now()->addDays(5)->toDateString(), now()->addDays(5)->toDateString());
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Terminated' WHERE id = 9713");
+        $this->whmcsInvoice($whmcs, 9817, 'Unpaid', $old, [[98171, 'Hosting', 9713, 'Hosting', 10, $old]]);
+
+        $this->assertSame([], $this->refusal($whmcs, 'staleRenewals'));
+
+        // And the same leftover in Collections is refused, with every service it bills late.
+        $this->whmcsInvoice($whmcs, 9818, 'Collections', $old, [[98181, 'Hosting', 9712, 'Hosting', 10, $old], [98182, 'Hosting', 9711, 'Hosting', 10, $old]]);
+        $this->assertSame([9818 => ['service #9711', 'service #9712']], $this->refusal($whmcs, 'staleRenewals'));
+    }
+
+    /** S7-IMPORT-1 for a live addon's own «Addon» line (imported as its service's renewal, as a Hosting line). */
+    public function test_s7_import_1_a_stale_unpaid_renewal_of_a_live_addon_is_refused(): void
+    {
+        $whmcs = $this->whmcs();
+        $due = now()->addDays(20)->toDateString();
+        $old = now()->subYear()->toDateString();
+        $this->whmcsService($whmcs, 9721, $due, $due);
+        $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT)');
+        $whmcs->exec("INSERT INTO tblhostingaddons VALUES (61, 9721, 'Active', 'Monthly', '{$due}'), (62, 9721, 'Active', 'Monthly', '{$due}'),
+            (63, 9721, 'Terminated', 'Monthly', '{$due}'), (64, 9721, 'Active', 'One Time', '{$due}')");
+        $this->whmcsInvoice($whmcs, 9821, 'Unpaid', $old, [[98211, 'Addon', 61, 'Addon', 3, $old], [98212, 'Addon', 63, 'Addon', 3, $old], [98213, 'Addon', 64, 'Addon', 3, $old]]);
+        $this->whmcsInvoice($whmcs, 9822, 'Unpaid', $due, [[98221, 'Addon', 62, 'Addon', 3, $due]]); // the period it is in: owed
+
+        $this->assertSame([9821 => ['addon #61']], $this->refusal($whmcs, 'staleRenewals'));
     }
 
     /**
@@ -257,5 +306,23 @@ class Sweep7ImportTest extends TestCase
         $this->assertContains(9902, $due, 'control: an order paid yesterday and still pending is sent from here (R3-2 of #535)');
         $this->assertTrue(!in_array(9901, $due, true) || !empty(Domain::query()->findOrFail(9901)->meta['on_hold']),
             'an order paid in 2019 that WHMCS never registered is not bought at the registrar by the first cron: it is due to be sent');
+    }
+
+    /** The import as staff run it, dry run and for real: refused with $message, and nothing asked about this database. */
+    private function refused(PDO $whmcs, string $message): void
+    {
+        $whmcs->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($message);
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($message)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertTrue(User::query()->whereKey($this->user->id)->exists(), 'nothing emptied');
     }
 }
