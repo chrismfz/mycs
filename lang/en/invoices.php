@@ -4,6 +4,8 @@ return [
     // The PDF, as WHMCS's (owner 2026-10-20).
     'invoiced_to' => 'Invoiced To',
     'credit_applied' => 'Credit',
+    'paid_owes' => 'Still to pay',
+    'paid_over' => 'Paid over its total',
     'balance' => 'Balance',
     'gateway' => 'Gateway',
     'transaction_date' => 'Transaction Date',

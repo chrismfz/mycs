@@ -21,11 +21,11 @@ class AdjustmentNotesRelationManager extends RelationManager
 
     protected static ?string $title = 'Adjustment Notes';
 
-    private function ownerIsPaid(): bool
+    private function ownerIsRefunded(): bool
     {
         $invoice = $this->getOwnerRecord();
 
-        return $invoice instanceof Invoice && in_array($invoice->status, Invoice::FROZEN_STATUSES, true);
+        return $invoice instanceof Invoice && $invoice->status === Invoice::STATUS_REFUNDED;
     }
 
     public function form(Schema $schema): Schema
@@ -100,9 +100,10 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->headerActions([
-                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to unpaid first.
+                // A refunded invoice keeps its total (AdjustmentNoteObserver); a paid one takes notes and says its balance.
                 CreateAction::make()
-                    ->visible(fn (): bool => !$this->ownerIsPaid()),
+                    ->visible(fn (): bool => !$this->ownerIsRefunded())
+                    ->after(fn () => VoidAdjustmentNote::tellBalance($this->getOwnerRecord()->getKey())),
             ])
             // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
             // written.

@@ -142,8 +142,8 @@ class InvoiceResource extends Resource
     }
 
     /**
-     * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): paid or
-     * refunded, or a fiscal document from Ekdosi. Null while they can change. Read once per state of the invoice: the form
+     * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): refunded,
+     * or a fiscal document from Ekdosi. Null while they can change. Read once per state of the invoice: the form
      * asks for every line.
      */
     public static function linesKeepAmounts(?Invoice $invoice): ?string
@@ -163,7 +163,7 @@ class InvoiceResource extends Resource
     private static function linesKeepAmountsAt(string $state, Invoice $invoice): ?string
     {
         return once(fn (): ?string => $state !== '' ? match (true) {
-            in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
+            $invoice->status === Invoice::STATUS_REFUNDED => __('A refunded invoice keeps its lines: bill the customer on a new invoice.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
             default => null,
         } : null);
@@ -286,7 +286,10 @@ class InvoiceResource extends Resource
                     ->addActionLabel(__('Add line'))
                     // Its lines keep their amounts (paid, a fiscal document, payments on it): the form says so and offers no
                     // change the Save would refuse; descriptions still change (live test of 2026-10-27).
-                    ->hint(fn (?Invoice $record): ?string => self::linesKeepAmounts($record))
+                    // A paid one changes too (owner 2026-11-10): said before the Save what that does and does not do.
+                    ->hint(fn (?Invoice $record): ?string => self::linesKeepAmounts($record) ?? ($record?->status === Invoice::STATUS_PAID
+                        ? __('This invoice is paid. A change to its lines leaves it paid, with a balance to settle (shown here). The periods it already gave stay given: nothing is renewed or taken back.')
+                        : null))
                     ->hintColor('warning')
                     ->addable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)
                     ->deletable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)

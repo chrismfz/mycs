@@ -30,7 +30,10 @@ class CloseInvoiceAsPaid
             ->visible(function (Invoice $record): bool {
                 $fresh = $record->fresh(['items', 'transactions', 'adjustmentNotes']);
 
-                return $fresh !== null && $fresh->status === Invoice::STATUS_UNPAID && RecordPaymentService::settleRefusal($fresh) === null;
+                // A paid one too, while it holds more than it bills (its lines or notes came down since: owner 2026-11-10).
+                return $fresh !== null && RecordPaymentService::settleRefusal($fresh) === null
+                    && ($fresh->status === Invoice::STATUS_UNPAID
+                        || ($fresh->status === Invoice::STATUS_PAID && RecordPaymentService::toCents($fresh->remaining) < 0));
             })
             // It can move money to credit: the permission «Add Payment» needs too, not only the invoice's.
             ->authorize(function (Invoice $record): bool {
@@ -41,6 +44,12 @@ class CloseInvoiceAsPaid
             ->requiresConfirmation()
             ->modalDescription(function (Invoice $record): string {
                 $over = -RecordPaymentService::toCents($record->remaining);
+
+                if ($record->status === Invoice::STATUS_PAID) {
+                    return __('It is paid, and :amount :currency was paid over its total: that part becomes the customer\'s account credit. Nothing is renewed again.', [
+                        'amount' => number_format($over / 100, 2, '.', ''), 'currency' => $record->currency_code,
+                    ]);
+                }
 
                 return $over > 0
                     ? __('Its payments cover it. It becomes paid, its services are renewed, and :amount :currency paid over its total becomes the customer\'s account credit.', [
@@ -59,7 +68,7 @@ class CloseInvoiceAsPaid
                 if (!$closed) {
                     $fresh = $record->fresh(['items', 'transactions', 'adjustmentNotes']);
                     Notification::make()->danger()->title(__('Invoice not closed'))
-                        ->body($fresh === null || $fresh->status !== Invoice::STATUS_UNPAID ? __('Its status changed meanwhile: reload it.')
+                        ->body($fresh === null || !in_array($fresh->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], true) ? __('Its status changed meanwhile: reload it.')
                             : (RecordPaymentService::settleRefusal($fresh) ?? __('Its status changed meanwhile: reload it.')))->send();
 
                     throw new Halt;

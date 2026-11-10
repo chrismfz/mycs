@@ -19,19 +19,20 @@ class AdjustmentNoteObserver
      */
     public function creating(AdjustmentNote $adjustmentNote): void
     {
-        self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
+        self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
         self::refuseStaffNoteOnCreditPurchase($adjustmentNote);
         event(new AdjustmentNoteEvent\Creating($adjustmentNote));
     }
 
     /**
-     * A paid invoice keeps its total (MT-1c): staff notes are written or voided while it is open, else it stays paid
-     * with a balance (or with money owed back). A refund's and a cancellation's notes follow their own events.
+     * A refunded invoice keeps its total (PR 2c: final). A paid one takes staff's notes (owner 2026-11-10,
+     * docs/staff-freedom.md): it stays paid, and its page shows what it then owes or holds over. A refund's and a
+     * cancellation's notes follow their own events.
      */
-    private static function refuseStaffNoteOnPaidInvoice(AdjustmentNote $note): void
+    private static function refuseStaffNoteOnFinalInvoice(AdjustmentNote $note): void
     {
-        if ($note->isVoidableByStaff() && in_array(Invoice::query()->whereKey($note->invoice_id)->value('status'), Invoice::FROZEN_STATUSES, true)) {
-            throw new DisplayException(__('A paid invoice keeps its total: set it back to unpaid to change its adjustment notes.'));
+        if ($note->isVoidableByStaff() && Invoice::query()->whereKey($note->invoice_id)->value('status') === Invoice::STATUS_REFUNDED) {
+            throw new DisplayException(__('A refunded invoice keeps its total: its adjustment notes stay as they are.'));
         }
         // Nor one Ekdosi issued its document for (final review of #459): its total is the document's.
         if ($note->isVoidableByStaff() && EkdosiDocument::activeOn($note->invoice_id)) {
@@ -81,7 +82,7 @@ class AdjustmentNoteObserver
             throw new DisplayException(__('A refund\'s adjustment note follows its refund: it is never voided.'));
         }
         if ($adjustmentNote->isDirty('status')) {
-            self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
+            self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
         }
         // Voiding a note on a credit purchase puts its amount right; bringing one back does not.
         if ($adjustmentNote->isDirty('status') && $adjustmentNote->status === AdjustmentNoteStatus::Active) {

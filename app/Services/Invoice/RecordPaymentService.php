@@ -194,7 +194,7 @@ class RecordPaymentService
                 return $existing;
             }
 
-            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents, $enteredByStaff) : 0;
             // An invoice left without a customer (deleted before the journal): the money is still recorded, but
             // there is no account to credit what it cannot take. Staff are told.
             if ($excess > 0 && $target->client_id === null) {
@@ -621,7 +621,10 @@ class RecordPaymentService
 
         return DB::transaction(function () use ($id, $withoutCredit) {
             $locked = $this->lockInvoice($id);
-            if ($locked->status !== Invoice::STATUS_UNPAID) {
+            // A paid one only when it holds more than it bills (staff lowered a line or wrote a note on it, owner
+            // 2026-11-10): the part over becomes credit, the status stays.
+            $paid = $locked->status === Invoice::STATUS_PAID;
+            if ($locked->status !== Invoice::STATUS_UNPAID && !$paid) {
                 return false;
             }
             $locked->withLockedBalance();
@@ -629,6 +632,9 @@ class RecordPaymentService
                 return false;
             }
             $over = -self::toCents($locked->remaining);
+            if ($paid && $over <= 0) {
+                return false;
+            }
             $payments = $locked->transactions->where('status', InvoiceTransactionStatus::Succeeded)->sortByDesc('id');
             $kept = fn (InvoiceTransaction $payment): int => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
                 - self::toCents($payment->credited_amount);
@@ -637,8 +643,10 @@ class RecordPaymentService
             // covered pending invoice paid (InvoiceTransactionCreatedListener), which would do it halfway.
             self::$settling = true;
             try {
-                $locked->status = Invoice::STATUS_PAID;
-                $locked->save();
+                if (!$paid) {
+                    $locked->status = Invoice::STATUS_PAID;
+                    $locked->save();
+                }
             } finally {
                 self::$settling = false;
             }
@@ -859,10 +867,15 @@ class RecordPaymentService
             ->exists();
     }
 
-    /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */
-    private function excessCents(Invoice $invoice, int $cents): int
+    /**
+     * The part of a payment the invoice cannot take: all of it unless unpaid/draft, else what exceeds the balance. A paid
+     * one that still owes (staff raised a line or marked it paid by hand, owner 2026-11-10) takes what it owes from a
+     * payment staff record on it, their way to settle it; a gateway's payment on a paid invoice becomes credit as before
+     * (a subscription's sale lands on the last paid invoice and pays the next renewal).
+     */
+    private function excessCents(Invoice $invoice, int $cents, bool $enteredByStaff = false): int
     {
-        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && !($enteredByStaff && $invoice->status === Invoice::STATUS_PAID)) {
             return $cents;
         }
 

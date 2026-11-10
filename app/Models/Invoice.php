@@ -90,9 +90,6 @@ class Invoice extends Model implements Auditable
     /** All its money went back, to the customer or to their credit (PR 2c, as WHMCS). Final: it holds nothing. */
     public const STATUS_REFUNDED = 'refunded';
 
-    /** Settled: they keep their lines and staff notes (MT-1c; refunded too, PR 2c). */
-    public const FROZEN_STATUSES = [self::STATUS_PAID, self::STATUS_REFUNDED];
-
     /** Every status, in the order screens list them. */
     public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
 

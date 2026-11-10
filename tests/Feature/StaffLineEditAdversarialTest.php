@@ -13,6 +13,7 @@ use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -318,20 +319,23 @@ class StaffLineEditAdversarialTest extends TestCase
     }
 
     /**
-     * The guard reads the stored status, not the form's: a paid invoice set back to unpaid while lowering a line in the
-     * same save. The lines are saved before the invoice, still paid, so InvoiceItemObserver refuses. Regression coverage.
+     * A paid invoice set back to unpaid while lowering a line in the same save. Rewritten 2026-11-10
+     * (TIGHT-INVOICES-PAYMENTS-1/-2): both are taken; it is open, holds more than it bills, and says so. Its payment is whole.
      */
-    public function test_a_paid_invoice_set_back_to_unpaid_and_lowered_in_one_save_keeps_its_lines(): void
+    public function test_a_paid_invoice_set_back_to_unpaid_and_lowered_in_one_save_says_it_is_paid_over(): void
     {
         $invoice = $this->invoice(paid: 100);
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
         $key = 'record-' . $this->line($invoice, 'Domain')->id;
 
-        $this->form($invoice)->set('data.status', Invoice::STATUS_UNPAID)->set("data.items.{$key}.price", '0')->call('save');
+        $this->form($invoice)->set('data.status', Invoice::STATUS_UNPAID)->set("data.items.{$key}.price", '0')->call('save')
+            ->assertNotified(__('Check its balance'));
 
-        $this->assertSame('40.00', $this->line($invoice, 'Domain')->fresh()->price);
+        $this->assertSame('0.00', $this->line($invoice, 'Domain')->fresh()->price);
         $invoice = $invoice->fresh();
-        $this->assertGreaterThanOrEqual($this->heldCents($invoice), $this->billedCents($invoice));
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
+        $this->assertSame([10000, 6000], [$this->heldCents($invoice), $this->billedCents($invoice)]);
+        $this->assertStringContainsString('40.00 USD', (string) StaffLineEdit::balanceNotice($invoice->id));
     }
 
     /** The API with the same amounts in other formats and a new description is a description-only edit. Regression coverage. */

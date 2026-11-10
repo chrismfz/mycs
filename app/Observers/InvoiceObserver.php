@@ -185,8 +185,10 @@ class InvoiceObserver
         }
         // A closed one (cancelled, paid, refunded) is an issued document of its customer: reopened first, in the same save
         // too (ADV-554-R2-1/2/3: moved closed, then reopened, it billed the first customer's tax).
-        if ($invoice->isDirty('client_id') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
-            && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
+        // Nor moved and marked paid in one save: «paid» was checked against the first customer's tax, and the lines of a paid
+        // invoice are retaxed now that they change (owner 2026-11-10; it was refused by the lines before).
+        if ($invoice->isDirty('client_id') && (($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID)
+            || (!in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true) && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)))) {
             throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).'));
         }
         // A credit or debit note staff wrote is a fixed gross amount under the first customer's tax, numbered to them: void

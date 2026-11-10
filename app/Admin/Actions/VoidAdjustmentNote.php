@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
@@ -20,16 +21,24 @@ class VoidAdjustmentNote
 {
     /**
      * Who may void or unvoid this note, from any admin page: staff with the notes' update permission, on a note they
-     * wrote while its invoice is not paid (a paid invoice keeps its total), or a refund's note back to active (one
-     * voided before MT-1c by mistake).
+     * wrote while its invoice is not refunded (a refunded invoice keeps its total), or a refund's note back to active
+     * (one voided before MT-1c by mistake).
      */
     public static function allowed(AdjustmentNote $note): bool
     {
         $status = $note->invoice?->status;
-        $byStaff = ($note->isVoidableByStaff() && !in_array($status, Invoice::FROZEN_STATUSES, true))
+        $byStaff = ($note->isVoidableByStaff() && $status !== Invoice::STATUS_REFUNDED)
             || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
 
         return $byStaff && (bool) auth()->user()?->can('update', $note);
+    }
+
+    /** After a note changed what a paid invoice bills: it owes on while paid, or is paid over (owner 2026-11-10). */
+    public static function tellBalance(mixed $invoiceId): void
+    {
+        if (($notice = StaffLineEdit::balanceNotice($invoiceId)) !== null) {
+            Notification::make()->warning()->title(__('Check its balance'))->body(e($notice))->persistent()->send();
+        }
     }
 
     public static function make(): Action
@@ -60,6 +69,7 @@ class VoidAdjustmentNote
                     throw new Halt;
                 }
                 $record->refresh();
+                self::tellBalance($record->invoice_id);
                 Notification::make()->success()
                     ->title($record->status === AdjustmentNoteStatus::Voided ? __('Adjustment note voided') : __('Adjustment note unvoided'))
                     ->send();
