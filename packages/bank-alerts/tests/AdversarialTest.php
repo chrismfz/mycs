@@ -3,6 +3,7 @@
 namespace MyCS\BankAlerts\Tests;
 
 use MyCS\BankAlerts\AlertParser;
+use MyCS\BankAlerts\Authenticity;
 use MyCS\BankAlerts\BankAlert;
 use PHPUnit\Framework\TestCase;
 
@@ -123,5 +124,43 @@ final class AdversarialTest extends TestCase
         $alert = $this->parse(Fixtures::eurobank('πιστώθηκε', '5.000,00', 'ΤΙΜΟΛΟΓΙΟ 32999', '9.000,00', $auth));
 
         $this->assertFalse($alert?->authentic, 'a second ARC set our parser cannot see: ' . $alert?->authenticity);
+    }
+
+    /**
+     * Sweep 7 (S7-TICKETS-MAIL-1): the envelope sender our server copies into its SPF comment never writes the bank's
+     * DKIM and DMARC passes, and a header that does not read cleanly is no word of our server.
+     */
+    public function test_an_envelope_sender_never_writes_the_banks_passes(): void
+    {
+        $verdict = fn (string ...$headers) => Authenticity::verdict(array_values($headers), [], [], [], 'mx.example.test', 'example.test', 'alerts@eurobank.gr');
+        $echoed = fn (string $envelopeSender) => 'mx.example.test; dkim=none; dmarc=fail header.from=eurobank.gr (policy=none); '
+            . "spf=pass (mx.example.test: domain of {$envelopeSender} designates 203.0.113.9 as permitted sender) smtp.mailfrom={$envelopeSender}";
+        $theirs = 'dkim=pass header.d=eurobank.gr; dmarc=pass header.from=eurobank.gr';
+
+        $this->assertSame('no_bank_dkim_and_dmarc', $verdict($echoed('bounce@evil.example'))->reason, 'the honest one reads, and says no');
+        foreach ([
+            "\"a) ; {$theirs}; x=y (\"@evil.example",
+            "a) ; {$theirs}; x=y (b@evil.example",
+            "a) ; {$theirs}; x=y ((b@evil.example",
+            "\"a\\) ; {$theirs}; x=y \\(\"@evil.example",
+            "\"a;{$theirs};b=c\"@evil.example",
+        ] as $envelopeSender) {
+            $forged = $verdict($echoed($envelopeSender));
+            $this->assertSame([false, 'unreadable_results'], [$forged->authenticated, $forged->reason], $envelopeSender);
+        }
+
+        // Inside a comment, below our own header, under a look-alike of our name, or half of it: nothing.
+        $this->assertFalse($verdict("mx.example.test; dkim=none ({$theirs}); dmarc=fail ({$theirs}) header.from=eurobank.gr")->authenticated);
+        $this->assertFalse($verdict('mx.example.test; dkim=none; dmarc=fail header.from=eurobank.gr', "mx.example.test; {$theirs}")->authenticated);
+        $this->assertFalse($verdict("mx.example.test.evil.example; {$theirs}")->authenticated);
+        $this->assertFalse($verdict('mx.example.test; dkim=pass header.d=eurobank.gr; dmarc=fail header.from=eurobank.gr; dmarc=pass header.from=eurobank.gr')->authenticated, 'two DMARC results');
+        $this->assertFalse($verdict('mx.example.test; dkim=pass header.d=evil.example header.from=eurobank.gr; dmarc=pass header.from=eurobank.gr.evil.example')->authenticated);
+        $this->assertFalse($verdict('mx.example.test; dkim=pass header.d=evil.example; dmarc=pass header.from=evil.example')->authenticated, 'a pass for another From than the one shown');
+
+        // What our server really writes for the bank's own mail still counts, folded and in any case.
+        $genuine = "mx.example.test;\r\n\tdkim=pass header.d=eurobank.gr header.s=sel1 header.b=Qz8kLm1p;\r\n\tdmarc=pass (policy=reject) header.from=eurobank.gr;\r\n"
+            . "\tspf=pass (mx.example.test: domain of bounces@eurobank.gr designates 192.0.2.25 as permitted sender) smtp.mailfrom=bounces@eurobank.gr";
+        $this->assertSame('dkim_dmarc_pass', $verdict($genuine)->reason);
+        $this->assertSame('dkim_dmarc_pass', $verdict('MX.Example.Test; DKIM=PASS Header.D=EUROBANK.GR; DMARC=Pass Header.From=Eurobank.gr')->reason);
     }
 }
