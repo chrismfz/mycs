@@ -74,6 +74,7 @@ class User extends Authenticatable implements Auditable, HasAvatar
     {
         return [
             'email_verified_at' => 'datetime',
+            'imported_email_at' => 'datetime',
             'password' => 'hashed',
             'tfa_secret' => 'encrypted',
             // The hashes of its unused 2FA recovery codes (RecoveryCodes), never the codes.
@@ -89,6 +90,10 @@ class User extends Authenticatable implements Auditable, HasAvatar
             // (code review 3: an admin save would drop the codes).
             if ($user->exists && $user->getOriginal('tfa_secret') !== $user->tfa_secret && !$user->isDirty('tfa_recovery_codes')) {
                 $user->tfa_recovery_codes = null;
+            }
+            // Another address is no longer the one WHMCS had (REV-769-1): whoever changes it, the import's mark goes.
+            if ($user->exists && $user->isDirty('email') && mb_strtolower((string) $user->getOriginal('email')) !== mb_strtolower((string) $user->email)) {
+                $user->imported_email_at = null;
             }
         });
         // The password is never in an audit (auditExclude), but that it changed is (ADV-690b-E-5: on a return to WHMCS,

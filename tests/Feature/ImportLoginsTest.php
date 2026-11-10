@@ -135,10 +135,12 @@ class ImportLoginsTest extends TestCase
 
         $this->import($this->decrypting());
 
-        // Imported logins are always verified (S6-TICKETS-MAIL-1): WHMCS's date, else the import's (a zero date, none).
-        $this->assertNotNull(User::query()->findOrFail(8)->email_verified_at);
-        $this->assertNotNull(User::query()->findOrFail(9)->email_verified_at);
+        // WHMCS's own verification, as it is (REV-769-1): a zero date or none is not verified. Each carries the import's
+        // mark of its address instead (mail to support reaches its account, InboundRouter::routes).
+        $this->assertNull(User::query()->findOrFail(8)->email_verified_at);
+        $this->assertNull(User::query()->findOrFail(9)->email_verified_at);
         $this->assertSame('2025-01-01 00:00:00', User::query()->findOrFail(7)->email_verified_at->format('Y-m-d H:i:s'));
+        $this->assertSame(3, User::query()->whereKey([7, 8, 9])->whereNotNull('imported_email_at')->count());
         $this->assertNull(Client::query()->find(301), 'an account with no owner to log in is not made');
     }
 

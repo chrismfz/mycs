@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ClientResource\Pages\CreateClient;
+use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
 use App\Models\User;
+use App\Support\Tickets\InboundRouter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use MyCS\TicketMail\Imap\Mailbox;
 use MyCS\TicketMail\Tests\Eml;
@@ -162,5 +164,54 @@ class Sweep6TicketsMailTest extends TestCase
         $this->support->forceFill(['mail_since' => null])->saveQuietly();
         $this->artisan('app:fetch-emails')->assertSuccessful();
         $this->assertCount(70, $this->mailbox->unseen);
+    }
+
+    /**
+     * REV-769-1: a login that came from WHMCS routes mail by its address though WHMCS never verified it (parity), until
+     * its address changes; it is still not «verified».
+     */
+    public function test_an_imported_login_never_verified_gets_its_account_ticket_until_its_address_changes(): void
+    {
+        $ada = User::factory()->unverified()->create(['email' => 'ada@example.com']);
+        $ada->forceFill(['imported_email_at' => now()])->save();
+        $this->receive(['From' => 'Ada <ADA@example.com>', 'Subject' => 'From WHMCS days', $this->pass('example.com')]);
+        $this->assertSame($ada->client()->id, Ticket::query()->sole()->client_id);
+        $this->assertNull($ada->fresh()->email_verified_at);
+
+        // Staff or the customer change the address: no longer the one WHMCS had.
+        $ada->update(['email' => 'ceo@victimco.example']);
+        $this->assertNull($ada->fresh()->imported_email_at);
+        $this->receive(['From' => 'ceo@victimco.example', 'Subject' => 'Not theirs', $this->pass('victimco.example')]);
+        $this->assertTrue(Ticket::query()->where('subject', 'Not theirs')->sole()->isGuest());
+
+        // A change of case only is the same address.
+        $bob = User::factory()->unverified()->create(['email' => 'bob@example.com']);
+        $bob->forceFill(['imported_email_at' => now()])->save();
+        $bob->update(['email' => 'Bob@example.com']);
+        $this->assertNotNull($bob->fresh()->imported_email_at);
+    }
+
+    /** A look-alike address (an accent the database's collation ignores) is never the login's. */
+    public function test_a_look_alike_address_is_not_the_login(): void
+    {
+        User::factory()->create(['email' => 'maria@example.com']);
+        $this->assertNotNull(InboundRouter::loginOf(' Maria@Example.com '));
+        $this->assertNull(InboundRouter::loginOf('mária@example.com'));
+        $this->assertNull(InboundRouter::loginOf(''));
+    }
+
+    /** Staff see, on a guest's ticket, that its address is an unverified login and of which account. */
+    public function test_staff_are_told_a_guest_tickets_address_is_an_unverified_login(): void
+    {
+        $squatter = User::factory()->unverified()->create(['email' => 'billing@victimco.example']);
+        $this->receive(['From' => 'billing@victimco.example', 'Subject' => 'Hello', $this->pass('victimco.example')]);
+        $ticket = Ticket::query()->sole();
+        $staff = Staff::factory()->admin()->create();
+
+        $this->livewireAs($staff)->test(EditTicket::class, ['record' => $ticket->getRouteKey()])
+            ->assertSee('unverified login (user #' . $squatter->id . ') of account #' . $squatter->client()->id);
+
+        $squatter->forceFill(['email_verified_at' => now()])->save();
+        $this->livewireAs($staff)->test(EditTicket::class, ['record' => $ticket->getRouteKey()])->assertDontSee('unverified login');
     }
 }

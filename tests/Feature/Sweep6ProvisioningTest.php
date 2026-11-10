@@ -131,7 +131,7 @@ class Sweep6ProvisioningTest extends TestCase
             ExtensionHelper::createServer($b->fresh());
             $this->fail('adopted the admin of service #' . $a->id);
         } catch (Throwable $e) {
-            $this->assertStringContainsString("service #{$a->id} has the domain admin «example»", $e->getMessage());
+            $this->assertStringContainsString("service #{$a->id} has the domain admin «example» for example.com", $e->getMessage());
         }
 
         $this->assertFalse($b->properties()->where('key', 'mailcow_username')->exists());
@@ -146,7 +146,7 @@ class Sweep6ProvisioningTest extends TestCase
             ExtensionHelper::suspendServer($b->fresh());
             $this->fail('not refused');
         } catch (Throwable $e) {
-            $this->assertStringContainsString("service #{$a->id} has the domain admin «example»", $e->getMessage());
+            $this->assertStringContainsString("service #{$a->id} has the domain admin «example» for example.com", $e->getMessage());
         }
         $this->assertFalse($b->properties()->where('key', 'mailcow_locked_by_us')->exists());
 

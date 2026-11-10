@@ -185,8 +185,7 @@ class Sweep6DomainsTest extends TestCase
         $this->assertStringContainsString('mybusiness.com', (string) $task->last_error);
         Queue::assertNotPushed(FulfilDomainOrderJob::class);
         $this->assertSame(DomainStatus::Cancelled, $bobs->fresh()->status, 'never opened again on its own');
-        // Once per line: applied again (the cron's replay), even after staff closed it, no second task.
-        $task->closeUnrenewed(null);
+        // One open task per line: applied again (the cron's replay), no second task.
         (new ProcessPaidInvoiceService)->handle($invoice->fresh());
         $this->assertSame(1, ModuleAction::query()->where('domain_id', $bobs->id)->count());
     }

@@ -33,7 +33,7 @@ use MyCS\TicketMail\ReplyText;
  *   4. a mail naming a ticket (its number in the subject) without our Message-ID: quarantine, the ticket suggested only
  *      when its owner wrote it (§5α: replies to old WHMCS mail);
  *   5. anything else is a new ticket: in an account only when our server vouches for the From and it is a login, its
- *      address verified, of exactly one account; else a guest's (§3 Δ). Never To or Cc into a ticket (§3 Γ).
+ *      address verified or WHMCS's own, of exactly one account; else a guest's (§3 Δ). Never To or Cc into a ticket (§3 Γ).
  */
 class InboundRouter
 {
@@ -155,7 +155,7 @@ class InboundRouter
         if ($ticket->isGuest()) {
             return strtolower(trim((string) $ticket->guest_email)) === $from && $from !== '' ? null : false;
         }
-        $user = User::query()->whereRaw('LOWER(email) = ?', [$from])->first();
+        $user = self::loginOf($from);
         if ($user === null) {
             return false;
         }
@@ -187,14 +187,34 @@ class InboundRouter
         return Ticket::query()->where('reference', $m[1])->first()?->survivor();
     }
 
-    /** The account of a verified login, when it is exactly one that lets it see tickets; otherwise none (staff link it). */
+    /**
+     * The login with exactly this address. Compared again in PHP, lower-cased: MariaDB's collation matches «exämple» to
+     * «example», and a look-alike address is another's (as SocialLoginController).
+     */
+    public static function loginOf(string $from): ?User
+    {
+        $from = mb_strtolower(trim($from));
+        $user = $from === '' ? null : User::query()->whereRaw('LOWER(email) = ?', [$from])->first();
+
+        return $user !== null && mb_strtolower(trim((string) $user->email)) === $from ? $user : null;
+    }
+
+    /**
+     * Mail from its address may open a ticket in its account (S6-TICKETS-MAIL-1, REV-769-1): its address is verified, or
+     * it came from WHMCS with this address (WHMCS routed mail by address: parity, nothing new). Anyone may register an
+     * unused address, or change their login to one, without proving it is theirs (mail_must_verify is off by default):
+     * such a login is no account for the address's real owner, whose mail is a guest's ticket, as any unknown sender's.
+     */
+    public static function routes(User $user): bool
+    {
+        return $user->email_verified_at !== null || $user->imported_email_at !== null;
+    }
+
+    /** The account of a login that routes(), when it is exactly one that lets it see tickets; otherwise none (staff link it). */
     private function accountOf(string $from): ?array
     {
-        $user = User::query()->whereRaw('LOWER(email) = ?', [strtolower($from)])->first();
-        // Only a login whose address is verified (S6-TICKETS-MAIL-1): anyone may register an unused address, or change
-        // their login to one, without proving it is theirs (mail_must_verify is off by default), so an unverified login
-        // is no account for the address's real owner: a guest's ticket, as any unknown sender's.
-        if ($user === null || $user->email_verified_at === null) {
+        $user = self::loginOf($from);
+        if ($user === null || !self::routes($user)) {
             return null;
         }
         // Open accounts only, as every client-area check counts them: a ticket in a closed one is one its login cannot open.

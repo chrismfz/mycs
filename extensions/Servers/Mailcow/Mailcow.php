@@ -195,13 +195,14 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
-     * Another live service here has the same domain admin: never locked, removed or adopted from this one (S6-PROVISIONING-1,
-     * as cPanel's and DirectAdmin's; staff check both).
+     * Another live service here has the same domain admin for the same domain: never locked, removed, adopted, given a
+     * new password or signed into from this one (S6-PROVISIONING-1, as cPanel's and DirectAdmin's; staff check both). An
+     * admin of several domains, one service each, is no such case (REV-769-2): each acts on its own domain, as before.
      */
-    private static function notAnotherLiveServicesAdmin(Service $service, string $username): void
+    private static function notAnotherLiveServicesAdmin(Service $service, string $username, string $domain): void
     {
-        if (($other = SharedAccount::otherLive($service, $username, ['mailcow_username'])) !== null) {
-            throw new Exception("mailcow: service #{$other->id} has the domain admin «{$username}» on this server too: check both before anything is done to it (by hand)");
+        if (($other = SharedAccount::otherLive($service, $username, ['mailcow_username'], $domain)) !== null) {
+            throw new Exception("mailcow: service #{$other->id} has the domain admin «{$username}» for {$domain} on this server too: check both before anything is done to it (by hand)");
         }
     }
 
@@ -223,7 +224,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
             $admin = [];
         }
         if ($admin !== []) {
-            self::notAnotherLiveServicesAdmin($service, $username); // an existing admin is adopted only when no other service lives on it
+            self::notAnotherLiveServicesAdmin($service, $username, $domain); // an existing admin is adopted only when no other service lives on it
         }
         if ($username === '') {
             $free = fn (string $candidate) => $client->getDomainAdmin($candidate) === [];
@@ -269,7 +270,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     {
         $client = $this->client();
         [$username, $domains, $record] = self::ownedAdmin($client, $service, $properties);
-        self::notAnotherLiveServicesAdmin($service, $username);
+        self::notAnotherLiveServicesAdmin($service, $username, self::domainOf($service, $properties));
         if (self::policy($settings)->lockOnSuspend($domains) && in_array($record['active'] ?? 1, [1, '1', true], true)) {
             // Marked before it is asked (a lost answer keeps it); a refusal takes it off (R2-2 of #324).
             $service->properties()->updateOrCreate(['key' => self::LOCKED], ['name' => 'mailcow admin locked by suspend', 'value' => '1']);
@@ -302,7 +303,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $client = $this->client(120);
         $domain = self::domainOf($service, $properties);
         [$username, $domains] = self::ownedAdmin($client, $service, $properties);
-        self::notAnotherLiveServicesAdmin($service, $username);
+        self::notAnotherLiveServicesAdmin($service, $username, $domain);
         $policy = self::policy($settings);
         if (!$policy->deletesOnTerminate()) {
             if ($policy->lockOnTerminate($domains)) {
@@ -350,6 +351,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     {
         $client = $this->client();
         [$username, $domains] = self::ownedAdmin($client, $service, $properties);
+        self::notAnotherLiveServicesAdmin($service, $username, self::domainOf($service, $properties));
         self::answered(fn () => $client->changeDomainAdminPassword($domains, $username, $password));
         $service->forceFill(['password' => $password])->save();
 
@@ -361,6 +363,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     {
         $client = $this->client();
         [$username] = self::ownedAdmin($client, $service, $properties);
+        self::notAnotherLiveServicesAdmin($service, $username, self::domainOf($service, $properties));
 
         return Sso::loginUrl($client->getBaseUrl(), (string) ($this->config('sso_path') ?: '/domainadmin/'), $client->issueSsoToken($username));
     }

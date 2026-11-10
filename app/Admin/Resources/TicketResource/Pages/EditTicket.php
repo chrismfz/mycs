@@ -10,6 +10,7 @@ use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\CannedReply;
+use App\Models\ClientUser;
 use App\Models\McpProposal;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -21,6 +22,7 @@ use App\Models\TicketMessageAttachment;
 use App\Services\Mcp\Proposals;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
+use App\Support\Tickets\InboundRouter;
 use App\Support\Tickets\MergeTickets;
 use App\Support\Tickets\TicketPresence;
 use Filament\Actions\Action;
@@ -320,6 +322,22 @@ class EditTicket extends EditRecord
         $this->presenceBeat();
     }
 
+    /**
+     * A guest's ticket whose address is a login not verified (S6-TICKETS-MAIL-1): mail from it is never put in its
+     * account on its own, so staff are told whose login it is, and may move the ticket.
+     */
+    private static function unverifiedLoginHint(Ticket $record): ?string
+    {
+        $login = $record->isGuest() && filled($record->guest_email) ? InboundRouter::loginOf((string) $record->guest_email) : null;
+        if ($login === null || InboundRouter::routes($login)) {
+            return null;
+        }
+        $accounts = ClientUser::query()->where('user_id', $login->id)->whereNull('revoked_at')->pluck('client_id')->map(fn ($id) => '#' . $id)->implode(', ');
+
+        return __('This address is an unverified login (user #:user) of account :accounts: its mail is not put in the account on its own. Move the ticket there if it is theirs.',
+            ['user' => $login->id, 'accounts' => $accounts !== '' ? $accounts : '—']);
+    }
+
     public function infolist(Schema $schema): Schema
     {
         return $schema
@@ -333,7 +351,10 @@ class EditTicket extends EditRecord
                     ->url(fn (Ticket $record) => $record->client ? ClientResource::getUrl('view', ['record' => $record->client]) : null)
                     // Opened by a mail our server did not vouch for: the address may be forged (our replies to it say
                     // nothing of what the sender wrote).
-                    ->helperText(fn (Ticket $record) => $record->sender_vouched === false ? '⚠ ' . __('Our mail server did not vouch for this address: it may be forged.') : null)
+                    ->helperText(fn (Ticket $record) => implode(' ', array_filter([
+                        $record->sender_vouched === false ? '⚠ ' . __('Our mail server did not vouch for this address: it may be forged.') : null,
+                        self::unverifiedLoginHint($record),
+                    ])) ?: null)
                     ->label('Client'),
                 TextEntry::make('reference')
                     ->size(TextSize::Large)

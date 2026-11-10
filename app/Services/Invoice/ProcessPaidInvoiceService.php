@@ -60,11 +60,12 @@ class ProcessPaidInvoiceService
                             return;
                         }
                         // Paid after its row ended (S6-DOMAINS-2: imported cancelled as «also live as …», or cancelled by
-                        // staff with its invoice left open): nothing is sent, so staff are told once per line, to refund
+                        // staff with its invoice left open): nothing is sent, so staff are told (one open task per line), to refund
                         // it or open the order again. Never refunded or registered on its own.
                         if ($domain !== null && $domain->status->isTerminal()) {
                             $action = $item->kind === InvoiceItem::KIND_TRANSFER ? ModuleAction::DOMAIN_TRANSFER : ModuleAction::DOMAIN_REGISTER;
-                            if (!ModuleAction::query()->where('domain_id', $domain->id)->where('invoice_item_id', $item->id)->where('action', $action)->exists()) {
+                            // One open task per line: a later payment of it, after staff closed the first, tells them again (REV-769-4).
+                            if (!ModuleAction::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $item->id)->where('action', $action)->exists()) {
                                 ModuleAction::domainFailed($domain, $item, $domain->effectiveRegistrarConnection()?->registrar,
                                     new RuntimeException(__('domains.order.paid_ended', ['domain' => $domain->fqdn, 'status' => $domain->status->value])), $action);
                             }
