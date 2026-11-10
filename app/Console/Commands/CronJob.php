@@ -1159,13 +1159,6 @@ class CronJob extends Command
         // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
         // least «minimum days suspended» ago (7 by default; never on the day of the suspension, audit sweep
         // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
-        // Due but for money that came since its due date (a part payment, a paid invoice not applied): never ended on its
-        // own, staff are told each day it waits (DunningRules::moneySinceDue).
-        $min = Carbon::today()->subDays(DunningRules::days('cronjob_terminate_min_suspended_days', 7))->toDateString();
-        foreach (DunningRules::terminationDue(Service::query()->where('status', Service::STATUS_SUSPENDED)->whereNotNull('dunning_suspended_at')
-            ->whereDate('dunning_suspended_at', '<=', $min), today(), money: false)->pluck('id') as $held) {
-            $this->notices["services_terminated #{$held}"] = new DisplayException("Service #{$held} is past Termination Days, but money came for it since its due date (a payment, a part payment, or a paid invoice not applied): not terminated. Check its invoices; to end it, «Terminate server» on its page.");
-        }
         foreach ($this->terminable()->tap(self::parentsFirst(...))->pluck('id') as $id) {
             try {
                 $done = DB::transaction(function () use ($id) {
@@ -1173,7 +1166,7 @@ class CronJob extends Command
                     if ($service === null || self::chargeOnItsWay($service)) {
                         return 0;
                     }
-                    AfterCommit::job(new TerminateJob($service, nonPayment: true));
+                    AfterCommit::job(new TerminateJob($service));
                     $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
                     // Only its own lines: an invoice imported from WHMCS bills every service due that day.
                     // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).

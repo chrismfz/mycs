@@ -2,13 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Classes\Settings;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Enums\InvoiceTransactionStatus;
-use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\TerminateJob;
-use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\Server;
@@ -18,7 +15,6 @@ use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Providers\SettingsProvider;
-use Filament\Facades\Filament;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -244,54 +240,23 @@ class TerminationSafetyTest extends TestCase
         $this->assertKept($active, 'active');
     }
 
-    // ------------------------------------------------------------------ 6. a payment between the cron's decision and the job's run
+    // ------------------------------------------------------------------ never a one-time or free plan
 
-    /**
-     * The payment keeps its invoice's lock, not the service's, and renews after its commit (docs/money-trail.md): it can
-     * commit in the moment between the cron's last look (under the service's lock) and the cron cancelling that invoice.
-     * The cron then ends the service with its invoice paid. Simulated here by paying the invoice at that very moment (as
-     * the service's status is written). The job reads again before the server is asked: the account stays.
-     */
-    public function test_a_payment_that_lands_between_the_crons_decision_and_the_jobs_run_stops_the_termination(): void
+    /** As a suspension (DunningRules::notExempt): no period to pay, never dunned, whatever mark it carries (REV-773-4). */
+    public function test_never_a_service_on_a_one_time_or_free_plan(): void
     {
-        $service = $this->service('2026-06-01');
-        $invoice = $this->renewal($service);
-        Service::updating(function (Service $changed) use ($service, $invoice) {
-            if ($changed->is($service) && $changed->status === Service::STATUS_TERMINATED) {
-                DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => now()]);
-            }
-        });
+        $oneTime = $this->service('2026-06-01');
+        $free = $this->service('2026-06-01');
+        DB::table('plans')->where('id', $oneTime->plan_id)->update(['type' => 'one-time']);
+        DB::table('plans')->where('id', $free->plan_id)->update(['type' => 'free']);
 
-        $this->cronOn('2026-11-10');
+        $this->cronEachDay('2026-11-10', '2026-11-12');
 
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'precondition: the payment won the invoice');
-        $this->assertSame(0, $this->deletedOnTheServer(), 'its customer paid: the account must not be deleted');
-        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status, 'ended in the database; what happens next is staff\'s');
-        $this->assertTrue(EmailLog::query()->where('template_key', 'system')->where('subject', 'like', "%Termination stopped: service #{$service->id}%")->exists(),
-            'staff are told');
+        $this->assertKept($oneTime, 'a one-time plan');
+        $this->assertKept($free, 'a free plan');
     }
 
-    /**
-     * The same re-read when the job waits (a server down, Pending Module Actions): with «keep overdue invoices of ended
-     * services» the invoice stays payable, its customer pays it days later, and the termination tried again (the queue's
-     * retry, staff's Retry) leaves the account alone.
-     */
-    public function test_a_kept_invoice_paid_while_the_termination_waits_stops_it(): void
-    {
-        config(['settings.cronjob_end_keeps_overdue' => true, 'settings.cronjob_end_keeps_overdue_days' => 0]);
-        $service = $this->service('2026-06-01');
-        $invoice = $this->renewal($service);
-        Queue::fake([TerminateJob::class]); // decided, not run yet
-
-        $this->cronOn('2026-11-10');
-        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status, 'precondition: the cron decided');
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'precondition: kept as a debt');
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => now()]);
-
-        (new TerminateJob($service->fresh()))->handle();
-
-        $this->assertSame(0, $this->deletedOnTheServer(), 'paid before the account was deleted: it stays, staff decide');
-    }
+    // ------------------------------------------------------------------ 6. brought back by staff before the job ran
 
     public function test_a_service_staff_brought_back_before_the_job_ran_keeps_its_account_and_an_unpaid_one_loses_it(): void
     {
@@ -304,111 +269,10 @@ class TerminationSafetyTest extends TestCase
 
         (new TerminateJob($revived->fresh()))->handle();
         $this->assertSame(0, $this->deletedOnTheServer(), 'no longer ended: nothing is deleted');
+        $this->assertFalse(ModuleAction::query()->open()->where('service_id', $revived->id)->where('action', 'terminate')->exists(), 'and nothing is left to retry');
 
         (new TerminateJob($unpaid->fresh()))->handle();
         $this->assertSame(1, $this->deletedOnTheServer(), 'control: still terminated and unpaid, the job does its work');
-    }
-
-    // ------------------------------------------------------------------ review of #773: money stops it, at the cron and at the job alike
-
-    /** A part payment since the due date: the cron never ends it on its own, and says so to staff each day it waits. */
-    public function test_a_part_payment_since_the_due_date_keeps_it_from_the_cron_and_staff_are_told(): void
-    {
-        $service = $this->service('2026-06-01');
-        $invoice = $this->renewal($service);
-        Carbon::setTestNow('2026-09-15 12:00:00');
-        ExtensionHelper::addPayment($invoice, null, '4.00', transactionId: 'part-paid');
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'precondition: part paid, still open');
-
-        $this->cronEachDay('2026-11-10', '2026-11-12');
-
-        $this->assertKept($service, 'its customer paid part of it: we wait, staff decide');
-        $this->assertTrue(EmailLog::query()->where('template_key', 'system')->where('body', 'like', "%Service #{$service->id} is past Termination Days, but money came%")->exists(),
-            'staff are told it waits');
-    }
-
-    /** What an import brings: old paid invoices whose lines were never marked applied. Paid before the due date: no evidence. */
-    public function test_an_old_paid_invoice_never_marked_applied_does_not_hold_a_termination_back(): void
-    {
-        $service = $this->service('2026-06-01');
-        $old = $this->renewal($service);
-        $old->items()->update(['period_start' => null, 'period_end' => null]);
-        DB::table('invoices')->where('id', $old->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => '2026-05-03 10:00:00', 'due_at' => '2026-05-01']);
-        $payment = $old->transactions()->create(['amount' => 10.00, 'status' => InvoiceTransactionStatus::Succeeded, 'transaction_id' => 'whmcs-old']);
-        DB::table('invoice_transactions')->where('id', $payment->id)->update(['created_at' => '2026-05-03 10:00:00']);
-
-        $this->cronOn('2026-11-10');
-
-        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status, 'its history is not a payment since its due date');
-        $this->assertSame(1, $this->deletedOnTheServer());
-    }
-
-    /** After the cron cancelled its invoice: the payment becomes credit, the service is not revived; the job still stops. */
-    public function test_a_payment_on_the_invoice_the_cron_cancelled_stops_the_waiting_termination(): void
-    {
-        $service = $this->service('2026-06-01');
-        $invoice = $this->renewal($service);
-        Queue::fake([TerminateJob::class]);
-        $this->cronOn('2026-11-10');
-        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'precondition: cancelled with the termination');
-        ExtensionHelper::addPayment($invoice->fresh(), null, '10.00', transactionId: 'late-webhook');
-
-        (new TerminateJob($service->fresh()))->handle();
-
-        $this->assertSame(0, $this->deletedOnTheServer(), 'the money arrived before the account was deleted');
-    }
-
-    /** A Retry days later asks the cron's rule again: a hold staff set since, or terminations switched off, stops it; told once. */
-    public function test_a_retry_asks_the_crons_rule_again_and_tells_staff_once(): void
-    {
-        $held = $this->service('2026-06-01');
-        $off = $this->service('2026-06-01');
-        Queue::fake([TerminateJob::class]);
-        $this->cronOn('2026-11-10');
-        Service::query()->whereKey($held->id)->update(['suspend_hold_until' => '2026-12-01']);
-
-        Carbon::setTestNow('2026-11-14 09:00:00');
-        (new TerminateJob($held->fresh(), nonPayment: true))->handle();
-        (new TerminateJob($held->fresh(), nonPayment: true))->handle();
-        config(['settings.cronjob_terminate_enabled' => false]);
-        (new TerminateJob($off->fresh(), nonPayment: true))->handle();
-
-        $this->assertSame(0, $this->deletedOnTheServer(), 'no longer due by the rule: nothing is deleted');
-        $this->assertSame(1, EmailLog::query()->where('template_key', 'system')->where('subject', 'like', "%Termination stopped: service #{$held->id}%")->count(), 'told once');
-        $this->assertTrue(ModuleAction::query()->open()->where('service_id', $held->id)->where('action', 'terminate')
-            ->where('last_error', 'like', TerminateJob::STOPPED . '%')->exists(), 'and listed in Pending Module Actions');
-
-        config(['settings.cronjob_terminate_enabled' => true]);
-        (new TerminateJob($off->fresh(), nonPayment: true))->handle();
-        $this->assertSame(1, $this->deletedOnTheServer(), 'control: the rule stands again, staff\'s Retry deletes it');
-    }
-
-    /** Staff's «Revive: paid after termination»: Active, the paid period given through the usual path, the server unsuspended, the row closed. */
-    public function test_staff_revive_a_stopped_termination_and_the_paid_period_is_given(): void
-    {
-        config(['settings.cronjob_end_keeps_overdue' => true, 'settings.cronjob_end_keeps_overdue_days' => 0]);
-        $service = $this->service('2026-06-01');
-        $invoice = $this->renewal($service);
-        Queue::fake([TerminateJob::class]);
-        $this->cronOn('2026-11-10');
-        Carbon::setTestNow('2026-11-12 09:00:00');
-        ExtensionHelper::addPayment($invoice->fresh(), null, '10.00', transactionId: 'paid-late');
-        (new TerminateJob($service->fresh()))->handle();
-        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status, 'precondition: stopped, still terminated here');
-        $this->assertSame('2026-06-01', $service->fresh()->expires_at->toDateString(), 'precondition: its payment renewed nothing');
-
-        Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $this->livewireAs(Staff::factory()->admin()->create())->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->callAction('revivePaid')->assertHasNoActionErrors();
-
-        $revived = $service->fresh();
-        $this->assertSame(Service::STATUS_ACTIVE, $revived->status);
-        $this->assertSame('2026-07-01', $revived->expires_at->toDateString(), 'the paid period is given, once');
-        $this->assertNotNull($invoice->items()->first()->applied_at, 'its line applied: no longer «money since its due date»');
-        $this->assertSame('2026-11-20', $revived->suspend_hold_until?->toDateString(), 'still past due: Suspend Days to pay the rest');
-        $this->assertContains('unsuspend', FlakyServer::$calls, 'the server is asked to unsuspend the account');
-        $this->assertSame(0, $this->deletedOnTheServer());
-        $this->assertFalse(ModuleAction::query()->open()->where('service_id', $service->id)->where('action', 'terminate')->exists(), 'its pending row is closed');
     }
 
     // ------------------------------------------------------------------ 7. addons

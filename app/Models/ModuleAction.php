@@ -417,7 +417,7 @@ class ModuleAction extends Model
             'create' => new CreateJob($service, $notify, (bool) ($options['by_staff'] ?? false)),
             'suspend' => new SuspendJob($service, $notify),
             'unsuspend' => new UnsuspendJob($service),
-            'terminate' => new TerminateJob($service, $notify, (bool) ($options['non_payment'] ?? false)),
+            'terminate' => new TerminateJob($service, $notify),
             'upgrade' => new UpgradeJob($service),
             default => throw new \InvalidArgumentException("Unknown module action {$this->action}"),
         };
