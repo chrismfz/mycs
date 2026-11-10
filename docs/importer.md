@@ -35,6 +35,26 @@
     αντίγραφο της MyCS με άλλο όνομα το πιάνει ο έλεγχος των πινάκων του WHMCS.
   - Στις δοκιμές τρέχει σε δικό του worktree με δικό του `.env`, προς μια scratch βάση. Ποτέ με το `.env` του live site.
 
+## Νόμισμα πελάτη και αρνήσεις πριν από το dump (sweep 6, 2026-11-10)
+
+- **Νόμισμα πελάτη (S6-IMPORT-1, απόφαση ιδιοκτήτη 2026-11-08):** το `tblclients.currency` του πελάτη· αν είναι 0 ή δείχνει
+  νόμισμα που δεν υπάρχει πια, το επίσημο (default) νόμισμα της εταιρείας στο WHMCS (`tblcurrencies.default`, όπως κάνει
+  και το WHMCS)· αν δεν υπάρχει ούτε αυτό, EUR. Ένας κανόνας σε ένα σημείο (`WhmcsClientCurrency`) για παραγγελίες,
+  υπηρεσίες, τιμολόγια, πίστωση, Mass Pay, domains, ημερολόγιο χρημάτων και parity. Πριν, ένας τέτοιος πελάτης έχανε
+  σιωπηλά παραγγελίες, υπηρεσίες και τιμολόγια, και η πίστωσή του σταματούσε το import. Το import γράφει μία προειδοποίηση
+  με το πλήθος και τα ids τους («account(s) whose currency names no currency»).
+- **Τι αρνείται ο importer** (και με `--dry-run`, πριν αδειάσει οτιδήποτε· βήματα στο `cutover-runbook.md` §1):
+  - Mass Pay σε Payment Pending (`pendingMassPay`).
+  - Απλήρωτο (Unpaid, Collections) Mass Pay που δεν είναι γονικό για τον importer: πήρε μερική πληρωμή, ή έχει γραμμή άλλου
+    είδους, παιδί άλλου πελάτη ή παιδί που είναι το ίδιο Mass Pay (`unsettledMassPay`, S6-IMPORT-2). Θα ερχόταν ως απλό
+    απλήρωτο τιμολόγιο δίπλα στα απλήρωτα παιδιά του: διπλή χρέωση.
+  - Παλιές απλήρωτες παραγγελίες (`abandonedOrders`).
+  - Ανανέωση που ακυρώθηκε **ή σβήστηκε** στο WHMCS ενώ το `nextinvoicedate` προχώρησε, για υπηρεσίες **και addons**
+    (`cancelledRenewals`, S6-IMPORT-3/4). Το σβησμένο τιμολόγιο αφήνει πίσω τις γραμμές του· μια τέτοια γραμμή μετρά μόνο αν
+    η δική της `duedate` είναι το `nextduedate`. Έτσι ένα παλιό σβησμένο τιμολόγιο άλλης περιόδου, ή μια υπηρεσία που δεν
+    τιμολογήθηκε ποτέ για το `nextduedate`, δεν σταματούν το import.
+  - Addons εκτός της ημέρας χρέωσης της υπηρεσίας τους (`addonsApart`).
+
 ## Parity: τι πρέπει να συμφωνεί 1:1 μετά το import
 - **Πελάτες:** πλήθος ανά status· επαφές/sub-users· custom fields· credit balance ανά πελάτη (άθροισμα).
 - **Υπηρεσίες:** πλήθος ανά status, κύκλο χρέωσης και προϊόν· next due date / λήξη· τιμή ανά υπηρεσία· config options (**δεν ελέγχονται ακόμα, ούτε εισάγονται**:
@@ -146,7 +166,7 @@
 | `tblinvoices.credit` | πληρωμή από πίστωση στο τιμολόγιο (`credit_out` + `payment`), με ημερομηνία το «Credit Applied» του `tblcredit` (μόνο μέρα: η ώρα της πληρωμής του τιμολογίου αν είναι η ίδια μέρα) |
 | υπερπληρωμή | `credited_amount` στις νεότερες πληρωμές + `credit_in` (`overpayment`), πριν από τις επιστροφές: όσο λέει το «Invoice #N Overpayment» του `tblcredit`, αλλιώς ό,τι δεν πήραν πίσω οι επιστροφές |
 | Mass Pay | η πληρωμή, το `credited_amount` της και τα allocations, ομαδοποιημένα `transaction:<id>` όπως το `spendCredit` |
-| Mass Pay που δεν πληρώθηκε (όχι Paid· ένα σε Payment Pending το import το αρνείται), με πίστωση πάνω του (`tblinvoices.credit` > 0, κανένα χρήμα). Το `credit` είναι ό,τι έμεινε πάνω του: το WHMCS το κατεβάζει όταν αφαιρείται πίστωση («Credit Removed from Invoice #N», και στην ακύρωση της παραγγελίας· έλεγχος read-only στα αντίγραφα της 2026-11-06: σε όλα τα τιμολόγια του myip που υπάρχουν ακόμα, `credit` = εφαρμοσμένη − αφαιρεμένη, η nixpal δεν έχει), οπότε δεν αφαιρείται τίποτα εδώ | το γονικό δεν έρχεται, άρα η πίστωση γυρνά στο υπόλοιπο του πελάτη: `credit_out` (`credit_payment`, «Credit Applied») + `credit_in` (`cancellation`) και το υπόλοιπο που εισάγεται ανεβαίνει όσο αυτή (`unfinishedMassPay`, ADV-A1-2). Το parity μετρά στο υπόλοιπο του WHMCS και αυτή την πίστωση (`WhmcsParity::creditBalances`, και ανά πελάτη) |
+| Mass Pay που δεν πληρώθηκε (όχι Paid· ένα σε Payment Pending το import το αρνείται, όπως και ένα απλήρωτο με μερική πληρωμή ή γραμμή άλλου είδους: `unsettledMassPay`), με πίστωση πάνω του (`tblinvoices.credit` > 0, κανένα χρήμα). Το `credit` είναι ό,τι έμεινε πάνω του: το WHMCS το κατεβάζει όταν αφαιρείται πίστωση («Credit Removed from Invoice #N», και στην ακύρωση της παραγγελίας· έλεγχος read-only στα αντίγραφα της 2026-11-06: σε όλα τα τιμολόγια του myip που υπάρχουν ακόμα, `credit` = εφαρμοσμένη − αφαιρεμένη, η nixpal δεν έχει), οπότε δεν αφαιρείται τίποτα εδώ | το γονικό δεν έρχεται, άρα η πίστωση γυρνά στο υπόλοιπο του πελάτη: `credit_out` (`credit_payment`, «Credit Applied») + `credit_in` (`cancellation`) και το υπόλοιπο που εισάγεται ανεβαίνει όσο αυτή (`unfinishedMassPay`, ADV-A1-2). Το parity μετρά στο υπόλοιπο του WHMCS και αυτή την πίστωση (`WhmcsParity::creditBalances`, και ανά πελάτη) |
 | Add Funds πληρωμένο | `credit_in` (`purchase`) ανά γραμμή, και `applied_at` στη γραμμή |
 | αρνητικό τιμολόγιο | `credit_in` (`invoice_reduced`) |
 | `tblcredit` χωρίς τιμολόγιο (staff, refund σε πίστωση, downgrade) | `credit_in`/`credit_out` (`staff_adjustment`, `refund_to_credit`, `downgrade`), η περιγραφή στο `money_event_notes` |
