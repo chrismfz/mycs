@@ -365,6 +365,8 @@ class Stripe extends Gateway
             if (!empty($customer->id)) {
                 $intentData['customer'] = $customer->id;
             }
+        } catch (DisplayException $e) {
+            throw $e; // Stripe did not answer about the account's customer: no checkout now, the customer kept (S7-PAYMENTS-2)
         } catch (Exception $e) {
             // ignore customer creation errors and continue without customer
         }
@@ -982,13 +984,20 @@ class Stripe extends Gateway
         $stripeCustomerId = $user->properties()->where('key', 'stripe_id')->first();
 
         if ($stripeCustomerId) {
+            // Only Stripe's own «no such customer» (or one it deleted) makes a new one. Anything else (a timeout, a 5xx, a
+            // 429) says nothing of the customer: the account's saved cards are attached to it, and a new customer in its
+            // place could never charge them again (S7-PAYMENTS-2). The checkout or the new card is refused for now.
             try {
                 $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
                 if (!isset($customer->deleted)) {
                     return $customer;
                 }
             } catch (Exception $e) {
-                // continue and create a new customer
+                if (!$e instanceof RequestException || $e->response->status() !== 404 || $e->response->json('error.code') !== 'resource_missing') {
+                    report($e);
+
+                    throw new DisplayException(__('The payment provider did not answer. Nothing was charged: please try again in a few minutes.'));
+                }
             }
         }
 

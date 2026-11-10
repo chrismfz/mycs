@@ -1747,5 +1747,6 @@
     "Credit given for a downgrade": "Πίστωση από υποβάθμιση",
     "Credit given for a change of cycle": "Πίστωση από αλλαγή κύκλου",
     "Invoices paid in the year as they stand today, by their payment date: a chargeback, a deleted payment or a correction made later changes a past year. A refund or credit note made in the year on an earlier invoice is a row of its own, as is the credit a downgrade or a change of cycle gave; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος όπως είναι σήμερα, με την ημερομηνία πληρωμής: ένα chargeback, μια διαγραφή πληρωμής ή μια διόρθωση που γίνεται αργότερα αλλάζει ένα περασμένο έτος. Μια επιστροφή ή ένα πιστωτικό του έτους σε παλαιότερο τιμολόγιο είναι δική του γραμμή, όπως και η πίστωση που έδωσε μια υποβάθμιση ή μια αλλαγή κύκλου· οι αγορές πίστωσης δεν είναι έσοδο.",
-    "Informative. Fiscal documents are issued in Ekdosi.": "Ενημερωτικό. Τα φορολογικά παραστατικά εκδίδονται στο Ekdosi."
+    "Informative. Fiscal documents are issued in Ekdosi.": "Ενημερωτικό. Τα φορολογικά παραστατικά εκδίδονται στο Ekdosi.",
+    "The payment provider did not answer. Nothing was charged: please try again in a few minutes.": "Ο πάροχος πληρωμών δεν απάντησε. Δεν χρεώθηκε τίποτα: δοκιμάστε ξανά σε λίγα λεπτά."
 }
