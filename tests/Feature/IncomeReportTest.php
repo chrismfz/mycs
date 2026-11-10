@@ -17,9 +17,9 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * A year's income for the accountant (ROADMAP 6), as cash: every invoice paid in the year, net, tax and total, its
- * customer and how it was paid; a refund made later on an earlier invoice a row of its own in its year (a year sent
- * never changes); credit purchases never income; XLSX and CSV from a signed link.
+ * A year's income (ROADMAP 6), as cash, informative (fiscal documents are Ekdosi's): every invoice paid in the year, net,
+ * tax and total, its customer and how it was paid; a refund made later on an earlier invoice a row of its own in its
+ * year; credit purchases never income; XLSX and CSV from a signed link, under the line that says it is informative.
  */
 class IncomeReportTest extends TestCase
 {
@@ -113,7 +113,7 @@ class IncomeReportTest extends TestCase
         $this->paid('2026-05-05 10:00:00', 10.00);
         $this->actingAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->get(IncomeReport::getUrl())->assertForbidden();
         $staff = $this->staff();
-        $this->actingAs($staff)->get(IncomeReport::getUrl())->assertOk()->assertSee(__('By month'));
+        $this->actingAs($staff)->get(IncomeReport::getUrl())->assertOk()->assertSee(__('By month'))->assertSee(Report::notice());
 
         $this->actingAs($staff);
         $page = new IncomeReport;
@@ -129,9 +129,10 @@ class IncomeReportTest extends TestCase
         $zip->close();
         $this->assertStringNotContainsString('<f>', $sheets, 'a formula cell');
         $this->assertStringContainsString('HYPERLINK', $sheets, 'the name, as text');
+        $this->assertSame(2, substr_count($sheets, 'Fiscal documents are issued in Ekdosi'), 'the line on both sheets');
 
         $csv = $this->get($page->exportUrl('csv'))->assertOk()->streamedContent();
-        $this->assertStringStartsWith("\xEF\xBB\xBF", $csv);
+        $this->assertStringStartsWith("\xEF\xBB\xBF" . '"' . Report::notice() . '"' . "\n", $csv);
         $this->assertStringContainsString(';"\'=HYPERLINK', $csv);
         $this->assertStringContainsString(';10,00;2,40;12,40;', $csv);
 
