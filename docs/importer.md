@@ -288,7 +288,9 @@
 
 ## Logins και πρόσβαση (`tblusers`, `tblusers_clients`, 2026-10-23)
 - **Logins:** κάθε `tblusers` γίνεται user με **το ίδιο id**, το δικό του email (όχι του λογαριασμού), τον κωδικό του
-  (bcrypt του WHMCS 8, ίδιος) και το `email_verified_at`. Έρχονται και όσοι δεν έχουν λογαριασμό (108 στο myip), ώστε να
+  (bcrypt του WHMCS 8, ίδιος) και το `email_verified_at`: **πάντα επαληθευμένο** (η ημερομηνία του WHMCS, αλλιώς η στιγμή
+  του import· sweep 6 S6-TICKETS-MAIL-1), γιατί mail προς την υποστήριξη μπαίνει σε λογαριασμό μόνο από επαληθευμένο login
+  (`docs/tickets.md` §3 Δ) και το WHMCS έστελνε σε αυτές τις διευθύνσεις χρόνια. Έρχονται και όσοι δεν έχουν λογαριασμό (108 στο myip), ώστε να
   μη χαθεί κανένα login. Οι απαντήσεις των tickets βρίσκουν έτσι τον ίδιο user (`WhmcsTicketImport::userOf`).
 - **Πρόσβαση:** κάθε `tblusers_clients` γίνεται `client_user`: ο owner με `owner_of_client_id`, οι άλλοι με τα
   δικαιώματα που είχαν (ίδια ονόματα με το WHMCS, `ClientUser::PERMISSIONS`· ένα άγνωστο μένει έξω). Λογαριασμός χωρίς

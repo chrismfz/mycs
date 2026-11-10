@@ -135,7 +135,10 @@ class ImportLoginsTest extends TestCase
 
         $this->import($this->decrypting());
 
-        $this->assertNull(User::query()->findOrFail(8)->email_verified_at);
+        // Imported logins are always verified (S6-TICKETS-MAIL-1): WHMCS's date, else the import's (a zero date, none).
+        $this->assertNotNull(User::query()->findOrFail(8)->email_verified_at);
+        $this->assertNotNull(User::query()->findOrFail(9)->email_verified_at);
+        $this->assertSame('2025-01-01 00:00:00', User::query()->findOrFail(7)->email_verified_at->format('Y-m-d H:i:s'));
         $this->assertNull(Client::query()->find(301), 'an account with no owner to log in is not made');
     }
 

@@ -802,7 +802,9 @@ class ImportFromWhmcs extends Command
                     'password' => $record['password'],
                     'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
                     'language' => Locales::fromWhmcs($record['language'] ?? null),
-                    'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? null : (($record['email_verified_at'] ?? null) ?: null),
+                    // Always verified (S6-TICKETS-MAIL-1): WHMCS's own date, else the import's. WHMCS mailed these addresses
+                    // for years, and mail to support reaches an account only through a verified login (InboundRouter).
+                    'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? now() : (($record['email_verified_at'] ?? null) ?: now()),
                     'created_at' => $date($record['created_at'] ?? null),
                     'updated_at' => $date($record['updated_at'] ?? null),
                 ];
