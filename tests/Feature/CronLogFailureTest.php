@@ -130,7 +130,7 @@ class CronLogFailureTest extends TestCase
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);
-        // Billed before it was due: nothing is suspended for an invoice issued fewer than Suspend Days ago.
+        // Billed before it was due, as the cron does.
         $this->billedAhead($service);
 
         return $service;
