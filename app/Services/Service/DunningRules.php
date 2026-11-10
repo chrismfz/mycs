@@ -96,6 +96,8 @@ final class DunningRules
      * moved due date makes it earlier, REV-773-1/2), on an invoice paid on or after that date, or with a payment
      * succeeded or still processing received on or after it, whatever the invoice's status now (open and part paid, kept
      * as a debt, cancelled with the money turned to credit). Such a service is never terminated on its own: staff decide.
+     * Account credit that paid part of an open invoice is not such a payment (the cron applies it by itself, and a
+     * termination gives it back); credit that paid the invoice in full is the first case.
      * The date keeps out the history an import brings (its paid lines are never marked applied).
      *
      * @param  \Illuminate\Database\Query\Builder  $line
@@ -109,6 +111,7 @@ final class DunningRules
                 ->where(fn ($paid) => $paid->where('invoices.status', Invoice::STATUS_PAID)->whereColumn('invoices.paid_at', '>=', 'services.expires_at'))
                 ->orWhereExists(fn ($payment) => $payment->from('invoice_transactions')->whereColumn('invoice_transactions.invoice_id', 'invoices.id')
                     ->whereIn('invoice_transactions.status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
+                    ->where('invoice_transactions.is_credit_transaction', false)
                     ->whereColumn('invoice_transactions.created_at', '>=', 'services.expires_at')));
     }
 

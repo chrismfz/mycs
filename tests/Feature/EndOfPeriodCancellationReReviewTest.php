@@ -95,7 +95,11 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         $invoice = $this->openInvoiceFor($service);
         (new RecordPaymentService)->handle($invoice, null, 4.00, transactionId: 'bank-r1');
 
+        // Since #773 the cron does not end a service part paid since its due date (staff decide): staff's Terminate
+        // leaves the invoice open the same way.
         $this->cron();
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'part paid: the cron waits for staff (#773)');
+        $service->fresh()->markTerminated();
         $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
 
         // Later the customer gets credit (overpayment elsewhere, staff, refund to credit).

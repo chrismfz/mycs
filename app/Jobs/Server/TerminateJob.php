@@ -25,7 +25,11 @@ class TerminateJob implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(public Service $service, public $sendNotification = true) {}
+    /**
+     * @param  bool  $nonPayment  the cron's termination for non-payment: its whole rule is asked again before the module
+     *                            call (readAgain); kept with its failed row, so a Retry asks it too
+     */
+    public function __construct(public Service $service, public $sendNotification = true, public bool $nonPayment = false) {}
 
     /**
      * Execute the job.
@@ -75,12 +79,13 @@ class TerminateJob implements ShouldQueue
     public const STOPPED = 'Stopped: ';
 
     /**
-     * Null: go. «»: no longer ended. Else why it stops. A cancelled service ended because its customer or staff asked:
-     * it goes. A terminated one is taken for the cron's end for non-payment (staff's own Terminate runs no job; the few
-     * others, a status set by hand with an old row retried, are held to the same rule: the safe side, and the mail says
-     * how to delete all the same): the cron's rule is asked again as of today (DunningRules::terminationStands: the
-     * switch, Termination Days, a hold, an exemption, a payment on its way, money since its due date), so the cron and
-     * this job never disagree, also on a Retry days later. Not its days suspended: the mark went when it ended.
+     * Null: go. «»: no longer ended. Else why it stops.
+     * - Terminated, whoever ended it (the cron; a status staff set by hand with an old row retried; a job from before
+     *   this property): money for it since its due date stops it (DunningRules::moneySinceDue).
+     * - The cron's own termination ($nonPayment): its whole rule is asked again as of today (terminationStands: the
+     *   switch, Termination Days, a hold, an exemption, a payment on its way, that money), so the cron and this job never
+     *   disagree, also on a Retry days later. Not its days suspended: the mark went when it ended.
+     * - Cancelled: its customer or staff asked for the end; it goes.
      */
     private function readAgain(): ?string
     {
@@ -89,13 +94,16 @@ class TerminateJob implements ShouldQueue
             if ($service === null || !$service->isEnded()) {
                 return '';
             }
-            if ($service->status !== Service::STATUS_TERMINATED || DunningRules::terminationStands($service)) {
+            if ($service->status !== Service::STATUS_TERMINATED) {
                 return null;
             }
+            if (DunningRules::paidSinceDue($service)) {
+                return 'money came for it since its due date (a payment, a part payment, or one still on its way).';
+            }
 
-            return DunningRules::paidSinceDue($service)
-                ? 'money came for it since its due date (a payment, a part payment, or one still on its way).'
-                : 'it is no longer due for termination (terminations switched off, a hold, an exemption, its due date or Termination Days changed, a later period paid).';
+            return $this->nonPayment && !DunningRules::terminationStands($service)
+                ? 'it is no longer due for termination (terminations switched off, a hold, an exemption, its due date or Termination Days changed, a later period paid).'
+                : null;
         });
     }
 
@@ -127,7 +135,7 @@ class TerminateJob implements ShouldQueue
     /** @return array<string, bool> */
     protected function jobOptions(): array
     {
-        return ['send_notification' => (bool) $this->sendNotification];
+        return ['send_notification' => (bool) $this->sendNotification, 'non_payment' => $this->nonPayment];
     }
 
     protected function moduleAction(): string

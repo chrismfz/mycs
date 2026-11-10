@@ -1126,7 +1126,7 @@ class CronJob extends Command
                     if ($service === null || self::chargeOnItsWay($service)) {
                         return 0;
                     }
-                    AfterCommit::job(new TerminateJob($service));
+                    AfterCommit::job(new TerminateJob($service, nonPayment: true));
                     $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
                     // Only its own lines: an invoice imported from WHMCS bills every service due that day.
                     // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).

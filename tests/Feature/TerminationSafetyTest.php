@@ -368,10 +368,10 @@ class TerminationSafetyTest extends TestCase
         Service::query()->whereKey($held->id)->update(['suspend_hold_until' => '2026-12-01']);
 
         Carbon::setTestNow('2026-11-14 09:00:00');
-        (new TerminateJob($held->fresh()))->handle();
-        (new TerminateJob($held->fresh()))->handle();
+        (new TerminateJob($held->fresh(), nonPayment: true))->handle();
+        (new TerminateJob($held->fresh(), nonPayment: true))->handle();
         config(['settings.cronjob_terminate_enabled' => false]);
-        (new TerminateJob($off->fresh()))->handle();
+        (new TerminateJob($off->fresh(), nonPayment: true))->handle();
 
         $this->assertSame(0, $this->deletedOnTheServer(), 'no longer due by the rule: nothing is deleted');
         $this->assertSame(1, EmailLog::query()->where('template_key', 'system')->where('subject', 'like', "%Termination stopped: service #{$held->id}%")->count(), 'told once');
@@ -379,7 +379,7 @@ class TerminationSafetyTest extends TestCase
             ->where('last_error', 'like', TerminateJob::STOPPED . '%')->exists(), 'and listed in Pending Module Actions');
 
         config(['settings.cronjob_terminate_enabled' => true]);
-        (new TerminateJob($off->fresh()))->handle();
+        (new TerminateJob($off->fresh(), nonPayment: true))->handle();
         $this->assertSame(1, $this->deletedOnTheServer(), 'control: the rule stands again, staff\'s Retry deletes it');
     }
 
