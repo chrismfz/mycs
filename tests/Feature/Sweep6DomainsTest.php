@@ -142,7 +142,12 @@ class Sweep6DomainsTest extends TestCase
         $this->assertSame(ModuleAction::CLOSED_UNRENEWED, $action->fresh()->resolution);
 
         $this->assertSame([$alices->id], DomainNameHold::staleHolds(), 'past its window, its renewal closed: nothing entitles the hold');
+        // The cron's daily domains_superseded step releases it (the fix: by that step, not at once).
+        $this->assertTrue(DomainNameHold::release($alices->id));
+        $this->assertNull($alices->fresh()->live_fqdn);
         $this->assertFalse($this->refusedToOrder('mybusiness.com', $this->bob), 'another customer may order the name');
+        // Staff's Retry takes the name back while no one else has it.
+        $this->assertTrue(DomainNameHold::claim($alices->fresh()));
     }
 
     /**
@@ -174,5 +179,14 @@ class Sweep6DomainsTest extends TestCase
         $this->assertNull($line->fresh()->applied_at, 'nothing done for the money');
         $this->assertTrue(ModuleAction::query()->where('domain_id', $bobs->id)->exists(),
             'a paid order of a cancelled row should reach staff (to refund or credit), not be dropped silently');
+        $task = ModuleAction::query()->where('domain_id', $bobs->id)->sole();
+        $this->assertSame([ModuleAction::DOMAIN_REGISTER, ModuleAction::STATUS_OPEN, $line->id], [$task->action, $task->status, $task->invoice_item_id]);
+        $this->assertStringContainsString('mybusiness.com', (string) $task->last_error);
+        Queue::assertNotPushed(FulfilDomainOrderJob::class);
+        $this->assertSame(DomainStatus::Cancelled, $bobs->fresh()->status, 'never opened again on its own');
+        // Once per line: applied again (the cron's replay), even after staff closed it, no second task.
+        $task->closeUnrenewed(null);
+        (new \App\Services\Invoice\ProcessPaidInvoiceService)->handle($invoice->fresh());
+        $this->assertSame(1, ModuleAction::query()->where('domain_id', $bobs->id)->count());
     }
 }

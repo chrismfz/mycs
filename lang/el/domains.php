@@ -301,6 +301,7 @@ return [
         'sent_after_cancel' => ':domain: έγινε στον registrar, αλλά η παραγγελία του ακυρώθηκε ή επιστράφηκαν τα χρήματα στο μεταξύ. Αποφασίστε: το κρατάμε (νέα χρέωση) ή το διαγράφουμε στον registrar.',
         'ns_unknown' => ':domain: οι τωρινοί nameservers του δεν διαβάστηκαν από το μητρώο, οπότε η μεταφορά δεν ξεκίνησε (πρέπει να τους κρατήσει). Προσθέστε τους στο domain και μετά Retry.',
         'name_held' => ':domain: πληρώθηκε, αλλά το όνομα το κρατά ήδη άλλο domain εδώ (:holder), που πληρώθηκε ή καταχωρίστηκε πρώτο: δεν στάλθηκε στον registrar. Επιστρέψτε ή πιστώστε την παραγγελία (Cancel Order) και μετά Close.',
+        'paid_ended' => ':domain: η παραγγελία πληρώθηκε, αλλά το domain είχε ήδη κλείσει (:status), οπότε δεν στάλθηκε τίποτα στον registrar. Επιστρέψτε ή πιστώστε την πληρωμή και μετά «Close»· ή γυρίστε το domain σε pending και πατήστε Retry.',
     ],
     // The registry's statuses, EPP and the EETT's, for staff (G8-3, grepp.md §6).
     'registry_status' => [
