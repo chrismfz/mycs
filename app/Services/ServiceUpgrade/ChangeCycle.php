@@ -52,7 +52,9 @@ use MyCS\Pricing\LinePricer;
  * The new recurring amount is the new plan's catalog price with the service's options and coupon (as an upgrade, decided
  * 2026-10-14: a staff price is not carried over). Refused while a gateway subscription bills the service (it charges its
  * own cycle), an upgrade waits (now: any invoice of an upgrade is open, its shortfall too), a cancellation is asked for, an open invoice of it has money on it, or a coupon priced by
- * the cycle runs (one for a number of cycles, or a fixed amount: a cycle change would stretch or shrink it, S3).
+ * the cycle runs (one for a number of cycles, or a fixed amount: a cycle change would stretch or shrink it, S3). And, for
+ * its customer, while its order's own invoice is unpaid (set up before payment): paid first. Staff may change it then;
+ * the order's invoice is never cancelled by a change of cycle, only open renewals are (S7-PLAN-CYCLE-ADDONS-1).
  */
 final class ChangeCycle
 {
@@ -119,6 +121,12 @@ final class ChangeCycle
             return $why;
         }
         $back = (int) $plan->id === (int) $service->plan_id;
+        // Set up before its order was paid (S7-PLAN-CYCLE-ADDONS-1): the customer pays the order as placed first, as for
+        // an upgrade (Service::upgradable). Staff may change it: the order's invoice is not a renewal and stays as it is
+        // (openRenewals).
+        if (!$staff && !$back && $service->orderUnpaid()) {
+            return __('services.change_cycle_order_unpaid');
+        }
         // Suspended, its open renewal is what brings it and its addons back: cancelled for the new cycle, the cron bills
         // it again without its addons (suspended with it, they are not billed apart), and they fall overdue on their own
         // the night after it is paid (REV-765-2). Pay first.
@@ -353,8 +361,7 @@ final class ChangeCycle
             $back = (int) $plan->id === (int) $locked->plan_id;
             if (!$back) {
                 $group = $followers->filter(fn (Service $addon) => self::follows($addon))->values();
-                $open = collect([$locked, ...$group])->flatMap(fn (Service $each) => $each->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get())
-                    ->unique('id')->sortBy('id');
+                $open = collect([$locked, ...$group])->flatMap(fn (Service $each) => self::openRenewals($each))->unique('id')->sortBy('id');
                 $left = CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cycle_changed'), $locked, array_values($group->all()));
                 if ($left !== []) {
                     throw new DisplayException(__('An open invoice of this service needs staff first: :reason', ['reason' => collect($left)->first()->getMessage()]));
@@ -450,6 +457,24 @@ final class ChangeCycle
         }
 
         return $invoice->refresh();
+    }
+
+    /**
+     * Its open renewals, what a change of cycle cancels and the cron bills again in the new cycle: the open invoices with a
+     * period line of it. Never its order's own invoice while that is unpaid (set up before payment: it holds what the
+     * order owes, its setup fee too, and the cron would bill none of that again: S7-PLAN-CYCLE-ADDONS-1), nor an invoice
+     * with only a charge of it (no period: nothing of it is billed again).
+     *
+     * @return Collection<int, Invoice>
+     */
+    private static function openRenewals(Service $service): Collection
+    {
+        $order = $service->orderUnpaid() ? $service->invoiceItems()->min('invoice_id') : null;
+
+        return $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)
+            ->whereNotNull('invoice_items.period_start')->whereNotNull('invoice_items.period_end')
+            ->when($order !== null, fn ($invoices) => $invoices->where('invoices.id', '!=', $order))
+            ->get();
     }
 
     /**
