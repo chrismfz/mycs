@@ -70,18 +70,18 @@ class CronWait extends Command
      * The other scheduled commands already running (sweep 2, F-SCHEDULER-QUEUE-1): bank:alerts records payments,
      * ssl:sync charges at the registrar, domains:sync writes the domains. `down` stops only new starts, so one that
      * began before it would go on in the old code over the migrations. Each holds its withoutOverlapping mutex while it
-     * runs: waited for, in the time --timeout leaves.
+     * runs: waited for, in the time --timeout leaves, and with them the scheduler process that starts them (busy()).
      */
     private function waitForScheduledTasks(int $seconds, int $timeout): int
     {
-        $busy = $this->runningTasks();
+        $busy = $this->busy();
         if ($busy === []) {
             return self::SUCCESS;
         }
         $this->line('Scheduled tasks in progress: ' . implode(', ', $busy) . ": waiting for them (up to {$seconds}s)…");
         for ($i = 0; $i < $seconds && $busy !== []; $i++) {
             Sleep::for(1)->second();
-            $busy = $this->runningTasks();
+            $busy = $this->busy();
         }
         if ($busy === []) {
             $this->info('The scheduled tasks are over.');
@@ -89,10 +89,70 @@ class CronWait extends Command
             return self::SUCCESS;
         }
         $this->error("Scheduled tasks still in progress after {$timeout}s: " . implode(', ', $busy) . '.');
-        $this->line('A task killed mid-way leaves its mark until its withoutOverlapping expiry. When none of them is running'
-            . ' (no such artisan process), it is cleared with: php artisan schedule:clear-cache');
+        if (in_array(self::SCHEDULER, $busy, true)) {
+            $this->line('A `php artisan schedule:run` of this install is still running: it goes on starting the tasks that were'
+                . ' due when it began. Wait for it (pgrep -af "artisan schedule:run"), or raise --timeout.');
+        }
+        if ($busy !== [self::SCHEDULER]) {
+            $this->line('A task killed mid-way leaves its mark until its withoutOverlapping expiry. When none of them is running'
+                . ' (no such artisan process), it is cleared with: php artisan schedule:clear-cache');
+        }
 
         return self::FAILURE;
+    }
+
+    private const SCHEDULER = 'schedule:run (pending tasks)';
+
+    /**
+     * What a deploy must wait for: the tasks holding their mutex, and a schedule:run of this install still alive
+     * (sweep 6, S6-OPS-1). The scheduler works out its due tasks once, at its start, and runs them one after another:
+     * between two of them no mutex is held, and one that began before `down` starts the rest after it.
+     *
+     * @return list<string>
+     */
+    private function busy(): array
+    {
+        $busy = $this->runningTasks();
+        if (self::schedulerAlive()) {
+            $busy[] = self::SCHEDULER;
+        }
+
+        return $busy;
+    }
+
+    /**
+     * A `artisan schedule:run` of this install alive, other than this process: its cwd here, or (a cwd this user cannot
+     * read) this install's artisan named by its path, as deploy/update.sh finds its queue workers. Another install's
+     * scheduler on the host is not ours to wait for. No pgrep: none seen, as before. Not seen either: a scheduler of
+     * another user whose cwd this user cannot read, started as `cd <app> && php artisan schedule:run` (no path on its
+     * command line): the deploy runs as the cron's user, or as root (docs/install.md).
+     */
+    private static function schedulerAlive(): bool
+    {
+        $pids = [];
+        $scope = self::$ownChildrenOnly ? '-P ' . getmypid() . ' ' : '';
+        @exec('pgrep ' . $scope . '-f ' . escapeshellarg('[a]rtisan( .*)? schedule:run'), $pids);
+        $here = realpath(base_path()) ?: base_path();
+        foreach ($pids as $pid) {
+            $pid = (int) $pid;
+            if ($pid <= 0 || $pid === getmypid()) {
+                continue;
+            }
+            $cwd = @readlink("/proc/{$pid}/cwd");
+            if (is_string($cwd)) {
+                if ($cwd === $here) {
+                    return true;
+                }
+
+                continue;
+            }
+            $cmd = str_replace("\0", ' ', (string) @file_get_contents("/proc/{$pid}/cmdline"));
+            if (str_contains($cmd, $here . '/artisan ')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> the scheduled commands whose withoutOverlapping mutex is held (a run in progress) */

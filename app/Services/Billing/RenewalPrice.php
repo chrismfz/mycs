@@ -2,7 +2,6 @@
 
 namespace App\Services\Billing;
 
-use App\Models\Product;
 use App\Models\Service;
 use Carbon\CarbonImmutable;
 
@@ -16,9 +15,8 @@ final class RenewalPrice
 {
     public static function for(Service $service, CarbonImmutable $start, bool $first): Service
     {
-        $next = $service->nextPlan;
-        if ($first && $service->next_plan_id !== null && $next !== null && $next->priceable_type === Product::class
-            && (int) $next->priceable_id === (int) $service->product_id) {
+        $next = $first && $service->next_plan_id !== null ? RenewalBilling::billedPlan($service) : null;
+        if ($next !== null && (int) $next->id === (int) $service->next_plan_id) {
             $service = clone $service;
             $service->setRelation('plan', $next);
             $service->plan_id = $next->id;
