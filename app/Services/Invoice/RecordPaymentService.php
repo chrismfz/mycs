@@ -10,6 +10,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -453,6 +454,17 @@ class RecordPaymentService
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
 
+            // What the gateway reported on it (gateway_refunds: refunds, chargebacks, disputes) points at the row, and the
+            // database refuses the deletion while one does (S7-MONEY-LEDGER-1: a raw foreign-key error). A refund or a
+            // chargeback the gateway made is real money given back, recorded here or not (another currency, matched to a
+            // refund by hand): the payment stays, as one with refunds does. What moved no money goes with the payment.
+            $reported = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->orderBy('id')->lockForUpdate()->get();
+            $kept = $reported->reject(fn (GatewayRefund $record) => in_array($record->origin, [...GatewayRefund::NO_MONEY_ORIGINS, ...GatewayRefund::WAITING_ORIGINS], true));
+            if ($kept->isNotEmpty()) {
+                throw new DisplayException(__('The gateway refunded or charged back this payment (:records): it cannot be deleted, its refund history and gateway transaction id must stay. If that refund is not recorded on the payment, record it with «Refund», by hand.',
+                    ['records' => $kept->map(fn (GatewayRefund $record) => $record->reference)->implode(', ')]));
+            }
+
             // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
             // Locked: read current, not the transaction's snapshot. Its gap locks can make two concurrent deletions
             // of neighbouring transactions deadlock (InnoDB rolls one back; staff retry); events of a transaction
@@ -538,6 +550,16 @@ class RecordPaymentService
             }
             $credit?->save();
 
+            // A refund or a chargeback still waiting for this payment to succeed (it never did) keeps waiting, by the payment's
+            // id at the gateway: a success reported later records it then. The rest moved no money and goes with the payment.
+            if ($reported->isNotEmpty()) {
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::WAITING_ORIGINS)->modelKeys())->update(['invoice_transaction_id' => null]);
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::NO_MONEY_ORIGINS)->modelKeys())->delete();
+                PaymentsLog::info("Payment #{$transaction->id} of invoice #{$invoice->id} deleted with what its gateway reported on it.", [
+                    'transaction_id' => $transaction->transaction_id,
+                    'records' => $reported->map(fn (GatewayRefund $record) => $record->origin . ' ' . $record->reference)->all(),
+                ]);
+            }
             $transaction->delete();
             if ($unbuy) {
                 $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
