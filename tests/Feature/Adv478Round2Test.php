@@ -97,7 +97,8 @@ class Adv478Round2Test extends TestCase
         $this->actingAs($this->staff(), 'staff');
         $topUp = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $topUp->items()->create(['description' => 'Add Funds', 'quantity' => 1, 'price' => '100.00', 'reference_type' => Credit::class]);
-        $topUp->items()->create(['description' => 'Discount', 'quantity' => 1, 'price' => '-10.00']);
+        // A discount line on a credit purchase is refused now (S6-MONEY-LEDGER-1): another line makes the same point.
+        $topUp->items()->create(['description' => 'Setup', 'quantity' => 1, 'price' => '10.00']);
 
         SendToEkdosi::request([$topUp->fresh()], true);
 

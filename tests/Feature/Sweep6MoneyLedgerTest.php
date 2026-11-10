@@ -60,8 +60,8 @@ class Sweep6MoneyLedgerTest extends TestCase
 
     /**
      * S6-MONEY-LEDGER-1, the rule (owner: cut the case). An Add Funds invoice of 100 with a -20 credit note showed 80 to
-     * pay; the 80 paid at Stripe was rolled back by InvoiceObserver (credit 100 > received 80). Now no staff note lands
-     * on a credit purchase: staff cancel it and make a new one with the right amount.
+     * pay; the 80 paid at Stripe was rolled back by InvoiceObserver (credit 100 > received 80). Now no staff note that
+     * lowers it lands on a credit purchase that still has its credit to give: staff cancel it and make a new one with the right amount.
      *
      * Rewritten from the adversarial test (which expected the payment of the discounted invoice to be recorded): the
      * setup it used is what is refused now. The payment of an invoice that already has such a note is the next test.
@@ -70,13 +70,11 @@ class Sweep6MoneyLedgerTest extends TestCase
     {
         $invoice = $this->creditPurchase();
 
-        foreach ([[AdjustmentNoteType::Credit, -20], [AdjustmentNoteType::Debit, 20]] as [$type, $amount]) {
-            try {
-                $invoice->adjustmentNotes()->create(['type' => $type->value, 'amount' => $amount, 'description' => 'Discount']);
-                $this->fail('a staff note landed on a credit purchase');
-            } catch (DisplayException $e) {
-                $this->assertStringContainsString('buys account credit', $e->getMessage());
-            }
+        try {
+            $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -20, 'description' => 'Discount']);
+            $this->fail('a discount note landed on a credit purchase');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('buys account credit', $e->getMessage());
         }
         $this->assertSame(0, $invoice->adjustmentNotes()->count());
         $this->assertEqualsWithDelta(100.0, (float) $invoice->fresh()->remaining, 0.001);

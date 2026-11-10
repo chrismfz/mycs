@@ -72,7 +72,7 @@ class AddFundsCancelAdversarialTest extends TestCase
     {
         $draft = $this->addFunds(status: 'draft');
         $empty = $this->invoice(31, []);
-        $discount = $this->invoice(31, [['reference_type' => Credit::class, 'description' => 'Add Funds'], ['description' => 'Discount', 'price' => -5]]);
+        $discount = $this->invoice(31, [['reference_type' => Credit::class, 'description' => 'Add Funds'], ['description' => 'Setup fee', 'price' => 5]]); // not only credit (a discount line is refused: S6-MONEY-LEDGER-1)
         $justOld = $this->addFunds(29);
 
         $this->artisan('app:cron-job');

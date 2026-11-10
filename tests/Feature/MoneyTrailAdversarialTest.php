@@ -426,12 +426,12 @@ class MoneyTrailAdversarialTest extends TestCase
     {
         $deposit = $this->invoiceFor($this->user, 5000, creditPurchase: true);
         ExtensionHelper::addPayment($deposit->id, 'Stripe', 50.00, null, 'pi_dep2', currency: 'USD');
-        $odd = $this->invoiceFor($this->user, -1000, creditPurchase: true);
-
         try {
+            $odd = $this->invoiceFor($this->user, -1000, creditPurchase: true);
             $odd->update(['status' => 'paid']); // staff mark it paid (its total is negative, nothing to pay)
         } catch (DisplayException) {
-            // Refused since 2b: an invoice paid over its total closes only through «Close as paid» (settle).
+            // Refused since 2b: an invoice paid over its total closes only through «Close as paid» (settle). Since
+            // S6-MONEY-LEDGER-1 the negative credit line itself is refused.
         }
 
         $this->assertCreditsMatchJournal();
