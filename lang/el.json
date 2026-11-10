@@ -99,9 +99,7 @@
     "This invoice is cancelled: reopen it to record the payment on it.": "Το τιμολόγιο είναι ακυρωμένο: ξανάνοιξέ το για να καταγράψεις την πληρωμή σε αυτό.",
     "Payment not recorded: see the log for details.": "Η πληρωμή δεν καταγράφηκε: δες το log για λεπτομέρειες.",
     "If the customer already used the credit this payment gave, delete it anyway: their credit goes negative (they owe it).": "Αν ο πελάτης έχει ήδη χρησιμοποιήσει την πίστωση που έδωσε αυτή η πληρωμή, διάγραψέ την ούτως ή άλλως: η πίστωσή του γίνεται αρνητική (τη χρωστά).",
-    "An adjustment note is never edited: void it and write a new one.": "Ένα adjustment note δεν αλλάζει ποτέ: ακύρωσέ το (void) και γράψε νέο.",
     "A refund's adjustment note follows its refund: it is never voided.": "Το adjustment note μιας επιστροφής ακολουθεί την επιστροφή: δεν ακυρώνεται ποτέ.",
-    "An adjustment note is never deleted: void it instead.": "Ένα adjustment note δεν διαγράφεται ποτέ: ακύρωσέ το (void).",
     "Void": "Ακύρωση (void)",
     "Unvoid": "Επαναφορά",
     "Its amount counts in the invoice total again.": "Το ποσό του μετρά ξανά στο σύνολο του τιμολογίου.",
@@ -1760,5 +1758,10 @@
     "This invoice stays paid and is now paid :amount :currency over its total: «Close as paid» gives the part over to the customer as account credit. The periods it already gave stay given: nothing is renewed or taken back.": "Αυτό το τιμολόγιο μένει εξοφλημένο και έχει πλέον πληρωθεί :amount :currency πάνω από το σύνολό του: το «Close as paid» δίνει το επιπλέον στον πελάτη ως πίστωση λογαριασμού. Οι περίοδοι που έδωσε ήδη μένουν: τίποτα δεν ανανεώνεται ούτε παίρνεται πίσω.",
     "This invoice stays paid and now owes :amount :currency: record the payment on it («Add payment»), or leave it. The periods it already gave stay given: nothing is renewed or taken back.": "Αυτό το τιμολόγιο μένει εξοφλημένο και χρωστά πλέον :amount :currency: κατάγραψε την πληρωμή πάνω του («Add payment») ή άφησέ το. Οι περίοδοι που έδωσε ήδη μένουν: τίποτα δεν ανανεώνεται ούτε παίρνεται πίσω.",
     "No payment is recorded: mark it paid anyway, with :amount :currency still owed on it. Its services are renewed. (To record the money, use «Mark Paid» instead.)": "Δεν καταγράφεται πληρωμή: σημείωσέ το εξοφλημένο ούτως ή άλλως, με :amount :currency να οφείλονται ακόμη. Οι υπηρεσίες του ανανεώνονται. (Για να καταγράψεις τα χρήματα, χρησιμοποίησε το «Mark Paid».)",
-    "Marked paid by staff, no payment": "Σημειώθηκε εξοφλημένο από το staff, χωρίς πληρωμή"
+    "Marked paid by staff, no payment": "Σημειώθηκε εξοφλημένο από το staff, χωρίς πληρωμή",
+    "An adjustment note keeps its invoice and its number: only its description and amount are edited.": "Ένα adjustment note κρατά το τιμολόγιο και τον αριθμό του: αλλάζουν μόνο η περιγραφή και το ποσό του.",
+    "This note follows a refund or a cancellation: it is not edited by hand.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση: δεν αλλάζει με το χέρι.",
+    "This note follows a refund or a cancellation: it is not deleted by hand.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση: δεν διαγράφεται με το χέρι.",
+    "This note follows a refund or a cancellation, or its invoice is refunded or has a fiscal document from Ekdosi: it stays as it is.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση, ή το τιμολόγιό του έχει επιστροφή χρημάτων ή παραστατικό από το Ekdosi: μένει ως έχει.",
+    "The note is removed from the invoice, whose total changes. Its number is not used again.": "Το σημείωμα αφαιρείται από το τιμολόγιο και το σύνολό του αλλάζει. Ο αριθμός του δεν χρησιμοποιείται ξανά."
 }

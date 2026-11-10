@@ -63,36 +63,56 @@ class AdjustmentNoteObserver
 
     public function updated(AdjustmentNote $adjustmentNote): void
     {
-        if ($adjustmentNote->wasChanged('status')) {
+        if ($adjustmentNote->wasChanged(['status', 'amount'])) {
             EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
         }
     }
 
+    /** What staff may correct on a note they wrote (owner 2026-11-10): its text and its amount (the type follows the sign). */
+    private const EDITABLE = ['description', 'amount', 'type'];
+
     /**
-     * Append-only (docs/money-trail.md, MT-1c; audit INV-9): a note is never edited, only voided or unvoided. A wrong
-     * note is voided and a new one written. A refund's note follows its transaction (refunded_amount): never voided.
+     * A note staff wrote is theirs to correct (owner 2026-11-10, docs/staff-freedom.md; it was append-only, MT-1c / audit
+     * INV-9): its description and amount change, and it is voided or unvoided, while its invoice is not refunded and has
+     * no fiscal document from Ekdosi. Each change is in the note's audit, as a void is. Its invoice and number stay; a
+     * refund's note follows its transaction (refunded_amount) and a cancellation's its invoice: never edited by hand.
      */
     public function updating(AdjustmentNote $adjustmentNote): void
     {
-        if (array_diff(array_keys($adjustmentNote->getDirty()), ['status', 'updated_at']) !== []) {
-            throw new DisplayException(__('An adjustment note is never edited: void it and write a new one.'));
+        $dirty = array_diff(array_keys($adjustmentNote->getDirty()), ['updated_at']);
+        if (array_diff($dirty, ['status', ...self::EDITABLE]) !== []) {
+            throw new DisplayException(__('An adjustment note keeps its invoice and its number: only its description and amount are edited.'));
+        }
+        if (array_intersect($dirty, self::EDITABLE) !== [] && !$adjustmentNote->isVoidableByStaff()) {
+            throw new DisplayException(__('This note follows a refund or a cancellation: it is not edited by hand.'));
         }
         if ($adjustmentNote->isDirty('status') && $adjustmentNote->is_refund
             && $adjustmentNote->status !== AdjustmentNoteStatus::Active) {
             throw new DisplayException(__('A refund\'s adjustment note follows its refund: it is never voided.'));
         }
-        if ($adjustmentNote->isDirty('status')) {
+        if ($dirty !== []) {
             self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
         }
-        // Voiding a note on a credit purchase puts its amount right; bringing one back does not.
-        if ($adjustmentNote->isDirty('status') && $adjustmentNote->status === AdjustmentNoteStatus::Active) {
+        // Voiding a note on a credit purchase puts its amount right; bringing one back, or lowering it further, does not.
+        if ($adjustmentNote->isDirty(['status', 'amount']) && $adjustmentNote->status === AdjustmentNoteStatus::Active) {
             self::refuseStaffNoteOnCreditPurchase($adjustmentNote);
         }
     }
 
-    /** Append-only: a note goes only with its invoice (an invoice without payments, deleted by staff). */
+    /**
+     * Staff delete a note they wrote, under the same rule as an edit (owner 2026-11-10; a gap in the notes' numbers is
+     * fine: they are no fiscal documents). A refund's or a cancellation's note goes only with its invoice.
+     */
     public function deleting(AdjustmentNote $adjustmentNote): void
     {
-        throw new DisplayException(__('An adjustment note is never deleted: void it instead.'));
+        if (!$adjustmentNote->isVoidableByStaff()) {
+            throw new DisplayException(__('This note follows a refund or a cancellation: it is not deleted by hand.'));
+        }
+        self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
+    }
+
+    public function deleted(AdjustmentNote $adjustmentNote): void
+    {
+        EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
     }
 }

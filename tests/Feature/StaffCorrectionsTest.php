@@ -311,25 +311,37 @@ class StaffCorrectionsTest extends TestCase
         $this->assertSame(0, Artisan::call('mycs:credits-check'), 'The journal does not match the negative balance.');
     }
 
-    // ------------------------------------------------------------------ adjustment notes: append-only
+    // ------------------------------------------------------------------ adjustment notes
 
-    public function test_an_adjustment_note_is_never_edited_or_deleted_only_voided(): void
+    /**
+     * Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-22): a note staff wrote was append-only (only voided); now its amount
+     * and description are edited and it is deleted, the invoice's total following each time. Its invoice and number stay.
+     */
+    public function test_an_adjustment_note_staff_wrote_is_edited_voided_and_deleted(): void
     {
         $invoice = $this->invoice();
         $note = $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'Goodwill']);
+        $number = $note->number;
 
-        foreach ([fn () => $note->update(['amount' => -20]), fn () => $note->update(['description' => 'Other']), fn () => $note->delete()] as $change) {
-            try {
-                $change();
-                $this->fail('An adjustment note was changed.');
-            } catch (DisplayException) {
-            }
-            $note->refresh();
+        $note->update(['amount' => -20]);
+        $note->update(['description' => 'Other']);
+        $this->assertSame(['-20.00', 'Other', $number], [$note->fresh()->amount, $note->fresh()->description, $note->fresh()->number]);
+        $this->assertSame(80.0, $invoice->fresh()->total);
+        try {
+            $note->update(['number' => 'X-1']);
+            $this->fail('An adjustment note changed its number.');
+        } catch (DisplayException) {
         }
-        $this->assertSame(['-10.00', 'Goodwill'], [$note->amount, $note->description]);
+        $note->refresh();
 
         $note->update(['status' => AdjustmentNoteStatus::Voided]);
         $this->assertSame(AdjustmentNoteStatus::Voided, $note->fresh()->status);
+        $this->assertSame(100.0, $invoice->fresh()->total);
+
+        $note->update(['status' => AdjustmentNoteStatus::Active]);
+        $this->assertSame(80.0, $invoice->fresh()->total);
+        $note->delete();
+        $this->assertSame(0, AdjustmentNote::query()->count());
         $this->assertSame(100.0, $invoice->fresh()->total);
     }
 
