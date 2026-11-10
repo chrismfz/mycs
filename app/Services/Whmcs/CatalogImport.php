@@ -898,9 +898,12 @@ final class CatalogImport
                 // WHMCS's on a new TLD only: on a re-run its registrar's word stays (Openprovider's is_private_whois_allowed,
                 // WG-32, ADV-670-2).
                 'id_protection' => $tld->exists ? $tld->id_protection : (bool) ($row['idprotection'] ?? false),
-                // WHMCS -1: the registrar's / not offered.
-                'grace_days' => (int) ($row['grace_period'] ?? -1) >= 0 ? (int) $row['grace_period'] : null,
-                'redemption_days' => (int) ($row['redemption_grace_period'] ?? -1) >= 0 ? (int) $row['redemption_grace_period'] : null,
+                // WHMCS -1: the registrar's / not offered: not known here, but for .gr and its second-level forms, whose
+                // registry's days are known (DomainTld::GR_STAGE_DAYS, owner 2026-11-10): 15 of grace, no redemption.
+                'grace_days' => (int) ($row['grace_period'] ?? -1) >= 0 ? (int) $row['grace_period']
+                    : (DomainTld::isGr($name) ? DomainTld::GR_STAGE_DAYS['grace_days'] : null),
+                'redemption_days' => (int) ($row['redemption_grace_period'] ?? -1) >= 0 ? (int) $row['redemption_grace_period']
+                    : (DomainTld::isGr($name) ? DomainTld::GR_STAGE_DAYS['redemption_days'] : null),
                 'sort' => (int) ($row['order'] ?? 0),
             ]);
             if ($autoreg !== '' && isset($connections[$autoreg])) {

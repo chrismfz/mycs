@@ -105,7 +105,10 @@ class Sweep7DomainsTest extends TestCase
         $this->artisan('domains:sync')->assertExitCode(0); // moves it by its dates (DomainLifecycle)
         $this->cron();
         $this->assertSame(DomainStatus::Expired, $dead->fresh()->status, 'precondition: still expired, never terminal');
-        $this->assertSame(Invoice::STATUS_UNPAID, $deadInvoice->fresh()->status, 'precondition: its renewal invoice was left open');
+        // The fix (owner 2026-11-10): past its last recoverable day (unknown stage days: expiry + 30) the cron gives its
+        // open renewal invoice up, though the row is not terminal. Before, it was left open here and credit paid it below.
+        // Credit meeting such an invoice before the cron does: Sweep7DomainsFixTest.
+        $this->assertSame(Invoice::STATUS_CANCELLED, $deadInvoice->fresh()->status, 'its renewal invoice is cancelled by the cron');
         $liveInvoice = $this->renewalInvoice($live);
         $this->assertSame(Invoice::STATUS_UNPAID, $liveInvoice->fresh()->status, 'precondition: the live domain is billed, unpaid');
         $this->assertNotSame($deadInvoice->id, $liveInvoice->id);

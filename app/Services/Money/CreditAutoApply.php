@@ -270,6 +270,12 @@ class CreditAutoApply
             ->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())->orWhere('auto_renew', false))->exists()) {
             return false;
         }
+        // Nor of one lapsed past its last recoverable day (sweep 7 S7-DOMAINS-1): the cron cancels this invoice tonight
+        // (domain_invoices_cancelled, the same rule); a payment the customer makes on purpose is theirs to make.
+        if ($domains->isNotEmpty() && Domain::query()->with('domainTld')->whereIn('id', $domains)->whereIn('status', Domain::lapsedValues())->get()
+            ->contains(fn (Domain $domain) => $domain->lapsedForGood())) {
+            return false;
+        }
         $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();
         if ($services->isEmpty()) {
             return true;
