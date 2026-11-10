@@ -302,7 +302,6 @@ final class MoveToClient
             // Its preferred method: the new account's own (the observer's), never the old account's card's gateway.
             $new = new Invoice(['client_id' => $to->id, 'status' => $invoice->status, 'due_at' => $invoice->due_at, 'currency_code' => $invoice->currency_code]);
             $new->split_from_id = $invoice->id;
-            $new->split_at = now()->toImmutable();
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;
             $new->no_auto_charge = (bool) $invoice->no_auto_charge;
             $new->created_at = $invoice->created_at;
