@@ -11,7 +11,7 @@ final class EkdosiRequest
 {
     /**
      * The request is gone, as the app decided (cancelled, refunded, set back to unpaid, moved, another currency, its lines
-     * or notes changed, merged into, its document issued): cleared in the database (it was written by a query; a model may predate it) and in the invoice's audit with
+     * or notes changed, its document issued): cleared in the database (it was written by a query; a model may predate it) and in the invoice's audit with
      * why (R2-1 of #478). Nothing when there was none.
      */
     public static function forget(int $invoiceId, string $why): void

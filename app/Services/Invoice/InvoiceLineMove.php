@@ -62,10 +62,18 @@ final class InvoiceLineMove
         if ($invoice->status !== Invoice::STATUS_UNPAID) {
             return __('Invoice :invoice is not unpaid: only unpaid invoices are merged or split.', ['invoice' => $label]);
         }
-        // Ekdosi issued a fiscal document for it (on credit): its lines elsewhere would come back to the Inbox and be
-        // issued twice, or carry a document in one account's ΑΦΜ to another account (ADV-2 of #459). Ekdosi cancels it first.
+        // Once it is Ekdosi's, it stays as it is (owner 2026-11-10, «issued is final»; docs/ekdosi-bridge.md): its lines
+        // elsewhere would be issued twice, or under a document of another total or another account's ΑΦΜ. So a split or a
+        // move is always older than what Ekdosi read, and the write-back has nothing to ask about one (S7-TAX-EKDOSI-1).
         if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
-            return __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]);
+            return __('Invoice :invoice has a fiscal document from Ekdosi: issued is final. It is not merged, split or moved; a correction is made in Ekdosi.', ['invoice' => $label]);
+        }
+        if ($invoice->ekdosi_requested_at !== null) {
+            return __('Invoice :invoice was sent to Ekdosi: withdraw the request («Withdraw from Ekdosi») and remove it from Ekdosi\'s inbox first.', ['invoice' => $label]);
+        }
+        // «Immediate invoicing»: Ekdosi reads the account's unpaid invoices with no request, from the day they are issued.
+        if (config('settings.ekdosi_enabled') && $invoice->client?->immediate_invoicing) {
+            return __('Invoice :invoice is of an account with «immediate invoicing»: Ekdosi reads it as soon as it is issued, so it is not merged, split or moved. Cancel it and issue new ones.', ['invoice' => $label]);
         }
         if ($invoice->hasPayments(lock: true)) {
             return __('Invoice :invoice has payments: refund or delete them first.', ['invoice' => $label]);
