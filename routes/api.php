@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\DomainCheckController;
 use App\Http\Controllers\Api\DomainPricingController;
 use App\Http\Controllers\Api\EkdosiBridgeController;
 use App\Http\Controllers\Api\ProxmoxConsoleCheckController;
+use App\Http\Middleware\Api\IdempotencyKey;
 use Illuminate\Support\Facades\Route;
 
 // The domain price list for the company's site (D8a): public, cached, 60 a minute per address.
@@ -48,19 +49,20 @@ Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => '
     ]);
 
     // An invoice's payments, refunds and adjustment notes, as the panel's tables correct them (owner 2026-11-10,
-    // docs/staff-freedom.md): each id belongs to the invoice in the URL (scoped: 404 otherwise).
+    // docs/staff-freedom.md): each id belongs to the invoice in the URL (scoped: 404 otherwise). The POSTs that write
+    // money take an Idempotency-Key header: a retry after a timeout is made once.
     Route::scopeBindings()->prefix('invoices/{invoice}')->name('invoices.')->group(function () {
         Route::get('payments', [InvoicePaymentController::class, 'index'])->name('payments.index');
-        Route::post('payments', [InvoicePaymentController::class, 'store'])->name('payments.store');
+        Route::post('payments', [InvoicePaymentController::class, 'store'])->middleware(IdempotencyKey::class)->name('payments.store');
         Route::get('payments/{transaction}', [InvoicePaymentController::class, 'show'])->name('payments.show');
         Route::put('payments/{transaction}', [InvoicePaymentController::class, 'update'])->name('payments.update');
         Route::delete('payments/{transaction}', [InvoicePaymentController::class, 'destroy'])->name('payments.destroy');
         Route::get('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refunds'])->name('payments.refunds.index');
-        Route::post('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refund'])->name('payments.refunds.store');
-        Route::delete('payments/{transaction}/refunds/{refund}', [InvoicePaymentController::class, 'undoRefund'])->whereNumber('refund')->name('payments.refunds.destroy');
+        Route::post('payments/{transaction}/refunds', [InvoicePaymentController::class, 'refund'])->middleware(IdempotencyKey::class)->name('payments.refunds.store');
+        Route::delete('payments/{transaction}/refunds/{refund}', [InvoicePaymentController::class, 'undoRefund'])->where('refund', '[0-9]{1,18}')->name('payments.refunds.destroy');
 
         Route::get('adjustment-notes', [InvoiceAdjustmentNoteController::class, 'index'])->name('adjustment-notes.index');
-        Route::post('adjustment-notes', [InvoiceAdjustmentNoteController::class, 'store'])->name('adjustment-notes.store');
+        Route::post('adjustment-notes', [InvoiceAdjustmentNoteController::class, 'store'])->middleware(IdempotencyKey::class)->name('adjustment-notes.store');
         Route::put('adjustment-notes/{adjustment_note}', [InvoiceAdjustmentNoteController::class, 'update'])->name('adjustment-notes.update');
         Route::post('adjustment-notes/{adjustment_note}/void', [InvoiceAdjustmentNoteController::class, 'void'])->name('adjustment-notes.void');
         Route::post('adjustment-notes/{adjustment_note}/unvoid', [InvoiceAdjustmentNoteController::class, 'unvoid'])->name('adjustment-notes.unvoid');
