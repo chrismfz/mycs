@@ -116,7 +116,11 @@ final class MoneyCheck
                 . ' at ' . rtrim(rtrim((string) $item->tax_rate, '0'), '.') . '%' . ($item->taxed ? '' : ' (not taxed)')));
     }
 
-    /** A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). */
+    /**
+     * A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). Staff may leave one otherwise
+     * on purpose (owner 2026-11-10: marked paid with no payment, a line changed after it was paid): still listed, never
+     * an error of the code, and said as what it is so they can tell it from one that is.
+     */
     private function paidBalance(): void
     {
         Invoice::query()->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->with(['items', 'adjustmentNotes', 'transactions'])
@@ -124,8 +128,10 @@ final class MoneyCheck
                 foreach ($invoices as $invoice) {
                     $remaining = self::remainingCents($invoice);
                     if ($remaining !== 0) {
-                        $this->add('paid_balance', "invoice #{$invoice->id}", ($remaining > 0 ? 'still to pay ' : 'paid over ')
-                            . self::money(abs($remaining)) . " {$invoice->currency_code}");
+                        $noMoney = $remaining > 0 && $invoice->status === Invoice::STATUS_PAID
+                            && !$invoice->transactions->contains('status', InvoiceTransactionStatus::Succeeded);
+                        $this->add('paid_balance', "invoice #{$invoice->id}", ($noMoney ? 'marked paid by staff, no payment: ' : '')
+                            . ($remaining > 0 ? 'still to pay ' : 'paid over ') . self::money(abs($remaining)) . " {$invoice->currency_code}");
                     }
                 }
             });

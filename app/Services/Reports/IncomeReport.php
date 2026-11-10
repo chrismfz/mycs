@@ -73,7 +73,9 @@ final class IncomeReport
                 continue; // a credit purchase only: not income
             }
             [$net, $total] = self::amounts($line, self::cents($notes[$invoice->id] ?? 0));
-            $add(self::row($invoice, CarbonImmutable::instance($invoice->paid_at), $net, $total, self::paidWith($invoice)));
+            // Paid with no money on it (staff marked it paid by hand, owner 2026-11-10): listed as any paid invoice, and said.
+            $with = self::paidWith($invoice);
+            $add(self::row($invoice, CarbonImmutable::instance($invoice->paid_at), $net, $total, $with === '' && $total > 0 ? __('Marked paid by staff, no payment') : $with));
         }
 
         // Refunds and credit notes made in the year on invoices paid before it: their own rows.

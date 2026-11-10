@@ -68,11 +68,19 @@ class EditInvoice extends EditRecord
             });
             // Its money and its total no longer agree (it owes on while paid, or is paid over): said, never left to be
             // found (owner 2026-11-10).
-            if ($amountsChanged && ($notice = StaffLineEdit::balanceNotice($this->record->getKey())) !== null) {
+            $markedPaid = $this->record instanceof Invoice && $this->record->paid_without_payment;
+            if ($markedPaid) {
+                $this->data['paid_without_payment'] = false;
+            }
+            if (($amountsChanged || $markedPaid) && ($notice = StaffLineEdit::balanceNotice($this->record->getKey())) !== null) {
                 Notification::make()->warning()->title(__('Check its balance'))->body(e($notice))->persistent()->send();
             }
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Invoice not saved'))->body(e($e->getMessage()))->send();
+        } finally {
+            if ($this->record instanceof Invoice) {
+                $this->record->paid_without_payment = false; // staff's word for this one save, saved or refused
+            }
         }
     }
 
@@ -226,13 +234,17 @@ class EditInvoice extends EditRecord
 
             throw new Halt;
         }
-        // Paid only by recording its payment (MT-1c; InvoiceObserver::updating refuses it too): say why.
+        // Paid by recording its payment (MT-1c; InvoiceObserver::updating refuses it too): say why. An unpaid one staff
+        // set to «paid» with the confirmation ticked is theirs to mark (owner 2026-11-10): the model is told, this save only.
         if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
             && RecordPaymentService::toCents($invoice->fresh()->remaining) > 0) {
-            Notification::make()->danger()->title(__('Invoice not saved'))
-                ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
+            if ($invoice->getOriginal('status') !== Invoice::STATUS_UNPAID || !($this->data['paid_without_payment'] ?? false)) {
+                Notification::make()->danger()->title(__('Invoice not saved'))
+                    ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
 
-            throw new Halt;
+                throw new Halt;
+            }
+            $invoice->paid_without_payment = true;
         }
         // Paid over its total (a line taken off, a discount): the part over is the customer's, given by «Close as paid».
         if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID

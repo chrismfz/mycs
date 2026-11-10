@@ -169,6 +169,13 @@ class InvoiceResource extends Resource
         } : null);
     }
 
+    /** Staff are setting an unpaid invoice that still owes to «paid» (the status select): the confirmation is asked. */
+    public static function marksPaidWithoutPayment(?Invoice $invoice, mixed $status): bool
+    {
+        return $invoice !== null && $status === Invoice::STATUS_PAID && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID
+            && RecordPaymentService::toCents($invoice->remaining) > 0;
+    }
+
     /** The invoice of the page a line's field is on (inside the repeater, `$record` is the line). */
     private static function pageInvoice(mixed $livewire): ?Invoice
     {
@@ -242,21 +249,32 @@ class InvoiceResource extends Resource
                                     ->label('Status')
                                     ->required()
                                     ->options(Invoice::statusOptions())
-                                    // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
-                                    // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
-                                    // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
-                                    // Refunded only by refunding its payments, and final (PR 2c); a paid invoice is refunded, never
-                                    // cancelled (INV-16).
+                                    // Paid by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice. An
+                                    // unpaid one with something left to pay may be set paid here with the confirmation below (owner
+                                    // 2026-11-10). Paid over its total, it is closed with «Close as paid», which gives the part over as
+                                    // credit (2b). A cancelled invoice is reopened first. Refunded only by refunding its payments, and
+                                    // final (PR 2c); a paid invoice is refunded, never cancelled (INV-16).
+                                    ->live()
                                     ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => ($value === Invoice::STATUS_PAID
                                         && $record?->getOriginal('status') !== Invoice::STATUS_PAID
                                         && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
-                                            || RecordPaymentService::toCents($record->remaining) !== 0))
+                                            || RecordPaymentService::toCents($record->remaining) < 0
+                                            || ($record->getOriginal('status') !== Invoice::STATUS_UNPAID && RecordPaymentService::toCents($record->remaining) !== 0)))
                                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
                                     ->default(Invoice::STATUS_UNPAID)
                                     // Cancelled here too: the fiscal document from Ekdosi stands (E2).
                                     ->helperText(fn (?Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                                     ->placeholder('Select the status of the invoice'),
+                                // «Paid» chosen with money still owed: staff confirm that none is recorded (owner 2026-11-10).
+                                Checkbox::make('paid_without_payment')
+                                    ->label(fn (?Invoice $record): string => __('No payment is recorded: mark it paid anyway, with :amount :currency still owed on it. Its services are renewed. (To record the money, use «Mark Paid» instead.)', [
+                                        'amount' => number_format(max(0, RecordPaymentService::toCents($record?->remaining ?? 0)) / 100, 2, '.', ''), 'currency' => (string) $record?->currency_code,
+                                    ]))
+                                    ->visible(fn (Get $get, ?Invoice $record): bool => self::marksPaidWithoutPayment($record, $get('status')))
+                                    ->accepted()
+                                    ->dehydrated(false)
+                                    ->columnSpanFull(),
                                 Select::make('currency_code')
                                     ->label('Currency')
                                     ->required()

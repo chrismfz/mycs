@@ -142,9 +142,10 @@ class InvoiceObserver
             }
         }
         // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
-        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
-        // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the
-        // payment locks for this change.
+        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. No code path marks it paid by its
+        // status alone; staff may, on an unpaid invoice, saying so ($paid_without_payment, owner 2026-11-10: its services
+        // renew, as they meant, and no payment row is made up). Never the credit it sells: a credit purchase needs its
+        // money, below. Read locked: Invoice::save holds the payment locks for this change.
         // No longer paid: nothing left to apply (BIL-9); paid again, it is marked again.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
             $invoice->apply_pending_since = null;
@@ -152,7 +153,7 @@ class InvoiceObserver
         if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
             && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
             $remaining = RecordPaymentService::toCents($invoice->withLockedBalance()->remaining);
-            if ($remaining > 0) {
+            if ($remaining > 0 && !($invoice->paid_without_payment && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID)) {
                 throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
             }
             // Paid over its total: the part over is the customer's, given only by RecordPaymentService::settle (2b).

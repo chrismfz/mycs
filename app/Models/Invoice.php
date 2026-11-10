@@ -244,6 +244,13 @@ class Invoice extends Model implements Auditable
     public ?bool $keep_periods_billable = null;
 
     /**
+     * Staff chose «paid» with money still owed on it and confirmed that no payment is recorded (owner 2026-11-10,
+     * docs/staff-freedom.md): the status select of its page, or the Admin API's `paid_without_payment`. Not stored: this
+     * model, this one save. Without it «paid» follows a payment, as ever (InvoiceObserver). Never for a credit purchase.
+     */
+    public bool $paid_without_payment = false;
+
+    /**
      * Cancelled as a consequence of its service (CancelOpenInvoices: it ends, changes cycle), not by staff. Not stored. Such
      * a cancellation goes on while a saved-card charge of it is unsettled (a payment that lands becomes credit); staff's own
      * is refused until it settles (sweep2 F-STAFF-ADMIN-MONEY-2).

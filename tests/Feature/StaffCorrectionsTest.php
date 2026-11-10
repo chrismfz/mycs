@@ -144,22 +144,28 @@ class StaffCorrectionsTest extends TestCase
     }
 
     /**
-     * The admin form: «Paid» is no option while something is left to pay (EditInvoice::beforeSave and the model refuse
-     * it too). In its own process: after some earlier test in the suite, Livewire's update route is gone.
+     * The admin form: «Paid» with something left to pay asks staff to confirm that no payment is recorded (rewritten
+     * 2026-11-10, TIGHT-INVOICES-PAYMENTS-4: it was no option at all); without the confirmation nothing is saved. In its
+     * own process: after some earlier test in the suite, Livewire's update route is gone.
      */
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
-    public function test_the_admin_form_does_not_mark_an_invoice_paid_without_a_payment(): void
+    public function test_the_admin_form_marks_an_invoice_paid_without_a_payment_only_when_staff_confirm(): void
     {
         $invoice = $this->invoice();
 
-        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $page = $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->set('data.status', Invoice::STATUS_PAID)
             ->call('save')
-            ->assertHasFormErrors(['status']); // a disabled option
+            ->assertHasFormErrors(['paid_without_payment']);
 
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $this->assertSame(0, InvoiceTransaction::query()->count());
+
+        $page->set('data.paid_without_payment', true)->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame(0, InvoiceTransaction::query()->count(), 'no payment row is made up');
+        $this->assertGreaterThan(0, $invoice->fresh()->remaining, 'and it says what it still owes');
     }
 
     // ------------------------------------------------------------------ Mark Paid
