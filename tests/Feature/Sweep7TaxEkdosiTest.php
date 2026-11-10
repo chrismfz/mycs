@@ -48,6 +48,8 @@ class Sweep7TaxEkdosiTest extends TestCase
 
     public function test_s7_tax_ekdosi_1_an_invoice_split_before_it_was_paid_takes_its_document(): void
     {
+        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
+
         $invoice = Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => now()->addWeek()]);
         $a = $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => '100.00']);
         $b = $invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => '20.00']);

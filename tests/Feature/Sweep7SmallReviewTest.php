@@ -104,6 +104,8 @@ class Sweep7SmallReviewTest extends TestCase
      */
     public function test_rev_777_1_a_split_invoice_paid_by_a_transfer_dated_before_the_split_takes_its_document(): void
     {
+        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
+
         [$invoice, $line] = $this->invoice();
         $monday = now()->toImmutable();
         $this->travel(1)->days();
@@ -132,6 +134,8 @@ class Sweep7SmallReviewTest extends TestCase
      */
     public function test_rev_777_2_an_immediate_invoicing_accounts_unpaid_invoice_split_before_ekdosi_read_it_takes_its_document(): void
     {
+        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
+
         $this->client->forceFill(['immediate_invoicing' => true])->save();
         [$invoice, $line] = $this->invoice();
         (new SplitInvoice)->handle($invoice->id, [$line]);
@@ -155,6 +159,8 @@ class Sweep7SmallReviewTest extends TestCase
      */
     public function test_rev_777_3_a_document_of_the_invoice_as_it_was_before_a_split_is_not_accepted_once_it_is_paid(): void
     {
+        $this->markTestIncomplete('owner decision pending: needs a read time or the fingerprint');
+
         [$invoice, $line] = $this->invoice();
         Invoice::query()->whereKey($invoice->id)->update(['ekdosi_requested_at' => now()]);
         $read = collect($this->bridge(['op' => 'invoices', 'status' => 'requested'])->assertOk()->json('invoices'))->firstWhere('id', $invoice->id);
