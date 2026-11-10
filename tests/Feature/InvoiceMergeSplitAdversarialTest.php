@@ -190,17 +190,24 @@ class InvoiceMergeSplitAdversarialTest extends TestCase
 
     /**
      * E-ADV-3 (medium; fixed by CR-4). An order's invoice merged away: «Cancel & Refund» refunds orders.invoice_id, the
-     * empty merged one, so nothing was refunded and nothing reported. Now an order's invoice is not merged.
+     * empty merged one, so nothing was refunded and nothing reported. CR-4 refused the merge; since 2026-11-10
+     * (TIGHT-INVOICES-PAYMENTS-26) it is merged and the order follows its lines to the target, so «Cancel & Refund»
+     * looks at the invoice that bills it (and leaves a refund to staff when that bills other things too).
      */
-    public function test_an_orders_invoice_is_not_merged_away(): void
+    public function test_an_orders_invoice_is_merged_and_its_order_follows_its_lines(): void
     {
         $product = $this->product()->product;
         $place = fn () => (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '10.00')]);
         $first = $place();
         $second = $place();
+        $merged = $second->invoice->id;
 
-        $this->expectException(DisplayException::class);
-        (new MergeInvoices)->handle($first->invoice->id, [$second->invoice->id]);
+        (new MergeInvoices)->handle($first->invoice->id, [$merged]);
+
+        $this->assertSame((int) $first->invoice->id, (int) $second->order->fresh()->invoice_id, 'the order points at the invoice its lines are on');
+        $this->assertSame((int) $first->invoice->id, (int) $first->order->fresh()->invoice_id);
+        $this->assertSame(0, Invoice::query()->findOrFail($merged)->items()->count());
+        $this->assertSame(2, $first->invoice->fresh()->items()->count());
     }
 
     /**

@@ -285,7 +285,6 @@
     "Invoice :invoice has a line already applied.": "Το τιμολόγιο :invoice έχει γραμμή που έχει ήδη εφαρμοστεί.",
     "Invoice :invoice has payments: refund or delete them first.": "Το τιμολόγιο :invoice έχει πληρωμές: επίστρεψέ τες ή διάγραψέ τες πρώτα.",
     "Invoice :invoice is being finished by the renewal run: try again in a minute.": "Το τιμολόγιο :invoice ολοκληρώνεται από τις ανανεώσεις: δοκίμασε ξανά σε ένα λεπτό.",
-    "Invoice :invoice is not unpaid: only unpaid invoices are merged or split.": "Το τιμολόγιο :invoice δεν είναι απλήρωτο: μόνο απλήρωτα τιμολόγια συγχωνεύονται ή χωρίζονται.",
     "Invoice :invoice is paid by a gateway subscription: it is not merged or split.": "Το τιμολόγιο :invoice πληρώνεται από συνδρομή gateway: δεν συγχωνεύεται ούτε χωρίζεται.",
     "Invoice not split": "Το τιμολόγιο δεν χωρίστηκε",
     "Invoices not merged": "Τα τιμολόγια δεν συγχωνεύτηκαν",
@@ -302,7 +301,6 @@
     "Split into invoice :invoice": "Χωρίστηκε στο τιμολόγιο :invoice",
     "The lines of the other invoices move onto the one you keep, with their tax as issued. It takes the earliest due date. The others are cancelled, «merged into» it. Only unpaid invoices of one customer and currency, without payments or credit notes.": "Οι γραμμές των άλλων τιμολογίων μεταφέρονται σε αυτό που κρατάς, με τον φόρο που εκδόθηκαν. Παίρνει την πιο νωρίς ημερομηνία λήξης. Τα άλλα ακυρώνονται ως «συγχωνεύτηκε στο». Μόνο απλήρωτα τιμολόγια ενός πελάτη και νομίσματος, χωρίς πληρωμές ή πιστωτικά.",
     "The lines you choose move to a new unpaid invoice, with their tax as issued and the same due date. Its email is not sent.": "Οι γραμμές που διαλέγεις μεταφέρονται σε νέο απλήρωτο τιμολόγιο, με τον φόρο που εκδόθηκαν και την ίδια ημερομηνία λήξης. Το email του δεν στέλνεται.",
-    "These invoices bill the customer under different details (name, address or tax): they are not merged.": "Αυτά τα τιμολόγια χρεώνουν τον πελάτη με διαφορετικά στοιχεία (όνομα, διεύθυνση ή φόρο): δεν συγχωνεύονται.",
     "This invoice was merged into invoice #:id: its lines are there.": "Αυτό το τιμολόγιο συγχωνεύτηκε στο #:id: οι γραμμές του είναι εκεί.",
     "One of these invoices changed meanwhile: reload the page.": "Ένα από αυτά τα τιμολόγια άλλαξε στο μεταξύ: ανανέωσε τη σελίδα.",
     "Invoice :invoice is the invoice of an order: it is not merged or split.": "Το τιμολόγιο :invoice είναι το τιμολόγιο μιας παραγγελίας: δεν συγχωνεύεται ούτε χωρίζεται.",
@@ -1762,5 +1760,6 @@
     "This note follows a refund or a cancellation: it is not edited by hand.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση: δεν αλλάζει με το χέρι.",
     "This note follows a refund or a cancellation: it is not deleted by hand.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση: δεν διαγράφεται με το χέρι.",
     "This note follows a refund or a cancellation, or its invoice is refunded or has a fiscal document from Ekdosi: it stays as it is.": "Αυτό το σημείωμα ακολουθεί μια επιστροφή ή μια ακύρωση, ή το τιμολόγιό του έχει επιστροφή χρημάτων ή παραστατικό από το Ekdosi: μένει ως έχει.",
-    "The note is removed from the invoice, whose total changes. Its number is not used again.": "Το σημείωμα αφαιρείται από το τιμολόγιο και το σύνολό του αλλάζει. Ο αριθμός του δεν χρησιμοποιείται ξανά."
+    "The note is removed from the invoice, whose total changes. Its number is not used again.": "Το σημείωμα αφαιρείται από το τιμολόγιο και το σύνολό του αλλάζει. Ο αριθμός του δεν χρησιμοποιείται ξανά.",
+    "Invoice :invoice is not unpaid or a draft: only those are merged or split.": "Το τιμολόγιο :invoice δεν είναι απλήρωτο ή πρόχειρο: μόνο αυτά συγχωνεύονται ή διαχωρίζονται."
 }

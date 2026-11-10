@@ -244,7 +244,10 @@ final class MoveToClient
                     default => null,
                 };
             } else {
-                $why = InvoiceLineMove::refusal($invoice, $orderMoves);
+                // An order's own invoice that does not go whole with its order stays where it is, as before (the merge and
+                // split of staff no longer mind it: owner 2026-11-10).
+                $why = InvoiceLineMove::noteRefusal($invoice) ?? InvoiceLineMove::refusal($invoice)
+                    ?? (!$orderMoves && $order !== null ? __('Invoice :invoice is the invoice of an order: it is not merged or split.', ['invoice' => $label]) : null);
             }
             if ($why === null && !$whole) {
                 // Neither part less than nothing (code review 4, as SplitInvoice's E-ADV-7); one of nothing (a free item) is

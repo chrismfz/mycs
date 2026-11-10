@@ -25,7 +25,7 @@ class SplitInvoiceAction
             ->label(__('Split'))
             ->icon('heroicon-o-scissors')
             ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
-            ->visible(fn (Invoice $record): bool => $record->status === Invoice::STATUS_UNPAID && $record->items()->count() > 1)
+            ->visible(fn (Invoice $record): bool => in_array($record->status, Invoice::OPEN_STATUSES, true) && $record->items()->count() > 1)
             ->modalDescription(__('The lines you choose move to a new unpaid invoice, with their tax as issued and the same due date. Its email is not sent.'))
             ->form(fn (Invoice $record): array => [
                 CheckboxList::make('lines')
@@ -51,7 +51,7 @@ class SplitInvoiceAction
             ->color('gray')
             ->size('sm')
             ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
-            ->visible(fn (?Invoice $record): bool => $record?->status === Invoice::STATUS_UNPAID && $record->items()->count() > 1)
+            ->visible(fn (?Invoice $record): bool => $record !== null && in_array($record->status, Invoice::OPEN_STATUSES, true) && $record->items()->count() > 1)
             ->requiresConfirmation()
             ->modalHeading(__('Split to a new invoice'))
             ->modalDescription(__('The lines you ticked move to a new unpaid invoice, with their tax as issued and the same due date. Its email is not sent.'))

@@ -207,13 +207,19 @@ class InvoiceMergeSplitTest extends TestCase
         $this->assertSame(0, Invoice::query()->where('status', Invoice::STATUS_CANCELLED)->count());
     }
 
-    public function test_invoices_billed_under_different_details_are_not_merged(): void
+    /** Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-26): merged; the target's details apply, and no line is re-taxed. */
+    public function test_invoices_billed_under_different_details_are_merged_under_the_targets(): void
     {
         [$a, $b] = $this->two();
         $b->snapshot()->update(['tax_country' => 'DE', 'tax_rate' => 19]);
+        $details = $a->snapshot()->first()->only(['name', 'tax_country', 'tax_rate']);
+        $lines = $b->items()->get()->map->only(['id', 'tax_rate', 'tax_amount', 'line_total'])->all();
 
-        $this->expectException(DisplayException::class);
-        (new MergeInvoices)->handle($a->id, [$b->id]);
+        $target = (new MergeInvoices)->handle($a->id, [$b->id]);
+
+        $this->assertSame($details, $target->snapshot()->first()->only(['name', 'tax_country', 'tax_rate']), 'billed as the target was');
+        $this->assertSame($lines, $target->items()->whereKey(array_column($lines, 'id'))->get()->map->only(['id', 'tax_rate', 'tax_amount', 'line_total'])->all(),
+            'each line keeps its tax as issued');
     }
 
     /** Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-25): a merged invoice is reopened, empty, and no longer «merged into». */

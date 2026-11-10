@@ -129,16 +129,19 @@ class InvoiceMergeSplitReviewTest extends TestCase
         (new MergeInvoices)->handle($b->id, [$a->id]);
     }
 
-    /** CR-4: an order's own invoice (what «Cancel & Refund» refunds) is not merged or split. */
-    public function test_an_orders_invoice_is_not_merged(): void
+    /** CR-4, rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-26): an order's own invoice is merged, and the order follows it. */
+    public function test_an_orders_invoice_is_merged_and_the_order_follows(): void
     {
         $a = $this->invoice();
         $b = $this->invoice();
         $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD']);
         $order->forceFill(['invoice_id' => $b->id])->save();
 
-        $this->expectException(DisplayException::class);
         (new MergeInvoices)->handle($a->id, [$b->id]);
+
+        $this->assertSame($a->id, (int) $order->fresh()->invoice_id);
+        $this->assertSame([Invoice::STATUS_CANCELLED, $a->id], [$b->fresh()->status, (int) $b->fresh()->merged_into_id]);
+        $this->assertSame(2, $a->fresh()->items()->count());
     }
 
     /** CR-5: split keeps the issue date, so a suspension that waits for an invoice of a given age is not delayed. */
