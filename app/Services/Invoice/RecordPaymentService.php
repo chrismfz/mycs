@@ -298,10 +298,9 @@ class RecordPaymentService
      */
     public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
-        $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
-
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
-            $invoice = $this->lockInvoice($invoiceId);
+        return DB::transaction(function () use ($invoice, $onlyIfCovers, $eligible, $upToCents) {
+            // The model when given: $eligible reads what holds the invoice with plain reads (S7-PAYMENTS-1, lockInvoice).
+            $invoice = $this->lockInvoice($invoice);
             if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
@@ -687,7 +686,16 @@ class RecordPaymentService
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
-        $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        // Given the invoice itself, its owner is taken from it and nothing is read before the locks (S7-PAYMENTS-1): under
+        // MariaDB's REPEATABLE READ a plain read here fixes the transaction's snapshot BEFORE it waits for the locks, and
+        // every plain read after them (a charge on its way, SavedMethodCharge::onItsWay) then misses what the lock's last
+        // holder committed. A caller whose plain reads decide passes the model; an owner changed since is locked below.
+        if ($invoiceId instanceof Invoice) {
+            $clientId = $invoiceId->client_id;
+            $invoiceId = $invoiceId->getKey();
+        } else {
+            $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        }
         if ($clientId !== null) {
             Client::lock((int) $clientId);
         }

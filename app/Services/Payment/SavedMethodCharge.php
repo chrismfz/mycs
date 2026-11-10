@@ -131,7 +131,8 @@ final class SavedMethodCharge
     public function charge(Invoice $invoice, BillingAgreement $agreement, string $source, ?PaymentGroup $group = null): ChargeAttempt
     {
         $attempt = DB::transaction(function () use ($invoice, $agreement, $source, $group) {
-            $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
+            // The invoice itself: nothing is read before the locks, so the reads below see the last charge (S7-PAYMENTS-1).
+            $locked = (new RecordPaymentService)->lockInvoice($invoice);
             if ($locked->status !== Invoice::STATUS_UNPAID) {
                 throw new DisplayException(__('This invoice is not open for payment.'));
             }
@@ -249,7 +250,7 @@ final class SavedMethodCharge
     public static function openCheckout(Invoice $invoice, ?PaymentGroup $group = null): bool
     {
         return DB::transaction(function () use ($invoice, $group) {
-            $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
+            $locked = (new RecordPaymentService)->lockInvoice($invoice);
             if (self::onItsWay($locked, $group)) {
                 return false;
             }
