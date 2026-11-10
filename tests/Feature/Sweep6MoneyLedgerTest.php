@@ -88,7 +88,7 @@ class Sweep6MoneyLedgerTest extends TestCase
     /** The message is the customer's staff's language too. */
     public function test_s6_money_ledger_1_the_refusal_is_translated(): void
     {
-        $key = 'An invoice that buys account credit takes no adjustment note or discount: cancel it and make a new one with the right amount.';
+        $key = 'An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).';
         $this->assertNotSame($key, __($key, [], 'el'));
         $this->assertSame($key, __($key, [], 'en'));
     }
