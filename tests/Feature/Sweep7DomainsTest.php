@@ -130,6 +130,7 @@ class Sweep7DomainsTest extends TestCase
      */
     public function test_s7_domains_2_a_given_up_renewal_is_billed_on_the_customers_renew_or_staff_are_told(): void
     {
+        $this->markTestIncomplete('S7-DOMAINS-2 (low): left as is by the owner 2026-11-10, recorded in docs/sweeps/2026-11-10-seventh.md.');
         $domain = $this->domain('nixpal');
         $this->cron();
         $invoice = $this->renewalInvoice($domain);
