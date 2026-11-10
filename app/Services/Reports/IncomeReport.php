@@ -4,9 +4,15 @@ namespace App\Services\Reports;
 
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
+use App\Enums\MoneyEventKind;
 use App\Models\AdjustmentNote;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\InvoiceReopening;
+use App\Models\MoneyEvent;
+use App\Services\Money\MoneyTrail;
+use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
@@ -19,6 +25,15 @@ use Illuminate\Support\Facades\DB;
  * customer and how it was paid; and every refund or credit note made in the year on an invoice paid in an earlier one,
  * as a row of its own, negative (review F3 of #280: a year sent to the accountant never changes afterwards). A note
  * made before the year ended is on its invoice's row. Credit purchases (add funds) are never income. One currency.
+ *
+ * Two more corrections, each a negative row in the year it happened (sweep 6, owner 2026-11-09; docs/income-planning.md):
+ * - The credit a downgrade or a change of cycle gave (the journal's credit_in of those causes): its money came in on
+ *   the invoice first paid and is counted again on the invoice that credit pays, so it is taken off when it is given,
+ *   gross, split into net and tax at the customer's VAT rate (the journal keeps no split).
+ * - A paid invoice open again in a later year (a chargeback, a deleted payment, staff's «back to unpaid»;
+ *   InvoiceReopening, written by InvoiceObserver): it stays in the year it was paid, as it was then, and is taken off
+ *   in the year it was reopened. Paid again, it counts when it is paid again, never before its reopening. One reopened
+ *   in the year it was paid leaves no rows: that year is still open, as before.
  */
 final class IncomeReport
 {
@@ -35,8 +50,27 @@ final class IncomeReport
     {
         $from = CarbonImmutable::create($year)->startOfYear();
         $until = $from->addYear();
+        // Reopened in a later year than they were paid (few: every one of the currency is read), oldest first.
+        $reopenings = InvoiceReopening::query()->whereRelation('invoice', 'currency_code', $currency)
+            ->with(['invoice.snapshot', 'invoice.client.primaryContact', 'invoice.client.ownerGrant.user', 'invoice.transactions.gateway'])
+            ->orderBy('reopened_at')->orderBy('id')->get()
+            ->filter(fn (InvoiceReopening $r) => $r->invoice !== null && $r->reopened_at->year > $r->paid_at->year)->values();
+        // Paid again with a date before its reopening (a dispute won gives the first payment's date back): it counts
+        // from the reopening, as the first time is already in its own year.
+        $moved = [];
+        foreach ($reopenings as $reopening) {
+            $invoice = $reopening->invoice;
+            if (in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true) && $invoice->paid_at !== null
+                && $reopening->reopened_at->greaterThan($invoice->paid_at)) {
+                $moved[(int) $invoice->id] = $reopening->reopened_at;
+            }
+        }
+        $movedIn = array_keys(array_filter($moved, fn (CarbonImmutable $at) => $at->greaterThanOrEqualTo($from) && $at->lessThan($until)));
+        $movedBefore = array_keys(array_filter($moved, fn (CarbonImmutable $at) => $at->lessThan($from)));
         $paid = Invoice::query()->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->where('currency_code', $currency)
-            ->where('paid_at', '>=', $from)->where('paid_at', '<', $until);
+            ->where(fn ($query) => $query
+                ->where(fn ($query) => $query->where('paid_at', '>=', $from)->where('paid_at', '<', $until)->whereNotIn('id', array_keys($moved)))
+                ->orWhereIn('id', $movedIn));
 
         $rows = [];
         $add = function (array $row) use (&$rows) {
@@ -54,14 +88,16 @@ final class IncomeReport
                 continue; // a credit purchase only: not income
             }
             [$net, $total] = self::amounts($line, self::cents($notes[$invoice->id] ?? 0));
-            $add(self::row($invoice, CarbonImmutable::instance($invoice->paid_at), $net, $total, self::paidWith($invoice)));
+            $add(self::row($invoice, $moved[(int) $invoice->id] ?? CarbonImmutable::instance($invoice->paid_at), $net, $total, self::paidWith($invoice)));
         }
 
         // Refunds and credit notes made in the year on invoices paid before it: their own rows.
         $later = AdjustmentNote::query()->where('status', AdjustmentNoteStatus::Active->value)
             ->where('created_at', '>=', $from)->where('created_at', '<', $until)
             ->whereHas('invoice', fn ($query) => $query->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])
-                ->where('currency_code', $currency)->where('paid_at', '<', $from))
+                ->where('currency_code', $currency)->where(fn ($query) => $query
+                ->where(fn ($query) => $query->where('paid_at', '<', $from)->whereNotIn('id', array_keys($moved)))
+                ->orWhereIn('id', $movedBefore)))
             ->with(['invoice.snapshot', 'invoice.client.primaryContact', 'invoice.client.ownerGrant.user'])->orderBy('created_at')->orderBy('id')->get();
         $theirLines = self::lines($later->pluck('invoice_id')->unique()->values()->all());
         foreach ($later as $note) {
@@ -73,6 +109,51 @@ final class IncomeReport
             $gross = self::cents($line->gross);
             $net = $gross === 0 ? $amount : (int) round($amount * self::cents($line->net) / $gross);
             $add(self::row($note->invoice, CarbonImmutable::instance($note->created_at), $net, $amount, __('Refund or credit note')));
+        }
+
+        // Reopened in a later year: in the year it was paid as it was then (its notes until the year ended; a later note
+        // before the reopening in its own year, as above), and taken off, with those notes, in the year it was reopened.
+        foreach ($reopenings as $reopening) {
+            if ($reopening->paid_at->greaterThanOrEqualTo($until) || $reopening->reopened_at->lessThan($from)) {
+                continue;
+            }
+            $invoice = $reopening->invoice;
+            $line = (object) ['net' => $reopening->net, 'gross' => $reopening->total];
+            $notes = DB::table('adjustment_notes')->where('invoice_id', $invoice->id)->where('status', AdjustmentNoteStatus::Active->value)
+                ->where('created_at', '<', $reopening->reopened_at)->orderBy('created_at')->orderBy('id')->get(['amount', 'created_at']);
+            $noted = fn (CarbonImmutable $before): int => (int) $notes->filter(fn ($note) => CarbonImmutable::parse($note->created_at)->lessThan($before))
+                ->sum(fn ($note) => self::cents($note->amount));
+            if ($reopening->paid_at->greaterThanOrEqualTo($from)) {
+                [$net, $total] = self::amounts($line, $noted($until));
+                $add(self::row($invoice, $reopening->paid_at, $net, $total, self::paidWith($invoice) ?: __('Payment deleted')));
+            } else {
+                foreach ($notes->filter(fn ($note) => CarbonImmutable::parse($note->created_at)->greaterThanOrEqualTo($from)
+                    && CarbonImmutable::parse($note->created_at)->lessThan($until)) as $note) {
+                    $amount = self::cents($note->amount);
+                    $gross = self::cents($line->gross);
+                    $net = $gross === 0 ? $amount : (int) round($amount * self::cents($line->net) / $gross);
+                    $add(self::row($invoice, CarbonImmutable::parse($note->created_at), $net, $amount, __('Refund or credit note')));
+                }
+            }
+            if ($reopening->reopened_at->lessThan($until)) {
+                [$net, $total] = self::amounts($line, $noted($reopening->reopened_at));
+                $add(self::row($invoice, $reopening->reopened_at, -$net, -$total, __('Reopened: chargeback or payment deleted')));
+            }
+        }
+
+        // The credit a downgrade or a change of cycle gave in the year: taken off, as the invoice it pays counts it again.
+        $credits = MoneyEvent::query()->where('kind', MoneyEventKind::CreditIn->value)->where('currency_code', $currency)
+            ->whereIn('cause', [MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::CAUSE_CYCLE_CHANGE])
+            ->where('occurred_at', '>=', $from)->where('occurred_at', '<', $until)->whereDoesntHave('reversal')
+            ->with(['client.primaryContact', 'client.ownerGrant.user'])->orderBy('occurred_at')->orderBy('id')->get();
+        foreach ($credits as $event) {
+            $gross = self::cents($event->amount);
+            $rate = $event->client !== null ? OrderPricing::taxRate($event->client) : null;
+            $net = $rate === null ? $gross : BigDecimal::of($gross)->multipliedBy(100)
+                ->dividedBy(BigDecimal::of($rate)->plus(100), 0, RoundingMode::HalfUp)->toInt();
+            $add(self::entry(CarbonImmutable::instance($event->occurred_at), '', (string) ($event->client->name ?? ''), $event->client,
+                (string) ($event->client?->primaryContact->country ?? ''), -$net, -$gross,
+                $event->cause === MoneyTrail::CAUSE_DOWNGRADE ? __('Credit given for a downgrade') : __('Credit given for a change of cycle')));
         }
 
         usort($rows, fn ($a, $b) => [$a['paid_at'], $a['number']] <=> [$b['paid_at'], $b['number']]);
@@ -111,6 +192,20 @@ final class IncomeReport
         $start = $first ? (int) CarbonImmutable::parse($first)->format('Y') : $now;
 
         return range($now, min($start, $now), -1);
+    }
+
+    /**
+     * A paid invoice is open again (InvoiceObserver): when it had been paid and what its lines are worth now, kept for the
+     * rows above. One that only bought credit was never income.
+     */
+    public static function reopened(Invoice $invoice, CarbonImmutable $paidAt): void
+    {
+        $line = self::lines([(int) $invoice->id])[$invoice->id] ?? null;
+        if ($line === null) {
+            return;
+        }
+        InvoiceReopening::query()->create(['invoice_id' => $invoice->id, 'paid_at' => $paidAt, 'reopened_at' => CarbonImmutable::now(),
+            'net' => self::money(self::cents($line->net)), 'total' => self::money(self::cents($line->gross))]);
     }
 
     /**
@@ -155,21 +250,30 @@ final class IncomeReport
     /** @return array<string, mixed> */
     private static function row(Invoice $invoice, CarbonImmutable $when, int $net, int $total, string $paidWith): array
     {
-        $contact = $invoice->client?->primaryContact;
+        // As issued where the invoice kept it (its snapshot's country, F4 of #280); the VAT number is the customer's now.
+        // A rule for every country ('all', as WhmcsTaxImport maps WHMCS's «any») says nothing of the customer's: the
+        // customer's country now then (sweep TAX-REPORTS-3).
+        return self::entry($when, (string) ($invoice->number ?: $invoice->id), (string) $invoice->user_name, $invoice->client,
+            (string) (self::issuedCountry($invoice->snapshot?->tax_country) ?? $invoice->client?->primaryContact->country ?? ''), $net, $total, $paidWith);
+    }
 
+    /**
+     * A row: an invoice's, or one without an invoice (credit given).
+     *
+     * @return array<string, mixed>
+     */
+    private static function entry(CarbonImmutable $when, string $number, string $name, ?Client $client, string $country, int $net, int $total, string $what): array
+    {
         return [
             'paid_at' => $when,
-            'number' => (string) ($invoice->number ?: $invoice->id),
-            'client' => (string) $invoice->user_name,
-            // As issued where the invoice kept it (its snapshot's country, F4 of #280); the VAT number is the customer's now.
-            // A rule for every country ('all', as WhmcsTaxImport maps WHMCS's «any») says nothing of the customer's: the
-            // customer's country now then (sweep TAX-REPORTS-3).
-            'country' => (string) (self::issuedCountry($invoice->snapshot?->tax_country) ?? $contact->country ?? ''),
-            'vat' => (string) ($contact->vat_number ?? ''),
+            'number' => $number,
+            'client' => $name,
+            'country' => $country,
+            'vat' => (string) ($client?->primaryContact->vat_number ?? ''),
             'net' => self::money($net),
             'tax' => self::money($total - $net),
             'total' => self::money($total),
-            'paid_with' => $paidWith,
+            'paid_with' => $what,
             'net_cents' => $net,
             'total_cents' => $total,
         ];

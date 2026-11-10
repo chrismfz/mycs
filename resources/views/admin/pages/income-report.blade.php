@@ -21,7 +21,7 @@
                 @endforeach
             </select>
         </label>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own; credit purchases are not income.') }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own, as is a paid invoice reopened in a later year (chargeback, payment deleted) and the credit a downgrade or a change of cycle gave; credit purchases are not income.') }}</p>
     </div>
 
     <x-filament::section :heading="__('By month')">

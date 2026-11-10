@@ -23,6 +23,7 @@ use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
+use App\Services\Reports\IncomeReport;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -331,6 +332,12 @@ class InvoiceObserver
         if ($invoice->wasChanged(['client_id', 'currency_code'])
             || ($invoice->wasChanged('status') && !($invoice->getOriginal('status') === Invoice::STATUS_UNPAID && $invoice->status === Invoice::STATUS_PAID))) {
             EkdosiRequest::forget((int) $invoice->id, $invoice->wasChanged('status') ? 'status_' . $invoice->status : 'moved');
+        }
+        // Paid and open again (a chargeback, a deleted payment, staff): the year's income report keeps when it had been paid
+        // and what it was worth, as the invoice forgets both (IncomeReport, sweep 6 S6-TAX-EKDOSI-3).
+        if ($invoice->wasChanged('status') && in_array($invoice->getOriginal('status'), [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)
+            && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true) && $invoice->getOriginal('paid_at') !== null) {
+            IncomeReport::reopened($invoice, CarbonImmutable::parse($invoice->getOriginal('paid_at')));
         }
         // Another customer (staff's edit, the API, MoveToClient): taxed and addressed as the new one's (sweep 9γ, owner
         // 2026-10-30), after its Ekdosi request is gone as «moved» (code review F4 of #554). Only an open one moves (or one
