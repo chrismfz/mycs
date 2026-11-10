@@ -95,13 +95,16 @@ class EditService extends EditRecord
         $text = "Recurring amount: {$quote['price']} {$currency} net per unit, {$quote['gross']} {$currency} with tax (now {$service->price} net).";
         if ($mode === ChangeCycle::NEXT_RENEWAL) {
             $text .= ' It applies when the next period is billed; an open renewal of the old cycle is cancelled and billed again.';
+            if ($quote['addons'] !== []) {
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it, at the same renewal.';
+            }
         }
         if ($mode === ChangeCycle::NOW) {
             $text .= " Credit for the unused days: {$quote['credit']} {$currency}. New period {$quote['start']?->toDateString()} – "
                 . "{$quote['end']?->toDateString()}, billed {$quote['charge']} {$currency} with tax.";
             if ($quote['addons'] !== []) {
-                // They share its billing day: they move to the new one, on the same invoice (docs/addons.md).
-                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' follow it to its new billing day: their credit and new periods are in these amounts.';
+                // They share its due date and its cycle: they change with it, on the same invoice (docs/addons.md).
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it: their credit and new periods are in these amounts.';
             }
         }
 

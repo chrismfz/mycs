@@ -121,8 +121,9 @@
                         <span>{{ __('services.upgrade') }}</span>
                     </x-button.primary>
                     @endif
-                    @php($cyclePlans = \App\Services\ServiceUpgrade\ChangeCycle::plans($service))
-                    @if($cyclePlans->isNotEmpty() && \App\Services\ServiceUpgrade\ChangeCycle::refusal($service, $cyclePlans->first(), 'next_renewal') === null)
+                    {{-- Only the cycles it can move to: one an addon of it has no price for is not offered (docs/addons.md). --}}
+                    @php($cyclePlans = \App\Services\ServiceUpgrade\ChangeCycle::plans($service)->filter(fn ($cyclePlanOption) => \App\Services\ServiceUpgrade\ChangeCycle::refusal($service, $cyclePlanOption, 'next_renewal') === null)->values())
+                    @if($cyclePlans->isNotEmpty())
                     <x-button.secondary class="h-fit !w-fit" wire:click="$set('showCycle', true)">
                         <span>{{ __('services.change_cycle') }}</span>
                     </x-button.secondary>
@@ -131,6 +132,9 @@
                     <x-modal open="true" title="{{ __('services.change_cycle') }}" width="max-w-xl">
                         <form wire:submit="changeCycle" class="flex flex-col gap-4">
                             <p class="text-base/70">{{ __('services.change_cycle_note') }}</p>
+                            @if($service->addons->contains(fn ($addon) => in_array($addon->status, ['active', 'suspended'], true)))
+                            <p class="text-base/70">{{ __('services.change_cycle_addons') }}</p>
+                            @endif
                             @if($service->nextPlan)
                             <p class="text-base/70">{{ __('services.change_cycle_pending', ['plan' => $service->nextPlan->name]) }}</p>
                             @endif
