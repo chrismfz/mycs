@@ -224,7 +224,7 @@ class ImportFromWhmcs extends Command
         // 2026-11-10): here it would count as «the renewal is billed already», the next period would never be billed and
         // the service would be suspended. Cancelled or settled in WHMCS before the dump.
         if (($stale = $this->staleRenewals()) !== []) {
-            $this->error('WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past: '
+            $this->error('WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past (or a first order still unpaid after ' . self::ABANDONED_ORDER_DAYS . ' days): '
                 . implode('; ', array_map(fn (int $invoice, array $of) => "#{$invoice} (" . implode(', ', $of) . ')', array_keys($stale), $stale))
                 . '. Here such an invoice would stand for the next renewal, which would never be billed: cancel it or settle it in WHMCS'
                 . ' (cutover-runbook.md), and dump again. Nothing done.');
@@ -256,7 +256,7 @@ class ImportFromWhmcs extends Command
         if (($apart = $this->addonsApart()) !== []) {
             $this->error('WHMCS addon(s) due on another date than their service: #' . implode(', #', $apart)
                 . '. An addon shares its service\'s due date here: set its next due date in WHMCS to its service\'s (cutover-runbook.md), and dump again.'
-                . ' Only an addon whole periods behind its service with its own renewal invoice of that period unpaid is taken as it is.'
+                . ' Only a pair whole periods apart because the one behind has its own renewal invoice of that period unpaid is taken as it is.'
                 . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
 
             return self::FAILURE;
@@ -3469,15 +3469,18 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Unpaid WHMCS invoices (imported unpaid and payable: Unpaid, Collections) with a renewal line of a period its live
+     * Unpaid WHMCS invoices (imported unpaid, invoiceStatus: Unpaid, Collections, Payment Pending) with a renewal line of a period its live
      * service or addon is already past: a Hosting line of an Active or Suspended service, or an Addon line of an Active or
      * Suspended recurring addon of a service not imported ended, whose own due date (ii.duedate, the period WHMCS billed
      * with it) is before the item's nextduedate. WHMCS moves nextduedate on only when a period is paid (or staff move it by
      * hand), so an unpaid renewal still owed has its line due ON nextduedate, however long overdue: never refused. One due
      * before it is a leftover (the date moved by hand, a duplicate paid) that WHMCS ignores; here its line comes as «the
      * renewal billed already» (serviceLineReference: no kind, no period) and the next period is never billed (sweep 7
-     * S7-IMPORT-1). The import refuses to run on them (handle): staff cancel or settle them in WHMCS. The runbook's
-     * pre-dump queries, the same sets. A source without these tables (a test's): none.
+     * S7-IMPORT-1). The import refuses to run on them (handle): staff cancel or settle them in WHMCS. A line with no due
+     * date of its own (0000-00-00) is left out: nothing says which period it is. A first order's line (due on or before
+     * the item's regdate; a pro rata order's nextduedate is ahead of it from the start) counts only once its invoice is
+     * older than ABANDONED_ORDER_DAYS: a young order is the customer's to pay (review of #775). The runbook's pre-dump
+     * queries, the same sets. A source without these tables (a test's): none.
      *
      * @return array<int, list<string>> invoice => what it bills late («service #id», «addon #id»)
      */
@@ -3486,10 +3489,20 @@ class ImportFromWhmcs extends Command
         if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
             return [];
         }
-        $stale = fn (string $from, string $type, string $where) => $this->pdo->query("SELECT DISTINCT i.id, s.id AS item FROM {$from}
+        // A first order's line (due on or before the day the item was made; with pro rata its nextduedate is already ahead)
+        // is the customer's order, not a leftover, while it is young: only one older than an abandoned order's days.
+        $young = $this->pdo->quote(now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString());
+        $query = fn (string $from, string $type, string $where, string $first) => $this->pdo->query("SELECT DISTINCT i.id, s.id AS item FROM {$from}
             JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id JOIN tblinvoices i ON i.id = ii.invoiceid
-            WHERE {$where} AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate
-            AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') ORDER BY i.id, s.id")->fetchAll(PDO::FETCH_ASSOC);
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate{$first}
+            AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded') ORDER BY i.id, s.id")->fetchAll(PDO::FETCH_ASSOC);
+        $stale = function (string $from, string $type, string $where) use ($query, $young) {
+            try {
+                return $query($from, $type, $where, " AND (ii.duedate > s.regdate OR i.date < {$young})");
+            } catch (PDOException) {
+                return $query($from, $type, $where, ''); // no regdate or invoice date in the source (a test's): every such line
+            }
+        };
         $found = [];
         foreach ($stale('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')") as $row) {
             $found[(int) $row['id']][] = "service #{$row['item']}";
@@ -3567,7 +3580,7 @@ class ImportFromWhmcs extends Command
         $live = $this->quoted(WhmcsAddonImport::LIVE);
         $ended = $this->endedStatuses();
 
-        return $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
+        return $this->pdo->query('SELECT a.id, a.hostingid, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
             . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
             . ' AND a.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ') ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -3575,9 +3588,12 @@ class ImportFromWhmcs extends Command
     /**
      * Those not due on their service's date (owner 2026-11-10, sweep 7 S7-LATEST-FIXES-1: the date itself; the same day in
      * another month is another date since an addon has its service's cycle), or of a service with no next due date: the
-     * import refuses to run on them. The one shape taken as it is: an addon whole periods BEHIND its service
-     * (WhmcsAddonImport::periodsBehind) because its own renewal is unpaid, told by its unpaid «Addon» invoice line due on
-     * the addon's own nextduedate (unpaidAddonRenewals); paid here, it catches up with its service. The runbook's pre-dump check.
+     * import refuses to run on them. Two shapes are taken as they are, the pair whole periods apart
+     * (WhmcsAddonImport::periodsBehind) because one of the two has not paid its period yet: the addon BEHIND its service
+     * with its own renewal unpaid (an unpaid «Addon» line due on the addon's nextduedate), and its mirror, the addon AHEAD
+     * of its service whose own renewal is unpaid (an unpaid «Hosting» line due on the service's nextduedate; review of
+     * #775, REV-775-4: no change in WHMCS leaves the money alone). Paid here, the one behind catches up and both renew
+     * together. The runbook's pre-dump check.
      *
      * @return list<int> tblhostingaddons ids
      */
@@ -3586,28 +3602,34 @@ class ImportFromWhmcs extends Command
         $unpaid = null;
 
         return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(), function (array $row) use (&$unpaid) {
-            $behind = WhmcsAddonImport::periodsBehind((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']);
+            [$cycle, $addonDue, $serviceDue] = [(string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']];
+            $behind = WhmcsAddonImport::periodsBehind($cycle, $addonDue, $serviceDue);
+            if ($behind === 0) {
+                return false;
+            }
+            $unpaid ??= ['Addon' => $this->unpaidRenewals('tblhostingaddons', 'Addon'), 'Hosting' => $this->unpaidRenewals('tblhosting', 'Hosting')];
 
-            return $behind === null || ($behind > 0 && !isset(($unpaid ??= $this->unpaidAddonRenewals())[(int) $row['id']]));
+            return !($behind > 0 ? isset($unpaid['Addon'][(int) $row['id']])
+                : (WhmcsAddonImport::periodsBehind($cycle, $serviceDue, $addonDue) > 0 && isset($unpaid['Hosting'][(int) $row['hostingid']])));
         })));
     }
 
     /**
-     * The WHMCS addons whose renewal for the period they are in (an «Addon» line due on their own nextduedate) is on an
-     * invoice imported unpaid (invoiceStatus: Collections and Payment Pending too): overdue, not misdated. A source without
-     * the invoice tables (a test's): none.
+     * The WHMCS addons (or services) whose renewal for the period they are in (an «Addon» / «Hosting» line due on their
+     * own nextduedate) is on an invoice imported unpaid (invoiceStatus: Collections and Payment Pending too): overdue, not
+     * misdated. A source without the invoice tables (a test's): none.
      *
      * @return array<int, true>
      */
-    private function unpaidAddonRenewals(): array
+    private function unpaidRenewals(string $table, string $type): array
     {
         if (!$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
             return [];
         }
 
-        return array_fill_keys(array_map('intval', $this->pdo->query("SELECT DISTINCT a.id FROM tblhostingaddons a
-            JOIN tblinvoiceitems ii ON ii.type = 'Addon' AND ii.relid = a.id AND ii.duedate = a.nextduedate JOIN tblinvoices i ON i.id = ii.invoiceid
-            WHERE a.nextduedate > '0000-00-00' AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')")->fetchAll(PDO::FETCH_COLUMN)), true);
+        return array_fill_keys(array_map('intval', $this->pdo->query("SELECT DISTINCT s.id FROM {$table} s
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id AND ii.duedate = s.nextduedate JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE s.nextduedate > '0000-00-00' AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')")->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
     /**

@@ -346,6 +346,12 @@ class Sweep6AddonsFollowCycleTest extends TestCase
         foreach ([ChangeCycle::NEXT_RENEWAL, ChangeCycle::NOW] as $mode) {
             $this->assertSame(__('services.addons.cycle.behind', ['id' => $addon->id]), ChangeCycle::refusal($parent->fresh(), $yearly, $mode));
         }
+        // The mirror the import takes since the review of #775 (REV-775-4): the addon a period AHEAD of its service, whose
+        // own renewal is unpaid. Refused the same way until that invoice is paid and the two are due together.
+        DB::table('services')->where('id', $addon->id)->update(['expires_at' => '2027-01-01']);
+        foreach ([ChangeCycle::NEXT_RENEWAL, ChangeCycle::NOW] as $mode) {
+            $this->assertSame(__('services.addons.cycle.behind', ['id' => $addon->id]), ChangeCycle::refusal($parent->fresh(), $yearly, $mode));
+        }
         DB::table('services')->where('id', $addon->id)->update(['expires_at' => '2026-12-01']);
 
         DB::table('services')->where('id', $parent->id)->update(['status' => Service::STATUS_SUSPENDED]);

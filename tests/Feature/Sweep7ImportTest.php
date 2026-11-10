@@ -218,7 +218,7 @@ class Sweep7ImportTest extends TestCase
         $this->whmcsInvoice($whmcs, 9801, 'Unpaid', $old, [[98011, 'Hosting', 9702, "Hosting (example.test) ({$old})", 10, $old]]);
         // The fix (owner 2026-11-10): refused before the dump, named by invoice and service; nothing is written.
         $this->assertSame([9801 => ['service #9702']], $this->refusal($whmcs, 'staleRenewals'));
-        $this->refused($whmcs, 'WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past: #9801 (service #9702).');
+        $this->refused($whmcs, 'WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past (or a first order still unpaid after 7 days): #9801 (service #9702).');
         // Staff cancel it in WHMCS, dump again: the import runs and the coming period is billed, as the control's.
         $whmcs->exec("UPDATE tblinvoices SET status = 'Cancelled' WHERE id = 9801");
         $this->assertSame([], $this->refusal($whmcs, 'staleRenewals'));
@@ -234,7 +234,7 @@ class Sweep7ImportTest extends TestCase
     /**
      * S7-IMPORT-1, what is NOT refused. WHMCS moves nextduedate on only when the period is paid, so a renewal still owed
      * has its line due on nextduedate, however long ago that was: a debt, imported as the open renewal it is. Nor a line
-     * of a period paid, cancelled, on its way (Payment Pending), or of a service imported ended.
+     * of a period paid or cancelled, with no date of its own, or of a service imported ended.
      */
     public function test_s7_import_1_an_overdue_renewal_of_the_period_the_service_is_in_is_not_refused(): void
     {
@@ -248,7 +248,6 @@ class Sweep7ImportTest extends TestCase
         $this->whmcsService($whmcs, 9712, now()->addDays(5)->toDateString(), now()->addDays(5)->toDateString());
         $this->whmcsInvoice($whmcs, 9813, 'Paid', $old, [[98131, 'Hosting', 9712, 'Hosting', 10, $old]]);
         $this->whmcsInvoice($whmcs, 9814, 'Cancelled', $old, [[98141, 'Hosting', 9712, 'Hosting', 10, $old]]);
-        $this->whmcsInvoice($whmcs, 9815, 'Payment Pending', $old, [[98151, 'Hosting', 9712, 'Hosting', 10, $old]]);
         $this->whmcsInvoice($whmcs, 9816, 'Unpaid', $old, [[98161, 'Setup', 9712, 'Setup fee', 10, $old], [98162, 'Hosting', 9712, 'No date', 10, '0000-00-00']]);
         $this->whmcsService($whmcs, 9713, now()->addDays(5)->toDateString(), now()->addDays(5)->toDateString());
         $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Terminated' WHERE id = 9713");
@@ -256,9 +255,31 @@ class Sweep7ImportTest extends TestCase
 
         $this->assertSame([], $this->refusal($whmcs, 'staleRenewals'));
 
-        // And the same leftover in Collections is refused, with every service it bills late.
+        // And the same leftover in Collections is refused, with every service it bills late; in Payment Pending too (it
+        // imports unpaid and stands for the renewal the same way: review of #775).
         $this->whmcsInvoice($whmcs, 9818, 'Collections', $old, [[98181, 'Hosting', 9712, 'Hosting', 10, $old], [98182, 'Hosting', 9711, 'Hosting', 10, $old]]);
-        $this->assertSame([9818 => ['service #9711', 'service #9712']], $this->refusal($whmcs, 'staleRenewals'));
+        $this->whmcsInvoice($whmcs, 9815, 'Payment Pending', $old, [[98151, 'Hosting', 9712, 'Hosting', 10, $old]]);
+        $this->assertSame([9815 => ['service #9712'], 9818 => ['service #9711', 'service #9712']], $this->refusal($whmcs, 'staleRenewals'));
+    }
+
+    /**
+     * A first order (review of #775): a pro rata service has its nextduedate ahead of its first line's due date from the
+     * day it is ordered, so its unpaid first invoice has the stale shape. Young, it is the customer's order to pay: not
+     * refused. Older than an abandoned order's 7 days, on a service already Active, it would stand for the next renewal
+     * here like any leftover: refused.
+     */
+    public function test_s7_import_1_a_first_order_still_unpaid_is_refused_only_once_it_is_old(): void
+    {
+        $whmcs = $this->whmcs();
+        $next = now()->addDays(20)->toDateString();
+        foreach ([9731 => now()->subDays(3)->toDateString(), 9732 => now()->subDays(10)->toDateString()] as $id => $ordered) {
+            $this->whmcsService($whmcs, $id, $next, $next);
+            $whmcs->exec("UPDATE tblhosting SET regdate = '{$ordered}' WHERE id = {$id}");
+            $whmcs->prepare("INSERT INTO tblinvoices VALUES (?, ?, '', ?, ?, '0000-00-00 00:00:00', 'Unpaid', 10, 0, 0)")->execute([$id, $this->user->client()->id, $ordered, $ordered]);
+            $whmcs->prepare("INSERT INTO tblinvoiceitems VALUES (?, ?, ?, 'Hosting', ?, 'First order (pro rata)', 4, 0, ?)")->execute([$id * 10, $id, $this->user->client()->id, $id, $ordered]);
+        }
+
+        $this->assertSame([9732 => ['service #9732']], $this->refusal($whmcs, 'staleRenewals'));
     }
 
     /** S7-IMPORT-1 for a live addon's own «Addon» line (imported as its service's renewal, as a Hosting line). */

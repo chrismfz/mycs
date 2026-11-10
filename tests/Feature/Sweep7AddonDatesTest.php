@@ -94,7 +94,7 @@ class Sweep7AddonDatesTest extends TestCase
             (81, 7, 'Active', 'Monthly', '2026-11-28'),    -- a month behind, nothing unpaid: misdated
             (82, 7, 'Active', 'Monthly', '2026-11-28'),    -- a month behind, its unpaid line is of another period
             (83, 7, 'Active', 'Monthly', '2026-11-28'),    -- a month behind, its renewal of that period paid
-            (84, 7, 'Active', 'Monthly', '2027-01-28'),    -- a month AHEAD, an unpaid line of its own: still refused
+            (84, 7, 'Active', 'Monthly', '2027-01-28'),    -- a month AHEAD, its service's renewal not unpaid: refused
             (85, 8, 'Active', 'Annually', '2025-10-31'),   -- two years behind, in Collections: overdue
             (86, 8, 'Active', 'Annually', '2026-07-31'),   -- three months behind, unpaid: no whole period, refused
             (87, 7, 'Active', 'Monthly', '2026-11-28'),    -- a month behind, its renewal cancelled: refused
@@ -112,6 +112,30 @@ class Sweep7AddonDatesTest extends TestCase
         $this->assertNull(WhmcsAddonImport::periodsBehind('Monthly', '2026-11-27', '2026-12-28'), 'another day');
         $this->assertNull(WhmcsAddonImport::periodsBehind('Monthly', '2026-11-28', '0000-00-00'), 'a service with no date');
         $this->assertNull(WhmcsAddonImport::periodsBehind('Weekly', '2026-12-28', '2026-12-28'), 'a cycle not known here');
+    }
+
+    /**
+     * The mirror (review of #775, REV-775-4): the addon whole periods AHEAD of its service because the service's own
+     * renewal is unpaid (an unpaid «Hosting» line due on the service's next due date). Without it, or a part of a period
+     * ahead, refused.
+     */
+    public function test_an_addon_whole_periods_ahead_of_its_service_is_taken_only_with_the_services_own_renewal_unpaid(): void
+    {
+        $whmcs = $this->whmcs();
+        $this->invoices($whmcs);
+        $whmcs->exec("INSERT INTO tblhosting VALUES (7, 'Active', 'Monthly', '2026-10-28'), (8, 'Active', 'Monthly', '2026-10-28'),
+            (9, 'Suspended', 'Annually', '2026-10-31'), (10, 'Active', 'Monthly', '2026-10-28')");
+        $whmcs->exec("INSERT INTO tblhostingaddons VALUES
+            (90, 7, 'Active', 'Monthly', '2026-11-28'),   -- a month ahead, its service's renewal due 2026-10-28 unpaid
+            (91, 8, 'Active', 'Monthly', '2026-11-28'),   -- a month ahead, its service's renewal paid: misdated
+            (92, 9, 'Active', 'Annually', '2027-10-31'),  -- a year ahead, its service in Collections
+            (93, 9, 'Active', 'Annually', '2027-01-31'),  -- three months ahead of a yearly service: no whole period
+            (94, 10, 'Active', 'Monthly', '2026-11-28')   -- a month ahead, the service's unpaid line is of another period");
+        $whmcs->exec("INSERT INTO tblinvoices VALUES (1, 'Unpaid'), (2, 'Paid'), (3, 'Collections')");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (10, 1, 'Hosting', 7, '2026-10-28'), (11, 2, 'Hosting', 8, '2026-10-28'),
+            (12, 3, 'Hosting', 9, '2026-10-31'), (13, 1, 'Hosting', 10, '2026-09-28'), (14, 1, 'Addon', 7, '2026-10-28')");
+
+        $this->assertSame([91, 93, 94], $this->check($whmcs, 'addonsApart'));
     }
 
     /** A source without the invoice tables (an old WHMCS): nothing says «unpaid», so every addon behind is refused. */

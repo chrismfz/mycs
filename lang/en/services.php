@@ -507,7 +507,7 @@ return [
         'move_addon' => 'An addon moves with its main service: move that one.',
         'delete_parent' => 'This service has addons still running: end or delete them first.',
         'cycle' => [
-            'behind' => 'Addon #:id is due on another date than this service (its own invoice is still open): pay its open invoice first, then change the billing cycle.',
+            'behind' => 'Addon #:id is due on another date than this service (the invoice of one of the two is still open): pay that open invoice first, then change the billing cycle.',
             'cancelling' => 'Addon #:id is to be cancelled: withdraw its cancellation, or wait until it ends, then change the billing cycle.',
             'staff_plan' => 'An addon is billed on its main service\'s cycle: a plan of another cycle is not set here. Use «Change billing cycle» on the main service, which moves its addons with it.',
             'follows_parent' => 'An addon is billed on its main service\'s cycle: change the main service\'s billing cycle, and the addon changes with it.',
