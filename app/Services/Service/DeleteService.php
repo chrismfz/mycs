@@ -66,7 +66,7 @@ class DeleteService
             $shown = array_map('intval', $withAddons);
             $unseen = $addons->reject(fn (Service $addon) => in_array((int) $addon->id, $shown, true));
             if ($unseen->isNotEmpty()) {
-                throw new DisplayException(__('services.addons.delete_addons_changed', ['addons' => self::labels($unseen)->implode(', ')]));
+                throw new DisplayException(__('services.addons.delete_addons_changed', ['addons' => implode(', ', self::labels($unseen))]));
             }
         }
         // Before anything outside the database (the server, the gateway): nothing is touched when one refuses.
@@ -111,7 +111,7 @@ class DeleteService
             throw $this->leftTerminated($service, $addons, $outside, $e);
         }
 
-        return ['deleted' => self::labels($addons->diff($byHand))->all(), 'kept' => self::labels($byHand)->all()];
+        return ['deleted' => self::labels($addons->diff($byHand)), 'kept' => self::labels($byHand)];
     }
 
     /**
@@ -152,11 +152,11 @@ class DeleteService
         }
         if (in_array($service, $outside, true)) {
             return new DisplayException(__('The service was terminated but not deleted: :reason', ['reason' => $reason])
-                . ($addons->isNotEmpty() ? ' ' . __('services.addons.delete_ended_with', ['addons' => self::labels($addons)->implode(', ')]) : ''));
+                . ($addons->isNotEmpty() ? ' ' . __('services.addons.delete_ended_with', ['addons' => implode(', ', self::labels($addons))]) : ''));
         }
 
         return new DisplayException(__('services.addons.delete_addons_terminated', [
-            'addons' => self::labels(collect($outside))->implode(', '), 'reason' => $reason,
+            'addons' => implode(', ', self::labels(collect($outside))), 'reason' => $reason,
         ]));
     }
 
@@ -181,12 +181,16 @@ class DeleteService
      * «#12 Extra IPv4 ×2», «#13 Backup».
      *
      * @param  Collection<int, Service>  $addons
-     * @return Collection<int, string>
+     * @return list<string>
      */
-    private static function labels(Collection $addons): Collection
+    private static function labels(Collection $addons): array
     {
-        return $addons->map(fn (Service $addon) => "#{$addon->id} " . ($addon->product->name ?? '')
-            . ((int) $addon->quantity > 1 ? " ×{$addon->quantity}" : ''))->values();
+        $labels = [];
+        foreach ($addons as $addon) {
+            $labels[] = "#{$addon->id} " . ($addon->product->name ?? '') . ((int) $addon->quantity > 1 ? " ×{$addon->quantity}" : '');
+        }
+
+        return $labels;
     }
 
     /**
@@ -201,8 +205,8 @@ class DeleteService
         }
         $byHand = self::leavesAddonsToStaff($service) ? $addons->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]) : collect();
 
-        return __('services.addons.delete_with', ['addons' => self::labels($addons)->implode(', ')])
-            . ($byHand->isNotEmpty() ? ' ' . __('services.addons.delete_with_tasks', ['addons' => self::labels($byHand)->implode(', ')]) : '');
+        return __('services.addons.delete_with', ['addons' => implode(', ', self::labels($addons))])
+            . ($byHand->isNotEmpty() ? ' ' . __('services.addons.delete_with_tasks', ['addons' => implode(', ', self::labels($byHand))]) : '');
     }
 
     /**
