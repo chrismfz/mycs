@@ -6,8 +6,10 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Events\AdjustmentNote as AdjustmentNoteEvent;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\Credit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Services\Ekdosi\EkdosiRequest;
 
 class AdjustmentNoteObserver
@@ -18,6 +20,7 @@ class AdjustmentNoteObserver
     public function creating(AdjustmentNote $adjustmentNote): void
     {
         self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
+        self::refuseStaffNoteOnCreditPurchase($adjustmentNote);
         event(new AdjustmentNoteEvent\Creating($adjustmentNote));
     }
 
@@ -33,6 +36,18 @@ class AdjustmentNoteObserver
         // Nor one Ekdosi issued its document for (final review of #459): its total is the document's.
         if ($note->isVoidableByStaff() && EkdosiDocument::activeOn($note->invoice_id)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.'));
+        }
+    }
+
+    /**
+     * A credit purchase («Add funds») gives the credit its lines say, for the money that arrived (InvoiceObserver): with
+     * a note on it, the payment of what is left never covers the credit and the invoice cannot become paid
+     * (S6-MONEY-LEDGER-1). No staff note on it: staff cancel it and make a new one with the right amount.
+     */
+    private static function refuseStaffNoteOnCreditPurchase(AdjustmentNote $note): void
+    {
+        if ($note->isVoidableByStaff() && InvoiceItem::query()->where('invoice_id', $note->invoice_id)->where('reference_type', Credit::class)->exists()) {
+            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: cancel it and make a new one with the right amount.'));
         }
     }
 
@@ -64,6 +79,10 @@ class AdjustmentNoteObserver
         }
         if ($adjustmentNote->isDirty('status')) {
             self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
+        }
+        // Voiding a note on a credit purchase puts its amount right; bringing one back does not.
+        if ($adjustmentNote->isDirty('status') && $adjustmentNote->status === AdjustmentNoteStatus::Active) {
+            self::refuseStaffNoteOnCreditPurchase($adjustmentNote);
         }
     }
 

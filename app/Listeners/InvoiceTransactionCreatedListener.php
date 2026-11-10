@@ -40,7 +40,13 @@ class InvoiceTransactionCreatedListener
             if ($remaining === 0 || ($remaining < 0 && $invoice->status === Invoice::STATUS_DRAFT)) {
                 if ($remaining === 0) {
                     $invoice->status = Invoice::STATUS_PAID;
-                    $invoice->save();
+                    // Refused (a credit purchase with a discount from before these were refused, S6-MONEY-LEDGER-1): the
+                    // payment is still recorded and the invoice stays open; staff are told (RecordPaymentService).
+                    try {
+                        $invoice->save();
+                    } catch (DisplayException $e) {
+                        report($e);
+                    }
                 }
 
                 return;

@@ -225,6 +225,14 @@ class RecordPaymentService
                             $target->id, number_format(($excess - $placed) / 100, 2, '.', ''), $target->currency_code);
                     }
                 }
+                // A credit purchase its payment could not turn paid (a discount on it from before these were refused,
+                // S6-MONEY-LEDGER-1): the money is recorded, the invoice stays open with no credit given. Staff are told.
+                if ($excess === 0 && $target->items->contains('reference_type', Credit::class)
+                    && Invoice::query()->whereKey($target->id)->value('status') === Invoice::STATUS_UNPAID
+                    && self::toCents($target->fresh()->remaining) <= 0) {
+                    $notices[] = sprintf('Invoice #%d buys account credit and has a discount: its payment of %s %s is recorded, but it stays unpaid and gave no credit. Void the discount or refund the payment.',
+                        $target->id, number_format($cents / 100, 2, '.', ''), $target->currency_code);
+                }
                 // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
                 // before the merge. What it left as credit pays the invoice its lines went to, first.
                 if ($excess > 0 && $target->status === Invoice::STATUS_CANCELLED && $target->merged_into_id !== null) {
