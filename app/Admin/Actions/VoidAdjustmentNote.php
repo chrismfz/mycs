@@ -9,6 +9,7 @@ use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
+use App\Services\Invoice\UndoRefund;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
@@ -29,7 +30,7 @@ class VoidAdjustmentNote
     {
         $status = $note->invoice?->status;
         $byStaff = ($note->isVoidableByStaff() && $status !== Invoice::STATUS_REFUNDED)
-            || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
+            || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided && !UndoRefund::undone($note));
 
         return $byStaff && (bool) auth()->user()?->can('update', $note);
     }

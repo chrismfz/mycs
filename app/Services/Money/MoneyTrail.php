@@ -81,6 +81,9 @@ class MoneyTrail
     /** The dispute was won and the gateway gave the money back: the chargeback reversed (PR 2c-2b). */
     public const CAUSE_CHARGEBACK_WON = 'chargeback_won';
 
+    /** Staff took a recorded refund back (UndoRefund, owner 2026-11-10): its event reversed, the payment holds the money again. */
+    public const CAUSE_REFUND_UNDONE = 'refund_undone';
+
     public const SOURCE_STAFF = 'staff';
 
     public const SOURCE_API = 'api';
