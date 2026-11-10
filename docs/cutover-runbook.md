@@ -125,19 +125,20 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   περίοδο· εδώ θα χρεωνόταν ξανά από το `nextduedate`. Ο importer **αρνείται να τρέξει** (και με `--dry-run`, πριν αδειάσει
   οτιδήποτε) όσο μια ζωντανή υπηρεσία ή ένα ζωντανό addon (Active, Suspended) έχει `nextinvoicedate > nextduedate` και τα μόνα τιμολόγια ανανέωσής
   του για το `nextduedate` είναι Cancelled ή σβησμένα, και τα ονομάζει (`cancelledRenewals`: υπηρεσίες ως `#id`, addons ως
-  `addon #id`). Ένα σβησμένο τιμολόγιο αφήνει πίσω τις γραμμές του (`tblinvoiceitems` χωρίς γραμμή στο `tblinvoices`)· μια τέτοια
-  γραμμή μετρά με τη δική της `duedate`. Μια υπηρεσία με αίτημα ακύρωσης μένει έξω: εδώ δεν ξαναχρεώνεται και τελειώνει στην
+  `addon #id`). Ένα σβησμένο τιμολόγιο αφήνει πίσω τις γραμμές του (`tblinvoiceitems` χωρίς γραμμή στο `tblinvoices`)· γραμμή
+  ανανέωσης της περιόδου είναι όποια έχει **δική της** `duedate` ίσο με το `nextduedate` (το τιμολόγιό της μπορεί να λήγει άλλη
+  μέρα, μαζί με άλλα είδη: review του #764)· αν έστω μία τέτοια γραμμή είναι σε ζωντανό τιμολόγιο, τίποτα δεν σταματά. Μια υπηρεσία με αίτημα ακύρωσης μένει έξω: εδώ δεν ξαναχρεώνεται και τελειώνει στην
   ημερομηνία της, όπως ζητήθηκε· το ίδιο ένα addon υπηρεσίας με αίτημα ακύρωσης, και ένα addon υπηρεσίας που έρχεται τελειωμένη
-  (Terminated, Cancelled, Fraud).
+  (Terminated, Cancelled, Fraud), και τα addons χωρίς επόμενη περίοδο (One Time, Free, Free Account).
   1. Ακριβώς πριν από το dump, υπηρεσίες: `SELECT s.id FROM tblhosting s JOIN tblinvoiceitems ii ON ii.type = 'Hosting' AND
      ii.relid = s.id LEFT JOIN tblinvoices i ON i.id = ii.invoiceid WHERE s.domainstatus IN ('Active', 'Suspended') AND NOT
      EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.id) AND s.nextduedate > '0000-00-00' AND s.nextinvoicedate >
-     s.nextduedate AND COALESCE(i.duedate, ii.duedate) = s.nextduedate GROUP BY s.id HAVING SUM(CASE WHEN COALESCE(i.status,
+     s.nextduedate AND ii.duedate = s.nextduedate GROUP BY s.id HAVING SUM(CASE WHEN COALESCE(i.status,
      'Cancelled') = 'Cancelled' THEN 0 ELSE 1 END) = 0` = καμία γραμμή. Addons: `SELECT s.id FROM tblhostingaddons s JOIN
      tblhosting h ON h.id = s.hostingid JOIN tblinvoiceitems ii ON ii.type = 'Addon' AND ii.relid = s.id LEFT JOIN tblinvoices i
      ON i.id = ii.invoiceid WHERE s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN ('Terminated', 'Cancelled',
-     'Fraud') AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.hostingid) AND s.nextduedate > '0000-00-00'
-     AND s.nextinvoicedate > s.nextduedate AND COALESCE(i.duedate, ii.duedate) = s.nextduedate GROUP BY s.id HAVING SUM(CASE
+     'Fraud') AND s.billingcycle NOT IN ('Free Account', 'One Time', 'Free') AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.hostingid) AND s.nextduedate > '0000-00-00'
+     AND s.nextinvoicedate > s.nextduedate AND ii.duedate = s.nextduedate GROUP BY s.id HAVING SUM(CASE
      WHEN COALESCE(i.status, 'Cancelled') = 'Cancelled' THEN 0 ELSE 1 END) = 0` = καμία γραμμή. Έλεγχος 2026-11-10 στα
      αντίγραφα: καμία σε καμία εταιρεία. Για όσα βγουν, στην υπηρεσία ή στο addon στο WHMCS: είτε η περίοδος χρεώνεται ξανά
      (`Next Invoice Date` = `Next Due Date`), είτε χαρίζεται (`Next Due Date` = `Next Invoice Date`). Τα addons μιας υπηρεσίας

@@ -594,9 +594,13 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing currencies... (' . $this->count('tblcurrencies') . ' records)');
 
-        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
+        $codes = [];
+        $hasDefault = false;
+        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies ORDER BY id LIMIT :limit OFFSET :offset', function ($records) use (&$codes, &$hasDefault) {
             $data = [];
             foreach ($records as $record) {
+                $codes[] = (string) $record['code'];
+                $hasDefault = $hasDefault || $record['default'] == 1;
                 $format = match ($record['format']) {
                     1 => '1 000.00', // 1234.56
                     2 => '1,000.00', // 1,234.56
@@ -621,6 +625,14 @@ class ImportFromWhmcs extends Command
 
             DB::table('currencies')->insert($data);
         });
+        // A WHMCS with no default currency and no EUR: an account whose currency names none is imported in EUR
+        // (WhmcsClientCurrency), so the instance gets that currency too, never money in one it lacks (review of #764, REV-764-4).
+        if (!$hasDefault && !in_array(WhmcsClientCurrency::FALLBACK, $codes, true)) {
+            DB::table('currencies')->insert(['name' => WhmcsClientCurrency::FALLBACK, 'code' => WhmcsClientCurrency::FALLBACK,
+                'prefix' => '€', 'suffix' => '', 'format' => '1.000,00']);
+            $this->warn('WHMCS has no default currency and no ' . WhmcsClientCurrency::FALLBACK . ': ' . WhmcsClientCurrency::FALLBACK
+                . ' added here, for the accounts whose currency names none.');
+        }
     }
 
     /** How the logins' 2FA is read (WHMCS_CC_ENCRYPTION_HASH, WhmcsSecondFactor); the tests set their own. */
@@ -2534,7 +2546,6 @@ class ImportFromWhmcs extends Command
     /** @var array<int, true>|null the services imported (their WHMCS ids) */
     private ?array $importedServices = null;
 
-    /** @return array<int, true> */
     /**
      * The currency of an account imported here, or null for one skipped (no owner login, importUsers): its orders,
      * services and invoices are not imported then, never a row of an account that is not here (sweep IMPORT-2: an overdue
@@ -3351,10 +3362,11 @@ class ImportFromWhmcs extends Command
      * refuses to run on them (handle; owner's decision 2026-11-08, sweep 5, in place of sweep 4's C-FIRST-RUN-2 rule):
      * staff settle each in WHMCS before the dump.
      *
-     * A deleted invoice leaves its lines behind (tblinvoiceitems with no tblinvoices row): such a line counts by its own
-     * due date (ii.duedate, the period WHMCS billed with it), so an old deleted invoice of another period refuses nothing,
-     * nor does a service never invoiced for nextduedate (sweep 6 S6-IMPORT-4). An addon is checked as a service, by its
-     * «Addon» lines and its own dates (S6-IMPORT-3); one imported ended with its service is left out, as in addonsApart.
+     * A deleted invoice leaves its lines behind (tblinvoiceitems with no tblinvoices row): a renewal line is one by its own
+     * due date (ii.duedate, the period WHMCS billed with it; its invoice's due date may be another item's day: review of
+     * #764, REV-764-1/2), so a period with a line on a live invoice refuses nothing, nor does an old deleted invoice of
+     * another period or a service never invoiced for nextduedate (sweep 6 S6-IMPORT-4). An addon is checked as a service, by its
+     * «Addon» lines and its own dates (S6-IMPORT-3); one with no next period (NOT_RECURRING_ADDON_CYCLES) or imported ended with its service is left out, as in addonsApart.
      * One with a cancellation request (an addon: its service's) is left out: never billed here (RenewalBilling), it ends
      * on its date as asked (G-MONEY-SERVICE-1). The runbook's pre-dump queries, the same sets. A source without these
      * tables or columns (a test's): none.
@@ -3367,22 +3379,43 @@ class ImportFromWhmcs extends Command
             return [];
         }
         $requested = $this->sourceHas('tblcancelrequests');
-        // The lines for the period due: on an invoice due that day, or on a deleted one by the line's own due date; none of them live.
+        // The lines for the period due, by their own due date: none of them on a live invoice (all cancelled or deleted).
         $givenUp = fn (string $from, string $type, string $where) => array_map('intval', $this->pdo->query("SELECT s.id FROM {$from}
             JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id LEFT JOIN tblinvoices i ON i.id = ii.invoiceid
-            WHERE {$where} AND s.nextduedate > '0000-00-00' AND s.nextinvoicedate > s.nextduedate AND COALESCE(i.duedate, ii.duedate) = s.nextduedate
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND s.nextinvoicedate > s.nextduedate AND ii.duedate = s.nextduedate
             GROUP BY s.id HAVING SUM(CASE WHEN COALESCE(i.status, 'Cancelled') = 'Cancelled' THEN 0 ELSE 1 END) = 0 ORDER BY s.id")->fetchAll(PDO::FETCH_COLUMN));
+        // Each on its own: one query failing (a column the source lacks: a test's) never drops the other's refusals.
+        $services = $addons = [];
         try {
             $services = $givenUp('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')"
                 . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.id)' : ''));
+        } catch (PDOException) {
+            // no nextinvoicedate in the source
+        }
+        try {
             $addons = !$this->sourceHas('tblhostingaddons') ? [] : $givenUp('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
-                "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN ('Terminated', 'Cancelled', 'Fraud')"
+                "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN (" . $this->endedStatuses() . ') AND s.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ')'
                 . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.hostingid)' : ''));
         } catch (PDOException) {
-            return []; // no nextinvoicedate in the source
+            // no nextinvoicedate in the source
         }
 
         return [...$services, ...array_map(fn (int $id) => "addon #{$id}", $addons)];
+    }
+
+    /** The addon cycles with no next period here (WhmcsAddonImport: no expiry, never renewed): left out of the addon checks. */
+    private const NOT_RECURRING_ADDON_CYCLES = ['Free Account', 'One Time', 'Free'];
+
+    /** @param  list<string>  $values */
+    private function quoted(array $values): string
+    {
+        return implode(', ', array_map(fn (string $value) => $this->pdo->quote($value), $values));
+    }
+
+    /** The WHMCS service statuses imported ended (terminated, cancelled); one not named (e.g. Completed) is imported pending. */
+    private function endedStatuses(): string
+    {
+        return $this->quoted(array_keys(array_filter(self::SERVICE_STATUSES, fn (string $status) => in_array($status, ['terminated', 'cancelled'], true))));
     }
 
     /**
@@ -3399,14 +3432,12 @@ class ImportFromWhmcs extends Command
         if (!$this->sourceHas('tblhostingaddons')) {
             return [];
         }
-        $live = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status), WhmcsAddonImport::LIVE));
-        // Only the services imported ended are skipped: one whose status is not named (e.g. Completed) is imported pending.
-        $ended = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status),
-            array_keys(array_filter(self::SERVICE_STATUSES, fn (string $status) => in_array($status, ['terminated', 'cancelled'], true)))));
+        $live = $this->quoted(WhmcsAddonImport::LIVE);
+        $ended = $this->endedStatuses();
 
         $rows = $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due FROM tblhostingaddons a'
             . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
-            . " AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
+            . ' AND a.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ') ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
 
         return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($rows,
             fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));

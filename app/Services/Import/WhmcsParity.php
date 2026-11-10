@@ -195,7 +195,10 @@ final class WhmcsParity
      */
     public function notes(): array
     {
-        $currencies = (int) $this->whmcs->query('SELECT COUNT(DISTINCT c.currency) FROM tblinvoices i JOIN tblclients c ON c.id = i.userid')->fetchColumn();
+        // As the importer assigns them: an account whose currency names none is in the default one (WhmcsClientCurrency).
+        $assigned = new WhmcsClientCurrency($this->whmcs);
+        $currencies = count(array_unique(array_map(fn ($client) => $assigned->code((int) $client),
+            $this->whmcs->query('SELECT DISTINCT i.userid FROM tblinvoices i JOIN tblclients c ON c.id = i.userid')->fetchAll(PDO::FETCH_COLUMN))));
 
         $notes = $currencies > 1 ? ["The invoices are in {$currencies} currencies: their amounts are summed together here."] : [];
         // Money the importer leaves out, by its own rule (ImportFromWhmcs::importPayments, importRefunds): payments on no

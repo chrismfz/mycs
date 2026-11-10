@@ -267,7 +267,9 @@ class Sweep6ImportReviewTest extends TestCase
         (new ReflectionMethod($command, 'importUsers'))->invoke($command);
 
         $code = (string) DB::table('credits')->where('client_id', 300)->value('currency_code');
-        $this->assertSame(['GBP', 'USD'], DB::table('currencies')->orderBy('code')->pluck('code')->all(), 'control: the currencies imported');
+        // The owner's rule is «the default currency, else EUR» (2026-11-08): the source is not refused and no other currency
+        // is taken; the instance gets the EUR row instead (importCurrencies). The reviewer's control expected GBP and USD only.
+        $this->assertSame(['EUR', 'GBP', 'USD'], DB::table('currencies')->orderBy('code')->pluck('code')->all(), 'the currencies imported, and EUR for the fallback');
         $this->assertTrue(DB::table('currencies')->where('code', $code)->exists(),
             "the account's 5.00 credit is written in {$code}, a currency with no row here (the source has no default currency and no EUR):"
             . ' refuse the source or take a currency it has');
