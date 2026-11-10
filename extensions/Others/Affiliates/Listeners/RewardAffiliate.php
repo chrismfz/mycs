@@ -31,6 +31,11 @@ class RewardAffiliate
          * @var Invoice $invoice
          */
         $invoice = $event->invoice;
+        // Marked paid by staff with no payment for (all of) it: no sale came in yet. Rewarded when real money covers it
+        // (PaidByStaffCovered), once (REV-780-3).
+        if (Invoice::query()->whereKey($invoice->id)->whereNotNull('paid_by_staff_at')->exists()) {
+            return;
+        }
 
         // Per line (PR C: one renewal invoice can bill several services, of different orders): each affiliate is rewarded
         // on the lines of the services it referred, not on the whole invoice.

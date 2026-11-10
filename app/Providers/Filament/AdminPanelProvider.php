@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Admin\Auth\AppAuthentication;
 use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
+use App\Admin\Resources\InvoiceResource;
 use App\Http\Controllers\Admin\LoginAsClientController;
 use App\Http\Controllers\Admin\ServicePanelLoginController;
 use App\Http\Controllers\Admin\TicketPresenceController;
@@ -200,6 +201,9 @@ class AdminPanelProvider extends PanelProvider
             ])
             // Ticket attachments for staff: the client area's route is the customers' guard.
             ->authenticatedRoutes(function () {
+                // The read-only invoice page is gone (2026-11-10): its links in mails already sent open the edit page.
+                Route::get('invoice/invoices/{id}', fn (string $id) => redirect(InvoiceResource::getUrl('edit', ['record' => $id])))
+                    ->whereNumber('id')->name('invoices.view-redirect');
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
                     ->name('ticket-attachments.show')->middleware([EnsureStaffTwoFactor::class, 'can:view,attachment']);
                 // A ticket's page closed or left: its «viewing / writing» goes at once (docs/tickets.md §6ν).

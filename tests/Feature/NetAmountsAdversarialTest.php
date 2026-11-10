@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\Upgrade;
 use App\Models\ApiKey;
@@ -22,6 +21,7 @@ use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use App\Services\Money\MoneyCheck;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
@@ -311,7 +311,8 @@ class NetAmountsAdversarialTest extends TestCase
         $this->assertSame(['24.0000', '4.80', '24.80'], [(string) $line->tax_rate, (string) $line->tax_amount, (string) $line->line_total]);
     }
 
-    public function test_guard_a_paid_invoices_line_cannot_be_untaxed(): void
+    /** Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-1): a paid invoice's line changes; it stays paid and says it is paid over. */
+    public function test_a_paid_invoices_line_is_untaxed_and_the_invoice_says_it_is_paid_over(): void
     {
         $client = $this->client();
         $invoice = $this->invoice($client);
@@ -319,12 +320,12 @@ class NetAmountsAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 24.80, null, 'pi_full', currency: 'USD');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
 
-        try {
-            $line->fresh()->update(['taxed' => false]);
-            $this->fail('A paid invoice\'s line lost its tax.');
-        } catch (DisplayException) {
-        }
-        $this->assertSame('24.80', (string) $line->fresh()->line_total);
+        $line->fresh()->update(['taxed' => false]);
+
+        $this->assertSame(['20.00', '0.00'], [(string) $line->fresh()->line_total, (string) $line->fresh()->tax_amount]);
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $this->assertSame(-4.8, $invoice->fresh()->remaining);
+        $this->assertStringContainsString('4.80 USD', (string) StaffLineEdit::balanceNotice($invoice->id));
     }
 
     public function test_guard_a_partial_payment_of_the_net_leaves_the_tax_owing(): void

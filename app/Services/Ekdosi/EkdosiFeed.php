@@ -214,6 +214,11 @@ final class EkdosiFeed
                 'requested_at' => $invoice->ekdosi_requested_at?->format('Y-m-d H:i:s'),
                 // Credit and debit notes on it (WHMCS has none): its total already counts them.
                 'adjustments' => $this->money($statement['adjustments']),
+                // What is still owed on it (negative: paid over). «0.00» but for an invoice staff marked paid with no
+                // payment, or changed after it was paid (owner 2026-11-10): `transactions` is then short of `total`.
+                'balance' => $this->money($statement['balance']),
+                // When staff marked it paid with no payment for (all of) it, or null.
+                'paid_by_staff_at' => $invoice->paid_by_staff_at?->format('Y-m-d H:i:s'),
                 'recipient' => $primary === null ? null : $this->contact($primary),
                 'documents' => $invoice->ekdosiDocuments->map(fn ($document) => [
                     'mark' => $document->mark, 'code' => $document->code, 'state' => $document->state,

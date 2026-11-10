@@ -23,7 +23,7 @@ class InvoiceTransactionsTable
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['invoice.currency', 'gateway']))
             ->columns([
                 TextColumn::make('invoice_id')
-                    ->url(fn (InvoiceTransaction $record): string => InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record->invoice_id]))
+                    ->url(fn (InvoiceTransaction $record): string => InvoiceResource::getUrl('edit', ['record' => $record->invoice_id]))
                     ->numeric()
                     ->sortable(),
                 TextColumn::make('gateway.name')
@@ -62,7 +62,6 @@ class InvoiceTransactionsTable
             ->defaultSort('id', 'desc') // as created, by the primary key
             ->recordActions([
                 DeleteAction::make()
-                    ->visible(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::allowed($record->invoice))
                     ->schema([DeleteInvoiceTransaction::negativeCreditField()])
                     ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false))),
             ])

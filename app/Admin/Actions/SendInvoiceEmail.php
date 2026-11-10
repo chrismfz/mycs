@@ -12,8 +12,7 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * WHMCS's «Send Email» on an invoice (audit sweep Σ4): staff mail the customer one of the invoice templates, e.g.
- * «Invoice Modified» after changing its lines, or a reminder by hand. On the edit and the view page (immutable
- * invoices open on the view page).
+ * «Invoice Modified» after changing its lines, or a reminder by hand.
  */
 class SendInvoiceEmail extends Action
 {
@@ -28,7 +27,6 @@ class SendInvoiceEmail extends Action
 
         $this->label('Send Email')
             ->icon('heroicon-o-envelope')
-            // The permission, not the policy's update (review A8): with immutable invoices update is drafts only.
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->visible(fn (Invoice $record): bool => $record->status !== Invoice::STATUS_DRAFT && $record->client !== null)
             ->schema([

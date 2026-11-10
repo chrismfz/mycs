@@ -42,6 +42,7 @@
 | `history/audit-importer-health.md` | WHMCS importer, υγεία project, οικοσύστημα registrars |
 | `whmcs-usage.md` | Τι χρησιμοποιούμε στο WHMCS (myip, nixpal) και parity backlog ανά φάση |
 | `settings-map.md` | Ρυθμίσεις WHMCS → MyCS ανά instance (αρίθμηση, proforma, mass pay, domains, αυτοματισμοί) |
+| `staff-freedom.md` | Τι διορθώνει ελεύθερα το staff στα τιμολόγια («κόψε-ράψε», 2026-11-10) και τι αρνείται ακόμη, με τον λόγο |
 | `history/upstream-triage.md` | Issues/PRs/advisories του upstream: τι μας επηρεάζει, τι είναι ήδη μέσα, τι θέλουμε |
 | `templates.md` | Σύνταξη των templates email/ειδοποιήσεων (χωρίς Blade) και τιμές ανά ειδοποίηση |
 | `orders.md` | Παραγγελίες και τιμολόγηση γραμμής: ένα `PlaceOrderService`, ένα `OrderPricing` (Σ7) |

@@ -346,23 +346,6 @@ class PayInvoicesAdversarialTest extends TestCase
         $this->assertSame('5.00', $this->credit());
     }
 
-    public function test_held_immutable_invoices_block_the_bulk_payment(): void
-    {
-        $invoices = $this->three();
-        $this->settings(['immutable_invoices_enabled' => [true, 'boolean']]); // a row: the first request's flush keeps it
-        Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = Staff::factory()->admin()->create();
-
-        try {
-            $this->livewireAs($staff)->test(ListInvoices::class)
-                ->selectTableRecords($invoices->pluck('id')->all())
-                ->callAction(TestAction::make('payInvoices')->table()->bulk(), data: ['amount' => '45.00', 'paid_at' => '2026-10-20']);
-        } catch (\Throwable) {
-        }
-
-        $this->assertSame(0, InvoiceTransaction::query()->count());
-    }
-
     public function test_held_apply_credit_with_negative_or_no_credit_or_on_a_paid_invoice_does_nothing(): void
     {
         $invoices = $this->three();

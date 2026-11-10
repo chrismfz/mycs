@@ -48,12 +48,18 @@ class EditInvoice extends EditRecord
     {
         try {
             // Under the payment locks (customer, then invoice), taken before the lines are written: a payment landing
-            // now waits for this save, and an invoice with payments keeps its amounts (StaffLineEdit, sweep Π2.11).
+            // now waits for this save (StaffLineEdit, sweep Π2.11).
             // Filament's own transaction is a savepoint inside this one: «Saved» is sent just before the outer commit.
-            StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification) {
-                if ($this->linesChangeAmounts()) {
-                    // Also when this save reopens it (cancelled → unpaid): the status it will have, not only the stored one.
-                    StaffLineEdit::refuseWithPayments($invoice, $this->data['status'] ?? null);
+            $amountsChanged = false;
+            StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification, &$amountsChanged) {
+                // A line of a service or a domain is not taken off an invoice that holds money or staff's word (the form adds
+                // only lines that reference nothing).
+                foreach (InvoiceItem::query()->where('invoice_id', $invoice->getKey())->whereNotNull('reference_type')->get(['id', 'reference_type']) as $line) {
+                    if (!array_key_exists('record-' . $line->id, $this->data['items'] ?? [])) {
+                        StaffLineEdit::refuseReferencedLine($invoice, $line->reference_type, 'remove');
+                    }
+                }
+                if ($amountsChanged = $this->linesChangeAmounts()) {
                     // A document issued while the form was open: the form now locks the amounts and would drop the change
                     // without a word (the observer never sees it); refused, as before the lock (adversarial ADV-1 of #483).
                     if (EkdosiDocument::activeOn($invoice->getKey(), true)) {
@@ -67,8 +73,21 @@ class EditInvoice extends EditRecord
                 }
                 parent::save($shouldRedirect, $shouldSendSavedNotification);
             });
+            // Its money and its total no longer agree (it owes on while paid, or is paid over): said, never left to be
+            // found (owner 2026-11-10).
+            $markedPaid = $this->record instanceof Invoice && $this->record->paid_without_payment;
+            if ($markedPaid) {
+                $this->data['paid_without_payment'] = false;
+            }
+            if (($amountsChanged || $markedPaid) && ($notice = StaffLineEdit::balanceNotice($this->record->getKey())) !== null) {
+                Notification::make()->warning()->title(__('Check its balance'))->body(e($notice))->persistent()->send();
+            }
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Invoice not saved'))->body(e($e->getMessage()))->send();
+        } finally {
+            if ($this->record instanceof Invoice) {
+                $this->record->paid_without_payment = false; // staff's word for this one save, saved or refused
+            }
         }
     }
 
@@ -209,15 +228,6 @@ class EditInvoice extends EditRecord
             ->first(['ekdosi_requested_at', 'ekdosi_requested_by'])?->getAttributes() ?? [])->syncOriginal();
     }
 
-    public function mount(int|string $record): void
-    {
-        parent::mount($record);
-
-        if (config('settings.immutable_invoices_enabled', false) && $this->record->status !== Invoice::STATUS_DRAFT) {
-            redirect(InvoiceResource::getUrl('view', ['record' => $record]));
-        }
-    }
-
     /** An invoice with payments keeps its customer and currency (docs/money-trail.md §8): say why, not an error page. */
     protected function beforeSave(): void
     {
@@ -231,13 +241,18 @@ class EditInvoice extends EditRecord
 
             throw new Halt;
         }
-        // Paid only by recording its payment (MT-1c; InvoiceObserver::updating refuses it too): say why.
+        // Paid by recording its payment (MT-1c; InvoiceObserver::updating refuses it too): say why. An unpaid one staff
+        // set to «paid» with the confirmation ticked is theirs to mark (owner 2026-11-10): the model is told, this save only.
         if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
             && RecordPaymentService::toCents($invoice->fresh()->remaining) > 0) {
-            Notification::make()->danger()->title(__('Invoice not saved'))
-                ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
+            if ($invoice->getOriginal('status') !== Invoice::STATUS_UNPAID || !($this->data['paid_without_payment'] ?? false)
+                || !InvoiceResource::mayMarkPaidWithoutPayment($invoice)) {
+                Notification::make()->danger()->title(__('Invoice not saved'))
+                    ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
 
-            throw new Halt;
+                throw new Halt;
+            }
+            $invoice->paid_without_payment = true;
         }
         // Paid over its total (a line taken off, a discount): the part over is the customer's, given by «Close as paid».
         if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID

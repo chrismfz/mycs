@@ -86,7 +86,8 @@ class InvoiceEditRefreshTest extends TestCase
         $page->assertActionHidden('withdrawFromEkdosi')->assertActionVisible('sendToEkdosi');
     }
 
-    public function test_a_paid_invoices_lines_are_shown_locked_with_why(): void
+    /** Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-1): a paid invoice's lines are open, with what a change does said beside them. */
+    public function test_a_paid_invoices_lines_are_open_with_what_a_change_does(): void
     {
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '100.00', transactionId: 'TX-2');
@@ -94,13 +95,13 @@ class InvoiceEditRefreshTest extends TestCase
 
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $line = array_key_first($page->get('data.items'));
-        $page->assertFormFieldIsDisabled("items.{$line}.price")
-            ->assertFormFieldIsDisabled("items.{$line}.quantity")
+        $page->assertFormFieldIsEnabled("items.{$line}.price")
+            ->assertFormFieldIsEnabled("items.{$line}.quantity")
             ->assertFormFieldIsEnabled("items.{$line}.description")
-            ->assertSee(__('A paid invoice keeps its lines: set it back to unpaid first.'));
+            ->assertSee(__('This invoice is paid. A change to its lines leaves it paid, with a balance to settle (shown here). The periods it already gave stay given: nothing is renewed or taken back.'));
     }
 
-    public function test_the_lines_lock_on_payments_and_on_a_document_and_not_before(): void
+    public function test_the_lines_lock_on_a_document_and_not_on_payments(): void
     {
         $open = $this->invoice();
         $this->assertNull(InvoiceResource::linesKeepAmounts($open));
@@ -108,7 +109,7 @@ class InvoiceEditRefreshTest extends TestCase
         $part = $this->invoice();
         ExtensionHelper::addPayment($part, 'BankTransfer', '40.00', transactionId: 'TX-3');
         $this->assertSame(Invoice::STATUS_UNPAID, $part->fresh()->status);
-        $this->assertNotNull(InvoiceResource::linesKeepAmounts($part->fresh()), 'a part paid: the Save refuses new amounts');
+        $this->assertNull(InvoiceResource::linesKeepAmounts($part->fresh()), 'a part paid: its lines change (TIGHT-INVOICES-PAYMENTS-2, 2026-11-10)');
 
         $documented = $this->invoice();
         EkdosiDocument::query()->create(['invoice_id' => $documented->id, 'mark' => '400001234567890', 'code' => 'ΤΠΥ1', 'state' => EkdosiDocument::ACTIVE]);
@@ -118,8 +119,8 @@ class InvoiceEditRefreshTest extends TestCase
         $page->assertFormFieldIsEnabled('items.' . array_key_first($page->get('data.items')) . '.price');
     }
 
-    /** Review of #483: the lock follows the invoice saved in the same response (the memo keyed on its state). */
-    public function test_reopening_by_save_unlocks_the_lines_at_once(): void
+    /** Review of #483: what the lines say follows the invoice saved in the same response (the memo keyed on its state). */
+    public function test_reopening_by_save_takes_the_paid_hint_off_at_once(): void
     {
         $invoice = $this->invoice();
         $invoice->items()->first()->update(['price' => '0.00']);
@@ -127,12 +128,12 @@ class InvoiceEditRefreshTest extends TestCase
 
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $line = array_key_first($page->get('data.items'));
-        $page->assertFormFieldIsDisabled("items.{$line}.price")
+        $hint = __('This invoice is paid. A change to its lines leaves it paid, with a balance to settle (shown here). The periods it already gave stay given: nothing is renewed or taken back.');
+        $page->assertFormFieldIsEnabled("items.{$line}.price")->assertSee($hint)
             ->set('data.status', Invoice::STATUS_UNPAID)->call('save')->assertHasNoErrors();
 
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $page->assertFormFieldIsEnabled("items.{$line}.price")
-            ->assertDontSee(__('A paid invoice keeps its lines: set it back to unpaid first.'));
+        $page->assertFormFieldIsEnabled("items.{$line}.price")->assertDontSee($hint);
     }
 
     /** Review of #483: a payment deleted in the table tells the page and the other tables. */
@@ -148,7 +149,7 @@ class InvoiceEditRefreshTest extends TestCase
             ->assertDispatched(TransactionsRelationManager::PAYMENTS_CHANGED);
     }
 
-    /** Review of #483: told, the page reads the invoice again: its status, and its lines locked by a payment made below. */
+    /** Review of #483: told, the page reads the invoice again: its status (its lines stay open, 2026-11-10). */
     public function test_the_page_reads_the_invoice_again_when_told(): void
     {
         $invoice = $this->invoice();
@@ -160,6 +161,6 @@ class InvoiceEditRefreshTest extends TestCase
 
         $page->dispatch(TransactionsRelationManager::PAYMENTS_CHANGED)
             ->assertSet('data.status', Invoice::STATUS_PAID)
-            ->assertFormFieldIsDisabled("items.{$line}.price");
+            ->assertFormFieldIsEnabled("items.{$line}.price");
     }
 }

@@ -135,7 +135,7 @@ class UpgradeProrationAdversarialTest extends TestCase
         InvoiceItem::factory()->create(['invoice_id' => $invoice->id, 'description' => 'Renewal', 'price' => $amount, 'quantity' => 1,
             'reference_type' => Service::class, 'reference_id' => $service->id]);
         // As the WHMCS importer writes a paid invoice (the observer only lets a recorded payment mark one paid).
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
     }
 
     private function runCronRefresh(int $upgradeId): void

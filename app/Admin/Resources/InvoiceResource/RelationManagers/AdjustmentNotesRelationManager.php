@@ -4,8 +4,12 @@ namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\VoidAdjustmentNote;
 use App\Enums\AdjustmentNoteStatus;
+use App\Enums\AdjustmentNoteType;
+use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -21,16 +25,11 @@ class AdjustmentNotesRelationManager extends RelationManager
 
     protected static ?string $title = 'Adjustment Notes';
 
-    protected function canModifyAdjustmentNotes(): bool
-    {
-        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_UNPAID;
-    }
-
-    private function ownerIsPaid(): bool
+    private function ownerIsRefunded(): bool
     {
         $invoice = $this->getOwnerRecord();
 
-        return $invoice instanceof Invoice && in_array($invoice->status, Invoice::FROZEN_STATUSES, true);
+        return $invoice instanceof Invoice && $invoice->status === Invoice::STATUS_REFUNDED;
     }
 
     public function form(Schema $schema): Schema
@@ -105,14 +104,33 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->headerActions([
-                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to unpaid first.
+                // A refunded invoice keeps its total (AdjustmentNoteObserver); a paid one takes notes and says its balance.
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes() && !$this->ownerIsPaid()),
+                    ->visible(fn (): bool => !$this->ownerIsRefunded())
+                    ->after(fn () => VoidAdjustmentNote::tellBalance($this->getOwnerRecord()->getKey())),
             ])
-            // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
-            // written.
+            // A note staff wrote is voided, edited (description, amount) or deleted (owner 2026-11-10; it was append-only,
+            // MT-1c): each under the payment locks and in the note's audit. Not a refund's or a cancellation's.
             ->recordActions([
                 VoidAdjustmentNote::make(), // its own rule: VoidAdjustmentNote::allowed
+                EditAction::make()
+                    ->visible(fn (AdjustmentNote $record): bool => VoidAdjustmentNote::correctable($record, 'update'))
+                    ->using(function (AdjustmentNote $record, array $data): AdjustmentNote {
+                        VoidAdjustmentNote::correct($record, 'update', fn (AdjustmentNote $note) => $note->update([
+                            'amount' => $data['amount'], 'description' => $data['description'],
+                            'type' => (float) $data['amount'] < 0 ? AdjustmentNoteType::Credit->value : AdjustmentNoteType::Debit->value,
+                        ]));
+
+                        return $record->refresh();
+                    }),
+                DeleteAction::make()
+                    ->visible(fn (AdjustmentNote $record): bool => VoidAdjustmentNote::correctable($record, 'delete'))
+                    ->modalDescription(__('The note is removed from the invoice, whose total changes. Its number is not used again.'))
+                    ->using(function (AdjustmentNote $record): bool {
+                        VoidAdjustmentNote::correct($record, 'delete', fn (AdjustmentNote $note) => $note->delete());
+
+                        return true;
+                    }),
             ])
             ->defaultSort('created_at', 'desc');
     }

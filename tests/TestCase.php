@@ -5,6 +5,7 @@ namespace Tests;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Console\Commands\CronJob;
 use App\Console\Commands\CronWait;
+use App\Enums\InvoiceTransactionStatus;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
@@ -16,6 +17,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\MaintenanceModeManager;
@@ -162,6 +164,26 @@ abstract class TestCase extends BaseTestCase
         $this->livewireAs($staff)->test(ListInvoices::class)
             ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => $reason])->assertHasNoTableActionErrors();
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'staff cancelled the invoice');
+    }
+
+    /**
+     * A fixture's invoice set to a status as a row (the observer lets only a payment mark one paid). «Paid» comes with its
+     * money: one succeeded payment of its total, written as a row too. Since 2026-11-10 (REV-780-1) what an invoice paid
+     * for is the money it kept, never its status, so a paid fixture without a payment paid for nothing.
+     */
+    protected function statusFixture(int $invoiceId, string $status): void
+    {
+        DB::table('invoices')->where('id', $invoiceId)->update(['status' => $status]);
+        if ($status !== Invoice::STATUS_PAID) {
+            return;
+        }
+        $invoice = Invoice::query()->with(['items', 'adjustmentNotes', 'transactions'])->findOrFail($invoiceId);
+        $owed = RecordPaymentService::toCents($invoice->remaining);
+        if ($owed > 0) {
+            DB::table('invoice_transactions')->insert(['invoice_id' => $invoiceId, 'amount' => $owed / 100,
+                'status' => InvoiceTransactionStatus::Succeeded->value, 'transaction_id' => 'fixture-' . $invoiceId . '-' . uniqid(),
+                'created_at' => now(), 'updated_at' => now()]);
+        }
     }
 
     //

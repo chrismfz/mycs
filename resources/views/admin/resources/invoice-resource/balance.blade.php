@@ -15,4 +15,16 @@
     <dd class="text-end">{{ $money($paid) }}</dd>
     <dt class="border-t border-gray-200 pt-1 font-semibold dark:border-white/10">{{ __('Balance due') }}</dt>
     <dd @class(['border-t border-gray-200 pt-1 text-end font-semibold dark:border-white/10', 'text-danger-600 dark:text-danger-400' => $statement['balance'] > 0])>{{ $money($statement['balance']) }}</dd>
+    {{-- Paid, and its total and its money differ (owner 2026-11-10: staff change a paid invoice; it says its balance). --}}
+    @if ($record->status === \App\Models\Invoice::STATUS_PAID && $statement['balance'] != 0)
+        <dd class="col-span-2 pt-1 text-xs font-medium text-warning-600 dark:text-warning-400" data-paid-balance>
+            @if ($statement['balance'] > 0)
+                {{ $record->paid_by_staff_at !== null
+                    ? __('Marked paid by staff, no payment: owes :amount.', ['amount' => $money($statement['balance'])])
+                    : __('Paid, and owes :amount: record the payment («Add payment»), or leave it.', ['amount' => $money($statement['balance'])]) }}
+            @else
+                {{ __('Paid :amount over its total: «Close as paid» gives the part over as account credit.', ['amount' => $money(abs($statement['balance']))]) }}
+            @endif
+        </dd>
+    @endif
 </dl>

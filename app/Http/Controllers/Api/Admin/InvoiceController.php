@@ -74,6 +74,13 @@ class InvoiceController extends ApiController
     public function update(UpdateInvoiceRequest $request, Invoice $invoice)
     {
         $data = $request->validated();
+        // Staff's word that no payment is recorded (owner 2026-11-10): for this save only, never a column.
+        // It renews what a recorded payment renews: the key needs the permission to record payments too (REV-780-4).
+        if (($data['paid_without_payment'] ?? false) && !in_array('admin.invoice_transactions.create', $request->attributes->get('api_key_permissions', []), true)) {
+            abort(403, 'paid_without_payment needs the permission to record payments (invoice_transactions.create).');
+        }
+        $invoice->paid_without_payment = (bool) ($data['paid_without_payment'] ?? false);
+        unset($data['paid_without_payment']);
         // An invoice with payments keeps its customer and currency (InvoiceObserver::updating, docs/money-trail.md §8).
         $moves = (array_key_exists('client_id', $data) && (int) $data['client_id'] !== (int) $invoice->client_id)
             || (array_key_exists('currency_code', $data) && $data['currency_code'] !== $invoice->currency_code);
@@ -86,6 +93,8 @@ class InvoiceController extends ApiController
             // The model's money rules (InvoiceObserver::updating): paid only without a balance, a cancelled invoice is
             // reopened before it is paid, an invoice with payments keeps its customer and currency.
             abort(422, $e->getMessage());
+        } finally {
+            $invoice->paid_without_payment = false;
         }
 
         // Return the updated invoice as a JSON response

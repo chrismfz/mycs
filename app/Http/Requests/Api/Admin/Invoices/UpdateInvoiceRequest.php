@@ -9,21 +9,6 @@ class UpdateInvoiceRequest extends AdminApiRequest
 {
     protected $permission = 'invoices.update';
 
-    public function authorize(): bool
-    {
-        if (!parent::authorize()) {
-            return false;
-        }
-
-        $invoice = $this->route('invoice');
-
-        if (!$invoice instanceof Invoice || !config('settings.immutable_invoices_enabled', false)) {
-            return true;
-        }
-
-        return $invoice->status === Invoice::STATUS_DRAFT;
-    }
-
     public function rules(): array
     {
         return [
@@ -34,12 +19,17 @@ class UpdateInvoiceRequest extends AdminApiRequest
             'currency_code' => 'sometimes|required|string|exists:currencies,code',
             'due_at' => 'sometimes|nullable|date',
             /**
-             * `paid` only when nothing is left to pay (a zero or fully paid invoice): otherwise 422, the payment is
-             * recorded instead (docs/money-trail.md, MT-1c).
+             * `paid` when nothing is left to pay (a zero or fully paid invoice); with something left, 422 (the payment
+             * is recorded instead, docs/money-trail.md MT-1c) unless `paid_without_payment` is true.
              *
              * @default unpaid
              */
             'status' => 'sometimes|required|string|in:unpaid,paid,cancelled',
+            /**
+             * With `status: paid` on an unpaid invoice that still owes: mark it paid with no payment recorded (its
+             * services are renewed; no payment row is made). Never a credit purchase (422).
+             */
+            'paid_without_payment' => 'sometimes|boolean',
         ];
     }
 }

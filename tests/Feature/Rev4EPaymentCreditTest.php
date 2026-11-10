@@ -15,7 +15,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -77,7 +76,7 @@ class Rev4EPaymentCreditTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line = $invoice->items()->create(['description' => 'Period', 'price' => 120.00, 'quantity' => 1, 'reference_id' => $service->id,
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status]);
+        $this->statusFixture((int) $invoice->id, $status);
 
         return $line;
     }

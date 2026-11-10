@@ -12,7 +12,6 @@ use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\EkdosiDocumentsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
@@ -20,19 +19,21 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationMan
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\ChargeAttempt;
+use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Observers\InvoiceItemObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
 use App\Support\AdminBadge;
 use App\Support\EkdosiNotice;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
@@ -144,9 +145,9 @@ class InvoiceResource extends Resource
     }
 
     /**
-     * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): paid or
-     * refunded, a fiscal document from Ekdosi, or payments on an open one. Null while they can change. Read once per state
-     * of the invoice: the form asks for every line.
+     * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): refunded,
+     * a fiscal document from Ekdosi (or one issued before the cut-over), or a credit purchase that gave its credit. Null while they can change. Read once per state of the invoice: the form
+     * asks for every line.
      */
     public static function linesKeepAmounts(?Invoice $invoice): ?string
     {
@@ -165,13 +166,30 @@ class InvoiceResource extends Resource
     private static function linesKeepAmountsAt(string $state, Invoice $invoice): ?string
     {
         return once(fn (): ?string => $state !== '' ? match (true) {
-            in_array($invoice->status, Invoice::FROZEN_STATUSES, true) => __('A paid invoice keeps its lines: set it back to unpaid first.'),
+            $invoice->status === Invoice::STATUS_REFUNDED => __('A refunded invoice keeps its lines: bill the customer on a new invoice.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
-            // A cancelled one too: owing nothing, a repricing only matters reopened, and the reopening Save refuses it
-            // (adversarial ADV-3 of #483).
-            in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_CANCELLED], true) && StaffLineEdit::holdsMoney($invoice, false) => StaffLineEdit::linesKeepAmounts($invoice),
+            EkdosiDocument::issuedBeforeCutOver($invoice->getKey()) => EkdosiDocument::cutOverRefusal(),
+            InvoiceItemObserver::gaveCredit($invoice->getKey()) => InvoiceItemObserver::creditGivenRefusal(),
             default => null,
         } : null);
+    }
+
+    /** Staff are setting an unpaid invoice that still owes to «paid» (the status select): the confirmation is asked. */
+    public static function marksPaidWithoutPayment(?Invoice $invoice, mixed $status): bool
+    {
+        return $invoice !== null && $status === Invoice::STATUS_PAID && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID
+            && RecordPaymentService::toCents($invoice->remaining) > 0;
+    }
+
+    /**
+     * «Paid by hand» renews what «Mark Paid» renews, so it asks for what that asks (REV-780-4): the invoice's permission
+     * and the one to record payments.
+     */
+    public static function mayMarkPaidWithoutPayment(Invoice $invoice): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && $user->can('update', $invoice) && $user->can('create', InvoiceTransaction::class);
     }
 
     /** The invoice of the page a line's field is on (inside the repeater, `$record` is the line). */
@@ -247,21 +265,40 @@ class InvoiceResource extends Resource
                                     ->label('Status')
                                     ->required()
                                     ->options(Invoice::statusOptions())
-                                    // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
-                                    // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
-                                    // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
-                                    // Refunded only by refunding its payments, and final (PR 2c); a paid invoice is refunded, never
-                                    // cancelled (INV-16).
+                                    // Paid by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice. An
+                                    // unpaid one with something left to pay may be set paid here with the confirmation below (owner
+                                    // 2026-11-10). Paid over its total, it is closed with «Close as paid», which gives the part over as
+                                    // credit (2b). A cancelled invoice is reopened first. Refunded only by refunding its payments, and
+                                    // final (PR 2c); a paid invoice is refunded, never cancelled (INV-16).
+                                    ->live()
                                     ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => ($value === Invoice::STATUS_PAID
                                         && $record?->getOriginal('status') !== Invoice::STATUS_PAID
                                         && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
-                                            || RecordPaymentService::toCents($record->remaining) !== 0))
+                                            || RecordPaymentService::toCents($record->remaining) < 0
+                                            || (RecordPaymentService::toCents($record->remaining) !== 0
+                                                && ($record->getOriginal('status') !== Invoice::STATUS_UNPAID || !self::mayMarkPaidWithoutPayment($record)))))
                                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
-                                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
+                                    ->default(Invoice::STATUS_UNPAID)
                                     // Cancelled here too: the fiscal document from Ekdosi stands (E2).
                                     ->helperText(fn (?Invoice $record): ?string => EkdosiNotice::forInvoice($record))
                                     ->placeholder('Select the status of the invoice'),
+                                // «Paid» chosen with money still owed: staff confirm that none is recorded (owner 2026-11-10).
+                                Checkbox::make('paid_without_payment')
+                                    ->label(fn (?Invoice $record): string => __('No payment is recorded: mark it paid anyway, with :amount :currency still owed on it. Its services are renewed. (To record the money, use «Mark Paid» instead.)', [
+                                        'amount' => number_format(max(0, RecordPaymentService::toCents($record === null ? 0 : $record->remaining)) / 100, 2, '.', ''), 'currency' => (string) $record?->currency_code,
+                                    ]))
+                                    // What else «paid» does, said before the tick (review of #780).
+                                    ->helperText(fn (?Invoice $record): string => implode(' ', array_filter([
+                                        $record?->items()->where('reference_type', Domain::class)->whereNull('applied_at')->exists()
+                                            ? __('Its domain lines are sent to the registrar (a registration, a renewal), at our cost.') : null,
+                                        $record?->isProforma() ? __('The proforma takes its invoice number.') : null,
+                                        __('Affiliates are rewarded only when real money covers it.'),
+                                    ])))
+                                    ->visible(fn (Get $get, ?Invoice $record): bool => self::marksPaidWithoutPayment($record, $get('status')))
+                                    ->accepted()
+                                    ->dehydrated(false)
+                                    ->columnSpanFull(),
                                 Select::make('currency_code')
                                     ->label('Currency')
                                     ->required()
@@ -291,7 +328,10 @@ class InvoiceResource extends Resource
                     ->addActionLabel(__('Add line'))
                     // Its lines keep their amounts (paid, a fiscal document, payments on it): the form says so and offers no
                     // change the Save would refuse; descriptions still change (live test of 2026-10-27).
-                    ->hint(fn (?Invoice $record): ?string => self::linesKeepAmounts($record))
+                    // A paid one changes too (owner 2026-11-10): said before the Save what that does and does not do.
+                    ->hint(fn (?Invoice $record): ?string => self::linesKeepAmounts($record) ?? ($record?->status === Invoice::STATUS_PAID
+                        ? __('This invoice is paid. A change to its lines leaves it paid, with a balance to settle (shown here). The periods it already gave stay given: nothing is renewed or taken back.')
+                        : null))
                     ->hintColor('warning')
                     ->addable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)
                     ->deletable(fn (?Invoice $record): bool => self::linesKeepAmounts($record) === null)
@@ -478,8 +518,6 @@ class InvoiceResource extends Resource
                     ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->visible(fn (): bool => config('settings.immutable_invoices_enabled', false)),
                 EditAction::make(),
                 Action::make('cancel')
                     ->label('Cancel')
@@ -519,7 +557,6 @@ class InvoiceResource extends Resource
                             throw new Halt;
                         }
                     })
-                    // per record, as on ViewInvoice: with immutable invoices on only a draft can be changed
                     ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
                     ->visible(fn (Invoice $record): bool => !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
             ])
@@ -550,7 +587,6 @@ class InvoiceResource extends Resource
             'index' => ListInvoices::route('/'),
             'create' => CreateInvoice::route('/create'),
             // Always use id for invoice route binding in admin
-            'view' => ViewInvoice::route('/{record:id}'),
             'edit' => EditInvoice::route('/{record:id}/edit'),
         ];
     }

@@ -17,24 +17,45 @@ use App\Services\Invoice\LineTax;
 use App\Services\Payment\ItemPaymentMethod;
 
 /**
- * A paid invoice keeps what it charged (docs/money-trail.md, MT-1c): no line is added, removed or repriced while it is
- * paid, else it stays paid with a balance (and a price lowered to zero just to mark it paid would be raised again).
- * Staff set it back to unpaid first. Descriptions, periods and applied_at still change.
+ * A refunded invoice keeps what it charged (PR 2c: final), and so does one Ekdosi issued its document for (issued is
+ * final). A paid one no longer does (owner 2026-11-10, docs/staff-freedom.md): staff add, remove or reprice its lines as
+ * in WHMCS; it stays paid and its page shows what it then owes or holds over (StaffLineEdit::balanceNotice). Nothing
+ * follows on its own: the period a line already gave stays given. Descriptions, periods and applied_at always change.
  */
 class InvoiceItemObserver
 {
     private const MONEY_FIELDS = ['price', 'quantity', 'reference_type', 'reference_id', 'invoice_id', 'taxed', 'tax_rate', 'tax_reason', 'tax_amount', 'line_total'];
 
-    private static function refuseOnPaidInvoice(mixed $invoiceId): void
+    private static function refuseOnFinalInvoice(mixed $invoiceId): void
     {
-        if ($invoiceId !== null && in_array(Invoice::query()->whereKey($invoiceId)->value('status'), Invoice::FROZEN_STATUSES, true)) {
-            throw new DisplayException(__('A paid invoice keeps its lines: set it back to unpaid first.'));
+        if ($invoiceId !== null && Invoice::query()->whereKey($invoiceId)->value('status') === Invoice::STATUS_REFUNDED) {
+            throw new DisplayException(__('A refunded invoice keeps its lines: bill the customer on a new invoice.'));
         }
         // Ekdosi issued its fiscal document (on credit): a line added, repriced or removed would reach no document, the
         // invoice being filed once paid (R2-1/R2-2 of #459). Ekdosi cancels it first.
         if (EkdosiDocument::activeOn($invoiceId)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
         }
+        // Nor one paid before the cut-over: its document was issued through WHMCS (REV-780-7).
+        if (EkdosiDocument::issuedBeforeCutOver($invoiceId)) {
+            throw new DisplayException(EkdosiDocument::cutOverRefusal());
+        }
+        // A credit purchase that gave its credit keeps its lines (REV-780-2): the credit given and what a refund takes
+        // back are both read from them. Lowered, a refund would leave credit behind; raised, money paid on it would buy none.
+        if (self::gaveCredit($invoiceId)) {
+            throw new DisplayException(self::creditGivenRefusal());
+        }
+    }
+
+    /** It bought account credit and the credit was given (a line of credit applied). */
+    public static function gaveCredit(mixed $invoiceId): bool
+    {
+        return $invoiceId !== null && InvoiceItem::query()->where('invoice_id', $invoiceId)->where('reference_type', Credit::class)->whereNotNull('applied_at')->exists();
+    }
+
+    public static function creditGivenRefusal(): string
+    {
+        return __('This invoice buys account credit and gave it already: its lines keep their amounts. Refund its payment (the credit is taken back), then make a new one with the right amount.');
     }
 
     /**
@@ -59,15 +80,22 @@ class InvoiceItemObserver
      */
     public function creating(InvoiceItem $invoice): void
     {
-        self::refuseOnPaidInvoice($invoice->invoice_id);
+        self::refuseOnFinalInvoice($invoice->invoice_id);
         self::refuseDiscountOnCreditPurchase($invoice);
         // A domain line: a renewal with its period, or a charge (review R6 of #172, F1 of #174).
         DomainRenewalService::prepareLine($invoice);
+        // Kept (owner 2026-11-10: what loses money stays): a domain renewal added to a PAID invoice would be renewed at the
+        // registry by the cron (DomainRenewalService::waitingLines) with no payment for it. A charge of the domain is fine.
+        if ($invoice->reference_type === Domain::class && $invoice->kind === null && $invoice->applied_at === null
+            && Invoice::query()->whereKey($invoice->invoice_id)->value('status') === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('A domain renewal is not added to a paid invoice: it would renew the domain at the registry with no payment. Bill it on a new invoice.'));
+        }
         // Its tax (Δ1): the rate in force now, unless given (an import keeps the one it was issued with).
         if (!$invoice->isDirty('tax_rate')) {
             $invoice->forceFill(LineTax::decide($invoice));
         }
         LineTax::apply($invoice);
+        Invoice::owesByStaffsWord($invoice->invoice_id, $invoice->totalCents());
         self::recordWay($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
     }
@@ -92,6 +120,7 @@ class InvoiceItemObserver
     {
         // A request to Ekdosi (E5) was for the lines as they stood: another line, staff send it again (R2-3 of #478).
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
+        EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Created($invoice));
     }
 
@@ -127,9 +156,10 @@ class InvoiceItemObserver
             LineTax::apply($invoice);
         }
         if ($invoice->isDirty(self::MONEY_FIELDS)) {
-            self::refuseOnPaidInvoice($invoice->getOriginal('invoice_id'));
-            self::refuseOnPaidInvoice($invoice->invoice_id);
+            self::refuseOnFinalInvoice($invoice->getOriginal('invoice_id'));
+            self::refuseOnFinalInvoice($invoice->invoice_id);
             self::refuseDiscountOnCreditPurchase($invoice);
+            Invoice::owesByStaffsWord($invoice->invoice_id, $invoice->totalCents() - (int) round((float) $invoice->getOriginal('line_total') * 100));
         }
         event(new InvoiceItemEvent\Updating($invoice));
     }
@@ -145,12 +175,15 @@ class InvoiceItemObserver
                 EkdosiRequest::forget((int) $invoice->getOriginal('invoice_id'), 'lines_changed');
             }
         }
+        if ($invoice->wasChanged(['price', 'quantity', 'taxed', 'line_total'])) {
+            EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
+        }
         event(new InvoiceItemEvent\Updated($invoice));
     }
 
     public function deleting(InvoiceItem $invoice): void
     {
-        self::refuseOnPaidInvoice($invoice->invoice_id);
+        self::refuseOnFinalInvoice($invoice->invoice_id);
     }
 
     /**
@@ -166,6 +199,7 @@ class InvoiceItemObserver
             ServiceUpgrade::query()->whereKey($invoice->reference_id)->first()?->forceFill(['discount' => null, 'discount_percent' => null])->save();
         }
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
+        EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Deleted($invoice));
     }
 }

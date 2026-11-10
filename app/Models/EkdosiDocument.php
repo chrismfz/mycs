@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Money\MoneyTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -42,6 +43,31 @@ class EkdosiDocument extends Model implements Auditable
         $query = static::query()->where('invoice_id', $invoiceId)->where('state', self::ACTIVE);
 
         return ($lock ? $query->lockForUpdate() : $query)->exists();
+    }
+
+    /**
+     * Paid in WHMCS and imported so (REV-780-7, by «issued is final»): its fiscal document was issued through WHMCS before
+     * the cut-over, and those marks are not imported, so no row here says so. Its lines and notes stay as an invoice's
+     * with an active document do. The bridge keeps no feed start date (Ekdosi sends its own `since`), so the definition
+     * is: a paid invoice, not one staff marked paid by hand, whose money in the journal is all the importer's
+     * (source «import») — none that MyCS recorded. One paid here, or part paid in WHMCS and settled here, is Ekdosi's to
+     * issue and is seen by its document.
+     */
+    public static function issuedBeforeCutOver(mixed $invoiceId): bool
+    {
+        if ($invoiceId === null || !Invoice::query()->whereKey($invoiceId)->where('status', Invoice::STATUS_PAID)->whereNull('paid_by_staff_at')->exists()) {
+            return false;
+        }
+        $money = MoneyEvent::query()->where('invoice_id', $invoiceId);
+
+        return (clone $money)->where('source', MoneyTrail::SOURCE_IMPORT)->exists()
+            && !(clone $money)->where('source', '!=', MoneyTrail::SOURCE_IMPORT)->exists();
+    }
+
+    /** What staff are told when they try to change one (lines, notes). */
+    public static function cutOverRefusal(): string
+    {
+        return __('This invoice was paid before the cut-over: its document was issued before the cut-over. A correction is made in Ekdosi.');
     }
 
     /** @return BelongsTo<Invoice, $this> */

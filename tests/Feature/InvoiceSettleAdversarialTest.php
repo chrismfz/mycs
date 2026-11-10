@@ -229,13 +229,17 @@ class InvoiceSettleAdversarialTest extends TestCase
         $this->assertSame(10000, $this->balanceCents());
 
         $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
-        $invoice->items()->sole()->update(['price' => 70]);
 
+        // Since REV-780-2 the scenario stops one step earlier: a credit purchase that gave its credit keeps its lines,
+        // reopened too. The refusal is asserted, then what S5 was for: closing it gives no credit on top.
         try {
-            (new RecordPaymentService)->settle($invoice);
-        } catch (DisplayException) {
-            // refusing it is a fix too
+            $invoice->items()->sole()->update(['price' => 70]);
+            $this->fail('the line of a credit purchase that gave its credit was lowered');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('gave it already', $e->getMessage());
         }
+        $this->assertSame('100.00', (string) $invoice->items()->sole()->price);
+        (new RecordPaymentService)->settle($invoice->fresh());
 
         $this->assertLessThanOrEqual(10000, $this->balanceCents(), 'S5: 100.00 paid, more than 100.00 of credit held');
     }

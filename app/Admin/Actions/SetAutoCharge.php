@@ -51,12 +51,11 @@ class SetAutoCharge extends Action
         parent::setUp();
 
         $this->color('gray')
-            // The permission, not the policy's update: that is drafts only with immutable invoices.
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->requiresConfirmation()
             ->action(function (Invoice $record) {
                 $kept = $this->kept;
-                // Not through save(): an immutable invoice keeps its other fields; this flag is no part of what it bills.
+                // Not through save(): this flag is no part of what it bills.
                 $changed = Invoice::query()->whereKey($record->id)->where('no_auto_charge', !$kept)->update(['no_auto_charge' => $kept]);
                 $record->refresh();
                 if ($changed === 0) {

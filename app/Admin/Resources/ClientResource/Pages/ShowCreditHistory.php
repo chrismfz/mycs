@@ -56,7 +56,7 @@ class ShowCreditHistory extends ManageRelatedRecords
                     ->formatStateUsing(fn (MoneyEvent $record): string => MoneyHistory::money($record->credit_balance_after, $record->currency_code)),
                 TextColumn::make('invoice_id')->label(__('Invoice'))->prefix('#')
                     ->url(fn (MoneyEvent $record): ?string => $record->invoice_id !== null && auth()->user()?->hasPermission('admin.invoices.viewAny')
-                        ? InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record->invoice_id])
+                        ? InvoiceResource::getUrl('edit', ['record' => $record->invoice_id])
                         : null),
                 TextColumn::make('source')->label(__('Source')),
                 TextColumn::make('by')->label(__('By'))

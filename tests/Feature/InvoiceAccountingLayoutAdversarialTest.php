@@ -97,8 +97,11 @@ class InvoiceAccountingLayoutAdversarialTest extends TestCase
         $this->assertSame((int) $this->invoice->id, (int) $this->domain->refresh()->invoice_id);
     }
 
-    /** Guard: with a payment, the table still saves a description and still refuses a new price or the «taxed» tick. */
-    public function test_guard_the_table_keeps_the_amounts_of_an_invoice_with_a_payment(): void
+    /**
+     * With a payment, the table saves a description, and since 2026-11-10 (TIGHT-INVOICES-PAYMENTS-2) a new price and the
+     * «taxed» tick too: the payment is untouched and the invoice is said to be paid over.
+     */
+    public function test_the_table_changes_the_amounts_of_an_invoice_with_a_payment(): void
     {
         $this->invoice->transactions()->create(['amount' => 5, 'status' => InvoiceTransactionStatus::Succeeded, 'transaction_id' => 'adv-414-pay2', 'fee' => 0]);
         $this->page()->set("data.items.record-{$this->hosting->id}.description", 'Hosting plan, renamed')->call('save')->assertHasNoFormErrors();
@@ -107,6 +110,8 @@ class InvoiceAccountingLayoutAdversarialTest extends TestCase
         $this->page()->set("data.items.record-{$this->hosting->id}.price", '1')->call('save');
         $this->page()->set("data.items.record-{$this->hosting->id}.taxed", false)->call('save');
         $this->hosting->refresh();
-        $this->assertSame(['30.00', true], [(string) $this->hosting->price, (bool) $this->hosting->taxed]);
+        $this->assertSame(['1.00', false], [(string) $this->hosting->price, (bool) $this->hosting->taxed]);
+        $this->assertSame('5.00', (string) $this->invoice->transactions()->sole()->amount);
+        $this->assertSame(Invoice::STATUS_UNPAID, $this->invoice->fresh()->status, 'not closed on its own');
     }
 }

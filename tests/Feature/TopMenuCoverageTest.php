@@ -38,7 +38,7 @@ class TopMenuCoverageTest extends TestCase
     {
         // Pages shown only with these on. Stored as Settings → …: each request below loads them again from the database,
         // so a config() of the test alone is gone by then (a 403, and the error page's 500 without a currency).
-        foreach (['debug' => [true, 'boolean'], 'tax_enabled' => [true, 'boolean'], 'immutable_invoices_enabled' => [true, 'boolean'],
+        foreach (['debug' => [true, 'boolean'], 'tax_enabled' => [true, 'boolean'],
             'default_currency' => ['USD', 'string']] as $key => [$value, $kind]) {
             Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $kind]);
             config(["settings.{$key}" => $value]);

@@ -72,7 +72,7 @@ class SweepUpgradesFixTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Line', 'price' => $price, 'quantity' => 1, 'reference_id' => $service->id,
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
 
         return $invoice;
     }

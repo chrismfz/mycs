@@ -116,7 +116,7 @@ class RevKissAddonsTest extends TestCase
         foreach ([[$parent, 120.00], [$addon, 30.00]] as [$service, $price]) {
             $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
             $this->line($invoice, $service, $price, '2026-01-01', '2027-01-01');
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+            $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
         }
 
         return [$parent, $addon, $monthlyHosting, $ipMonthly];

@@ -114,7 +114,7 @@ class DowngradeNeverNegativeAdversarialTest extends TestCase
                 'currency_code' => $service->currency_code]);
             $invoice->items()->create(['description' => 'Period', 'price' => $price, 'quantity' => (int) $service->quantity,
                 'reference_id' => $service->id, 'reference_type' => Service::class, 'period_start' => '2026-01-01', 'period_end' => '2027-01-01']);
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+            $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
         }
 
         return $service->fresh();
@@ -134,7 +134,7 @@ class DowngradeNeverNegativeAdversarialTest extends TestCase
     {
         $upgrade = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->sole();
         $amount = (float) InvoiceItem::query()->where('invoice_id', $upgrade->invoice_id)->sum('price');
-        DB::table('invoices')->where('id', $upgrade->invoice_id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->statusFixture((int) $upgrade->invoice_id, Invoice::STATUS_PAID);
         $this->assertTrue((new ServiceUpgradeService)->handle($upgrade));
 
         return $amount;

@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Events\Invoice\PaidByStaffCovered;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -194,7 +195,7 @@ class RecordPaymentService
                 return $existing;
             }
 
-            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents, $enteredByStaff) : 0;
             // An invoice left without a customer (deleted before the journal): the money is still recorded, but
             // there is no account to credit what it cannot take. Staff are told.
             if ($excess > 0 && $target->client_id === null) {
@@ -245,6 +246,14 @@ class RecordPaymentService
                     && ($existing !== null ? $existing->gateway_id !== null : $gateway !== null && !$enteredByStaff);
                 $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $paymentGroup, $transaction) : null;
                 $this->addCredit($target, $transaction, $excess, $source, $notices, spread: $group !== null);
+                // Marked paid by hand, and real money now covers it: no longer «by hand», and what waited for money (the
+                // affiliates' reward) is told, once (REV-780-3).
+                if ($target->status === Invoice::STATUS_PAID && $target->paid_by_staff_at !== null
+                    && self::toCents($target->fresh()->remaining) <= 0) {
+                    Invoice::query()->whereKey($target->id)->update(['paid_by_staff_at' => null]);
+                    $covered = $target->id;
+                    DB::afterCommit(fn () => rescue(fn () => event(new PaidByStaffCovered(Invoice::query()->findOrFail($covered)))));
+                }
                 if ($group !== null) {
                     $placed = array_sum(array_map(fn (InvoiceTransaction $paid) => self::toCents($paid->amount), MassPay::spread($group, $transaction)));
                     // What the group could not take (an invoice paid meanwhile, more than its total) is the customer's
@@ -422,6 +431,11 @@ class RecordPaymentService
                 if (!$reopen) {
                     throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
                 }
+                // Merged into another (PR E): its lines, and what is owed, are there. Staff may reopen it on its page
+                // (an empty invoice, owner 2026-11-10); a payment does not, it belongs on the other one.
+                if ($locked->merged_into_id !== null) {
+                    throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $locked->merged_into_id]));
+                }
                 $locked->status = Invoice::STATUS_UNPAID;
                 $locked->save();
             }
@@ -597,7 +611,14 @@ class RecordPaymentService
             // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
             $invoice->refresh();
-            if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
+            // Not one staff marked paid by hand BEFORE this payment came: it owed before the payment and owes now, by their
+            // word (REV-780-6). One paid with this money and flagged afterwards (a line raised on it: the word was for the
+            // raise, not for what the payment paid) follows its payment as ever (REV-780-3-1), and the flag goes with it.
+            // By the two times: a raise's flag is always later than every payment then on the invoice (owesByStaffsWord).
+            $byHandBefore = $invoice->paid_by_staff_at !== null && $transaction->created_at !== null
+                && $invoice->paid_by_staff_at->lessThanOrEqualTo($transaction->created_at);
+            if ($invoice->status === Invoice::STATUS_PAID && !$byHandBefore
+                && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
                 $invoice->status = Invoice::STATUS_UNPAID;
                 $invoice->save();
             }
@@ -621,7 +642,10 @@ class RecordPaymentService
 
         return DB::transaction(function () use ($id, $withoutCredit) {
             $locked = $this->lockInvoice($id);
-            if ($locked->status !== Invoice::STATUS_UNPAID) {
+            // A paid one only when it holds more than it bills (staff lowered a line or wrote a note on it, owner
+            // 2026-11-10): the part over becomes credit, the status stays.
+            $paid = $locked->status === Invoice::STATUS_PAID;
+            if ($locked->status !== Invoice::STATUS_UNPAID && !$paid) {
                 return false;
             }
             $locked->withLockedBalance();
@@ -629,6 +653,9 @@ class RecordPaymentService
                 return false;
             }
             $over = -self::toCents($locked->remaining);
+            if ($paid && $over <= 0) {
+                return false;
+            }
             $payments = $locked->transactions->where('status', InvoiceTransactionStatus::Succeeded)->sortByDesc('id');
             $kept = fn (InvoiceTransaction $payment): int => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
                 - self::toCents($payment->credited_amount);
@@ -637,8 +664,10 @@ class RecordPaymentService
             // covered pending invoice paid (InvoiceTransactionCreatedListener), which would do it halfway.
             self::$settling = true;
             try {
-                $locked->status = Invoice::STATUS_PAID;
-                $locked->save();
+                if (!$paid) {
+                    $locked->status = Invoice::STATUS_PAID;
+                    $locked->save();
+                }
             } finally {
                 self::$settling = false;
             }
@@ -859,10 +888,15 @@ class RecordPaymentService
             ->exists();
     }
 
-    /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */
-    private function excessCents(Invoice $invoice, int $cents): int
+    /**
+     * The part of a payment the invoice cannot take: all of it unless unpaid/draft, else what exceeds the balance. A paid
+     * one that still owes (staff raised a line or marked it paid by hand, owner 2026-11-10) takes what it owes from a
+     * payment staff record on it, their way to settle it; a gateway's payment on a paid invoice becomes credit as before
+     * (a subscription's sale lands on the last paid invoice and pays the next renewal).
+     */
+    private function excessCents(Invoice $invoice, int $cents, bool $enteredByStaff = false): int
     {
-        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && !($enteredByStaff && $invoice->status === Invoice::STATUS_PAID)) {
             return $cents;
         }
 
