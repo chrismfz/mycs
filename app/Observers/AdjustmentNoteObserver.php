@@ -21,6 +21,7 @@ class AdjustmentNoteObserver
     {
         self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
         self::refuseStaffNoteOnCreditPurchase($adjustmentNote);
+        self::refuseOwing($adjustmentNote, 0, self::counted($adjustmentNote));
         event(new AdjustmentNoteEvent\Creating($adjustmentNote));
     }
 
@@ -37,6 +38,27 @@ class AdjustmentNoteObserver
         // Nor one Ekdosi issued its document for (final review of #459): its total is the document's.
         if ($note->isVoidableByStaff() && EkdosiDocument::activeOn($note->invoice_id)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its total stays as issued. Cancel the document there first.'));
+        }
+        // Nor one paid before the cut-over: its document was issued through WHMCS (REV-780-7).
+        if ($note->isVoidableByStaff() && EkdosiDocument::issuedBeforeCutOver($note->invoice_id)) {
+            throw new DisplayException(EkdosiDocument::cutOverRefusal());
+        }
+    }
+
+    /** What the note adds to its invoice's total now, in cents: nothing while voided. */
+    private static function counted(AdjustmentNote $note, bool $original = false): int
+    {
+        $status = $original ? $note->getOriginal('status') : ($note->status ?? AdjustmentNoteStatus::Active);
+        $status = $status instanceof AdjustmentNoteStatus ? $status : AdjustmentNoteStatus::tryFrom((string) $status);
+
+        return $status === AdjustmentNoteStatus::Active ? (int) round((float) ($original ? $note->getOriginal('amount') : $note->amount) * 100) : 0;
+    }
+
+    /** A staff note never makes a paid invoice with no money on it owe without staff's word (Invoice::refuseOwingWithoutWord). */
+    private static function refuseOwing(AdjustmentNote $note, int $before, int $after): void
+    {
+        if ($note->isVoidableByStaff()) {
+            Invoice::refuseOwingWithoutWord($note->invoice_id, $after - $before);
         }
     }
 
@@ -59,12 +81,18 @@ class AdjustmentNoteObserver
     public function created(AdjustmentNote $adjustmentNote): void
     {
         EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
+        if ($adjustmentNote->isVoidableByStaff()) {
+            EkdosiRequest::changedInInbox((int) $adjustmentNote->invoice_id, 'adjusted');
+        }
     }
 
     public function updated(AdjustmentNote $adjustmentNote): void
     {
         if ($adjustmentNote->wasChanged(['status', 'amount'])) {
             EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
+            if ($adjustmentNote->isVoidableByStaff()) {
+                EkdosiRequest::changedInInbox((int) $adjustmentNote->invoice_id, 'adjusted');
+            }
         }
     }
 
@@ -92,6 +120,7 @@ class AdjustmentNoteObserver
         }
         if ($dirty !== []) {
             self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
+            self::refuseOwing($adjustmentNote, self::counted($adjustmentNote, original: true), self::counted($adjustmentNote));
         }
         // Voiding a note on a credit purchase puts its amount right; bringing one back, or lowering it further, does not.
         if ($adjustmentNote->isDirty(['status', 'amount']) && $adjustmentNote->status === AdjustmentNoteStatus::Active) {
@@ -109,10 +138,12 @@ class AdjustmentNoteObserver
             throw new DisplayException(__('This note follows a refund or a cancellation: it is not deleted by hand.'));
         }
         self::refuseStaffNoteOnFinalInvoice($adjustmentNote);
+        self::refuseOwing($adjustmentNote, self::counted($adjustmentNote), 0);
     }
 
     public function deleted(AdjustmentNote $adjustmentNote): void
     {
         EkdosiRequest::forget((int) $adjustmentNote->invoice_id, 'adjusted');
+        EkdosiRequest::changedInInbox((int) $adjustmentNote->invoice_id, 'adjusted');
     }
 }

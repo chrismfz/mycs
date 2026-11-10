@@ -244,6 +244,12 @@ class StaffLineEditAdversarialTest extends TestCase
         $this->assertSame('29.99', $this->line($invoice, 'Domain')->fresh()->line_total);
         $this->assertSame(-0.01, $invoice->fresh()->remaining, '89.99 billed, 90 paid: a cent over, and said');
         $this->assertSame(9000, $this->heldCents($invoice->fresh()));
+
+        // A negative price (a discount typed as a line) on an invoice with a payment: taken like any other amount, and the
+        // invoice is said to be paid over; the payment is untouched.
+        $this->form($invoice)->set("data.items.{$key}.price", '-40')->call('save')->assertNotified(__('Check its balance'));
+        $this->assertSame('-40.00', $this->line($invoice, 'Domain')->fresh()->line_total);
+        $this->assertSame([Invoice::STATUS_UNPAID, -70.0, 9000], [$invoice->fresh()->status, $invoice->fresh()->remaining, $this->heldCents($invoice->fresh())], '60 − 40 billed, 90 paid');
     }
 
     /** Equivalent formats ("1.0", "40", "40.000") with a description change are a description-only edit. Regression coverage. */
@@ -286,8 +292,10 @@ class StaffLineEditAdversarialTest extends TestCase
         $items = $original;
         $items[(string) Str::uuid()] = ['description' => 'Extra', 'price' => '5.00', 'quantity' => 1, 'taxed' => false];
 
-        $component->set('data.items', $original)->call('save')->assertNotNotified(__('Invoice not saved'));
+        // Added, then taken out again before the Save: nothing changes, and nothing is said.
+        $component->set('data.items', $items)->set('data.items', $original)->call('save')->assertNotNotified(__('Check its balance'));
         $this->assertSame(2, $invoice->items()->count());
+        $this->assertSame([10000, 50.0], [$this->billedCents($invoice->fresh()), $invoice->fresh()->remaining]);
 
         $component = $this->form($invoice);
         $component->set('data.items', $items)->call('save')->assertNotNotified(__('Invoice not saved'));

@@ -36,6 +36,26 @@ class InvoiceItemObserver
         if (EkdosiDocument::activeOn($invoiceId)) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
         }
+        // Nor one paid before the cut-over: its document was issued through WHMCS (REV-780-7).
+        if (EkdosiDocument::issuedBeforeCutOver($invoiceId)) {
+            throw new DisplayException(EkdosiDocument::cutOverRefusal());
+        }
+        // A credit purchase that gave its credit keeps its lines (REV-780-2): the credit given and what a refund takes
+        // back are both read from them. Lowered, a refund would leave credit behind; raised, money paid on it would buy none.
+        if (self::gaveCredit($invoiceId)) {
+            throw new DisplayException(self::creditGivenRefusal());
+        }
+    }
+
+    /** It bought account credit and the credit was given (a line of credit applied). */
+    public static function gaveCredit(mixed $invoiceId): bool
+    {
+        return $invoiceId !== null && InvoiceItem::query()->where('invoice_id', $invoiceId)->where('reference_type', Credit::class)->whereNotNull('applied_at')->exists();
+    }
+
+    public static function creditGivenRefusal(): string
+    {
+        return __('This invoice buys account credit and gave it already: its lines keep their amounts. Refund its payment (the credit is taken back), then make a new one with the right amount.');
     }
 
     /**
@@ -75,6 +95,7 @@ class InvoiceItemObserver
             $invoice->forceFill(LineTax::decide($invoice));
         }
         LineTax::apply($invoice);
+        Invoice::refuseOwingWithoutWord($invoice->invoice_id, $invoice->totalCents());
         self::recordWay($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
     }
@@ -99,6 +120,7 @@ class InvoiceItemObserver
     {
         // A request to Ekdosi (E5) was for the lines as they stood: another line, staff send it again (R2-3 of #478).
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
+        EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Created($invoice));
     }
 
@@ -137,6 +159,7 @@ class InvoiceItemObserver
             self::refuseOnFinalInvoice($invoice->getOriginal('invoice_id'));
             self::refuseOnFinalInvoice($invoice->invoice_id);
             self::refuseDiscountOnCreditPurchase($invoice);
+            Invoice::refuseOwingWithoutWord($invoice->invoice_id, $invoice->totalCents() - (int) round((float) $invoice->getOriginal('line_total') * 100));
         }
         event(new InvoiceItemEvent\Updating($invoice));
     }
@@ -152,12 +175,24 @@ class InvoiceItemObserver
                 EkdosiRequest::forget((int) $invoice->getOriginal('invoice_id'), 'lines_changed');
             }
         }
+        if ($invoice->wasChanged(['price', 'quantity', 'taxed', 'line_total'])) {
+            EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
+        }
         event(new InvoiceItemEvent\Updated($invoice));
     }
 
     public function deleting(InvoiceItem $invoice): void
     {
         self::refuseOnFinalInvoice($invoice->invoice_id);
+        // Kept (REV-780-1c): the line that gave a service its period is that period's record of what was paid for it. Gone
+        // from a paid invoice, the period would read as one paid before MyCS («imported without its lines») and its days
+        // left would come back as credit on a downgrade or a cycle change, on top of what «Close as paid» gave back.
+        // Staff set its price to 0.00 instead: the same money comes back, and the period stays given, paid for nothing.
+        if ($invoice->reference_type === Service::class && $invoice->applied_at !== null && $invoice->period_start !== null && $invoice->period_end !== null
+            && Invoice::query()->whereKey($invoice->invoice_id)->value('status') === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('This line gave service #:service its period (to :until), which stays given: it is not removed from a paid invoice. Set its price to 0.00 instead.',
+                ['service' => $invoice->reference_id, 'until' => $invoice->period_end->format('d/m/Y')]));
+        }
     }
 
     /**
@@ -173,6 +208,7 @@ class InvoiceItemObserver
             ServiceUpgrade::query()->whereKey($invoice->reference_id)->first()?->forceFill(['discount' => null, 'discount_percent' => null])->save();
         }
         EkdosiRequest::forget((int) $invoice->invoice_id, 'lines_changed');
+        EkdosiRequest::changedInInbox((int) $invoice->invoice_id, 'lines_changed');
         event(new InvoiceItemEvent\Deleted($invoice));
     }
 }

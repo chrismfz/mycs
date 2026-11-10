@@ -229,9 +229,10 @@ class InvoiceSettleAdversarialTest extends TestCase
         $this->assertSame(10000, $this->balanceCents());
 
         $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
-        $invoice->items()->sole()->update(['price' => 70]);
 
         try {
+            // Refused since REV-780-2: a credit purchase that gave its credit keeps its lines, reopened too.
+            $invoice->items()->sole()->update(['price' => 70]);
             (new RecordPaymentService)->settle($invoice);
         } catch (DisplayException) {
             // refusing it is a fix too

@@ -78,7 +78,7 @@ class Sweep7PlanCycleAddonsTest extends TestCase
         $line = $invoice->items()->create($more + ['description' => 'Service', 'price' => $price, 'quantity' => 1, 'reference_id' => $service->id,
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
         if ($status !== Invoice::STATUS_UNPAID) {
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status]);
+            $this->statusFixture((int) $invoice->id, $status);
         }
 
         return $line;

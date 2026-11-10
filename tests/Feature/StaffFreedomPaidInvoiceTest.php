@@ -20,6 +20,8 @@ use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
 use App\Services\Money\MoneyCheck;
+use App\Services\ServiceUpgrade\ChangeCycle;
+use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -30,7 +32,8 @@ use Tests\TestCase;
 /**
  * Staff freedom on invoices, item 1 (owner 2026-11-10, sweep 7 TIGHT-INVOICES-PAYMENTS-1, docs/staff-freedom.md): lines
  * and staff notes on a PAID invoice change; it stays paid and says its balance. On an invoice the WHMCS importer brought
- * paid (a «Hosting» line with no period, never marked applied) for a service that runs to 2026-10-10.
+ * unpaid (a «Hosting» line with no period, never applied) and its payment recorded here: the service runs to 2026-10-10.
+ * One the importer brought already PAID keeps its lines (REV-780-7): its document was issued before the cut-over.
  */
 class StaffFreedomPaidInvoiceTest extends TestCase
 {
@@ -53,11 +56,14 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         $product = $this->createProduct();
         $product->plan->update(['name' => 'Monthly']);
         $this->whmcs($this->user->client()->id, $product->product->id);
-        $this->whmcsService(31, '2026-10-10');
+        $this->whmcsService(31, '2026-09-10');
         $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-08-10');
-        $this->whmcsInvoice(501, 'Paid', [31 => 10.0], due: '2026-09-10');
+        $this->whmcsInvoice(501, 'Unpaid', [31 => 10.0], due: '2026-09-10');
         $this->importWhmcs();
-        $this->invoice = $this->imported(501);
+        $this->imported(501);
+        // Paid here, after the cut-over: its line takes its period (to 2026-10-10) and is applied, as any payment does.
+        (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(501), null, '10.00', 'tr_501');
+        $this->invoice = Invoice::query()->findOrFail(501);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $this->staff = Staff::factory()->admin()->create();
     }
@@ -99,7 +105,8 @@ class StaffFreedomPaidInvoiceTest extends TestCase
 
     public function test_staff_raise_a_line_of_a_paid_imported_invoice_it_stays_paid_and_owes_and_a_payment_settles_it(): void
     {
-        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], $this->state(), 'precondition: paid in WHMCS, balanced');
+        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], $this->state(), 'precondition: paid, balanced');
+        $applied = $this->invoice->items()->sole()->applied_at;
         $page = $this->livewireAs($this->staff)->test(EditInvoice::class, ['record' => $this->invoice->getKey()]);
         $line = array_key_first($page->get('data.items'));
 
@@ -111,7 +118,7 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         $this->assertStringContainsString('2.00 EUR', (string) StaffLineEdit::balanceNotice($this->invoice->id));
         $this->assertStringContainsString('stay given', (string) StaffLineEdit::balanceNotice($this->invoice->id), 'what it does to the service is said');
         $this->assertPeriodUntouched();
-        $this->assertNull($this->invoice->items()->sole()->applied_at, 'the imported line is not applied by an edit');
+        $this->assertEquals($applied, $this->invoice->items()->sole()->applied_at, 'the line is not applied again by an edit');
         $this->assertSame(['paid_balance'], array_column((new MoneyCheck)->run(['paid_balance', 'open_settled']), 'rule'), 'the daily check names it');
 
         // The existing way to settle it: record the payment on it. It lands on the invoice, not as credit.
@@ -163,11 +170,50 @@ class StaffFreedomPaidInvoiceTest extends TestCase
         $this->assertStringContainsString('3.00 EUR', (string) $added->json('warning'));
         $this->assertSame([Invoice::STATUS_PAID, 1300, 300], $this->state());
 
-        $hosting = $this->invoice->items()->where('reference_type', Service::class)->sole();
-        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $hosting))->assertNoContent();
+        $extra = $this->invoice->items()->whereNull('reference_type')->sole();
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $extra))->assertNoContent();
+        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], $this->state());
 
-        $this->assertSame([Invoice::STATUS_PAID, 300, -700], $this->state(), 'the renewal line is gone: 7.00 over, still paid');
+        // Kept (REV-780-1c): the line that gave the service its period is not removed from a paid invoice; its price is
+        // set to 0.00 instead. The same money is over, and the period stays given, paid for nothing.
+        $hosting = $this->invoice->items()->where('reference_type', Service::class)->sole();
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $hosting))->assertStatus(422);
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $hosting), ['price' => '0.00'])->assertSuccessful();
+
+        $this->assertSame([Invoice::STATUS_PAID, 0, -1000], $this->state(), 'the renewal bills nothing: 10.00 over, still paid');
         $this->assertPeriodUntouched();
+        $this->assertSame('0.00', ChangeCycle::unused(Service::query()->findOrFail(31), CarbonImmutable::today()),
+            'and its days left are worth nothing as credit');
+    }
+
+    /** Kept (REV-780-7, «issued is final»): an invoice the importer brought PAID had its document issued before the cut-over. */
+    public function test_kept_an_invoice_paid_before_the_cut_over_keeps_its_lines_and_notes(): void
+    {
+        $old = $this->imported(480);
+        $this->assertTrue(EkdosiDocument::issuedBeforeCutOver($old->id));
+        $this->assertFalse(EkdosiDocument::issuedBeforeCutOver($this->invoice->id), 'one paid here is not');
+        $line = $old->items()->sole();
+        $token = $this->token();
+
+        $response = $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '8.00'])->assertStatus(422);
+        $this->assertStringContainsString('before the cut-over', (string) $response->json('message'));
+        $this->assertStringContainsString('Ekdosi', (string) $response->json('message'));
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $line))->assertStatus(422);
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
+            'invoice_id' => $old->id, 'description' => 'Extra', 'price' => '3.00', 'quantity' => 1,
+        ])->assertStatus(422);
+        $page = $this->livewireAs($this->staff)->test(EditInvoice::class, ['record' => $old->getKey()]);
+        $page->assertFormFieldIsDisabled('items.' . array_key_first($page->get('data.items')) . '.price')->assertSee(EkdosiDocument::cutOverRefusal());
+        try {
+            $old->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -3, 'description' => 'Late']);
+            $this->fail('a staff note was written on an invoice paid before the cut-over');
+        } catch (DisplayException $e) {
+            $this->assertSame(EkdosiDocument::cutOverRefusal(), $e->getMessage());
+        }
+
+        $this->assertSame(['10.00', 1], [(string) $line->fresh()->price, $old->items()->count()]);
+        // A description still changes, as on any frozen invoice.
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['description' => 'Hosting, renamed'])->assertSuccessful();
     }
 
     public function test_staff_write_and_void_a_note_on_a_paid_invoice(): void

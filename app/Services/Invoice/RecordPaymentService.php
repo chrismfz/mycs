@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Events\Invoice\PaidByStaffCovered;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -245,6 +246,14 @@ class RecordPaymentService
                     && ($existing !== null ? $existing->gateway_id !== null : $gateway !== null && !$enteredByStaff);
                 $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $paymentGroup, $transaction) : null;
                 $this->addCredit($target, $transaction, $excess, $source, $notices, spread: $group !== null);
+                // Marked paid by hand, and real money now covers it: no longer «by hand», and what waited for money (the
+                // affiliates' reward) is told, once (REV-780-3).
+                if ($target->status === Invoice::STATUS_PAID && $target->paid_by_staff_at !== null
+                    && self::toCents($target->fresh()->remaining) <= 0) {
+                    Invoice::query()->whereKey($target->id)->update(['paid_by_staff_at' => null]);
+                    $covered = $target->id;
+                    DB::afterCommit(fn () => rescue(fn () => event(new PaidByStaffCovered(Invoice::query()->findOrFail($covered)))));
+                }
                 if ($group !== null) {
                     $placed = array_sum(array_map(fn (InvoiceTransaction $paid) => self::toCents($paid->amount), MassPay::spread($group, $transaction)));
                     // What the group could not take (an invoice paid meanwhile, more than its total) is the customer's
@@ -602,7 +611,9 @@ class RecordPaymentService
             // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
             $invoice->refresh();
-            if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
+            // Not one staff marked paid by hand: it owed before this payment and owes now, by their word (REV-780-6).
+            if ($invoice->status === Invoice::STATUS_PAID && $invoice->paid_by_staff_at === null
+                && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
                 $invoice->status = Invoice::STATUS_UNPAID;
                 $invoice->save();
             }

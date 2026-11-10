@@ -238,7 +238,8 @@ class EditInvoice extends EditRecord
         // set to «paid» with the confirmation ticked is theirs to mark (owner 2026-11-10): the model is told, this save only.
         if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
             && RecordPaymentService::toCents($invoice->fresh()->remaining) > 0) {
-            if ($invoice->getOriginal('status') !== Invoice::STATUS_UNPAID || !($this->data['paid_without_payment'] ?? false)) {
+            if ($invoice->getOriginal('status') !== Invoice::STATUS_UNPAID || !($this->data['paid_without_payment'] ?? false)
+                || !InvoiceResource::mayMarkPaidWithoutPayment($invoice)) {
                 Notification::make()->danger()->title(__('Invoice not saved'))
                     ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
 

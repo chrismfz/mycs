@@ -8,6 +8,7 @@ use App\Classes\Settings;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
@@ -222,6 +223,8 @@ class Invoice extends Model implements Auditable
         'no_auto_charge' => 'boolean',
         // Staff asked Ekdosi for its document (E5, «Send to Ekdosi»): the feed's `requested`.
         'ekdosi_requested_at' => 'immutable_datetime',
+        // Staff marked it paid with no payment for (all of) it; empty once it leaves «paid» or real money covers it.
+        'paid_by_staff_at' => 'immutable_datetime',
         'ekdosi_requested_by' => 'integer',
     ];
 
@@ -372,6 +375,34 @@ class Invoice extends Model implements Auditable
                 - RecordPaymentService::toCents($payment->credited_amount));
 
         return $kept >= $due;
+    }
+
+    /**
+     * The money it kept, in cents: what its succeeded payments brought (account credit spent on it too), less what was
+     * refunded and what became credit again. The one measure of «was paid for» (REV-780-1): never its status, which
+     * staff may set by hand, nor its lines' totals, which staff may change after it was paid.
+     */
+    public function moneyKeptCents(): int
+    {
+        return (int) $this->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn (InvoiceTransaction $payment) => RecordPaymentService::toCents($payment->amount)
+                - RecordPaymentService::toCents($payment->refunded_amount) - RecordPaymentService::toCents($payment->credited_amount));
+    }
+
+    /**
+     * Kept (main's rule, REV-780): an invoice that is «paid» with no money on it and without staff's word (a zero invoice
+     * closed as paid) does not come to owe by a line or a note raised afterwards: that would be «paid by hand» without
+     * the tick and its permission. Staff set it back to unpaid first, or mark it paid by hand.
+     */
+    public static function refuseOwingWithoutWord(mixed $invoiceId, int $raisedByCents): void
+    {
+        if ($invoiceId === null || $raisedByCents <= 0) {
+            return;
+        }
+        $invoice = self::query()->with('transactions')->whereKey($invoiceId)->first();
+        if ($invoice !== null && $invoice->status === self::STATUS_PAID && $invoice->paid_by_staff_at === null && $invoice->moneyKeptCents() <= 0) {
+            throw new DisplayException(__('This invoice is paid with no payment on it (it billed nothing): it does not come to owe by a change. Set it back to unpaid first, or mark it paid by hand.'));
+        }
     }
 
     /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */

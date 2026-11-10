@@ -41,7 +41,7 @@ class VoidAdjustmentNote
     public static function correctable(AdjustmentNote $note, string $ability): bool
     {
         return $note->isVoidableByStaff() && $note->invoice?->status !== Invoice::STATUS_REFUNDED
-            && !EkdosiDocument::activeOn($note->invoice_id)
+            && !EkdosiDocument::activeOn($note->invoice_id) && !EkdosiDocument::issuedBeforeCutOver($note->invoice_id)
             && (bool) auth()->user()?->can($ability, $note);
     }
 

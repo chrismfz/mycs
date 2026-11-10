@@ -13,6 +13,7 @@ use App\Models\Order;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Clients\MoveToClient;
 use App\Services\Invoice\MergeInvoices;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\SplitInvoice;
@@ -163,6 +164,24 @@ class StaffFreedomMergeSplitTest extends TestCase
         $this->assertSame(0, Invoice::query()->where('split_from_id', $target->id)->count());
     }
 
+    /** Kept (REV-780-5): a move to another account never cuts an order's own invoice; whole with its order, it goes. */
+    public function test_kept_a_move_to_another_account_does_not_cut_an_orders_own_invoice(): void
+    {
+        $target = (new MergeInvoices)->handle($this->a->id, [$this->b->id]); // one invoice billing both services
+        $order = Order::query()->create(['client_id' => $this->clientId, 'currency_code' => 'EUR']);
+        $order->forceFill(['invoice_id' => $target->id])->save();
+        Service::query()->whereKey([31, 32])->update(['order_id' => $order->id]);
+        $to = User::factory()->create()->client();
+
+        try {
+            app(MoveToClient::class)->service(Service::query()->findOrFail(31), $to, $this->staff);
+            $this->fail('the order\'s own invoice was cut by the move');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('invoice of an order', $e->getMessage());
+        }
+        $this->assertSame([2, $this->clientId], [$target->fresh()->items()->count(), (int) Service::query()->findOrFail(31)->client_id]);
+    }
+
     /** Kept, each with its reason: what would lose or double money, or is Ekdosi's. */
     public function test_kept_payments_applied_lines_currencies_subscriptions_and_ekdosi_still_refuse(): void
     {
@@ -196,6 +215,15 @@ class StaffFreedomMergeSplitTest extends TestCase
         // Ekdosi's: a fiscal document; and a paid invoice (what Ekdosi issues from).
         $refused(fn () => EkdosiDocument::query()->create(['invoice_id' => $this->b->id, 'mark' => '400001234500005', 'code' => 'ΤΠΥ5', 'state' => EkdosiDocument::ACTIVE]), 'fiscal document from Ekdosi');
         $refused(fn () => DB::table('invoices')->where('id', $this->b->id)->update(['status' => Invoice::STATUS_PAID]), 'not unpaid or a draft');
+        // Ekdosi's too (#778): one staff sent there, and an account Ekdosi reads without a request, a draft of it as well
+        // (unpaid lines never go into a draft there).
+        $refused(fn () => DB::table('invoices')->where('id', $this->b->id)->update(['ekdosi_requested_at' => now()]), 'was sent to Ekdosi');
+        $refused(function () {
+            config(['settings.ekdosi_enabled' => true]);
+            DB::table('clients')->where('id', $this->clientId)->update(['immediate_invoicing' => true]);
+            DB::table('invoices')->where('id', $this->b->id)->update(['status' => Invoice::STATUS_DRAFT]);
+        }, 'immediate invoicing');
+        config(['settings.ekdosi_enabled' => false]);
         // A credit purchase gives its credit from its own money.
         $refused(fn () => DB::table('invoice_items')->where('invoice_id', $this->b->id)->update(['reference_type' => Credit::class, 'reference_id' => null]), 'buys account credit');
 

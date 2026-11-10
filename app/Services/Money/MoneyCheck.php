@@ -128,9 +128,7 @@ final class MoneyCheck
                 foreach ($invoices as $invoice) {
                     $remaining = self::remainingCents($invoice);
                     if ($remaining !== 0) {
-                        $noMoney = $remaining > 0 && $invoice->status === Invoice::STATUS_PAID
-                            && !$invoice->transactions->contains('status', InvoiceTransactionStatus::Succeeded);
-                        $this->add('paid_balance', "invoice #{$invoice->id}", ($noMoney ? 'marked paid by staff, no payment: ' : '')
+                        $this->add('paid_balance', "invoice #{$invoice->id}", ($invoice->paid_by_staff_at !== null ? 'marked paid by staff, no payment: ' : '')
                             . ($remaining > 0 ? 'still to pay ' : 'paid over ') . self::money(abs($remaining)) . " {$invoice->currency_code}");
                     }
                 }

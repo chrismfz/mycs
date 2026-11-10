@@ -156,10 +156,11 @@ class StaffCorrectionsAdversarialTest extends TestCase
     /**
      * I1 via the admin API (the B1 actor: an API key). The line is zeroed, the invoice marked paid (nothing left), the
      * line restored: a paid invoice with 100.00 to pay, and its service renewed one period without any money.
-     * Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-1/-4): staff may now mark an invoice paid with no payment outright, so
-     * this is no way around anything; the invoice says what it owes, the period is given once and no payment row is made up.
+     * As on main after the review of #780: a zero invoice closes as paid (main's rule), and one paid with no money on it
+     * and without staff's word («paid by hand», its tick and permission) does not come to owe by a change afterwards
+     * (Invoice::refuseOwingWithoutWord): the restore is refused.
      */
-    public function test_api_line_edits_around_the_paid_flip_leave_a_paid_invoice_that_says_its_balance(): void
+    public function test_api_line_edits_around_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {
         $service = $this->service();
         $this->invoice(100, Invoice::STATUS_CANCELLED, Service::class, $service->id); // an earlier line: not the order's own
@@ -171,27 +172,22 @@ class StaffCorrectionsAdversarialTest extends TestCase
         $codes[] = $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['status' => 'paid'])->status();
         $codes[] = $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $item), ['price' => 100])->status();
 
-        $this->assertSame([200, 200, 200], $codes);
-        $this->assertPaidBalanceIsSaid($invoice, self::cents($invoice->fresh()->total), 'the line restored on the paid invoice');
-        $this->assertSame('2027-02-15', $service->fresh()->expires_at?->toDateString(), 'its period given once, by the paid flip; the line edit gives none');
-        $this->assertSame(0, InvoiceTransaction::query()->count(), 'no payment is made up');
-        $this->assertSame(0, $this->balanceCents());
+        $this->assertNotPaidWithBalance($invoice, 'HTTP ' . implode('/', $codes) . '; service expires_at 2027-01-15 -> ' . $service->fresh()->expires_at?->toDateString()
+            . ', transactions: ' . InvoiceTransaction::query()->count());
     }
 
-    /** I1 via the admin API: an invoice with no line is «paid» (nothing to pay), then gets its lines. Rewritten 2026-11-10: allowed, and said. */
-    public function test_api_lines_added_after_the_paid_flip_leave_a_paid_invoice_that_says_its_balance(): void
+    /** I1 via the admin API: an invoice with no line is «paid» (nothing to pay), then gets its lines. */
+    public function test_api_lines_added_after_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {
         $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $token = $this->apiToken(['admin.invoices.update', 'admin.invoice_items.create']);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['status' => 'paid']);
-        $added = $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
             'invoice_id' => $invoice->id, 'description' => 'Hosting', 'price' => 250, 'quantity' => 1,
-        ])->assertSuccessful();
+        ]);
 
-        $this->assertNotEmpty($added->json('warning'), 'the API says the paid invoice now owes');
-        $this->assertPaidBalanceIsSaid($invoice, self::cents($invoice->fresh()->total), 'lines added to a paid invoice');
-        $this->assertGreaterThanOrEqual(25000, self::cents($invoice->fresh()->total));
+        $this->assertNotPaidWithBalance($invoice, 'lines added to a paid invoice');
     }
 
     /**

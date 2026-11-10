@@ -193,7 +193,13 @@ class StaffFreedomInvoicesReviewTest extends TestCase
 
         // Staff take the hosting line off the paid invoice (the Admin API; the form's «remove» does the same) and close it.
         $line = $invoice->items()->where('reference_type', Service::class)->sole();
-        $this->withToken($this->token(['admin.invoice_items.delete']))->deleteJson(route('api.v1.admin.invoice-items.destroy', $line))->assertNoContent();
+        // The fix (author's note): the removal itself is refused. The line that gave a service its period is that period's
+        // record of what was paid for it; gone, the service is indistinguishable from one «imported without its lines»,
+        // whose credit an earlier review protects for a service with no lines at all (Adv326Round2Test g3). Staff set its
+        // price to 0.00 instead, which the refusal says: the rest of the scenario runs on that, with the same claim.
+        $token = $this->token(['admin.invoice_items.delete', 'admin.invoice_items.update']);
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $line))->assertStatus(422);
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $line), ['price' => '0.00'])->assertSuccessful();
         $this->assertSame([Invoice::STATUS_PAID, -1000], [$invoice->fresh()->status, RecordPaymentService::toCents($invoice->fresh()->remaining)]);
         $this->assertTrue((new RecordPaymentService)->settle($invoice->id), '«Close as paid» on a paid invoice paid over');
         $this->assertSame('10.00', $this->credit(), 'precondition: the month\'s money is back as credit');
@@ -254,7 +260,9 @@ class StaffFreedomInvoicesReviewTest extends TestCase
         AffiliateOrder::query()->create(['order_id' => $order->id, 'affiliate_id' => $affiliate->id]);
         Event::listen(InvoicePaid::class, RewardAffiliate::class); // as the extension's boot does
 
-        $this->withToken($this->token(['admin.invoices.update']))
+        // The key holds the permission to record payments too: «paid by hand» asks for it since REV-780-4 (the key's own
+        // list is what the Admin API authorises by, not its staff member's role).
+        $this->withToken($this->token(['admin.invoices.update', 'admin.invoice_transactions.create']))
             ->putJson(route('api.v1.admin.invoices.update', $invoice), ['status' => 'paid', 'paid_without_payment' => true])->assertSuccessful();
 
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);

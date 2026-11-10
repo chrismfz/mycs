@@ -150,6 +150,7 @@ class InvoiceObserver
         // No longer paid: nothing left to apply (BIL-9); paid again, it is marked again.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
             $invoice->apply_pending_since = null;
+            $invoice->paid_by_staff_at = null; // «paid by hand» is a fact of a paid invoice only
         }
         if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
             && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
@@ -157,6 +158,8 @@ class InvoiceObserver
             if ($remaining > 0 && !($invoice->paid_without_payment && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID)) {
                 throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
             }
+            // The fact, kept on it: whatever must not take «paid» for money reads it (REV-780-3, -6).
+            $invoice->paid_by_staff_at = $remaining > 0 ? CarbonImmutable::now() : null;
             // Paid over its total: the part over is the customer's, given only by RecordPaymentService::settle (2b).
             if ($remaining < 0 && !RecordPaymentService::settling()) {
                 throw new DisplayException(__('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.'));
@@ -500,6 +503,11 @@ class InvoiceObserver
         // payment would have no invoice to land on and the charge's record would go with it (predeploy S3).
         if (SavedMethodCharge::onItsWay($invoice)) {
             throw new DisplayException(__('A payment for this invoice is on its way or not settled: it cannot be deleted until it is.'));
+        }
+        // Marked paid by staff with no payment (REV-780): it gave its periods, and it took its number. Deleted, those
+        // periods would read as paid before MyCS and their days could come back as credit. Kept while it is so.
+        if ($invoice->paid_by_staff_at !== null) {
+            throw new DisplayException(__('This invoice was marked paid by staff with no payment and gave its periods: it is kept. Set it back to unpaid first if it was a mistake.'));
         }
         // Ekdosi issued a fiscal document from it: the invoice is that document's record (E2; the key refuses it anyway).
         if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->lockForUpdate()->exists()) {

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Enums\AdjustmentNoteType;
+use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Gateway;
@@ -61,9 +62,12 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $this->assertSame('50.00', $this->balance(), 'the credit it bought');
 
         $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]); // staff reopen it to fix the line
-        $invoice->items()->sole()->update(['price' => 30]);
-
-        (new RecordPaymentService)->settle($invoice->fresh());
+        try {
+            // Refused since REV-780-2: a credit purchase that gave its credit keeps its lines, reopened too.
+            $invoice->items()->sole()->update(['price' => 30]);
+            (new RecordPaymentService)->settle($invoice->fresh());
+        } catch (DisplayException) {
+        }
 
         $this->assertSame('50.00', $this->balance(), 'the customer paid 50.00: never more than 50.00 of credit');
     }

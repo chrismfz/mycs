@@ -75,6 +75,10 @@ class InvoiceController extends ApiController
     {
         $data = $request->validated();
         // Staff's word that no payment is recorded (owner 2026-11-10): for this save only, never a column.
+        // It renews what a recorded payment renews: the key needs the permission to record payments too (REV-780-4).
+        if (($data['paid_without_payment'] ?? false) && !in_array('admin.invoice_transactions.create', $request->attributes->get('api_key_permissions', []), true)) {
+            abort(403, 'paid_without_payment needs the permission to record payments (invoice_transactions.create).');
+        }
         $invoice->paid_without_payment = (bool) ($data['paid_without_payment'] ?? false);
         unset($data['paid_without_payment']);
         // An invoice with payments keeps its customer and currency (InvoiceObserver::updating, docs/money-trail.md §8).

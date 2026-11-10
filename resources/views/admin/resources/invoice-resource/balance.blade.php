@@ -19,7 +19,7 @@
     @if ($record->status === \App\Models\Invoice::STATUS_PAID && $statement['balance'] != 0)
         <dd class="col-span-2 pt-1 text-xs font-medium text-warning-600 dark:text-warning-400" data-paid-balance>
             @if ($statement['balance'] > 0)
-                {{ collect($statement['payments'])->isEmpty() && $statement['credit'] == 0
+                {{ $record->paid_by_staff_at !== null
                     ? __('Marked paid by staff, no payment: owes :amount.', ['amount' => $money($statement['balance'])])
                     : __('Paid, and owes :amount: record the payment («Add payment»), or leave it.', ['amount' => $money($statement['balance'])]) }}
             @else

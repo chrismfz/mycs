@@ -70,7 +70,7 @@ class StaffFreedomMarkPaidTest extends TestCase
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['staff_id' => $this->staff->id, 'name' => 'f', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
-            'permissions' => ['admin.invoices.update']]);
+            'permissions' => ['admin.invoices.update', 'admin.invoice_transactions.create']]);
 
         return $token;
     }

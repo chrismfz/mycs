@@ -403,7 +403,8 @@ class CronJob extends Command
                         if ($invoice === null || $invoice->apply_pending_since === null) {
                             continue;
                         }
-                        if (!$invoice->keepsItsMoney()) {
+                        // One staff marked paid by hand has no money to keep: applied as they meant (review of #780).
+                        if ($invoice->paid_by_staff_at === null && !$invoice->keepsItsMoney()) {
                             // Refunded (it stays paid) or its money moved to credit: staff decide, nothing is renewed.
                             Invoice::query()->whereKey($id)->update(['apply_pending_since' => null]);
                             $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} was paid but not applied, and its money was refunded or moved to credit since: not applied.");

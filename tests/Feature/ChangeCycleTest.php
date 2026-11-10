@@ -99,7 +99,7 @@ class ChangeCycleTest extends TestCase
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
         if ($status !== Invoice::STATUS_UNPAID) {
             // As the importer writes it (the observer lets only a recorded payment mark one paid).
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status]);
+            $this->statusFixture((int) $invoice->id, $status);
         }
 
         return $line;

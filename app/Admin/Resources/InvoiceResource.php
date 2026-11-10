@@ -19,12 +19,15 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationMan
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\ChargeAttempt;
+use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Observers\InvoiceItemObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
 use App\Support\AdminBadge;
@@ -143,7 +146,7 @@ class InvoiceResource extends Resource
 
     /**
      * Why its lines keep their amounts now, as the Save would refuse them (InvoiceItemObserver, StaffLineEdit): refunded,
-     * or a fiscal document from Ekdosi. Null while they can change. Read once per state of the invoice: the form
+     * a fiscal document from Ekdosi (or one issued before the cut-over), or a credit purchase that gave its credit. Null while they can change. Read once per state of the invoice: the form
      * asks for every line.
      */
     public static function linesKeepAmounts(?Invoice $invoice): ?string
@@ -165,6 +168,8 @@ class InvoiceResource extends Resource
         return once(fn (): ?string => $state !== '' ? match (true) {
             $invoice->status === Invoice::STATUS_REFUNDED => __('A refunded invoice keeps its lines: bill the customer on a new invoice.'),
             EkdosiDocument::activeOn($invoice->getKey()) => __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'),
+            EkdosiDocument::issuedBeforeCutOver($invoice->getKey()) => EkdosiDocument::cutOverRefusal(),
+            InvoiceItemObserver::gaveCredit($invoice->getKey()) => InvoiceItemObserver::creditGivenRefusal(),
             default => null,
         } : null);
     }
@@ -174,6 +179,17 @@ class InvoiceResource extends Resource
     {
         return $invoice !== null && $status === Invoice::STATUS_PAID && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID
             && RecordPaymentService::toCents($invoice->remaining) > 0;
+    }
+
+    /**
+     * «Paid by hand» renews what «Mark Paid» renews, so it asks for what that asks (REV-780-4): the invoice's permission
+     * and the one to record payments.
+     */
+    public static function mayMarkPaidWithoutPayment(Invoice $invoice): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && $user->can('update', $invoice) && $user->can('create', InvoiceTransaction::class);
     }
 
     /** The invoice of the page a line's field is on (inside the repeater, `$record` is the line). */
@@ -259,7 +275,8 @@ class InvoiceResource extends Resource
                                         && $record?->getOriginal('status') !== Invoice::STATUS_PAID
                                         && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
                                             || RecordPaymentService::toCents($record->remaining) < 0
-                                            || ($record->getOriginal('status') !== Invoice::STATUS_UNPAID && RecordPaymentService::toCents($record->remaining) !== 0)))
+                                            || (RecordPaymentService::toCents($record->remaining) !== 0
+                                                && ($record->getOriginal('status') !== Invoice::STATUS_UNPAID || !self::mayMarkPaidWithoutPayment($record)))))
                                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
                                     ->default(Invoice::STATUS_UNPAID)
@@ -271,6 +288,13 @@ class InvoiceResource extends Resource
                                     ->label(fn (?Invoice $record): string => __('No payment is recorded: mark it paid anyway, with :amount :currency still owed on it. Its services are renewed. (To record the money, use «Mark Paid» instead.)', [
                                         'amount' => number_format(max(0, RecordPaymentService::toCents($record === null ? 0 : $record->remaining)) / 100, 2, '.', ''), 'currency' => (string) $record?->currency_code,
                                     ]))
+                                    // What else «paid» does, said before the tick (review of #780).
+                                    ->helperText(fn (?Invoice $record): string => implode(' ', array_filter([
+                                        $record?->items()->where('reference_type', Domain::class)->whereNull('applied_at')->exists()
+                                            ? __('Its domain lines are sent to the registrar (a registration, a renewal), at our cost.') : null,
+                                        $record?->isProforma() ? __('The proforma takes its invoice number.') : null,
+                                        __('Affiliates are rewarded only when real money covers it.'),
+                                    ])))
                                     ->visible(fn (Get $get, ?Invoice $record): bool => self::marksPaidWithoutPayment($record, $get('status')))
                                     ->accepted()
                                     ->dehydrated(false)
