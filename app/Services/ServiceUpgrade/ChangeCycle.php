@@ -115,9 +115,15 @@ final class ChangeCycle
         if (($why = self::blocked($service, $mode)) !== null) {
             return $why;
         }
+        $back = (int) $plan->id === (int) $service->plan_id;
+        // Suspended, its open renewal is what brings it and its addons back: cancelled for the new cycle, the cron bills
+        // it again without its addons (suspended with it, they are not billed apart), and they fall overdue on their own
+        // the night after it is paid (REV-765-2). Pay first.
+        if ($mode === self::NEXT_RENEWAL && !$back && $service->status === Service::STATUS_SUSPENDED) {
+            return __('services.change_cycle_suspended');
+        }
         // Its live addons change with it, on the same invoice: each as it would be changed itself. Taking a change back
         // only takes theirs back.
-        $back = (int) $plan->id === (int) $service->plan_id;
         foreach ($back ? [] : self::followers($service) as $addon) {
             // Waiting for its first invoice (prorated to the due date of the cycle it was added on): not a renewal to bill again.
             if ($addon->status === Service::STATUS_PENDING) {
@@ -128,6 +134,15 @@ final class ChangeCycle
             }
             if ($addon->product === null || AddonCycle::plan($addon->product, $plan, $addon->currency_code) === null) {
                 return __('services.addons.cycle.no_plan', ['id' => $addon->id, 'addon' => (string) $addon->product?->name, 'cycle' => $plan->name]);
+            }
+            // A period behind its parent (billed apart: its own «Do not charge automatically», way of payment, «Separate
+            // invoices»; its invoice open while its parent's is paid): changed now it would move to the new cycle a
+            // period before its parent, their dates apart for good (REV-765-1). Its open invoice paid, they are together.
+            if ($addon->expires_at?->toDateString() !== $service->expires_at?->toDateString()) {
+                return __('services.addons.cycle.behind', ['id' => $addon->id]);
+            }
+            if ($addon->cancellation()->exists()) {
+                return __('services.addons.cycle.cancelling', ['id' => $addon->id]);
             }
             if (($why = self::blocked($addon, $mode)) !== null) {
                 return __('Addon #:id follows this service: :reason', ['id' => $addon->id, 'reason' => $why]);
@@ -209,9 +224,10 @@ final class ChangeCycle
      * also the credit for the unused days (as they were paid), the new period, its line's net amount per unit and what it
      * is billed (with tax). Its live addons change with it (`addons`, by id): each one's plan of the new cycle and its
      * price there (`line`, net per unit; null for a free or one-time one, which only moves its date, or one with no such
-     * plan: refusal) and, now, the new period's end, its parent's; their credit and new periods are in the credit and charge.
+     * plan: refusal), that with tax for its quantity (`gross`) and, now, the new period's end, its parent's; their credit
+     * and new periods are in the credit and charge.
      *
-     * @return array{price: string, gross: string, credit: string, start: ?CarbonImmutable, end: ?CarbonImmutable, line: string, charge: string, day: ?int, addons: array<int, array{end: ?CarbonImmutable, line: ?string, plan: ?Plan}>}
+     * @return array{price: string, gross: string, credit: string, start: ?CarbonImmutable, end: ?CarbonImmutable, line: string, charge: string, day: ?int, addons: array<int, array{end: ?CarbonImmutable, line: ?string, gross: ?string, plan: ?Plan}>}
      */
     public static function quote(Service $service, Plan $plan, string $mode): array
     {
@@ -228,10 +244,11 @@ final class ChangeCycle
         foreach ((int) $plan->id === (int) $service->plan_id ? [] : self::followers($service) as $addon) {
             $to = self::follows($addon) && $addon->product !== null ? AddonCycle::plan($addon->product, $plan, $addon->currency_code) : null;
             $line = $to === null ? null : (string) self::withPlan($addon, $to)->calculatePrice();
-            $addons[$addon->id] = ['end' => $end, 'line' => $line, 'plan' => $to];
-            if ($now && $line !== null) {
+            $with = $line === null ? null : self::gross($addon, $line);
+            $addons[$addon->id] = ['end' => $end, 'line' => $line, 'gross' => $with, 'plan' => $to];
+            if ($now && $with !== null) {
                 $credit = $credit->plus(self::credit($addon, $today));
-                $charge = $charge->plus(self::gross($addon, $line));
+                $charge = $charge->plus($with);
             }
         }
         if (!$now) {

@@ -93,6 +93,12 @@ class EditService extends EditRecord
             return 'Takes back the change set for the next renewal' . ($service->nextPlan ? " (to {$service->nextPlan->name})." : '.');
         }
         $text = "Recurring amount: {$quote['price']} {$currency} net per unit, {$quote['gross']} {$currency} with tax (now {$service->price} net).";
+        // An addon's kept price is not carried to the new cycle, as the service's own is not (decided 2026-10-14).
+        foreach ($service->addons()->whereKey(array_keys($quote['addons']))->where('price_locked', true)->get() as $addon) {
+            if (($line = $quote['addons'][$addon->id]['line']) !== null) {
+                $text .= " Addon #{$addon->id}'s kept price ({$addon->price} {$currency}) is replaced by the catalogue's for the new cycle ({$line} {$currency} net).";
+            }
+        }
         if ($mode === ChangeCycle::NEXT_RENEWAL) {
             $text .= ' It applies when the next period is billed; an open renewal of the old cycle is cancelled and billed again.';
             if ($quote['addons'] !== []) {

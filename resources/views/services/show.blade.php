@@ -132,8 +132,19 @@
                     <x-modal open="true" title="{{ __('services.change_cycle') }}" width="max-w-xl">
                         <form wire:submit="changeCycle" class="flex flex-col gap-4">
                             <p class="text-base/70">{{ __('services.change_cycle_note') }}</p>
-                            @if($service->addons->contains(fn ($addon) => in_array($addon->status, ['active', 'suspended'], true)))
+                            {{-- Each cycle's amounts, read once: the service's and each addon's on it, with tax (REV-765-4). --}}
+                            @php($cycleQuotes = $cyclePlans->mapWithKeys(fn ($cyclePlanOption) => [$cyclePlanOption->id => \App\Services\ServiceUpgrade\ChangeCycle::quote($service, $cyclePlanOption, 'next_renewal')]))
+                            @if($cycleQuotes->contains(fn ($cycleQuote) => collect($cycleQuote['addons'])->whereNotNull('gross')->isNotEmpty()))
                             <p class="text-base/70">{{ __('services.change_cycle_addons') }}</p>
+                            <ul class="text-base/70 text-sm list-disc pl-5">
+                                @foreach($cyclePlans as $cyclePlanOption)
+                                @foreach($cycleQuotes[$cyclePlanOption->id]['addons'] as $cycleAddonId => $cycleAddon)
+                                @if($cycleAddon['gross'] !== null)
+                                <li>{{ __('services.change_cycle_addon_price', ['addon' => $service->addons->firstWhere('id', $cycleAddonId)?->product?->name, 'cycle' => $cyclePlanOption->name, 'price' => $cycleAddon['gross'] . ' ' . $service->currency_code]) }}</li>
+                                @endif
+                                @endforeach
+                                @endforeach
+                            </ul>
                             @endif
                             @if($service->nextPlan)
                             <p class="text-base/70">{{ __('services.change_cycle_pending', ['plan' => $service->nextPlan->name]) }}</p>
@@ -141,7 +152,8 @@
                             <x-form.select name="cyclePlan" wire:model="cyclePlan" :label="__('services.billing_cycle')" required>
                                 <option value="">{{ __('Choose') }}</option>
                                 @foreach($cyclePlans as $cyclePlanOption)
-                                <option value="{{ $cyclePlanOption->id }}">{{ $cyclePlanOption->name }}@if($cyclePlanOption->id === $service->plan_id) ({{ __('services.change_cycle_keep') }})@else ({{ \App\Services\ServiceUpgrade\ChangeCycle::quote($service, $cyclePlanOption, 'next_renewal')['gross'] }} {{ $service->currency_code }})@endif</option>
+                                {{-- One expression: Blade reads «@else (…)» as the directive's own argument and drops the amount. --}}
+                                <option value="{{ $cyclePlanOption->id }}">{{ $cyclePlanOption->name . ' (' . ($cyclePlanOption->id === $service->plan_id ? __('services.change_cycle_keep') : $cycleQuotes[$cyclePlanOption->id]['gross'] . ' ' . $service->currency_code) . ')' }}</option>
                                 @endforeach
                             </x-form.select>
                             <x-button.primary type="submit" class="!w-fit">{{ __('services.change_cycle') }}</x-button.primary>

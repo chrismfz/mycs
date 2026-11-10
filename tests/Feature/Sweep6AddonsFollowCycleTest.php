@@ -319,6 +319,47 @@ class Sweep6AddonsFollowCycleTest extends TestCase
         $this->assertSame(['2027-01-01', $extraMonthly->id, null], [$line->period_end->toDateString(), (int) $addon->fresh()->plan_id, $addon->fresh()->next_plan_id]);
     }
 
+    /**
+     * An addon's kept price (staff's «Keep this price») is not carried to the new cycle: the catalogue's price of its new
+     * plan, as for a service (decided 2026-10-14). Pinned here (REV-765-4).
+     */
+    public function test_an_addons_kept_price_is_replaced_by_the_catalogues_on_a_change_of_cycle(): void
+    {
+        ['parent' => $parent, 'addon' => $addon, 'yearly' => $yearly] = $this->serverWithAddon();
+        DB::table('services')->where('id', $addon->id)->update(['price' => 3.00, 'price_locked' => true]);
+
+        $this->assertSame('50.00', number_format((float) ChangeCycle::quote($parent, $yearly, ChangeCycle::NEXT_RENEWAL)['addons'][$addon->id]['gross'], 2, '.', ''));
+        ChangeCycle::apply($parent, $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
+        $this->assertSame(['3.00', true], [number_format((float) $addon->fresh()->price, 2, '.', ''), (bool) $addon->fresh()->price_locked], 'until the renewal');
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        $this->artisan('app:cron-job');
+
+        $this->assertSame(['50.00', false], [number_format((float) $addon->fresh()->price, 2, '.', ''), (bool) $addon->fresh()->price_locked]);
+    }
+
+    /** Refusals that say the way out: an addon due on another date, one to be cancelled, a suspended service, staff's Plan field. */
+    public function test_the_refusals_of_a_parents_change_name_the_way_out(): void
+    {
+        ['parent' => $parent, 'addon' => $addon, 'yearly' => $yearly, 'extraYearly' => $extraYearly] = $this->serverWithAddon();
+
+        DB::table('services')->where('id', $addon->id)->update(['expires_at' => '2026-11-01']);
+        foreach ([ChangeCycle::NEXT_RENEWAL, ChangeCycle::NOW] as $mode) {
+            $this->assertSame(__('services.addons.cycle.behind', ['id' => $addon->id]), ChangeCycle::refusal($parent->fresh(), $yearly, $mode));
+        }
+        DB::table('services')->where('id', $addon->id)->update(['expires_at' => '2026-12-01']);
+
+        DB::table('services')->where('id', $parent->id)->update(['status' => Service::STATUS_SUSPENDED]);
+        $this->assertSame(__('services.change_cycle_suspended'), ChangeCycle::refusal($parent->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL));
+        DB::table('services')->where('id', $parent->id)->update(['status' => Service::STATUS_ACTIVE]);
+
+        foreach (['services.addons.cycle.behind', 'services.addons.cycle.cancelling', 'services.change_cycle_suspended', 'services.addons.cycle.staff_plan'] as $key) {
+            $this->assertNotSame(__($key, [], 'en'), __($key, [], 'el'), $key);
+        }
+        $this->assertSame(__('services.addons.cycle.staff_plan'), $this->refused(fn () => $parent->fresh()->applyStaffChanges(['plan_id' => $yearly->id])));
+        $this->assertSame(__('services.addons.cycle.staff_plan'), $this->refused(fn () => $addon->fresh()->applyStaffChanges(['plan_id' => $extraYearly->id])));
+        $this->assertNull(ChangeCycle::refusal($parent->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL));
+    }
+
     /** «Now»: the addon moves to its plan of the new cycle, for its parent's new period, on the same invoice. */
     public function test_a_parents_change_now_puts_its_addons_on_the_new_cycle(): void
     {
