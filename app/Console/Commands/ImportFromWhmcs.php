@@ -228,6 +228,14 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // And its parent's billing cycle (owner 2026-11-09): with the same cycle and the same day it renews on its
+        // service's invoice every time. One on another cycle is refused the same way.
+        if (($other = $this->addonsOnAnotherCycle()) !== []) {
+            $this->error('WHMCS addon(s) on another billing cycle than their service: #' . implode(', #', $other)
+                . '. An addon is billed on its service\'s cycle here: set its billing cycle (and its recurring amount and next due date) in WHMCS as its service\'s (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
 
         $target = (string) DB::connection()->getDatabaseName();
         if ($target === '') {
@@ -3448,15 +3456,15 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) of a service off its billing day (not on its day of the month:
-     * WhmcsAddonImport::onServiceDay), or of a service with no next due date: the import refuses to run on them (handle).
+     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE; not a free or one-time one, which bills nothing by period) of a
+     * service not imported ended, with both their cycles and due dates: what the pre-dump refusals below check (handle).
      * An addon of a service imported ended (terminated or cancelled: serviceStatus) is imported ended with it
      * (WhmcsAddonImport), so it is not checked (sweep 5 G-ADDONS-CYCLE-3); every other service is, Completed included
-     * (REV5-G-ADDONS-CYCLE-1). The runbook's pre-dump check. A source without addons: none.
+     * (REV5-G-ADDONS-CYCLE-1). A source without addons: none.
      *
-     * @return list<int> tblhostingaddons ids
+     * @return list<array<string, mixed>>
      */
-    private function addonsApart(): array
+    private function liveAddons(): array
     {
         if (!$this->sourceHas('tblhostingaddons')) {
             return [];
@@ -3464,12 +3472,32 @@ class ImportFromWhmcs extends Command
         $live = $this->quoted(WhmcsAddonImport::LIVE);
         $ended = $this->endedStatuses();
 
-        $rows = $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due FROM tblhostingaddons a'
+        return $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
             . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
             . ' AND a.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ') ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
+    }
 
-        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($rows,
+    /**
+     * Those off their service's billing day (not on its day of the month: WhmcsAddonImport::onServiceDay), or of a service
+     * with no next due date: the import refuses to run on them. The runbook's pre-dump check.
+     *
+     * @return list<int> tblhostingaddons ids
+     */
+    private function addonsApart(): array
+    {
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(),
             fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));
+    }
+
+    /**
+     * Those on another billing cycle than their service (owner 2026-11-09: an addon is on its parent's cycle): refused too.
+     *
+     * @return list<int> tblhostingaddons ids
+     */
+    private function addonsOnAnotherCycle(): array
+    {
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(),
+            fn (array $row) => !WhmcsAddonImport::sameCycle((string) $row['billingcycle'], (string) $row['service_cycle']))));
     }
 
     /**

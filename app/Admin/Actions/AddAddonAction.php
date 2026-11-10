@@ -25,8 +25,8 @@ use Throwable;
 
 /**
  * «Add addon» on a service's page (docs/addons.md, step 3, as WHMCS's «New Addon»): an addon product that applies to it,
- * its cycle, quantity and price, and how it is billed (AddAddon), with what it comes to before it is made (as WHMCS's
- * upgrade summary: the days left on the cycle and what is due now).
+ * its quantity and price, and how it is billed (AddAddon), with what it comes to before it is made (as WHMCS's upgrade
+ * summary: the days left on the cycle and what is due now). No cycle to choose: an addon is on its service's (2026-11-09).
  */
 class AddAddonAction extends Action
 {
@@ -48,34 +48,30 @@ class AddAddonAction extends Action
             ->modalSubmitActionLabel(__('services.addons.add.action'))
             ->schema(fn (Service $record) => [
                 Select::make('product_id')->label(__('services.addons.add.product'))->required()->live()
-                    ->options(AddAddon::products($record)->pluck('name', 'id')->all())
-                    ->placeholder(__('services.addons.add.none'))
-                    ->afterStateUpdated(fn ($set) => $set('plan_id', null)),
-                Select::make('plan_id')->label(__('services.addons.add.plan'))->required()->live()
-                    ->options(fn (Get $get) => self::planOptions($record, $get('product_id')))
-                    ->disabled(fn (Get $get) => blank($get('product_id'))),
+                    ->options(self::productOptions($record))
+                    ->placeholder(__('services.addons.add.none')),
                 TextInput::make('quantity')->label(__('services.addons.add.quantity_label'))->integer()->minValue(1)->maxValue(1000)->default(1)->required()->live(onBlur: true)
                     ->visible(fn (Get $get) => (Product::query()->whereKey($get('product_id'))->value('allow_quantity') ?? 'disabled') !== 'disabled'),
                 TextInput::make('price')->label(__('services.addons.add.price'))->numeric()->minValue(0)->maxValue(999999)->step(0.01)->live(onBlur: true)
                     ->prefix($record->currency?->prefix)->suffix($record->currency?->suffix)
-                    ->placeholder(fn (Get $get) => self::catalog($record, $get('product_id'), $get('plan_id')))
-                    ->helperText(fn (Get $get) => ($price = self::catalog($record, $get('product_id'), $get('plan_id'))) !== null
+                    ->placeholder(fn (Get $get) => self::catalog($record, $get('product_id')))
+                    ->helperText(fn (Get $get) => ($price = self::catalog($record, $get('product_id'))) !== null
                         ? __('services.addons.add.price_help', ['price' => $price]) : null),
                 Toggle::make('keep_price')->label(__('services.addons.add.keep_price'))->default(false),
                 Radio::make('start')->label(__('services.addons.add.start'))->required()->live()
                     ->default(AddAddon::PRORATED)
-                    ->options(fn (Get $get) => self::startOptions($record, $get('plan_id'))),
+                    ->options(fn (Get $get) => self::startOptions($record, $get('product_id'))),
                 TextEntry::make('summary')->label(__('services.addons.add.summary'))
-                    ->state(fn (Get $get) => self::summary($record, $get('product_id'), $get('plan_id'), $get('quantity'), $get('price'), $get('start'))),
+                    ->state(fn (Get $get) => self::summary($record, $get('product_id'), $get('quantity'), $get('price'), $get('start'))),
             ])
             ->action(function (array $data, Service $record, Action $action) {
-                $invoiced = ($data['start'] ?? null) !== AddAddon::NO_INVOICE && Plan::query()->whereKey($data['plan_id'] ?? 0)->value('type') === 'recurring';
+                $invoiced = ($data['start'] ?? null) !== AddAddon::NO_INVOICE && self::plan($record, $data['product_id'] ?? null)?->type === 'recurring';
                 if ($invoiced && !Gate::allows('has-permission', 'admin.invoices.create')) {
                     Notification::make()->danger()->title(__('services.addons.add.no_rights'))->send();
                     $action->halt();
                 }
                 try {
-                    $made = (new AddAddon)->handle($record, Product::query()->findOrFail($data['product_id']), Plan::query()->findOrFail($data['plan_id']),
+                    $made = (new AddAddon)->handle($record, Product::query()->findOrFail($data['product_id']),
                         (int) ($data['quantity'] ?? 1), isset($data['price']) ? (string) $data['price'] : null, (bool) ($data['keep_price'] ?? false),
                         (string) $data['start']);
                 } catch (DisplayException $e) {
@@ -95,22 +91,26 @@ class AddAddonAction extends Action
             });
     }
 
-    /** @return array<int, string> its cycles with their price in the service's currency */
-    private static function planOptions(Service $parent, mixed $productId): array
+    /** @return array<int, string> the addons with their price for the service's cycle, in its currency */
+    private static function productOptions(Service $parent): array
+    {
+        return AddAddon::products($parent)->mapWithKeys(fn (Product $product) => [$product->id => $product->name . ' · '
+            . (($plan = AddAddon::plan($product, $parent)) !== null ? AddAddon::catalogPrice($parent, $product, $plan) . ' ' . $parent->currency_code . ' / ' . $plan->name
+                : __('services.addons.add.no_cycle_plan_short'))])->all();
+    }
+
+    /** The plan the addon would be on: its product's of the service's cycle (AddAddon::plan). */
+    private static function plan(Service $parent, mixed $productId): ?Plan
     {
         $product = blank($productId) ? null : Product::query()->with('plans.prices')->find($productId);
-        if ($product === null) {
-            return [];
-        }
 
-        return AddAddon::plans($product, $parent)->mapWithKeys(fn (Plan $plan) => [$plan->id => $plan->name . ' · '
-            . AddAddon::catalogPrice($parent, $product, $plan) . ' ' . $parent->currency_code])->all();
+        return $product === null ? null : AddAddon::plan($product, $parent);
     }
 
     /** @return array<string, string> */
-    private static function startOptions(Service $parent, mixed $planId): array
+    private static function startOptions(Service $parent, mixed $productId): array
     {
-        $plan = blank($planId) ? null : Plan::query()->find($planId);
+        $plan = self::plan($parent, $productId);
         $end = $plan === null ? null : AddAddon::alignedEnd($parent, $plan);
         $options = [AddAddon::PRORATED => $end !== null ? __('services.addons.add.start_prorated', ['date' => $end->format('d/m/Y')])
             : __('services.addons.add.start_prorated_none'),
@@ -122,19 +122,22 @@ class AddAddonAction extends Action
         return $options;
     }
 
-    private static function catalog(Service $parent, mixed $productId, mixed $planId): ?string
+    private static function catalog(Service $parent, mixed $productId): ?string
     {
         $product = blank($productId) ? null : Product::query()->with('plans.prices')->find($productId);
-        $plan = $product === null || blank($planId) ? null : AddAddon::plans($product, $parent)->firstWhere('id', (int) $planId);
+        $plan = $product === null ? null : AddAddon::plan($product, $parent);
 
         return $plan === null ? null : AddAddon::catalogPrice($parent, $product, $plan);
     }
 
     /** What it comes to, as WHMCS's summary: the days left on the cycle and what is due now (for the quantity). */
-    private static function summary(Service $parent, mixed $productId, mixed $planId, mixed $quantity, mixed $price, mixed $start): string
+    private static function summary(Service $parent, mixed $productId, mixed $quantity, mixed $price, mixed $start): string
     {
-        $unit = filled($price) ? (string) $price : self::catalog($parent, $productId, $planId);
-        $plan = blank($planId) ? null : Plan::query()->find($planId);
+        $plan = self::plan($parent, $productId);
+        if ($plan === null && filled($productId) && ($product = Product::query()->find($productId)) !== null) {
+            return AddAddon::noPlan($product, $parent->plan);
+        }
+        $unit = filled($price) ? (string) $price : self::catalog($parent, $productId);
         if ($unit === null || $plan === null || blank($start)) {
             return '—';
         }

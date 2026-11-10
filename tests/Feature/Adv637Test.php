@@ -83,21 +83,6 @@ class Adv637Test extends TestCase
     }
 
     /**
-     * ADV-637-1 (medium). A monthly addon of a yearly service that renews on the 31st (expires 2027-03-31): counted back
-     * month by month from 31 March, the walk clamps to 28 February and stays on the 28th (Jan 28, Dec 28, Nov 28), so the
-     * prorated period ends on 2026-11-28 and the addon renews on the 28th for good, never on its parent's day (31 March
-     * next year: a separate invoice, days apart). Expected: the parent's day, clamped only in short months: 2026-11-30.
-     */
-    public function test_adv_637_1_a_monthly_addon_of_a_yearly_service_on_the_31st_is_prorated_to_the_30th_not_the_28th(): void
-    {
-        $parent = $this->parent('2027-03-31', 'year', billingDay: 31);
-        [, $plan] = $this->addonProduct();
-
-        $this->assertSame('2026-11-30', AddAddon::alignedEnd($parent, $plan)?->toDateString(),
-            'the 31st, clamped to 30 November: not the 28th the walk back through February left it on');
-    }
-
-    /**
      * ADV-637-2 (medium). An addon prorated to a parent on the 31st (monthly, billing_day 31, expires 2026-11-30) gets
      * the parent's billing day (31). Its payment then remembers the prorated line's start (RenewServiceService ->
      * rememberBillingDay(2026-11-20)): billing_day becomes 20, and from 30 November it renews to 30 December while its
@@ -108,7 +93,7 @@ class Adv637Test extends TestCase
     {
         $parent = $this->parent('2026-11-30', billingDay: 31);
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
         $this->assertSame('2026-11-30', $made['invoice']->items()->sole()->period_end->toDateString());
         $this->pay($made['invoice']);
 
@@ -133,14 +118,14 @@ class Adv637Test extends TestCase
         $parent = $this->parent();
         [$product, $plan] = $this->addonProduct(product: ['stock' => 5]);
 
-        (new AddAddon)->handle($parent, $product, $plan, 2, null, false, AddAddon::NO_INVOICE);
+        (new AddAddon)->handle($parent, $product, 2, null, false, AddAddon::NO_INVOICE);
         $this->assertSame(3, (int) $product->fresh()->stock, 'two of five taken');
 
         $parent->fresh()->update(['status' => Service::STATUS_TERMINATED]);
         $this->assertSame(5, (int) $product->fresh()->stock, 'given back when it ends: never more than there were');
 
         try {
-            (new AddAddon)->handle($this->parent(), $product->fresh(), $plan, 6, null, false, AddAddon::NO_INVOICE);
+            (new AddAddon)->handle($this->parent(), $product->fresh(), 6, null, false, AddAddon::NO_INVOICE);
             $this->fail('six of five: refused');
         } catch (DisplayException) {
             $this->assertSame(5, (int) $product->fresh()->stock);
@@ -158,7 +143,7 @@ class Adv637Test extends TestCase
         $parent = $this->parent();
         [$product, $plan] = $this->addonProduct(price: ['setup_fee' => 5.00]);
 
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
 
         $this->assertSame('6.10', number_format((float) $made['invoice']->fresh()->items()->get()->sum(fn ($line) => (float) $line->price * (int) $line->quantity), 2, '.', ''),
             '1.10 for the 11 days to the parent\'s date, and its 5.00 setup fee');
@@ -174,10 +159,12 @@ class Adv637Test extends TestCase
      */
     public function test_adv_637_5_a_prorated_addon_paid_after_its_period_is_not_suspended_the_night_it_is_paid(): void
     {
-        $parent = $this->parent('2027-05-01', 'year'); // paid ahead: its parent is not overdue
+        $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
         $this->assertSame('2026-12-01', $made['invoice']->items()->sole()->period_end->toDateString());
+        // Its parent's renewal is paid meanwhile: the parent is not overdue (an addon is on its parent's cycle, 2026-11-09).
+        $parent->forceFill(['expires_at' => '2027-01-01'])->save();
 
         Carbon::setTestNow('2026-12-15 10:00:00');
         $this->pay($made['invoice']);
@@ -198,7 +185,7 @@ class Adv637Test extends TestCase
         [$product, $plan] = $this->addonProduct();
 
         try {
-            (new AddAddon)->handle($parent, $product, $plan, 1, null, false, 'own_date', Carbon::parse('2027-01-01'));
+            (new AddAddon)->handle($parent, $product, 1, null, false, 'own_date', Carbon::parse('2027-01-01'));
             $this->fail('an own date is not a way to add an addon');
         } catch (DisplayException $e) {
             $this->assertSame(__('services.addons.add.start_unknown'), $e->getMessage());
@@ -219,7 +206,7 @@ class Adv637Test extends TestCase
         [$product, $plan] = $this->addonProduct();
 
         try {
-            $made = (new AddAddon)->handle($parent, $product, $plan, 1, '3.005', false, AddAddon::PRORATED);
+            $made = (new AddAddon)->handle($parent, $product, 1, '3.005', false, AddAddon::PRORATED);
         } catch (DisplayException) {
             $this->assertSame(0, Service::query()->whereNotNull('parent_service_id')->count(), 'refused: nothing made');
 

@@ -535,7 +535,7 @@ class CronJob extends Command
                     // In id order, never the index's: the renewals are invoiced in the same order whatever the plan.
                     // The plan its renewal bills: one set «from the next renewal» decides its days (ADV-660-1a/b).
                     $plans = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $lookAhead)->orderBy('id')
-                        ->with(['plan', 'nextPlan'])->get(['id', 'plan_id', 'next_plan_id', 'product_id'])
+                        ->with(['plan', 'nextPlan'])->get(['id', 'plan_id', 'next_plan_id', 'product_id', 'parent_service_id'])
                         ->mapWithKeys(fn (Service $service) => [$service->id => RenewalBilling::billedPlan($service)]);
                     foreach ($plans as $id => $plan) {
                         $billUntil = now()->addDays(RenewalBilling::serviceInvoiceDays($plan));

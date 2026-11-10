@@ -12,6 +12,7 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Order\OrderPricing;
+use App\Services\Service\AddonCycle;
 use App\Services\Service\RemoveCoupon;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\ServiceIdentifier;
@@ -618,6 +619,25 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * Why staff's «Plan» field cannot put this service on $plan, or null: an addon is on its parent's billing cycle
+     * (docs/addons.md, owner 2026-11-09), so not a plan of another cycle than its parent's on an addon, nor one of another
+     * cycle than its live addons' on their parent: «Change billing cycle» moves them together (REV-765-5). A free or
+     * one-time plan is not asked here (endsBillingRefusal).
+     */
+    public static function otherCycleRefusal(self $service, ?Plan $plan): ?string
+    {
+        if ($plan === null || $plan->type !== 'recurring') {
+            return null;
+        }
+        $apart = $service->isAddon()
+            ? $service->parent?->plan?->type === 'recurring' && !AddonCycle::same($plan, $service->parent->plan)
+            : $service->addons()->whereIn('status', [self::STATUS_ACTIVE, self::STATUS_SUSPENDED, self::STATUS_PENDING])->with('plan')->get()
+                ->contains(fn (self $addon) => $addon->plan?->type === 'recurring' && !AddonCycle::same($plan, $addon->plan));
+
+        return $apart ? __('services.addons.cycle.staff_plan') : null;
+    }
+
+    /**
      * Apply explicit staff changes on the same row lock as payment and billing. Only the fields that
      * differ from what the caller saw are written ($baseline: the raw attributes the admin form was
      * filled from; else this model as loaded): a payment, the cron or an upgrade may have changed the
@@ -645,6 +665,9 @@ class Service extends Model implements Auditable
             if (array_key_exists('plan_id', $changes) && !$endsBilling
                 && ($refusal = self::endsBillingRefusal($locked, Plan::query()->find($changes['plan_id']),
                     (clone $locked)->setRawAttributes(array_merge($locked->getAttributes(), $changes)))) !== null) {
+                throw new DisplayException($refusal);
+            }
+            if (array_key_exists('plan_id', $changes) && ($refusal = self::otherCycleRefusal($locked, Plan::query()->find($changes['plan_id']))) !== null) {
                 throw new DisplayException($refusal);
             }
             // The Coupon cleared (the service page, the API): a running coupon's discount is in the price, the full price
