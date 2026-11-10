@@ -93,15 +93,24 @@ class EditService extends EditRecord
             return 'Takes back the change set for the next renewal' . ($service->nextPlan ? " (to {$service->nextPlan->name})." : '.');
         }
         $text = "Recurring amount: {$quote['price']} {$currency} net per unit, {$quote['gross']} {$currency} with tax (now {$service->price} net).";
+        // An addon's kept price is not carried to the new cycle, as the service's own is not (decided 2026-10-14).
+        foreach ($service->addons()->whereKey(array_keys($quote['addons']))->where('price_locked', true)->get() as $addon) {
+            if (($line = $quote['addons'][$addon->id]['line']) !== null) {
+                $text .= " Addon #{$addon->id}'s kept price ({$addon->price} {$currency}) is replaced by the catalogue's for the new cycle ({$line} {$currency} net).";
+            }
+        }
         if ($mode === ChangeCycle::NEXT_RENEWAL) {
             $text .= ' It applies when the next period is billed; an open renewal of the old cycle is cancelled and billed again.';
+            if ($quote['addons'] !== []) {
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it, at the same renewal.';
+            }
         }
         if ($mode === ChangeCycle::NOW) {
             $text .= " Credit for the unused days: {$quote['credit']} {$currency}. New period {$quote['start']?->toDateString()} – "
                 . "{$quote['end']?->toDateString()}, billed {$quote['charge']} {$currency} with tax.";
             if ($quote['addons'] !== []) {
-                // They share its billing day: they move to the new one, on the same invoice (docs/addons.md).
-                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' follow it to its new billing day: their credit and new periods are in these amounts.';
+                // They share its due date and its cycle: they change with it, on the same invoice (docs/addons.md).
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it: their credit and new periods are in these amounts.';
             }
         }
 

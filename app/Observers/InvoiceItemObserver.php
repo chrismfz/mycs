@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\InvoiceItem as InvoiceItemEvent;
 use App\Exceptions\DisplayException;
+use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
@@ -37,11 +38,29 @@ class InvoiceItemObserver
     }
 
     /**
+     * A credit purchase («Add funds») takes no discount (S6-MONEY-LEDGER-1; as AdjustmentNoteObserver for a note): a
+     * negative line next to the credit it buys, or credit bought on an invoice that has one. Its payment would never
+     * cover the credit, so it could not become paid. Staff change the amount of its line, or cancel it and make a new one. Only
+     * while the credit is still to be given (applied_at empty).
+     */
+    private static function refuseDiscountOnCreditPurchase(InvoiceItem $line): void
+    {
+        $others = InvoiceItem::query()->where('invoice_id', $line->invoice_id)->when($line->exists, fn ($query) => $query->whereKeyNot($line->getKey()));
+        $discount = bccomp((string) ($line->price ?? 0), '0', 4) < 0;
+        $givesCredit = $line->reference_type === Credit::class && $line->applied_at === null;
+        if (($discount && ($givesCredit || (clone $others)->where('reference_type', Credit::class)->whereNull('applied_at')->exists()))
+            || ($givesCredit && (clone $others)->where('price', '<', 0)->exists())) {
+            throw new DisplayException(__('An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).'));
+        }
+    }
+
+    /**
      * Handle the InvoiceItem "creating" event.
      */
     public function creating(InvoiceItem $invoice): void
     {
         self::refuseOnPaidInvoice($invoice->invoice_id);
+        self::refuseDiscountOnCreditPurchase($invoice);
         // A domain line: a renewal with its period, or a charge (review R6 of #172, F1 of #174).
         DomainRenewalService::prepareLine($invoice);
         // Its tax (Δ1): the rate in force now, unless given (an import keeps the one it was issued with).
@@ -110,6 +129,7 @@ class InvoiceItemObserver
         if ($invoice->isDirty(self::MONEY_FIELDS)) {
             self::refuseOnPaidInvoice($invoice->getOriginal('invoice_id'));
             self::refuseOnPaidInvoice($invoice->invoice_id);
+            self::refuseDiscountOnCreditPurchase($invoice);
         }
         event(new InvoiceItemEvent\Updating($invoice));
     }

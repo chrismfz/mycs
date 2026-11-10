@@ -76,11 +76,17 @@ final class CancelOpenInvoices
      * services» on, an unpaid one overdue more than the days set stays as it is, a debt: its reminders go on, and paid
      * later it renews nothing (an ended service is never revived, RenewServiceService). A draft was never sent: it goes.
      *
+     * Only its customer's ($of given): an invoice of another customer that bills it (the first customer's, charged back
+     * after the service moved: REV-766-3) is that customer's debt and is not touched by the end of this one's service.
+     *
      * @param  Collection<int, Invoice>  $invoices
      * @return Collection<int, Invoice>
      */
-    public static function onServiceEnd(Collection $invoices): Collection
+    public static function onServiceEnd(Collection $invoices, ?Service $of = null): Collection
     {
+        if ($of !== null) {
+            $invoices = $invoices->filter(fn (Invoice $invoice) => (int) $invoice->client_id === (int) $of->client_id)->values();
+        }
         if (!config('settings.cronjob_end_keeps_overdue', false)) {
             return $invoices;
         }

@@ -411,8 +411,7 @@ final class WhmcsAddonImport
     /**
      * Whether a WHMCS addon due $addonDue is on its service's billing day (due $serviceDue): both dates on the same day of
      * the month, a 29th-31st clamped to a short month's last day as BillingPeriod clamps it (2027-01-31 and 2027-02-28 are
-     * both on the 31st). Its cycle does not matter: «Add addon» puts a monthly addon of a yearly service a month before the
-     * service, a yearly addon of a monthly one a year after its first period (AddAddon::alignedEnd). A missing date (a
+     * both on the 31st). Its cycle is its service's (sameCycle, checked apart). A missing date (a
      * service with none, as a free one: MyCS cannot give it an addon either), or a cycle not known here, is not
      * (REV-KISS-2, sweep 5 G-ADDONS-CYCLE-2/5).
      */
@@ -428,6 +427,12 @@ final class WhmcsAddonImport
         $day = max($addon->day, $due->day);
 
         return min($day, $addon->daysInMonth) === $addon->day && min($day, $due->daysInMonth) === $due->day;
+    }
+
+    /** Whether a WHMCS addon is on its service's billing cycle, as an addon always is here (docs/addons.md, 2026-11-09). */
+    public static function sameCycle(string $addonCycle, string $serviceCycle): bool
+    {
+        return self::cycleKey($addonCycle) === self::cycleKey($serviceCycle);
     }
 
     private static function cycleKey(string $cycle): string

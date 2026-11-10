@@ -30,7 +30,7 @@ class CancellationCreatedListener implements ShouldQueue
         // holding gateway money stays open for staff: the reason is mailed.
         // Queued: the worker keeps the audit on (AppServiceProvider), so these changes are in it too.
         // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
-        $open = CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get());
+        $open = CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service);
 
         if ($event->cancellation->type == 'immediate') {
             // Ended under the service's lock, read again: an upgrade applied meanwhile is seen (stock goes back to the
@@ -58,7 +58,7 @@ class CancellationCreatedListener implements ShouldQueue
             // Its invoices first (their upgrade lines go with the service's, as in the cron), then its pending upgrades
             // and their own invoices: paid later, an upgrade would change a cancelled service. Read after the lock: a
             // renewal the cron billed while this waited for it is cancelled too.
-            $open = CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get());
+            $open = CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service);
             self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
             self::report(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
 

@@ -208,7 +208,8 @@ class StaffCorrectionsAdversarialTest extends TestCase
     public function test_a_credit_purchase_never_grants_credit_without_a_payment(): void
     {
         $invoice = $this->invoice(500, referenceType: Credit::class);
-        $note = $this->note($invoice, -500, 'Discount');
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        $note = AdjustmentNote::withoutEvents(fn () => $this->note($invoice, -500, 'Discount'));
 
         try {
             $invoice->fresh()->update(['status' => Invoice::STATUS_PAID]);

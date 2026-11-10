@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\User;
@@ -426,7 +427,12 @@ class MoneyTrailAdversarialTest extends TestCase
     {
         $deposit = $this->invoiceFor($this->user, 5000, creditPurchase: true);
         ExtensionHelper::addPayment($deposit->id, 'Stripe', 50.00, null, 'pi_dep2', currency: 'USD');
-        $odd = $this->invoiceFor($this->user, -1000, creditPurchase: true);
+        // A negative credit line is refused now (S6-MONEY-LEDGER-1): written without events, as an import or an older edit
+        // left it, so that GrantBoughtCreditService's negative branch is still exercised.
+        $odd = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        (new InvoiceItem)->forceFill(['invoice_id' => $odd->id, 'description' => 'Deposit', 'quantity' => 1, 'price' => -10,
+            'line_total' => -10, 'tax_amount' => 0, 'taxed' => false, 'reference_type' => Credit::class])->saveQuietly();
+        $odd = $odd->fresh();
 
         try {
             $odd->update(['status' => 'paid']); // staff mark it paid (its total is negative, nothing to pay)

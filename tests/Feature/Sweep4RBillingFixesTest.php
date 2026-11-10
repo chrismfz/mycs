@@ -191,9 +191,9 @@ class Sweep4RBillingFixesTest extends TestCase
         $whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY)');
         $whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT, value TEXT)');
         $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
-        $whmcs->exec("CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, nextduedate TEXT, domainstatus TEXT DEFAULT 'Active')");
+        $whmcs->exec("CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, nextduedate TEXT, domainstatus TEXT DEFAULT 'Active', billingcycle TEXT DEFAULT 'Annually')");
         $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT)');
-        $whmcs->exec("INSERT INTO tblhosting (id, nextduedate) VALUES (1, '2027-05-18'), (2, '2027-05-18')");
+        $whmcs->exec("INSERT INTO tblhosting (id, nextduedate, billingcycle) VALUES (1, '2027-05-18', 'Annually'), (2, '2027-05-18', 'Monthly')");
         $whmcs->exec("INSERT INTO tblhostingaddons VALUES (160, 1, 'Suspended', 'Annually', '2027-02-01'), (161, 1, 'Active', 'Annually', '2027-05-18'),
             (162, 2, 'Active', 'Monthly', '2026-12-03'), (163, 2, 'Terminated', 'Annually', '2026-01-01'), (164, 2, 'Active', 'One Time', '0000-00-00')");
         $command = app(ImportFromWhmcs::class);

@@ -77,14 +77,16 @@ class Sweep5GAddonsCycleTest extends TestCase
 
     /**
      * G-ADDONS-CYCLE-5. A 31st anchor: the service's date 2027-02-28 (February's 31st), its monthly addon due 2027-01-31, a
-     * month of its own cycle before. MyCS itself puts it there (alignedEnd counts back on the billing day, 31); the
-     * importer counts back from the 28th and refuses it.
+     * month before: on the service's billing day (31), so the day check accepts it (the importer once counted back from
+     * the 28th and refused it). Since 2026-11-09 MyCS no longer puts an addon a cycle of its own before its service (an addon
+     * is on its service's cycle, AddAddon::alignedEnd is the service's date); the day check is kept as it is for an addon
+     * a period behind its service (its renewal unpaid), and the cycle is checked apart (WhmcsAddonImport::sameCycle).
      */
     public function test_g_addons_cycle_5_a_monthly_addon_on_a_31st_anchor_is_on_its_services_day(): void
     {
         $due = CarbonImmutable::parse('2027-02-28');
         $this->assertSame('2027-01-31', BillingPeriod::start($due, 'month', 1, 31)->toDateString(),
-            'on the 31st, a month before 28 February is 31 January (as AddAddon::alignedEnd counts)');
+            'on the 31st, a month before 28 February is 31 January');
         $this->assertTrue(WhmcsAddonImport::onServiceDay('Monthly', '2027-01-31', '2027-02-28'),
             'refused: counted back from the 28th, never the 31st');
     }

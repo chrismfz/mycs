@@ -83,6 +83,7 @@ class Rev3KissAddonsTest extends TestCase
         $monthly = $this->plan($hosting, 'month', 12.00);
         $ip = Product::factory()->create(['name' => 'Extra IPv4', 'is_addon' => true]);
         $ipYearly = $this->plan($ip, 'year', 30.00);
+        $this->plan($ip, 'month', 3.00); // an addon follows its parent's cycle (2026-11-09)
         $parent = $this->service($hosting, $yearly, '2027-01-01', 120.00);
         $addon = $this->service($ip, $ipYearly, '2027-01-01', 30.00, ['parent_service_id' => $parent->id]);
         $paid = Invoice::factory()->create(['client_id' => $parent->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
