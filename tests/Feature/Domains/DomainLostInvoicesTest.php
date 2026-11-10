@@ -112,7 +112,9 @@ class DomainLostInvoicesTest extends TestCase
 
     public function test_a_domain_still_recoverable_and_a_charge_on_a_lost_one_are_left_alone(): void
     {
-        $recoverable = $this->domain(['sld' => 'alive', 'fqdn' => 'alive.com', 'status' => DomainStatus::Redemption]);
+        // In redemption by its dates too (expiry + 40 + 30 days is ahead): one whose stages are over is given up since
+        // sweep 7 (S7-DOMAINS-1, Domain::lapsedForGood), whatever its status still says.
+        $recoverable = $this->domain(['sld' => 'alive', 'fqdn' => 'alive.com', 'status' => DomainStatus::Redemption, 'expires_at' => '2026-08-20']);
         $open = $this->invoice();
         $this->renewal($open, $recoverable);
         $charge = $this->invoice();

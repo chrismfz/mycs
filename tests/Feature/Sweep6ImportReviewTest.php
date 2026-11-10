@@ -232,7 +232,9 @@ class Sweep6ImportReviewTest extends TestCase
             $whmcs->exec("INSERT INTO tblinvoiceitems VALUES ({$id}, " . ($id + 800) . ", 1, 'Addon', {$id}, 5, '2026-11-01')");
         }
         $command = $this->command($whmcs);
-        $this->assertSame([], (new ReflectionMethod($command, 'addonsApart'))->invoke($command), 'addonsApart: none (the one-time and free ones are left out there)');
+        // The monthly control is a month behind its service with nothing unpaid: refused for its date too since sweep 7
+        // (S7-LATEST-FIXES-1); the one-time and free ones are left out there.
+        $this->assertSame([60], (new ReflectionMethod($command, 'addonsApart'))->invoke($command), 'addonsApart: the one-time and free ones are left out there');
 
         $this->assertSame(['addon #60'], $this->cancelledRenewals($whmcs), 'only the recurring addon has a period to bill again');
     }

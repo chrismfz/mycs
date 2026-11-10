@@ -28,7 +28,7 @@ use Throwable;
  *   credit for the days left only with «Credit on downgrade» and credits on.
  *
  * Under the service's lock: a second change while one is pending is refused, any change while a change of cycle «from the
- * next renewal» is set, and a downgrade while an invoice of an earlier upgrade is open (owner 2026-11-10: each refusal
+ * next renewal» is set or was applied by the cron for a period that has not started yet (until that day), and a downgrade while an invoice of an earlier upgrade is open (owner 2026-11-10: each refusal
  * names the way through, and staff take it: the change taken back, the invoice paid or cancelled).
  *
  * Staff may give a discount on an upgrade's difference (owner 2026-11-06, docs/decisions.md, SVC-14): a percentage, an
@@ -48,6 +48,14 @@ final class PlaceUpgrade
 
     /** The same for an addon: the change is its parent's, taken back there (an addon has no cycle of its own, REV-770-3). */
     public const PARENT_CYCLE_CHANGE_PENDING = 'parent_cycle_change_pending';
+
+    /**
+     * The cron applied a change of cycle when it billed the next renewal, and that period has not started yet
+     * (Service::planStartsOn): the service has the new cycle's plan and price while the old period still runs, so the
+     * difference would be priced by the new cycle over the old period's days (S7-PLAN-CYCLE-ADDONS-2). Refused until
+     * that day, for staff too (they wait, or change the product by hand).
+     */
+    public const CYCLE_NOT_STARTED = 'cycle_not_started';
 
     /**
      * A downgrade while an invoice of an earlier upgrade is open (`invoice`: the shortfall of a completed one): it would
@@ -99,6 +107,12 @@ final class PlaceUpgrade
         return $service->isAddon()
             ? __('services.upgrade_cycle_change_pending_parent', ['id' => $service->parent_service_id])
             : __('services.upgrade_cycle_change_pending');
+    }
+
+    /** What they are told while the period of a cycle just changed has not started: the day a package change is available from. */
+    public static function cycleNotStarted(Service $service): string
+    {
+        return __('services.upgrade_cycle_not_started', ['date' => ($service->planStartsOn() ?? CarbonImmutable::today())->format('d/m/Y')]);
     }
 
     /**
@@ -203,6 +217,9 @@ final class PlaceUpgrade
         }
         if ($service->next_plan_id !== null) {
             return new self($service->isAddon() ? self::PARENT_CYCLE_CHANGE_PENDING : self::CYCLE_CHANGE_PENDING);
+        }
+        if ($service->planStartsOn() !== null) {
+            return new self(self::CYCLE_NOT_STARTED);
         }
 
         // Another product, read again under its lock (sweep UPGRADES-6): what the page listed may have changed since. Not

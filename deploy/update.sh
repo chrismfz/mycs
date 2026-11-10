@@ -142,20 +142,19 @@ stop_queue_worker() {
   _stopped_by="restart"
   [[ -z "$_pids" ]] || _wait_queue_workers "$_pids"
 }
-# This checkout's queue workers: their cwd here, or (a cwd this user cannot read) this checkout's artisan named by its
-# path on their command line. Another user's worker on the host (Ekdosi's `php artisan queue:work`, its cwd unreadable
+# This checkout's queue workers: their cwd here, or this checkout's artisan named by its path on their command line,
+# wherever they were started from (a unit with no WorkingDirectory: sweep 7, S7-OPS-1). Another user's worker on the host (Ekdosi's `php artisan queue:work`, its cwd unreadable
 # to mycs) never sees this checkout's queue:restart: waiting for it failed the deploy (sweep 2 review, REV2-FSQ-1).
 _queue_worker_pids() {
-  local pid cwd here cmd
+  local pid cwd here
   here="$(pwd -P)"
   for pid in $(pgrep -f "${QUEUE_WORKER_MATCH:-[a]rtisan( .*)? queue:(work|listen)}" 2>/dev/null || true); do
     cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
-    if [[ -n "$cwd" ]]; then
-      [[ "$cwd" == "$here" ]] && echo "$pid"
-      continue
-    fi
-    cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
-    if [[ "$cmd" == *"$here/artisan "* ]]; then echo "$pid"; fi
+    if [[ "$cwd" == "$here" ]]; then echo "$pid"; continue; fi
+    # A whole argument (NUL between them in /proc), or a word of a title written as one string: never the end of a
+    # longer path, another install under …/backup$here (review of #777, REV-777-7).
+    if { tr '\0' '\n' <"/proc/$pid/cmdline" | grep -Fxq -- "$here/artisan"; } 2>/dev/null \
+      || { tr '\0 ' '\n\n' <"/proc/$pid/cmdline" | grep -Fxq -- "$here/artisan"; } 2>/dev/null; then echo "$pid"; fi
   done
   return 0
 }
@@ -250,11 +249,26 @@ if $ART list --raw 2>/dev/null | grep -q '^app:is-down'; then
 else
   [[ -f storage/framework/down ]] && _was_down=1
 fi
-# Down without a failed deploy's marker: staff's own window, left down at the end. Found up: a marker is stale.
+# Down without a failed deploy's marker: staff's own window, left down at the end. Found up: a marker is stale. So is
+# one older than 24 hours (its mtime): that failed deploy was resolved by hand (`php artisan up` leaves the marker), and
+# a site down now is staff's own window (sweep 7, S7-OPS-2).
+# One dated in the future (a clock set back) is stale too. A marker that cannot be removed (another user's file) is said,
+# and still means nothing to this deploy.
+_marker_stale=0
+_marker_time="$(stat -c %Y "$_LEFT_DOWN" 2>/dev/null || echo 0)"
+_now="$(date +%s)"
+if [[ -f "$_LEFT_DOWN" ]] && (( _now - _marker_time > 86400 || _marker_time > _now + 60 )); then
+  _marker_stale=1
+  if rm -f "$_LEFT_DOWN" 2>/dev/null; then
+    log "Ignoring a failed deploy's marker older than 24 hours, or dated in the future (removed)"
+  else
+    log "Ignoring a failed deploy's marker older than 24 hours, or dated in the future (could not remove $_LEFT_DOWN: another user's file? remove it by hand)"
+  fi
+fi
 if [[ $_was_down == 1 ]]; then
-  [[ -f "$_LEFT_DOWN" ]] || _stay_down=1
+  [[ -f "$_LEFT_DOWN" && $_marker_stale == 0 ]] || _stay_down=1
 else
-  rm -f "$_LEFT_DOWN"
+  rm -f "$_LEFT_DOWN" || true
 fi
 log "Maintenance mode ON"
 # Not down, nothing proves a cron run can't start under the migrations: stop, nothing changed (R2-2). Already down is
@@ -352,7 +366,7 @@ start_queue_worker
 if [[ $_stay_down == 0 ]]; then
   log "Maintenance mode OFF"
   $ART up
-  rm -f "$_LEFT_DOWN"
+  rm -f "$_LEFT_DOWN" || true
 fi
 # The console relay, where it runs on this server (the devbox; docs/proxmox.md, B6), told now, with the new release in
 # place: it sees its `restart_file` touched, exits, and systemd starts the new code. Its consoles drop; the customer

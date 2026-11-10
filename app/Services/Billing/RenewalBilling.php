@@ -197,6 +197,9 @@ final class RenewalBilling
                 $service->setRelation('plan', $next);
                 $service->price = (float) $service->calculatePrice();
                 $service->price_locked = false; // the new plan's catalog price, not staff's (sweep UPGRADES-5)
+                // The plan counts from this period on: until it starts, the period paid on the old cycle still runs and
+                // a package change is refused (S7-PLAN-CYCLE-ADDONS-2, Service::planStartsOn).
+                $service->plan_from = CarbonImmutable::parse($periodStart->toDateString());
             }
             $service->next_plan_id = null;
             $service->save();
@@ -374,6 +377,11 @@ final class RenewalBilling
         // Past its last recoverable day (review 4): nothing to renew any more; staff decide.
         $lastDay = $domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at;
         if ($domain->status !== DomainStatus::Active && $lastDay->copy()->startOfDay()->lessThan(today())) {
+            // Its renewal from this expiry was given up by the cron and told to staff then (domain_invoices_cancelled,
+            // sweep 7 S7-DOMAINS-1): not said again every night.
+            if (($domain->meta['renewal_given_up'] ?? null) === $periodStart->toDateString()) {
+                return 0;
+            }
             $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: past its last recoverable day ({$lastDay->toDateString()}): not billed.");
 
             return 0;

@@ -28,6 +28,12 @@ class Cancel extends Component
             return $this->notify(__('services.cancellation_not_possible'), 'error');
         }
 
+        // Pending and unpaid, and another service of its order is discounted because this one is bought («Requires»): its
+        // line alone would leave the invoice and the discount stay (S7-CLIENT-PORTAL-1). That one first, or staff.
+        if (($other = $this->service->neededByOrderPromotion()) !== null) {
+            return $this->notify(__('services.cancellation_needed_by_promotion', ['other' => $other->product->name ?? "#{$other->id}"]), 'error');
+        }
+
         $this->validate();
 
         // Event hook will handle the cancellation (if its immediate or end of period). One request per service, held by

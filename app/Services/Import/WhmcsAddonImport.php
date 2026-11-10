@@ -409,24 +409,35 @@ final class WhmcsAddonImport
     ];
 
     /**
-     * Whether a WHMCS addon due $addonDue is on its service's billing day (due $serviceDue): both dates on the same day of
-     * the month, a 29th-31st clamped to a short month's last day as BillingPeriod clamps it (2027-01-31 and 2027-02-28 are
-     * both on the 31st). Its cycle is its service's (sameCycle, checked apart). A missing date (a
-     * service with none, as a free one: MyCS cannot give it an addon either), or a cycle not known here, is not
-     * (REV-KISS-2, sweep 5 G-ADDONS-CYCLE-2/5).
+     * How many whole periods of its cycle a WHMCS addon due $addonDue is behind its service (due $serviceDue): 0 on the
+     * service's own date, as an addon is here (docs/addons.md); 1 or more when its date is that many cycles before the
+     * service's, on the same billing day (a 29th-31st clamped to a short month's last day as BillingPeriod clamps it:
+     * 2027-01-31 is one month behind 2027-02-28). Null for anything else: ahead of its service, another day, a part of a
+     * cycle apart (a yearly addon three months off: sweep 7 S7-LATEST-FIXES-1), a missing date (a service with none, as a
+     * free one: MyCS cannot give it an addon either), or a cycle not known here. Its cycle is its service's (sameCycle,
+     * checked apart).
      */
-    public static function onServiceDay(string $cycle, string $addonDue, string $serviceDue): bool
+    public static function periodsBehind(string $cycle, string $addonDue, string $serviceDue): ?int
     {
         $addon = self::date($addonDue);
         $due = self::date($serviceDue);
-        if (!isset(self::CYCLES[self::cycleKey($cycle)]) || $addon === null || $due === null) {
-            return false;
+        $known = self::CYCLES[self::cycleKey($cycle)] ?? null;
+        if ($known === null || $addon === null || $due === null) {
+            return null;
+        }
+        if ($addon === $due) {
+            return 0;
         }
         $addon = CarbonImmutable::parse($addon);
         $due = CarbonImmutable::parse($due);
         $day = max($addon->day, $due->day);
+        $months = ($due->year - $addon->year) * 12 + $due->month - $addon->month;
+        $cycleMonths = $known[1] * ($known[2] === 'year' ? 12 : 1);
+        if ($months <= 0 || $months % $cycleMonths !== 0 || min($day, $addon->daysInMonth) !== $addon->day || min($day, $due->daysInMonth) !== $due->day) {
+            return null;
+        }
 
-        return min($day, $addon->daysInMonth) === $addon->day && min($day, $due->daysInMonth) === $due->day;
+        return intdiv($months, $cycleMonths);
     }
 
     /** Whether a WHMCS addon is on its service's billing cycle, as an addon always is here (docs/addons.md, 2026-11-09). */

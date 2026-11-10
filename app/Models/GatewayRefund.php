@@ -50,6 +50,15 @@ class GatewayRefund extends Model
     public const ORIGIN_DISPUTE_WON_EARLY = 'dispute_won_early';
 
     /**
+     * Records that moved no money: a dispute opened or resolved, a chargeback won back (its journal event reversed), a
+     * refund the gateway reported failed. Deleted with their payment (RecordPaymentService::deleteTransaction).
+     */
+    public const NO_MONEY_ORIGINS = [self::ORIGIN_DISPUTE, self::ORIGIN_DISPUTE_RESOLVED, self::ORIGIN_DISPUTE_WON_EARLY, self::ORIGIN_CHARGEBACK_WON, self::ORIGIN_FAILED];
+
+    /** Waiting for a payment to succeed, found again by the payment's id at the gateway: they outlive a deleted payment row. */
+    public const WAITING_ORIGINS = [self::ORIGIN_WAITING, self::ORIGIN_CHARGEBACK_WAITING];
+
+    /**
      * What MyCS itself refunded on a payment through its gateway, in cents: the gateways' idempotency key for a refund
      * (a retry of an attempt whose answer was lost keeps its key, whatever the webhook recorded meanwhile).
      */

@@ -342,6 +342,9 @@ final class AutoCharge
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
                 ->whereIn('reference_id', Domain::query()->select('id')->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())
                     ->orWhere('auto_renew', false))))
+            // Nor of one lapsed past its last recoverable day whose invoice the cron left open for staff (it holds money):
+            // the same rule as credit's (Domain::lapsedForGoodIds; review of #775, REV-775-3).
+            ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)->whereIn('reference_id', Domain::lapsedForGoodIds()))
             // Not a new domain's registration or transfer (D8b, code review M1): an order is paid by its customer, as a
             // service's (pending services are not charged either); unpaid it is cancelled.
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)

@@ -62,6 +62,9 @@ class LifecycleSerializedTest extends TestCase
     private function fakeWhm(?\Closure $duringSuspend = null): void
     {
         Http::fake(function ($request) use ($duringSuspend) {
+            if (str_contains($request->url(), '/accountsummary')) {
+                return Http::response(['metadata' => ['result' => 1]]); // whose account it is, asked first (S7-PROVISIONING-1)
+            }
             if (str_contains($request->url(), '/unsuspendacct')) {
                 $this->remoteSuspended = false;
                 $this->completed[] = 'unsuspend';
