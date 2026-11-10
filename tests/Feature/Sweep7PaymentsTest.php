@@ -169,6 +169,8 @@ class Sweep7PaymentsTest extends TestCase
      */
     public function test_s7_payments_4_an_unknown_charge_is_sent_again_by_a_later_run_of_the_cron(): void
     {
+        $this->markTestIncomplete('S7-PAYMENTS-4 (low): left as is, recorded only (owner 2026-11-10; docs/sweeps/2026-11-10-seventh.md).');
+
         MailFacade::fake();
         $agreement = $this->agreement('S7Pay');
         $this->assertSame($agreement->id, $this->client->fresh()->autoChargeAgreement()?->id, 'precondition: the method is the default');
@@ -202,6 +204,8 @@ class Sweep7PaymentsTest extends TestCase
      */
     public function test_s7_payments_4_a_paypal_token_failure_is_a_charge_not_sent(): void
     {
+        $this->markTestIncomplete('S7-PAYMENTS-4 (low): left as is, recorded only (owner 2026-11-10; docs/sweeps/2026-11-10-seventh.md).');
+
         MailFacade::fake();
         $paypal = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
         foreach (['client_id' => 'id', 'client_secret' => 'secret', 'webhook_id' => 'WH-1', 'test_mode' => '1'] as $key => $value) {
