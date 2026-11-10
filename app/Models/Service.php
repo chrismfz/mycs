@@ -161,6 +161,7 @@ class Service extends Model implements Auditable
         'accepted_send_email' => 'boolean',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
+        'plan_from' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',
         'password' => 'encrypted',
     ];
@@ -1305,18 +1306,70 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * The service of its order whose promotion needs this one («Requires», WHMCS), while its order's invoice is unpaid
+     * (pending, or set up on order and running already: REV-776-3), or null: cancelled by its customer, only its line would leave the invoice and the other be
+     * paid at a discount whose required product was never bought (S7-CLIENT-PORTAL-1, owner 2026-11-10). Its customer
+     * cancels that service first (the whole order) or asks; staff cancel it freely. Its addons end with it, so one of
+     * them that is required counts too; not needed when the account holds the required product another way, or when
+     * the discounted service goes with it (its own addon).
+     */
+    public function neededByOrderPromotion(): ?self
+    {
+        if ($this->isEnded() || $this->order_id === null) {
+            return null;
+        }
+        $going = collect([$this])->merge($this->addons()->whereIn('status', self::PAYING_STATUSES)->where('order_id', $this->order_id)->get());
+        $discounted = self::query()->where('order_id', $this->order_id)->whereNotIn('id', $going->pluck('id'))
+            ->whereIn('status', self::PAYING_STATUSES)->whereNotNull('coupon_id')->whereNull('coupon_expired_at')
+            ->with('coupon.requiredProducts')->orderBy('id')->get();
+        foreach ($going as $required) {
+            if (!$required->orderUnpaid()) {
+                continue; // its order paid: the discount was earned
+            }
+            foreach ($discounted as $other) {
+                $products = $other->coupon?->requiredProducts->pluck('id') ?? collect();
+                if ($products->contains($required->product_id) && !self::query()->where('client_id', $this->client_id)
+                    ->whereIn('product_id', $products)->whereIn('status', self::PAYING_STATUSES)->whereNotIn('id', $going->pluck('id'))->exists()) {
+                    return $other;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The day its plan starts to count, while that day is ahead: the cron put it on the plan of a change of cycle «from the
+     * next renewal» when it billed that renewal, and the period paid on the old cycle still runs. Until then a package
+     * change is refused, for staff too (PlaceUpgrade::CYCLE_NOT_STARTED): its difference would be the new cycle's prices
+     * over the old period's days, 10 times too much from a month to a year (S7-PLAN-CYCLE-ADDONS-2). Null otherwise.
+     */
+    public function planStartsOn(): ?CarbonImmutable
+    {
+        $from = $this->plan_from;
+
+        return $from !== null && $from->startOfDay()->greaterThan(CarbonImmutable::today()) ? $from->startOfDay() : null;
+    }
+
+    /**
      * Its order's own line (on its first invoice) is still open: set up before it was paid. That line has no period yet,
      * or, for a pro rata product, its first period from the order's day (OrderPricing::firstPeriod), on the order's own
      * invoice (sweep2 F-ORDER-TO-ACTIVE-1: a pro rata order slipped past the A5 guard).
      */
     public function orderUnpaid(): bool
     {
+        return $this->unpaidOrderInvoiceId() !== null;
+    }
+
+    /** Its order's own invoice while that is open (orderUnpaid), or null: what a change of cycle never cancels. */
+    public function unpaidOrderInvoiceId(): ?int
+    {
         if ($this->order_id === null) {
-            return false;
+            return null;
         }
         $first = $this->invoiceItems()->min('invoice_id');
         if ($first === null) {
-            return false;
+            return null;
         }
         $order = $this->order;
         $orderDay = $order?->created_at?->toDateString();
@@ -1331,7 +1384,7 @@ class Service extends Model implements Auditable
                     $line->orWhereDate('period_start', $orderDay);
                 }
             })
-            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists();
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists() ? (int) $first : null;
     }
 
     public function productUpgrades()
