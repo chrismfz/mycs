@@ -537,6 +537,45 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   (`creditedParts`: ένα `credit_in` με αντιλογισμό δεν έμεινε ποτέ), και η εξαίρεση «επιστροφή σε πίστωση σε αυτό το
   τιμολόγιο» του `CreditAutoApply`.
 
+## Admin API: πληρωμές, επιστροφές, σημειώματα (2026-11-10)
+Απόφαση ιδιοκτήτη (`staff-freedom.md`, `TIGHT-INVOICES-PAYMENTS-32`): από το API ό,τι και από το panel, τίποτα παραπάνω.
+Όλα κάτω από `api/v1/admin` (bearer κλειδί τύπου admin, `throttle:admin-api`), κάθε id κάτω από το τιμολόγιό του (αλλιώς
+404). Απάντηση όπως τα υπόλοιπα resources (`data`)· τα σημειώματα και οι γραμμές δίνουν και `warning` όταν το τιμολόγιο
+μένει paid και χρωστά ή είναι πληρωμένο παραπάνω (`StaffLineEdit::balanceNotice`). Άρνηση του service: 422 με το δικό του
+μήνυμα. Κλειδί χωρίς το δικαίωμα: 403. Ποσά: δεκαδικό **string** ως 2 δεκαδικά (`"10.00"`), ποτέ αριθμός JSON ή εκθέτης.
+
+| Μέθοδος και διαδρομή (`…/invoices/{invoice}`) | Δικαίωμα του κλειδιού | Service (το ίδιο με το panel) |
+|---|---|---|
+| `GET /payments`, `GET /payments/{id}` | `invoice_transactions.view` | ανάγνωση |
+| `POST /payments` (`amount`, `paid_at`, `gateway_id`, `transaction_id`, `fee`, `up_to_remaining`, `reopen`) | `invoice_transactions.create` (+ `invoices.update` με `reopen`) | `RecordPaymentService::recordByStaff` («Add Payment»· με `up_to_remaining` ή `reopen` είναι το «Mark Paid») |
+| `PUT /payments/{id}` (`paid_at`, `gateway_id`, `transaction_id`, `fee`· `amount`, `invoice_id`· `allow_negative_credit`) | `invoice_transactions.delete` (+ `.create` όταν αλλάζει ποσό ή τιμολόγιο) | `EditPayment::handle` |
+| `DELETE /payments/{id}` (`allow_negative_credit`) | `invoice_transactions.delete` | `RecordPaymentService::deleteTransaction` |
+| `GET /payments/{id}/refunds` | `invoice_transactions.view` | `UndoRefund::refunds` (ό,τι προσφέρει το «Undo refund»· ποτέ chargeback) |
+| `POST /payments/{id}/refunds` (`amount`, `method`: `gateway` / `manual` / `credit`, `notify`) | `invoice_transactions.update` | `ExtensionHelper::refund` / `refundLocally` / `refundToCredit`, με τους τρόπους του `TransactionsRelationManager::refundMethods` |
+| `DELETE /payments/{id}/refunds/{refund}` (`allow_negative_credit`, `money_left_at_gateway`) | `invoice_transactions.update` | `UndoRefund::handle` |
+| `GET /adjustment-notes` | `adjustment_notes.view` | ανάγνωση |
+| `POST /adjustment-notes` (`amount` με πρόσημο, `description`) | `adjustment_notes.create` | το μοντέλο και ο `AdjustmentNoteObserver`, κάτω από τα locks πληρωμών |
+| `PUT /adjustment-notes/{id}` (`amount`, `description`) | `adjustment_notes.update` | `VoidAdjustmentNote::change` |
+| `POST /adjustment-notes/{id}/void`, `…/unvoid` | `adjustment_notes.update` | `VoidAdjustmentNote::toggle` |
+| `DELETE /adjustment-notes/{id}` | `adjustment_notes.delete` | `VoidAdjustmentNote::change` |
+| `POST/PUT /invoice-items` με αρνητική `price` | `invoice_items.create/update` | `StaffLineEdit`, `InvoiceItemObserver` (μόνο γραμμή χωρίς reference) |
+| `PUT /invoices/{invoice}` με `status: draft` | `invoices.update` | το μοντέλο (`InvoiceObserver`), κάτω από τα locks· μόνο από unpaid |
+
+- **Replay:** το ίδιο `transaction_id` δεύτερη φορά δεν γράφει τίποτα (422 «already recorded»), ο κανόνας του
+  `recordByStaff`. Ένα script που ξαναστέλνει μια πληρωμή πρέπει να στέλνει πάντα `transaction_id`.
+- **`reopen`** είναι το τσεκ του «Mark Paid» σε ακυρωμένο τιμολόγιο: θέλει και `invoices.update`, και όπως εκεί δεν
+  γράφει ποτέ περισσότερα από όσα μένουν (`upToRemaining`). Χωρίς `up_to_remaining` ό,τι περισσεύει γίνεται πίστωση
+  (`credited_amount`), όπως στο «Add Payment».
+- **Επιστροφή στο gateway** (`method: gateway`): η ίδια κλήση με το κουμπί του panel (`ExtensionHelper::refund`), και
+  προσφέρεται μόνο όταν την προσφέρει και η φόρμα (το gateway της πληρωμής υποστηρίζει επιστροφές). Η αποτυχία του
+  gateway απαντά 422 με το μήνυμά της, όπως η ειδοποίηση του panel.
+- **Αναίρεση επιστροφής:** το `{refund}` είναι το id της κίνησης στο ημερολόγιο, από το `GET …/refunds`. Επιστροφή του
+  gateway μόνο με `money_left_at_gateway: true`· το gateway δεν καλείται ποτέ.
+- **Σημείωμα:** ο τύπος (`credit`/`debit`) ακολουθεί το πρόσημο, όπως στη φόρμα. Η καταγραφή από το API παίρνει και τα
+  locks πληρωμών (η φόρμα του panel ακόμη όχι: το follow-up πιο κάτω).
+- **Δεν υπάρχουν στο API:** chargebacks (καμία ενέργεια), μαζική διαγραφή, «Close as paid», πληρωμή πολλών τιμολογίων,
+  merge/split, `draft` από paid/cancelled/refunded (η φόρμα το δέχεται από οποιοδήποτε status· εδώ μόνο ό,τι ζητήθηκε).
+
 ## Γραμμές τιμολογίου από το staff (PR B, sweep Π2.11, 2026-10-15)
 > **2026-11-10, απόφαση ιδιοκτήτη (`staff-freedom.md`):** η δεύτερη κουκκίδα **αντικαταστάθηκε** από έναν κανόνα, με κλειδί
 > τα χρήματα και όχι το status. Σε τιμολόγιο που **έχει πληρωμή πάνω του** (succeeded ή processing· paid, ή unpaid ξανά με
