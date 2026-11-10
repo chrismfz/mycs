@@ -28,9 +28,15 @@ tracking» και «Bank Totals»). Απόφαση του υπευθύνου, 20
     - **ένα μόνο** σετ ARC (`i=1`), σφραγισμένο από το δικό μας domain·
     - το δικό μας `ARC-Authentication-Results`.
   - Τα tags της σφραγίδας διαβάζονται όπως το DKIM: case-sensitive, και το καθένα μία φορά.
-  - Το `Authentication-Results` (και το `ARC-Authentication-Results`) διαβάζεται αυστηρά: ό,τι δεν διαβάζεται καθαρά
-    (`unreadable_results`, π.χ. envelope sender με παρενθέσεις ή quotes) δεν είναι αυθεντικό, άρα ούτε ταιριάζει
-    αυτόματα (S7-TICKETS-MAIL-1, κανόνες στο `docs/tickets.md`).
+  - Το `Authentication-Results` (και το `ARC-Authentication-Results`) διαβάζεται με τους κανόνες του
+    `docs/tickets.md` (sweep 7, S7-TICKETS-MAIL-1): quoted τιμές όπως τις γράφει ο rspamd είναι μία αδιαφανής τιμή· ό,τι
+    δεν διαβάζεται καθαρά (`unreadable_results`) δεν είναι αυθεντικό, άρα ούτε ταιριάζει αυτόματα. DKIM και DMARC
+    μετρούν μόνο ως δηλώσεις του ενός έμπιστου header, ποτέ από σχόλιο. **Μόνο rspamd (mailcow) ως «δικός μας»
+    server.** Headers `ARC-*` και `Authentication-Results` μόνο με το ακριβές όνομα.
+  - **ΑΠΑΙΤΟΥΜΕΝΟ πριν ανοίξει το «Match credits to invoices automatically»:** ο mailcow γράφει/αφαιρεί
+    `Authentication-Results` και για mail από authenticated χρήστες του (default του rspamd: όχι, `skip_authenticated
+    = true`), αλλιώς ένας χρήστης του ίδιου server στέλνει «ειδοποίηση τράπεζας» με δικό του header επάνω. Ρύθμιση
+    και έλεγχος μίας γραμμής: `docs/tickets.md`, «ΑΠΑΙΤΟΥΜΕΝΗ ρύθμιση του mailcow».
 - **Ο λογαριασμός**: ένα γνήσιο email της τράπεζας για **ξένο** λογαριασμό, που μας το ξαναστέλνει κάποιος, δεν είναι
   δική μας πληρωμή.
   - Κάθε κίνηση κρατά τον λογαριασμό της: τα τελευταία ψηφία στο Eurobank, το όνομα λογαριασμού στην Πειραιώς.
@@ -109,6 +115,7 @@ tracking» και «Bank Totals»). Απόφαση του υπευθύνου, 20
   - το mailbox, με τα ίδια στοιχεία που έχει σήμερα το `conf.ini` στον rigel·
   - φάκελοι `INBOX, Checked`·
   - authserv-id `mymail.myip.gr` και ARC sealer `myip.gr`·
+  - πρώτα ο έλεγχος του mailcow για authenticated mail (πάνω, «ΑΠΑΙΤΟΥΜΕΝΟ»)·
   - στο «Our accounts»: `eurobank: <τελευταία ψηφία>` και `piraeus: <όνομα λογαριασμού όπως στο email>`·
   - στο «Credits to ignore», το merchant id του vPOS.
 - Όσο τρέχει παράλληλα και το WHMCS, εκείνο μετακινεί τα emails στο `Checked`. Η MyCS τα βρίσκει εκεί και δεν τα
