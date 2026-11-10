@@ -99,17 +99,18 @@ class Contact extends Component
         $this->requireCaptchaOrAltcha();
 
         $email = strtolower(trim($this->email));
-        // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit.
+        // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit. In this
+        // order, stopping at the first one over: an attempt its own network address's limit refuses counts against
+        // nothing else, and the limit of everyone counts only what the other two let through, so one visitor cannot
+        // close the form for all (sweep 7, S7-TICKETS-MAIL-3).
         $limits = ['contact-ip:' . CallerIp::key() => self::PER_IP,
             'contact-email:' . TicketBlockedSender::base($email) => self::PER_EMAIL, 'contact-all' => self::PER_HOUR];
-        $over = false;
         foreach ($limits as $key => $max) {
-            $over = RateLimiter::increment($key, 3600) > $max || $over;
-        }
-        if ($over) {
-            $this->addError('email', __('ticket.contact_too_many'));
+            if (RateLimiter::increment($key, 3600) > $max) {
+                $this->addError('email', __('ticket.contact_too_many'));
 
-            return;
+                return;
+            }
         }
 
         // A bot (the honeypot) or a blocked sender: told it went, given nothing to learn from.
