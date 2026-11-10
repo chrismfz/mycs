@@ -115,6 +115,10 @@ fi
 # supervisor brings it back, and a worker started without --force sleeps while
 # the app is in maintenance mode).
 _stopped_by=""
+# A site staff had put down before the deploy (the return to WHMCS, cutover-runbook §3; a planned window) stays down
+# after it, and workers that were not running then are not started (sweep 6, S6-OPS-2).
+_was_down=0
+_had_workers=1
 _have_unit() { command -v systemctl >/dev/null 2>&1 && systemctl cat "${QUEUE_SERVICE}.service" >/dev/null 2>&1; }
 stop_queue_worker() {
   if [[ -n "${QUEUE_STOP_CMD:-}" ]]; then
@@ -169,6 +173,10 @@ _wait_queue_workers() {
   done
 }
 start_queue_worker() {
+  if [[ $_was_down == 1 && $_had_workers == 0 ]]; then
+    log "Queue: no worker was running before the deploy (the site was already down) — none started"
+    return 0
+  fi
   case "$_stopped_by" in
     hook)    [[ -n "${QUEUE_START_CMD:-}" ]] && { log "Starting queue worker (QUEUE_START_CMD)"; eval "${QUEUE_START_CMD}" 9>&- || true; } ;;
     systemd) log "Starting queue worker (systemd: ${QUEUE_SERVICE})"; systemctl --no-ask-password start "${QUEUE_SERVICE}" 2>/dev/null \
@@ -234,7 +242,6 @@ log "Waiting for a cron run in progress, if any"
 cron_wait || { fail "A cron run is still in progress — nothing changed. Re-run the deploy once it is over (or CRON_WAIT_SECONDS=… to wait longer; a crashed run's lock: php artisan app:cron-wait --release-stale)."; exit 1; }
 # Up again on a failed second wait only if this deploy put it down (a failed deploy left it down: ADV-CW-4): asked of
 # the app, whatever its driver (R2-4, R3-1); the file driver's file on a release without the command (its first deploy).
-_was_down=0
 if $ART list --raw 2>/dev/null | grep -q '^app:is-down'; then
   $ART app:is-down && _was_down=1
 else
@@ -250,6 +257,13 @@ cron_wait || {
   exit 1
 }
 trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
+# Already down: were this checkout's workers running (or, with no stop hook, their unit active)? Only then are they
+# started again.
+if [[ $_was_down == 1 ]]; then
+  _had_workers=0
+  [[ -n "$(_queue_worker_pids)" ]] && _had_workers=1
+  [[ -z "${QUEUE_STOP_CMD:-}" ]] && _have_unit && systemctl is-active --quiet "${QUEUE_SERVICE}" 2>/dev/null && _had_workers=1
+fi
 stop_queue_worker || {
   [[ $_was_down == 0 ]] && { $ART up || true; }
   fail "The queue workers did not stop (a job still running?) — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
@@ -326,25 +340,34 @@ trap - ERR
 # between and take a job on the old code. Told before, it exits at its next pause check, having taken none. The ones
 # started after the signal start on the new release; a unit or hook started here sleeps until `up`.
 start_queue_worker
-log "Maintenance mode OFF"
-$ART up
+if [[ $_was_down == 0 ]]; then
+  log "Maintenance mode OFF"
+  $ART up
+fi
 # The console relay, where it runs on this server (the devbox; docs/proxmox.md, B6), told now, with the new release in
 # place: it sees its `restart_file` touched, exits, and systemd starts the new code. Its consoles drop; the customer
 # reconnects. Where none runs (a cPanel host: the relay is next to the cluster), the file is only a file.
 touch storage/framework/console-relay.restart 2>/dev/null || true
 
-# The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
-_url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"
-if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
-  _code="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/" || true)"
-  _health="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/health" || true)"
-  if [[ "$_code" != "200" ]]; then
-    # Never «Deployed» over a site that does not answer (AUD8-6): the release is in place, the site is up, look now.
-    fail "Smoke check: $_url → ${_code:-no answer}. The new release is live: check it NOW (rollback: docs/install.md)."
-    exit 1
+# A site left down answers 503 by design: no smoke check of it.
+if [[ $_was_down == 0 ]]; then
+  # The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
+  _url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"
+  if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
+    _code="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/" || true)"
+    _health="$(curl -sL --max-time 20 -o /dev/null -w '%{http_code}' "$_url/health" || true)"
+    if [[ "$_code" != "200" ]]; then
+      # Never «Deployed» over a site that does not answer (AUD8-6): the release is in place, the site is up, look now.
+      fail "Smoke check: $_url → ${_code:-no answer}. The new release is live: check it NOW (rollback: docs/install.md)."
+      exit 1
+    fi
+    ok "Smoke check: $_url → 200"
+    # /health is 503 while the scheduler has not run since the maintenance window: told, not a failed deploy.
+    [[ "$_health" == "200" ]] || warn "/health → ${_health:-no answer}: look at it in a few minutes (docs/ops.md)."
   fi
-  ok "Smoke check: $_url → 200"
-  # /health is 503 while the scheduler has not run since the maintenance window: told, not a failed deploy.
-  [[ "$_health" == "200" ]] || warn "/health → ${_health:-no answer}: look at it in a few minutes (docs/ops.md)."
 fi
 ok "Deployed $(git rev-parse --short HEAD) ($REF). Previous: ${CURRENT_SHA:0:8} — rollback: docs/install.md («Αν κάτι πάει στραβά»: the snapshot restored inside the maintenance window, the workers restarted before up)."
+if [[ $_was_down == 1 ]]; then
+  [[ $_had_workers == 0 ]] && warn "The queue workers were not running before the deploy: not started. Start them when you bring the site up."
+  warn "site was in maintenance before the deploy: left down; run artisan up when ready"
+fi
