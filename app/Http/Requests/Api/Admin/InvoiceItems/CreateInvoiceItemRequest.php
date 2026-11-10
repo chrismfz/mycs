@@ -18,7 +18,8 @@ class CreateInvoiceItemRequest extends AdminApiRequest
         return [
             'invoice_id' => 'required|exists:invoices,id',
             'description' => 'required|string|max:65535',
-            'price' => 'required|numeric|min:0',
+            // Negative on a line that bills nothing (no reference): a discount, as the panel's form takes it.
+            'price' => 'required|numeric',
             'quantity' => 'required|integer|min:1',
             'taxed' => 'sometimes|boolean',
             'reference_type' => 'nullable',
@@ -36,6 +37,9 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             $problem = InvoiceItemReference::problem(Invoice::query()->find($this->input('invoice_id')), $this->input('reference_type'), $this->input('reference_id'));
             if ($problem !== null) {
                 $validator->errors()->add(...$problem);
+            }
+            if (is_numeric($this->input('price')) && (float) $this->input('price') < 0 && filled($this->input('reference_type'))) {
+                $validator->errors()->add('price', __('Only a line that bills nothing (no reference) takes a negative price.'));
             }
             if (filled($this->input('kind')) && $this->input('reference_type') !== Domain::class) {
                 $validator->errors()->add('kind', __('Only a domain line takes a kind.'));

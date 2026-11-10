@@ -204,6 +204,101 @@ class StaffFreedomApiNotesLinesTest extends TestCase
         $this->assertSame([502, $note->number, AdjustmentNoteStatus::Active, false], [$same->invoice_id, $same->number, $same->status, (bool) $same->is_refund]);
     }
 
+    // ---------------------------------------------------------------- lines
+
+    public function test_a_discount_line_with_no_reference_takes_a_negative_price(): void
+    {
+        $token = $this->token(self::LINES);
+
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => 502, 'description' => 'Discount', 'price' => '-2.50', 'quantity' => 1, 'taxed' => false])
+            ->assertSuccessful()->assertJsonPath('data.attributes.price', '-2.50');
+        $discount = InvoiceItem::query()->where('invoice_id', 502)->whereNull('reference_type')->sole();
+        $this->assertSame([750, 750], $this->money());
+
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $discount), ['price' => '-3.00'])->assertSuccessful();
+        $this->assertSame([700, 700], $this->money());
+
+        // The same line through the model, as the panel's repeater saves it, on a twin: the same total.
+        $twin = Invoice::query()->create(['client_id' => $this->invoice->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now()->addWeek(), 'currency_code' => 'EUR']);
+        $twin->items()->create(['description' => 'Hosting', 'price' => '10.00', 'quantity' => 1, 'taxed' => false]);
+        $twin->items()->create(['description' => 'Discount', 'price' => '-3.00', 'quantity' => 1, 'taxed' => false]);
+        $this->assertSame($this->money($twin->id), $this->money());
+        $this->assertSame('2026-10-10', Service::query()->findOrFail(31)->expires_at->toDateString());
+    }
+
+    public function test_kept_a_line_that_bills_something_is_never_negative_and_quantities_stay_whole(): void
+    {
+        $token = $this->token(self::LINES);
+        $hosting = $this->invoice->items()->sole();
+        $store = fn (array $body) => $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => 502, 'description' => 'x', 'quantity' => 1, ...$body])->assertStatus(422);
+
+        $store(['price' => '-2.00', 'reference_type' => Service::class, 'reference_id' => 31])->assertJsonValidationErrors('price');
+        $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $hosting), ['price' => '-2.00'])->assertStatus(422)->assertJsonValidationErrors('price');
+        $store(['price' => '-2.00', 'quantity' => '1.5'])->assertJsonValidationErrors('quantity');
+        $store(['price' => '-2.00', 'quantity' => 0])->assertJsonValidationErrors('quantity');
+        $store(['price' => 'minus two'])->assertJsonValidationErrors('price');
+        $this->assertSame(1, $this->invoice->items()->count());
+        $this->assertSame([1000, 1000], $this->money());
+    }
+
+    public function test_kept_a_discount_line_meets_every_refusal_of_the_lines(): void
+    {
+        $token = $this->token(self::LINES);
+        $discount = fn (int $invoice) => $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'),
+            ['invoice_id' => $invoice, 'description' => 'Discount', 'price' => '-2.00', 'quantity' => 1])->assertStatus(422);
+
+        // Paid in WHMCS: frozen.
+        $discount(480)->assertJsonPath('message', EkdosiDocument::cutOverRefusal());
+        // A fiscal document from Ekdosi.
+        $document = EkdosiDocument::query()->create(['invoice_id' => 502, 'mark' => '400001234560502', 'code' => 'ΤΙΜ502']);
+        $discount(502)->assertJsonPath('message', __('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
+        $document->delete();
+        // A credit purchase takes no discount.
+        DB::table('invoice_items')->insert(['invoice_id' => 502, 'description' => 'Credit', 'quantity' => 1, 'price' => 5, 'reference_type' => Credit::class, 'reference_id' => 1]);
+        $discount(502)->assertJsonPath('message', __('An invoice that buys account credit takes no adjustment note or discount: change the amount of its line instead (or cancel it and make a new one).'));
+        DB::table('invoice_items')->where('invoice_id', 502)->where('reference_type', Credit::class)->delete();
+
+        // With a payment on it: a line that references nothing comes and goes, a referenced one stays (StaffLineEdit).
+        (new RecordPaymentService)->recordByStaff($this->invoice, null, '4.00', 'tr_part');
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => 502, 'description' => 'Discount', 'price' => '-2.00', 'quantity' => 1, 'taxed' => false])->assertSuccessful();
+        $this->assertSame([800, 400], $this->money());
+        $this->withToken($token)->deleteJson(route('api.v1.admin.invoice-items.destroy', $this->invoice->items()->whereNotNull('reference_type')->sole()))->assertStatus(422);
+        $this->assertSame(2, $this->invoice->items()->count());
+    }
+
+    // ---------------------------------------------------------------- status
+
+    public function test_an_unpaid_invoice_goes_back_to_a_draft_as_in_the_panels_select_and_no_other_does(): void
+    {
+        $token = $this->token(['admin.invoices.update']);
+        $url = route('api.v1.admin.invoices.update', 502);
+
+        $this->withToken($this->token(['admin.invoices.view']))->putJson($url, ['status' => 'draft'])->assertForbidden();
+        $this->withToken($token)->putJson($url, ['status' => 'draft'])->assertOk()->assertJsonPath('data.attributes.status', 'draft');
+        $this->assertSame([Invoice::STATUS_DRAFT, 1000], [$this->invoice->fresh()->status, $this->money()[1]]);
+        $this->assertSame('2026-10-10', Service::query()->findOrFail(31)->expires_at->toDateString());
+        // The model's own save, as the panel's form does it, on a twin: the same.
+        $twin = Invoice::query()->create(['client_id' => $this->invoice->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now()->addWeek(), 'currency_code' => 'EUR']);
+        $twin->update(['status' => Invoice::STATUS_DRAFT]);
+        $this->assertSame($twin->fresh()->status, $this->invoice->fresh()->status);
+
+        $this->withToken($token)->putJson($url, ['status' => 'unpaid'])->assertOk();
+        $this->assertSame(Invoice::STATUS_UNPAID, $this->invoice->fresh()->status);
+
+        // Paid (here, and in WHMCS), cancelled: not through the API.
+        $refusal = __('Only an unpaid invoice is set back to a draft.');
+        $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', 480), ['status' => 'draft'])->assertStatus(422)->assertJsonPath('message', $refusal);
+        (new RecordPaymentService)->recordByStaff($this->invoice, null, '10.00', 'tr_502');
+        $this->withToken($token)->putJson($url, ['status' => 'draft'])->assertStatus(422)->assertJsonPath('message', $refusal);
+        $cancelled = Invoice::query()->create(['client_id' => $this->invoice->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now()->addWeek(), 'currency_code' => 'EUR']);
+        $cancelled->update(['status' => Invoice::STATUS_CANCELLED]);
+        $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $cancelled), ['status' => 'draft'])->assertStatus(422)->assertJsonPath('message', $refusal);
+        $this->withToken($token)->putJson($url, ['status' => 'refunded'])->assertStatus(422)->assertJsonValidationErrors('status');
+
+        $this->assertSame([Invoice::STATUS_PAID, Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED],
+            [Invoice::query()->findOrFail(480)->status, $this->invoice->fresh()->status, $cancelled->fresh()->status]);
+    }
+
     // ---------------------------------------------------------------- the API's documentation
 
     public function test_the_generated_api_documentation_lists_the_new_endpoints(): void
