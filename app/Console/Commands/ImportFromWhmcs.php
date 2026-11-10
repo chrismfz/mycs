@@ -181,6 +181,16 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An unpaid Mass Pay that is no Mass Pay here (it took a part payment, or has another kind of line): it would come as
+        // an ordinary invoice billing its children again (sweep 6 S6-IMPORT-2, owner's decision 2026-11-08). Settled in WHMCS.
+        if (($unsettled = $this->unsettledMassPay()) !== []) {
+            $this->error('WHMCS unpaid Mass Pay invoice(s) with a part payment or a line of another kind: ' . implode('; ', array_map(fn (int $parent, array $children) => "#{$parent}"
+                . ' (children #' . implode(', #', $children) . ')', array_keys($unsettled), $unsettled))
+                . '. Imported as they are they would bill their children twice: move the payment to the children and cancel the Mass Pay invoice in WHMCS'
+                . ' (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
         // An old unpaid order (owner's decision 2026-11-08, sweep 4 C-FIRST-RUN-1): the first cron would pay it with the
         // customer's credit and set the service up or buy the name at the registrar. Cancelled in WHMCS before the dump.
         if (($orders = $this->abandonedOrders()) !== []) {
@@ -189,10 +199,12 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
-        // A renewal WHMCS invoiced and staff cancelled, its nextinvoicedate moved past it (owner's decision 2026-11-08, sweep 5,
-        // replacing sweep 4's C-FIRST-RUN-2 rule): settled in WHMCS before the dump, never guessed here (cutover-runbook.md).
+        // A renewal WHMCS invoiced and staff cancelled or deleted, its nextinvoicedate moved past it (owner's decision 2026-11-08,
+        // sweep 5, replacing sweep 4's C-FIRST-RUN-2 rule; addons and deleted invoices: sweep 6 S6-IMPORT-3/4): settled in WHMCS
+        // before the dump, never guessed here (cutover-runbook.md).
         if (($cancelled = $this->cancelledRenewals()) !== []) {
-            $this->error('WHMCS live service(s) whose renewal invoice was cancelled and next invoice date moved past it: #' . implode(', #', $cancelled)
+            $this->error('WHMCS live service(s) or addon(s) whose renewal invoice was cancelled or deleted and next invoice date moved past it: '
+                . implode(', ', array_map(fn (int|string $id) => is_int($id) ? "#{$id}" : $id, $cancelled))
                 . '. Bill that period again (next invoice date back to the due date) or give it away (due date to the next invoice date) in WHMCS'
                 . ' (cutover-runbook.md), and dump again. Nothing done.');
 
@@ -3265,6 +3277,37 @@ class ImportFromWhmcs extends Command
         return $pending;
     }
 
+    /**
+     * Every WHMCS invoice imported unpaid (invoiceStatus: Unpaid, Collections; «Payment Pending» is pendingMassPay's) with
+     * an «Invoice» line that massPayParents does not count: it took a part payment, or has a line of another kind (a late
+     * fee), a child of another customer or a child that is a Mass Pay itself. It would come as an ordinary unpaid invoice
+     * billing its children again while they stay unpaid too (sweep 6 S6-IMPORT-2). The import refuses to run on them
+     * (handle; owner's decision 2026-11-08: no rule of the importer's own, staff settle it in WHMCS), each with its
+     * children. One with no money and only its children's lines is a parent, dropped by the import: not refused. The
+     * runbook's pre-dump check. A source without these tables (a test's): none.
+     *
+     * @return array<int, list<int>> invoice => its children (its «Invoice» lines), by id
+     */
+    private function unsettledMassPay(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblaccounts')) {
+            return [];
+        }
+        $unsettled = [];
+        foreach ($this->pdo->query("SELECT p.id, ii.relid FROM tblinvoices p JOIN tblinvoiceitems ii ON ii.invoiceid = p.id AND ii.type = 'Invoice'"
+            . " WHERE p.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') ORDER BY p.id, ii.relid")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($this->massPayParents()[(int) $row['id']])) {
+                continue;
+            }
+            $unsettled[(int) $row['id']] ??= [];
+            if (!in_array((int) $row['relid'], $unsettled[(int) $row['id']], true)) {
+                $unsettled[(int) $row['id']][] = (int) $row['relid'];
+            }
+        }
+
+        return $unsettled;
+    }
+
     /** Days after which an unpaid WHMCS order invoice refuses the import (abandonedOrders). */
     public const ABANDONED_ORDER_DAYS = 7;
 
@@ -3302,30 +3345,44 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Live WHMCS services (Active, Suspended) whose nextinvoicedate is past their nextduedate and whose only renewal
-     * invoices due on that nextduedate are Cancelled: WHMCS invoiced that period, staff cancelled it, and WHMCS never
-     * bills it again. Here the period would be billed again from nextduedate. The import refuses to run on them (handle;
-     * owner's decision 2026-11-08, sweep 5, in place of sweep 4's C-FIRST-RUN-2 rule): staff settle each in WHMCS before
-     * the dump. One with a cancellation request is left out: never billed here (RenewalBilling), it ends on its date as
-     * asked (G-MONEY-SERVICE-1). The runbook's pre-dump query, the same set. A source without these tables or
-     * nextinvoicedate (a test's): none.
+     * Live WHMCS services and addons (Active, Suspended) whose nextinvoicedate is past their nextduedate and whose only
+     * renewal invoices for that nextduedate are Cancelled or deleted: WHMCS invoiced that period, staff cancelled or
+     * deleted it, and WHMCS never bills it again. Here the period would be billed again from nextduedate. The import
+     * refuses to run on them (handle; owner's decision 2026-11-08, sweep 5, in place of sweep 4's C-FIRST-RUN-2 rule):
+     * staff settle each in WHMCS before the dump.
      *
-     * @return list<int> tblhosting ids
+     * A deleted invoice leaves its lines behind (tblinvoiceitems with no tblinvoices row): such a line counts by its own
+     * due date (ii.duedate, the period WHMCS billed with it), so an old deleted invoice of another period refuses nothing,
+     * nor does a service never invoiced for nextduedate (sweep 6 S6-IMPORT-4). An addon is checked as a service, by its
+     * «Addon» lines and its own dates (S6-IMPORT-3); one imported ended with its service is left out, as in addonsApart.
+     * One with a cancellation request (an addon: its service's) is left out: never billed here (RenewalBilling), it ends
+     * on its date as asked (G-MONEY-SERVICE-1). The runbook's pre-dump queries, the same sets. A source without these
+     * tables or columns (a test's): none.
+     *
+     * @return list<int|string> tblhosting ids, then each addon as «addon #id» (tblhostingaddons)
      */
     private function cancelledRenewals(): array
     {
         if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
             return [];
         }
+        $requested = $this->sourceHas('tblcancelrequests');
+        // The lines for the period due: on an invoice due that day, or on a deleted one by the line's own due date; none of them live.
+        $givenUp = fn (string $from, string $type, string $where) => array_map('intval', $this->pdo->query("SELECT s.id FROM {$from}
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id LEFT JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND s.nextinvoicedate > s.nextduedate AND COALESCE(i.duedate, ii.duedate) = s.nextduedate
+            GROUP BY s.id HAVING SUM(CASE WHEN COALESCE(i.status, 'Cancelled') = 'Cancelled' THEN 0 ELSE 1 END) = 0 ORDER BY s.id")->fetchAll(PDO::FETCH_COLUMN));
         try {
-            return array_values(array_map('intval', $this->pdo->query("SELECT h.id FROM tblhosting h
-                JOIN tblinvoiceitems ii ON ii.type = 'Hosting' AND ii.relid = h.id JOIN tblinvoices i ON i.id = ii.invoiceid AND i.duedate = h.nextduedate
-                WHERE h.domainstatus IN ('Active', 'Suspended') AND h.nextduedate > '0000-00-00' AND h.nextinvoicedate > h.nextduedate"
-                . ($this->sourceHas('tblcancelrequests') ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = h.id)' : '')
-                . " GROUP BY h.id HAVING SUM(CASE WHEN i.status = 'Cancelled' THEN 0 ELSE 1 END) = 0 ORDER BY h.id")->fetchAll(PDO::FETCH_COLUMN)));
+            $services = $givenUp('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')"
+                . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.id)' : ''));
+            $addons = !$this->sourceHas('tblhostingaddons') ? [] : $givenUp('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
+                "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN ('Terminated', 'Cancelled', 'Fraud')"
+                . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.hostingid)' : ''));
         } catch (PDOException) {
             return []; // no nextinvoicedate in the source
         }
+
+        return [...$services, ...array_map(fn (int $id) => "addon #{$id}", $addons)];
     }
 
     /**

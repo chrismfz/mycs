@@ -6,6 +6,7 @@ use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Import\WhmcsClientCurrency;
 use App\Services\Import\WhmcsSecondFactor;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -122,6 +123,25 @@ class Sweep6ImportTest extends TestCase
             $this->fail('The import aborted on an account with currency 0 and 5.00 credit: ' . $e->getMessage());
         }
         $this->assertSame(1, Credit::query()->where('client_id', 300)->count(), 'its 5.00 credit is kept');
+        $this->assertSame('EUR', Credit::query()->where('client_id', 300)->value('currency_code'), 'no default currency in the source: EUR');
+        $this->assertStringContainsString('1 WHMCS account(s) whose currency names no currency, imported in the default currency EUR (#300).', $this->output->fetch());
+    }
+
+    /** S6-IMPORT-1: the one rule (owner's decision): the account's currency, else WHMCS's default currency, else EUR. */
+    public function test_s6_import_1_an_account_without_a_currency_takes_the_default_currency_else_eur(): void
+    {
+        $whmcs = $this->pdo();
+        $whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT, `default` INT)');
+        $whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'EUR', 0), (2, 'USD', 1), (3, 'GBP', 0)");
+        $whmcs->exec('CREATE TABLE tblclients (id INTEGER PRIMARY KEY, currency INT)');
+        $whmcs->exec('INSERT INTO tblclients VALUES (1, 3), (2, 0), (3, 9), (4, 1)');
+
+        $currencies = new WhmcsClientCurrency($whmcs);
+        $this->assertSame(['GBP', 'USD', 'USD', 'EUR'], array_map($currencies->code(...), [1, 2, 3, 4]));
+        $this->assertSame([2, 3], $currencies->defaulted);
+
+        $whmcs->exec('UPDATE tblcurrencies SET `default` = 0');
+        $this->assertSame('EUR', (new WhmcsClientCurrency($whmcs))->code(2), 'no default currency: EUR');
     }
 
     /**
@@ -151,15 +171,37 @@ class Sweep6ImportTest extends TestCase
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6002, 900, {$clientId}, 'Invoice', 802, 'Invoice #802', 15, 0)");
         $whmcs->exec("INSERT INTO tblaccounts VALUES (7001, {$clientId}, 900, 'banktransfer', '2026-10-03 10:00:00', 10, 0, 0, 'wire-1')");
 
+        // Owner's decision (2026-11-08, KISS): no rule of the importer's own for it. The import refuses to run on it, named
+        // with its children, and staff settle it in WHMCS before the dump (cutover-runbook.md); the reviewer's assertion
+        // on the balance after the import steps is replaced by this one.
         $command = $this->command($whmcs);
-        foreach (['importInvoices', 'importInvoiceItems', 'importPayments', 'importMassPay'] as $step) {
-            (new ReflectionMethod($command, $step))->invoke($command);
-        }
+        $this->assertSame([900 => [801, 802]], (new ReflectionMethod($command, 'unsettledMassPay'))->invoke($command));
 
-        $open = Invoice::query()->where('client_id', $clientId)->where('status', Invoice::STATUS_UNPAID)->get()
-            ->sum(fn (Invoice $invoice) => (float) $invoice->remaining);
-        $this->assertSame('15.00', number_format($open, 2, '.', ''),
-            'the customer owes 25.00 less the 10.00 paid, not the parent\'s remainder and both children again');
+        $whmcs->exec('CREATE TABLE tblconfiguration (setting TEXT, value TEXT)');
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+        try {
+            $refused = 'WHMCS unpaid Mass Pay invoice(s) with a part payment or a line of another kind: #900 (children #801, #802).';
+            $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
+            $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
+            $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
+                ->doesntExpectOutputToContain('--confirm-database');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+        $this->assertTrue(User::query()->exists(), 'nothing emptied');
+
+        // A late fee on an unpaid Mass Pay that took no money: no parent by the importer's rule either, refused too.
+        $whmcs->exec('DELETE FROM tblaccounts');
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6003, 900, {$clientId}, 'LateFee', 0, 'Late fee', 2, 0)");
+        $command = $this->command($whmcs);
+        $this->assertSame([900 => [801, 802]], (new ReflectionMethod($command, 'unsettledMassPay'))->invoke($command));
+
+        // Settled in WHMCS (no money on it, only its children's lines): a Mass Pay parent again, dropped by the import.
+        $whmcs->exec('DELETE FROM tblinvoiceitems WHERE id = 6003');
+        $command = $this->command($whmcs);
+        $this->assertSame([], (new ReflectionMethod($command, 'unsettledMassPay'))->invoke($command));
     }
 
     /** A source with tblhosting, tblhostingaddons, tblinvoices and tblinvoiceitems for the cancelledRenewals check. */
@@ -169,7 +211,7 @@ class Sweep6ImportTest extends TestCase
         $whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, userid INT, domainstatus TEXT, billingcycle TEXT, nextduedate TEXT, nextinvoicedate TEXT)');
         $whmcs->exec('CREATE TABLE tblhostingaddons (id INTEGER PRIMARY KEY, hostingid INT, status TEXT, billingcycle TEXT, nextduedate TEXT, nextinvoicedate TEXT)');
         $whmcs->exec('CREATE TABLE tblinvoices (id INTEGER PRIMARY KEY, userid INT, date TEXT, duedate TEXT, status TEXT)');
-        $whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, userid INT, type TEXT, relid INT, amount REAL)');
+        $whmcs->exec('CREATE TABLE tblinvoiceitems (id INTEGER PRIMARY KEY, invoiceid INT, userid INT, type TEXT, relid INT, amount REAL, duedate TEXT)');
 
         return $whmcs;
     }
@@ -185,17 +227,25 @@ class Sweep6ImportTest extends TestCase
         $whmcs->exec("INSERT INTO tblhosting VALUES (10, 1, 'Active', 'Monthly', '2026-12-01', '2026-12-01')");
         $whmcs->exec("INSERT INTO tblhostingaddons VALUES (20, 10, 'Active', 'Monthly', '2026-11-01', '2026-12-01')");
         $whmcs->exec("INSERT INTO tblinvoices VALUES (500, 1, '2026-10-25', '2026-11-01', 'Cancelled')");
-        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 500, 1, 'Addon', 20, 5)");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (1, 500, 1, 'Addon', 20, 5, '2026-11-01')");
         // Control: the same for a service (#12) is refused.
         $whmcs->exec("INSERT INTO tblhosting VALUES (12, 1, 'Active', 'Monthly', '2026-11-01', '2026-12-01')");
         $whmcs->exec("INSERT INTO tblinvoices VALUES (501, 1, '2026-10-25', '2026-11-01', 'Cancelled')");
-        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (3, 501, 1, 'Hosting', 12, 5)");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (3, 501, 1, 'Hosting', 12, 5, '2026-11-01')");
 
         $command = $this->command($whmcs);
         $cancelled = (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command);
 
         $this->assertSame([12], array_slice($cancelled, 0, 1), 'control: the cancelled service renewal is refused');
         $this->assertNotSame([12], $cancelled, 'the addon whose renewal WHMCS invoiced and staff cancelled is refused as a service\'s is');
+        $this->assertSame([12, 'addon #20'], $cancelled);
+
+        // The same exclusions as a service: an addon imported ended with its service, and one billed again in WHMCS.
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Terminated' WHERE id = 10");
+        $this->assertSame([12], (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command));
+        $whmcs->exec("UPDATE tblhosting SET domainstatus = 'Active' WHERE id = 10");
+        $whmcs->exec('UPDATE tblhostingaddons SET nextinvoicedate = nextduedate WHERE id = 20');
+        $this->assertSame([12], (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command));
     }
 
     /**
@@ -208,11 +258,11 @@ class Sweep6ImportTest extends TestCase
         $due = now()->subDays(3)->toDateString();
         $next = now()->addDays(27)->toDateString();
         $whmcs->exec("INSERT INTO tblhosting VALUES (11, 1, 'Active', 'Monthly', '{$due}', '{$next}')");
-        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (2, 999, 1, 'Hosting', 11, 10)"); // invoice #999 deleted
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (2, 999, 1, 'Hosting', 11, 10, '{$due}')"); // invoice #999 deleted
         // Control: the same service shape (#12) with its renewal cancelled, not deleted, is refused.
         $whmcs->exec("INSERT INTO tblhosting VALUES (12, 1, 'Active', 'Monthly', '{$due}', '{$next}')");
         $whmcs->exec("INSERT INTO tblinvoices VALUES (501, 1, '{$due}', '{$due}', 'Cancelled')");
-        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (3, 501, 1, 'Hosting', 12, 10)");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (3, 501, 1, 'Hosting', 12, 10, '{$due}')");
 
         $command = $this->command($whmcs);
         $cancelled = (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command);
@@ -220,5 +270,16 @@ class Sweep6ImportTest extends TestCase
         $this->assertContains(12, $cancelled, 'control: the cancelled renewal is refused');
 
         $this->assertContains(11, $cancelled, 'a renewal invoice staff deleted is refused as one they cancelled');
+
+        // No false positives: an old deleted invoice of another period (#13, never invoiced for its due date, its next
+        // invoice date moved by hand), and one whose period was invoiced again after the deleted one (#14).
+        $old = now()->subYear()->toDateString();
+        $whmcs->exec("INSERT INTO tblhosting VALUES (13, 1, 'Active', 'Monthly', '{$due}', '{$next}')");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (4, 998, 1, 'Hosting', 13, 10, '{$old}')");
+        $whmcs->exec("INSERT INTO tblhosting VALUES (14, 1, 'Active', 'Monthly', '{$due}', '{$next}')");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (5, 997, 1, 'Hosting', 14, 10, '{$due}')");
+        $whmcs->exec("INSERT INTO tblinvoices VALUES (502, 1, '{$due}', '{$due}', 'Unpaid')");
+        $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6, 502, 1, 'Hosting', 14, 10, '{$due}')");
+        $this->assertSame([11, 12], (new ReflectionMethod($command, 'cancelledRenewals'))->invoke($command));
     }
 }
