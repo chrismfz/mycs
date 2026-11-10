@@ -22,6 +22,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 use Throwable;
+use WeakMap;
 
 /**
  * «Add addon» on a service's page (docs/addons.md, step 3, as WHMCS's «New Addon»): an addon product that applies to it,
@@ -30,6 +31,9 @@ use Throwable;
  */
 class AddAddonAction extends Action
 {
+    /** @var WeakMap<Service, array{0: ?string}>|null */
+    private static ?WeakMap $refusals = null;
+
     public static function getDefaultName(): ?string
     {
         return 'addAddon';
@@ -42,7 +46,13 @@ class AddAddonAction extends Action
         $this->label(__('services.addons.add.action'))
             ->icon('ri-puzzle-line')
             ->color('gray')
-            ->visible(fn (Service $record) => AddAddon::refusal($record) === null)
+            // Not on an addon or an ended service. On one not started yet it is shown, disabled, with why and staff's way
+            // through (owner 2026-11-10: a reason, not a button that is gone).
+            ->visible(fn (Service $record) => self::refusal($record) === null || $record->status === Service::STATUS_PENDING)
+            ->disabled(fn (Service $record) => self::refusal($record) !== null)
+            ->tooltip(fn (Service $record) => self::refusal($record))
+            // To be cancelled: the addon ends with it, said before it is added.
+            ->modalDescription(fn (Service $record) => AddAddon::cancellationNote($record))
             ->authorize(fn () => Gate::allows('has-permission', 'admin.services.create'))
             ->modalWidth('2xl')
             ->modalSubmitActionLabel(__('services.addons.add.action'))
@@ -89,6 +99,17 @@ class AddAddonAction extends Action
                     ->send();
                 $action->redirect(ServiceResource::getUrl('edit', ['record' => $record]));
             });
+    }
+
+    /** AddAddon's refusal, once per record and request (asked three times per render); adding reads it again under its lock. */
+    private static function refusal(Service $record): ?string
+    {
+        self::$refusals ??= new WeakMap;
+        if (!isset(self::$refusals[$record])) {
+            self::$refusals[$record] = [AddAddon::refusal($record)];
+        }
+
+        return self::$refusals[$record][0];
     }
 
     /** @return array<int, string> the addons with their price for the service's cycle, in its currency */

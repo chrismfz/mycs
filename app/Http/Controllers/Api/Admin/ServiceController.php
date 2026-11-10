@@ -99,9 +99,10 @@ class ServiceController extends ApiController
      */
     public function destroy(DeleteServiceRequest $request, Service $service)
     {
-        // One way for every path (DATA-2, SVC-7, AUTH-9): ?terminate=1 deletes the account on the server first.
+        // One way for every path (DATA-2, SVC-7, AUTH-9): ?terminate=1 deletes the account on the server first;
+        // ?with_addons=1 deletes its addons still running with it (without it, a service that has any is refused).
         try {
-            (new DeleteService)->handle($service, $request->boolean('terminate'));
+            (new DeleteService)->handle($service, $request->boolean('terminate'), $request->boolean('with_addons'));
         } catch (DisplayException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

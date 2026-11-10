@@ -37,14 +37,31 @@ final class AddAddon
 
     public const NO_INVOICE = 'no_invoice';
 
-    /** Why no addon can be added to this service now, or null. */
+    /**
+     * Why no addon can be added to this service now, or null. A service with a cancellation request takes one (owner
+     * 2026-11-10, docs/staff-freedom.md): the addon is prorated to its due date as any other, and the request is its too
+     * (AddonCascade::fastened), so it ends with its service and is never renewed. A pending one does not yet: it has no
+     * period to prorate to and nothing starts an addon with it (docs/addons.md, «Εκκρεμής γονική»).
+     */
     public static function refusal(Service $parent): ?string
     {
         return match (true) {
             $parent->parent_service_id !== null => __('services.addons.add.refused_addon'),
+            $parent->status === Service::STATUS_PENDING => __('services.addons.add.refused_pending'),
             !in_array($parent->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) => __('services.addons.add.refused_status'),
-            $parent->cancellation()->exists() => __('services.addons.add.refused_cancelling'),
             default => null,
+        };
+    }
+
+    /** What staff are told before adding one to a service that is to be cancelled, or null: it ends with it. */
+    public static function cancellationNote(Service $parent): ?string
+    {
+        $request = $parent->cancellation()->first();
+
+        return match (true) {
+            $request === null => null,
+            $request->type === 'end_of_period' && $parent->expires_at !== null => __('services.addons.add.cancelling_note', ['date' => $parent->expires_at->format('d/m/Y')]),
+            default => __('services.addons.add.cancelling_note_now'),
         };
     }
 
