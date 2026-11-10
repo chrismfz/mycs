@@ -718,18 +718,8 @@ class ExtensionHelper
 
         $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency,
             paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup, onItsWayNow: $onItsWayNow);
-        // Refunds that arrived before their payment was money here are recorded now (PR 2c-2, F3).
-        if ($transaction instanceof InvoiceTransaction && $gateway !== null && $transactionId !== null && $transaction->status === InvoiceTransactionStatus::Succeeded) {
-            $extension = $gateway->extension;
-            DB::afterCommit(function () use ($extension, $transactionId) {
-                try {
-                    self::applyWaitingRefunds($extension, (string) $transactionId);
-                } catch (Throwable $e) {
-                    report($e);
-                }
-            });
-        }
 
+        // Refunds that arrived before their payment was money here are recorded by handle(), for staff's entry too (REV-774-3).
         return $transaction;
     }
 

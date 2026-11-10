@@ -68,11 +68,11 @@ final class SavedMethodCharge
      */
     public static function unknownAttempt(int $invoiceId, int $agreementId): ?ChargeAttempt
     {
-        $attempt = ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+        $attempt = self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
             ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
                     ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
-            ->latest('id')->first();
+            ->latest('id'))->first();
 
         return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
     }
@@ -93,13 +93,41 @@ final class SavedMethodCharge
             return new Collection;
         }
 
-        $attempts = ChargeAttempt::query()
-            ->where(fn (Builder $query) => $query->whereIn('invoice_id', $invoiceIds)->orWhereIn('payment_group_id', $groupIds))
-            ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except))
-            ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_SUCCEEDED]);
-        self::notRecorded($attempts);
+        // By invoice and by group apart: each a read of one index, so the locks of current() stay on these invoices' and
+        // groups' own attempts (one query with «or» may read, and lock, the whole table).
+        $found = new Collection;
+        foreach (['invoice_id' => $invoiceIds, 'payment_group_id' => $groupIds] as $column => $ids) {
+            if ($ids === []) {
+                continue;
+            }
+            $attempts = ChargeAttempt::query()->whereIn($column, $ids)
+                ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except))
+                ->whereIn('status', [ChargeAttempt::STATUS_STARTED, ChargeAttempt::STATUS_UNKNOWN, ChargeAttempt::STATUS_SUCCEEDED]);
+            self::notRecorded($attempts);
+            $found = $found->merge(self::current($attempts->with('billingAgreement'))->get());
+        }
 
-        return $attempts->with('billingAgreement')->orderBy('id')->get();
+        return $found->unique('id')->sortBy('id')->values();
+    }
+
+    /**
+     * What decides whether an invoice is held is read as it is NOW, not as the transaction's snapshot has it (S7-PAYMENTS-1,
+     * REV-774-1/-2). Under MariaDB's REPEATABLE READ the snapshot is fixed at the transaction's first plain read: often
+     * before it waited for the payment locks (lockInvoice reads the owner first), or by a caller's own earlier read. A plain
+     * read after the wait then misses the attempt or the payment the locks' last holder committed, and the invoice is paid
+     * twice (a card and credit, two charges) or moved while its card is charged. A locking read (shared) reads the latest
+     * committed rows whatever the snapshot, and waits for a charge being written. Inside a transaction only: outside one
+     * every read is current. After the customer's and the invoice's locks where the caller takes them (docs/money-trail.md
+     * §2): these rows are written under those locks or in statements of their own.
+     *
+     * @template T of Builder|\Illuminate\Database\Query\Builder
+     *
+     * @param  T  $query
+     * @return T
+     */
+    private static function current(Builder|\Illuminate\Database\Query\Builder $query): Builder|\Illuminate\Database\Query\Builder
+    {
+        return DB::transactionLevel() > 0 ? $query->sharedLock() : $query;
     }
 
     /**
@@ -130,8 +158,11 @@ final class SavedMethodCharge
      */
     public function charge(Invoice $invoice, BillingAgreement $agreement, string $source, ?PaymentGroup $group = null): ChargeAttempt
     {
-        $attempt = DB::transaction(function () use ($invoice, $agreement, $source, $group) {
-            $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
+        $attempt = DB::transaction(function () use (&$invoice, $agreement, $source, $group) {
+            // The invoice itself: nothing is read before the locks (S7-PAYMENTS-1); what holds it is read current anyway.
+            $locked = (new RecordPaymentService)->lockInvoice($invoice);
+            // The gateway is asked with the invoice as it is under the locks, not the caller's copy (REV-774-6).
+            $invoice = $locked;
             if ($locked->status !== Invoice::STATUS_UNPAID) {
                 throw new DisplayException(__('This invoice is not open for payment.'));
             }
@@ -146,7 +177,12 @@ final class SavedMethodCharge
             if ($source === ChargeAttempt::SOURCE_CRON && self::checkoutOpen($locked)) {
                 throw new DisplayException(__('The customer is paying this invoice at a checkout.'));
             }
-            $amount = $group !== null ? RecordPaymentService::toCents($group->total) : RecordPaymentService::toCents($locked->remaining);
+            // Only the invoice's own account's method pays it: the owner as it is under the locks, not as the caller read it
+            // (staff moved the invoice meanwhile: REV-774-6). Before an attempt is written.
+            if ($locked->client_id === null || (int) $locked->client_id !== (int) $agreement->client_id) {
+                throw new DisplayException(__('This payment method belongs to another account.'));
+            }
+            $amount = $group !== null ? RecordPaymentService::toCents($group->total) : RecordPaymentService::toCents($locked->withLockedBalance()->remaining);
             if ($amount <= 0) {
                 throw new DisplayException(__('Nothing is left to pay on this invoice.'));
             }
@@ -231,12 +267,14 @@ final class SavedMethodCharge
         // A group's payment is recorded on the invoice its charge went to, and kept as the group's (MassPay). A charge that
         // took nothing (declined, or the bank asked to confirm) makes no group payment: the lead's own payment on its way
         // holds only the lead (adversarial ADV-593-5).
-        $leads = $groups === [] ? [] : ChargeAttempt::query()->whereIn('payment_group_id', $groups)
-            ->whereNotIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED])->pluck('invoice_id')->map(fn ($id) => (int) $id)->all();
-        $payments = $groups === [] ? [] : PaymentGroup::query()->whereIn('id', $groups)->whereNotNull('invoice_transaction_id')->pluck('invoice_transaction_id')->all();
+        $leads = $groups === [] ? [] : self::current(ChargeAttempt::query()->whereIn('payment_group_id', $groups)
+            ->whereNotIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED]))->pluck('invoice_id')->map(fn ($id) => (int) $id)->all();
+        $payments = $groups === [] ? [] : self::current(PaymentGroup::query()->whereIn('id', $groups)->whereNotNull('invoice_transaction_id'))->pluck('invoice_transaction_id')->all();
 
-        return InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
-            ->where(fn ($query) => $query->whereIn('invoice_id', [...$ids, ...$leads])->orWhereIn('id', $payments))->exists();
+        $processing = fn (string $column, array $in): bool => $in !== [] && self::current(InvoiceTransaction::query()
+            ->where('status', InvoiceTransactionStatus::Processing)->whereIn($column, $in)->limit(1))->value('id') !== null;
+
+        return $processing('invoice_id', [...$ids, ...$leads]) || $processing('id', $payments);
     }
 
     /**
@@ -249,7 +287,7 @@ final class SavedMethodCharge
     public static function openCheckout(Invoice $invoice, ?PaymentGroup $group = null): bool
     {
         return DB::transaction(function () use ($invoice, $group) {
-            $locked = (new RecordPaymentService)->lockInvoice($invoice->id);
+            $locked = (new RecordPaymentService)->lockInvoice($invoice);
             if (self::onItsWay($locked, $group)) {
                 return false;
             }
@@ -263,7 +301,7 @@ final class SavedMethodCharge
     /** A checkout of it opened under CHECKOUT_HOLD_MINUTES ago (openCheckout): the cron does not charge it yet. */
     public static function checkoutOpen(Invoice $invoice): bool
     {
-        $opened = DB::table('invoices')->where('id', $invoice->id)->value('checkout_opened_at');
+        $opened = self::current(DB::table('invoices')->where('id', $invoice->id))->value('checkout_opened_at');
 
         return $opened !== null && Carbon::parse($opened)->greaterThan(now()->subMinutes(self::CHECKOUT_HOLD_MINUTES));
     }
@@ -332,8 +370,8 @@ final class SavedMethodCharge
     private static function payable(Invoice $invoice, ?PaymentGroup $group): array
     {
         $ids = $group === null ? [(int) $invoice->id]
-            : array_values(array_unique([(int) $invoice->id, ...DB::table('payment_group_invoice')->where('payment_group_id', $group->id)->pluck('invoice_id')->map(fn ($id) => (int) $id)->all()]));
-        $groups = DB::table('payment_group_invoice')->whereIn('invoice_id', $ids)->pluck('payment_group_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+            : array_values(array_unique([(int) $invoice->id, ...self::current(DB::table('payment_group_invoice')->where('payment_group_id', $group->id))->pluck('invoice_id')->map(fn ($id) => (int) $id)->all()]));
+        $groups = self::current(DB::table('payment_group_invoice')->whereIn('invoice_id', $ids))->pluck('payment_group_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
 
         return [$ids, $groups];
     }

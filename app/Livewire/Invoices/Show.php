@@ -279,7 +279,7 @@ class Show extends Component
             return;
         }
         $kept = DB::transaction(function () {
-            $locked = (new RecordPaymentService)->lockInvoice($this->invoice->id);
+            $locked = (new RecordPaymentService)->lockInvoice($this->invoice);
             if ($locked->status !== Invoice::STATUS_UNPAID) {
                 return 'closed'; // paid, or cancelled, meanwhile
             }
@@ -349,7 +349,7 @@ class Show extends Component
             }
             // A charge or a payment on its way holds it for every way of paying (docs/payments.md, predeploy S1): the
             // balance too, read under its payment lock as a gateway's is (adversarial ADV-593-3).
-            if (DB::transaction(fn () => SavedMethodCharge::onItsWay((new RecordPaymentService)->lockInvoice($this->invoice->id)))) {
+            if (DB::transaction(fn () => SavedMethodCharge::onItsWay((new RecordPaymentService)->lockInvoice($this->invoice)))) {
                 return $this->notify(__('A payment for this invoice is already on its way.'), 'error');
             }
 

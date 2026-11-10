@@ -10,6 +10,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -91,8 +92,34 @@ class RecordPaymentService
         foreach ($notices as $notice) {
             $this->notify($notice, $invoiceId, $transactionId, $gateway);
         }
+        $this->applyWaitingRefunds($transaction);
 
         return $transaction;
+    }
+
+    /**
+     * The one place a payment becomes money here, whoever recorded it (a gateway's event, staff's «Add payment» completing
+     * a processing one: REV-774-3): the refunds and chargebacks its gateway reported before that, which waited for it
+     * (gateway_refunds «waiting», by the payment's id there), are recorded now (PR 2c-2, F3), once this commits. Those of
+     * the payment's own gateway account; a payment with no gateway (staff typed the id) takes any gateway's.
+     */
+    private function applyWaitingRefunds(?InvoiceTransaction $transaction): void
+    {
+        if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || $transaction->transaction_id === null || $transaction->is_credit_transaction) {
+            return;
+        }
+        $reference = (string) $transaction->transaction_id;
+        $extension = $transaction->gateway?->extension;
+        DB::afterCommit(function () use ($reference, $extension) {
+            try {
+                GatewayRefund::query()->where('payment_reference', $reference)->whereIn('origin', GatewayRefund::WAITING_ORIGINS)
+                    ->when($extension !== null, fn ($waiting) => $waiting->whereIn('gateway', ExtensionHelper::accountExtensions((string) $extension)))
+                    ->distinct()->pluck('gateway')
+                    ->each(fn ($gateway) => ExtensionHelper::applyWaitingRefunds((string) $gateway, $reference));
+            } catch (\Throwable $e) {
+                report($e); // they keep waiting: the gateway's next event of the payment applies them
+            }
+        });
     }
 
     /**
@@ -298,10 +325,9 @@ class RecordPaymentService
      */
     public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
-        $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
-
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
-            $invoice = $this->lockInvoice($invoiceId);
+        return DB::transaction(function () use ($invoice, $onlyIfCovers, $eligible, $upToCents) {
+            // The model when given: $eligible reads what holds the invoice with plain reads (S7-PAYMENTS-1, lockInvoice).
+            $invoice = $this->lockInvoice($invoice);
             if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
@@ -454,6 +480,20 @@ class RecordPaymentService
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
 
+            // What the gateway reported on it (gateway_refunds: refunds, chargebacks, disputes) points at the row, and the
+            // database refuses the deletion while one does (S7-MONEY-LEDGER-1: a raw foreign-key error). A refund or a
+            // chargeback the gateway made is real money given back, recorded here or not (another currency, matched to a
+            // refund by hand): the payment stays, as one with refunds does. What moved no money goes with the payment.
+            $reported = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->orderBy('id')->lockForUpdate()->get();
+            // One still «waiting» goes on waiting only for a payment that never succeeded; on a succeeded payment it is a
+            // refund the gateway made that was not applied (yet): refused as the others (REV-774-4).
+            $detached = $transaction->status === InvoiceTransactionStatus::Succeeded ? [] : GatewayRefund::WAITING_ORIGINS;
+            $kept = $reported->reject(fn (GatewayRefund $record) => in_array($record->origin, [...GatewayRefund::NO_MONEY_ORIGINS, ...$detached], true));
+            if ($kept->isNotEmpty()) {
+                throw new DisplayException(__('The gateway refunded or charged back this payment (:records): it cannot be deleted, its refund history and gateway transaction id must stay. If that refund is not recorded on the payment, record it with «Refund», by hand.',
+                    ['records' => $kept->map(fn (GatewayRefund $record) => $record->reference)->implode(', ')]));
+            }
+
             // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
             // Locked: read current, not the transaction's snapshot. Its gap locks can make two concurrent deletions
             // of neighbouring transactions deadlock (InnoDB rolls one back; staff retry); events of a transaction
@@ -539,6 +579,16 @@ class RecordPaymentService
             }
             $credit?->save();
 
+            // A refund or a chargeback still waiting for this payment to succeed (it never did) keeps waiting, by the payment's
+            // id at the gateway: a success reported later records it then. The rest moved no money and goes with the payment.
+            if ($reported->isNotEmpty()) {
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', $detached)->modelKeys())->update(['invoice_transaction_id' => null]);
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::NO_MONEY_ORIGINS)->modelKeys())->delete();
+                PaymentsLog::info("Payment #{$transaction->id} of invoice #{$invoice->id} deleted with what its gateway reported on it.", [
+                    'transaction_id' => $transaction->transaction_id,
+                    'records' => $reported->map(fn (GatewayRefund $record) => $record->origin . ' ' . $record->reference)->all(),
+                ]);
+            }
             $transaction->delete();
             if ($unbuy) {
                 $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
@@ -687,7 +737,16 @@ class RecordPaymentService
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
-        $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        // Given the invoice itself, its owner is taken from it and nothing is read before the locks (S7-PAYMENTS-1): under
+        // MariaDB's REPEATABLE READ a plain read here fixes the transaction's snapshot BEFORE it waits for the locks, and
+        // every plain read after them (a charge on its way, SavedMethodCharge::onItsWay) then misses what the lock's last
+        // holder committed. A caller whose plain reads decide passes the model; an owner changed since is locked below.
+        if ($invoiceId instanceof Invoice) {
+            $clientId = $invoiceId->client_id;
+            $invoiceId = $invoiceId->getKey();
+        } else {
+            $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        }
         if ($clientId !== null) {
             Client::lock((int) $clientId);
         }
