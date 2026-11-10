@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
+use App\Exceptions\CreditPurchaseNotCovered;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
@@ -101,8 +102,10 @@ class InvoiceObserver
         // R2-2 of #357). Staff bill the new customer on a new invoice.
         if ($invoice->isDirty('status') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
             && in_array($invoice->status, Invoice::OPEN_STATUSES, true)
-            && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
-                ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id)) {
+            // Not a chargeback's paid to unpaid: the bank took the money, so it is always recorded and staff are told
+            // (S6-MONEY-LEDGER-2; Invoice::owedAgainAfterChargeback).
+            && !$invoice->becomingOwedAfterChargeback()
+            && self::billsItemOfAnother($invoice)) {
             throw new DisplayException(__('This invoice bills an item that moved to another customer: it is not opened again. Bill that customer on a new invoice.'));
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
@@ -165,7 +168,7 @@ class InvoiceObserver
             // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative
             // line) brought its balance to zero.
             if (self::creditToGiveCents($invoice) > self::receivedCents($invoice)) {
-                throw new DisplayException(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
+                throw new CreditPurchaseNotCovered(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
             }
         }
         // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md §8): an invoice with a
@@ -220,6 +223,13 @@ class InvoiceObserver
         if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
             throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
         }
+    }
+
+    /** A line of it bills a service or domain that is another customer's now (MoveToClient), or deleted. */
+    public static function billsItemOfAnother(Invoice $invoice): bool
+    {
+        return $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
+            ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id);
     }
 
     /** The credit its lines still have to give (applied lines gave theirs already). Lines read locked. */

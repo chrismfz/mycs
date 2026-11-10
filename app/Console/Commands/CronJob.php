@@ -1125,7 +1125,7 @@ class CronJob extends Command
                     // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
                     $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
                     // Those overdue past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
-                    $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+                    $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service),
                         __('invoices.cancellation_reasons.service_terminated'), $service);
                     if ($service->product?->stock !== null) {
                         $service->product->increment('stock', $service->quantity);
@@ -1384,7 +1384,7 @@ class CronJob extends Command
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
         // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3a).
-        $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+        $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service),
             __('invoices.cancellation_reasons.cancellation_request'), $service);
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);

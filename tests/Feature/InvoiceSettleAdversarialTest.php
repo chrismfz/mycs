@@ -7,6 +7,7 @@ use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -202,7 +203,8 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->invoice(100, Credit::class);
         $invoice->items()->create(['description' => 'Setup', 'quantity' => 1, 'price' => 20]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 100.0, transactionId: 'wire-1');
-        $this->note($invoice, -30);
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        AdjustmentNote::withoutEvents(fn () => $this->note($invoice, -30));
 
         try {
             (new RecordPaymentService)->settle($invoice);

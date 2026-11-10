@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Enums\AdjustmentNoteType;
+use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -80,7 +81,8 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $invoice->items()->create(['description' => 'Setup', 'quantity' => 1, 'price' => 30]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 50.0, transactionId: 'wire-c2');
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -40, 'description' => 'Discount']);
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        AdjustmentNote::withoutEvents(fn () => $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -40, 'description' => 'Discount']));
 
         try {
             (new RecordPaymentService)->settle($invoice->fresh());

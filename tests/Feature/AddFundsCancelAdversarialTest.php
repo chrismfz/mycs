@@ -8,6 +8,7 @@ use App\Mail\SystemMail;
 use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -72,7 +73,10 @@ class AddFundsCancelAdversarialTest extends TestCase
     {
         $draft = $this->addFunds(status: 'draft');
         $empty = $this->invoice(31, []);
-        $discount = $this->invoice(31, [['reference_type' => Credit::class, 'description' => 'Add Funds'], ['description' => 'Discount', 'price' => -5]]);
+        // A discount line on a credit purchase is refused now (S6-MONEY-LEDGER-1): written without events, as an import left it.
+        $discount = $this->addFunds();
+        (new InvoiceItem)->forceFill(['invoice_id' => $discount->id, 'description' => 'Discount', 'quantity' => 1, 'price' => -5,
+            'line_total' => -5, 'tax_amount' => 0, 'taxed' => false])->saveQuietly();
         $justOld = $this->addFunds(29);
 
         $this->artisan('app:cron-job');

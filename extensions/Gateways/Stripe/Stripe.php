@@ -397,7 +397,8 @@ class Stripe extends Gateway
                     GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
                     break;
                 }
-                ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
+                ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null,
+                    onItsWayNow: $this->failedIntentIsOnItsWay((string) $paymentIntent->id));
                 break;
                 // Normal payment
             case 'payment_intent.succeeded':
@@ -1178,6 +1179,19 @@ class Stripe extends Gateway
             'expiry' => $expiry,
         ];
 
+    }
+
+    /**
+     * «Processing» for an intent whose payment here is failed: a late copy of an old event (S6-PAYMENTS-1), or a new
+     * attempt on the same intent (a card declined, then a bank debit on the same form: REV-766-1). The event cannot tell,
+     * so Stripe is asked once what the intent is now. A failure of the call is thrown: Stripe sends the event again.
+     */
+    private function failedIntentIsOnItsWay(string $id): bool
+    {
+        $failed = InvoiceTransaction::query()->where('transaction_id', $id)->where('status', InvoiceTransactionStatus::Failed)
+            ->whereHas('gateway', fn ($gateway) => $gateway->where('extension', 'Stripe'))->exists();
+
+        return $failed && ($this->request('get', '/payment_intents/' . $id)->status ?? null) === 'processing';
     }
 
     /**
