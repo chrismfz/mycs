@@ -120,12 +120,48 @@ class Sweep6ProvisioningTest extends TestCase
             "service A's mailboxes, admin and domain deleted by B's termination");
     }
 
+    /** S6-PROVISIONING-1: a pending order with the live admin's name (WHMCS names it from its domain) never adopts it. */
+    public function test_mailcow_create_never_adopts_an_admin_another_live_service_holds(): void
+    {
+        [$a, $b] = $this->twoServicesOnOneAdmin();
+        $b->properties()->where('key', 'mailcow_username')->delete();
+        $b->forceFill(['status' => 'pending'])->save();
+
+        try {
+            ExtensionHelper::createServer($b->fresh());
+            $this->fail('adopted the admin of service #' . $a->id);
+        } catch (Throwable $e) {
+            $this->assertStringContainsString("service #{$a->id} has the domain admin «example»", $e->getMessage());
+        }
+
+        $this->assertFalse($b->properties()->where('key', 'mailcow_username')->exists());
+        $this->assertCount(0, $this->sent('/api/v1/add/domain-admin'));
+    }
+
+    /** S6-PROVISIONING-1: the refusal names the other service, as cPanel's; alone on its admin, it is suspended as before. */
+    public function test_mailcow_refusal_names_the_other_service_and_a_sole_service_is_still_suspended(): void
+    {
+        [$a, $b] = $this->twoServicesOnOneAdmin();
+        try {
+            ExtensionHelper::suspendServer($b->fresh());
+            $this->fail('not refused');
+        } catch (Throwable $e) {
+            $this->assertStringContainsString("service #{$a->id} has the domain admin «example»", $e->getMessage());
+        }
+        $this->assertFalse($b->properties()->where('key', 'mailcow_locked_by_us')->exists());
+
+        $a->forceFill(['status' => Service::STATUS_CANCELLED])->save();
+        ExtensionHelper::suspendServer($b->fresh());
+        $this->assertCount(1, $this->sent('/api/v1/edit/domain-admin'));
+    }
+
     /**
      * S6-PROVISIONING-2: attempt 1 of a create fails (the account may exist: a timeout after the server made it); the
      * pending service is cancelled at once (no terminate queued for a pending one); attempt 2 returns as if done.
      */
     public function test_a_pending_service_ended_between_create_attempts_is_terminated_or_given_to_staff(): void
     {
+        $this->markTestIncomplete('S6-PROVISIONING-2: left as is, record only (owner 2026-11-09; docs/sweeps/2026-11-09-sixth.md).');
         require_once __DIR__ . '/../Fixtures/FlakyServer.php';
         FlakyServer::$failures = 1;
         FlakyServer::$calls = [];

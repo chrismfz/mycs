@@ -10,6 +10,7 @@ use App\Exceptions\ServerRefused;
 use App\Models\Service;
 use App\Rules\Domain;
 use App\Support\Services\ServiceUsageRead;
+use App\Support\Services\SharedAccount;
 use Exception;
 use Nixpal\Mailcow\Credentials;
 use Nixpal\Mailcow\DomainLimits;
@@ -194,6 +195,17 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
+     * Another live service here has the same domain admin: never locked, removed or adopted from this one (S6-PROVISIONING-1,
+     * as cPanel's and DirectAdmin's; staff check both).
+     */
+    private static function notAnotherLiveServicesAdmin(Service $service, string $username): void
+    {
+        if (($other = SharedAccount::otherLive($service, $username, ['mailcow_username'])) !== null) {
+            throw new Exception("mailcow: service #{$other->id} has the domain admin «{$username}» on this server too: check both before anything is done to it (by hand)");
+        }
+    }
+
+    /**
      * A domain and its domain admin (as the WHMCS module: domain, DKIM, admin). Idempotent and never someone else's:
      * - the admin's name is kept before it is asked for; an existing admin is adopted only when it already manages this
      *   domain, and a name taken since (by another service) is given up for a new one (ADV-1, ADV-2 of #324);
@@ -209,6 +221,9 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if ($admin !== [] && !in_array($domain, MailcowClient::parseDomainList($admin['selected_domains'] ?? ''), true)) {
             $username = ''; // someone else's admin now: never adopted
             $admin = [];
+        }
+        if ($admin !== []) {
+            self::notAnotherLiveServicesAdmin($service, $username); // an existing admin is adopted only when no other service lives on it
         }
         if ($username === '') {
             $free = fn (string $candidate) => $client->getDomainAdmin($candidate) === [];
@@ -254,6 +269,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     {
         $client = $this->client();
         [$username, $domains, $record] = self::ownedAdmin($client, $service, $properties);
+        self::notAnotherLiveServicesAdmin($service, $username);
         if (self::policy($settings)->lockOnSuspend($domains) && in_array($record['active'] ?? 1, [1, '1', true], true)) {
             // Marked before it is asked (a lost answer keeps it); a refusal takes it off (R2-2 of #324).
             $service->properties()->updateOrCreate(['key' => self::LOCKED], ['name' => 'mailcow admin locked by suspend', 'value' => '1']);
@@ -286,6 +302,7 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $client = $this->client(120);
         $domain = self::domainOf($service, $properties);
         [$username, $domains] = self::ownedAdmin($client, $service, $properties);
+        self::notAnotherLiveServicesAdmin($service, $username);
         $policy = self::policy($settings);
         if (!$policy->deletesOnTerminate()) {
             if ($policy->lockOnTerminate($domains)) {
