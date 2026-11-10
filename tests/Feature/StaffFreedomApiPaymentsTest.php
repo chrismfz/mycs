@@ -252,7 +252,8 @@ class StaffFreedomApiPaymentsTest extends TestCase
         $this->assertNull($payment->fresh());
         $this->assertSame([Invoice::STATUS_UNPAID, 1000, 0], $this->state(501), 'open again, as after the panel\'s delete');
         $this->assertSame('-5.00', $this->credit(), 'with the flag: they owe it');
-        $this->assertMoneyClean(['credit_negative']);
+        // The deleted payment had renewed the service: it runs on an invoice that is unpaid again, and the check says so.
+        $this->assertMoneyClean(['credit_negative', 'service_unbilled']);
     }
 
     public function test_kept_a_payment_with_a_refund_and_one_the_gateway_refunded_are_not_deleted(): void
@@ -306,7 +307,8 @@ class StaffFreedomApiPaymentsTest extends TestCase
         $this->assertSame(['tr_501', '2026-09-20'], [$again->transaction_id, $again->created_at->toDateString()]);
         $this->assertSame([Invoice::STATUS_UNPAID, 400, 600], $this->state(501), 'no longer covered: open again');
         $this->assertSame(1, MoneyEvent::query()->where('invoice_id', 501)->where('kind', MoneyEventKind::Reversal->value)->count());
-        $this->assertMoneyClean();
+        // The payment was lowered after it renewed the service: what the invoice owes again is told (service_unbilled).
+        $this->assertMoneyClean(['service_unbilled']);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.payments.update', [501, $again]), ['invoice_id' => 502])->assertOk()
             ->assertJsonPath('data.attributes.invoice_id', 502);
@@ -315,7 +317,8 @@ class StaffFreedomApiPaymentsTest extends TestCase
         $this->assertSame([Invoice::STATUS_UNPAID, 400, 600], $this->state(502));
         $this->assertSame('0.00', $this->credit());
         $this->assertSame('2026-10-10', Service::query()->findOrFail(31)->expires_at->toDateString(), 'the period given stays given');
-        $this->assertMoneyClean();
+        // Moved to #502, the payment no longer pays the invoice that renewed service #31: told as well.
+        $this->assertMoneyClean(['service_unbilled']);
     }
 
     public function test_kept_the_edit_refuses_what_the_panel_refuses(): void

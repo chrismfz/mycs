@@ -145,7 +145,8 @@ class PayInvoicesReviewTest extends TestCase
 
         $this->assertSame(0, $this->credit());
         $this->assertSame(3, Invoice::query()->where('status', Invoice::STATUS_UNPAID)->count());
-        $this->assertSame([], (new MoneyCheck)->run());
+        // The money adds up; the three services keep the periods the deleted payment gave them, which staff are told.
+        $this->assertSame(['service_unbilled'], array_values(array_unique(array_column((new MoneyCheck)->run(), 'rule'))));
     }
 
     /** Guard: a typed id that a webhook already recorded on another invoice of the customer refuses the whole set. */

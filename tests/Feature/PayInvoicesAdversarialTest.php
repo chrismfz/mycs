@@ -266,7 +266,8 @@ class PayInvoicesAdversarialTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($payment->fresh());
         $this->assertSame('0.00', $this->credit());
         $this->assertSame(0, InvoiceTransaction::query()->count());
-        $this->assertSame([], $this->moneyFindings());
+        // The money adds up; the services keep the periods the unwound payment gave them: staff are told (service_unbilled).
+        $this->assertSame(['service_unbilled'], array_values(array_unique(array_column($this->moneyFindings(), 'rule'))));
     }
 
     public function test_held_less_than_the_first_invoice_pays_it_in_part_and_nothing_else(): void
