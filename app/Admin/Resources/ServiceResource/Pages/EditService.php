@@ -30,6 +30,7 @@ use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
+use App\Services\Service\RevivePaidTermination;
 use App\Services\Service\WelcomeMail;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\LicenseKeyMask;
@@ -502,6 +503,20 @@ class EditService extends EditRecord
                         $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
                         ExtensionHelper::getExtension('server', $server->extension, $server->settings)->startOver($order);
                         Notification::make()->title('The service waits for a new CSR')->success()->send();
+                    }),
+
+                // A termination its job stopped (money came since the due date, the account still on the server): back to
+                // Active, its paid invoices applied, the server asked to unsuspend (docs/termination.md).
+                Action::make('revivePaid')->label('Revive: paid after termination')->icon('ri-heart-pulse-line')->color('success')
+                    ->visible(fn (Service $record) => $record->status === Service::STATUS_TERMINATED && RevivePaidTermination::paidInvoices($record)->isNotEmpty())
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (Service $record) => 'Sets it Active, gives it the period of paid invoice(s) #' . RevivePaidTermination::paidInvoices($record)->pluck('id')->implode(', #')
+                        . ' and asks the server to unsuspend the account. Only when the account was NOT deleted on the server. Addons that ended with it and its stock are yours by hand.')
+                    ->action(function (Service $record) {
+                        RevivePaidTermination::handle($record);
+                        Notification::make()->title('Service revived')->success()->send();
+                        $this->refreshFormData(['status', 'expires_at', 'suspend_hold_until']);
                     }),
 
                 Action::make('changeStatus')
