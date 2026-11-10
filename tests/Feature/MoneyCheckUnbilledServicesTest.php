@@ -140,10 +140,6 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         foreach ([Service::STATUS_PENDING, Service::STATUS_SUSPENDED, Service::STATUS_CANCELLED, Service::STATUS_TERMINATED] as $status) {
             $this->service(null, ['status' => $status]);
         }
-        // An account the cron never suspends (its own setting): left out of the rule.
-        $exempt = User::factory()->create();
-        $exempt->client()->update(['dunning_exempt' => true]);
-        $this->service(null, ['client_id' => $exempt->client()->id]);
         // At 0.00 there is nothing to bill: a WHMCS «Free Account» is imported so (no date, its 0.00 kept).
         $this->service(null, ['price' => 0, 'price_locked' => true]);
 
@@ -341,7 +337,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Goodwill']);
         $this->assertNotNull($invoice->items()->sole()->forgone_at);
 
-        $this->assertSame(["past due since 2026-11-09, still active, with no open invoice: its period from 2026-11-09 was given up (invoice #{$invoice->id}, cancelled): re-issue it, or move the due date"],
+        $this->assertSame(["past due since 2026-11-09, still active, with no unpaid invoice: its period from 2026-11-09 was given up (invoice #{$invoice->id}, cancelled): re-issue it, or move the due date"],
             $this->details($service));
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(1, InvoiceItem::query()->where('reference_id', $service->id)->count(), 'the cron bills nothing for it');
@@ -359,7 +355,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $late = $this->service('2026-10-30');
 
         $this->assertSame([$late->id => [UnbilledServices::PAST_DUE]], $this->kinds());
-        $this->assertSame(['past due since 2026-10-30, still active, with no open invoice: nothing asks for the money (not billed, not suspended): bill it (Invoice selected items), or set its due date'],
+        $this->assertSame(['past due since 2026-10-30, still active, with no unpaid invoice: nothing asks for the money (not billed, or only on a draft; not suspended): bill it (Invoice selected items), or set its due date'],
             $this->details($late));
         $this->assertSame([], $this->details($waiting));
     }
@@ -383,7 +379,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
             $plan = Plan::factory()->create(['priceable_id' => $this->productId, 'priceable_type' => $this->plan->priceable_type, 'name' => $type, 'type' => $type]);
             $this->service('2026-09-05', ['plan_id' => $plan->id]);
         }
-        // An account exempt from the cron's suspensions.
+        // An account exempt from the cron's suspensions: that is why it was not suspended; the cron still bills it.
         $exempt = User::factory()->create();
         $exempt->client()->update(['dunning_exempt' => true]);
         $this->service('2026-09-05', ['client_id' => $exempt->client()->id]);
@@ -392,6 +388,59 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         DB::table('invoices')->where('id', $paid->id)->update(['status' => Invoice::STATUS_PAID, 'apply_pending_since' => now()]);
 
         $this->assertSame([], $this->kinds());
+    }
+
+    /**
+     * Review of #783: the cron bills an exempt account as any other and only never suspends it, so nothing else watches
+     * it. Told in every kind but «should have been suspended by now» (the exemption is why it was not).
+     */
+    public function test_an_account_exempt_from_suspensions_is_told_too(): void
+    {
+        $exempt = User::factory()->create();
+        $exempt->client()->update(['dunning_exempt' => true]);
+        $client = ['client_id' => $exempt->client()->id];
+        $noDate = $this->service(null, $client);
+        $notPaid = $this->service('2026-12-15', $client);
+        DB::table('invoice_items')->where('invoice_id', $this->renewal($notPaid, '2026-11-15')->id)->update(['applied_at' => now()]);
+        $givenUp = $this->service('2026-11-01', $client);
+        $this->renewal($givenUp, '2026-11-01')->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Goodwill']);
+        $addon = $this->service('2026-12-01', $client + ['parent_service_id' => $this->service('2026-12-01', $client + ['status' => Service::STATUS_CANCELLED])->id]);
+        $this->service('2026-09-05', $client); // long past due, never billed: not suspended because exempt, and the cron bills it tonight
+
+        $this->assertSame([$noDate->id => [UnbilledServices::NO_DUE_DATE], $notPaid->id => [UnbilledServices::PERIOD_NOT_PAID],
+            $givenUp->id => [UnbilledServices::PAST_DUE], $addon->id => [UnbilledServices::ADDON_OF_ENDED]], $this->kinds());
+    }
+
+    /** Review of #783: an «immediate» request left on an active service (the importer brings them) ends nothing by itself. */
+    public function test_an_immediate_cancellation_left_on_an_active_service_does_not_hide_it(): void
+    {
+        $service = $this->service('2026-09-05');
+        ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'immediate', 'reason' => 'Imported']);
+
+        $this->assertSame([$service->id => [UnbilledServices::PAST_DUE]], $this->kinds());
+    }
+
+    /** Review of #783: an open invoice with nothing owed is open_settled's, in the no-period shape as in the applied one. */
+    public function test_an_unpaid_invoice_with_nothing_owed_is_not_told_here(): void
+    {
+        $service = $this->service('2026-12-15');
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-15']);
+        $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
+        $this->assertSame([$service->id => [UnbilledServices::PERIOD_NOT_PAID]], $this->kinds());
+
+        DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['price' => 0, 'line_total' => 0]);
+        $this->assertSame([], $this->kinds());
+    }
+
+    /** Review of #783: an applied line with no start (written around the model) is read, not a crash. */
+    public function test_an_applied_line_with_no_start_does_not_throw(): void
+    {
+        $service = $this->service('2026-12-15');
+        $invoice = $this->renewal($service, '2026-11-15');
+        DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['applied_at' => now(), 'period_start' => null]);
+
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again (owes 10.00 USD): collect it, or move the due date back"],
+            $this->details($service));
     }
 
     public function test_a_hold_that_ended_is_told_again(): void

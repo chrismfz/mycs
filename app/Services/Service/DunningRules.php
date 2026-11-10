@@ -83,12 +83,12 @@ final class DunningRules
      * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way. And a plan: one
      * without is never billed (BIL-6), so never dunned either. $holdDay: those held until that day instead (the notice
      * before it ends, CronJob::holdsEnding). An addon whose parent is held is held with it, either way: it follows its
-     * parent (ADV-A3-1/2, Service::holdInForce). Read by the money check too (UnbilledServices).
+     * parent (ADV-A3-1/2, Service::holdInForce).
      *
      * @param  Builder<Service>  $query
      * @return Builder<Service>
      */
-    public static function unheldWithNoPaymentOnItsWay(Builder $query, Carbon $asOf, ?Carbon $holdDay = null): Builder
+    private static function unheldWithNoPaymentOnItsWay(Builder $query, Carbon $asOf, ?Carbon $holdDay = null): Builder
     {
         $query = $holdDay !== null
             ? Service::whereNoHoldOn($query->whereDate('suspend_hold_until', $holdDay->toDateString()), $asOf->toDateString(), own: false)
