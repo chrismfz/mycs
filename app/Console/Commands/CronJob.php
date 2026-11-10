@@ -977,8 +977,7 @@ class CronJob extends Command
             return 0; // Enable Suspension off (as WHMCS)
         }
         // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
-        // Never for an invoice issued fewer than Suspend Days ago (DunningRules, S6-CRON-BILLING-1/2). With «suspend only
-        // with an overdue invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
+        // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
         // and a service past due with no open invoice (billing it: a charge alone is not one, #507, as
         // Service::stillOverdue reads it, sweep CRON-BILLING-1) is reported instead. Never while a payment is on its
         // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
@@ -1079,21 +1078,16 @@ class CronJob extends Command
         }
         $days = self::days('cronjob_order_suspend', 8);
         $natural = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
-        // Also its first open invoice's day, as suspendable() counts it: Suspend Days from its issue (S6-CRON-BILLING-1/2),
-        // and with «suspend only with an overdue invoice» from its due date too (ADV-HOLD-R2-1).
-        // One with no issue date (an imported one) counts from its due date; with neither, it adds no day of its own (REV-770-2).
-        $invoiceDay = $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
-            ->map(function (Invoice $invoice) use ($days, $requiresInvoice, $natural) {
-                $issued = $invoice->created_at ?? $invoice->due_at;
-                if ($issued === null) {
-                    return $natural->copy();
-                }
-
-                return Carbon::parse($issued)->max(Carbon::parse($requiresInvoice ? $invoice->due_at ?? $issued : $issued))->startOfDay()->addDays($days + 1);
-            })
-            ->min();
-        if ($invoiceDay !== null && $invoiceDay->greaterThan($natural)) {
-            $natural = $invoiceDay;
+        // «Suspend only with an overdue invoice»: also its first open invoice's day, as suspendable() counts it
+        // (ADV-HOLD-R2-1).
+        if ($requiresInvoice) {
+            $invoiceDay = $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+                ->map(fn (Invoice $invoice) => Carbon::parse($invoice->due_at ?? $invoice->created_at)->max(Carbon::parse($invoice->created_at))
+                    ->startOfDay()->addDays($days + 1))
+                ->min();
+            if ($invoiceDay !== null && $invoiceDay->greaterThan($natural)) {
+                $natural = $invoiceDay;
+            }
         }
 
         return !Carbon::parse($service->suspend_hold_until)->startOfDay()->lessThan($natural);

@@ -19,7 +19,8 @@ use Tests\TestCase;
 /**
  * Adversarial verifier, sweep 6, cron-billing: a service the daily run bills for the first time is suspended for that
  * same invoice in the same run, and an end-of-period request on a parent ends its addon before it. The addon fixtures
- * were moved to their parent's cycle after #765 (an addon on another cycle no longer exists).
+ * were moved to their parent's cycle after #765 (an addon on another cycle no longer exists). Since 2026-11-10 the fix is
+ * a hold on the way back from the suspension (ServiceObserver, Sweep7SuspendHoldTest), not a rule on the invoice's date.
  */
 class Sweep6CronBillingTest extends TestCase
 {
@@ -136,14 +137,17 @@ class Sweep6CronBillingTest extends TestCase
             'suspended for non-payment by the very run that first issued its invoice, the day after its parent was paid');
         $this->assertNotNull($this->lineOpenedOn($addon, '2026-11-18'), 'its November period is billed on 11-18, for the first time');
 
-        // Suspend Days (8) from the day that invoice was issued, unpaid: suspended then, not later.
+        // Back on 11-17 past its due date: held through 11-25 (today + Suspend Days, ServiceObserver). Unpaid, suspended
+        // the day after, not later.
+        $this->assertSame('2026-11-25', $addon->suspend_hold_until?->toDateString());
+        $this->assertNull($parent->fresh()->suspend_hold_until, 'the parent was paid: no hold of its own');
+        $this->cronOn('2026-11-25');
+        $this->assertSame('active', $addon->fresh()->status, 'the last day of its hold');
         $this->cronOn('2026-11-26');
-        $this->assertSame('active', $addon->fresh()->status, 'issued 8 days ago: one more day');
-        $this->cronOn('2026-11-27');
         $this->assertSame('suspended', $addon->fresh()->status);
     }
 
-    /** The rule leaves ordinary dunning alone: a renewal issued 7 days before its due date, suspended Suspend Days past it. */
+    /** Ordinary dunning: a renewal issued 7 days before its due date, suspended Suspend Days past it. */
     public function test_a_renewal_issued_before_its_due_date_is_suspended_suspend_days_past_it_as_before(): void
     {
         $service = $this->service('2026-10-15');
@@ -157,24 +161,7 @@ class Sweep6CronBillingTest extends TestCase
         $this->assertSame('Overdue on Payment', $service->fresh()->suspend_reason);
     }
 
-    /** S6-CRON-BILLING-2, the other end: Suspend Days after the late invoice was issued, unpaid, the service is suspended. */
-    public function test_a_service_billed_late_is_suspended_suspend_days_after_its_invoice_was_issued(): void
-    {
-        $service = $this->service('2026-10-15');
-        Carbon::setTestNow('2026-10-05 10:00:00');
-        $service->forceFill(['status' => 'suspended', 'suspend_reason' => 'Abuse', 'dunning_suspended_at' => null])->save();
-        Carbon::setTestNow('2026-10-30 12:00:00');
-        $service->refresh()->forceFill(['status' => 'active'])->save();
-
-        $this->cronOn('2026-10-31');
-        $this->assertNotNull($this->lineOpenedOn($service, '2026-10-31'));
-        $this->cronOn('2026-11-08');
-        $this->assertSame('active', $service->fresh()->status, 'issued 8 days ago: one more day');
-        $this->cronOn('2026-11-09');
-        $this->assertSame('suspended', $service->fresh()->status);
-    }
-
-    /** A new invoice next to an old overdue one buys no time: the old one was issued Suspend Days ago. */
+    /** A new invoice next to an old overdue one buys no time: the suspension counts from the due date. */
     public function test_a_new_invoice_next_to_an_old_overdue_one_does_not_delay_the_suspension(): void
     {
         $service = $this->service('2026-10-15');

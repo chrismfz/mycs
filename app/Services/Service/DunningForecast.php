@@ -17,9 +17,7 @@ use Illuminate\Support\Facades\Cache;
  * holds back while suspensions are off (the cut-over's safety net, ROADMAP 9β-4). With «only with an overdue invoice», a
  * renewal the cron bills before then counts as billed. Addons on their parent's day, as they
  * follow it (AddonCascade). What it cannot know: a payment, a hold
- * or a date staff set before then, and a card charge on its way at that moment (the cron looks again then); and a service
- * past due that was never billed is listed «now» until the daily run bills it, which gives it Suspend Days from that
- * invoice (DunningRules, S6-CRON-BILLING-1/2).
+ * or a date staff set before then, and a card charge on its way at that moment (the cron looks again then).
  */
 final class DunningForecast
 {

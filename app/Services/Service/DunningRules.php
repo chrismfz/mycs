@@ -18,8 +18,7 @@ final class DunningRules
 {
     /**
      * Active services past Suspend Days, not held, not of a client exempt from it (its own setting or its group's), not on
-     * a free or one-time plan (no period to pay; a service whose plan is gone is not exempt), with no payment on its way,
-     * and not one whose open invoices were all issued fewer than Suspend Days ago (one issued late: time to pay it).
+     * a free or one-time plan (no period to pay; a service whose plan is gone is not exempt), with no payment on its way.
      * With $overdueInvoice: and an open invoice billing them (a charge alone is not one, #507: as Service::stillOverdue
      * reads it, sweep CRON-BILLING-1) due and issued Suspend Days ago (a missing due date counts from its issue). With $holdDay: those held until that day instead, suspendable the day after it (code review 3).
      *
@@ -34,21 +33,10 @@ final class DunningRules
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
             ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
 
-        // Nothing is suspended for an invoice issued fewer than Suspend Days ago (owner 2026-11-10, S6-CRON-BILLING-1/2):
-        // a service not billed while it was suspended (by staff, or an addon with its parent) is billed late, and its
-        // customer gets Suspend Days from that day to pay. The clock starts at the later of the due date and the issue.
-        // A renewal issued before its due date is as before. No open invoice at all: by its due date, as WHMCS.
-        $unpaid = fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID);
-        // One with no issue date (the importer writes none for an unreadable WHMCS date) counts from its due date, and
-        // with neither as issued long ago: it never keeps its service from suspension for good (REV-770-2).
-        $issuedLongAgo = fn ($invoices) => $unpaid($invoices)->whereRaw(
-            '(COALESCE(invoices.created_at, invoices.due_at) IS NULL OR DATE(COALESCE(invoices.created_at, invoices.due_at)) < ?)', [$cutoff]);
-        if (!$overdueInvoice) {
-            return $query->where(fn ($billed) => $billed->whereDoesntHave('renewalInvoices', $unpaid)->orWhereHas('renewalInvoices', $issuedLongAgo));
-        }
-
-        return $query->whereHas('renewalInvoices', fn ($invoices) => $issuedLongAgo($invoices)
-            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff]));
+        return !$overdueInvoice ? $query : $query->whereHas('renewalInvoices', fn ($invoices) => $invoices
+            ->where('invoices.status', Invoice::STATUS_UNPAID)
+            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
+            ->whereDate('invoices.created_at', '<', $cutoff));
     }
 
     /**
