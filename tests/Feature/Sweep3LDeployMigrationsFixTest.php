@@ -103,7 +103,7 @@ class Sweep3LDeployMigrationsFixTest extends TestCase
 
         $out = $this->dir . '/out';
         $harness = "set -Eeuo pipefail\nlog() { :; }; warn() { :; }; ok() { :; }; fail() { :; }\n"
-            . 'exec 9>>' . escapeshellarg($this->dir . '/deploy.lock') . "\n_stopped_by=hook\n_was_down=0\n_had_workers=1\n"
+            . 'exec 9>>' . escapeshellarg($this->dir . '/deploy.lock') . "\n_stopped_by=hook\n_stay_down=0\n_had_workers=1\n_LEFT_DOWN=deploy-left-down\n"
             . 'QUEUE_START_CMD=' . escapeshellarg("sh -c 'test -e /proc/self/fd/9 && echo open || echo closed' > " . escapeshellarg($out)) . "\n"
             . substr($script, $fStart, $fEnd - $fStart) . "\nstart_queue_worker\n";
         File::put($this->dir . '/harness.sh', $harness);

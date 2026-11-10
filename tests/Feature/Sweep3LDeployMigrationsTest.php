@@ -74,7 +74,7 @@ class Sweep3LDeployMigrationsTest extends TestCase
         File::put($this->dir . '/fake-artisan', "#!/bin/sh\necho \"\$*\" >> " . escapeshellarg($log) . "\nexit 0\n");
         chmod($this->dir . '/fake-artisan', 0700);
         $harness = "set -Eeuo pipefail\nlog() { :; }; warn() { :; }; ok() { :; }; fail() { :; }\n"
-            . 'ART=' . escapeshellarg($this->dir . '/fake-artisan') . "\n_stopped_by=restart\n_was_down=0\n_had_workers=1\n"
+            . 'ART=' . escapeshellarg($this->dir . '/fake-artisan') . "\n_stopped_by=restart\n_stay_down=0\n_had_workers=1\n_LEFT_DOWN=deploy-left-down\n"
             . substr($script, $fStart, $fEnd - $fStart) . "\n"
             . substr($script, $sStart, $sEnd - $sStart) . "\n";
         File::put($this->dir . '/harness.sh', $harness);

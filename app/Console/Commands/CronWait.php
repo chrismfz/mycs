@@ -123,7 +123,9 @@ class CronWait extends Command
     /**
      * A `artisan schedule:run` of this install alive, other than this process: its cwd here, or (a cwd this user cannot
      * read) this install's artisan named by its path, as deploy/update.sh finds its queue workers. Another install's
-     * scheduler on the host is not ours to wait for. No pgrep: none seen, as before.
+     * scheduler on the host is not ours to wait for. No pgrep: none seen, as before. Not seen either: a scheduler of
+     * another user whose cwd this user cannot read, started as `cd <app> && php artisan schedule:run` (no path on its
+     * command line): the deploy runs as the cron's user, or as root (docs/install.md).
      */
     private static function schedulerAlive(): bool
     {

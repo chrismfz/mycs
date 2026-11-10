@@ -89,7 +89,9 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 **Site που ήταν ήδη σε maintenance μένει σε maintenance** (sweep 6, S6-OPS-2): το deploy δεν τρέχει `up`, δεν ξεκινά
 workers που δεν έτρεχαν πριν, δεν κάνει smoke check, και τελειώνει με «site was in maintenance before the deploy: left
 down; run artisan up when ready». Το `app:cron-wait` περιμένει και το `schedule:run` αυτής της εγκατάστασης να τελειώσει,
-όχι μόνο τα tasks που τρέχουν εκείνη τη στιγμή (S6-OPS-1).
+όχι μόνο τα tasks που τρέχουν εκείνη τη στιγμή (S6-OPS-1)· το βλέπει όταν το deploy τρέχει ως ο χρήστης του cron ή ως root.
+Deploy που **απέτυχε** αφήνει το site κάτω με σημάδι (`storage/framework/deploy-left-down`): το επόμενο που πετυχαίνει το
+ανεβάζει, όπως πάντα. Αν στο μεταξύ το site πρέπει να μείνει κάτω (παράθυρο επιστροφής στο WHMCS), σβήσε το σημάδι πριν.
 
 **Ένα τρέξιμο του cron σε εξέλιξη τελειώνει πρώτα** (sweep 9γ, `app:cron-wait`): το deploy το περιμένει πριν το
 maintenance και ξανά αμέσως μετά (ο scheduler δεν ξεκινά νέο σε maintenance), ως 15 λεπτά (`CRON_WAIT_SECONDS`). Αν δεν

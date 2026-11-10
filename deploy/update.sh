@@ -117,8 +117,11 @@ fi
 _stopped_by=""
 # A site staff had put down before the deploy (the return to WHMCS, cutover-runbook §3; a planned window) stays down
 # after it, and workers that were not running then are not started (sweep 6, S6-OPS-2).
+# A deploy that failed leaves the site down itself, with a marker: the re-run that succeeds brings it up (REV-767-1).
 _was_down=0
+_stay_down=0
 _had_workers=1
+_LEFT_DOWN=storage/framework/deploy-left-down
 _have_unit() { command -v systemctl >/dev/null 2>&1 && systemctl cat "${QUEUE_SERVICE}.service" >/dev/null 2>&1; }
 stop_queue_worker() {
   if [[ -n "${QUEUE_STOP_CMD:-}" ]]; then
@@ -173,7 +176,7 @@ _wait_queue_workers() {
   done
 }
 start_queue_worker() {
-  if [[ $_was_down == 1 && $_had_workers == 0 ]]; then
+  if [[ $_stay_down == 1 && $_had_workers == 0 ]]; then
     log "Queue: no worker was running before the deploy (the site was already down) — none started"
     return 0
   fi
@@ -247,6 +250,12 @@ if $ART list --raw 2>/dev/null | grep -q '^app:is-down'; then
 else
   [[ -f storage/framework/down ]] && _was_down=1
 fi
+# Down without a failed deploy's marker: staff's own window, left down at the end. Found up: a marker is stale.
+if [[ $_was_down == 1 ]]; then
+  [[ -f "$_LEFT_DOWN" ]] || _stay_down=1
+else
+  rm -f "$_LEFT_DOWN"
+fi
 log "Maintenance mode ON"
 # Not down, nothing proves a cron run can't start under the migrations: stop, nothing changed (R2-2). Already down is
 # no failure (`down` says so and exits 0).
@@ -256,10 +265,10 @@ cron_wait || {
   fail "A cron run started just before maintenance and is still running — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
   exit 1
 }
-trap 'fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
+trap '[[ $_stay_down == 1 ]] || : > "$_LEFT_DOWN" || true; fail "Update FAILED — the app is still in maintenance mode. Fix the error, then re-run, or: php artisan up"; start_queue_worker' ERR
 # Already down: were this checkout's workers running (or, with no stop hook, their unit active)? Only then are they
 # started again.
-if [[ $_was_down == 1 ]]; then
+if [[ $_stay_down == 1 ]]; then
   _had_workers=0
   [[ -n "$(_queue_worker_pids)" ]] && _had_workers=1
   [[ -z "${QUEUE_STOP_CMD:-}" ]] && _have_unit && systemctl is-active --quiet "${QUEUE_SERVICE}" 2>/dev/null && _had_workers=1
@@ -340,9 +349,10 @@ trap - ERR
 # between and take a job on the old code. Told before, it exits at its next pause check, having taken none. The ones
 # started after the signal start on the new release; a unit or hook started here sleeps until `up`.
 start_queue_worker
-if [[ $_was_down == 0 ]]; then
+if [[ $_stay_down == 0 ]]; then
   log "Maintenance mode OFF"
   $ART up
+  rm -f "$_LEFT_DOWN"
 fi
 # The console relay, where it runs on this server (the devbox; docs/proxmox.md, B6), told now, with the new release in
 # place: it sees its `restart_file` touched, exits, and systemd starts the new code. Its consoles drop; the customer
@@ -350,7 +360,7 @@ fi
 touch storage/framework/console-relay.restart 2>/dev/null || true
 
 # A site left down answers 503 by design: no smoke check of it.
-if [[ $_was_down == 0 ]]; then
+if [[ $_stay_down == 0 ]]; then
   # The site's address as .env has it, quotes off (AUD8-6: a quoted APP_URL was «no answer»).
   _url="$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d "\"'" | sed 's:/*$::')"
   if [[ -n "$_url" ]] && command -v curl >/dev/null 2>&1; then
@@ -367,7 +377,7 @@ if [[ $_was_down == 0 ]]; then
   fi
 fi
 ok "Deployed $(git rev-parse --short HEAD) ($REF). Previous: ${CURRENT_SHA:0:8} — rollback: docs/install.md («Αν κάτι πάει στραβά»: the snapshot restored inside the maintenance window, the workers restarted before up)."
-if [[ $_was_down == 1 ]]; then
+if [[ $_stay_down == 1 ]]; then
   [[ $_had_workers == 0 ]] && warn "The queue workers were not running before the deploy: not started. Start them when you bring the site up."
   warn "site was in maintenance before the deploy: left down; run artisan up when ready"
 fi

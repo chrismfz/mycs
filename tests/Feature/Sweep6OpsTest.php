@@ -121,11 +121,74 @@ class Sweep6OpsTest extends TestCase
     }
 
     /**
-     * The real update.sh in a throwaway directory, with git, php artisan and curl stubbed.
-     *
-     * @return array{int, string, string} exit code, output, the log of artisan calls and queue hooks
+     * REV-767-1. A deploy that fails leaves the site down itself («fix the error, then re-run»), with its marker: the
+     * re-run that succeeds brings the site up, as before, and is not taken for staff's own maintenance window.
+     */
+    public function test_a_rerun_after_a_failed_deploy_brings_the_site_up(): void
+    {
+        $this->prepare(downBefore: false);
+        $marker = $this->dir . '/storage/framework/deploy-left-down';
+        File::put($this->dir . '/fail-migrate', '');
+
+        [$code, $out] = $this->runDeploy();
+        $this->assertNotSame(0, $code, $out);
+        $this->assertStringContainsString('Update FAILED', $out);
+        $this->assertFileExists($this->dir . '/is-down', 'a failed deploy leaves the site down');
+        $this->assertFileExists($marker);
+
+        File::delete([$this->dir . '/fail-migrate', $this->dir . '/log']);
+        [$code, $out, $log] = $this->runDeploy();
+        $this->assertSame(0, $code, $out);
+        $this->assertFileDoesNotExist($this->dir . '/is-down', $out);
+        $this->assertMatchesRegularExpression('/QSTART\nART up\n/', $log);
+        $this->assertStringContainsString('Smoke check', $out);
+        $this->assertStringNotContainsString('left down', $out);
+        $this->assertFileDoesNotExist($marker);
+    }
+
+    /** A deploy that fails inside staff's own window leaves no marker: the next one still leaves the site down. */
+    public function test_a_failed_deploy_over_a_site_staff_put_down_leaves_no_marker(): void
+    {
+        $this->prepare(downBefore: true);
+        File::put($this->dir . '/fail-migrate', '');
+
+        [$code, $out] = $this->runDeploy();
+        $this->assertNotSame(0, $code, $out);
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down');
+
+        File::delete($this->dir . '/fail-migrate');
+        [$code, $out] = $this->runDeploy();
+        $this->assertSame(0, $code, $out);
+        $this->assertFileExists($this->dir . '/is-down', $out);
+        $this->assertStringContainsString('left down', $out);
+    }
+
+    /** A marker over a site found up (staff ran `artisan up` after a failed deploy) is stale: removed, means nothing later. */
+    public function test_a_stale_marker_over_a_site_that_is_up_is_removed(): void
+    {
+        $this->prepare(downBefore: false);
+        File::put($this->dir . '/storage/framework/deploy-left-down', '');
+        File::put($this->dir . '/fail-cron-wait', ''); // the wait after `down`: stops before anything changes
+
+        [$code, $out] = $this->runDeploy();
+        $this->assertNotSame(0, $code, $out);
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down', $out);
+    }
+
+    /**
+     * @return array{int, string, string}
      */
     private function deploy(bool $downBefore): array
+    {
+        $this->prepare($downBefore);
+
+        return $this->runDeploy();
+    }
+
+    /**
+     * The real update.sh in a throwaway directory, with git, php artisan and curl stubbed.
+     */
+    private function prepare(bool $downBefore): void
     {
         $this->dir = sys_get_temp_dir() . '/mycs-sweep6-ops-' . uniqid();
         $d = $this->dir;
@@ -163,6 +226,8 @@ class Sweep6OpsTest extends TestCase
               list) printf 'app:cron-job\\napp:cron-wait\\napp:is-down\\n' ;;
               app:is-down) [[ -f is-down ]] && exit 0 || exit 1 ;;
               down) echo '{}' > is-down ;;
+              migrate) [[ -f fail-migrate ]] && exit 1 ;;
+              app:cron-wait) [[ -f fail-cron-wait && -f is-down ]] && exit 1 ;;
               up) rm -f is-down ;;
             esac
             exit 0
@@ -171,7 +236,15 @@ class Sweep6OpsTest extends TestCase
         chmod($d . '/bin/git', 0700);
         chmod($d . '/bin/php', 0700);
         chmod($d . '/bin/curl', 0700);
+    }
 
+    /**
+     * @return array{int, string, string} exit code, output, the log of artisan calls and queue hooks
+     */
+    private function runDeploy(): array
+    {
+        $d = $this->dir;
+        $out = [];
         $log = $d . '/log';
         exec('cd ' . escapeshellarg($d) . ' && PATH=' . escapeshellarg($d . '/bin:' . getenv('PATH'))
             . ' env -u COMPOSER_DEV -u ALLOW_DEV_IN_PRODUCTION -u APP_DIR -u MYCS_UPDATE_COPY -u APP_ENV -u APP_DEBUG -u CRON_WAIT_SECONDS -u APP_MAINTENANCE_DRIVER'
