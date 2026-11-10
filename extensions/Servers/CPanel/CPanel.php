@@ -371,7 +371,21 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 
     private static function sameDomain(?string $a, ?string $b): bool
     {
-        return $a !== null && $b !== null && strtolower(trim($a)) === strtolower(trim($b));
+        return $a !== null && $b !== null && self::normalDomain($a) === self::normalDomain($b);
+    }
+
+    /**
+     * A domain as compared: the same one written another way is the same (review of #777, REV-777-5). Lower case, no
+     * spaces around, no dot at its end, no «www.» before it, an IDN in its ASCII form (WHM keeps punycode).
+     */
+    public static function normalDomain(string $domain): string
+    {
+        $domain = mb_strtolower(trim($domain));
+        $domain = str_ends_with($domain, '.') ? substr($domain, 0, -1) : $domain;
+        $domain = str_starts_with($domain, 'www.') ? substr($domain, 4) : $domain;
+        $ascii = $domain !== '' && function_exists('idn_to_ascii') ? idn_to_ascii($domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) : false;
+
+        return is_string($ascii) && $ascii !== '' ? strtolower($ascii) : $domain;
     }
 
     /**
@@ -387,9 +401,14 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!is_string($theirs) || trim($theirs) === '') {
             return;
         }
-        $domain = $service->domain ?? ($properties['domain'] ?? null);
-        if (!self::sameDomain($theirs, is_string($domain) ? $domain : null)) {
-            $ours = is_string($domain) && $domain !== '' ? $domain : 'none';
+        $domain = filled($service->domain) ? $service->domain : ($properties['domain'] ?? null);
+        // A service with no domain at all: nothing to compare, not refused; another live service's account is still
+        // kept from it (notAnotherLiveServicesAccount).
+        if (!is_string($domain) || trim($domain) === '') {
+            return;
+        }
+        if (!self::sameDomain($theirs, $domain)) {
+            $ours = $domain;
             throw new Exception("cPanel: the account «{$username}» on this server is for {$theirs}, not this service's domain ({$ours}): check the service's username and domain before anything is done to it (by hand)");
         }
     }
@@ -447,6 +466,10 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        // As suspend: never another live service's account, nor a stranger's (suspended in WHM for its own reason;
+        // review of #777, REV-777-6).
+        self::notAnotherLiveServicesAccount($service, $properties['cpanel_username']);
+        $this->ownAccount($service, $properties, $properties['cpanel_username']);
 
         // A reseller: WHM unsuspends its accounts with it, also one suspended there for another reason (WHM's rule).
         $this->resellerInWhm($settings, $properties, $properties['cpanel_username'])
@@ -728,6 +751,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']); // as the cPanel login (REV-777-4)
         $url = $this->whm('/create_user_session', ['user' => $properties['cpanel_username'], 'service' => 'webmaild'], 'post')['data']['url'] ?? null;
         if (!is_string($url) || $url === '') {
             throw new Exception('Unable to generate the webmail login URL');
@@ -755,6 +779,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 throw new Exception("cPanel: {$properties['cpanel_username']} owns a protected account (" . implode(', ', $owned) . '): MyCS does not open its WHM.');
             }
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']); // as the cPanel login (REV-777-4)
         $url = $this->whm('/create_user_session', ['user' => $properties['cpanel_username'], 'service' => 'whostmgrd'], 'post')['data']['url'] ?? null;
         if (!is_string($url) || $url === '') {
             throw new Exception('Unable to generate the WHM login URL');
