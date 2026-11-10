@@ -320,8 +320,7 @@ final class WhmcsDomainImport
         $tlds = DomainTld::query()->pluck('id', 'tld')->all();
         $stageDays = DomainTld::query()->get(['id', 'grace_days', 'redemption_days'])->keyBy('id');
         $primary = DB::table('contacts')->whereNotNull('primary_of_client_id')->get(['id', 'primary_of_client_id', 'email'])->keyBy('primary_of_client_id');
-        $currencies = $this->pairs('SELECT c.id, cur.code FROM tblclients c JOIN tblcurrencies cur ON cur.id = c.currency');
-        $default = (string) config('settings.default_currency', 'USD');
+        $currencies = new WhmcsClientCurrency($this->whmcs);
         $idProtection = $this->idProtectionPrices();
         $fields = $this->grouped('tbldomainsadditionalfields', 'SELECT domainid AS domain, name, value FROM tbldomainsadditionalfields ORDER BY id');
         $extra = $this->grouped('tbldomains_extra', 'SELECT domain_id AS domain, name, value FROM tbldomains_extra ORDER BY id');
@@ -396,7 +395,7 @@ final class WhmcsDomainImport
                 $this->notes[] = "Domain #{$id} {$fqdn}: «{$row['status']}» in WHMCS (sent to its registrar there): imported as sent, never sent again;"
                     . ' the sync reads it once its connection is set up (check it is there).';
             }
-            $currency = $currencies[(int) $row['userid']] ?? $default;
+            $currency = $currencies->code((int) $row['userid']);
             $amount = number_format((float) ($row['recurringamount'] ?? 0), 2, '.', '');
             // ID protection is free here (WG-32): its WHMCS price (a year's, times its years) comes off the amount, whatever
             // happens to it next (a deal, DNS management, grace: ADV-670-1); kept for the parities (expectedRenewal).
@@ -885,16 +884,6 @@ final class WhmcsDomainImport
     private function column(string $sql): array
     {
         return $this->whmcs->query($sql)->fetchAll(PDO::FETCH_COLUMN);
-    }
-
-    /** @return array<int, string> */
-    private function pairs(string $sql): array
-    {
-        try {
-            return array_map('strval', $this->whmcs->query($sql)->fetchAll(PDO::FETCH_KEY_PAIR));
-        } catch (PDOException) {
-            return [];
-        }
     }
 
     /** @return array<int, array<string, string>> domain id => name => value (a later row of a name wins) */

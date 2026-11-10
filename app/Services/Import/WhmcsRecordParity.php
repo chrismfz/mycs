@@ -93,7 +93,7 @@ final class WhmcsRecordParity
         $paymentsHere = array_fill_keys(DB::table('invoice_transactions')->pluck('id')->map(fn ($id) => (int) $id)->all(), true);
         $notParent = $parents === [] ? '1 = 1' : 'i.id NOT IN (' . implode(',', array_keys($parents)) . ')';
         $billed = $this->pairs("SELECT i.userid, SUM(ROUND((i.subtotal + i.tax + i.tax2) * 100)) FROM tblinvoices i WHERE {$notParent} GROUP BY i.userid");
-        $currencies = $this->pairs('SELECT c.id, cur.code FROM tblclients c LEFT JOIN tblcurrencies cur ON cur.id = c.currency');
+        $currencies = new WhmcsClientCurrency($this->whmcs);
 
         // Whose a payment is: its own customer, or its invoice's where WHMCS left it 0 (the importer puts it on its invoice).
         // What the importer leaves out by its rule (as WhmcsParity::notes) is left out of the sums, and noted.
@@ -144,7 +144,7 @@ final class WhmcsRecordParity
             if ($client === null) {
                 continue;
             }
-            $currency = (string) ($currencies[$id] ?? ''); // an account's money is in its WHMCS currency: told with it
+            $currency = $currencies->code((int) $id); // an account's money is in its WHMCS currency: told with it
             $this->money('Account credit', $id, $credit, (int) ($hereCredit[$id] ?? 0), $currency);
             $this->money('Account billed', $id, (int) ($billed[$id] ?? 0), (int) ($hereBilled[$id] ?? 0), $currency);
             $this->money('Account paid', $id, $in[$id] ?? 0, (int) ($hereIn[$id] ?? 0), $currency);
