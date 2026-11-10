@@ -90,10 +90,10 @@ maintenance mode, queue drain, checkout, composer, migrate, build, caches, priva
 workers που δεν έτρεχαν πριν, δεν κάνει smoke check, και τελειώνει με «site was in maintenance before the deploy: left
 down; run artisan up when ready». Το `app:cron-wait` περιμένει και το `schedule:run` αυτής της εγκατάστασης να τελειώσει,
 όχι μόνο τα tasks που τρέχουν εκείνη τη στιγμή (S6-OPS-1)· το βλέπει όταν το deploy τρέχει ως ο χρήστης του cron ή ως root,
-είτε ξεκίνησε με `cd <app> && php artisan …` είτε με το πλήρες path του artisan από άλλον φάκελο (S7-OPS-1· το ίδιο και οι queue workers).
+είτε ξεκίνησε με `cd <app> && php artisan …` είτε με το πλήρες path του artisan από άλλον φάκελο (S7-OPS-1· το ίδιο και οι queue workers). Το path μετρά ως ολόκληρο όρισμα: εγκατάσταση που το path της απλώς τελειώνει όπως το δικό μας (αντίγραφο σε `/backup/…`) δεν είναι η δική μας.
 Deploy που **απέτυχε** αφήνει το site κάτω με σημάδι (`storage/framework/deploy-left-down`): το επόμενο που πετυχαίνει το
 ανεβάζει, όπως πάντα. Αν στο μεταξύ το site πρέπει να μείνει κάτω (παράθυρο επιστροφής στο WHMCS), σβήσε το σημάδι πριν.
-Το σημάδι μετρά **24 ώρες** (sweep 7, S7-OPS-2): παλιότερο αγνοείται και σβήνεται (το `php artisan up` με το χέρι δεν το
+Το σημάδι μετρά **24 ώρες** (sweep 7, S7-OPS-2): παλιότερο, ή με ώρα στο μέλλον, αγνοείται και σβήνεται (το `php artisan up` με το χέρι δεν το
 σβήνει, και ένα site που είναι κάτω μέρες μετά το έχει κατεβάσει το staff). Deploy που απέτυχε πάνω από μια μέρα πριν και
 το site είναι ακόμη κάτω: μετά το επόμενο deploy, `php artisan up` με το χέρι (το λέει στις τελευταίες γραμμές του).
 

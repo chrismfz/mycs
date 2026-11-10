@@ -142,8 +142,11 @@ class CronWait extends Command
             if (@readlink("/proc/{$pid}/cwd") === $here) {
                 return true;
             }
-            $cmd = str_replace("\0", ' ', (string) @file_get_contents("/proc/{$pid}/cmdline"));
-            if (str_contains($cmd, $here . '/artisan ')) {
+            // A whole argument, never the end of a longer path (another install under …/backup<here>; review of #777,
+            // REV-777-7): the arguments as the kernel keeps them (NUL between them), or, of a process that wrote its
+            // own title as one string, its words.
+            $cmd = (string) @file_get_contents("/proc/{$pid}/cmdline");
+            if (in_array($here . '/artisan', [...explode("\0", $cmd), ...preg_split('/[\0\s]+/', $cmd)], true)) {
                 return true;
             }
         }

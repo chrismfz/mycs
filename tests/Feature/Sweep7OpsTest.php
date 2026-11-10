@@ -116,6 +116,71 @@ class Sweep7OpsTest extends TestCase
         $this->assertFileDoesNotExist($marker);
     }
 
+    /** A marker dated in the future (a clock set back) is stale too: staff's window is left down. */
+    public function test_a_marker_dated_in_the_future_is_stale(): void
+    {
+        $this->prepare(downBefore: true);
+        $marker = $this->dir . '/storage/framework/deploy-left-down';
+        File::put($marker, '');
+        touch($marker, time() + 7200);
+
+        [$code, $out, $log] = $this->runDeploy();
+
+        $this->assertSame(0, $code, $out);
+        $this->assertFileExists($this->dir . '/is-down', $out);
+        $this->assertStringNotContainsString("ART up\n", $log);
+        $this->assertFileDoesNotExist($marker);
+    }
+
+    /** A stale marker that cannot be removed (its directory another user's) is said and ignored: the deploy goes on. */
+    public function test_a_stale_marker_that_cannot_be_removed_does_not_stop_the_deploy(): void
+    {
+        $this->prepare(downBefore: true);
+        $marker = $this->dir . '/storage/framework/deploy-left-down';
+        File::put($marker, '');
+        touch($marker, time() - 2 * 86400);
+        chmod($this->dir . '/storage/framework', 0500);
+        if (@touch($this->dir . '/storage/framework/probe')) {
+            chmod($this->dir . '/storage/framework', 0700);
+            $this->markTestSkipped('root removes any file');
+        }
+        try {
+            [$code, $out, $log] = $this->runDeploy();
+        } finally {
+            chmod($this->dir . '/storage/framework', 0700);
+        }
+
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString('could not remove', $out);
+        $this->assertFileExists($this->dir . '/is-down', $out);
+        $this->assertStringNotContainsString("ART up\n", $log);
+    }
+
+    /**
+     * REV-777-7, the shell side: a worker of another install whose path ends with this checkout's is not this checkout's;
+     * one given this checkout's artisan as a whole argument (real argv, cwd elsewhere) is.
+     */
+    public function test_deploy_matches_a_queue_worker_by_the_whole_artisan_argument(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/mycs-sweep7-ops-' . uniqid();
+        File::makeDirectory($this->dir, 0700, true);
+        $here = realpath($this->dir);
+        $this->assertTrue((bool) preg_match('/^_queue_worker_pids\(\) \{\n.*?\n\}\n/ms', File::get(base_path('deploy/update.sh')), $m));
+        File::put($this->dir . '/pids.sh', "set -uo pipefail\n" . $m[0] . "_queue_worker_pids\n");
+        $other = $this->spawn('php /srv/backup' . $here . '/artisan queue:work --tries=3', '/');
+        // Real arguments, not a title: `php -r … <here>/artisan queue:work`.
+        $mine = proc_open([PHP_BINARY, '-r', 'sleep(30);', '--', $here . '/artisan', 'queue:work'], [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, '/');
+        $this->assertIsResource($mine);
+        $this->procs[] = $mine;
+        usleep(200_000);
+
+        exec('cd ' . escapeshellarg($here) . ' && env -u QUEUE_WORKER_MATCH bash pids.sh 2>&1', $out, $code);
+
+        $this->assertSame(0, $code, implode("\n", $out));
+        $this->assertNotContains((string) proc_get_status($other)['pid'], $out, 'another install\'s worker (its path ends with ours) is waited for');
+        $this->assertContains((string) proc_get_status($mine)['pid'], $out, implode(' ', $out));
+    }
+
     /**
      * A fake process with this command line and working directory, a child of this test process (the only ones
      * app:cron-wait looks at in tests: CronWait::$ownChildrenOnly).
