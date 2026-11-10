@@ -201,7 +201,7 @@ class Sweep4RBillingFixesTest extends TestCase
         putenv('WHMCS_SOURCE_PASSWORD=secret');
         try {
             $source = ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'];
-            $refused = 'WHMCS addon(s) off their service\'s billing day: #160, #162.';
+            $refused = 'WHMCS addon(s) due on another date than their service: #160, #162.';
             $this->artisan('app:import-from-whmcs', $source + ['--dry-run' => true])->assertFailed()->expectsOutputToContain($refused);
             $this->artisan('app:import-from-whmcs', $source)->assertFailed()->expectsOutputToContain($refused)
                 ->doesntExpectOutputToContain('--confirm-database');
@@ -211,9 +211,12 @@ class Sweep4RBillingFixesTest extends TestCase
         }
         $this->assertSame(1, Client::query()->whereKey($this->client->id)->count(), 'nothing emptied');
 
-        // Aligned in WHMCS: #160 on its service's date, #162 (monthly) on its service's day within its cycle (REV-KISS-2).
+        // Its service's day in another month is no longer enough (sweep 7 S7-LATEST-FIXES-1): the service's own date.
         $whmcs->exec("UPDATE tblhostingaddons SET nextduedate = CASE id WHEN 160 THEN '2027-05-18' ELSE '2026-12-18' END WHERE id IN (160, 162)");
         (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $this->assertSame([162], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command));
+        // Aligned in WHMCS: both on their service's date.
+        $whmcs->exec("UPDATE tblhostingaddons SET nextduedate = '2027-05-18' WHERE id = 162");
         $this->assertSame([], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command));
     }
 }

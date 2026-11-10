@@ -94,8 +94,9 @@ class RevKissAddonsTest extends TestCase
         $command = app(ImportFromWhmcs::class);
         (new \ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
 
-        $this->assertSame([165], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command),
-            '#162 is on its service\'s billing day (a month of its own cycle), only #165 is off it');
+        // Since 2026-11-10 (sweep 7 S7-LATEST-FIXES-1) an addon is due on its service's date: #162, on its service's day five
+        // months before it with no unpaid renewal of its own, is refused with #165 (it was accepted by the day check).
+        $this->assertSame([162, 165], (new \ReflectionMethod($command, 'addonsApart'))->invoke($command));
         // Since 2026-11-09 an addon is on its service's cycle too: both are refused for that (Sweep6AddonsFollowCycleTest).
         $this->assertSame([162, 165], (new \ReflectionMethod($command, 'addonsOnAnotherCycle'))->invoke($command));
     }

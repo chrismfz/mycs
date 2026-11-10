@@ -231,7 +231,6 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
-
         // A domain order paid long ago and still plain «Pending» (sweep 7 S7-IMPORT-2, owner 2026-11-10): the first cron
         // would register or transfer it at the registrar. Set Cancelled or Active in WHMCS before the dump; a younger one
         // is sent from here as before (docs/importer.md).
@@ -243,20 +242,22 @@ class ImportFromWhmcs extends Command
             return self::FAILURE;
         }
 
-        // An addon always shares its parent's due date here (docs/addons.md, owner 2026-11-08): a live recurring one off its
-        // service's billing day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
-        if (($apart = $this->addonsApart()) !== []) {
-            $this->error('WHMCS addon(s) off their service\'s billing day: #' . implode(', #', $apart)
-                . '. An addon renews on its service\'s day of the month here: set its next due date in WHMCS to that day (the service\'s date, or that day within its own cycle; cutover-runbook.md), and dump again.'
-                . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
-
-            return self::FAILURE;
-        }
-        // And its parent's billing cycle (owner 2026-11-09): with the same cycle and the same day it renews on its
-        // service's invoice every time. One on another cycle is refused the same way.
+        // An addon has its parent's billing cycle here (owner 2026-11-09): with the same cycle and the same date it renews
+        // on its service's invoice every time. One on another cycle is refused, as the other pre-dump conditions.
         if (($other = $this->addonsOnAnotherCycle()) !== []) {
             $this->error('WHMCS addon(s) on another billing cycle than their service: #' . implode(', #', $other)
                 . '. An addon is billed on its service\'s cycle here: set its billing cycle (and its recurring amount and next due date) in WHMCS as its service\'s (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+        // And its parent's due date (docs/addons.md, owner 2026-11-08; the date itself, not its
+        // day of the month: sweep 7 S7-LATEST-FIXES-1, owner 2026-11-10): a live recurring one due on another date is
+        // refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
+        if (($apart = $this->addonsApart()) !== []) {
+            $this->error('WHMCS addon(s) due on another date than their service: #' . implode(', #', $apart)
+                . '. An addon shares its service\'s due date here: set its next due date in WHMCS to its service\'s (cutover-runbook.md), and dump again.'
+                . ' Only an addon whole periods behind its service with its own renewal invoice of that period unpaid is taken as it is.'
+                . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
 
             return self::FAILURE;
         }
@@ -3572,15 +3573,41 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Those off their service's billing day (not on its day of the month: WhmcsAddonImport::onServiceDay), or of a service
-     * with no next due date: the import refuses to run on them. The runbook's pre-dump check.
+     * Those not due on their service's date (owner 2026-11-10, sweep 7 S7-LATEST-FIXES-1: the date itself; the same day in
+     * another month is another date since an addon has its service's cycle), or of a service with no next due date: the
+     * import refuses to run on them. The one shape taken as it is: an addon whole periods BEHIND its service
+     * (WhmcsAddonImport::periodsBehind) because its own renewal is unpaid, told by its unpaid «Addon» invoice line due on
+     * the addon's own nextduedate (unpaidAddonRenewals); paid here, it catches up with its service. The runbook's pre-dump check.
      *
      * @return list<int> tblhostingaddons ids
      */
     private function addonsApart(): array
     {
-        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(),
-            fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));
+        $unpaid = null;
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(), function (array $row) use (&$unpaid) {
+            $behind = WhmcsAddonImport::periodsBehind((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']);
+
+            return $behind === null || ($behind > 0 && !isset(($unpaid ??= $this->unpaidAddonRenewals())[(int) $row['id']]));
+        })));
+    }
+
+    /**
+     * The WHMCS addons whose renewal for the period they are in (an «Addon» line due on their own nextduedate) is on an
+     * invoice imported unpaid (invoiceStatus: Collections and Payment Pending too): overdue, not misdated. A source without
+     * the invoice tables (a test's): none.
+     *
+     * @return array<int, true>
+     */
+    private function unpaidAddonRenewals(): array
+    {
+        if (!$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+
+        return array_fill_keys(array_map('intval', $this->pdo->query("SELECT DISTINCT a.id FROM tblhostingaddons a
+            JOIN tblinvoiceitems ii ON ii.type = 'Addon' AND ii.relid = a.id AND ii.duedate = a.nextduedate JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE a.nextduedate > '0000-00-00' AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')")->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
     /**
