@@ -175,7 +175,7 @@ final class ChangeCycle
         // shortfall's invoice on its page), the change goes ahead.
         $pending = $service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->orderBy('id')->first();
         if ($pending !== null) {
-            return __('services.upgrade_waiting', ['invoice' => $pending->invoice?->number ?? $pending->invoice_id]);
+            return __('services.upgrade_waiting', ['invoice' => $pending->invoice->number ?? $pending->invoice_id]);
         }
         if ($mode === self::NOW && ($open = ServiceUpgrade::openInvoiceOf($service)) !== null) {
             return __('services.upgrade_invoice_open', ['invoice' => $open->number ?? $open->id]);
