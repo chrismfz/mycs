@@ -208,6 +208,7 @@ class Stripe extends Gateway
     private const WEBHOOK_EVENTS = [
         'payment_intent.succeeded',
         'payment_intent.payment_failed',
+        'payment_intent.canceled',
         'payment_intent.processing',
         'setup_intent.succeeded',
         'subscription_schedule.canceled',
@@ -416,6 +417,7 @@ class Stripe extends Gateway
                 ExtensionHelper::addPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
                 break;
             case 'payment_intent.payment_failed':
+            case 'payment_intent.canceled': // cancelled at Stripe (also one that was processing): no money comes, as a failure (S7-PAYMENTS-3)
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
                 if (!isset($paymentIntent->metadata->invoice_id)) {
                     break; // a subscription's invoice pays through its own events (invoice.payment_succeeded)
