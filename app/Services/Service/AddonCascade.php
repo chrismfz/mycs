@@ -116,23 +116,32 @@ final class AddonCascade
     /**
      * Ended with it, as it ended (terminated or cancelled), with the rest an end does (CronJob, Service::markTerminated):
      * pending upgrades and open invoices cancelled, one holding money left open for staff, stock back.
+     *
+     * Their open invoices are cancelled as one with their service's part of them (REV-779-1), once all of them have ended:
+     * every way a service ends gives up on its own open invoices too (the cron, a request, staff, a delete), a moment
+     * after this. Addon by addon, credit on their common renewal paid what was left of it at each step: the addon's line
+     * gone, the customer's credit paid the renewal of a service that was ending, and nobody was told.
      */
     private static function end(Service $parent): void
     {
         $reason = __('invoices.cancellation_reasons.parent_ended');
         $left = [];
-        foreach (self::locked($parent, Service::PAYING_STATUSES) as $addon) {
+        $addons = self::locked($parent, Service::PAYING_STATUSES);
+        if ($addons->isEmpty()) {
+            return;
+        }
+        $open = collect();
+        foreach ($addons as $addon) {
             // Paid past today: that time ends with its parent, its money kept; staff told, to refund or credit it (code
             // review 4 of #634), as the cron leaves a parent paid ahead to them.
             $paidAhead = $addon->expires_at !== null && $addon->status !== Service::STATUS_PENDING
                 && CarbonImmutable::parse($addon->expires_at)->startOfDay()->greaterThan(CarbonImmutable::today());
             $addon->forceFill(['status' => $parent->status])->save();
             $own = CancelPendingUpgrades::forService($addon, $reason);
-            $own += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $addon), $reason, $addon);
+            $open = $open->concat(CancelOpenInvoices::onServiceEnd($addon->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $addon));
             if ($paidAhead) {
                 $own['paid_ahead'] = new DisplayException("Addon #{$addon->id} was paid until {$addon->expires_at->toDateString()}: refund or credit the unused time if due.");
             }
-            // Keyed by addon: two addons on one invoice each keep their reason (code review 12 of #634).
             foreach ($own as $key => $why) {
                 $left["addon #{$addon->id} {$key}"] = $why;
             }
@@ -140,6 +149,7 @@ final class AddonCascade
                 $addon->product->increment('stock', $addon->quantity);
             }
         }
+        $left += CancelOpenInvoices::handle($open->unique('id')->sortBy('id')->values(), $reason, $parent, array_values($addons->all()));
         self::tellStaff($parent, $left);
     }
 

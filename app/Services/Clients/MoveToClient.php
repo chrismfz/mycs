@@ -232,13 +232,14 @@ final class MoveToClient
             // on an invoice with (adversarial ADV-2).
             $others = $lines->reject($isOurs)->filter(fn (InvoiceItem $line) => $line->reference_type !== null);
             $whole = $others->isEmpty();
-            $order = $whole ? Order::query()->where('invoice_id', $invoice->id)->first() : null;
+            // Read whether it goes whole or not (REV-780-5): an order's own invoice is never cut by a move.
+            $order = Order::query()->where('invoice_id', $invoice->id)->first();
             // An order's own invoice goes with its order when the order is only this item's; otherwise it stays.
-            $orderMoves = $order !== null && $this->orderIsOnly($order, $item);
+            $orderMoves = $whole && $order !== null && $this->orderIsOnly($order, $item);
             if ($invoice->status === Invoice::STATUS_DRAFT) {
                 $why = match (true) {
                     // A draft Ekdosi issued a document for (in one account's ΑΦΜ) stays with it (R2-4 of #459).
-                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]),
+                    EkdosiDocument::activeOn($invoice->id, lock: true) => __('Invoice :invoice has a fiscal document from Ekdosi: issued is final. It is not merged, split or moved; a correction is made in Ekdosi.', ['invoice' => $label]),
                     !$whole => __('clients.move.draft_split', ['invoices' => $label]),
                     $invoice->hasPayments(lock: true) => __('clients.move.paid_in_part', ['invoices' => $label]),
                     default => null,

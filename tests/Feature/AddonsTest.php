@@ -322,10 +322,12 @@ class AddonsTest extends TestCase
         $this->assertSame($to->id, $invoice->fresh()->client_id, 'their invoice moved whole, one invoice still');
     }
 
-    public function test_a_parent_with_running_addons_is_not_deleted(): void
+    /** Not without staff's confirmation (owner 2026-11-10: with it they go together, StaffFreedomServicesTest). */
+    public function test_a_parent_with_running_addons_is_not_deleted_unless_staff_confirm_them_too(): void
     {
         $parent = $this->parent();
         $addon = $this->addon($parent);
+        $ended = $this->addon($parent, status: 'cancelled');
 
         try {
             (new DeleteService)->handle($parent);
@@ -333,11 +335,18 @@ class AddonsTest extends TestCase
         } catch (DisplayException $e) {
             $this->assertSame(__('services.addons.delete_parent'), $e->getMessage());
         }
+        $this->assertNotNull($addon->fresh());
 
-        $addon->forceFill(['status' => 'cancelled'])->save();
-        (new DeleteService)->handle($parent);
+        (new DeleteService)->handle($parent, withAddons: true);
 
-        $this->assertNull($addon->fresh()->parent_service_id, 'an ended addon stays, on its own');
+        $this->assertNull($parent->fresh());
+        // This main service has no account a delete terminates (no module), so it covers nothing on a machine: the addon
+        // that was set up is kept, terminated, with its task for staff (REV-779-2). With an account it is deleted
+        // (StaffFreedomServicesTest).
+        $this->assertSame(Service::STATUS_TERMINATED, $addon->fresh()->status);
+        $this->assertNull($addon->fresh()->parent_service_id);
+        $this->assertTrue(ModuleAction::openTaskKeeps($addon->id));
+        $this->assertNull($ended->fresh()->parent_service_id, 'an ended addon stays, on its own');
     }
 
     public function test_an_addon_product_is_never_ordered_alone(): void

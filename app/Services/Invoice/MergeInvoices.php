@@ -8,7 +8,6 @@ use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
-use App\Services\Ekdosi\EkdosiRequest;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -17,11 +16,12 @@ use Illuminate\Support\Facades\DB;
  * takes the earliest due date, so a merge never delays a suspension. The others are kept, cancelled, «merged into #X»
  * (WHMCS deletes them): no credit note (they bill nothing any more) and no period given up on (their lines moved, Δ3).
  *
- * Refused (InvoiceLineMove::refusal): any invoice not unpaid or a draft, with payments, a line already applied, a credit
- * purchase or a gateway subscription; another customer or currency; a debt kept for an ended service (Δ3a) with one
- * that is not. Since 2026-11-10 (owner, docs/staff-freedom.md): the target's billing details apply to what joins it (no
- * line is re-taxed: each keeps its tax as issued, Δ1), the active notes of the others move with their lines, and an
- * order whose own invoice was merged away follows its lines to the target.
+ * Refused (InvoiceLineMove::refusal): any invoice not unpaid or a draft, one that is Ekdosi's (a document, a request, an
+ * account with «immediate invoicing»), with payments, a line already applied, a credit purchase or a gateway
+ * subscription; another customer or currency; a debt kept for an ended service (Δ3a) with one that is not. Since
+ * 2026-11-10 (owner, docs/staff-freedom.md): the target's billing details apply to what joins it (no line is re-taxed:
+ * each keeps its tax as issued, Δ1), the active notes of the others move with their lines, and an order whose own
+ * invoice was merged away follows its lines to the target.
  */
 final class MergeInvoices
 {
@@ -75,8 +75,6 @@ final class MergeInvoices
             if ($issued !== null && $target->created_at !== null && $issued->lt($target->created_at)) {
                 Invoice::query()->whereKey($target->id)->update(['created_at' => $issued]);
             }
-            // A request to Ekdosi (E5) was for the target's own lines: with others merged in, staff send it again (review of #478).
-            EkdosiRequest::forget((int) $target->id, 'merged_into');
             foreach ($sources as $source) {
                 $source->keep_periods_billable = true; // nothing left on it to give up on
                 $source->merged_into_id = $target->id;
