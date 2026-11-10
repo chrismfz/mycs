@@ -85,7 +85,9 @@ class Sweep7OpsTest extends TestCase
 
         // Staff fix it by hand and take the offered way out: php artisan up (the stub's `up`).
         File::delete([$this->dir . '/fail-migrate', $this->dir . '/is-down', $this->dir . '/log']);
-        // Days later, no deploy in between: staff put the site down on purpose, its workers stopped.
+        // Days later, no deploy in between: staff put the site down on purpose, its workers stopped. (The fix: a marker
+        // older than 24 hours means nothing; younger, the next deploy still brings the site up, Sweep6OpsTest REV-767-1.)
+        touch($marker, time() - 2 * 86400);
         File::put($this->dir . '/is-down', '{}');
 
         [$code, $out, $log] = $this->runDeploy();
@@ -95,6 +97,23 @@ class Sweep7OpsTest extends TestCase
         $this->assertStringNotContainsString("ART up\n", $log);
         $this->assertStringNotContainsString('QSTART', $log, 'workers staff had stopped were started');
         $this->assertStringContainsString('left down', $out);
+        $this->assertFileDoesNotExist($marker, 'the stale marker is removed');
+    }
+
+    /** The other side: a marker a few hours old is the failed deploy's, and the next deploy brings the site up. */
+    public function test_a_marker_a_few_hours_old_still_brings_the_site_up(): void
+    {
+        $this->prepare(downBefore: true);
+        $marker = $this->dir . '/storage/framework/deploy-left-down';
+        File::put($marker, '');
+        touch($marker, time() - 23 * 3600);
+
+        [$code, $out, $log] = $this->runDeploy();
+
+        $this->assertSame(0, $code, $out);
+        $this->assertFileDoesNotExist($this->dir . '/is-down', $out);
+        $this->assertStringContainsString("ART up\n", $log);
+        $this->assertFileDoesNotExist($marker);
     }
 
     /**
