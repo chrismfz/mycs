@@ -41,6 +41,8 @@ return [
     'change_cycle_addon_price' => ':addon, :cycle: :price',
     'change_cycle_suspended' => 'This service is suspended: pay its open invoice first, then change the billing cycle.',
     'upgrade_cycle_change_pending' => 'A billing cycle change is set for this service\'s next renewal: take it back first (Change billing cycle, keep the current one), then change the package.',
+    'upgrade_cycle_change_pending_parent' => 'A billing cycle change is set for the next renewal of the main service #:id, and this addon follows it: take it back there first (on the main service: Change billing cycle, keep the current one), then change the package.',
+    'change_cycle_past_due' => 'This service is past due: pay its open invoice first, then change the billing cycle.',
     'upgrade_waiting' => 'A package change of this service is waiting for payment (invoice #:invoice): pay it, or have the package change cancelled first. To cancel it, contact us.',
     'upgrade_invoice_open' => 'An upgrade invoice of this service is open (#:invoice): pay it or cancel it first. To cancel it, contact us.',
     'upgrade_summary' => 'Upgrade Summary',

@@ -280,9 +280,9 @@ class PaymentReminders
         $bills = $invoice->items->contains(fn ($item) => $item->reference_type === Service::class && (int) $item->reference_id === (int) $service->id
             && $item->kind !== InvoiceItem::KIND_CHARGE);
         $due = fn (Invoice $open) => $dueToo ? $open->due_at ?? $open->created_at : null;
-        $dated = $bills ? [[$due($invoice), $invoice->created_at]]
+        $dated = $bills ? [[$due($invoice), $invoice->created_at ?? $invoice->due_at]]
             : $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(['invoices.due_at', 'invoices.created_at'])
-                ->map(fn (Invoice $open) => [$due($open), $open->created_at])->all();
+                ->map(fn (Invoice $open) => [$due($open), $open->created_at ?? $open->due_at])->all(); // no issue date: its due date (REV-770-2)
         if ($dated === []) {
             $expires = Carbon::parse($service->expires_at)->startOfDay();
             $billedOn = $expires->copy()->subDays(RenewalBilling::serviceInvoiceDays(RenewalBilling::billedPlan($service) ?? $service->plan))->max(Carbon::today());

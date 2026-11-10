@@ -2,18 +2,21 @@
 
 namespace Tests;
 
+use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Console\Commands\CronJob;
 use App\Console\Commands\CronWait;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
@@ -151,6 +154,16 @@ abstract class TestCase extends BaseTestCase
         DB::table('invoice_items')->where('id', $line->id)->update(['created_at' => $issued]);
 
         return $invoice->fresh();
+    }
+
+    /** Staff's «Cancel Invoice», as in the invoices' list (the same action as on its page): the way through a refusal that names an invoice. */
+    protected function staffCancelInvoice(Invoice $invoice, string $reason): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Cancels ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => $reason])->assertHasNoTableActionErrors();
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'staff cancelled the invoice');
     }
 
     //

@@ -160,7 +160,7 @@ class Rev2FPlanChangeTest extends TestCase
         Carbon::setTestNow('2026-11-25 10:00:00');
         $this->change($service, $p10);
         $this->assertSame((int) $p20->id, (int) $service->fresh()->product_id, 'refused while the shortfall is open');
-        $shortfall->invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Downgraded instead']);
+        $this->staffCancelInvoice($shortfall->invoice, 'Downgraded instead');
         $this->change($service, $p10);
         $this->assertSame((int) $p10->id, (int) $service->fresh()->product_id, 'precondition: downgraded');
 

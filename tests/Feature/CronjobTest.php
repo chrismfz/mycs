@@ -192,6 +192,16 @@ class CronjobTest extends TestCase
         ]);
         // Its renewal was billed before it was due (nothing is suspended for an invoice issued fewer than Suspend Days ago).
         $this->billedAhead($service);
+        // And one due in 3 days, not billed yet: the run bills it (it used to bill the overdue one itself).
+        $dueSoon = Service::factory()->create([
+            'client_id' => User::factory()->create()->client()->id,
+            'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id,
+            'status' => 'active',
+            'expires_at' => now()->addDays(3),
+            'currency_code' => 'USD',
+            'price' => 10.00,
+        ]);
 
         Queue::fake();
 
@@ -199,7 +209,16 @@ class CronjobTest extends TestCase
         $this->artisan('app:cron-job')
             ->assertExitCode(0);
 
-        // Its invoice is still open
+        // Check if an invoice was created
+        $this->assertDatabaseHas('invoices', [
+            'client_id' => $dueSoon->client_id,
+            'status' => 'unpaid',
+            'due_at' => $dueSoon->expires_at,
+            'currency_code' => 'USD',
+        ]);
+        $this->assertSame('active', $dueSoon->fresh()->status);
+
+        // The overdue one's invoice is still open
         $this->assertDatabaseHas('invoices', [
             'client_id' => $user->client()->id,
             'status' => 'unpaid',

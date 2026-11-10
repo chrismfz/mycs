@@ -46,6 +46,9 @@ final class PlaceUpgrade
      */
     public const CYCLE_CHANGE_PENDING = 'cycle_change_pending';
 
+    /** The same for an addon: the change is its parent's, taken back there (an addon has no cycle of its own, REV-770-3). */
+    public const PARENT_CYCLE_CHANGE_PENDING = 'parent_cycle_change_pending';
+
     /**
      * A downgrade while an invoice of an earlier upgrade is open (`invoice`: the shortfall of a completed one): it would
      * keep billing the dearer plan for days now on the cheaper one (S6-PLAN-CYCLE-ADDONS-2). Paid or cancelled first.
@@ -89,6 +92,14 @@ final class PlaceUpgrade
         /** Why the discount was refused (DISCOUNT_REFUSED). */
         public readonly ?string $refusal = null,
     ) {}
+
+    /** What the service's customer or staff are told while a change of cycle is set for its next renewal: the way out. */
+    public static function cycleChangePending(Service $service): string
+    {
+        return $service->isAddon()
+            ? __('services.upgrade_cycle_change_pending_parent', ['id' => $service->parent_service_id])
+            : __('services.upgrade_cycle_change_pending');
+    }
 
     /**
      * The plan the service moves to: its own when the product stays (an options upgrade does not move it to another plan
@@ -191,7 +202,7 @@ final class PlaceUpgrade
             return new self(self::NOT_UPGRADABLE);
         }
         if ($service->next_plan_id !== null) {
-            return new self(self::CYCLE_CHANGE_PENDING);
+            return new self($service->isAddon() ? self::PARENT_CYCLE_CHANGE_PENDING : self::CYCLE_CHANGE_PENDING);
         }
 
         // Another product, read again under its lock (sweep UPGRADES-6): what the page listed may have changed since. Not

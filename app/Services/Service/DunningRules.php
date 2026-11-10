@@ -39,7 +39,10 @@ final class DunningRules
         // customer gets Suspend Days from that day to pay. The clock starts at the later of the due date and the issue.
         // A renewal issued before its due date is as before. No open invoice at all: by its due date, as WHMCS.
         $unpaid = fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID);
-        $issuedLongAgo = fn ($invoices) => $unpaid($invoices)->whereDate('invoices.created_at', '<', $cutoff);
+        // One with no issue date (the importer writes none for an unreadable WHMCS date) counts from its due date, and
+        // with neither as issued long ago: it never keeps its service from suspension for good (REV-770-2).
+        $issuedLongAgo = fn ($invoices) => $unpaid($invoices)->whereRaw(
+            '(COALESCE(invoices.created_at, invoices.due_at) IS NULL OR DATE(COALESCE(invoices.created_at, invoices.due_at)) < ?)', [$cutoff]);
         if (!$overdueInvoice) {
             return $query->where(fn ($billed) => $billed->whereDoesntHave('renewalInvoices', $unpaid)->orWhereHas('renewalInvoices', $issuedLongAgo));
         }

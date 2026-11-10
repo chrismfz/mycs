@@ -193,7 +193,10 @@ class Sweep6PlanCycleAddonsTest extends TestCase
                 ChangeCycle::apply($service->fresh(), $aYearly, ChangeCycle::NEXT_RENEWAL, $source);
                 $this->fail('A change of cycle from the next renewal went through while an upgrade waits for payment.');
             } catch (DisplayException $e) {
-                $this->assertSame(__('services.upgrade_waiting', ['invoice' => $placed->invoice->number ?? $placed->invoice->id]), $e->getMessage());
+                $this->assertSame($source === MoneyTrail::SOURCE_STAFF
+                    ? 'A package change of this service is waiting for payment (invoice #' . ($placed->invoice->number ?? $placed->invoice->id)
+                        . '): record its payment, or cancel the change first («Package changes» on the service\'s page, Cancel).'
+                    : __('services.upgrade_waiting', ['invoice' => $placed->invoice->number ?? $placed->invoice->id]), $e->getMessage());
             }
         }
         $this->assertNull($service->fresh()->next_plan_id);
@@ -258,8 +261,11 @@ class Sweep6PlanCycleAddonsTest extends TestCase
             ChangeCycle::apply($service->fresh(), $bYearly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
             $this->fail('The upgrade\'s shortfall (Pro over Basic, Dec 1 - Jan 1) stays open after a new yearly Pro period from Dec 5 was billed in full.');
         } catch (DisplayException $e) {
-            $this->assertSame(__('services.upgrade_invoice_open', ['invoice' => $shortfall->number ?? $shortfall->id]), $e->getMessage());
+            // Staff are told where the way through is; the customer's wording («contact us») is the lang string.
+            $this->assertStringContainsString('«Cancel Invoice» on invoice #' . $shortfall->id, $e->getMessage());
         }
+        $this->assertSame(__('services.upgrade_invoice_open', ['invoice' => $shortfall->number ?? $shortfall->id]),
+            ChangeCycle::refusal($service->fresh(), $bYearly, ChangeCycle::NOW, MoneyTrail::SOURCE_SYSTEM));
         $this->assertSame(Invoice::STATUS_UNPAID, $shortfall->fresh()->status);
         $this->assertSame('2027-01-01', $service->fresh()->expires_at->toDateString(), 'nothing changed');
 
@@ -271,7 +277,7 @@ class Sweep6PlanCycleAddonsTest extends TestCase
         $this->assertSame(1, ServiceUpgrade::query()->where('service_id', $service->id)->count(), 'the refused downgrade left no row');
 
         // Staff's way through: «Cancel» on the shortfall invoice, then the change of cycle now goes ahead.
-        $shortfall->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Cycle changed instead']);
+        $this->staffCancelInvoice($shortfall, 'Cycle changed instead');
         $invoice = ChangeCycle::apply($service->fresh(), $bYearly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
         $this->assertNotNull($invoice);
         $this->assertSame($bYearly->id, (int) $service->fresh()->plan_id);

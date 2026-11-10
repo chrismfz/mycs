@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Livewire\Services\Show;
 use App\Models\Client;
 use App\Models\Invoice;
@@ -113,7 +114,9 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
                 ->set('cyclePlan', $plan->id)->call('changeCycle')->assertHasNoErrors();
         }
         $this->assertNull($service->fresh()->next_plan_id, 'precondition: taken back, the service is as it was');
-        $this->assertSame([], $this->openIssuedOn($service), 'precondition: its open renewal went with the change');
+        // The fix (REV-770-1): past due, the customer's change is refused («pay the open invoice first»), so the open
+        // renewal stays, with its issue date. The reviewer's precondition here was the hole itself (the renewal gone).
+        $this->assertSame(['2026-10-08'], $this->openIssuedOn($service), 'its open renewal is not cancelled by a customer past due');
 
         $this->cronOn('2026-10-24');
 
@@ -138,8 +141,14 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
             // Every 7th day from 10-14, at noon: the other cycle, from the next renewal.
             if ($day->gte('2026-10-14') && (int) Carbon::parse('2026-10-14')->diffInDays($day) % 7 === 0 && $service->fresh()->status === 'active') {
                 Carbon::setTestNow($day->toDateString() . ' 12:00:00');
-                ChangeCycle::apply($service->fresh(), $to, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
-                $to = (int) $to->id === (int) $yearly->id ? $monthly : $yearly;
+                // The fix refuses the customer's change once the service is past due (the message: pay first): the
+                // reviewer's test let it through and asked for the suspension all the same; either way it must be suspended.
+                try {
+                    ChangeCycle::apply($service->fresh(), $to, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+                    $to = (int) $to->id === (int) $yearly->id ? $monthly : $yearly;
+                } catch (DisplayException $e) {
+                    $this->assertSame(__('services.change_cycle_past_due'), $e->getMessage());
+                }
             }
             $this->cronOn($day->copy()->addDay()->toDateString());
         }
@@ -200,5 +209,42 @@ class Sweep6SuspendUpgradesReviewTest extends TestCase
         $named = ChangeCycle::refusal($addon->fresh(), $ipMonthly, ChangeCycle::NEXT_RENEWAL);
         $this->assertTrue($placed->outcome !== PlaceUpgrade::CYCLE_CHANGE_PENDING || $named === null,
             'the addon is told «' . __('services.upgrade_cycle_change_pending', [], 'en') . '», and taking it back on the addon answers «' . $named . '»');
+    }
+
+    /** REV-770-1, the fix: past due the customer is told to pay first (el + en), taking a change back still works, and staff keep the change. */
+    public function test_rev_770_1_past_due_the_customer_is_refused_and_staff_are_not(): void
+    {
+        [$service, $monthly, $yearly] = $this->monthlyWithYearly('2026-10-15');
+        $this->cronOn('2026-10-08');
+        Carbon::setTestNow('2026-10-15 12:00:00');
+        $this->assertNull(ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM), 'on its due day: not past due yet');
+
+        Carbon::setTestNow('2026-10-16 12:00:00');
+        $this->assertSame(__('services.change_cycle_past_due'), ChangeCycle::refusal($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM));
+        foreach (['en' => 'pay its open invoice first', 'el' => 'πληρώστε πρώτα το ανοιχτό τιμολόγιό της'] as $locale => $wayOut) {
+            $this->assertStringContainsString($wayOut, __('services.change_cycle_past_due', [], $locale));
+        }
+
+        // Staff: the change goes (their cancel and re-issue gives Suspend Days, as documented), and they take it back.
+        ChangeCycle::apply($service->fresh(), $yearly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_STAFF);
+        $this->assertSame($yearly->id, (int) $service->fresh()->next_plan_id);
+        // The customer may still take a change back (it cancels nothing).
+        ChangeCycle::apply($service->fresh(), $monthly, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+        $this->assertNull($service->fresh()->next_plan_id);
+    }
+
+    /** REV-770-3, the fix: the addon's refusal names the main service, in both languages. */
+    public function test_rev_770_3_the_addons_refusal_names_the_main_service(): void
+    {
+        [$parent] = $this->monthlyWithYearly('2026-12-01');
+        $addon = Service::factory()->create(['client_id' => $this->client->id, 'parent_service_id' => $parent->id, 'product_id' => $parent->product_id,
+            'plan_id' => $parent->plan_id, 'status' => 'active', 'expires_at' => '2026-12-01', 'currency_code' => 'USD', 'price' => 2.00]);
+
+        foreach (['en' => 'main service #' . $parent->id, 'el' => 'κύριας υπηρεσίας #' . $parent->id] as $locale => $names) {
+            app()->setLocale($locale);
+            $this->assertStringContainsString($names, PlaceUpgrade::cycleChangePending($addon));
+        }
+        app()->setLocale('en');
+        $this->assertSame(__('services.upgrade_cycle_change_pending'), PlaceUpgrade::cycleChangePending($parent));
     }
 }

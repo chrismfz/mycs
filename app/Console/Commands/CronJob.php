@@ -1081,9 +1081,16 @@ class CronJob extends Command
         $natural = Carbon::parse($service->expires_at)->startOfDay()->addDays($days + 1);
         // Also its first open invoice's day, as suspendable() counts it: Suspend Days from its issue (S6-CRON-BILLING-1/2),
         // and with «suspend only with an overdue invoice» from its due date too (ADV-HOLD-R2-1).
+        // One with no issue date (an imported one) counts from its due date; with neither, it adds no day of its own (REV-770-2).
         $invoiceDay = $service->renewalInvoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
-            ->map(fn (Invoice $invoice) => Carbon::parse($invoice->created_at)->max(Carbon::parse($requiresInvoice ? $invoice->due_at ?? $invoice->created_at : $invoice->created_at))
-                ->startOfDay()->addDays($days + 1))
+            ->map(function (Invoice $invoice) use ($days, $requiresInvoice, $natural) {
+                $issued = $invoice->created_at ?? $invoice->due_at;
+                if ($issued === null) {
+                    return $natural->copy();
+                }
+
+                return Carbon::parse($issued)->max(Carbon::parse($requiresInvoice ? $invoice->due_at ?? $issued : $issued))->startOfDay()->addDays($days + 1);
+            })
             ->min();
         if ($invoiceDay !== null && $invoiceDay->greaterThan($natural)) {
             $natural = $invoiceDay;
