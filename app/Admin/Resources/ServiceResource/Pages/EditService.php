@@ -279,6 +279,9 @@ class EditService extends EditRecord
             // form's Account, one button each.
             ActionGroup::make([
                 DeleteAction::make()
+                    // Its addons still running go with it (owner 2026-11-10, as WHMCS): named here, before staff confirm.
+                    ->modalDescription(fn (Service $record) => ($addons = DeleteService::addonList($record)) !== ''
+                        ? __('services.addons.delete_with', ['addons' => $addons]) : null)
                     ->form(function (DeleteAction $action) use ($record) {
                         // A record of an account already gone (terminated straight on the server): untick to delete only it.
                         if ($record->isEnded() || $record->status === Service::STATUS_PENDING || !$record->hasServerActions()) {
@@ -293,7 +296,7 @@ class EditService extends EditRecord
                     })
                     ->action(function (array $data, Service $record): void {
                         try {
-                            (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
+                            (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false), withAddons: true);
                         } catch (DisplayException $e) {
                             Notification::make('Error')->title(__('Service not deleted'))->body(e($e->getMessage()))->danger()->send();
 

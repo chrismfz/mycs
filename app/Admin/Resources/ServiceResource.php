@@ -654,10 +654,13 @@ class ServiceResource extends Resource
             ->requiresConfirmation()
             ->schema([
                 Checkbox::make('deleteExtensionServer')->label('Also trigger deletion of server (running services)')->default(true),
+                // Off: a service with running addons is kept and reported, as before. On: they go with it (DeleteService).
+                Checkbox::make('withAddons')->label(__('services.addons.delete_with_bulk'))->default(false),
             ])
             ->action(function (Collection $records, array $data): void {
                 $kept = [];
-                foreach ($records as $service) {
+                // Main services first, each with its addons: an addon selected too is gone by its turn (nothing to do).
+                foreach ($records->sortBy(fn (Model $service) => [$service->getAttribute('parent_service_id') !== null, $service->getKey()]) as $service) {
                     /** @var Service $service */
                     if (!auth()->user()?->can('delete', $service)) {
                         $kept[] = "#{$service->id}: " . __('You do not have access to this area of the account.');
@@ -665,7 +668,7 @@ class ServiceResource extends Resource
                         continue;
                     }
                     try {
-                        (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false));
+                        (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false), (bool) ($data['withAddons'] ?? false));
                     } catch (Throwable $e) {
                         if (!$e instanceof DisplayException) {
                             report($e);

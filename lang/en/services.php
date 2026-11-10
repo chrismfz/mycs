@@ -511,7 +511,10 @@ return [
         'parent_other_currency' => 'An addon is billed in the same currency as its main service.',
         'parent_currency' => 'This service has addons: its currency is theirs too, and cannot change.',
         'move_addon' => 'An addon moves with its main service: move that one.',
-        'delete_parent' => 'This service has addons still running: end or delete them first.',
+        'delete_parent' => 'This service has addons still running: end or delete them first, or delete them with it (on its page; the API: with_addons=1).',
+        'delete_with' => 'Its addons still running are deleted with it: :addons. Their unpaid invoice lines are cancelled; what was paid stays as history. An addon with money on an open invoice or an open task stops the whole delete. Ended addons stay, on their own.',
+        'delete_with_bulk' => 'Also delete their addons still running (without this, a service with running addons is kept)',
+        'delete_addon_refused' => 'Addon #:id (:addon) stops the delete, nothing was deleted: :reason',
         'cycle' => [
             'behind' => 'Addon #:id is due on another date than this service (the invoice of one of the two is still open): pay that open invoice first, then change the billing cycle.',
             'cancelling' => 'Addon #:id is to be cancelled: withdraw its cancellation, or wait until it ends, then change the billing cycle.',
