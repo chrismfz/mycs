@@ -54,7 +54,7 @@ final class DunningForecast
     {
         $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
         $terminateDays = DunningRules::days('cronjob_order_terminate', 60);
-        $minSuspended = DunningRules::days('cronjob_terminate_min_suspended_days', 1);
+        $minSuspended = DunningRules::days('cronjob_terminate_min_suspended_days', 7);
         $last = $today->copy()->addDays($days);
 
         // The first day each service qualifies, then the window's first open day from it.

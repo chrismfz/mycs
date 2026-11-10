@@ -599,10 +599,10 @@ class Settings
                     'section' => 'Automatic Module Functions',
                     'label' => 'Minimum days suspended before termination',
                     'type' => 'number',
-                    'default' => 1,
+                    'default' => 7,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a date moved back, the cron down): the customer gets the suspension email first. 0 = as WHMCS.',
+                    'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a service brought back long past due, the cron down): the customer gets the suspension email and these days to pay first. 0 = as WHMCS.',
                 ],
                 [
                     'name' => 'cronjob_dunning_days',
