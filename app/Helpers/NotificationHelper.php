@@ -694,34 +694,57 @@ class NotificationHelper
     }
 
     /**
-     * The welcome mail's «Server»: the hosting panel's hostname and IP (cPanel, DirectAdmin: where the account is, for its
-     * DNS and login; never another module's address, a cluster's API is not the customer's), and the service's own IPs.
+     * A panel's host as a name for the customer, or null: never an address (a panel set by its IP, often a LAN one, has
+     * no name to sign in at or to give a certificate; its public IP is the «IP» line's; review of #787).
+     */
+    public static function hostName(mixed $host): ?string
+    {
+        $host = is_string($host) ? trim($host, '[] ') : '';
+
+        return $host !== '' && filter_var($host, FILTER_VALIDATE_IP) === false && str_contains($host, '.') ? $host : null;
+    }
+
+    /** Hosting panels: the account's DNS is the company's nameservers. */
+    private const HOSTING = ['CPanel', 'DirectAdmin', 'Ngm'];
+
+    /** Machines the customer signs in to as root (WHMCS's «Dedicated/VPS Server Welcome Email»). */
+    private const MACHINES = ['Proxmox', 'OfflineDedicated', 'OfflineVm'];
+
+    /**
+     * The welcome mail's «Server» (and the customer's service page): the hosting panel's hostname and IP (cPanel,
+     * DirectAdmin: where the account is, for its DNS and login; never another module's address, a cluster's API is not the
+     * customer's), and the service's own IPs. A hosting account's nameservers are the company's (the «Default Nameserver»
+     * settings: every server of myip had the same ones in WHMCS, owner 2026-11-11); a machine's SSH host is its first IP.
      *
-     * @return array{service_server: ?bool, server_hostname: ?string, server_ip: ?string, service_ips: ?string} service_server:
-     *                                                                                                          any of them (the
-     *                                                                                                          templates have no «or»)
+     * @return array{service_server: ?bool, server_hostname: ?string, server_ip: ?string, service_ips: ?string, nameservers: ?string, ssh_host: ?string}
+     *                                                                                                                                                   service_server: the hostname, the IP or the
+     *                                                                                                                                                   IPs (the templates have no «or»)
      */
     public static function welcomeServer(Service $service): array
     {
         // A public address only (a panel reached over the LAN is no address of the customer's: review of #674).
         $public = fn (mixed $value) => filter_var(trim((string) $value), FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ?: null;
         // Never lost: the welcome goes without the block if the server's settings cannot be read.
-        [$hostname, $ip] = rescue(function () use ($service, $public) {
+        [$hostname, $ip, $module] = rescue(function () use ($service, $public) {
             $server = $service->provisioningServer();
             if ($server === null || !in_array($server->extension, ['CPanel', 'DirectAdmin'], true)) {
-                return [null, null];
+                return [null, null, $server?->extension];
             }
             $settings = $server->settings->pluck('value', 'key');
             $host = parse_url(trim((string) ($settings['host'] ?? '')), PHP_URL_HOST);
 
-            return [is_string($host) && $host !== '' ? $host : null, $public($settings['ip'] ?? '')];
-        }, [null, null]);
+            return [self::hostName($host), $public($settings['ip'] ?? ''), $server->extension];
+        }, [null, null, null]);
         // Only what is an IP of the free text WHMCS kept (assignedips may hold notes).
         $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])
             ->map(fn ($value) => trim((string) $value))->filter(fn (string $value) => filter_var($value, FILTER_VALIDATE_IP) !== false)->unique()->values();
+        $ssh = in_array($module, self::MACHINES, true) ? $ips->first() : null;
         $ips = $ips->isNotEmpty() ? $ips->implode(', ') : null;
+        $nameservers = in_array($module, self::HOSTING, true) ? collect(range(1, 5))
+            ->map(fn (int $n) => rtrim(trim((string) config("settings.domain_nameserver_{$n}", '')), '.'))->filter()->unique()->implode(', ') : '';
 
-        return ['service_server' => $hostname !== null || $ip !== null || $ips !== null ? true : null, 'server_hostname' => $hostname, 'server_ip' => $ip, 'service_ips' => $ips];
+        return ['service_server' => $hostname !== null || $ip !== null || $ips !== null ? true : null, 'server_hostname' => $hostname, 'server_ip' => $ip, 'service_ips' => $ips,
+            'nameservers' => $nameservers !== '' ? $nameservers : null, 'ssh_host' => $ssh];
     }
 
     /**

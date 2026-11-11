@@ -208,6 +208,8 @@
   email logs με κωδικούς σβήνονται στις 90 μέρες.
 
 ## Κωδικός υπηρεσίας και welcome email (υπεύθυνος, 2026-10-29)
+Τι γράφει το welcome email ανά module (διευθύνσεις panel, nameservers, SSH) και ποιο module δίνει τι: `templates.md`.
+Ένα νέο module που έχει δική του διεύθυνση για τον πελάτη δίνει `panel_url` από το `welcomeData` του (cPanel, ngm).
 Από τις συνήθειες του WHMCS. Στη σελίδα της υπηρεσίας του staff, στο «More»:
 - **«Resend welcome email»** (το «Resend Welcome Email» του WHMCS, `App\Services\Service\WelcomeMail`): το ίδιο mail με
   την ενεργοποίηση (`new_server_created`, `serverCreatedNotification`), με τον κωδικό που είναι αποθηκευμένος **τώρα**.

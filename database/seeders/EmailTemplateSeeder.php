@@ -301,6 +301,44 @@ class EmailTemplateSeeder extends Seeder
                 {% endif %}
                 {% endif %}
 
+                {% if panel_url %}
+                **Control panel**
+                - Control panel: <a href="{{ panel_url }}">{{ panel_url }}</a>
+                {% if webmail_url %}
+                - Webmail: <a href="{{ webmail_url }}">{{ webmail_url }}</a>
+                {% endif %}
+                {% if whm_url %}
+                - WHM (reseller): <a href="{{ whm_url }}">{{ whm_url }}</a>
+                {% endif %}
+
+                For your security, change your password after you first sign in.
+                {% endif %}
+
+                {% if server_hostname %}
+                **FTP and email**
+                {% if service.username %}
+                - FTP: {{ server_hostname }}, with the username and password above
+                {% endif %}
+                {% if service.domain %}
+                - Incoming and outgoing mail server, once your domain points here: mail.{{ service.domain }}. Sign in with the full email address and turn on SMTP authentication.
+                {% endif %}
+                {% endif %}
+
+                {% if nameservers %}
+                **Nameservers**
+                - {{ nameservers }}
+
+                If your domain is registered elsewhere, set these nameservers at its registrar. The change may take 24–48 hours to reach everyone.
+                {% endif %}
+
+                {% if ssh_host %}
+                **SSH access**
+                - Host: {{ ssh_host }}, user: root, port: 22
+                - From Linux or macOS: `ssh root@{{ ssh_host }}`
+
+                For your security, change the root password after you first sign in.
+                {% endif %}
+
                 {% if service_server %}
                 **Server**
                 {% if server_hostname %}
@@ -1442,6 +1480,44 @@ class EmailTemplateSeeder extends Seeder
                     **Στοιχεία σύνδεσης**
                     - Κωδικός: {{ service_password }}
                     {% endif %}
+                    {% endif %}
+
+                    {% if panel_url %}
+                    **Πίνακας ελέγχου**
+                    - Πίνακας ελέγχου: <a href="{{ panel_url }}">{{ panel_url }}</a>
+                    {% if webmail_url %}
+                    - Webmail: <a href="{{ webmail_url }}">{{ webmail_url }}</a>
+                    {% endif %}
+                    {% if whm_url %}
+                    - WHM (reseller): <a href="{{ whm_url }}">{{ whm_url }}</a>
+                    {% endif %}
+
+                    Για την ασφάλειά σας, αλλάξτε τον κωδικό σας μετά την πρώτη σύνδεση.
+                    {% endif %}
+
+                    {% if server_hostname %}
+                    **FTP και email**
+                    {% if service.username %}
+                    - FTP: {{ server_hostname }}, με το όνομα χρήστη και τον κωδικό παραπάνω
+                    {% endif %}
+                    {% if service.domain %}
+                    - Server εισερχόμενης και εξερχόμενης αλληλογραφίας, αφού το domain σας δείξει εδώ: mail.{{ service.domain }}. Συνδεθείτε με ολόκληρη τη διεύθυνση email και ενεργοποιήστε το SMTP authentication.
+                    {% endif %}
+                    {% endif %}
+
+                    {% if nameservers %}
+                    **Nameservers**
+                    - {{ nameservers }}
+
+                    Αν το domain σας είναι καταχωρημένο αλλού, ορίστε αυτούς τους nameservers στον καταχωρητή του. Η αλλαγή μπορεί να χρειαστεί 24–48 ώρες για να ισχύσει παντού.
+                    {% endif %}
+
+                    {% if ssh_host %}
+                    **Πρόσβαση SSH**
+                    - Host: {{ ssh_host }}, χρήστης: root, port: 22
+                    - Από Linux ή macOS: `ssh root@{{ ssh_host }}`
+
+                    Για την ασφάλειά σας, αλλάξτε τον κωδικό του root μετά την πρώτη σύνδεση.
                     {% endif %}
 
                     {% if service_server %}

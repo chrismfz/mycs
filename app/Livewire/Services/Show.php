@@ -5,6 +5,7 @@ namespace App\Livewire\Services;
 use App\Exceptions\DisplayException;
 use App\Exceptions\ServerRefused;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Livewire\Component;
 use App\Models\ClientUser;
 use App\Models\Service;
@@ -918,6 +919,9 @@ class Show extends Component
             'canSeeContact' => $canEditContact || $this->canSeeContact(),
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),
+            // Where it lives, as the welcome mail says it (WHMCS's «Server Information»): a hosting panel's hostname, IP and nameservers.
+            // Only of an account that is there (as the module's actions): never of an unpaid order or an ended service.
+            'serverInfo' => in_array($this->service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) ? NotificationHelper::welcomeServer($this->service) : [],
             'sslOrder' => $sslOrder = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
             ...$this->sslVaultView($sslOrder),
         ])->layoutData([

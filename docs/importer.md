@@ -777,6 +777,10 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email. Αυτό λέει πια και πού ζει η υπηρεσία,
   όπως τα «Hosting/Reseller/Dedicated-VPS Welcome» του myip (ιδιοκτήτης 2026-11-06): hostname και IP του panel (cPanel,
   DirectAdmin· ποτέ η διεύθυνση άλλου module, π.χ. του cluster) και οι IPs της υπηρεσίας (dedicated και assigned).
+  Από 2026-11-11 λέει και τις διευθύνσεις cPanel/webmail/WHM, FTP και mail host, τους nameservers και, για μηχάνημα, τη
+  γραμμή SSH (`templates.md` → «Τι λέει το welcome email για hosting και μηχανήματα»). Οι nameservers **δεν** έρχονται από
+  το `tblservers`: είναι οι «Default Nameserver» του instance, που πρέπει να είναι συμπληρωμένοι πριν το cut-over. Ο
+  οδηγός WHM του «Reseller Account Welcome Email» μπαίνει με το χέρι ως snippet στα προϊόντα reseller (myip: 6).
 - **Ιστορικό emails** (`WhmcsEmailHistoryImport`): το τελευταίο έτος του `tblemails` (nixpal 4.033 από 13.136) στο `email_logs`
   (το `cronjob_delete_email_logs` γίνεται 365, αλλιώς το πρώτο prune σβήνει τα 9 από τους 12 μήνες). Τα bodies **καθαρίζονται**:
   `Password: …`, κλειδιά στα query των links (reset κωδικού) και κάθε γνωστό secret (`Redact::text`)· 2 body της nixpal είχαν.
