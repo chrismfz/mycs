@@ -354,6 +354,21 @@ class TemplateRenderer
         }
 
         // The product's own snippet (e.g. login details) is a template too, rendered with the same data.
+        $data = self::withProductInfo($data);
+
+        return $data;
+    }
+
+    /**
+     * The data with `product_info`, its service's product snippet rendered with it (again, for the email log: with its
+     * secrets masked, code review of #786).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function withProductInfo(array $data): array
+    {
+        $service = $data['service'] ?? null;
         $snippet = $service instanceof Service ? $service->product?->email_template : null;
         if ($snippet) {
             try {

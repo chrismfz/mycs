@@ -402,6 +402,57 @@ class CentovaCastExtensionTest extends TestCase
         $this->assertSame([], $this->sent('server.getaccount'));
     }
 
+    public function test_an_ended_service_that_kept_the_name_is_not_in_the_way(): void
+    {
+        // Code review of #786: terminate (disable only) keeps the username; the live station still reads its own.
+        $this->live();
+        Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'server_id' => $this->server->id, 'status' => Service::STATUS_TERMINATED, 'username' => 'radio', 'currency_code' => 'USD', 'price' => 10]);
+
+        $this->assertContains('Src-Pass-9', array_column(ExtensionHelper::getActions($this->service->fresh()), 'text'));
+    }
+
+    public function test_an_answer_about_another_account_is_not_shown_or_kept(): void
+    {
+        $this->live();
+        $this->accounts['radio']['username'] = 'radio2'; // getaccount answers with another name
+        $this->accounts['radio']['port'] = '9999';
+
+        $fields = array_column(ExtensionHelper::getActions($this->service->fresh()), 'text');
+
+        $this->assertNotContains('Src-Pass-9', $fields);
+        $this->assertSame('9250', $this->service->properties()->where('key', 'centova_port')->value('value'));
+    }
+
+    public function test_a_page_view_that_learns_nothing_writes_nothing(): void
+    {
+        $this->live();
+        ExtensionHelper::getActions($this->service->fresh());
+        $before = $this->service->properties()->pluck('updated_at', 'key')->all();
+        $this->travel(5)->minutes();
+
+        ExtensionHelper::getActions($this->service->fresh());
+
+        $this->assertEquals($before, $this->service->properties()->pluck('updated_at', 'key')->all());
+    }
+
+    public function test_a_short_source_password_in_the_products_snippet_is_not_in_the_email_log(): void
+    {
+        // Code review of #786: the snippet was rendered before the log's masking, and a 3-character secret is not searched for.
+        $this->live();
+        $this->accounts['radio']['sourcepassword'] = 'ab3';
+        config(['settings.mail_disable' => false]);
+        $this->service->forceFill(['username' => 'radio', 'password' => 'Old-Pass-123'])->save();
+        $this->service->product->forceFill(['email_template' => "{% if centova_source_password %}\nSource Password: {{ centova_source_password }}\n{% endif %}"])->save();
+
+        NotificationHelper::serverCreatedNotification($this->service->client, $this->service->fresh());
+
+        $this->assertStringContainsString('Source Password: ab3', Mail::queued(MyCSMail::class)->sole()->renderedHtml);
+        $log = (string) EmailLog::query()->sole()->body;
+        $this->assertStringContainsString('Source Password: ', $log);
+        $this->assertStringNotContainsString('ab3', $log);
+    }
+
     public function test_the_welcome_mail_carries_the_port_and_the_source_password_and_the_log_does_not(): void
     {
         $this->live();

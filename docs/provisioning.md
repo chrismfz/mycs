@@ -378,6 +378,8 @@ Modules για το myip:
   λάθος χωρίς να φαίνεται. Η σελίδα της υπηρεσίας και το welcome email κάνουν ένα `getaccount` (timeout 8 δευτ.)· με την
   ίδια απάντηση διορθώνονται port, τύπος και AutoDJ που κρατά η υπηρεσία (κενά ή λάθος από το import). Αν το Centova δεν
   απαντά, ή αν άλλη ζωντανή υπηρεσία εδώ έχει το ίδιο username, δείχνεται μόνο ό,τι κρατά η υπηρεσία, χωρίς κωδικό πηγής.
+  Γνωστό και αποδεκτό (code review του #786): και το κουμπί «Πίνακας Centova Cast» περνά από το ίδιο `getaccount`, άρα
+  με το Centova κάτω περιμένει ως το timeout πριν ανοίξει τη σελίδα σύνδεσης (που είναι επίσης κάτω).
   Ελέγχθηκε στον stream (Centova 3.3.2, μόνο ανάγνωση): το `getaccount` δίνει `sourcepassword`, `servertype`, `apptypes`
   (το AutoDJ), `port` και τα όρια. **Δεν κάναμε** (υπάρχουν στο panel του Centova, 9 σταθμοί): κατάσταση server/AutoDJ
   στη σελίδα, ακροατές/bitrate, κουμπιά Start/Stop/Restart για το staff. Το staff βλέπει τα properties της υπηρεσίας· τον

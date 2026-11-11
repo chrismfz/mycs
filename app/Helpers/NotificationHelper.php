@@ -188,7 +188,10 @@ class NotificationHelper
         if ($secrets === []) {
             return $mail->render();
         }
-        $masked = (new Mail($template, array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK))))->locale($mail->locale);
+        // The product's snippet too: it was rendered with the secrets, and a short one is not found by searching (code
+        // review of #786: a 3-character source password stayed in the log).
+        $masked = TemplateRenderer::withProductInfo(array_diff_key(array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK)), ['product_info' => true]));
+        $masked = (new Mail($template, $masked))->locale($mail->locale);
 
         return Redact::values($masked->render(), $secrets);
     }

@@ -126,9 +126,7 @@ class CentovaCast extends Server implements ReadsServiceUsage
     private static function owned(CentovaApi $api, Service $service, array $properties): string
     {
         $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
-        $others = collect(self::claimants($service, $username, [self::USERNAME]))
-            ->contains(fn (Service $other) => !in_array($other->status, [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED], true));
-        if ($others) {
+        if (self::sharedWithLive($service, $username)) {
             throw new Exception("Centova Cast: another service here has the account «{$username}»: check them before anything is done");
         }
         if (self::account($api, $username) === []) {
@@ -136,6 +134,13 @@ class CentovaCast extends Server implements ReadsServiceUsage
         }
 
         return $username;
+    }
+
+    /** Another service here that has not ended has this account's name (an ended one kept its name: it is not in the way). */
+    private static function sharedWithLive(Service $service, string $username): bool
+    {
+        return collect(self::claimants($service, $username, [self::USERNAME]))
+            ->contains(fn (Service $other) => !in_array($other->status, [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED], true));
     }
 
     /**
@@ -335,12 +340,13 @@ class CentovaCast extends Server implements ReadsServiceUsage
     }
 
     /** Its port, server type and AutoDJ type as Centova answered them (`apptypes` is the AutoDJ's name since Centova 3; `sourcetype` before). */
-    private static function keep(Service $service, array $account): void
+    private static function keep(Service $service, array $account, array $kept = []): void
     {
         $account['sourcetype'] = self::text($account['apptypes'] ?? null) ?: ($account['sourcetype'] ?? null);
         foreach (['port' => 'Centova port', 'servertype' => 'Centova server type', 'sourcetype' => 'Centova AutoDJ type'] as $key => $name) {
             $value = self::text($account[$key] ?? null);
-            if ($value !== '') {
+            // Only what changed: a page view that learns nothing writes nothing (code review of #786).
+            if ($value !== '' && $value !== ($kept["centova_{$key}"] ?? null)) {
                 $service->properties()->updateOrCreate(['key' => "centova_{$key}"], ['name' => $name, 'value' => $value]);
             }
         }
@@ -361,7 +367,7 @@ class CentovaCast extends Server implements ReadsServiceUsage
     private function live(Service $service, array $properties): array
     {
         $username = self::username($service, $properties);
-        if ($username === null || self::claimants($service, $username, [self::USERNAME]) !== []) {
+        if ($username === null || self::sharedWithLive($service, $username)) {
             return [];
         }
         try {
@@ -374,7 +380,7 @@ class CentovaCast extends Server implements ReadsServiceUsage
         if (!is_array($account) || ($account['username'] ?? null) !== $username) {
             return [];
         }
-        self::keep($service, $account);
+        self::keep($service, $account, $properties);
 
         return $account;
     }
