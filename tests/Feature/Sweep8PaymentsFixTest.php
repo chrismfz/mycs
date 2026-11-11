@@ -155,21 +155,33 @@ class Sweep8PaymentsFixTest extends TestCase
         $this->assertSame([$first->key, $first->key], $keys, 'sent again with its own key');
     }
 
-    /** The neighbour: a resend that IS sent and declined settles the original as failed, and the invoice is payable again. */
-    public function test_a_resend_that_is_sent_and_declined_settles_the_original_and_releases_the_invoice(): void
+    /**
+     * The rule (review of #791, REV-791-1/-2): a resend only ever confirms the payment. A decline answered on the resend
+     * (as anything else but a success) leaves the attempt unknown, held, with its first error, for staff to resolve; the
+     * customer is not mailed and no decline is counted. (This test first expected the decline to settle the original.)
+     */
+    public function test_a_resend_that_is_sent_and_declined_leaves_the_original_unknown_for_staff(): void
     {
         [$mode, $keys, $customer] = ['timeout', [], 200];
         $this->stripe($mode, $keys, $customer);
         $invoice = $this->invoice();
-        $first = $this->charge($invoice);
+        $first = $this->charge($invoice, ChargeAttempt::SOURCE_CRON);
 
         Carbon::setTestNow('2026-11-10 09:01:00');
         $mode = 'decline';
-        $resent = $this->charge($invoice);
+        $resent = $this->charge($invoice, ChargeAttempt::SOURCE_CRON);
         $this->assertSame($first->id, $resent->id);
-        $this->assertSame(ChargeAttempt::STATUS_FAILED, $resent->status);
-        $this->assertSame('Card declined: insufficient_funds', $resent->error);
-        $this->assertFalse(SavedMethodCharge::onItsWay($invoice->fresh()));
+        $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, $resent->status);
+        $this->assertSame($first->error, $resent->error);
+        $this->assertTrue(SavedMethodCharge::onItsWay($invoice->fresh()));
+        $this->assertSame(0, (int) $this->card->fresh()->failed_count);
+        $this->assertSame(0, $this->failedMails());
+
+        // And a later resend that Stripe takes still settles it, with the same key.
+        Carbon::setTestNow('2026-11-10 09:02:00');
+        $mode = 'ok';
+        $this->assertSame(ChargeAttempt::STATUS_SUCCEEDED, $this->charge($invoice, ChargeAttempt::SOURCE_CRON)->status);
+        $this->assertCount(1, array_unique($keys));
     }
 
     /** The neighbour: a FIRST charge not sent is still «not sent», holds nothing, and the next one is a new charge. */
@@ -210,7 +222,7 @@ class Sweep8PaymentsFixTest extends TestCase
             (new AutoCharge)->run();
             $attempt = ChargeAttempt::query()->where('invoice_id', $invoice->id)->sole();
             $this->assertSame(ChargeAttempt::STATUS_NOT_SENT, $attempt->status, 'HTTP ' . $answer[0]);
-            $this->assertSame('Stripe refused our key: nothing was charged', $attempt->error);
+            $this->assertSame('Stripe refused our key: the charge was not sent', $attempt->error);
             $this->assertFalse(SavedMethodCharge::onItsWay($invoice->fresh()));
             $invoice->update(['status' => Invoice::STATUS_CANCELLED]); // the next refusal's run charges its own invoice only
         }
