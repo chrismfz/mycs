@@ -836,10 +836,12 @@ class PayPal extends Gateway
             try {
                 $order = $this->request('get', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v2/checkout/orders/' . $orderID);
             } catch (PayPalApiException $e) {
-                if ($e->status >= 500) {
-                    throw $e; // PayPal unavailable: retried
+                // Only «no such order» (404: another app's on the same account, a deleted one) is final. Anything else is
+                // no answer about the order (5xx, a rate limit's 429, our credentials refused: 401/403): thrown, so the
+                // webhook fails and PayPal sends the event again; ignored, the capture was never recorded (S10-PAYMENTS-2).
+                if ($e->status !== 404) {
+                    throw $e;
                 }
-                // An order this app cannot read (another app on the same account, a deleted order): retrying never helps.
                 Log::warning('PayPal capture webhook for an order this app cannot read', ['order_id' => $orderID, 'error' => $e->getMessage()]);
 
                 return response()->json(['status' => 'ignored']);

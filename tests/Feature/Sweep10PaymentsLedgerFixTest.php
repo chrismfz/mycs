@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\InvoiceTransaction\Updated;
+use App\Helpers\ExtensionHelper;
 use App\Listeners\SendMailListener;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayReference;
 use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Events\CallQueuedListener;
@@ -16,6 +18,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -176,5 +180,89 @@ class Sweep10PaymentsLedgerFixTest extends TestCase
 
         $this->assertSame(InvoiceTransactionStatus::Failed, $invoice->transactions()->sole()->status);
         Http::assertSentCount(1);
+    }
+
+    // ---- S10-PAYMENTS-2: PayPal's completed capture whose order cannot be read ----
+
+    private function paypalCompleted(mixed $orderAnswer): array
+    {
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
+        foreach (['test_mode' => '1', 'client_id' => 'id', 'client_secret' => 'secret', 'webhook_id' => 'wh'] as $key => $value) {
+            $gateway->settings()->updateOrCreate(['key' => $key], ['value' => $value]);
+        }
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD',
+            'due_at' => now()->toDateString()]);
+        $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 20]);
+        $invoice = $invoice->fresh();
+        Http::fake([
+            self::PAYPAL_API . '/v1/oauth2/token' => Http::response(['access_token' => 'token']),
+            self::PAYPAL_API . '/v1/notifications/verify-webhook-signature' => Http::response(['verification_status' => 'SUCCESS']),
+            self::PAYPAL_API . '/v2/checkout/orders/ORDER-S10FIX' => is_callable($orderAnswer) ? $orderAnswer($invoice) : $orderAnswer,
+        ]);
+        /** @var PayPal $paypal */
+        $paypal = ExtensionHelper::getExtension('gateway', 'PayPal', $gateway->fresh()->settings);
+        $paypal->boot();
+        PayPal::rememberOrder('ORDER-S10FIX', $invoice);
+        ExtensionHelper::addProcessingPayment($invoice->id, 'PayPal', 20.00, null, 'CAP-S10FIX', currency: 'USD');
+        $send = fn () => $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED', 'resource' => [
+            'id' => 'CAP-S10FIX', 'status' => 'COMPLETED', 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
+            'supplementary_data' => ['related_ids' => ['order_id' => 'ORDER-S10FIX']],
+        ]]);
+
+        return [$invoice, $send];
+    }
+
+    public function test_a_completed_capture_whose_order_does_not_exist_is_still_ignored(): void
+    {
+        [$invoice, $send] = $this->paypalCompleted(Http::response(['name' => 'RESOURCE_NOT_FOUND', 'details' => [['issue' => 'INVALID_RESOURCE_ID']]], 404));
+
+        $send()->assertOk()->assertJson(['status' => 'ignored']);
+
+        $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
+    }
+
+    /** No answer about the order: PayPal down (5xx), or our credentials refused (401 after a new token, 403). */
+    #[DataProvider('noAnswerAboutTheOrder')]
+    public function test_a_completed_capture_whose_order_read_got_no_answer_is_retried(int $status, string $name): void
+    {
+        [$invoice, $send] = $this->paypalCompleted(Http::response(['name' => $name], $status));
+
+        $send()->assertStatus(500);
+
+        $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
+    }
+
+    /** @return array<string, array{int, string}> */
+    public static function noAnswerAboutTheOrder(): array
+    {
+        return [
+            '503' => [503, 'SERVICE_UNAVAILABLE'],
+            '500' => [500, 'INTERNAL_SERVER_ERROR'],
+            '401' => [401, 'AUTHENTICATION_FAILURE'],
+            '403' => [403, 'NOT_AUTHORIZED'],
+        ];
+    }
+
+    /** Rate-limited, then answered on PayPal's retry: recorded once; the event a third time is a replay. */
+    public function test_a_completed_capture_is_recorded_once_on_the_retry_after_a_rate_limit(): void
+    {
+        [$invoice, $send] = $this->paypalCompleted(fn (Invoice $invoice) => Http::sequence()
+            ->push(['name' => 'RATE_LIMIT_REACHED'], 429)
+            ->whenEmpty(Http::response(['id' => 'ORDER-S10FIX', 'status' => 'COMPLETED', 'purchase_units' => [[
+                'invoice_id' => GatewayReference::paypalInvoiceId($invoice),
+                'payments' => ['captures' => [['id' => 'CAP-S10FIX', 'status' => 'COMPLETED', 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
+                    'seller_receivable_breakdown' => ['paypal_fee' => ['value' => '0.98', 'currency_code' => 'USD']]]]],
+            ]]])));
+
+        $send()->assertStatus(500);
+        $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
+
+        $send()->assertOk();
+        $send()->assertOk();
+
+        $payment = $invoice->transactions()->sole();
+        $this->assertSame(InvoiceTransactionStatus::Succeeded, $payment->status);
+        $this->assertSame(2000, RecordPaymentService::toCents($payment->amount));
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
 }
