@@ -348,7 +348,8 @@ class StaffFreedomServicesTest extends TestCase
         }
         $addon = Service::query()->where('whmcs_addon_id', 123)->sole();
         $invoice = Invoice::query()->findOrFail(951);
-        $this->assertTrue($invoice->items->every(fn (InvoiceItem $line) => $line->period_start === null), 'lines without a period');
+        $this->assertTrue($invoice->items->every(fn (InvoiceItem $line) => $line->period_start?->toDateString() === '2026-12-15' && $line->applied_at === null),
+            'the open renewal of each, with its period from the due date (WhmcsLinePeriods)');
         $this->creditOn($invoice, 1000);
 
         $parent->fresh()->markTerminated();
@@ -516,8 +517,9 @@ class StaffFreedomServicesTest extends TestCase
         $this->assertSame('2026-12-15', $addon->expires_at->toDateString());
         $lines = InvoiceItem::query()->where('invoice_id', 950)->get();
         $this->assertCount(2, $lines);
-        $this->assertTrue($lines->every(fn (InvoiceItem $line) => $line->period_start === null && $line->applied_at === null),
-            'as the importer leaves them: no period, never applied');
+        $this->assertTrue($lines->every(fn (InvoiceItem $line) => $line->period_start?->toDateString() === '2026-11-15'
+            && $line->period_end?->toDateString() === '2026-12-15' && $line->applied_at?->toDateTimeString() === '2026-11-10 09:00:00'),
+            'as the importer leaves them: the last paid line of each with its period, applied when its invoice was paid (WhmcsLinePeriods)');
         $this->assertSame(Invoice::STATUS_PAID, Invoice::query()->findOrFail(950)->status);
         $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail(951)->status);
 

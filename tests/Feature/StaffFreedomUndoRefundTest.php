@@ -16,6 +16,7 @@ use App\Models\EkdosiDocument;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Service;
@@ -276,7 +277,11 @@ class StaffFreedomUndoRefundTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($charge->fresh());
         $this->assertSame([Invoice::STATUS_UNPAID, 1000, 0], $this->state(502));
         $this->assertSame(0, GatewayRefund::query()->count());
-        $this->assertMoneyClean();
+        // Its payment renewed service 32 to 2026-10-25 (its line came with that period, WhmcsLinePeriods; before, the line
+        // of a service's only invoice took the period from its start and renewed nothing, S8-CRON-BILLING-1): deleted,
+        // the service runs on an invoice that is unpaid again, and that is told.
+        $this->assertSame('2026-10-25', Service::query()->findOrFail(32)->expires_at->toDateString());
+        $this->assertMoneyClean(['service_unbilled']);
     }
 
     public function test_a_refund_by_hand_the_gateway_then_reported_is_the_gateways(): void
@@ -346,23 +351,25 @@ class StaffFreedomUndoRefundTest extends TestCase
         $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(480));
         $this->assertSame(1000, $this->journalNet(480));
         $this->assertPeriodUntouched();
-        $this->imported(480); // its line still as the importer brought it: no period, not applied
+        $this->imported(480); // its line still as the importer brought it: its period, applied
         $this->assertUnusedBounded();
         $this->assertMoneyClean();
     }
 
-    public function test_kept_no_undo_that_would_pay_an_invoice_paid_in_whmcs_again_nor_of_a_refund_whmcs_made(): void
+    public function test_an_undo_pays_an_invoice_paid_in_whmcs_again_and_renews_nothing_and_kept_none_of_a_refund_whmcs_made(): void
     {
         $old = InvoiceTransaction::query()->where('invoice_id', 480)->sole();
-        // Refunded here in full: its lines came with no period and were never applied. Paid again, they would be: a
-        // second period for service 31 out of the same 10.00.
+        // Refunded here in full: its line came with its period (2026-08-10 to 09-10), applied (WhmcsLinePeriods). Paid
+        // again by the undo, it is a replay as a native line's: no second period for service 31 out of the same 10.00.
+        // The refusal «would renew» stays for a line that came with no period (ImportLinePeriodsTest).
         ExtensionHelper::refundLocally($old, 10.00, notify: false);
         $this->assertSame(Invoice::STATUS_REFUNDED, $this->state(480)[0]);
 
-        $this->assertSame(__('invoices.refund_undo.would_renew'), $this->refused(fn () => (new UndoRefund)->handle($old, $this->refund($old)->id)));
+        (new UndoRefund)->handle($old, $this->refund($old)->id);
 
-        $this->assertSame([Invoice::STATUS_REFUNDED, 0, 0], $this->state(480), 'refused whole');
-        $this->assertSame(AdjustmentNoteStatus::Active, AdjustmentNote::query()->where('invoice_id', 480)->where('is_refund', true)->sole()->status);
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(480), 'paid again, as before the refund');
+        $this->assertSame(AdjustmentNoteStatus::Voided, AdjustmentNote::query()->where('invoice_id', 480)->where('is_refund', true)->sole()->status);
+        $this->assertNull(InvoiceItem::query()->where('invoice_id', 480)->sole()->forgone_at, 'its period is its own again');
         $this->assertPeriodUntouched();
         $this->assertMoneyClean();
 
