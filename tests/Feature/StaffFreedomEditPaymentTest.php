@@ -376,7 +376,10 @@ class StaffFreedomEditPaymentTest extends TestCase
 
         (new EditPayment)->handle($old, ['amount' => '10.01']);
 
-        $this->assertSame(Invoice::STATUS_PAID, $this->state(480)[0]);
+        // The exact state: paid, nothing left, the 10.00 it bills kept on it; the cent over went to credit, as the 2.00.
+        $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(480));
+        $new = InvoiceTransaction::query()->where('invoice_id', 480)->where('transaction_id', 'tr_480')->sole();
+        $this->assertSame(['10.01', '0.01'], [(string) $new->amount, (string) $new->credited_amount]);
         $this->assertPeriodUntouched();
         $this->assertMoneyClean();
     }
