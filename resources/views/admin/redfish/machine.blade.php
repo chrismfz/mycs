@@ -130,5 +130,5 @@
         </div>
     @endforeach
     <p class="text-xs {{ $muted }}">The last read only is kept: history, graphs and alerts are the monitoring's.
-        @if (!$actions) Power, locate light and boot once are offered once the server has an actions' account (Server settings). @endif</p>
+        @if (!$actions) Power, locate light and boot once are offered once «Actions» is turned on in the Server settings. @endif</p>
 </div>

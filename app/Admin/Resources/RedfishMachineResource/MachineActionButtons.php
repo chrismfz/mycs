@@ -11,6 +11,8 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use MyCS\Redfish\Machine;
+use MyCS\Redfish\RedfishException;
 use Throwable;
 
 /**
@@ -32,18 +34,18 @@ final class MachineActionButtons
         $boot = [];
         foreach (MachineActions::BOOT as $target => $label) {
             $boot[] = self::button('boot' . $target, $label, "The next boot only will be from: {$label}. The machine is not restarted now.",
-                fn (RedfishMachine $record) => MachineActions::bootOnce($record->server, $target), reread: true);
+                fn (RedfishMachine $record) => MachineActions::bootOnce($record->server, $target), expect: fn (Machine $machine) => $machine->bootOnce === $target);
         }
         $boot[] = self::button('bootCancel', 'Cancel boot once', 'A boot-once set before is forgotten: the next boot is as the BIOS says.',
-            fn (RedfishMachine $record) => MachineActions::bootOnce($record->server, null), reread: true);
+            fn (RedfishMachine $record) => MachineActions::bootOnce($record->server, null), expect: fn (Machine $machine) => $machine->bootOnce === null);
 
         return [
             ActionGroup::make($power)->label('Power')->icon('ri-shut-down-line')->button()->color('gray')->visible(self::offered(...)),
             ActionGroup::make([
                 self::button('locateOn', 'Locate light on', 'Turns on the machine\'s locate light (UID), to find it in the rack. It stays on until turned off.',
-                    fn (RedfishMachine $record) => MachineActions::locate($record->server, true), reread: true),
+                    fn (RedfishMachine $record) => MachineActions::locate($record->server, true), expect: fn (Machine $machine) => $machine->locating !== false),
                 self::button('locateOff', 'Locate light off', 'Turns the machine\'s locate light (UID) off.',
-                    fn (RedfishMachine $record) => MachineActions::locate($record->server, false), reread: true),
+                    fn (RedfishMachine $record) => MachineActions::locate($record->server, false), expect: fn (Machine $machine) => $machine->locating !== true),
                 ...$boot,
                 self::button('bmcRestart', 'Restart the BMC', 'Restarts the BMC itself, for when it hangs. The machine keeps running; the BMC does not answer for a minute or two.',
                     fn (RedfishMachine $record) => MachineActions::resetBmc($record->server)),
@@ -59,9 +61,9 @@ final class MachineActionButtons
     /**
      * @param  Closure(RedfishMachine): void  $run
      * @param  bool  $typed  the machine's name is typed to confirm (it interrupts what runs on it)
-     * @param  bool  $reread  its summary is read again after, to show the change
+     * @param  (Closure(Machine): bool)|null  $expect  its summary is read again after, and should then show this
      */
-    private static function button(string $name, string $label, string $does, Closure $run, bool $typed = false, bool $reread = false, ?string $done = null): Action
+    private static function button(string $name, string $label, string $does, Closure $run, bool $typed = false, ?Closure $expect = null, ?string $done = null): Action
     {
         return Action::make($name)->label($label)
             ->authorize('update')
@@ -72,23 +74,32 @@ final class MachineActionButtons
             ->modalSubmitActionLabel($label)
             ->schema($typed ? [TextInput::make('name')->label('Type the machine\'s name to confirm')->required()->autocomplete(false)
                 ->rule(fn (RedfishMachine $record) => function (string $attribute, mixed $value, Closure $fail) use ($record) {
-                    if (trim((string) $value) !== $record->server->name) {
+                    if (trim((string) $value) !== trim((string) $record->server->name)) {
                         $fail('That is not this machine\'s name.');
                     }
                 })] : [])
-            ->action(function (RedfishMachine $record) use ($run, $label, $reread, $done) {
+            ->action(function (RedfishMachine $record) use ($run, $label, $expect, $done) {
                 try {
                     $run($record);
                 } catch (Throwable $e) {
-                    Notification::make()->danger()->title("{$label}: not done")->body(e(Redact::text($e->getMessage())))->persistent()->send();
+                    // Never answered is not «not done»: the machine may have been reset.
+                    $unknown = $e instanceof RedfishException && $e->getCode() === RedfishException::UNANSWERED;
+                    Notification::make()->danger()->title($label . ($unknown ? ': no answer, unknown whether done' : ': not done'))
+                        ->body(e(Redact::text($e->getMessage())))->persistent()->send();
 
                     return;
                 }
-                if ($reread) {
+                $shows = null;
+                if ($expect !== null) {
                     rescue(fn () => MachineSync::sync($record->server, budget: 0.0), report: false); // its summary only
                     $record->refresh();
+                    $machine = $record->machine();
+                    // Some BMCs answer «done» and keep the old value: said, not hidden.
+                    $shows = $machine !== null && !$expect($machine) ? 'The BMC took it, but its read still shows the old value: check on the BMC.' : null;
                 }
-                Notification::make()->success()->title("{$label}: sent")->body($done)->send();
+                $shows === null
+                    ? Notification::make()->success()->title("{$label}: sent")->body($done)->send()
+                    : Notification::make()->warning()->title("{$label}: sent, not shown yet")->body($shows)->persistent()->send();
             });
     }
 

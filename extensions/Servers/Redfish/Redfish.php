@@ -17,7 +17,7 @@ use Throwable;
  * machine**, with «Max Accounts» 1. The service on it is the customer who rents the whole machine; none on it and the
  * machine is free; «Max Accounts» 0 and it is our own, never given to an order. MyCS reads its BMC (what it is,
  * on or off, health, watts, its parts: Utilities → Machines) and keeps the last read: no history, no alerts (LibreNMS's).
- * With an actions' account set, staff may also power it, light its locate light, set its next boot and restart its BMC
+ * With «use the account above» on, or an actions' account set, staff may also power it, light its locate light, set its next boot and restart its BMC
  * (MachineActions). Every server action on its service is still a task for staff, as an offline machine's.
  */
 #[ExtensionMeta(
@@ -35,11 +35,13 @@ class Redfish extends OfflineMachineServer
                 'description' => 'The machine\'s BMC (IPMI / iDRAC / iLO web address), on the management network. One server here per machine: set «Max Accounts» to 1, or to 0 for a machine of our own.'],
             ...PanelConnection::fields(),
             ['name' => 'username', 'type' => 'text', 'label' => 'BMC username', 'required' => true,
-                'description' => 'A read-only account (Supermicro «User», iDRAC «Read Only», iLO with login only): MyCS only reads.'],
+                'description' => 'A read-only account is enough for reading (Supermicro «User», iDRAC «Read Only», iLO with login only). For the actions below with this same account: Operator.'],
             ['name' => 'password', 'type' => 'password', 'label' => 'BMC password', 'required' => true, 'encrypted' => true],
-            ['name' => 'action_username', 'type' => 'text', 'label' => 'Actions: BMC username', 'required' => false,
-                'description' => 'Optional. A second BMC account with the Operator role, used only when staff press a button on the machine\'s page (power, locate light, boot once, BMC restart), never by the hourly read. Empty: no actions are offered.'],
-            ['name' => 'action_password', 'type' => 'password', 'label' => 'Actions: BMC password', 'required' => false, 'encrypted' => true],
+            ['name' => 'actions_same_account', 'type' => 'checkbox', 'label' => 'Actions: use the account above', 'database_type' => 'boolean', 'default' => false, 'required' => false,
+                'description' => 'Staff may power the machine, light its locate light, set its next boot and restart its BMC from its page (Utilities → Machines), with the account above: it then needs the Operator role. Off, and no other account below: no actions are offered.'],
+            ['name' => 'action_username', 'type' => 'text', 'label' => 'Actions: another BMC username', 'required' => false,
+                'description' => 'Optional, instead of the checkbox: a second account (Operator) used only when staff press a button, so that the account of the hourly read stays read-only.'],
+            ['name' => 'action_password', 'type' => 'password', 'label' => 'Actions: its password', 'required' => false, 'encrypted' => true],
             ['name' => 'location', 'type' => 'text', 'label' => 'Location', 'required' => false, 'placeholder' => 'Rack 4, U12',
                 'description' => 'Where it is: datacenter, rack, unit.'],
         ];
@@ -74,22 +76,36 @@ class Redfish extends OfflineMachineServer
         return $this->client()->machine($parts, $budget);
     }
 
-    /** Whether staff may act on the machine: only with its actions' account (never the read-only one). */
-    public function canAct(): bool
+    /**
+     * The account the actions are sent with: their own where one is set, else the reads' when «use the account above»
+     * is on (owner 2026-11-11: a second account is a choice, not a must), else none: no action is offered.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private function actionAccount(): ?array
     {
-        return trim((string) $this->config('action_username')) !== '' && (string) $this->config('action_password') !== '';
+        $own = [trim((string) $this->config('action_username')), (string) $this->config('action_password')];
+        if ($own[0] !== '' && $own[1] !== '') {
+            return $own;
+        }
+        $reads = [trim((string) $this->config('username')), (string) $this->config('password')];
+
+        return $this->config('actions_same_account') && $reads[0] !== '' && $reads[1] !== '' ? $reads : null;
     }
 
-    /** The client of one action, with the actions' account and a transport that may change things. */
+    /** Whether staff may act on the machine. */
+    public function canAct(): bool
+    {
+        return $this->actionAccount() !== null;
+    }
+
+    /** The client of one action: the actions' account and a transport that may change things. */
     public function actionClient(): RedfishClient
     {
-        if (!$this->canAct()) {
-            throw new RedfishException('No actions\' account is set for this machine.');
-        }
+        [$username, $password] = $this->actionAccount() ?? throw new RedfishException('No account is set for this machine\'s actions.');
         $base = rtrim(trim((string) $this->config('host')), '/');
 
-        return new RedfishClient(new ActionPanelTransport($base, trim((string) $this->config('ip')) ?: null, (bool) $this->config('self_signed')),
-            trim((string) $this->config('action_username')), (string) $this->config('action_password'));
+        return new RedfishClient(new ActionPanelTransport($base, trim((string) $this->config('ip')) ?: null, (bool) $this->config('self_signed')), $username, $password);
     }
 
     public function testConfig(): bool|string

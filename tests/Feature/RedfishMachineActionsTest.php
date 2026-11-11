@@ -15,6 +15,7 @@ use App\Services\Redfish\MachineSync;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -36,18 +37,37 @@ class RedfishMachineActionsTest extends TestCase
     /** @var array<string, array{0: int, 1: mixed}> what the BMC answers a change, by «METHOD path»; the others get 204 */
     private array $refusals = [];
 
+    /** @var array<string, array{0: int, 1: mixed}> the BMC's reads, by path */
+    private array $reads = [];
+
+    /** The BMC answers «done» to a PATCH and keeps the old value. */
+    private bool $forgets = false;
+
+    /** The BMC never answers a change. */
+    private bool $silent = false;
+
+    private int $unanswered = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
         Http::preventStrayRequests();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $reads = FakeActionTransport::bmc();
-        Http::fake(function (Request $request) use ($reads) {
+        $this->reads = FakeActionTransport::bmc();
+        Http::fake(function (Request $request) {
             $path = (string) parse_url($request->url(), PHP_URL_PATH);
             if (!str_starts_with($request->url(), self::BMC . '/')) {
                 return Http::response('', 404);
             }
-            [$status, $data] = $request->method() === 'GET' ? ($reads[$path] ?? [404, '']) : ($this->refusals[$request->method() . ' ' . $path] ?? [204, '']);
+            if ($this->silent && $request->method() !== 'GET') {
+                $this->unanswered++;
+                throw new ConnectionException('timed out');
+            }
+            [$status, $data] = $request->method() === 'GET' ? ($this->reads[$path] ?? [404, '']) : ($this->refusals[$request->method() . ' ' . $path] ?? [204, '']);
+            // A PATCH the BMC takes shows on its next read, unless this BMC is one that says «done» and keeps the old value.
+            if ($request->method() === 'PATCH' && $status === 204 && !$this->forgets && isset($this->reads[$path])) {
+                $this->reads[$path][1] = array_replace_recursive($this->reads[$path][1], $request->data());
+            }
 
             return Http::response(is_string($data) ? $data : (string) json_encode($data), $status);
         });
@@ -92,13 +112,13 @@ class RedfishMachineActionsTest extends TestCase
         $row = $this->machine(actions: false);
 
         $this->page($row)->assertActionHidden('powerOn')->assertActionHidden('powerForceOff')->assertActionHidden('locateOn')->assertActionHidden('bootPxe')
-            ->assertActionHidden('bmcRestart')->assertSee('once the server has an actions\' account', false);
+            ->assertActionHidden('bmcRestart')->assertSee('once «Actions» is turned on in the Server settings');
         $this->assertFalse(MachineActions::offered($row->server));
         try {
             MachineActions::power($row->server, 'ForceOff');
             $this->fail('acted with the read-only account');
         } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('no actions\' account', $e->getMessage());
+            $this->assertStringContainsString('no account for actions', $e->getMessage());
         }
         $this->assertSame([], $this->writes());
     }
@@ -127,7 +147,9 @@ class RedfishMachineActionsTest extends TestCase
         $this->page($row)->callAction('powerOn')->assertNotified('Power on: sent');
 
         $this->assertSame([['POST', self::RESET, ['ResetType' => 'On'], 'operator:0p-secret']], $this->writes());
-        $this->assertSame('redfish power: On', $this->lastAudit($row));
+        $audits = $row->server->audits()->where('event', 'extension_action')->orderBy('id')->get();
+        $this->assertSame(['redfish power: On: sending', 'redfish power: On: done'], $audits->map(fn ($audit) => $audit->new_values['action'])->all());
+        $this->assertSame([auth('staff')->id()], $audits->pluck('user_id')->unique()->values()->all(), 'who asked');
     }
 
     public function test_what_interrupts_the_machine_needs_its_name_typed_and_says_whose_it_is(): void
@@ -147,7 +169,7 @@ class RedfishMachineActionsTest extends TestCase
 
         $this->page($row)->callAction('powerForceOff', ['name' => 'node3'])->assertHasNoActionErrors()->assertNotified('Force off: sent');
         $this->assertSame([['POST', self::RESET, ['ResetType' => 'ForceOff'], 'operator:0p-secret']], $this->writes());
-        $this->assertSame('redfish power: ForceOff', $this->lastAudit($row));
+        $this->assertSame('redfish power: ForceOff: done', $this->lastAudit($row));
     }
 
     public function test_every_interrupting_power_action_is_typed_and_power_on_is_not(): void
@@ -160,6 +182,97 @@ class RedfishMachineActionsTest extends TestCase
         }
         $this->assertSame([], $this->writes());
         $this->page($row)->mountAction('powerForceRestart')->assertMountedActionModalSee('a machine of our own');
+
+        $this->page($row)->callAction('powerOn')->assertHasNoActionErrors()->assertNotified('Power on: sent');
+        $this->assertCount(1, $this->writes());
+    }
+
+    public function test_a_change_the_bmc_never_answers_is_unknown_not_undone_and_never_sent_again(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        $this->silent = true;
+
+        $this->page($row)->callAction('powerForceOff', ['name' => 'node3'])->assertNotified('Force off: no answer, unknown whether done');
+
+        $this->assertSame(1, $this->unanswered, 'sent once');
+        $this->assertStringStartsWith('redfish power: ForceOff (no answer, unknown whether done:', (string) $this->lastAudit($row));
+    }
+
+    public function test_a_second_power_action_right_after_one_is_not_sent(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        $this->page($row)->callAction('powerOn')->assertNotified('Power on: sent');
+
+        $this->page($row)->callAction('powerForceOff', ['name' => 'node3'])->assertNotified('Force off: not done');
+        $this->assertCount(1, $this->writes());
+        // The locate light is no power action: it goes.
+        $this->page($row)->callAction('locateOn')->assertNotified('Locate light on: sent');
+
+        $this->travel(MachineActions::POWER_PAUSE + 1)->seconds();
+        $this->page($row)->callAction('powerForceOff', ['name' => 'node3'])->assertNotified('Force off: sent');
+        $this->assertCount(3, $this->writes());
+    }
+
+    public function test_a_bmc_with_several_systems_is_never_acted_on(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        $this->reads['/redfish/v1/Systems'][1]['Members'][] = ['@odata.id' => '/redfish/v1/Systems/2'];
+
+        foreach ([['powerForceOff', ['name' => 'node3']], ['bootPxe', []], ['locateOn', []]] as [$action, $data]) {
+            $this->page($row)->callAction($action, $data);
+            $this->travel(MachineActions::POWER_PAUSE + 1)->seconds();
+        }
+
+        $this->assertSame([], $this->writes());
+        $this->assertStringContainsString('Several systems are behind this BMC (2): nothing was sent', (string) $this->lastAudit($row));
+    }
+
+    public function test_a_bmc_that_says_done_and_keeps_the_old_value_is_said(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        $this->forgets = true;
+
+        $this->page($row)->callAction('bootPxe')->assertNotified('Network (PXE): sent, not shown yet');
+        $this->page($row)->callAction('locateOn')->assertNotified('Locate light on: sent, not shown yet');
+    }
+
+    public function test_the_read_after_an_action_is_the_readers(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+
+        $this->page($row)->callAction('locateOn');
+
+        $after = Http::recorded()->map(fn (array $pair) => $pair[0])->skipUntil(fn (Request $request) => $request->method() === 'PATCH')->skip(1);
+        $this->assertGreaterThan(0, $after->count());
+        foreach ($after as $request) {
+            $this->assertSame(['GET', ['Basic ' . base64_encode('reader:s3cret')]], [$request->method(), $request->header('Authorization')]);
+        }
+    }
+
+    public function test_a_name_kept_with_spaces_around_it_can_still_be_typed(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        $row->server->forceFill(['name' => ' node3 '])->saveQuietly();
+
+        $this->page($row->fresh())->callAction('powerForceOff', ['name' => 'node3'])->assertHasNoActionErrors();
+        $this->assertCount(1, $this->writes());
+    }
+
+    public function test_staff_who_may_update_servers_cannot_act_where_there_is_no_actions_account(): void
+    {
+        $this->staff();
+        $row = $this->machine(actions: false);
+
+        $this->page($row)->mountAction('powerOn')->callMountedAction();
+        $this->page($row)->mountAction('bmcRestart')->callMountedAction();
+
+        $this->assertSame([], $this->writes());
     }
 
     public function test_a_power_action_the_bmc_does_not_offer_is_said_and_audited_as_not_done(): void
@@ -203,7 +316,7 @@ class RedfishMachineActionsTest extends TestCase
             ['PATCH', '/redfish/v1/Systems/1', ['Boot' => ['BootSourceOverrideEnabled' => 'Disabled']], 'operator:0p-secret'],
             ['PATCH', '/redfish/v1/Systems/1', ['IndicatorLED' => 'Off'], 'operator:0p-secret'],
         ], $this->writes());
-        $this->assertSame('redfish locate light: off', $this->lastAudit($row));
+        $this->assertSame('redfish locate light: off: done', $this->lastAudit($row));
         $this->assertNotNull($row->fresh()->read_at, 'read again after');
         $this->assertSame('On', $row->fresh()->power_state);
 
@@ -221,7 +334,7 @@ class RedfishMachineActionsTest extends TestCase
         $this->page($row)->callAction('bmcRestart')->assertNotified('Restart the BMC: sent');
 
         $this->assertSame([['POST', '/redfish/v1/Managers/1/Actions/Manager.Reset', ['ResetType' => 'GracefulRestart'], 'operator:0p-secret']], $this->writes());
-        $this->assertSame('redfish BMC restart', $this->lastAudit($row));
+        $this->assertSame('redfish BMC restart: done', $this->lastAudit($row));
     }
 
     public function test_the_page_shows_the_locate_light_and_a_boot_once_as_last_read(): void
@@ -275,5 +388,30 @@ class RedfishMachineActionsTest extends TestCase
             $lock->release();
         }
         $this->assertSame([], $this->writes());
+    }
+
+    public function test_the_reads_account_does_the_actions_when_the_checkbox_says_so(): void
+    {
+        $this->staff();
+        $row = $this->machine(actions: false);
+        $this->assertFalse(MachineActions::offered($row->server));
+
+        ExtensionHelper::saveSettings($row->server, ['actions_same_account' => true], skipNull: true);
+        $row = $row->fresh();
+
+        $this->assertTrue(MachineActions::offered($row->server));
+        $this->page($row)->assertActionVisible('powerOn')->callAction('powerOn')->assertNotified('Power on: sent');
+        $this->assertSame([['POST', self::RESET, ['ResetType' => 'On'], 'reader:s3cret']], $this->writes());
+    }
+
+    public function test_another_account_set_for_the_actions_is_the_one_used_whatever_the_checkbox(): void
+    {
+        $this->staff();
+        $row = $this->machine();
+        ExtensionHelper::saveSettings($row->server, ['actions_same_account' => true], skipNull: true);
+
+        $this->page($row->fresh())->callAction('powerOn');
+
+        $this->assertSame('operator:0p-secret', $this->writes()[0][3]);
     }
 }

@@ -120,7 +120,7 @@ final class RedfishClient
         if (!in_array($type, self::RESETS, true)) {
             throw new RedfishException("«{$type}» is not a reset MyCS sends.");
         }
-        [$path, $system] = $this->firstOf('Systems');
+        [$path, $system] = $this->firstOf('Systems', only: true);
         [$target, $allowed] = self::action($system, '#ComputerSystem.Reset', self::under($path, 'Actions/ComputerSystem.Reset'));
         if ($allowed !== null && !in_array($type, $allowed, true)) {
             throw new RedfishException("This BMC does not offer «{$type}» (it offers: " . implode(', ', $allowed) . ').');
@@ -131,12 +131,14 @@ final class RedfishClient
     /** The locate light (UID): on (blinking where the BMC has no steady one) or off. */
     public function locate(bool $on): void
     {
-        [$path, $system] = $this->firstOf('Systems');
+        [$path, $system] = $this->firstOf('Systems', only: true);
         $candidates = [[$path, $system]];
         $chassisPath = $this->chassisOf($system);
         if ($chassisPath !== null) {
             $candidates[] = [$chassisPath, $this->get($chassisPath, optional: true) ?? []];
         }
+        // The resource that says its light's state first (a System may carry the property empty, its Chassis the real one).
+        usort($candidates, fn (array $a, array $b) => (self::locating($a[1]) === null) <=> (self::locating($b[1]) === null));
         foreach ($candidates as [$at, $resource]) {
             if (array_key_exists('LocationIndicatorActive', $resource)) {
                 $this->write('PATCH', $at, ['LocationIndicatorActive' => $on], $resource);
@@ -144,7 +146,10 @@ final class RedfishClient
                 return;
             }
             if (array_key_exists('IndicatorLED', $resource)) {
-                $this->write('PATCH', $at, ['IndicatorLED' => $on ? 'Blinking' : 'Off'], $resource);
+                // Blinking, as a locate light does; «Lit» where the BMC says it takes no Blinking.
+                $allowed = self::names($resource['IndicatorLED@Redfish.AllowableValues'] ?? null);
+                $lit = $allowed !== null && !in_array('Blinking', $allowed, true) && in_array('Lit', $allowed, true) ? 'Lit' : 'Blinking';
+                $this->write('PATCH', $at, ['IndicatorLED' => $on ? $lit : 'Off'], $resource);
 
                 return;
             }
@@ -161,7 +166,7 @@ final class RedfishClient
         if ($target !== null && !in_array($target, self::BOOT_ONCE, true)) {
             throw new RedfishException("«{$target}» is not a boot source MyCS sets.");
         }
-        [$path, $system] = $this->firstOf('Systems');
+        [$path, $system] = $this->firstOf('Systems', only: true);
         $boot = is_array($system['Boot'] ?? null) ? $system['Boot'] : [];
         $allowed = self::names($boot['BootSourceOverrideTarget@Redfish.AllowableValues'] ?? null);
         if ($target !== null && $allowed !== null && !in_array($target, $allowed, true)) {
@@ -185,13 +190,19 @@ final class RedfishClient
     }
 
     /**
-     * The first member of a collection under the root (the system, the manager) and its path.
+     * The first member of a collection under the root (the system, the manager) and its path; with $only, refused when
+     * the BMC lists more than one (an action is never sent to «the first of several»).
      *
      * @return array{0: string, 1: array<string, mixed>}
      */
-    private function firstOf(string $collection): array
+    private function firstOf(string $collection, bool $only = false): array
     {
-        $path = $this->members(self::ROOT . '/' . $collection)[0] ?? throw new RedfishException("The BMC lists no member of {$collection}.");
+        $members = $this->members(self::ROOT . '/' . $collection);
+        $path = $members[0] ?? throw new RedfishException("The BMC lists no member of {$collection}.");
+        if ($only && count($members) > 1) {
+            // Which one is the machine meant is not ours to guess (review of #800): a multi-node BMC is acted on by hand.
+            throw new RedfishException('Several systems are behind this BMC (' . count($members) . '): nothing was sent. Act on the one meant from the BMC itself.');
+        }
 
         return [$path, $this->get($path)];
     }
@@ -262,9 +273,9 @@ final class RedfishClient
         throw new RedfishException(match (true) {
             $status === 0 => 'The BMC did not answer: it may or may not have done it. Read the machine again before trying once more.',
             $status === 401 => 'The BMC refused the actions\' login (401): check the actions\' username and password.',
-            $status === 403 => 'The BMC account may not do this (403): the actions\' account needs the Operator role.',
+            $status === 403 => 'The BMC account may not do this (403)' . ($said !== null ? ": {$said}" : ': the actions\' account needs the Operator role.'),
             default => "The BMC refused (HTTP {$status})" . ($said !== null ? ": {$said}" : '.'),
-        }, $status);
+        }, $status === 0 ? RedfishException::UNANSWERED : $status);
     }
 
     /** What a BMC says in an error's body, as text: its first extended message, else its error message. */

@@ -8,14 +8,16 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use MyCS\Extensions\Servers\Redfish\Redfish;
 use MyCS\Redfish\RedfishClient;
+use MyCS\Redfish\RedfishException;
 use OwenIt\Auditing\Events\AuditCustom;
 use RuntimeException;
 use Throwable;
 
 /**
  * What staff may tell a Redfish machine (owner 2026-11-11, «the simple ones first»): power, its locate light, its next
- * boot once, a restart of its BMC. Each with the server's **actions' account** (an Operator, set apart from the
- * read-only one of the hourly read): a server without one offers no action. Each is written to the server's audit
+ * boot once, a restart of its BMC. Each with the account its server's settings give the actions: the reads' own when
+ * «use the account above» is on, or a second one set apart (so the hourly read's stays read-only); neither, and no
+ * action is offered. Each is written to the server's audit
  * (who, what, whether the BMC took it) before anything else is told. Staff only; nothing here is a customer's.
  */
 final class MachineActions
@@ -29,6 +31,9 @@ final class MachineActions
         'ForceRestart' => ['Force restart', 'Resets the machine at once, without the operating system: unsaved data is lost.', true],
         'PowerCycle' => ['Power cycle', 'Power off, then on again: unsaved data is lost.', true],
     ];
+
+    /** Seconds after a power action in which no other is sent to the same machine. */
+    public const POWER_PAUSE = 10;
 
     /** Boot-once sources: the standard's name => label. */
     public const BOOT = ['Pxe' => 'Network (PXE)', 'BiosSetup' => 'BIOS setup', 'Hdd' => 'Its disk', 'Cd' => 'CD / virtual media'];
@@ -46,7 +51,7 @@ final class MachineActions
 
     public static function power(Server $server, string $type): void
     {
-        self::run($server, "power: {$type}", fn (RedfishClient $bmc) => $bmc->reset($type));
+        self::run($server, "power: {$type}", fn (RedfishClient $bmc) => $bmc->reset($type), power: true);
     }
 
     public static function locate(Server $server, bool $on): void
@@ -65,28 +70,40 @@ final class MachineActions
     }
 
     /**
-     * One action at a time a machine (two clicks, two staff): sent, and written to the server's audit with how it went.
+     * One action at a time a machine (two clicks, two staff): written to the server's audit as it is sent and again with
+     * how it went (done, not done, or no answer: unknown whether done).
      *
      * @param  callable(RedfishClient): void  $action
      *
      * @throws Throwable what the BMC refused, as staff are told
      */
-    private static function run(Server $server, string $what, callable $action): void
+    private static function run(Server $server, string $what, callable $action, bool $power = false): void
     {
         $extension = ExtensionHelper::getExtension('server', $server->extension, $server->settings);
         if (!$extension instanceof Redfish || !$extension->canAct()) {
-            throw new RuntimeException("{$server->name} has no actions' account: set one in its server settings.");
+            throw new RuntimeException("{$server->name} has no account for actions: turn on «Actions: use the account above» in its server settings, or set another.");
         }
-        $lock = Cache::lock("redfish.action.{$server->id}", 60);
+        // Longer than the slowest action (its reads and the send, each with its timeout).
+        $lock = Cache::lock("redfish.action.{$server->id}", 120);
         if (!$lock->get()) {
             throw new RuntimeException("Another action is being sent to {$server->name}: try again in a moment.");
         }
         try {
-            $action($extension->actionClient());
-            self::audit($server, "redfish {$what}");
-        } catch (Throwable $e) {
-            self::audit($server, "redfish {$what} (not done: " . mb_substr($e->getMessage(), 0, 200) . ')');
-            throw $e;
+            // A power action sent a moment ago is not sent again by a second click or a replayed request.
+            if ($power && !Cache::lock("redfish.power.{$server->id}", self::POWER_PAUSE)->get()) {
+                throw new RuntimeException("A power action was sent to {$server->name} a moment ago: wait " . self::POWER_PAUSE . ' seconds and read the machine before another.');
+            }
+            // Written before it is sent (review of #800): a request cut short after the send still leaves who asked.
+            self::audit($server, "redfish {$what}: sending");
+            try {
+                $action($extension->actionClient());
+            } catch (Throwable $e) {
+                $unknown = $e instanceof RedfishException && $e->getCode() === RedfishException::UNANSWERED;
+                rescue(fn () => self::audit($server, "redfish {$what} (" . ($unknown ? 'no answer, unknown whether done' : 'not done') . ': ' . mb_substr($e->getMessage(), 0, 200) . ')'));
+                throw $e;
+            }
+            // The BMC took it: a failure to write that down is reported, never shown as a failed action.
+            rescue(fn () => self::audit($server, "redfish {$what}: done"));
         } finally {
             $lock->release();
         }

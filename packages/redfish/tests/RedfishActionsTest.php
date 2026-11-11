@@ -183,4 +183,68 @@ final class RedfishActionsTest extends TestCase
 
         $this->assertArrayNotHasKey('If-Match', $http->writes[0][3]);
     }
+
+    public function test_no_action_goes_to_the_first_of_several_systems(): void
+    {
+        $answers = FakeActionTransport::bmc();
+        $answers['/redfish/v1/Systems'][1]['Members'][] = ['@odata.id' => '/redfish/v1/Systems/2'];
+        $client = $this->bmc($http, $answers);
+
+        foreach ([fn () => $client->reset('ForceOff'), fn () => $client->bootOnce('Pxe'), fn () => $client->locate(true)] as $do) {
+            $this->assertStringContainsString('Several systems are behind this BMC (2): nothing was sent', $this->refused($do, $http));
+        }
+        $this->assertSame(2, $client->machine()->systems, 'it is still read');
+    }
+
+    public function test_a_change_never_answered_has_its_own_code(): void
+    {
+        try {
+            $this->bmc($http, null, ['POST /redfish/v1/Systems/1/Actions/ComputerSystem.Reset' => [0, '']])->reset('On');
+            $this->fail();
+        } catch (RedfishException $e) {
+            $this->assertSame(RedfishException::UNANSWERED, $e->getCode());
+        }
+        try {
+            $this->bmc($http)->reset('PowerCycle'); // refused here, nothing sent
+            $this->fail();
+        } catch (RedfishException $e) {
+            $this->assertNotSame(RedfishException::UNANSWERED, $e->getCode());
+        }
+    }
+
+    public function test_a_redirect_answered_to_a_change_is_a_refusal_never_followed(): void
+    {
+        try {
+            $this->bmc($http, null, ['POST /redfish/v1/Systems/1/Actions/ComputerSystem.Reset' => [307, '']])->reset('On');
+            $this->fail();
+        } catch (RedfishException $e) {
+            $this->assertStringContainsString('The BMC refused (HTTP 307)', $e->getMessage());
+            $this->assertCount(1, $http->writes);
+        }
+    }
+
+    public function test_the_locate_light_is_lit_where_the_bmc_takes_no_blinking_and_set_where_its_state_is_said(): void
+    {
+        $answers = FakeActionTransport::bmc();
+        $answers['/redfish/v1/Systems/1'][1]['IndicatorLED@Redfish.AllowableValues'] = ['Lit', 'Off'];
+        $this->bmc($http, $answers)->locate(true);
+        $this->assertSame(['IndicatorLED' => 'Lit'], $http->writes[0][2]);
+
+        // The system carries the property empty; its chassis has the real one.
+        $answers = FakeActionTransport::bmc();
+        $answers['/redfish/v1/Systems/1'][1]['IndicatorLED'] = null;
+        $answers['/redfish/v1/Chassis/1'][1]['IndicatorLED'] = 'Off';
+        $this->bmc($http, $answers)->locate(true);
+        $this->assertSame(['PATCH', '/redfish/v1/Chassis/1', ['IndicatorLED' => 'Blinking']], array_slice($http->writes[0], 0, 3));
+    }
+
+    public function test_a_403_says_the_bmcs_own_reason_where_it_gives_one(): void
+    {
+        try {
+            $this->bmc($http, null, ['POST /redfish/v1/Systems/1/Actions/ComputerSystem.Reset' => [403, ['error' => ['message' => 'License required']]]])->reset('On');
+            $this->fail();
+        } catch (RedfishException $e) {
+            $this->assertSame('The BMC account may not do this (403): License required', $e->getMessage());
+        }
+    }
 }
