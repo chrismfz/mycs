@@ -1,0 +1,23 @@
+{
+    "name": "mycs/redfish",
+    "description": "Reads a server's BMC over Redfish (iDRAC, iLO, Supermicro, OpenBMC): what the machine is, whether it is on, its health and the power it draws. Read-only. Framework-free.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\Redfish\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\Redfish\\Tests\\": "tests/"
+        }
+    }
+}
