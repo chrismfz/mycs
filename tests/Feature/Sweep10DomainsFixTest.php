@@ -329,4 +329,61 @@ class Sweep10DomainsFixTest extends TestCase
         $this->assertSame(DomainRenewalService::ADOPTED, $renewals->renewLine(12));
         $this->assertSame([[], ModuleAction::STATUS_COMPLETED], [$this->renewed, $task->fresh()->status]);
     }
+
+    // ── S10-IMPORT-1: an unpaid renewal of a period a paid one covers is named ────────────────────────────────────
+
+    public function test_the_duplicate_unpaid_renewal_is_named_with_its_ids_and_stays_as_it_came(): void
+    {
+        Carbon::setTestNow('2026-11-12 10:00:00');
+        $this->domain(301, 'dup.example.com', 'Active', 'openprovider', ['expirydate' => '2026-11-20', 'nextduedate' => '2026-11-20']);
+        $this->invoice(1, 'Paid', '2025-11-10 09:00:00', [
+            [11, 'Domain', 301, 'Domain Renewal - dup.example.com - 1 Year/s (21/11/2025 - 20/11/2026)', 12.5, '2025-11-21'],
+        ]);
+        $this->invoice(2, 'Unpaid', null, [
+            [21, 'Domain', 301, 'Domain Renewal - dup.example.com - 1 Year/s (21/11/2025 - 20/11/2026)', 12.5, '2025-11-21'],
+        ]);
+
+        $output = $this->import();
+
+        $this->assertStringContainsString('1 unpaid domain renewal(s) of a period a paid renewal of the same domain already covers (a duplicate invoice: paid here, it renews nothing): '
+            . 'domain #301 invoice #2 line #21. Cancel each in WHMCS before the final dump, or here after the import (cutover-runbook).', $output);
+        $this->assertStringNotContainsString('dup.example.com', $output, 'ids only');
+        $line = InvoiceItem::query()->findOrFail(21);
+        $this->assertSame([Invoice::STATUS_UNPAID, null, '2025-11-21', '2026-11-21', null],
+            [Invoice::query()->findOrFail(2)->status, $line->kind, $line->period_start->toDateString(), $line->period_end->toDateString(), $line->applied_at],
+            'named, not handled: it comes as before');
+    }
+
+    /**
+     * Not a duplicate: staff renewed the year by hand at the registrar (WHMCS's expiry shows it) and the invoice is owed,
+     * and the next year's renewal beside last year's paid one. Both stay payable and unnamed.
+     */
+    public function test_an_unpaid_renewal_with_no_paid_twin_stays_payable_and_unnamed(): void
+    {
+        Carbon::setTestNow('2026-11-12 10:00:00');
+        $this->domain(302, 'owed.example.com', 'Active', 'openprovider', ['expirydate' => '2026-11-20', 'nextduedate' => '2026-11-20']);
+        $this->invoice(3, 'Unpaid', null, [
+            [31, 'Domain', 302, 'Domain Renewal - owed.example.com - 1 Year/s (21/11/2025 - 20/11/2026)', 12.5, '2025-11-21'],
+        ]);
+        $this->domain(303, 'next.example.com', 'Active', 'openprovider', ['expirydate' => '2026-11-20', 'nextduedate' => '2026-11-20']);
+        $this->invoice(4, 'Paid', '2025-11-10 09:00:00', [
+            [41, 'Domain', 303, 'Domain Renewal - next.example.com - 1 Year/s (21/11/2025 - 20/11/2026)', 12.5, '2025-11-21'],
+        ]);
+        $this->invoice(5, 'Unpaid', null, [
+            [51, 'Domain', 303, 'Domain Renewal - next.example.com - 1 Year/s (21/11/2026 - 20/11/2027)', 12.5, '2026-11-21'],
+        ]);
+        // A cancelled twin is no payable duplicate either.
+        $this->invoice(6, 'Cancelled', null, [
+            [61, 'Domain', 303, 'Domain Renewal - next.example.com - 1 Year/s (21/11/2025 - 20/11/2026)', 12.5, '2025-11-21'],
+        ]);
+
+        $output = $this->import();
+
+        $this->assertStringNotContainsString('already covers', $output);
+        foreach ([31 => 3, 51 => 5] as $lineId => $invoiceId) {
+            $line = InvoiceItem::query()->findOrFail($lineId);
+            $this->assertSame([Invoice::STATUS_UNPAID, null, null], [Invoice::query()->findOrFail($invoiceId)->status, $line->kind, $line->applied_at]);
+            $this->assertNotNull($line->period_start);
+        }
+    }
 }

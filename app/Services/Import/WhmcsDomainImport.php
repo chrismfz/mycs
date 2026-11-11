@@ -2,6 +2,7 @@
 
 namespace App\Services\Import;
 
+use App\Console\Commands\ImportFromWhmcs;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
@@ -94,10 +95,18 @@ final class WhmcsDomainImport
     /** @var list<string> what line() found, said after the invoice lines (run() has reported by then) */
     private array $lineNotes = [];
 
+    /** @var list<string> unpaid renewal lines of a period a paid one of the same domain covers («domain #, invoice #, line #») */
+    private array $duplicates = [];
+
+    /** @var array<int, list<array{0: string, 1: string}>>|null each domain's paid WHMCS renewal periods [start, end] */
+    private ?array $paid = null;
+
     /** @return list<string> */
     public function lineNotes(): array
     {
-        return $this->lineNotes;
+        return $this->duplicates === [] ? $this->lineNotes : [...$this->lineNotes, count($this->duplicates)
+            . ' unpaid domain renewal(s) of a period a paid renewal of the same domain already covers (a duplicate invoice: paid here, it renews nothing): '
+            . implode(', ', $this->duplicates) . '. Cancel each in WHMCS before the final dump, or here after the import (cutover-runbook).'];
     }
 
     /** @var list<array{line: int, domain: int, years: int, invoice: int, at: string|null}> years WHMCS renewed of a line left to be applied */
@@ -212,6 +221,13 @@ final class WhmcsDomainImport
                 && abs(Carbon::parse($domain['expires'])->diffInDays(Carbon::parse($renewal['period_start']), false)) <= self::COVERED_WITHIN_DAYS
                 && !$this->standsFor((int) $record['relid'], $renewal['period_start']);
 
+            // Unpaid, for a period a paid renewal of the same domain already covers (a forgotten duplicate invoice): imported
+            // as it is, a payable renewal, and named: paid here it is adopted at the registrar and buys nothing (S10-IMPORT-1).
+            if (ImportFromWhmcs::invoiceStatus($status) === Invoice::STATUS_UNPAID && $renewal['period_start'] !== null && $renewal['period_end'] !== null
+                && $this->paidCovers((int) $record['relid'], $renewal['period_start'], $renewal['period_end'])) {
+                $this->duplicates[] = "domain #{$record['relid']} invoice #" . ($record['invoiceid'] ?? '?') . " line #{$record['id']}";
+            }
+
             return ['applied_at' => $short ? null : $applied, 'forgone_at' => $forgone ? now()->toDateTimeString() : null] + $renewal;
         }
 
@@ -233,6 +249,31 @@ final class WhmcsDomainImport
             'DomainGraceFee' => ['kind' => 'grace_fee'] + $line,
             default => $line, // an addon (ID protection, DNS, email forwarding): a charge, never a period
         };
+    }
+
+    /** A paid renewal of this domain covers this period (within the covered days at each end). */
+    private function paidCovers(int $domain, string $start, string $end): bool
+    {
+        if ($this->paid === null) {
+            $this->paid = [];
+            if ($this->has('tblinvoiceitems') && $this->has('tblinvoices')) {
+                foreach ($this->rows("SELECT ii.relid, ii.description, ii.duedate FROM tblinvoiceitems ii JOIN tblinvoices i ON i.id = ii.invoiceid
+                    WHERE ii.type = 'Domain' AND i.status = 'Paid'") as $row) {
+                    $period = $this->period($row, $this->imported()[(int) $row['relid']]['years'] ?? 1);
+                    if ($period['period_start'] !== null && $period['period_end'] !== null) {
+                        $this->paid[(int) $row['relid']][] = [$period['period_start'], $period['period_end']];
+                    }
+                }
+            }
+        }
+        foreach ($this->paid[$domain] ?? [] as [$paidStart, $paidEnd]) {
+            if (Carbon::parse($paidStart)->subDays(self::COVERED_WITHIN_DAYS)->lessThanOrEqualTo(Carbon::parse($start))
+                && Carbon::parse($paidEnd)->addDays(self::COVERED_WITHIN_DAYS)->greaterThanOrEqualTo(Carbon::parse($end))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A paid or open renewal of this domain starts (within the covered days) where this one does. */
