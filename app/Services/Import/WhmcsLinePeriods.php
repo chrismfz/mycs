@@ -21,6 +21,10 @@ use Throwable;
  *    the service was made, takes `that day .. due date` (what the customer paid for);
  *  - its open renewal (the one line on an unpaid invoice due ON the service's due date) takes `due date .. one cycle
  *    on`, not applied.
+ * Never the last paid line of an invoice that carries a discount line (WHMCS bills a client group's discount and a
+ * promotion as a negative line of their own, so the Hosting line holds the amount before it): with its period the days
+ * left would be worth that amount, more than was paid; without it they are worth the service's price, which holds the
+ * discount (owner 2026-11-11). The open renewal is written all the same: its payment here gives it its period anyway.
  * Anything else stays as it came (no period, as before) and the service is named for staff. An addon imported as a
  * service of its own (WhmcsAddonImport, its «Addon» lines) goes by the same rule, without the pro rata case. Domains
  * have their own (WhmcsDomainImport).
@@ -54,12 +58,13 @@ final class WhmcsLinePeriods
         }
         try {
             $due = $this->lineDueDates($ids);
+            $this->discounts();
         } catch (PDOException $e) {
             // Not a WHMCS this importer knows (every one keeps the column): nothing written, and said.
             return ['notes' => ["The lines' due dates (tblinvoiceitems.duedate) could not be read: no invoice line was given its period ({$e->getMessage()})."]] + $none;
         }
         foreach ($services as $id => $service) {
-            $this->service($service, array_map(fn (object $line) => ['id' => (int) $line->id, 'paid' => $line->status === Invoice::STATUS_PAID,
+            $this->service($service, array_map(fn (object $line) => ['id' => (int) $line->id, 'invoice' => (int) $line->invoice_id, 'paid' => $line->status === Invoice::STATUS_PAID,
                 'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'due' => $due[(int) $line->id] ?? null], $lines[$id] ?? []));
         }
         ksort($this->named);
@@ -83,7 +88,7 @@ final class WhmcsLinePeriods
                 ->whereNull('invoice_items.kind')
                 ->whereIn('invoices.status', [Invoice::STATUS_PAID, Invoice::STATUS_UNPAID])
                 ->orderBy('invoice_items.id')
-                ->get(['invoice_items.id', 'invoice_items.reference_id', 'invoices.status', 'invoices.paid_at', 'invoices.created_at']);
+                ->get(['invoice_items.id', 'invoice_items.invoice_id', 'invoice_items.reference_id', 'invoices.status', 'invoices.paid_at', 'invoices.created_at']);
             foreach ($rows as $row) {
                 $byService[(int) $row->reference_id][(int) $row->id] = $row;
             }
@@ -111,7 +116,33 @@ final class WhmcsLinePeriods
         return $due;
     }
 
-    /** @param  array<int, array{id: int, paid: bool, at: string, due: string|null}>  $lines */
+    /** @var array<int, true> invoices with a client group's discount line (it names no service: relid 0) */
+    private array $groupDiscounted = [];
+
+    /** @var array<string, true> «invoice|WHMCS service» with a promotion's negative line */
+    private array $promoDiscounted = [];
+
+    /** WHMCS's discount lines: GroupDiscount (per invoice) and a negative PromoHosting (of its service). */
+    private function discounts(): void
+    {
+        $statement = $this->whmcs->query("SELECT invoiceid, type, relid FROM tblinvoiceitems WHERE type IN ('GroupDiscount', 'PromoHosting') AND amount < 0");
+        while (($row = $statement->fetch(PDO::FETCH_ASSOC)) !== false) {
+            if ($row['type'] === 'GroupDiscount') {
+                $this->groupDiscounted[(int) $row['invoiceid']] = true;
+            } else {
+                $this->promoDiscounted[(int) $row['invoiceid'] . '|' . (int) $row['relid']] = true;
+            }
+        }
+    }
+
+    /** The line's invoice bills a discount beside it: the line holds more than was paid for its period. */
+    private function discounted(Service $service, int $invoice): bool
+    {
+        return isset($this->groupDiscounted[$invoice])
+            || ($service->whmcs_addon_id === null && isset($this->promoDiscounted[$invoice . '|' . (int) $service->id]));
+    }
+
+    /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, due: string|null}>  $lines */
     private function service(Service $service, array $lines): void
     {
         $due = CarbonImmutable::parse($service->expires_at)->startOfDay();
@@ -123,6 +154,8 @@ final class WhmcsLinePeriods
         $last = $paid[0] ?? null;
         if ($last === null) {
             $why[] = 'no paid line';
+        } elseif ($this->discounted($service, $last['invoice'])) {
+            $why[] = "its last paid line (#{$last['id']}) is on an invoice with a discount line (invoice #{$last['invoice']}): it holds the amount before the discount";
         } elseif ($last['due'] === null) {
             $why[] = "its last paid line (#{$last['id']}) has no due date";
         } else {

@@ -2538,8 +2538,8 @@ class ImportFromWhmcs extends Command
             $this->warn($note);
         }
         if ($result['named'] !== []) {
-            $this->warn(count($result['named']) . ' live service(s) whose last paid line or open renewal got no period (WHMCS\'s dates are not one cycle apart, or'
-                . ' no paid line): left as before, their next payment or refund goes by the old guess. Look at each (cutover-runbook): '
+            $this->warn(count($result['named']) . ' live service(s) whose last paid line or open renewal got no period (WHMCS\'s dates are not one cycle apart, a'
+                . ' discount line beside the paid line, or no paid line): left as before, their next payment or refund goes by the old guess. Look at each (cutover-runbook): '
                 . implode(', ', array_map(fn (int $id, string $why) => "#{$id} ({$why})", array_keys($result['named']), $result['named'])) . '.');
         }
     }
