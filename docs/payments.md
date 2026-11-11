@@ -852,6 +852,13 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - **Αβέβαιο αποτέλεσμα:** η επόμενη χρέωση του ίδιου ποσού στην ίδια μέθοδο στέλνεται ξανά **με το ίδιο key** μόνο όσο το
     gateway το κρατά (ADV-3): Stripe 23 ώρες, PayPal 3 ώρες (`idempotencyKeyHours`, `SavedMethodCharge::keyReuseHours`).
     Μετά δεν στέλνεται τίποτα: το τιμολόγιο μένει κρατημένο ως την απόφαση του staff.
+    **Μόνο για το ίδιο πράγμα** (reviews του sweep 8, #791): ίδιο τιμολόγιο **και** ίδια ομάδα Mass Pay (καμία με καμία,
+    `unknownAttempt($invoice, $agreement, $groupId)`). Η «άγνωστη» χρέωση ενός τιμολογίου μόνου δεν ξαναστέλνεται ως χρέωση
+    ομάδας ίδιου ποσού, ούτε της ομάδας ως χρέωση του πρώτου της τιμολογίου μόνου: το gateway κρατά το κλειδί για το πρώτο
+    αίτημα (Stripe: 400 `idempotency_error` σε άλλα metadata) και η προσπάθεια θα έμενε «άγνωστη» χωρίς λόγο. Η άλλη
+    χρέωση **απορρίπτεται πριν σταλεί οτιδήποτε** («A payment for this invoice is already on its way»), όπως κάθε πληρωμή
+    κρατημένου τιμολογίου: ούτε με το παλιό κλειδί ούτε με νέο, ώσπου να καταγραφεί η πληρωμή ή το staff να πατήσει
+    «Resolve charge» (`Sweep8OpenUnknownChargeGroupTest`).
   - **Ποσό:** το gateway χρεώνεται το ποσό που διαβάστηκε κάτω από τα locks, όχι αυτό που κρατούσε ο caller (ADV-4).
 - **Stripe:** διαβάζεται η κατάσταση του PaymentIntent. `succeeded` και `processing` είναι χρέωση. Το
   `authentication_required` / `requires_action` είναι `ChargeNeedsAction`, χωρίς retry, και ο πελάτης το βλέπει.
