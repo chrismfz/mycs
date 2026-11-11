@@ -121,6 +121,40 @@ class ImportTemplatesHistoryTest extends TestCase
         $this->assertStringContainsString('service_dedicated_ip_x', implode("\n", $result['notes']));
     }
 
+    public function test_a_centova_products_port_and_source_password_lines_are_kept_with_the_modules_values(): void
+    {
+        $product = $this->product(9, licensing: false);
+        $server = Extension::query()->create(['extension' => 'CentovaCast', 'type' => 'server', 'name' => 'stream', 'enabled' => true]);
+        $product->forceFill(['server_id' => $server->id])->save();
+        $this->template(170, '<p>Dear {$client_name},</p><p>Username: {$service_custom_field_username}<br />Password: {$service_password}<br />'
+            . 'Control Panel: http://stream.example.test:2199/<br />Streaming Port: {$service_custom_field_port}<br />Source Password: {$service_custom_field_sourcepassword} <br />'
+            . 'IP Address : {$service_custom_field_ipaddress}<br />Bandwidth: {$service_custom_field_transferlimit}</p><p>{$signature}</p>');
+        $this->productRow(9, 170);
+
+        $result = (new WhmcsWelcomeSnippetImport($this->whmcs))->run();
+
+        $snippet = (string) $product->fresh()->email_template;
+        $this->assertSame("Control Panel: <http://stream.example.test:2199/>\n\n{% if centova_port %}\nStreaming Port: {{ centova_port }}\n{% endif %}\n\n"
+            . "{% if centova_source_password %}\nSource Password: {{ centova_source_password }}\n{% endif %}", $snippet);
+        $notes = implode("\n", $result['notes']);
+        $this->assertStringContainsString('service_custom_field_ipaddress', $notes);
+        $this->assertStringContainsString('service_custom_field_transferlimit', $notes);
+        $this->assertStringNotContainsString('sourcepassword', $notes);
+        $this->assertStringNotContainsString('custom_field_username', $notes);
+
+        $html = TemplateRenderer::renderMarkdown($snippet, ['centova_port' => '9300', 'centova_source_password' => 'Src-Pass-9']);
+        $this->assertStringContainsString('Streaming Port: 9300', $html);
+        $this->assertStringContainsString('Source Password: Src-Pass-9', $html);
+        // Centova did not answer: no half lines.
+        $this->assertStringNotContainsString('Source Password', TemplateRenderer::renderMarkdown($snippet, ['centova_port' => '9300']));
+
+        // Another module's product: its lines are not Centova's.
+        $other = $this->product(10, licensing: false);
+        $this->productRow(10, 170);
+        (new WhmcsWelcomeSnippetImport($this->whmcs))->run();
+        $this->assertStringNotContainsString('centova', (string) $other->fresh()->email_template);
+    }
+
     public function test_a_key_line_of_a_product_that_is_not_licensing_is_not_guessed(): void
     {
         $plain = $this->product(8, licensing: false);

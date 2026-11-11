@@ -157,7 +157,10 @@ class Show extends Component
                 } elseif ($action['type'] == 'view') {
                     $this->views[] = $action;
                 } elseif ($action['type'] == 'text') {
-                    $this->fields[] = $action;
+                    // A field marked `manage` (a station's source password) is not for a login that only views.
+                    if (empty($action['manage']) || $canManage) {
+                        $this->fields[] = $action;
+                    }
                 } elseif ($action['type'] === 'shortcuts' && $this->ownsWith('productsso')) {
                     $this->shortcuts = array_values((array) ($action['items'] ?? []));
                 } elseif ($action['type'] === 'password' && $canManage) {

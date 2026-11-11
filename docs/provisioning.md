@@ -363,6 +363,27 @@ Modules για το myip:
   `shoutcast_2_100`)· suspend/terminate δεν εξαρτώνται από τον τύπο.
   **Στον stream:** το Centova δεν μπορούσε να φτιάξει κανένα account (`Field 'statuscache' doesn't have a default value`)
   επειδή η MariaDB ήταν σε strict mode· ο υπεύθυνος αφαίρεσε το `STRICT_TRANS_TABLES` (`sql_mode` στο `my.cnf`).
+  **Τι δείχνει και τι στέλνει (2026-11-11, έλεγχος απέναντι στο module του WHMCS):**
+
+  | Πεδίο | Πού το κρατάμε | Πελάτης | Welcome email |
+  |---|---|---|---|
+  | Username | `services.username`, `centova_username` | ναι | `service.username` |
+  | Κωδικός διαχείρισης | `services.password` (κρυπτογραφημένος· στο Centova είναι hash) | αλλαγή μόνο | `service_password` |
+  | Κωδικός πηγής (encoder) | **πουθενά**: διαβάζεται από το Centova (`server.getaccount`) όταν δείχνεται | ναι, όποιος διαχειρίζεται την υπηρεσία | `centova_source_password` |
+  | Stream host:port | host του server, `centova_port` | ναι | `centova_host`, `centova_port` |
+  | Τύπος server, AutoDJ | `centova_servertype`, `centova_sourcetype` | ναι | όχι |
+  | Όρια (ακροατές, bitrate, χώρος, μεταφορά) | του template στο Centova | χώρος και μεταφορά μέσω χρήσης | όχι |
+
+  Ο κωδικός πηγής δεν αποθηκεύεται (απόφαση ιδιοκτήτη): ο πελάτης τον αλλάζει στο panel και ένα αντίγραφο εδώ θα έμενε
+  λάθος χωρίς να φαίνεται. Η σελίδα της υπηρεσίας και το welcome email κάνουν ένα `getaccount` (timeout 8 δευτ.)· με την
+  ίδια απάντηση διορθώνονται port, τύπος και AutoDJ που κρατά η υπηρεσία (κενά ή λάθος από το import). Αν το Centova δεν
+  απαντά, ή αν άλλη ζωντανή υπηρεσία εδώ έχει το ίδιο username, δείχνεται μόνο ό,τι κρατά η υπηρεσία, χωρίς κωδικό πηγής.
+  Γνωστό και αποδεκτό (code review του #786): και το κουμπί «Πίνακας Centova Cast» περνά από το ίδιο `getaccount`, άρα
+  με το Centova κάτω περιμένει ως το timeout πριν ανοίξει τη σελίδα σύνδεσης (που είναι επίσης κάτω).
+  Ελέγχθηκε στον stream (Centova 3.3.2, μόνο ανάγνωση): το `getaccount` δίνει `sourcepassword`, `servertype`, `apptypes`
+  (το AutoDJ), `port` και τα όρια. **Δεν κάναμε** (υπάρχουν στο panel του Centova, 9 σταθμοί): κατάσταση server/AutoDJ
+  στη σελίδα, ακροατές/bitrate, κουμπιά Start/Stop/Restart για το staff. Το staff βλέπει τα properties της υπηρεσίας· τον
+  κωδικό πηγής τον βλέπει στο Centova.
 - **Proxmox:** το myip τρέχει το Proxmox VE for WHMCS της The-Network-Crew (pvewhmcs· η nixpal/myip του έστειλε το
   PR #178, clusters). Άδεια **GPL-3.0** (επιβεβαιώθηκε 2026-10-15): όχι αυτούσιος κώδικας σε αυτό το repo (MIT).
   **Δικό μας module** πάνω στο API του Proxmox, με το pvewhmcs ως αναφορά συμπεριφοράς (ποιες κλήσεις, τι πεδία, πώς

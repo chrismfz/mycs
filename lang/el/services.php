@@ -273,6 +273,8 @@ return [
         'username' => 'Όνομα χρήστη',
         'server' => 'Διακομιστής ροής',
         'servertype' => 'Τύπος διακομιστή',
+        'autodj' => 'AutoDJ',
+        'source_password' => 'Κωδικός πηγής (encoder)',
     ],
     'ngm' => [
         'login' => 'Σύνδεση στον πίνακα ελέγχου',

@@ -107,6 +107,23 @@ class ImportCustomFieldsTest extends TestCase
         $this->assertStringContainsString('may be a secret: not imported', implode("\n", $result['notes']));
     }
 
+    public function test_a_centova_type_or_port_that_is_not_one_is_listed_not_shown_to_the_customer(): void
+    {
+        // myip 2026-11-11: a «servertype» that held something else would be the customer's «Server type».
+        $radio = Service::factory()->create(['client_id' => User::factory()->create()->client()->id]);
+        $this->whmcs->exec("INSERT INTO tblproducts VALUES (148, 'centovacast')");
+        $this->whmcs->exec("INSERT INTO tblhosting VALUES ({$radio->id}, 148)");
+        foreach (['username' => 'radio1', 'port' => '80 00', 'servertype' => 'x9KqW2', 'sourcetype' => 'ShoutCast2'] as $name => $value) {
+            $this->value($this->field('product', 148, $name), $radio->id, $value);
+        }
+
+        $result = (new WhmcsCustomFieldImport($this->whmcs))->run();
+
+        $this->assertSame(['centova_username' => 'radio1'], DB::table('properties')->where('model_type', Service::class)->where('model_id', $radio->id)->pluck('value', 'key')->all());
+        $this->assertStringNotContainsString('x9KqW2', (string) $radio->fresh()->notes . implode("\n", $result['notes']), 'it may be a password: nowhere');
+        $this->assertSame(3, substr_count(implode("\n", $result['notes']), 'is not one: not imported'));
+    }
+
     public function test_a_whmcs_without_custom_fields_imports_nothing(): void
     {
         $result = (new WhmcsCustomFieldImport(new PDO('sqlite::memory:')))->run();

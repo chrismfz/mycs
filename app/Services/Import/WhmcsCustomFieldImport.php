@@ -19,7 +19,8 @@ use PDOException;
  *   immediate_invoicing; «Σημειώσεις» → a note on the account for staff. A value the account already has stays.
  * - A service's: an IP («IP Address», «IP», «ipaddress», an addon's «Dedicated IP», on the addon's own service when it was
  *   imported, else its parent's) → dedicated_ip when it has none;
- *   Centova's (username, port, servertype, sourcetype) → the properties its module reads; a licensing product's are its
+ *   Centova's (username, port, servertype, sourcetype) → the properties its module reads (a port or a type that is not
+ *   one is listed, not imported); a licensing product's are its
  *   import's (left as they are); any other one filled → the service's notes, for staff. Never a password: listed only.
  */
 final class WhmcsCustomFieldImport
@@ -57,6 +58,10 @@ final class WhmcsCustomFieldImport
 
     private const CENTOVA_FIELDS = ['username' => 'Centova account', 'port' => 'Centova port', 'servertype' => 'Centova server type',
         'sourcetype' => 'Centova AutoDJ type'];
+
+    /** What each may hold: a value that is none of them is someone's typing in the wrong field. */
+    private const CENTOVA_VALUES = ['port' => '/^\d{1,5}$/', 'servertype' => '/^(icecast|shoutcast|shoutcast2)$/i',
+        'sourcetype' => '/^(liquidsoap|icescc|ices|sctrans|sctrans2)$/i'];
 
     public function __construct(private readonly PDO $whmcs) {}
 
@@ -214,6 +219,13 @@ final class WhmcsCustomFieldImport
                     } elseif ($value !== (string) $model->dedicated_ip) {
                         $lines[] = "{$label}: {$value}"; // another address, or not one: for staff
                     }
+
+                    continue;
+                }
+                if ($module === 'centovacast' && isset(self::CENTOVA_VALUES[strtolower($name)]) && preg_match(self::CENTOVA_VALUES[strtolower($name)], $value) !== 1) {
+                    // Not shown to the customer as their «server type» (myip 2026-11-11: one held something else). The page
+                    // reads the right one from Centova.
+                    $this->skip("Service #{$id}: Centova's «{$label}» is not one: not imported (the service's page reads it from Centova)");
 
                     continue;
                 }

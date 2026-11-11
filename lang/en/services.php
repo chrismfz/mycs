@@ -273,6 +273,8 @@ return [
         'username' => 'Username',
         'server' => 'Stream server',
         'servertype' => 'Server type',
+        'autodj' => 'AutoDJ',
+        'source_password' => 'Source password (encoder)',
     ],
     'ngm' => [
         'login' => 'Log in to the panel',

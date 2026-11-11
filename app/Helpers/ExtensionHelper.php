@@ -2314,6 +2314,27 @@ class ExtensionHelper
     }
 
     /**
+     * What the service's module adds to its welcome mail (its `welcomeData`: Centova's port and source password), read
+     * from the service as it is now.
+     *
+     * @return array<string, mixed>
+     */
+    public static function welcomeData(Service $service): array
+    {
+        $service = $service->fresh(['properties']) ?? $service;
+        $server = $service->provisioningServer();
+        if ($server === null) {
+            return [];
+        }
+        $extension = self::getExtension('server', $server->extension, $server->settings);
+        if (!method_exists($extension, 'welcomeData')) {
+            return [];
+        }
+
+        return (array) $extension->welcomeData($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+    }
+
+    /**
      * Get actions for service
      */
     public static function getView(Service $service, $view)
