@@ -361,17 +361,25 @@ class StaffFreedomEditPaymentTest extends TestCase
         $this->assertMoneyClean();
     }
 
-    public function test_kept_an_invoice_paid_in_whmcs_is_not_opened_and_paid_again_by_an_edit_once_money_was_recorded_on_it_here(): void
+    /**
+     * The importer gave #480's line its period (2026-08-10 to 09-10) and marked it applied (WhmcsLinePeriods): opened and
+     * paid again by an edit, it is a replay as a native line's, and renews nothing. The refusal «would renew» stays for a
+     * line that came with no period (ImportLinePeriodsTest).
+     */
+    public function test_an_invoice_paid_in_whmcs_opened_and_paid_again_by_an_edit_renews_nothing_once_money_was_recorded_on_it_here(): void
     {
         $old = InvoiceTransaction::query()->where('invoice_id', 480)->sole();
         // A payment recorded on it here (it is paid: the money is credit) makes it no longer «all the importer's».
         (new RecordPaymentService)->handle(480, null, '2.00', transactionId: 'extra', enteredByStaff: true);
         $this->assertFalse(EkdosiDocument::issuedBeforeCutOver(480));
+        $this->assertFalse(EditPayment::paidAgainWouldRenew(Invoice::query()->findOrFail(480)), 'its line is applied: a payment gives it nothing again');
 
-        // Its lines were never applied here: deleted and recorded again, the invoice would be paid again and renew service 31.
-        $this->assertSame(__('invoices.payment_edit.would_renew'), $this->refused(fn () => (new EditPayment)->handle($old, ['amount' => '10.01'])));
+        (new EditPayment)->handle($old, ['amount' => '10.01']);
 
+        // The exact state: paid, nothing left, the 10.00 it bills kept on it; the cent over went to credit, as the 2.00.
         $this->assertSame([Invoice::STATUS_PAID, 0, 1000], $this->state(480));
+        $new = InvoiceTransaction::query()->where('invoice_id', 480)->where('transaction_id', 'tr_480')->sole();
+        $this->assertSame(['10.01', '0.01'], [(string) $new->amount, (string) $new->credited_amount]);
         $this->assertPeriodUntouched();
         $this->assertMoneyClean();
     }

@@ -348,7 +348,8 @@ class StaffFreedomServicesTest extends TestCase
         }
         $addon = Service::query()->where('whmcs_addon_id', 123)->sole();
         $invoice = Invoice::query()->findOrFail(951);
-        $this->assertTrue($invoice->items->every(fn (InvoiceItem $line) => $line->period_start === null), 'lines without a period');
+        $this->assertTrue($invoice->items->every(fn (InvoiceItem $line) => $line->period_start?->toDateString() === '2026-12-15' && $line->applied_at === null),
+            'the open renewal of each, with its period from the due date (WhmcsLinePeriods)');
         $this->creditOn($invoice, 1000);
 
         $parent->fresh()->markTerminated();
@@ -505,6 +506,8 @@ class StaffFreedomServicesTest extends TestCase
         $whmcs->exec("INSERT INTO tblinvoices VALUES (950, {$this->client->id}, '', '2026-11-01', '2026-11-15', '2026-11-10 09:00:00', 'Paid', 13, 0, 0)");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6000, 950, {$this->client->id}, 'Hosting', 1692, 'Business 10', 10, 0, '2026-11-15')");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6001, 950, {$this->client->id}, 'Addon', 123, 'Dedicated IP', 3, 0, '2026-11-15')");
+        // Its payment: a paid invoice with no money on it gets no period (WhmcsLinePeriods, REV-788-R2-2).
+        $whmcs->exec("INSERT INTO tblaccounts (id, userid, invoiceid, gateway, date, amountin) VALUES (950, {$this->client->id}, 950, 'banktransfer', '2026-11-10 09:00:00', 13)");
         $whmcs->exec("INSERT INTO tblinvoices VALUES (951, {$this->client->id}, '', '2026-11-18', '2026-12-15', NULL, 'Unpaid', 13, 0, 0)");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6002, 951, {$this->client->id}, 'Hosting', 1692, 'Business 10', 10, 0, '2026-12-15')");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6003, 951, {$this->client->id}, 'Addon', 123, 'Dedicated IP', 3, 0, '2026-12-15')");
@@ -516,8 +519,9 @@ class StaffFreedomServicesTest extends TestCase
         $this->assertSame('2026-12-15', $addon->expires_at->toDateString());
         $lines = InvoiceItem::query()->where('invoice_id', 950)->get();
         $this->assertCount(2, $lines);
-        $this->assertTrue($lines->every(fn (InvoiceItem $line) => $line->period_start === null && $line->applied_at === null),
-            'as the importer leaves them: no period, never applied');
+        $this->assertTrue($lines->every(fn (InvoiceItem $line) => $line->period_start?->toDateString() === '2026-11-15'
+            && $line->period_end?->toDateString() === '2026-12-15' && $line->applied_at?->toDateTimeString() === '2026-11-10 09:00:00'),
+            'as the importer leaves them: the last paid line of each with its period, applied when its invoice was paid (WhmcsLinePeriods)');
         $this->assertSame(Invoice::STATUS_PAID, Invoice::query()->findOrFail(950)->status);
         $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail(951)->status);
 
