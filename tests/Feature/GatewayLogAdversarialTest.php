@@ -378,6 +378,8 @@ class GatewayLogAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
 
         $this->stripeWebhook($this->succeeded($invoice->id, 10000, 'pi_flow', type: 'payment_intent.processing'))->assertOk();
+        // Stripe is asked what the intent is now before a processing payment is failed (S10-PAYMENTS-1).
+        Http::fake(['https://api.stripe.com/v1/payment_intents/pi_flow' => Http::response(['id' => 'pi_flow', 'status' => 'requires_payment_method'])]);
         $this->stripeWebhook($this->succeeded($invoice->id, 10000, 'pi_flow', type: 'payment_intent.payment_failed'))->assertOk();
         $this->stripeWebhook($this->succeeded($invoice->id, 10000, 'pi_flow'))->assertOk();
 
