@@ -272,7 +272,15 @@ class InvoiceObserver
             if ($service === null || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true) || $service->expires_at === null) {
                 continue;
             }
-            [, $billed] = $service->billedPeriodLines();
+            [$live, $billed] = $service->billedPeriodLines();
+            // Its service has a live line with a period (the importer wrote its last paid line and its open renewal,
+            // WhmcsLinePeriods; or it renewed here since): this line with none is not the period to come, which that
+            // chain bills. It is the past (an older invoice paid in WHMCS), or a period nothing here can name: nothing is
+            // given up for it, and the cron bills what is due (owner 2026-11-11; before, a refund of an older WHMCS
+            // invoice gave up the NEXT period). A service with no period line at all goes on as before.
+            if ($live->isNotEmpty()) {
+                continue;
+            }
             $start = $service->nextPeriodStart($billed);
             $end = $service->periodEnd($start, $billed);
             // A period the cron has not reached yet stays billable (ADV-4, review A4-5): nothing to mark.
