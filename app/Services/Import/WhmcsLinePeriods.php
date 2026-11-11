@@ -25,7 +25,11 @@ use Throwable;
  * Never the paid line when WHMCS upgraded or downgraded the service since the line was billed (its invoice's date: the
  * line is not what those days were paid, REV-788-4, REV-788-R2-1), nor one on an invoice that comes to 0.00 or holds no
  * money (a 100% promotion, closed as paid with no payment: its days were paid nothing, REV-788-R2-2). Never the open renewal when the service has another unpaid line (a payment of the later one
- * must still take the first month not paid for, REV-788-3).
+ * must still take the first month not paid for, REV-788-3), nor when an unpaid line of the service is on another
+ * customer's invoice (the service moved to this one in WHMCS and the invoice stayed with the first: the billing would read
+ * the period as billed and never ask the service's own customer for it, S9-IMPORT-PERIODS-1). The last paid line keeps
+ * its period whoever's invoice it is on: those days were paid, and a refund of it must not give up the next period
+ * (REV-804-2).
  * A WHMCS discount line beside the line (a client group's, a promotion's: a negative line of its own) changes nothing
  * here: the line gets its period all the same, with two known consequences the owner accepted (2026-11-11,
  * docs/importer.md): the days left of that period are worth the line's amount before the discount, and a plan change
@@ -47,6 +51,7 @@ final class WhmcsLinePeriods
         'no_due' => 'the last paid line has no due date',
         'no_paid' => 'no paid line',
         'unpaid' => 'more than one unpaid line: the open renewal is not written',
+        'other_client' => "a line on another customer's invoice",
     ];
 
     /** @var array<string, array<int, string>> reason => service => the detail of it, if any */
@@ -84,7 +89,9 @@ final class WhmcsLinePeriods
         }
         foreach ($services as $id => $service) {
             $this->service($service, array_map(fn (object $line) => ['id' => (int) $line->id, 'invoice' => (int) $line->invoice_id, 'paid' => $line->status === Invoice::STATUS_PAID,
-                'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'billed' => self::day($line->created_at), 'due' => $due[(int) $line->id] ?? null], $lines[$id] ?? []));
+                'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'billed' => self::day($line->created_at), 'due' => $due[(int) $line->id] ?? null,
+                // The one place a line's customer is asked: its invoice's is not the service's.
+                'other' => (int) $line->client_id !== (int) $service->client_id], $lines[$id] ?? []));
         }
         $named = [];
         foreach (array_keys(self::REASONS) as $reason) {
@@ -102,7 +109,7 @@ final class WhmcsLinePeriods
      * already: run again on the same import, the same two lines are found and written the same.
      *
      * @param  list<int>  $services
-     * @return array<int, array<int, object>> service => line id => the line with its invoice's status and dates
+     * @return array<int, array<int, object>> service => line id => the line with its invoice's customer, status and dates
      */
     private function lines(array $services): array
     {
@@ -113,7 +120,7 @@ final class WhmcsLinePeriods
                 ->whereNull('invoice_items.kind')
                 ->whereIn('invoices.status', [Invoice::STATUS_PAID, Invoice::STATUS_UNPAID])
                 ->orderBy('invoice_items.id')
-                ->get(['invoice_items.id', 'invoice_items.invoice_id', 'invoice_items.reference_id', 'invoices.status', 'invoices.paid_at', 'invoices.created_at']);
+                ->get(['invoice_items.id', 'invoice_items.invoice_id', 'invoice_items.reference_id', 'invoices.client_id', 'invoices.status', 'invoices.paid_at', 'invoices.created_at']);
             foreach ($rows as $row) {
                 $byService[(int) $row->reference_id][(int) $row->id] = $row;
             }
@@ -219,7 +226,7 @@ final class WhmcsLinePeriods
         $this->named[$reason][(int) $service->id] ??= $detail;
     }
 
-    /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, billed: string|null, due: string|null}>  $lines */
+    /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, billed: string|null, due: string|null, other: bool}>  $lines */
     private function service(Service $service, array $lines): void
     {
         $due = CarbonImmutable::parse($service->expires_at)->startOfDay();
@@ -260,7 +267,11 @@ final class WhmcsLinePeriods
         if ($open === []) {
             return; // an unpaid line elsewhere stays as it is
         }
-        if (count($unpaid) > 1) {
+        $others = array_filter($unpaid, fn (array $line) => $line['other']);
+        if ($others !== []) {
+            // Before the count: two unpaid lines left with the first customer are that customer's, not two renewals to sort (REV-804-5).
+            $this->name('other_client', $service, implode(', ', array_map(fn (array $line) => "line #{$line['id']} of invoice #{$line['invoice']}", $others)));
+        } elseif (count($unpaid) > 1) {
             $this->name('unpaid', $service, count($unpaid) . ' unpaid lines');
         } elseif (($end = $service->periodEnd($due)) !== null) {
             // After the paid line is written: a month-end day goes by the period before it, as the cron's will.
