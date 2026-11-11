@@ -199,13 +199,11 @@ class Sweep7PaymentsTest extends TestCase
     }
 
     /**
-     * S7-PAYMENTS-4 (b): PayPal's token endpoint is down, so the order was never posted: nothing was sent. The attempt is
-     * kept as «unknown» (maybe taken) and holds the invoice, instead of «not sent».
+     * S7-PAYMENTS-4 (b): PayPal's token endpoint is down, so the order was never posted: nothing was sent. The attempt was
+     * kept as «unknown» (maybe taken) and held the invoice, instead of «not sent»: fixed as S8-PAYMENTS-3.
      */
     public function test_s7_payments_4_a_paypal_token_failure_is_a_charge_not_sent(): void
     {
-        $this->markTestIncomplete('S7-PAYMENTS-4 (low): left as is, recorded only (owner 2026-11-10; docs/sweeps/2026-11-10-seventh.md).');
-
         MailFacade::fake();
         $paypal = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway', 'enabled' => true]);
         foreach (['client_id' => 'id', 'client_secret' => 'secret', 'webhook_id' => 'WH-1', 'test_mode' => '1'] as $key => $value) {
