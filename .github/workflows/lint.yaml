@@ -46,6 +46,17 @@ jobs:
       - name: PHPStan (new errors only, see phpstan-baseline.neon)
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
 
+      # composer's post-autoload-dump (filament:upgrade) rewrites these on every install, the deploy's too: a Filament
+      # bump that leaves them behind dirties the server's tree and the next deploy/update.sh refuses (#790, twice).
+      - name: Filament's published assets are the ones composer.lock ships
+        run: |
+          php artisan filament:assets
+          if [ -n "$(git status --porcelain -- public)" ]; then
+            git status --short -- public
+            echo "::error::Filament's published assets differ from the committed ones: run 'composer install' and commit public/css/filament, public/js/filament, public/fonts/filament."
+            exit 1
+          fi
+
   audit:
     runs-on: ubuntu-latest
 
