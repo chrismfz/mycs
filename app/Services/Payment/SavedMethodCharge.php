@@ -201,7 +201,8 @@ final class SavedMethodCharge
                 throw new DisplayException(__('A payment for this invoice is already on its way.'));
             }
             if ($unknown !== null) {
-                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'error' => null, 'sent_at' => now(), 'finished_at' => null]);
+                // Its error is kept: a resend that does not confirm the payment leaves it of unknown outcome (below).
+                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'sent_at' => now(), 'finished_at' => null]);
 
                 return $unknown;
             }
@@ -234,17 +235,26 @@ final class SavedMethodCharge
                 throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'));
             }
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_SUCCEEDED);
-        } catch (ChargeNeedsAction $e) {
-            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage());
-        } catch (ChargeNotSent $e) {
-            // The gateway was not reached before the charge (an outage): nothing taken, nothing declined (L-FAILURES-2).
-            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_NOT_SENT, $e->getMessage());
-        } catch (DisplayException $e) {
-            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_FAILED, $e->getMessage());
         } catch (Throwable $e) {
-            // No answer about the money (a timeout, a 5xx): maybe taken. Kept with its key, sent again with it.
-            report($e);
-            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_UNKNOWN, $e->getMessage());
+            if (!$e instanceof DisplayException) {
+                report($e);
+            }
+            [$status, $error] = match (true) {
+                // The bank asks the customer to confirm: only ever the gateway's answer to the charge itself, and no money
+                // was taken, so it settles a resend too and the customer pays at the card form (REV-791-R2-2).
+                $e instanceof ChargeNeedsAction => [ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage()],
+                // Else a resend of an unknown outcome only ever confirms the payment. Anything else it meets (not sent,
+                // refused before the charge, the key still in use, a decline, no answer again) does not prove the first
+                // send took nothing: it stays unknown, with its first error, its key and its hold, for staff to resolve
+                // (S8-PAYMENTS-1, REV-791-1/-2).
+                !$attempt->wasRecentlyCreated => [ChargeAttempt::STATUS_UNKNOWN, $attempt->error],
+                // The gateway was not reached before the charge (an outage): nothing taken, nothing declined (L-FAILURES-2).
+                $e instanceof ChargeNotSent => [ChargeAttempt::STATUS_NOT_SENT, $e->getMessage()],
+                $e instanceof DisplayException => [ChargeAttempt::STATUS_FAILED, $e->getMessage()],
+                // No answer about the money (a timeout, a 5xx): maybe taken. Kept with its key, sent again with it.
+                default => [ChargeAttempt::STATUS_UNKNOWN, $e->getMessage()],
+            };
+            $this->finish($attempt, $agreement, $status, $error);
         }
 
         return $attempt;

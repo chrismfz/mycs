@@ -173,6 +173,15 @@ class PayPal extends Gateway
     public function charge(Invoice $invoice, $total, BillingAgreement $billingAgreement)
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        // The token first, on its own: when PayPal gives none (down, slow, our credentials refused) no order was posted, so
+        // nothing was charged and nothing declined (S8-PAYMENTS-3). The order below then uses this token.
+        try {
+            $this->generateAccessToken();
+        } catch (Throwable $e) {
+            report($e);
+
+            throw new ChargeNotSent(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
+        }
         try {
             $result = $this->request('post', $url . '/v2/checkout/orders', [
                 'intent' => 'CAPTURE',
