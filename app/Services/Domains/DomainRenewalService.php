@@ -375,6 +375,16 @@ class DomainRenewalService
                 return $this->apply($domain, $line, $connection, $staff, $now, true); // the registry has them: adopted
             }
         }
+        // Short of the paid period by part of a year only (S10-DOMAINS-2: an imported line carries WHMCS's next due date, not
+        // the registry's expiry): a whole year is never bought for some weeks. Staff decide, also on their Retry; renewed by
+        // hand at the registrar, the period is covered and the next run adopts it.
+        if ($this->shortByPartOfAYear($now, $target)) {
+            $this->staffDecides($domain, $line, $connection->registrar, 'Paid to ' . $target->toDateString() . ', the registrar has ' . ($now->paidUntil ?? $now->expiresAt)
+                . ': short by less than a year, so no whole year is bought for it. If its year is missing, renew it by hand at the registrar'
+                . ' (it is then adopted here); if not, leave it. While this line waits, its period counts as billed.');
+
+            return self::FAILED;
+        }
         // The registrar's expiry short of where this period starts, and no earlier period charged that it lags behind: the
         // years before it are not bought (an earlier period unpaid, or never billed). Its own years would leave it short, and
         // an earlier period paid later would be adopted over them (adversarial ADV-1 of #305): staff decide.
@@ -546,6 +556,17 @@ class DomainRenewalService
         }
 
         return $years;
+    }
+
+    /**
+     * One more year at the registrar would run past the paid period's end by more than an expiry moves by a sync
+     * (SAME_PERIOD_DAYS): it is short by part of a year, not by a year.
+     */
+    private function shortByPartOfAYear(DomainSyncResult $result, Carbon $target): bool
+    {
+        $until = $result->paidUntil ?? $result->expiresAt;
+
+        return $until !== null && Carbon::parse($until)->startOfDay()->addYearsNoOverflow(1)->greaterThan($target->copy()->addDays(self::SAME_PERIOD_DAYS));
     }
 
     /** Its stage's fee, when there is one, is paid (on a paid invoice, billed with or after this renewal). */

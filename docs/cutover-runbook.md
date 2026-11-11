@@ -30,6 +30,9 @@ credentials. Το import της ημέρας τα φέρνει όλα:
     **Μετά την ενεργοποίηση και το πρώτο πλήρες sync** (`php artisan domains:sync --force`, ώσπου να περάσουν όλα τα
     batches): Domains, ταξινόμηση κατά «Last synced», και κοιτάζονται όσα γράφουν ακόμη **«Never»**. Κανένα δεν τελειώνει
     μόνο του: το καθένα ή διαβάζεται (λάθος σύνδεση, id στον registrar) ή κλείνεται με το χέρι.
+  - **Εργασίες «short by less than a year» (sweep 10, S10-DOMAINS-2):** πληρωμένη ανανέωση του WHMCS που ο registrar
+    υπολείπεται μέρος έτους δεν αγοράζει τίποτα μόνη της· για καθεμία στα Pending Module Actions: ανανέωση με το χέρι στον
+    registrar αν το έτος λείπει (υιοθετείται στο επόμενο run), αλλιώς μένει (`docs/domains.md`).
   - **Gateways (απόφαση ιδιοκτήτη 2026-11-06):** **μετά** την αλλαγή του host (τα webhooks παίρνουν το `APP_URL` της
     στιγμής), `php artisan app:enable-imported-gateways`. Η εντολή ανοίγει όποιο ήρθε ολόκληρο και απαντά:
     - **Stripe:** φτιάχνεται το webhook με τα κλειδιά του (έτσι ελέγχεται και ότι απαντούν· ένα restricted key θέλει το Webhook Endpoints). Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).

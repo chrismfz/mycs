@@ -253,4 +253,80 @@ class Sweep10DomainsFixTest extends TestCase
 
         $this->assertSame(DomainStatus::Deleted, Domain::query()->findOrFail(404)->status, 'no API to read it from: its dates end it');
     }
+
+    // ── S10-DOMAINS-2: short by part of a year, no whole year bought ──────────────────────────────────────────────
+
+    /** The paid line «(01/08/2026 - 31/07/2027)» of a domain WHMCS never renewed (its expiry still at the period's start). */
+    private function paidRenewalLeftToRenew(string $whmcsExpiry): void
+    {
+        Carbon::setTestNow('2026-11-11 10:00:00');
+        $this->domain(402, 'offset.example.com', 'Active', 'openprovider', ['expirydate' => $whmcsExpiry, 'nextduedate' => '2027-08-01']);
+        $this->invoice(1, 'Paid', '2026-07-20 09:00:00', [
+            [12, 'Domain', 402, 'Domain Renewal - offset.example.com - 1 Year/s (01/08/2026 - 31/07/2027)', 12.5, '2026-08-01'],
+        ]);
+        $this->import();
+        $this->assertTrue(DomainRenewalService::waitingLines()->whereKey(12)->exists(), 'precondition: the import leaves the paid line to be renewed');
+    }
+
+    public function test_a_paid_renewal_the_registrar_is_short_of_by_a_year_is_renewed_once_as_before(): void
+    {
+        $this->paidRenewalLeftToRenew('2026-08-01');
+        $this->openproviderOn(402, 'offset.example', '2026-08-01');
+
+        $outcome = app(DomainRenewalService::class)->renewLine(12);
+
+        $this->assertSame([DomainRenewalService::APPLIED, [1], '2027-08-01'], [$outcome, $this->renewed, Domain::query()->findOrFail(402)->expires_at->toDateString()]);
+        $this->assertNotNull(InvoiceItem::query()->findOrFail(12)->applied_at);
+        $this->assertSame(DomainRenewalService::NOTHING, app(DomainRenewalService::class)->renewLine(12), 'once');
+        $this->assertSame([1], $this->renewed);
+    }
+
+    /** The registrar's expiry some days past the period's start (a sync moves an expiry so): still its year, as before. */
+    public function test_a_registrar_expiry_days_past_the_periods_start_is_still_short_by_a_year(): void
+    {
+        $this->paidRenewalLeftToRenew('2026-08-21');
+        $this->openproviderOn(402, 'offset.example', '2026-08-21');
+
+        $outcome = app(DomainRenewalService::class)->renewLine(12);
+
+        $this->assertSame([DomainRenewalService::APPLIED, [1]], [$outcome, $this->renewed]);
+    }
+
+    public function test_a_paid_renewal_the_registrar_already_covers_is_adopted_as_before(): void
+    {
+        $this->paidRenewalLeftToRenew('2026-08-01');
+        $this->openproviderOn(402, 'offset.example', '2027-08-01'); // renewed there, WHMCS never read it
+
+        $outcome = app(DomainRenewalService::class)->renewLine(12);
+
+        $this->assertSame([DomainRenewalService::ADOPTED, []], [$outcome, $this->renewed]);
+        $this->assertNotNull(InvoiceItem::query()->findOrFail(12)->applied_at);
+    }
+
+    public function test_short_by_part_of_a_year_is_a_task_for_staff_opened_once_and_adopted_once_renewed_by_hand(): void
+    {
+        $this->paidRenewalLeftToRenew('2027-06-15');
+        $this->openproviderOn(402, 'offset.example', '2027-06-15');
+        $renewals = app(DomainRenewalService::class);
+
+        $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine(12));
+        $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine(12), 'the next run: read again, nothing bought');
+        // Staff's Retry does not buy it either: only by hand at the registrar.
+        RetryModuleAction::run(ModuleAction::query()->where('invoice_item_id', 12)->sole());
+
+        $task = ModuleAction::query()->where('domain_id', 402)->where('invoice_item_id', 12)->sole();
+        $this->assertSame([ModuleAction::DOMAIN_RENEW, ModuleAction::STATUS_OPEN, 3], [$task->action, $task->status, $task->attempts]);
+        $this->assertSame('Paid to 2027-08-01, the registrar has 2027-06-15: short by less than a year, so no whole year is bought for it. '
+            . 'If its year is missing, renew it by hand at the registrar (it is then adopted here); if not, leave it. While this line waits, its period counts as billed.', $task->last_error);
+        $this->assertSame([], $this->renewed);
+        $this->assertNull(InvoiceItem::query()->findOrFail(12)->applied_at);
+        $this->assertSame(0, DomainRegistrarLog::query()->where('domain_id', 402)->where('action', 'renew')->count());
+
+        // Renewed by hand at the registrar: the next run finds the period covered and adopts it, the task closed.
+        Http::swap(new HttpFactory); // the first fake would answer before a second one
+        Http::preventStrayRequests();
+        $this->openproviderOn(402, 'offset.example', '2028-06-15');
+        $this->assertSame(DomainRenewalService::ADOPTED, $renewals->renewLine(12));
+        $this->assertSame([[], ModuleAction::STATUS_COMPLETED], [$this->renewed, $task->fresh()->status]);
+    }
 }
