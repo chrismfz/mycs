@@ -155,7 +155,7 @@ final class WhmcsDomainImport
         $this->counts['tlds'] = $catalog['counts']['tlds'];
         array_push($this->notes, ...$catalog['notes']);
         $this->domains();
-        $this->awaitingFirstRead();
+        $this->endedByTheDates();
         $this->followCatalog();
         $this->reminders();
 
@@ -538,11 +538,12 @@ final class WhmcsDomainImport
     private const LISTED_IDS = 20;
 
     /**
-     * The live domains of a registrar with an API whose WHMCS expiry is already past their grace and redemption: the dates
-     * would end them, and never do before their registrar is read once (DomainLifecycle, S10-DOMAINS-1). Said, so staff
-     * look at them after the first sync (cutover-runbook).
+     * The live domains of a registrar with an API whose WHMCS expiry is already past their grace and redemption, a month
+     * past for one whose connection comes off (DomainLifecycle, #308): the scheduler's date step ends them Deleted before
+     * any registrar read, and a Deleted row is never synced again (sweep 10, S10-DOMAINS-1: known, named here and handled by
+     * hand at the cut-over). A manual registrar's go by their dates as always: not listed.
      */
-    private function awaitingFirstRead(): void
+    private function endedByTheDates(): void
     {
         $today = Carbon::today();
         $ids = Domain::query()->whereIn('status', [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption])
@@ -554,7 +555,9 @@ final class WhmcsDomainImport
         if ($ids !== []) {
             $this->notes[] = count($ids) . ' live domain(s) whose WHMCS expiry is past their grace and redemption'
                 . (count($ids) <= self::LISTED_IDS ? ' (#' . implode(', #', $ids) . ')' : '')
-                . ': not ended by the dates, they wait for their first registrar read (switch the connections on, sync, then look at the domains never synced: cutover-runbook).';
+                . ': the date step marks them Deleted (those a month past it within minutes of the import, the others once that month passes'
+                . ' while their connection is off), before any registrar read, and a Deleted domain is never synced again.'
+                . ' If one is alive at its registrar, correct its expiry in WHMCS before the final dump (cutover-runbook).';
         }
     }
 

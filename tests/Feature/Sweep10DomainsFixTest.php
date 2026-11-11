@@ -8,17 +8,12 @@ use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
-use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Models\ModuleAction;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
-use App\Services\Domains\DomainRenewalService;
-use App\Services\Service\RetryModuleAction;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -35,8 +30,9 @@ use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
- * Sweep 10, the fixes' neighbours (S10-DOMAINS-1, S10-DOMAINS-2, S10-IMPORT-1): what must stay as it was beside each rule,
- * on WHMCS's domains as the importer writes them (the harness of Sweep10DomainsTest). Example names; Http is faked.
+ * Sweep 10, what the import says (S10-IMPORT-1: the duplicate unpaid renewal named; S10-DOMAINS-1 and -2, known: the
+ * domains and lines to look at by hand at the cut-over), on WHMCS's domains as the importer writes them (the harness of
+ * Sweep10DomainsTest). Example names; Http is faked.
  */
 class Sweep10DomainsFixTest extends TestCase
 {
@@ -177,21 +173,30 @@ class Sweep10DomainsFixTest extends TestCase
         });
     }
 
-    // ── S10-DOMAINS-1: never ended by the dates before its registrar was read once ────────────────────────────────
+    // ── S10-DOMAINS-1 (known): the import names the live domains the date step ends before any registrar read ─────
 
-    public function test_the_import_says_which_live_domains_wait_for_their_first_registrar_read(): void
+    private const ENDED = ': the date step marks them Deleted (those a month past it within minutes of the import, the others once that month passes'
+        . ' while their connection is off), before any registrar read, and a Deleted domain is never synced again.'
+        . ' If one is alive at its registrar, correct its expiry in WHMCS before the final dump (cutover-runbook).';
+
+    public function test_the_import_names_the_live_domains_the_dates_will_end_and_the_date_step_ends_them(): void
     {
         Carbon::setTestNow('2026-11-11 10:00:00');
-        $this->domain(401, 'alive.example.com', 'Expired', 'openprovider', ['expirydate' => '2026-07-01']); // past 30 + 30 days
+        $this->domain(401, 'alive.example.com', 'Expired', 'openprovider', ['expirydate' => '2026-07-01']); // past 30 + 30 days, and a month
         $this->domain(402, 'recent.example.com', 'Expired', 'openprovider', ['expirydate' => '2026-10-20']); // in its grace
         $this->domain(403, 'ahead.example.com', 'Active', 'openprovider');
-        $this->domain(404, 'byhand.example.com', 'Expired', 'enom', ['expirydate' => '2026-07-01']); // no driver: manual, by its dates
+        $this->domain(404, 'byhand.example.com', 'Expired', 'enom', ['expirydate' => '2026-07-01']); // no driver: manual, by its dates as always
         $this->domain(405, 'gone.example.com', 'Cancelled', 'openprovider', ['expirydate' => '2026-07-01']);
 
         $output = $this->import();
 
-        $this->assertStringContainsString('1 live domain(s) whose WHMCS expiry is past their grace and redemption (#401): not ended by the dates, '
-            . 'they wait for their first registrar read (switch the connections on, sync, then look at the domains never synced: cutover-runbook).', $output);
+        $this->assertStringContainsString('1 live domain(s) whose WHMCS expiry is past their grace and redemption (#401)' . self::ENDED, $output);
+        $this->assertStringNotContainsString('alive.example.com:', $output, 'ids only');
+
+        // What the line says is what happens (the rule of #308, unchanged): the scheduler, minutes after the import.
+        $this->artisan('domains:sync', ['--scheduled' => true]);
+        $this->assertSame([401 => DomainStatus::Deleted, 402 => DomainStatus::Grace, 403 => DomainStatus::Active],
+            Domain::query()->whereKey([401, 402, 403])->orderBy('id')->get()->mapWithKeys(fn (Domain $domain) => [$domain->id => $domain->status])->all());
     }
 
     public function test_many_of_them_are_counted_not_listed(): void
@@ -203,131 +208,23 @@ class Sweep10DomainsFixTest extends TestCase
 
         $output = $this->import();
 
-        $this->assertStringContainsString('21 live domain(s) whose WHMCS expiry is past their grace and redemption: not ended by the dates', $output);
+        $this->assertStringContainsString('21 live domain(s) whose WHMCS expiry is past their grace and redemption' . self::ENDED, $output);
         $this->assertStringNotContainsString('#501', $output);
     }
 
-    public function test_a_never_read_domain_still_moves_through_its_stages_by_the_dates_but_is_never_ended(): void
+    /** S10-DOMAINS-2 (known): the paid lines left to be renewed are named one by one, as before; the runbook points here. */
+    public function test_a_paid_renewal_left_to_be_renewed_is_named_by_the_import(): void
     {
         Carbon::setTestNow('2026-11-11 10:00:00');
-        $this->domain(402, 'recent.example.com', 'Active', 'openprovider', ['expirydate' => '2026-11-01']);
-        $this->import();
-
-        $this->artisan('domains:sync', ['--scheduled' => true]);
-        $this->assertSame(DomainStatus::Grace, Domain::query()->findOrFail(402)->status, 'ten days past its expiry: in its grace, as before');
-
-        Carbon::setTestNow('2026-12-11 10:00:00');
-        Cache::flush();
-        $this->artisan('domains:sync', ['--scheduled' => true]);
-        $this->assertSame(DomainStatus::Redemption, Domain::query()->findOrFail(402)->status, 'forty days past it: in its redemption, as before');
-
-        Carbon::setTestNow('2027-06-11 10:00:00');
-        Cache::flush();
-        $this->artisan('domains:sync', ['--scheduled' => true]);
-        $domain = Domain::query()->findOrFail(402);
-        $this->assertSame([DomainStatus::Redemption, null], [$domain->status, $domain->last_synced_at], 'never read: never ended by the dates, however long');
-    }
-
-    public function test_a_domain_read_once_whose_connection_is_off_for_good_is_ended_by_the_dates_as_before(): void
-    {
-        Carbon::setTestNow('2026-11-11 10:00:00');
-        $this->domain(401, 'left.example.com', 'Expired', 'openprovider', ['expirydate' => '2026-07-01']);
-        $this->import();
-        // Read once (the connection was on for a while after the cut-over), then switched off again.
-        DB::table('domains')->where('id', 401)->update(['last_synced_at' => '2026-11-11 09:00:00']);
-
-        $this->artisan('domains:sync', ['--scheduled' => true]);
-
-        $this->assertSame(DomainStatus::Deleted, Domain::query()->findOrFail(401)->status, 'a month past its last stage on a connection that is off: ended (#308)');
-    }
-
-    public function test_a_manual_registrars_domain_is_ended_by_the_dates_as_before_though_never_read(): void
-    {
-        Carbon::setTestNow('2026-11-11 10:00:00');
-        $this->domain(404, 'byhand.example.com', 'Expired', 'enom', ['expirydate' => '2026-07-01']);
-        $output = $this->import();
-        $this->assertSame(DomainRegistrarConnection::MANUAL, Domain::query()->findOrFail(404)->effectiveRegistrarConnection()->registrar);
-        $this->assertStringNotContainsString('wait for their first registrar read', $output);
-
-        $this->artisan('domains:sync', ['--scheduled' => true]);
-
-        $this->assertSame(DomainStatus::Deleted, Domain::query()->findOrFail(404)->status, 'no API to read it from: its dates end it');
-    }
-
-    // ── S10-DOMAINS-2: short by part of a year, no whole year bought ──────────────────────────────────────────────
-
-    /** The paid line «(01/08/2026 - 31/07/2027)» of a domain WHMCS never renewed (its expiry still at the period's start). */
-    private function paidRenewalLeftToRenew(string $whmcsExpiry): void
-    {
-        Carbon::setTestNow('2026-11-11 10:00:00');
-        $this->domain(402, 'offset.example.com', 'Active', 'openprovider', ['expirydate' => $whmcsExpiry, 'nextduedate' => '2027-08-01']);
+        $this->domain(402, 'offset.example.com', 'Active', 'openprovider', ['expirydate' => '2027-06-15', 'nextduedate' => '2027-08-01']);
         $this->invoice(1, 'Paid', '2026-07-20 09:00:00', [
             [12, 'Domain', 402, 'Domain Renewal - offset.example.com - 1 Year/s (01/08/2026 - 31/07/2027)', 12.5, '2026-08-01'],
         ]);
-        $this->import();
-        $this->assertTrue(DomainRenewalService::waitingLines()->whereKey(12)->exists(), 'precondition: the import leaves the paid line to be renewed');
-    }
 
-    public function test_a_paid_renewal_the_registrar_is_short_of_by_a_year_is_renewed_once_as_before(): void
-    {
-        $this->paidRenewalLeftToRenew('2026-08-01');
-        $this->openproviderOn(402, 'offset.example', '2026-08-01');
+        $output = $this->import();
 
-        $outcome = app(DomainRenewalService::class)->renewLine(12);
-
-        $this->assertSame([DomainRenewalService::APPLIED, [1], '2027-08-01'], [$outcome, $this->renewed, Domain::query()->findOrFail(402)->expires_at->toDateString()]);
-        $this->assertNotNull(InvoiceItem::query()->findOrFail(12)->applied_at);
-        $this->assertSame(DomainRenewalService::NOTHING, app(DomainRenewalService::class)->renewLine(12), 'once');
-        $this->assertSame([1], $this->renewed);
-    }
-
-    /** The registrar's expiry some days past the period's start (a sync moves an expiry so): still its year, as before. */
-    public function test_a_registrar_expiry_days_past_the_periods_start_is_still_short_by_a_year(): void
-    {
-        $this->paidRenewalLeftToRenew('2026-08-21');
-        $this->openproviderOn(402, 'offset.example', '2026-08-21');
-
-        $outcome = app(DomainRenewalService::class)->renewLine(12);
-
-        $this->assertSame([DomainRenewalService::APPLIED, [1]], [$outcome, $this->renewed]);
-    }
-
-    public function test_a_paid_renewal_the_registrar_already_covers_is_adopted_as_before(): void
-    {
-        $this->paidRenewalLeftToRenew('2026-08-01');
-        $this->openproviderOn(402, 'offset.example', '2027-08-01'); // renewed there, WHMCS never read it
-
-        $outcome = app(DomainRenewalService::class)->renewLine(12);
-
-        $this->assertSame([DomainRenewalService::ADOPTED, []], [$outcome, $this->renewed]);
-        $this->assertNotNull(InvoiceItem::query()->findOrFail(12)->applied_at);
-    }
-
-    public function test_short_by_part_of_a_year_is_a_task_for_staff_opened_once_and_adopted_once_renewed_by_hand(): void
-    {
-        $this->paidRenewalLeftToRenew('2027-06-15');
-        $this->openproviderOn(402, 'offset.example', '2027-06-15');
-        $renewals = app(DomainRenewalService::class);
-
-        $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine(12));
-        $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine(12), 'the next run: read again, nothing bought');
-        // Staff's Retry does not buy it either: only by hand at the registrar.
-        RetryModuleAction::run(ModuleAction::query()->where('invoice_item_id', 12)->sole());
-
-        $task = ModuleAction::query()->where('domain_id', 402)->where('invoice_item_id', 12)->sole();
-        $this->assertSame([ModuleAction::DOMAIN_RENEW, ModuleAction::STATUS_OPEN, 3], [$task->action, $task->status, $task->attempts]);
-        $this->assertSame('Paid to 2027-08-01, the registrar has 2027-06-15: short by less than a year, so no whole year is bought for it. '
-            . 'If its year is missing, renew it by hand at the registrar (it is then adopted here); if not, leave it. While this line waits, its period counts as billed.', $task->last_error);
-        $this->assertSame([], $this->renewed);
-        $this->assertNull(InvoiceItem::query()->findOrFail(12)->applied_at);
-        $this->assertSame(0, DomainRegistrarLog::query()->where('domain_id', 402)->where('action', 'renew')->count());
-
-        // Renewed by hand at the registrar: the next run finds the period covered and adopts it, the task closed.
-        Http::swap(new HttpFactory); // the first fake would answer before a second one
-        Http::preventStrayRequests();
-        $this->openproviderOn(402, 'offset.example', '2028-06-15');
-        $this->assertSame(DomainRenewalService::ADOPTED, $renewals->renewLine(12));
-        $this->assertSame([[], ModuleAction::STATUS_COMPLETED], [$this->renewed, $task->fresh()->status]);
+        $this->assertStringContainsString("Domain #402: invoice #1 paid its renewal to 2027-08-01 (1 year(s)), WHMCS's expiry is 2027-06-15: "
+            . 'left to be renewed (the registrar read first: only the years it lacks).', $output);
     }
 
     // ── S10-IMPORT-1: an unpaid renewal of a period a paid one covers is named ────────────────────────────────────

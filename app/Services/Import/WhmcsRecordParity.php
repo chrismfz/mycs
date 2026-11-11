@@ -287,10 +287,9 @@ final class WhmcsRecordParity
                 number_format((float) ($groupPercents[(int) $row['userid']] ?? 0), 2, '.', '')));
             $this->check('Services', $id, $price === WhmcsMassPay::cents($service->price),
                 "service #{$id}: " . self::cents($price) . ' in WHMCS, ' . self::cents(WhmcsMassPay::cents($service->price)) . ' here');
-            // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1); nor a «Pending» order, which
-            // gets its period from the day it starts (S10-CRON-BILLING-1).
+            // A «Free Account» has none here, whatever WHMCS kept (ImportFromWhmcs: ADV-594-1).
             $this->check('Services', $id, self::day($row['nextduedate']) === self::day($service->expires_at)
-                || ((trim((string) ($row['billingcycle'] ?? '')) === 'Free Account' || $raw === 'Pending') && $service->expires_at === null),
+                || (trim((string) ($row['billingcycle'] ?? '')) === 'Free Account' && $service->expires_at === null),
                 "service #{$id}: due " . self::day($row['nextduedate']) . ' in WHMCS, ' . self::day($service->expires_at) . ' here');
             // Its cycle: the plan the importer picks by name (ImportFromWhmcs::planName), compared by what it renews as.
             $cycle = trim((string) ($row['billingcycle'] ?? ''));

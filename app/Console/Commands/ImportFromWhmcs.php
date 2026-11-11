@@ -1516,9 +1516,7 @@ class ImportFromWhmcs extends Command
                     'currency_code' => $user['code'],
                     // A «Free Account» has no due date here, whatever WHMCS kept: WHMCS never bills nor suspends one, and a
                     // past date would be suspended and terminated here (adversarial ADV-594-1).
-                    // Nor a «Pending» one (an order not started): WHMCS keeps its order date there; as an order made here it
-                    // has none, and gets its period from the day its payment starts it (S10-CRON-BILLING-1).
-                    'expires_at' => $freeAccount || $record['domainstatus'] === 'Pending' ? null : $this->validateDate($record['nextduedate']),
+                    'expires_at' => $freeAccount ? null : $this->validateDate($record['nextduedate']),
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,
@@ -1565,6 +1563,14 @@ class ImportFromWhmcs extends Command
             DB::table('properties')->insert($marks);
         });
         $this->moveServicesCounter();
+        // Known (sweep 10, S10-CRON-BILLING-1): an order not started comes with WHMCS's next due date, the day it was ordered.
+        // Paid late, its period counts from that day: said, for staff to look at each (cutover-runbook).
+        $pending = DB::table('services')->where('status', Service::STATUS_PENDING)->whereNull('activated_at')->orderBy('id')->pluck('id')->all();
+        if ($pending !== []) {
+            $this->warn(count($pending) . ' service(s) still «Pending» in WHMCS' . (count($pending) <= 20 ? ' (#' . implode(', #', $pending) . ')' : '')
+                . ': each comes with WHMCS\'s next due date, the day it was ordered. Paid and started after the cut-over, its period counts from that day:'
+                . ' check its due date then (cutover-runbook).');
+        }
         if ($freeOnPlan !== []) {
             $this->info(count($freeOnPlan) . ' «Free Account» service(s) of a product with no Free plan: on its first plan at 0.00 (renews free, never invoiced, as in WHMCS): '
                 . implode(', ', array_map(fn (int $id) => "#{$id}", $freeOnPlan)) . '.');

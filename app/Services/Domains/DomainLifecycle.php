@@ -51,10 +51,8 @@ class DomainLifecycle
             // A registrar with an API whose connection is off (sweep L4) the same, until a month past its last stage: off for
             // good (the registrar left), it is not held open and billed forever (code review 3, ADV-1 of #308).
             // One its registrar no longer has (missing_since) likewise, a month past its last stage (ADV-2 of #308).
-            // One whose registrar was never read (an imported one: its connection comes off, its dates are WHMCS's) is not
-            // «off for good» but «not set up yet»: never ended by the dates before its first read (S10-DOMAINS-1).
             ($this->sync->isSyncable($domain) && !(isset($domain->meta['missing_since']) && $this->longPast($domain, $today)))
-                || ($this->hasApi($domain) && !$this->sync->isSyncable($domain) && ($domain->last_synced_at === null || !$this->longPast($domain, $today))) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
+                || ($this->hasApi($domain) && !$this->sync->isSyncable($domain) && !$this->longPast($domain, $today)) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
             $known => DomainStatus::Deleted,
             default => DomainStatus::Expired,
         };

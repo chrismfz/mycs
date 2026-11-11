@@ -161,9 +161,7 @@ class Pr308AdversarialTest extends TestCase
     public function test_adv1_a_connection_off_for_good_leaves_a_long_lapsed_domain_open_and_billed_forever(): void
     {
         $gone = $this->connection('openprovider', active: false);
-        // Read from its registrar while the connection was on (S10-DOMAINS-1: one never read is not ended by the dates).
-        $domain = $this->domain(['registrar_connection_id' => $gone->id, 'expires_at' => '2025-09-01', 'status' => DomainStatus::Redemption,
-            'last_synced_at' => '2025-08-20 10:00:00']);
+        $domain = $this->domain(['registrar_connection_id' => $gone->id, 'expires_at' => '2025-09-01', 'status' => DomainStatus::Redemption]);
         $invoice = $this->openRenewal($domain, '2025-09-01', '2026-09-01');
 
         $this->nightAndDay();

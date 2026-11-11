@@ -24,15 +24,32 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   cron» έχουν ως τότε. Το timezone, το URL, το όνομα, οι γλώσσες και το νόμισμα του `mycs:install` κρατιούνται πάνω από
   το reset της βάσης.
 - **Μετά το import, από το staff:**
-  - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται. Ως τότε κανένα domain τους δεν γίνεται deleted από
-    τις ημερομηνίες του WHMCS (sweep 10, S10-DOMAINS-1): ο importer λέει πόσα έχουν λήξη περασμένη από grace και redemption
-    («… live domain(s) whose WHMCS expiry is past their grace and redemption …: they wait for their first registrar read»).
-    **Μετά την ενεργοποίηση και το πρώτο πλήρες sync** (`php artisan domains:sync --force`, ώσπου να περάσουν όλα τα
-    batches): Domains, ταξινόμηση κατά «Last synced», και κοιτάζονται όσα γράφουν ακόμη **«Never»**. Κανένα δεν τελειώνει
-    μόνο του: το καθένα ή διαβάζεται (λάθος σύνδεση, id στον registrar) ή κλείνεται με το χέρι.
-  - **Εργασίες «short by less than a year» (sweep 10, S10-DOMAINS-2):** πληρωμένη ανανέωση του WHMCS που ο registrar
-    υπολείπεται μέρος έτους δεν αγοράζει τίποτα μόνη της· για καθεμία στα Pending Module Actions: ανανέωση με το χέρι στον
-    registrar αν το έτος λείπει (υιοθετείται στο επόμενο run), αλλιώς μένει (`docs/domains.md`).
+  - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται. **Πριν ανοίξει καθεμία (sweep 10, S10-DOMAINS-2,
+    γνωστό):** οι πληρωμένες ανανεώσεις domain του WHMCS που έμειναν «προς ανανέωση» είναι στην έξοδο του import, μία
+    γραμμή η καθεμία («Domain #…: invoice #… paid its renewal to …, WHMCS's expiry is …: left to be renewed»· στην πρόβα 6
+    στη μία εταιρεία, 0 στην άλλη). Κάθε μία συγκρίνεται με τον registrar με το χέρι: αν ο registrar υπολείπεται της
+    περιόδου μόνο μέρος έτους, το πρώτο cron με ανοιχτή σύνδεση θα αγοράσει **ολόκληρο έτος**, όπως θα έκανε το WHMCS. Τι
+    γίνεται με καθεμία (το έτος αγοράζεται, ή τακτοποιείται πρώτα στο WHMCS και ξανά dump) το αποφασίζει ο υπεύθυνος πριν
+    ανοίξει η σύνδεση.
+  - **Domains που θα γίνουν Deleted από τις ημερομηνίες του WHMCS (sweep 10, S10-DOMAINS-1, γνωστό):** ο importer τα
+    ονομάζει («… live domain(s) whose WHMCS expiry is past their grace and redemption (#…): the date step marks them
+    Deleted …»). Το `domains:sync --scheduled` τρέχει κάθε 10 λεπτά και τα κάνει Deleted **πριν** διαβαστεί οποιοσδήποτε
+    registrar· ένα Deleted δεν συγχρονίζεται ξανά (δεν τιμολογείται, δεν ειδοποιείται, δεν κρατά το όνομά του).
+    1. **Πριν από το dump:** η λίστα από το import της πρόβας· κάθε ένα ελέγχεται στον registrar του. Αν ζει, διορθώνεται η
+       λήξη του στο WHMCS (Expiry Date)· αν όχι, μένει (ή γίνεται Cancelled στο WHMCS).
+    2. **Αμέσως μετά το τελικό import, πριν τρέξει ο scheduler:** η ίδια γραμμή της εξόδου πρέπει να έχει μόνο όσα
+       αφέθηκαν επίτηδες. Αν έμεινε κάποιο που ζει: το admin δεν έχει ενέργεια που να αλλάζει τη λήξη ενός domain, άρα ή
+       διορθώνεται στο WHMCS και ξανά dump και import, ή όποιος τρέχει το cut-over γράφει τη σωστή `domains.expires_at` στη
+       βάση πριν ξεκινήσει ο scheduler (και το σημειώνει στο domain).
+    Γνωστά, ήδη στο main (REV-806-3, REV-806-4): μια ανάγνωση που **απέτυχε** (λάθος credentials) γράφεται ως «Last synced»,
+    άρα το «Never» δεν σημαίνει «δεν διαβάστηκε ποτέ με επιτυχία» και το αντίστροφο· και το cron ακυρώνει την ανοιχτή
+    ανανέωση ενός domain που πέρασε τα στάδιά του (`lapsedForGood`), ακόμη κι αν ο registrar του δεν διαβάστηκε ποτέ.
+  - **Υπηρεσίες ακόμη «Pending» στο WHMCS (sweep 10, S10-CRON-BILLING-1, γνωστό):** στο dump,
+    `SELECT id, userid, regdate, nextduedate FROM tblhosting WHERE domainstatus = 'Pending'` (τις απλήρωτες παραγγελίες
+    πάνω από 7 μέρες τις αρνείται ήδη το import)· ο importer τις μετρά («N service(s) still «Pending» in WHMCS (#…)»).
+    Έρχονται με due date τη μέρα της παραγγελίας: όταν μια τέτοια πληρωθεί και ξεκινήσει μετά το cut-over, το staff ελέγχει
+    το Next Due Date της (αν είναι στο παρελθόν, μπαίνει ένας κύκλος από τη μέρα που ξεκίνησε), αλλιώς αναστέλλεται το
+    ίδιο βράδυ.
   - **Gateways (απόφαση ιδιοκτήτη 2026-11-06):** **μετά** την αλλαγή του host (τα webhooks παίρνουν το `APP_URL` της
     στιγμής), `php artisan app:enable-imported-gateways`. Η εντολή ανοίγει όποιο ήρθε ολόκληρο και απαντά:
     - **Stripe:** φτιάχνεται το webhook με τα κλειδιά του (έτσι ελέγχεται και ότι απαντούν· ένα restricted key θέλει το Webhook Endpoints). Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
