@@ -19,6 +19,7 @@ use App\Console\Commands\SyncCpanelAccounts;
 use App\Console\Commands\SyncCpanelLve;
 use App\Console\Commands\SyncMailcowDomains;
 use App\Console\Commands\SyncProxmoxGuests;
+use App\Console\Commands\SyncRedfishMachines;
 use App\Console\Commands\SyncServiceUsage;
 use App\Console\Commands\SyncSslOrders;
 use App\Console\Commands\VatRecheck;
@@ -57,6 +58,7 @@ Schedule::command(SyncServiceUsage::class)->description('Reads every live servic
 Schedule::command(ReadBankAlerts::class)->description('Reads the banks\' alert emails into Payments tracking (the mailbox untouched)')->everyThreeMinutes()->withoutOverlapping(15)->onOneServer();
 Schedule::command(ReadGatewayBalances::class)->description('Reads what Stripe and PayPal hold (Bank totals)')->hourlyAt(13)->withoutOverlapping(10)->onOneServer();
 Schedule::command(SyncProxmoxGuests::class)->description('Reads the VMs and containers of every Proxmox cluster (read-only)')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
+Schedule::command(SyncRedfishMachines::class)->description('Reads the BMC of every Redfish machine: health, power, parts (read-only)')->hourlyAt(23)->withoutOverlapping(50)->onOneServer();
 Schedule::command(SyncMailcowDomains::class)->description('Reads the domains and mailboxes of every mailcow server (read-only)')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncCpanelAccounts::class)->description('Reads the accounts of every cPanel server (read-only)')->everyThirtyMinutes()->withoutOverlapping(30)->onOneServer();
 // Off the accounts' read (one call an account), the servers at once: hourly (owner 2026-10-28: the servers not asked

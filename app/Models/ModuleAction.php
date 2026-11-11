@@ -359,6 +359,35 @@ class ModuleAction extends Model
             ->exists();
     }
 
+    /**
+     * The service runs again (staff brought back one that ended): its open «remove it by hand» tasks are closed with why,
+     * or staff following one would destroy a live machine (sweep 8, S8-PROVISIONING-2). Staff were mailed «By hand:
+     * terminate service #N» when the task was made (ExtensionHelper::staffTask): they are mailed that it is off, the same
+     * way, only when a task was closed (review of #796, REV-796-3). A module's own failed termination needs none of
+     * this: TerminateJob refuses a service no longer ended.
+     */
+    public static function closeByHandTerminations(Service $service): void
+    {
+        $now = now();
+        $closed = self::query()->open()->where('service_id', $service->id)->where('action', 'terminate')->where('subject', self::SUBJECT_BY_HAND)
+            ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'updated_at' => $now,
+                'resolution' => "closed: the service is {$service->status} again, do not remove it"]);
+        if ($closed === 0) {
+            return;
+        }
+        $id = $service->id;
+        $what = trim("#{$id} " . ($service->domain ?: '') . ' ' . ($service->dedicated_ip ? "({$service->dedicated_ip})" : ''));
+        $status = $service->status;
+        DB::afterCommit(function () use ($id, $what, $status) {
+            try {
+                NotificationHelper::sendSystemEmailNotification("Do NOT terminate service #{$id}: it is running again",
+                    e("Service {$what} is {$status} again: do not remove it. The task «By hand: terminate» sent earlier was closed in Pending Module Actions."));
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
+    }
+
     private static function openFor(Service $service, string $action): ?self
     {
         // A module's own row: never a task for staff (its instructions overwritten by a later failure: review of #447).
