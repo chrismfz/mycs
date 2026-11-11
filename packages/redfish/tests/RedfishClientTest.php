@@ -79,18 +79,53 @@ final class RedfishClientTest extends TestCase
         $this->assertNull($machine->wattsAverage);
     }
 
-    public function test_several_power_controls_are_summed_without_statistics(): void
+    public function test_the_first_power_control_is_the_machines_total(): void
     {
         $answers = FakeTransport::bmc();
         $answers['/redfish/v1/Chassis/1/Power'][1] = ['PowerControl' => [
-            ['PowerConsumedWatts' => 100, 'PowerMetrics' => ['MaxConsumedWatts' => 150]],
-            ['PowerConsumedWatts' => 60.5, 'PowerMetrics' => ['MaxConsumedWatts' => 90]],
-            ['PowerConsumedWatts' => null],
+            ['PowerConsumedWatts' => 160.5, 'PowerMetrics' => ['MaxConsumedWatts' => 200]], // the total
+            ['PowerConsumedWatts' => 100], // its processors
+            ['PowerConsumedWatts' => 40], // its memory
         ]];
         $machine = $this->read($answers);
 
         $this->assertSame(160.5, $machine->watts);
-        $this->assertNull($machine->wattsMax);
+        $this->assertSame(200.0, $machine->wattsMax);
+    }
+
+    public function test_a_redirect_to_the_paths_other_form_is_asked_once_on_the_same_bmc(): void
+    {
+        $answers = FakeTransport::bmc();
+        $answers['/redfish/v1/Systems/'] = $answers['/redfish/v1/Systems'];
+        $answers['/redfish/v1/Systems'] = [308, ''];
+        $answers['/redfish/v1/Systems/'][1]['Members'] = [['@odata.id' => '/redfish/v1/Systems/1/']];
+        $answers['/redfish/v1/Systems/1/'] = $answers['/redfish/v1/Systems/1'];
+        unset($answers['/redfish/v1/Systems/1']);
+        $machine = $this->read($answers, $http);
+
+        $this->assertSame('SYS-1000', $machine->model);
+        $this->assertSame(['/redfish/v1/Systems', '/redfish/v1/Systems/', '/redfish/v1/Systems/1/'], array_slice($http->paths(), 0, 3));
+
+        // A BMC that only ever redirects is not chased.
+        try {
+            $this->read(['/redfish/v1/Systems' => [301, ''], '/redfish/v1/Systems/' => [301, '']], $http);
+            $this->fail();
+        } catch (RedfishException $e) {
+            $this->assertStringContainsString('HTTP 301', $e->getMessage());
+            $this->assertCount(2, $http->sent);
+        }
+    }
+
+    public function test_the_systems_own_chassis_is_read_before_the_first_listed(): void
+    {
+        $answers = FakeTransport::bmc();
+        $answers['/redfish/v1/Systems/1'][1]['Links'] = ['Chassis' => [['@odata.id' => '/redfish/v1/Chassis/Self']]];
+        $answers['/redfish/v1/Chassis/Self'] = [200, ['AssetTag' => 'OWN', 'Status' => ['Health' => 'Warning']]];
+        $answers['/redfish/v1/Chassis/Self/Power'] = [200, ['PowerControl' => [['PowerConsumedWatts' => 77]]]];
+        $machine = $this->read($answers, $http);
+
+        $this->assertSame(['OWN', 'Warning', 77.0], [$machine->assetTag, $machine->health, $machine->watts]);
+        $this->assertNotContains('/redfish/v1/Chassis', $http->paths());
     }
 
     public function test_power_from_environment_metrics_where_power_is_gone(): void
@@ -118,7 +153,7 @@ final class RedfishClientTest extends TestCase
     public function test_nonsense_readings_are_not_readings(): void
     {
         $answers = FakeTransport::bmc();
-        $answers['/redfish/v1/Chassis/1/Power'][1] = ['PowerControl' => [['PowerConsumedWatts' => '182'], ['PowerConsumedWatts' => -5], 'x']];
+        $answers['/redfish/v1/Chassis/1/Power'][1] = ['PowerControl' => [['PowerConsumedWatts' => '182'], ['PowerConsumedWatts' => 5]]];
         $answers['/redfish/v1/Systems/1'][1]['ProcessorSummary'] = ['Count' => 'two', 'Model' => ['x']];
         $answers['/redfish/v1/Systems/1'][1]['MemorySummary'] = 'lots';
         $machine = $this->read($answers);
@@ -142,7 +177,7 @@ final class RedfishClientTest extends TestCase
 
     public function test_a_link_elsewhere_is_never_followed(): void
     {
-        foreach (['https://evil.example/redfish/v1/Systems/1', '//evil.example/x', '/redfish/v1/../../admin', '/other/1', '/redfish/v1/Systems/1?x=1', '/redfish/v1/Systems//1', 7] as $link) {
+        foreach (['https://evil.example/redfish/v1/Systems/1', '//evil.example/x', '/redfish/v1/../../admin', '/other/1', '/redfish/v1/Systems/1?x=1', '/redfish/v1/Systems//1', "/redfish/v1/Systems/1\n", 7] as $link) {
             $answers = FakeTransport::bmc();
             $answers['/redfish/v1/Systems'][1]['Members'] = [['@odata.id' => $link]];
             try {
@@ -158,7 +193,7 @@ final class RedfishClientTest extends TestCase
     public function test_the_first_of_several_systems_is_read_and_their_number_kept(): void
     {
         $answers = FakeTransport::bmc();
-        $answers['/redfish/v1/Systems'][1]['Members'][] = ['@odata.id' => '/redfish/v1/Systems/2/'];
+        $answers['/redfish/v1/Systems'][1]['Members'][] = ['@odata.id' => '/redfish/v1/Systems/2'];
 
         $this->assertSame(2, $this->read($answers)->systems);
     }

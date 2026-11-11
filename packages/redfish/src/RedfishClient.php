@@ -33,7 +33,9 @@ final class RedfishClient
             throw new RedfishException('The BMC lists no system.');
         }
         $system = $this->get($systems[0]);
-        $chassisPath = $this->members(self::ROOT . '/Chassis', optional: true)[0] ?? null;
+        // The system's own chassis where it says one (a BMC may list enclosures too), else the first listed.
+        $links = is_array($system['Links'] ?? null) && is_array($system['Links']['Chassis'] ?? null) ? $system['Links']['Chassis'] : [];
+        $chassisPath = self::link($links[0] ?? null) ?? $this->members(self::ROOT . '/Chassis', optional: true)[0] ?? null;
         $chassis = $chassisPath === null ? [] : ($this->get($chassisPath, optional: true) ?? []);
         $power = $chassisPath === null ? [] : $this->power($chassisPath, $chassis);
 
@@ -63,7 +65,7 @@ final class RedfishClient
     }
 
     /**
-     * The chassis' power: its «Power» resource (every BMC of the last ten years: the sum of its PowerControl), or the
+     * The chassis' power: its «Power» resource (every BMC of the last ten years: its first PowerControl), or the
      * newer «EnvironmentMetrics» where Power is gone. Nothing when the BMC has neither: the machine is still read.
      *
      * @param  array<string, mixed>  $chassis
@@ -71,13 +73,13 @@ final class RedfishClient
      */
     private function power(string $chassisPath, array $chassis): array
     {
-        $legacy = $this->get(self::link($chassis['Power'] ?? null) ?? $chassisPath . '/Power', optional: true);
-        $controls = array_values(array_filter(is_array($legacy['PowerControl'] ?? null) ? $legacy['PowerControl'] : [], 'is_array'));
-        $watts = array_values(array_filter(array_map(fn (array $c) => self::number($c['PowerConsumedWatts'] ?? null), $controls), fn ($w) => $w !== null));
-        if ($watts !== []) {
-            $out = ['watts' => array_sum($watts)];
-            // The BMC's own statistics, only when one control says them: sums of several would not be a min or a max.
-            $metrics = count($controls) === 1 && is_array($controls[0]['PowerMetrics'] ?? null) ? $controls[0]['PowerMetrics'] : [];
+        $legacy = $this->get(self::link($chassis['Power'] ?? null) ?? self::under($chassisPath, 'Power'), optional: true);
+        // The first control is the machine's total; further ones, where a BMC has them, are its parts (review of #794).
+        $control = is_array($legacy['PowerControl'] ?? null) && is_array($legacy['PowerControl'][0] ?? null) ? $legacy['PowerControl'][0] : [];
+        $watts = self::number($control['PowerConsumedWatts'] ?? null);
+        if ($watts !== null) {
+            $out = ['watts' => $watts];
+            $metrics = is_array($control['PowerMetrics'] ?? null) ? $control['PowerMetrics'] : [];
             foreach (['min' => 'MinConsumedWatts', 'average' => 'AverageConsumedWatts', 'max' => 'MaxConsumedWatts', 'interval' => 'IntervalInMin'] as $key => $field) {
                 $value = self::number($metrics[$field] ?? null);
                 if ($value !== null) {
@@ -87,7 +89,7 @@ final class RedfishClient
 
             return $out;
         }
-        $metrics = $this->get(self::link($chassis['EnvironmentMetrics'] ?? null) ?? $chassisPath . '/EnvironmentMetrics', optional: true);
+        $metrics = $this->get(self::link($chassis['EnvironmentMetrics'] ?? null) ?? self::under($chassisPath, 'EnvironmentMetrics'), optional: true);
         $reading = self::number(is_array($metrics['PowerWatts'] ?? null) ? ($metrics['PowerWatts']['Reading'] ?? null) : null);
 
         return $reading === null ? [] : ['watts' => $reading];
@@ -117,11 +119,17 @@ final class RedfishClient
      */
     private function get(string $path, bool $optional = false): ?array
     {
-        [$status, $body] = $this->http->get($path, [
+        $headers = [
             'Authorization' => 'Basic ' . base64_encode($this->username . ':' . $this->password),
             'Accept' => 'application/json',
             'OData-Version' => '4.0',
-        ]);
+        ];
+        [$status, $body] = $this->http->get($path, $headers);
+        // Some BMCs redirect a path to its other form, with or without the last «/». That form is asked once, on this
+        // BMC: where the redirect itself points is never read or followed.
+        if (in_array($status, [301, 302, 307, 308], true)) {
+            [$status, $body] = $this->http->get(str_ends_with($path, '/') ? rtrim($path, '/') : $path . '/', $headers);
+        }
         // A refused login is said whatever was asked: never read as «this BMC has no such resource».
         if ($status === 401) {
             throw new RedfishException('The BMC refused the login (401): check the username and password.', 401);
@@ -151,11 +159,16 @@ final class RedfishClient
     private static function link(mixed $reference): ?string
     {
         $path = is_array($reference) ? ($reference['@odata.id'] ?? null) : null;
-        if (!is_string($path) || preg_match('~^/redfish/v1/[A-Za-z0-9._\-/]{1,200}$~', $path) !== 1 || str_contains($path, '..') || str_contains($path, '//')) {
+        if (!is_string($path) || preg_match('~^/redfish/v1/[A-Za-z0-9._\-/]{1,200}$~D', $path) !== 1 || str_contains($path, '..') || str_contains($path, '//')) {
             return null;
         }
 
-        return rtrim($path, '/');
+        return $path; // as given: a BMC that wants its last «/» gets it
+    }
+
+    private static function under(string $path, string $child): string
+    {
+        return rtrim($path, '/') . '/' . $child;
     }
 
     /** @param  array<string, mixed>  $resource */

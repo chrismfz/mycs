@@ -39,7 +39,10 @@ class Redfish extends OfflineMachineServer
         ];
     }
 
-    /** What stays on the service: the keys of an Offline Dedicated's, so a service moved here keeps what staff wrote. */
+    /**
+     * What stays on the service, under an Offline Dedicated's keys: a service moved here keeps these two. Its other
+     * `machine_*` values stay stored but are not shown (the BMC says the serial and the model; the rest is «Location»).
+     */
     public function serviceFields(): array
     {
         return [

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\ServerResource\Pages\EditServer;
 use App\Admin\Resources\ServerResource\Pages\ListServers;
+use App\Admin\Widgets\Servers;
 use App\Exceptions\NoServerWithRoom;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\SuspendJob;
@@ -143,6 +144,32 @@ class RedfishMachineTest extends TestCase
                 '170 W / 180 W / 240 W', 'last 5 min', 'Nobody: free', 'Rack 4, U12'])
             ->assertMountedActionModalDontSee('s3cret');
         Http::assertSentCount(5); // read once, however often the modal is drawn
+    }
+
+    public function test_only_staff_who_may_edit_servers_reach_the_read_and_the_password_never_reaches_the_page(): void
+    {
+        $this->bmc();
+        $server = $this->machine();
+
+        $this->staff(['admin.servers.viewAny']);
+        Livewire::test(EditServer::class, ['record' => $server->id])->assertForbidden();
+        Http::assertNothingSent();
+
+        $this->staff(['admin.servers.viewAny', 'admin.servers.update']);
+        $page = Livewire::test(EditServer::class, ['record' => $server->id])->assertOk()->mountAction('hardware');
+        $this->assertStringNotContainsString('s3cret', $page->html(false));
+        $this->assertStringNotContainsString('s3cret', (string) json_encode($page->snapshot));
+        $this->assertStringNotContainsString(base64_encode('reader:s3cret'), $page->html(false));
+    }
+
+    public function test_the_dashboard_shows_our_own_machine_as_zero_of_zero(): void
+    {
+        $this->staff();
+        $this->machine('ours', 0);
+
+        $row = collect(Livewire::test(Servers::class)->assertSee('ours')->viewData('rows'))->firstWhere('name', 'ours');
+
+        $this->assertSame([0, 0, null, null], [$row['used'], $row['max'], $row['share'], $row['percent']]);
     }
 
     public function test_the_hardware_says_who_has_the_machine(): void
