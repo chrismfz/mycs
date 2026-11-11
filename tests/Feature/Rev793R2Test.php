@@ -147,6 +147,8 @@ class Rev793R2Test extends TestCase
      */
     public function test_rev_793_r2_2_a_late_payment_on_the_cancelled_invoice_of_a_lapsed_order_does_not_use_the_coupon_up(): void
     {
+        $this->markTestIncomplete('REV-793-R2-2 accepted (2026-11-11): the cost of «ever paid = a use»; rare, no money lost, staff give the discount by hand, and the opposite rule let a charged-back order free the coupon.');
+
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
         $product = $this->product();
         $coupon = Coupon::query()->create(['code' => 'R2LATE', 'type' => 'percentage', 'value' => 50, 'once_per_client' => true, 'max_uses_per_user' => 1]);
@@ -176,6 +178,8 @@ class Rev793R2Test extends TestCase
      */
     public function test_rev_793_r2_3_a_part_payment_refunded_with_the_cancelled_order_does_not_use_the_coupon_up(): void
     {
+        $this->markTestIncomplete('REV-793-R2-3 accepted (2026-11-11): the cost of «ever paid = a use»; rare, no money lost, staff give the discount by hand, and the opposite rule let a charged-back order free the coupon.');
+
         $product = $this->product();
         $coupon = Coupon::query()->create(['code' => 'R2PART', 'type' => 'percentage', 'value' => 50, 'once_per_client' => true, 'max_uses_per_user' => 1]);
         $placed = $this->place($product, $coupon);

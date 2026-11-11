@@ -102,8 +102,9 @@ final class CancelOrder
         } elseif ($refund !== null) {
             $refunded = 0;
             $left += self::refund($order, $refund, $refunded);
-            // Only once money went back (REV-793-6): nothing refunded (never paid, refused, the gateway failed), nothing to tell.
-            if ($refunded > 0) {
+            // Only once money of its invoice went back, by this click or before it (REV-793-6, REV-793-R2-4): nothing
+            // refunded (never paid, refused, the gateway failed), nothing to tell.
+            if ($refunded > 0 || InvoiceTransaction::query()->where('invoice_id', $order->invoice_id)->where('refunded_amount', '>', 0)->exists()) {
                 $left += self::tellOfRegisteredDomains($order);
             }
         }
@@ -131,7 +132,9 @@ final class CancelOrder
      */
     public static function movedParts(Order $order): array
     {
-        if ($order->invoice_id === null) {
+        // No invoice of its own, or one that no longer exists (an imported order whose invoice WHMCS deleted, REV-793-R2-1):
+        // nothing of this order was split off it.
+        if ($order->invoice_id === null || !Invoice::query()->whereKey($order->invoice_id)->exists()) {
             return [];
         }
         $first = [];
