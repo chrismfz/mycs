@@ -125,4 +125,45 @@ class Sweep8ProvisioningTest extends TestCase
         $this->assertSame('active', $service->fresh()->status);
         $this->assertSame(0, $open(), 'the task to destroy the machine of an active service is still open');
     }
+
+    /** The fix of S8-PROVISIONING-2 says why it closed the task, and names no staff member (nobody did it). */
+    public function test_the_closed_terminate_task_says_why(): void
+    {
+        $server = Server::query()->create(['name' => 'Offline', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
+        $service = $this->service($server, ['domain' => 'mars.example.test', 'dedicated_ip' => '203.0.113.20']);
+        ExtensionHelper::terminateServer($service);
+        $service->refresh()->markTerminated();
+
+        $service->fresh()->applyStaffChanges(['status' => 'active']);
+
+        $task = ModuleAction::query()->where('service_id', $service->id)->where('action', 'terminate')->where('subject', ModuleAction::SUBJECT_BY_HAND)->sole();
+        $this->assertSame(ModuleAction::STATUS_RESOLVED, $task->status);
+        $this->assertSame('closed: the service is active again, do not remove it', $task->resolution);
+        $this->assertNotNull($task->resolved_at);
+        $this->assertNull($task->resolved_by_staff_id);
+    }
+
+    /** The neighbour of S8-PROVISIONING-2: the task of a service that stays ended (terminated, then cancelled) stays open. */
+    public function test_a_by_hand_terminate_task_of_a_service_that_stays_ended_stays_open(): void
+    {
+        $server = Server::query()->create(['name' => 'Offline', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
+        $service = $this->service($server, ['domain' => 'mars.example.test', 'dedicated_ip' => '203.0.113.20']);
+        $other = $this->service($server, ['domain' => 'venus.example.test', 'dedicated_ip' => '203.0.113.21']);
+        foreach ([$service, $other] as $each) {
+            ExtensionHelper::terminateServer($each);
+            $each->refresh()->markTerminated();
+        }
+        $open = fn (Service $of) => ModuleAction::query()->open()->where('service_id', $of->id)->where('action', 'terminate')->count();
+
+        $service->fresh()->applyStaffChanges(['notes' => 'the machine is still in the rack']);
+        $this->assertSame(1, $open($service), 'a change that is not its status');
+        $service->fresh()->applyStaffChanges(['status' => 'cancelled']);
+        $this->assertSame('cancelled', $service->fresh()->status);
+        $this->assertSame(1, $open($service), 'still ended: the machine is still to be removed');
+
+        // Another service brought back closes its own task only.
+        $other->fresh()->applyStaffChanges(['status' => 'active']);
+        $this->assertSame(0, $open($other));
+        $this->assertSame(1, $open($service));
+    }
 }

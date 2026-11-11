@@ -359,6 +359,19 @@ class ModuleAction extends Model
             ->exists();
     }
 
+    /**
+     * The service runs again (staff brought back one that ended): its open «remove it by hand» tasks are closed with why,
+     * or staff following one would destroy a live machine (sweep 8, S8-PROVISIONING-2). A module's own failed
+     * termination needs none of this: TerminateJob refuses a service no longer ended.
+     */
+    public static function closeByHandTerminations(Service $service): void
+    {
+        $now = now();
+        self::query()->open()->where('service_id', $service->id)->where('action', 'terminate')->where('subject', self::SUBJECT_BY_HAND)
+            ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'updated_at' => $now,
+                'resolution' => "closed: the service is {$service->status} again, do not remove it"]);
+    }
+
     private static function openFor(Service $service, string $action): ?self
     {
         // A module's own row: never a task for staff (its instructions overwritten by a later failure: review of #447).

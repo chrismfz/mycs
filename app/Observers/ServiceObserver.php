@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\InvoiceItem;
 use App\Models\IpAddress;
+use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Billing\RenewalBilling;
@@ -265,6 +266,7 @@ class ServiceObserver
             // It starts, or staff bring back one that ended (its IP was taken back): given (reviews of #296).
             if ($running && ($was === Service::STATUS_PENDING || in_array($was, Service::ENDED_STATUSES, true))) {
                 OptionTasks::changed($service, [], OptionTasks::on($service));
+                ModuleAction::closeByHandTerminations($service); // «destroy the machine» is no longer to be done (S8-PROVISIONING-2)
             } elseif (!in_array($was, Service::ENDED_STATUSES, true) && $was !== Service::STATUS_PENDING && $service->isEnded()) {
                 OptionTasks::changed($service, OptionTasks::on($service), []);
             }
