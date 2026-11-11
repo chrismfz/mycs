@@ -81,9 +81,9 @@ class Sweep9CouponsCheckoutTest extends TestCase
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status, 'precondition: cancelled');
         $this->assertSame(Invoice::STATUS_CANCELLED, $renewal->fresh()->status, 'precondition: its unpaid renewal cancelled with it');
 
-        // Why (shown here, the failure is below): uses() dropped the service that was delivered free.
-        $this->assertSame(0, $coupon->uses()->where('client_id', $user->client()->id)->count(),
-            'the reason: the delivered free period is no longer counted as a use');
+        // Before the fix uses() dropped the service here (the verifier asserted 0 to show why): it stays a use.
+        $this->assertSame(1, $coupon->uses()->where('client_id', $user->client()->id)->count(),
+            'the delivered free period is still counted as a use');
 
         try {
             $again = $place();
