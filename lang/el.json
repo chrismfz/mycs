@@ -1793,11 +1793,12 @@
     "This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not added to it. Make a new invoice for it.": "Αυτό το τιμολόγιο έχει πληρωμή (ή σημειώθηκε εξοφλημένο με το χέρι): γραμμή υπηρεσίας, domain ή πίστωσης δεν προστίθεται σε αυτό. Φτιάξε νέο τιμολόγιο γι' αυτήν.",
     "Related invoices": "Σχετικά τιμολόγια",
     "Amount (net)": "Ποσό (καθαρό)",
-    "Registration": "Κατοχύρωση",
+    "Registration": "Καταχώριση",
     "Discount": "Έκπτωση",
     "Renewal": "Ανανέωση",
     "Late fee": "Τέλος καθυστέρησης",
     "Charge": "Χρέωση",
     "Addon": "Πρόσθετο",
-    "Package change": "Αλλαγή πακέτου"
+    "Package change": "Αλλαγή πακέτου",
+    "No invoice lines yet": "Καμία γραμμή τιμολογίου ακόμη"
 }

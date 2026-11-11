@@ -42,7 +42,7 @@ final class OrderSummary
     public static function paymentMethod(?Invoice $invoice): string
     {
         $names = $invoice?->transactions->where('status', InvoiceTransactionStatus::Succeeded)
-            ->map(fn (InvoiceTransaction $payment) => $payment->gateway->name ?? ($payment->is_credit_transaction ? 'Credit' : 'Manual'))
+            ->map(fn (InvoiceTransaction $payment) => $payment->gateway->name ?? ($payment->is_credit_transaction ? __('Credit') : __('Manual')))
             ->unique()->values()->all() ?? [];
 
         return $names === [] ? '—' : implode(', ', $names);

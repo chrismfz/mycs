@@ -60,7 +60,8 @@ class RelatedInvoicesRelationManager extends RelationManager
                 ->whereIn('reference_id', $service->upgrade()->select('id'))));
     }
 
-    public function type(InvoiceItem $line): string
+    /** Not public: a public method of a Livewire component is callable from the browser (review of #789). */
+    private function type(InvoiceItem $line): string
     {
         $what = match (true) {
             $line->reference_type === (new ServiceUpgrade)->getMorphClass() => __('Package change'),

@@ -12,6 +12,7 @@ use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager
 use App\Admin\Resources\ServiceResource\RelationManagers\RelatedInvoicesRelationManager as ServiceRelatedInvoices;
 use App\Models\Client;
 use App\Models\Domain;
+use App\Models\DomainOwnerChange;
 use App\Models\DomainTld;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -71,7 +72,7 @@ class RelatedInvoicesTest extends TestCase
     }
 
     /** @param array<string, mixed> $line */
-    private function line(Service|Domain|ServiceUpgrade $of, string $description, array $line = [], ?Client $client = null): InvoiceItem
+    private function line(Service|Domain|ServiceUpgrade|DomainOwnerChange $of, string $description, array $line = [], ?Client $client = null): InvoiceItem
     {
         $invoice = Invoice::factory()->create(['client_id' => ($client ?? $this->client)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
 
@@ -137,16 +138,13 @@ class RelatedInvoicesTest extends TestCase
         $not = [$this->line($sibling, 'Sibling line'), $this->line($theirs, 'Stranger line', client: $stranger), $this->line($otherUpgrade, 'Other upgrade line'),
             $this->line($domain, 'Domain line', ['reference_id' => $service->id])];
 
-        $manager = Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $service, 'pageClass' => EditService::class])
+        Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $service, 'pageClass' => EditService::class])
             ->assertCanSeeTableRecords([$own, $charge, $ofAddon, $ofUpgrade], inOrder: false)
             ->assertCanNotSeeTableRecords($not)
             ->assertCountTableRecords(4)
+            ->assertSee('Service · Charge')
             ->assertSee('Addon: Extra IPv4')
-            ->assertSee('Package change')
-            ->instance();
-
-        $this->assertSame(['Service', 'Service · Charge', 'Addon: Extra IPv4', 'Package change'],
-            array_map(fn (InvoiceItem $line) => $manager->type($line), [$own, $charge, $ofAddon, $ofUpgrade]));
+            ->assertSee('Package change');
 
         // The addon's own page: its lines only, not its parent's.
         Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $addon, 'pageClass' => EditService::class])
@@ -163,26 +161,44 @@ class RelatedInvoicesTest extends TestCase
         // As the importer may leave it (written past the observer, which gives a line without a period the kind «charge»).
         DB::table('invoice_items')->where('id', $imported->id)->update(['kind' => null]);
         $imported->refresh();
-        $charge = $this->line($domain, 'mine.test holder change');
+        $charge = $this->line($domain, 'mine.test fee billed apart');
+        // A change of holder is billed on the change (DomainOwnerChanges::request), not on the domain.
+        $change = DomainOwnerChange::query()->create(['domain_id' => $domain->id, 'kind' => 'owner', 'contact_id' => $this->client->ensurePrimaryContact()->id,
+            'status' => DomainOwnerChange::STATUS_AWAITING_PAYMENT]);
+        $holder = $this->line($change, 'mine.test holder change', ['kind' => InvoiceItem::KIND_CHARGE]);
         $fee = $this->line($domain, 'mine.test late fee', ['kind' => InvoiceItem::STAGE_FEES[0]]);
 
         $stranger = User::factory()->create()->clients()->firstOrFail();
         $service = $this->service();
-        $not = [$this->line($this->domain('other.test'), 'Other domain line'), $this->line($this->domain('theirs.test', $stranger), 'Stranger line', client: $stranger),
+        $otherChange = DomainOwnerChange::query()->create(['domain_id' => $this->domain('changed.test')->id, 'kind' => 'owner',
+            'contact_id' => $this->client->ensurePrimaryContact()->id, 'status' => DomainOwnerChange::STATUS_AWAITING_PAYMENT]);
+        $not = [$this->line($otherChange, 'Other holder change', ['kind' => InvoiceItem::KIND_CHARGE]), $this->line($this->domain('other.test'), 'Other domain line'), $this->line($this->domain('theirs.test', $stranger), 'Stranger line', client: $stranger),
             $this->line($service, 'Service line', ['reference_id' => $domain->id])];
 
         Livewire::test(DomainRelatedInvoices::class, ['ownerRecord' => $domain, 'pageClass' => ViewDomain::class])
-            ->assertCanSeeTableRecords([$register, $renewal, $imported, $charge, $fee], inOrder: false)
+            ->set('tableRecordsPerPage', 25) // six lines: all on one page
+            ->assertCanSeeTableRecords([$register, $renewal, $imported, $charge, $fee, $holder], inOrder: false)
             ->assertCanNotSeeTableRecords($not)
-            ->assertCountTableRecords(5)
+            ->assertCountTableRecords(6)
             ->assertSee('9.90')
             ->assertSee('01/02/2026 – 01/02/2028')
             ->assertSee('01/02/2025')
             ->assertSee('Card')
             ->assertSee(InvoiceResource::getUrl('edit', ['record' => $register->invoice]));
 
-        $this->assertSame(['Registration', 'Renewal', null, 'Charge', 'Late fee'],
-            array_map(DomainRelatedInvoices::type(...), [$register, $renewal, $imported, $charge, $fee]));
+        $this->assertSame(['Registration', 'Renewal', null, 'Charge', 'Late fee', __('domains.owner_change.title')],
+            array_map(DomainRelatedInvoices::type(...), [$register, $renewal, $imported, $charge, $fee, $holder]));
+    }
+
+    public function test_staff_who_may_list_but_not_open_an_invoice_see_the_row_without_a_link(): void
+    {
+        $service = $this->service();
+        $line = $this->line($service, 'Own line');
+        $this->actingAs($this->staff(['admin.services.viewAny', 'admin.services.view', 'admin.invoices.viewAny']), 'staff');
+
+        Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $service, 'pageClass' => EditService::class])
+            ->assertCanSeeTableRecords([$line])
+            ->assertDontSee(InvoiceResource::getUrl('edit', ['record' => $line->invoice]));
     }
 
     public function test_only_five_rows_show_at_first_and_the_rest_by_paging(): void
@@ -213,6 +229,9 @@ class RelatedInvoicesTest extends TestCase
 
         $this->assertFalse(ServiceRelatedInvoices::canViewForRecord($service, EditService::class));
         $this->assertFalse(DomainRelatedInvoices::canViewForRecord($domain, ViewDomain::class));
+        // Mounted directly, past the tab: refused.
+        Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $service, 'pageClass' => EditService::class])->assertForbidden();
+        Livewire::test(DomainRelatedInvoices::class, ['ownerRecord' => $domain, 'pageClass' => ViewDomain::class])->assertForbidden();
         // On the pages: no tab of it (a tab's content loads when opened, so its label is what the page has).
         Livewire::test(ViewDomain::class, ['record' => $domain->getRouteKey()])->assertOk()->assertDontSee('Related invoices');
         Livewire::test(EditService::class, ['record' => $service->getRouteKey()])->assertOk()->assertDontSee('Related invoices');

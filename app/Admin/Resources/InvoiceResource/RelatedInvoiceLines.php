@@ -45,7 +45,8 @@ class RelatedInvoiceLines
                 TextColumn::make('invoice_id')->label(__('Invoice'))
                     ->state(fn (InvoiceItem $record) => '#' . $record->invoice_id
                         . (filled($record->invoice->number) && (string) $record->invoice->number !== (string) $record->invoice_id ? ' · ' . $record->invoice->number : ''))
-                    ->url(fn (InvoiceItem $record) => InvoiceResource::getUrl('edit', ['record' => $record->invoice])),
+                    // The invoice's only page is its edit: a link only for staff who may open it (review of #789).
+                    ->url(fn (InvoiceItem $record) => Gate::allows('update', $record->invoice) ? InvoiceResource::getUrl('edit', ['record' => $record->invoice]) : null),
                 TextColumn::make('invoice.created_at')->label(__('Issued'))->date('d/m/Y'),
                 TextColumn::make('type')->label(__('Type'))->placeholder('—')->state($type),
                 TextColumn::make('description')->label(__('Description'))->wrap(),
@@ -58,6 +59,7 @@ class RelatedInvoiceLines
                 TextColumn::make('paid_with')->label(__('Paid with'))
                     ->state(fn (InvoiceItem $record) => OrderSummary::paymentMethod($record->invoice)),
             ])
+            ->emptyStateHeading(__('No invoice lines yet'))
             ->paginated([5, 25, 50])
             ->defaultPaginationPageOption(5);
     }
