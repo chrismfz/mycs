@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Enums\DomainStatus;
+use App\Helpers\ExtensionHelper;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
@@ -98,7 +99,7 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
         $this->assertSame(ModuleAction::STATUS_OPEN, $task->status);
         $this->assertTrue($task->isCheck(), 'a task to look at, not a failure');
         $this->assertSame($left["domain #{$domain->id}"]->getMessage(), $task->last_error);
-        $this->assertStringContainsString("cancelled-order.test is already registered at the registrar: cancelling order #{$order->id} does not undo the registration (nothing was refunded with it)", (string) $task->last_error);
+        $this->assertStringContainsString("cancelled-order.test is already registered at the registrar: cancelling order #{$order->id} does not undo the registration (nothing was refunded)", (string) $task->last_error);
         $this->assertStringNotContainsString('the refund of order', (string) $task->last_error);
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status, 'its status is not changed');
         $this->assertSame(Order::STATUS_CANCELLED, $order->fresh()->status);
@@ -144,13 +145,18 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
         $this->assertCount(0, $this->tasks());
     }
 
-    /** The neighbour: «Cancel & Refund» as before: the refund's own words once money went back, nothing when none did. */
-    public function test_cancel_and_refund_behaves_as_before(): void
+    /**
+     * «Cancel & Refund»: the refund's own words once money went back, as before; when none did (never paid) the same task,
+     * in the no-refund words (owner 2026-11-11: one rule for every cancel, only the text differs).
+     */
+    public function test_cancel_and_refund_names_a_refund_only_when_money_went_back(): void
     {
         [$unpaid] = $this->order();
         $never = $this->domain($unpaid, DomainStatus::Active, 'never-paid');
-        $this->assertSame([], CancelOrder::handle($unpaid->fresh(), refund: 'manual'), 'nothing refunded, nothing told (REV-793-6)');
-        $this->assertCount(0, $this->tasks($never));
+        $left = CancelOrder::handle($unpaid->fresh(), refund: 'manual');
+        $this->assertSame(["domain #{$never->id}"], array_keys($left));
+        $this->assertStringContainsString('nothing was refunded', (string) $this->tasks($never)->sole()->last_error);
+        $this->assertStringNotContainsString('the refund of order', (string) $this->tasks($never)->sole()->last_error);
 
         [$order, $invoice] = $this->order();
         $domain = $this->domain($order, DomainStatus::Active, 'paid-one');
@@ -160,6 +166,19 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
         $this->assertStringNotContainsString('nothing was refunded', (string) $this->tasks($domain)->sole()->last_error);
         $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+    }
+
+    /** Money that went back before the click (from the invoice's page): plain «Cancel Order» names the refund too. */
+    public function test_cancel_order_after_an_earlier_refund_names_the_refund(): void
+    {
+        [$order, $invoice] = $this->order();
+        $domain = $this->domain($order, DomainStatus::Active);
+        $this->pay($invoice);
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 10.00, notify: false);
+
+        CancelOrder::handle($order->fresh());
+
+        $this->assertStringContainsString('the refund of order', (string) $this->tasks($domain)->sole()->last_error);
     }
 
     public function test_the_confirmation_warns_before_cancel_order_and_the_button_opens_the_task(): void

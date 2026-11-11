@@ -39,10 +39,10 @@ use Throwable;
  *   split again or merged elsewhere): «Cancel & Refund» is refused whole, before anything is cancelled (movedParts).
  *   Staff refund each invoice and cancel by hand; no refund over many invoices here.
  * - A domain of the order is registered already (registeredDomains): the refund goes ahead and does not undo the
- *   registration. The registrar is never called and the domain keeps its status: once money did go back, staff are told,
- *   with a notice and a «check this» task (ModuleAction::DOMAIN_REFUNDED, one open per domain) that names the domain.
- *   «Cancel Order» and «Set as Fraud» (no refund) tell the same way, in words that claim no refund: the domain stays
- *   registered and Active there too, and nothing else said so (reviews of sweep 8, #793).
+ *   registration. The registrar is never called and the domain keeps its status. Any cancel of such an order («Cancel
+ *   Order», «Cancel & Refund», «Set as Fraud», the bulk action) tells staff, with a notice and a «check this» task
+ *   (ModuleAction::DOMAIN_REFUNDED, one open per domain) that names the domain; its words name a refund only when money
+ *   did go back, and say «nothing was refunded» otherwise (reviews of sweep 8, #793; owner 2026-11-11).
  *
  * Only its items still its customer's: one moved to another customer since (MoveToClient) is that customer's now, never
  * cancelled with the first one's order (adversarial R2-1 of #357).
@@ -99,20 +99,17 @@ final class CancelOrder
 
         // The refund first: an open invoice paid in part holds money CancelOpenInvoices would leave open. Not with a
         // domain kept: what it paid is spent at the registrar (refund its part by hand).
+        $refunded = 0;
         if ($refund !== null && $kept !== []) {
             $left['refund'] = new DisplayException('Not refunded: a domain of this order was sent to its registrar. Refund by hand what is due.');
         } elseif ($refund !== null) {
-            $refunded = 0;
             $left += self::refund($order, $refund, $refunded);
-            // Only once money of its invoice went back, by this click or before it (REV-793-6, REV-793-R2-4): nothing
-            // refunded (never paid, refused, the gateway failed), nothing to tell.
-            if ($refunded > 0 || InvoiceTransaction::query()->where('invoice_id', $order->invoice_id)->where('refunded_amount', '>', 0)->exists()) {
-                $left += self::tellOfRegisteredDomains($order, refunded: true);
-            }
-        } else {
-            // No refund asked: its registered domains stay as they are all the same, and staff are told so.
-            $left += self::tellOfRegisteredDomains($order, refunded: false);
         }
+        // Whatever the button (cancel, cancel and refund, fraud, the bulk action): its registered domains stay as they
+        // are, and staff are told so. Only the words differ: a refund is named only when money of its invoice did go
+        // back, by this click or before it (REV-793-6, REV-793-R2-4).
+        $left += self::tellOfRegisteredDomains($order, refunded: $refunded > 0
+            || InvoiceTransaction::query()->where('invoice_id', $order->invoice_id)->where('refunded_amount', '>', 0)->exists());
         foreach ($services as $service) {
             $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
             $left += CancelPendingUpgrades::forService($service, $reason);
@@ -168,8 +165,8 @@ final class CancelOrder
 
     /**
      * Each registered domain of the order told to staff, as a notice and as a «check this» task that stays until they
-     * close it (one open per domain, REV-793-7): after a refund that gave money back ($refunded), or after a cancel with
-     * no refund, in words that claim none. Nothing is done at the registrar and the domain keeps its status.
+     * close it (one open per domain, REV-793-7): in the refund's words when money went back ($refunded), else in words
+     * that claim no refund. Nothing is done at the registrar and the domain keeps its status.
      *
      * @return array<string, Throwable>
      */
@@ -178,7 +175,7 @@ final class CancelOrder
         $left = [];
         foreach (self::registeredDomains($order) as $domain) {
             $message = "{$domain->fqdn} is already registered at the registrar: "
-                . ($refunded ? "the refund of order #{$order->id} does not undo the registration." : "cancelling order #{$order->id} does not undo the registration (nothing was refunded with it).")
+                . ($refunded ? "the refund of order #{$order->id} does not undo the registration." : "cancelling order #{$order->id} does not undo the registration (nothing was refunded).")
                 . " It stays {$domain->status->value}: keep it (and bill it), or delete it at the registrar, by hand.";
             if (!ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REFUNDED)->exists()) {
                 ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_REFUNDED, 'status' => ModuleAction::STATUS_OPEN,
