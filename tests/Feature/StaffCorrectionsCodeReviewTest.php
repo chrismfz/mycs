@@ -2,24 +2,21 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\AdjustmentNoteResource\Pages\ListAdjustmentNotes;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
+use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
-use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Role;
-use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -124,37 +121,13 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         $viewer = $this->staff(['admin.adjustment_notes.viewAny', 'admin.adjustment_notes.viewAny', 'admin.invoices.viewAny', 'admin.invoices.viewAny']);
 
         try {
-            $this->livewireAs($viewer)->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
+            $this->livewireAs($viewer)->test(AdjustmentNotesRelationManager::class, ['ownerRecord' => $invoice, 'pageClass' => EditInvoice::class])
+                ->callTableAction('void', $note);
         } catch (\Throwable) {
             // refused is fine
         }
 
         $this->assertSame(AdjustmentNoteStatus::Active, $note->fresh()->status, 'A role without adjustment_notes.update voided a note.');
         $this->assertSame(90.0, $invoice->fresh()->total);
-    }
-
-    /**
-     * The relation manager hides Void on a finalized invoice (immutable invoices); the Adjustment Notes list does not,
-     * so staff change the total of a paid, finalized invoice from there.
-     */
-    #[RunInSeparateProcess]
-    #[PreserveGlobalState(false)]
-    public function test_the_adjustment_notes_list_does_not_void_a_note_of_a_finalized_invoice(): void
-    {
-        $invoice = $this->invoice();
-        $note = $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'Goodwill']);
-        ExtensionHelper::addPayment($invoice->id, 'Stripe', 90.00, null, 'pi_imm', currency: 'USD');
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        // Stored, not only in config: each Livewire request reloads the settings from the database.
-        Setting::updateOrCreate(['key' => 'immutable_invoices_enabled'], ['value' => true, 'type' => 'boolean']);
-        config(['settings.immutable_invoices_enabled' => true]);
-
-        try {
-            $this->livewireAs($this->staff(['*']))->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
-        } catch (\Throwable) {
-            // refused is fine
-        }
-
-        $this->assertSame(AdjustmentNoteStatus::Active, $note->fresh()->status, 'A note of a finalized (paid) invoice was voided.');
     }
 }

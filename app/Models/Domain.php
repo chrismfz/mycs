@@ -512,6 +512,41 @@ class Domain extends Model implements Auditable
     }
 
     /**
+     * Lapsed and past its last recoverable day (recoveryEndsOn: its expiry plus its grace and redemption, 30 days where
+     * they are not known): expired, in grace or in redemption by its status, with nothing left to renew or restore. Many
+     * such rows never become terminal (DomainLifecycle ends one only on its registrar's word, or with both stage days
+     * known), so this is what gives their open renewal invoice up: the daily cron cancels it and tells staff, and credit
+     * does not pay it by itself meanwhile (sweep 7 S7-DOMAINS-1, owner 2026-11-10). One rule for both.
+     */
+    public function lapsedForGood(): bool
+    {
+        return in_array($this->status, self::LAPSED, true) && $this->expires_at !== null && !$this->inRecoveryWindow();
+    }
+
+    /** After its expiry and not ended: by its dates it is renewed or restored, or lapsedForGood. */
+    public const LAPSED = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
+    /** @return list<string> */
+    public static function lapsedValues(): array
+    {
+        return array_map(fn (DomainStatus $status) => $status->value, self::LAPSED);
+    }
+
+    /**
+     * The domains lapsedForGood, of $among when given: what neither account credit nor a saved card pays a renewal of by
+     * itself (CreditAutoApply::eligible, AutoCharge::due: the one place both ask).
+     *
+     * @param  iterable<int>|null  $among
+     * @return list<int>
+     */
+    public static function lapsedForGoodIds(?iterable $among = null): array
+    {
+        return self::query()->with('domainTld')->whereIn('status', self::lapsedValues())->whereNotNull('expires_at')
+            ->when($among !== null, fn ($query) => $query->whereIn('id', collect($among)->all()))->get()
+            ->filter(fn (self $domain) => $domain->lapsedForGood())->map(fn (self $domain) => (int) $domain->id)->values()->all();
+    }
+
+    /**
      * The last day of its redemption (D5a): the registrar's date, else the end of its grace (or its expiry) plus the
      * redemption days; null when it has none.
      */

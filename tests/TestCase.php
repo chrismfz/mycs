@@ -2,20 +2,29 @@
 
 namespace Tests;
 
+use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Console\Commands\CronJob;
 use App\Console\Commands\CronWait;
+use App\Enums\InvoiceTransactionStatus;
+use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Role;
+use App\Models\Service;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
+use App\Services\Invoice\RecordPaymentService;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Once;
 use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
 use Livewire\Livewire;
@@ -127,6 +136,54 @@ abstract class TestCase extends BaseTestCase
     protected function pickOne(Collection $items): mixed
     {
         return $items->values()->get($this->rand(0, $items->count() - 1));
+    }
+
+    /**
+     * The open renewal invoice a service past its due date would have: for the period from its due date, due then, issued
+     * $days before it (as the cron bills ahead). For dunning fixtures: a service past due as the cron would have left it.
+     */
+    protected function billedAhead(Service $service, int $days = 14): Invoice
+    {
+        $due = Carbon::parse($service->expires_at);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID,
+            'currency_code' => $service->currency_code, 'due_at' => $due]);
+        $line = $invoice->items()->create(['description' => 'Renewal', 'price' => $service->price, 'quantity' => $service->quantity ?? 1,
+            'reference_id' => $service->id, 'reference_type' => Service::class, 'period_start' => $due, 'period_end' => $service->periodEnd($due)]);
+        $issued = $due->copy()->subDays($days);
+        DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $issued]);
+        DB::table('invoice_items')->where('id', $line->id)->update(['created_at' => $issued]);
+
+        return $invoice->fresh();
+    }
+
+    /** Staff's «Cancel Invoice», as in the invoices' list (the same action as on its page): the way through a refusal that names an invoice. */
+    protected function staffCancelInvoice(Invoice $invoice, string $reason): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Cancels ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => $reason])->assertHasNoTableActionErrors();
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'staff cancelled the invoice');
+    }
+
+    /**
+     * A fixture's invoice set to a status as a row (the observer lets only a payment mark one paid). «Paid» comes with its
+     * money: one succeeded payment of its total, written as a row too. Since 2026-11-10 (REV-780-1) what an invoice paid
+     * for is the money it kept, never its status, so a paid fixture without a payment paid for nothing.
+     */
+    protected function statusFixture(int $invoiceId, string $status): void
+    {
+        DB::table('invoices')->where('id', $invoiceId)->update(['status' => $status]);
+        if ($status !== Invoice::STATUS_PAID) {
+            return;
+        }
+        $invoice = Invoice::query()->with(['items', 'adjustmentNotes', 'transactions'])->findOrFail($invoiceId);
+        $owed = RecordPaymentService::toCents($invoice->remaining);
+        if ($owed > 0) {
+            DB::table('invoice_transactions')->insert(['invoice_id' => $invoiceId, 'amount' => $owed / 100,
+                'status' => InvoiceTransactionStatus::Succeeded->value, 'transaction_id' => 'fixture-' . $invoiceId . '-' . uniqid(),
+                'created_at' => now(), 'updated_at' => now()]);
+        }
     }
 
     //

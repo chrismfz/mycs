@@ -47,13 +47,17 @@ class InvoiceItemController extends ApiController
     /**
      * Create a new invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
+     * @response 422 {"message": "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first."}
      */
     public function store(CreateInvoiceItemRequest $request)
     {
         // Validate and create the invoice item
-        // Under the payment locks; an invoice with payments keeps its amounts (StaffLineEdit).
-        $create = fn () => StaffLineEdit::run($request->validated('invoice_id'), true, fn () => InvoiceItem::create($request->validated()));
+        // Under the payment locks (StaffLineEdit); an invoice with payments takes it too (owner 2026-11-10).
+        $create = fn () => StaffLineEdit::run($request->validated('invoice_id'), true, function (Invoice $invoice) use ($request) {
+            StaffLineEdit::refuseReferencedLine($invoice, $request->validated('reference_type'), 'add');
+
+            return InvoiceItem::create($request->validated());
+        });
         // A domain's renewal: the domain first (its lock order: domain, customer, invoice), so that the cron billing it
         // at the same moment does not bill the same year (F5 of #174).
         $invoiceItem = $this->guarded(fn () => $request->validated('kind') === InvoiceItem::KIND_RENEWAL
@@ -65,7 +69,7 @@ class InvoiceItemController extends ApiController
             : $create());
 
         // Return the created invoice as a JSON response
-        return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
+        return $this->withBalanceNotice(new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES)), $invoiceItem);
     }
 
     /**
@@ -84,41 +88,48 @@ class InvoiceItemController extends ApiController
     /**
      * Update a specific invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
+     * @response 422 {"message": "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first."}
      */
     public function update(UpdateInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Validate and update the invoice item
-        // Under the payment locks, the line read again there; its amounts stay on an invoice with payments, its
-        // description still changes (StaffLineEdit).
-        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, false, function (Invoice $invoice) use ($invoiceItem, $request) {
+        // Under the payment locks, the line read again there (StaffLineEdit).
+        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, false, function () use ($invoiceItem, $request) {
             $locked = InvoiceItem::query()->whereKey($invoiceItem->getKey())->lockForUpdate()->firstOrFail();
             $locked->fill($request->validated());
-            if ($locked->isDirty(['price', 'quantity', 'taxed', 'reference_type', 'reference_id'])) {
-                StaffLineEdit::refuseWithPayments($invoice);
-            }
             $locked->save();
             $invoiceItem->setRawAttributes($locked->getAttributes(), true);
         }));
 
         // Return the updated invoice item as a JSON response
-        return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
+        return $this->withBalanceNotice(new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES)), $invoiceItem);
     }
 
     /**
      * Delete a specific invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
+     * @response 422 {"message": "This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first."}
      */
     public function destroy(DeleteInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Delete the invoice item
-        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, true, fn () => $invoiceItem->delete()));
+        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, true, function (Invoice $invoice) use ($invoiceItem) {
+            StaffLineEdit::refuseReferencedLine($invoice, $invoiceItem->reference_type, 'remove');
+            $invoiceItem->delete();
+        }));
 
         return $this->returnNoContent();
     }
 
-    /** The model's money rules (a paid invoice keeps its lines, InvoiceItemObserver) answer 422, not 500. */
+    /** `warning`, beside `data`: its invoice now owes on while paid, or is paid over (StaffLineEdit::balanceNotice). */
+    private function withBalanceNotice(InvoiceItemResource $resource, InvoiceItem $line): InvoiceItemResource
+    {
+        $notice = StaffLineEdit::balanceNotice($line->invoice_id);
+
+        return $notice === null ? $resource : $resource->additional(['warning' => $notice]);
+    }
+
+    /** The model's money rules (a refunded invoice keeps its lines, InvoiceItemObserver) answer 422, not 500. */
     private function guarded(\Closure $change): mixed
     {
         try {

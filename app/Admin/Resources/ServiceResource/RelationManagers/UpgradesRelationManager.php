@@ -6,6 +6,9 @@ use App\Admin\Resources\InvoiceResource;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -15,7 +18,7 @@ use Illuminate\Support\Facades\Gate;
 /**
  * The service's changes of package, as WHMCS's upgrades list (owner 2026-11-04): when, from what to what, what it renewed
  * at before and after, the invoice that charged it or the credit a downgrade gave, staff's discount on it, who asked for
- * it. Read only: a change is placed by «Upgrade/Downgrade» or by the customer's upgrade page.
+ * it. A change is placed by «Upgrade/Downgrade» or by the customer's upgrade page; one waiting for payment can be cancelled here.
  */
 class UpgradesRelationManager extends RelationManager
 {
@@ -71,7 +74,23 @@ class UpgradesRelationManager extends RelationManager
                 TextColumn::make('applied_at')->label('Applied')->dateTime('d/m/Y H:i')->placeholder('—'),
             ])
             ->headerActions([])
-            ->recordActions([])
+            // Staff take a change waiting for payment back (owner 2026-11-10: a refusal aimed at the customer always leaves
+            // staff a simple way through; a pending upgrade stops another one and a change of cycle). As the cron gives
+            // one up (CancelPendingUpgrades): its open invoice cancelled with it; one holding money stays, for a refund first.
+            ->recordActions([
+                Action::make('cancel')->label('Cancel')->icon('ri-close-circle-line')->color('danger')
+                    ->visible(fn (ServiceUpgrade $record) => $record->status === ServiceUpgrade::STATUS_PENDING && Gate::allows('update', $this->getOwnerRecord()))
+                    ->requiresConfirmation()
+                    ->modalHeading('Cancel this package change')
+                    ->modalDescription('It is not applied, and its open invoice is cancelled with it. An invoice with a payment on it stays open: refund it first.')
+                    ->action(function (ServiceUpgrade $record): void {
+                        [$cancelled, $left] = CancelPendingUpgrades::one((int) $record->id, __('invoices.cancellation_reasons.upgrade_withdrawn'));
+                        $cancelled
+                            ? Notification::make()->success()->title('Package change cancelled')->send()
+                            : Notification::make()->danger()->title('Not cancelled')
+                                ->body(e(collect($left)->first()?->getMessage() ?? 'It is no longer waiting for payment (paid meanwhile?).'))->send();
+                    }),
+            ])
             ->defaultSort('id', 'desc');
     }
 }

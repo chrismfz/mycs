@@ -36,7 +36,15 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 - **To whom:** the same address or another, with or without its Cc/Bcc.
 - **What goes out:** the body as the log keeps it. A masked password goes out masked. The links that are a login
   (password reset, email verification) are never kept, so they never go out again.
-- **Not carried over:** a resent ticket reply loses its threading headers.
+- **A ticket's mail** (sweep 7, S7-TICKETS-MAIL-2) sent again **to the address it was for** goes out as a ticket's mail:
+  the log keeps its Message-ID of ours from the start (`email_logs.message_id`), so `TicketReplyEmailListener` writes the
+  same headers as on the first send (Message-ID, In-Reply-To/References, Reply-To the department, X-MyCS-Ticket). One
+  that never went out (the batch after an outage) keeps the Message-ID kept for it; one that did go out gets a new one
+  (a `ticket_mail_ids` row, so the answer still joins the ticket). A guest's masked link is issued anew, to the guest's
+  own address only; the log of the resend stays masked.
+- **Not carried over:** a ticket's mail resent to **another** address is a copy of the log (no thread headers, the
+  guest's link masked): its Message-ID and the link are keys. Ticket mails logged before 2026-11-10 have no kept id and
+  are resent as before.
 - **A mail outage:** `php artisan app:mail-resend-failed [--days=7] [--limit=50] [--dry-run]` resends the customer mails
   that failed without ever going out and were not resent yet. Rows from before the audit are skipped, and so is a mail
   that is no longer true (`MailAudit::stale`): one asking to pay an invoice paid, cancelled or settled since, a

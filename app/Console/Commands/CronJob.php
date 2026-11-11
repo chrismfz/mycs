@@ -85,6 +85,9 @@ class CronJob extends Command
 
     private int $successFullCharges = 0;
 
+    /** A gateway's payment «processing» for this many days is told to staff (S7-PAYMENTS-3, owner 2026-11-10). */
+    public const PROCESSING_STALE_DAYS = 14;
+
     /** @var array<string, Throwable> job (or job #service) => what failed */
     private array $failures = [];
 
@@ -400,7 +403,8 @@ class CronJob extends Command
                         if ($invoice === null || $invoice->apply_pending_since === null) {
                             continue;
                         }
-                        if (!$invoice->keepsItsMoney()) {
+                        // One staff marked paid by hand has no money to keep: applied as they meant (review of #780).
+                        if ($invoice->paid_by_staff_at === null && !$invoice->keepsItsMoney()) {
                             // Refunded (it stays paid) or its money moved to credit: staff decide, nothing is renewed.
                             Invoice::query()->whereKey($id)->update(['apply_pending_since' => null]);
                             $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} was paid but not applied, and its money was refunded or moved to credit since: not applied.");
@@ -445,18 +449,23 @@ class CronJob extends Command
 
             // A domain lost for good (D7, owner 2026-10-17: deleted at its registry, moved away, or ended by staff): the open
             // invoices of its renewal are cancelled, as myip's hook did after 30 days, now when it is known to be lost.
+            // And of one lapsed past its last recoverable day that never became terminal (sweep 7 S7-DOMAINS-1, owner
+            // 2026-11-10: its stage days not known, or its registrar has not said «deleted»; Domain::lapsedForGood): the
+            // same, and staff are told once, as the row itself stays for them to end.
             // Before the credit step, so credit paid on them goes back and pays what is still owed.
             $this->runCronJob('domain_invoices_cancelled', function ($number = 0) {
                 $own = fn ($line) => $line->where(fn ($q) => $q->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE));
-                $reasons = collect(['en', 'el'])->map(fn (string $locale) => (string) trans('invoices.cancellation_reasons.domain_lost', [], $locale))->all();
-                $lost = Domain::query()->whereIn('status', DomainStatus::terminalValues())
+                $reasons = collect(['en', 'el'])->flatMap(fn (string $locale) => [(string) trans('invoices.cancellation_reasons.domain_lost', [], $locale),
+                    (string) trans('invoices.cancellation_reasons.domain_lapsed', [], $locale)])->all();
+                $lost = Domain::query()->whereIn('status', [...DomainStatus::terminalValues(), ...Domain::lapsedValues()])
                     ->whereHas('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES)))
                     ->get();
                 foreach ($lost as $domain) {
                     // Read again (adversarial ADV-3): one restored meanwhile keeps its invoice. Deleted counts as lost only
                     // past its last recoverable day (review F2: the registrar may still restore it by hand until then).
                     $domain = $domain->fresh();
-                    if ($domain === null || !$domain->status->isTerminal() || ($domain->status === DomainStatus::Deleted && !self::pastRecovery($domain))) {
+                    $lapsed = $domain !== null && $domain->lapsedForGood();
+                    if ($domain === null || (!$lapsed && (!$domain->status->isTerminal() || ($domain->status === DomainStatus::Deleted && !self::pastRecovery($domain))))) {
                         continue;
                     }
                     // Transferred away: a day after staff marked it (owner 2026-10-18: time to undo a mistake first).
@@ -465,17 +474,36 @@ class CronJob extends Command
                         continue;
                     }
                     // Not one staff reopened after this cancelled it (ADV-6): theirs to decide, not cancelled every night.
+                    // Nor, of a lapsed one, a renewal billed after its last recoverable day (review of #775, REV-775-2):
+                    // staff's on purpose (a restore agreed with the customer, a redemption longer than the days assumed).
+                    $ownLines = fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id));
                     $invoices = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
                         ->where(fn ($q) => $q->whereNull('cancellation_reason')->orWhereNotIn('cancellation_reason', $reasons))
-                        ->whereHas('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id)))->get();
-                    $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.domain_lost'), $domain);
+                        ->whereHas('items', fn ($line) => $lapsed ? $ownLines($line)->where('created_at', '<=', $domain->recoveryEndsOn()?->endOfDay()) : $ownLines($line))->get();
+                    $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.' . ($lapsed ? 'domain_lapsed' : 'domain_lost')), $domain);
                     // One kept open for staff (it holds money, it was renewed at the registrar): told once a month per
                     // reason, not every night (review F6).
                     $this->leftOpen(array_filter($left, fn ($reason, $key) => !$reason instanceof DisplayException
                         || Cache::add('domain-lost-left-open:' . $key . ':' . sha1($reason->getMessage()), true, now()->addDays(30)), ARRAY_FILTER_USE_BOTH));
                     // What was done (ADV-4, F5): cancelled, or the domain's lines taken off.
-                    $number += Invoice::query()->whereKey($invoices->pluck('id'))->where(fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED)
-                        ->orWhereDoesntHave('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id))))->count();
+                    $cancelled = Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->pluck('id');
+                    $removed = Invoice::query()->whereKey($invoices->pluck('id'))->where('status', '!=', Invoice::STATUS_CANCELLED)
+                        ->whereDoesntHave('items', $ownLines)->pluck('id');
+                    $number += $cancelled->count() + $removed->count();
+                    // Still «{status}» here, nothing says it ended: staff are told what was done, once, and the domain keeps
+                    // that the renewal from this expiry was given up (meta.renewal_given_up: a line taken off a shared
+                    // invoice leaves nothing else to say so), so the billing step does not say «past its last recoverable
+                    // day: not billed» about it every night after this (RenewalBilling; review of #775, REV-775-1).
+                    if ($lapsed && ($cancelled->isNotEmpty() || $removed->isNotEmpty())) {
+                        $domain->forceFill(['meta' => ['renewal_given_up' => $domain->expires_at->toDateString()] + ($domain->meta ?? [])])->save();
+                        $done = implode(' and ', array_filter([
+                            $cancelled->isEmpty() ? null : 'its open renewal invoice(s) #' . $cancelled->implode(', #') . ' cancelled',
+                            $removed->isEmpty() ? null : 'its renewal line removed from invoice(s) #' . $removed->implode(', #') . ' (left open for what else they bill)',
+                        ]));
+                        $this->notices["domain_invoices_cancelled domain #{$domain->id}"] = new DisplayException("Domain #{$domain->id} {$domain->fqdn}: {$domain->status->value}"
+                            . " and past its last recoverable day ({$domain->recoveryEndsOn()?->toDateString()}): {$done}"
+                            . ' (credit paid on them is back on the account). Check it at its registrar: mark it deleted or transferred away, or renew it by hand and bill it again.');
+                    }
                 }
 
                 return $number;
@@ -535,7 +563,7 @@ class CronJob extends Command
                     // In id order, never the index's: the renewals are invoiced in the same order whatever the plan.
                     // The plan its renewal bills: one set «from the next renewal» decides its days (ADV-660-1a/b).
                     $plans = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $lookAhead)->orderBy('id')
-                        ->with(['plan', 'nextPlan'])->get(['id', 'plan_id', 'next_plan_id', 'product_id'])
+                        ->with(['plan', 'nextPlan'])->get(['id', 'plan_id', 'next_plan_id', 'product_id', 'parent_service_id'])
                         ->mapWithKeys(fn (Service $service) => [$service->id => RenewalBilling::billedPlan($service)]);
                     foreach ($plans as $id => $plan) {
                         $billUntil = now()->addDays(RenewalBilling::serviceInvoiceDays($plan));
@@ -721,22 +749,42 @@ class CronJob extends Command
                 return Invoice::query()->whereKey($invoices->pluck('id'))->where('status', Invoice::STATUS_CANCELLED)->count();
             }, transaction: false);
 
-            // A payment WHMCS had on its way at the cut-over (imported «Payment Pending», ADV-A1-3) holds its invoice until
-            // staff complete or delete it: a week after its import (its updated_at; created_at is its WHMCS invoice's day,
-            // R1b-3), staff are told, once a week (R1-5): marked told only once the notices mail is queued, so one that
-            // could not be queued is told again the next day (review 2 of #697, I5). Nothing changes by itself.
+            // A payment still «processing» long after it began holds its invoice from every way of paying and its services
+            // from suspension, until its gateway's final event is recorded: one that never comes (lost, or the gateway has
+            // none for the case) would hold them for ever, unseen (S7-PAYMENTS-3). Staff are told, nothing changes by itself
+            // (owner 2026-11-10): a gateway's after PROCESSING_STALE_DAYS (its created_at); one WHMCS had on its way at the
+            // cut-over (imported «Payment Pending», ADV-A1-3) a week after its import (its updated_at; created_at is its
+            // WHMCS invoice's day, R1b-3). Each once a week (R1-5): marked told only once the notices mail is queued, so
+            // one that could not be queued is told again the next day (review 2 of #697, I5).
             $this->runCronJob('imported_pending_payments', function () {
                 $stale = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Processing)
-                    ->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7))
-                    ->with('invoice:id,client_id')->orderBy('id')->get();
+                    ->where(fn ($payment) => $payment
+                        ->where(fn ($imported) => $imported->where('transaction_id', 'like', 'whmcs-pending-%')->where('updated_at', '<', now()->subDays(7)))
+                        ->orWhere(fn ($native) => $native->where(fn ($id) => $id->whereNull('transaction_id')->orWhere('transaction_id', 'not like', 'whmcs-pending-%'))
+                            ->where('created_at', '<', now()->subDays(self::PROCESSING_STALE_DAYS))))
+                    ->with(['invoice:id,client_id,currency_code', 'gateway:id,name'])->orderBy('id')->get();
                 foreach ($stale as $payment) {
-                    if (!Cache::has($mark = "imported-pending-told:{$payment->id}")) {
-                        $this->noticeMarks[$mark] = now()->addDays(7);
+                    $imported = str_starts_with((string) $payment->transaction_id, 'whmcs-pending-');
+                    if (Cache::has($mark = ($imported ? 'imported-pending-told:' : 'processing-payment-told:') . $payment->id)) {
+                        continue;
+                    }
+                    $this->noticeMarks[$mark] = now()->addDays(7);
+                    $amount = number_format((float) $payment->amount, 2, '.', '');
+                    if ($imported) {
                         $this->notices["imported_pending_payments #{$payment->invoice_id}"] = new DisplayException(sprintf(
                             'Invoice #%d (client #%d): the payment WHMCS had on its way at the cut-over (%s, %s) is still processing. Confirm the debit in the gateway,'
                             . ' then record it with that transaction id (the same gateway or none), or delete the payment if it failed.',
-                            $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id, number_format((float) $payment->amount, 2, '.', '')));
+                            $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id, $amount));
+
+                        continue;
                     }
+                    $this->notices["processing_payments #{$payment->invoice_id} (payment {$payment->id})"] = new DisplayException(sprintf(
+                        'Invoice #%d (client #%d): the payment %s of %s %s through %s has been processing since %s (over %d days), and no final answer of the gateway was recorded.'
+                        . ' Until it is settled the invoice cannot be paid or charged another way and its services are not suspended. Check it at the gateway, then on the invoice\'s Transactions:'
+                        . ' if the money came, «Add payment» with that transaction id (the same gateway or none) completes it;'
+                        . ' if it failed or was cancelled, delete the payment (a saved method\'s charge of it is then settled with «Resolve charge»). A success the gateway reports later is still recorded.',
+                        $payment->invoice_id, (int) $payment->invoice?->client_id, $payment->transaction_id ?? '(no id)', $amount, (string) $payment->invoice?->currency_code,
+                        $payment->gateway->name ?? 'no gateway', $payment->created_at->toDateString(), self::PROCESSING_STALE_DAYS));
                 }
 
                 return $stale->count();
@@ -1110,7 +1158,7 @@ class CronJob extends Command
             return 0; // Enable Termination off (as WHMCS)
         }
         // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
-        // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
+        // least «minimum days suspended» ago (7 by default; never on the day of the suspension, audit sweep
         // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
         foreach ($this->terminable()->tap(self::parentsFirst(...))->pluck('id') as $id) {
             try {
@@ -1125,7 +1173,7 @@ class CronJob extends Command
                     // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
                     $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
                     // Those overdue past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
-                    $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+                    $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service),
                         __('invoices.cancellation_reasons.service_terminated'), $service);
                     if ($service->product?->stock !== null) {
                         $service->product->increment('stock', $service->quantity);
@@ -1384,7 +1432,7 @@ class CronJob extends Command
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
         // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3a).
-        $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+        $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service),
             __('invoices.cancellation_reasons.cancellation_request'), $service);
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);

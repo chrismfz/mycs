@@ -121,7 +121,7 @@ class CronLogFailureTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createProduct();
 
-        return Service::factory()->create([
+        $service = Service::factory()->create([
             'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
@@ -130,6 +130,10 @@ class CronLogFailureTest extends TestCase
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);
+        // Billed before it was due, as the cron does.
+        $this->billedAhead($service);
+
+        return $service;
     }
 
     private function runTheCron(): ?\Throwable

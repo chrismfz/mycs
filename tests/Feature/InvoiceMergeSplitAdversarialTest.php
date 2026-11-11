@@ -190,30 +190,35 @@ class InvoiceMergeSplitAdversarialTest extends TestCase
 
     /**
      * E-ADV-3 (medium; fixed by CR-4). An order's invoice merged away: «Cancel & Refund» refunds orders.invoice_id, the
-     * empty merged one, so nothing was refunded and nothing reported. Now an order's invoice is not merged.
+     * empty merged one, so nothing was refunded and nothing reported. CR-4 refused the merge; since 2026-11-10
+     * (TIGHT-INVOICES-PAYMENTS-26) it is merged and the order follows its lines to the target, so «Cancel & Refund»
+     * looks at the invoice that bills it (and leaves a refund to staff when that bills other things too).
      */
-    public function test_an_orders_invoice_is_not_merged_away(): void
+    public function test_an_orders_invoice_is_merged_and_its_order_follows_its_lines(): void
     {
         $product = $this->product()->product;
         $place = fn () => (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '10.00')]);
         $first = $place();
         $second = $place();
+        $merged = $second->invoice->id;
 
-        $this->expectException(DisplayException::class);
-        (new MergeInvoices)->handle($first->invoice->id, [$second->invoice->id]);
+        (new MergeInvoices)->handle($first->invoice->id, [$merged]);
+
+        $this->assertSame((int) $first->invoice->id, (int) $second->order->fresh()->invoice_id, 'the order points at the invoice its lines are on');
+        $this->assertSame((int) $first->invoice->id, (int) $first->order->fresh()->invoice_id);
+        $this->assertSame(0, Invoice::query()->findOrFail($merged)->items()->count());
+        $this->assertSame(2, $first->invoice->fresh()->items()->count());
     }
 
     /**
-     * E-ADV-4 (medium). Immutable invoices on: an issued invoice is not edited (the policy allows update only on a draft;
-     * Split is hidden). The Merge bulk action authorises on the class (`can('update', Invoice::class)`), which ignores
-     * immutability, and rewrites issued invoices.
+     * E-ADV-4 (medium). The Merge bulk action asks the policy's update for each invoice: staff who may only list invoices
+     * do not merge them. (Found with «Immutable Invoices», which is gone: owner 2026-11-10.)
      */
-    public function test_e_adv_4_merge_respects_immutable_invoices(): void
+    public function test_e_adv_4_merge_needs_update_on_each_invoice(): void
     {
         [$a, $b] = $this->two();
-        $this->setting('immutable_invoices_enabled', true, 'boolean'); // a row: the first request's flush keeps it
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = Staff::factory()->admin()->create();
+        $staff = Staff::factory()->withPermissions(['admin.invoices.viewAny'])->create();
 
         try {
             $this->livewireAs($staff)->test(ListInvoices::class)
@@ -222,7 +227,7 @@ class InvoiceMergeSplitAdversarialTest extends TestCase
         } catch (\Throwable) {
         }
 
-        $this->assertNull($b->fresh()->merged_into_id, 'issued invoices merged while invoices are immutable');
+        $this->assertNull($b->fresh()->merged_into_id, 'invoices merged by staff who may not change them');
         $this->assertSame(1, $b->fresh()->items()->count());
     }
 

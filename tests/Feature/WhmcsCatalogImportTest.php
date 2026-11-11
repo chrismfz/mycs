@@ -125,7 +125,9 @@ class WhmcsCatalogImportTest extends TestCase
         $gr = DomainTld::query()->where('tld', 'gr')->sole()->load('prices');
         // What landed (the fixture's .gr has no renewal, so priceFor sells none of it: review D1, D2).
         $stored = fn (string $operation, int $years) => $gr->prices->first(fn (DomainTldPrice $p) => $p->operation === $operation && $p->years === $years)?->price;
-        $this->assertSame([null, null, null, '19.00', '38.00', '0.00'], [$gr->registrar_connection_id, $gr->grace_days, $stored('register', 1),
+        // Its stage days «-1» in WHMCS: the .gr registry's (15 of grace, no redemption; sweep 7 S7-DOMAINS-1).
+        $this->assertSame([15, 0], [$gr->grace_days, $gr->redemption_days]);
+        $this->assertSame([null, null, '19.00', '38.00', '0.00'], [$gr->registrar_connection_id, $stored('register', 1),
             $stored('register', 2), $stored('register', 4), $stored('transfer', 1)]);
         $this->assertNotEmpty(array_filter($result['notes'], fn ($n) => str_contains($n, 'grepp')));
     }

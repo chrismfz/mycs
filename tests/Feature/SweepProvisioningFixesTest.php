@@ -127,7 +127,8 @@ class SweepProvisioningFixesTest extends TestCase
         Queue::fake();
         Http::preventStrayRequests();
         Http::fake([self::WHM . '/removeacct*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]),
-            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]])]);
+            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]]),
+            self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']])]);
         $server = $this->whmServer();
         $this->serviceOn($server, ['username' => 'sharedex', 'status' => Service::STATUS_TERMINATED]);
         $live = $this->serviceOn($server, ['username' => 'sharedex']);
@@ -144,7 +145,8 @@ class SweepProvisioningFixesTest extends TestCase
         Queue::fake();
         Http::preventStrayRequests();
         Http::fake([self::WHM . '/removeacct*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']]),
-            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]])]);
+            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]]),
+            self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK']])]);
         $this->serviceOn($this->whmServer(), ['username' => 'sharedex']);
         $live = $this->serviceOn($this->whmServer(), ['username' => 'sharedex']);
         $live->product->settings()->create(['key' => 'package', 'value' => 'basic']);

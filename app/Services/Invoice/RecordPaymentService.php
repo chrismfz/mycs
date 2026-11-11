@@ -4,12 +4,14 @@ namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Events\Invoice\PaidByStaffCovered;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -59,6 +61,7 @@ class RecordPaymentService
         bool $enteredByStaff = false,
         ?\DateTimeInterface $paidAt = null,
         ?string $paymentGroup = null,
+        bool $onItsWayNow = false,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -76,7 +79,7 @@ class RecordPaymentService
 
         $notices = [];
         try {
-            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices, $paymentGroup);
+            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices, $paymentGroup, $onItsWayNow);
         } catch (ModelNotFoundException $e) {
             // A gateway paid an invoice that does not exist (deleted, or another app's): the gateway log keeps what it
             // charged and staff hear of it (MT-2a). Still thrown: the gateway is told it failed.
@@ -90,16 +93,42 @@ class RecordPaymentService
         foreach ($notices as $notice) {
             $this->notify($notice, $invoiceId, $transactionId, $gateway);
         }
+        $this->applyWaitingRefunds($transaction);
 
         return $transaction;
     }
 
     /**
+     * The one place a payment becomes money here, whoever recorded it (a gateway's event, staff's «Add payment» completing
+     * a processing one: REV-774-3): the refunds and chargebacks its gateway reported before that, which waited for it
+     * (gateway_refunds «waiting», by the payment's id there), are recorded now (PR 2c-2, F3), once this commits. Those of
+     * the payment's own gateway account; a payment with no gateway (staff typed the id) takes any gateway's.
+     */
+    public function applyWaitingRefunds(?InvoiceTransaction $transaction): void
+    {
+        if ($transaction === null || $transaction->status !== InvoiceTransactionStatus::Succeeded || $transaction->transaction_id === null || $transaction->is_credit_transaction) {
+            return;
+        }
+        $reference = (string) $transaction->transaction_id;
+        $extension = $transaction->gateway?->extension;
+        DB::afterCommit(function () use ($reference, $extension) {
+            try {
+                GatewayRefund::query()->where('payment_reference', $reference)->whereIn('origin', GatewayRefund::WAITING_ORIGINS)
+                    ->when($extension !== null, fn ($waiting) => $waiting->whereIn('gateway', ExtensionHelper::accountExtensions((string) $extension)))
+                    ->distinct()->pluck('gateway')
+                    ->each(fn ($gateway) => ExtensionHelper::applyWaitingRefunds((string) $gateway, $reference));
+            } catch (\Throwable $e) {
+                report($e); // they keep waiting: the gateway's next event of the payment applies them
+            }
+        });
+    }
+
+    /**
      * @param  list<string>  $notices
      */
-    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices, ?string $paymentGroup = null): ?InvoiceTransaction
+    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices, ?string $paymentGroup = null, bool $onItsWayNow = false): ?InvoiceTransaction
     {
-        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup) {
+        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup, $onItsWayNow) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway account (PayPal and PayPal_IPN are one: REV2-FGW-2), or recorded by staff
@@ -142,6 +171,19 @@ class RecordPaymentService
                 return null;
             }
 
+            // A failed payment never goes back to processing (S6-PAYMENTS-1): gateways deliver events out of order and
+            // retry old ones, and a revived row would hold the invoice from every way of paying with nothing left to
+            // settle it. It may only become succeeded. One exception, said by the caller: the gateway was asked and the
+            // payment is on its way now ($onItsWayNow: a new attempt on the same Stripe intent after a decline, REV-766-1).
+            if ($existing !== null && $existing->status === InvoiceTransactionStatus::Failed && $status === InvoiceTransactionStatus::Processing && !$onItsWayNow) {
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'failed_stays_failed', [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
+
+                return $existing;
+            }
+
             if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
                 $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
                 MassPay::link($target, $paymentGroup, $existing, $gateway !== null && !$isCreditTransaction && !$enteredByStaff);
@@ -153,7 +195,7 @@ class RecordPaymentService
                 return $existing;
             }
 
-            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents, $enteredByStaff) : 0;
             // An invoice left without a customer (deleted before the journal): the money is still recorded, but
             // there is no account to credit what it cannot take. Staff are told.
             if ($excess > 0 && $target->client_id === null) {
@@ -204,6 +246,14 @@ class RecordPaymentService
                     && ($existing !== null ? $existing->gateway_id !== null : $gateway !== null && !$enteredByStaff);
                 $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $paymentGroup, $transaction) : null;
                 $this->addCredit($target, $transaction, $excess, $source, $notices, spread: $group !== null);
+                // Marked paid by hand, and real money now covers it: no longer «by hand», and what waited for money (the
+                // affiliates' reward) is told, once (REV-780-3).
+                if ($target->status === Invoice::STATUS_PAID && $target->paid_by_staff_at !== null
+                    && self::toCents($target->fresh()->remaining) <= 0) {
+                    Invoice::query()->whereKey($target->id)->update(['paid_by_staff_at' => null]);
+                    $covered = $target->id;
+                    DB::afterCommit(fn () => rescue(fn () => event(new PaidByStaffCovered(Invoice::query()->findOrFail($covered)))));
+                }
                 if ($group !== null) {
                     $placed = array_sum(array_map(fn (InvoiceTransaction $paid) => self::toCents($paid->amount), MassPay::spread($group, $transaction)));
                     // What the group could not take (an invoice paid meanwhile, more than its total) is the customer's
@@ -212,6 +262,15 @@ class RecordPaymentService
                         $notices[] = sprintf('Mass Pay on invoice #%d: %s %s of the payment could not pay the chosen invoices; it was added to the customer\'s account credit.',
                             $target->id, number_format(($excess - $placed) / 100, 2, '.', ''), $target->currency_code);
                     }
+                }
+                // A credit purchase its payment could not turn paid (a discount on it from before these were refused,
+                // S6-MONEY-LEDGER-1): the money is recorded, the invoice stays open with no credit given. Staff are told,
+                // also when more than its discounted total was paid (the part over became credit; REV-766-4).
+                if ($target->items->contains('reference_type', Credit::class)
+                    && Invoice::query()->whereKey($target->id)->value('status') === Invoice::STATUS_UNPAID
+                    && self::toCents($target->fresh()->remaining) <= 0) {
+                    $notices[] = sprintf('Invoice #%d buys account credit and has a discount: %s %s of its payment is recorded on it, but the payment does not cover the credit it buys, so the invoice stays unpaid (with nothing left to pay) and gave no credit. The discount cannot be taken off while the payment is on it: refund the payment at the gateway and make a new purchase for the right amount.',
+                        $target->id, number_format(($cents - $excess) / 100, 2, '.', ''), $target->currency_code);
                 }
                 // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
                 // before the merge. What it left as credit pays the invoice its lines went to, first.
@@ -275,10 +334,9 @@ class RecordPaymentService
      */
     public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
-        $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
-
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
-            $invoice = $this->lockInvoice($invoiceId);
+        return DB::transaction(function () use ($invoice, $onlyIfCovers, $eligible, $upToCents) {
+            // The model when given: $eligible reads what holds the invoice with plain reads (S7-PAYMENTS-1, lockInvoice).
+            $invoice = $this->lockInvoice($invoice);
             if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
@@ -373,6 +431,11 @@ class RecordPaymentService
                 if (!$reopen) {
                     throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
                 }
+                // Merged into another (PR E): its lines, and what is owed, are there. Staff may reopen it on its page
+                // (an empty invoice, owner 2026-11-10); a payment does not, it belongs on the other one.
+                if ($locked->merged_into_id !== null) {
+                    throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $locked->merged_into_id]));
+                }
                 $locked->status = Invoice::STATUS_UNPAID;
                 $locked->save();
             }
@@ -429,6 +492,20 @@ class RecordPaymentService
             // settle) is no refund and is taken back as before.
             if (self::refundedToCredit($transaction)) {
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
+            }
+
+            // What the gateway reported on it (gateway_refunds: refunds, chargebacks, disputes) points at the row, and the
+            // database refuses the deletion while one does (S7-MONEY-LEDGER-1: a raw foreign-key error). A refund or a
+            // chargeback the gateway made is real money given back, recorded here or not (another currency, matched to a
+            // refund by hand): the payment stays, as one with refunds does. What moved no money goes with the payment.
+            $reported = GatewayRefund::query()->where('invoice_transaction_id', $transaction->id)->orderBy('id')->lockForUpdate()->get();
+            // One still «waiting» goes on waiting only for a payment that never succeeded; on a succeeded payment it is a
+            // refund the gateway made that was not applied (yet): refused as the others (REV-774-4).
+            $detached = $transaction->status === InvoiceTransactionStatus::Succeeded ? [] : GatewayRefund::WAITING_ORIGINS;
+            $kept = $reported->reject(fn (GatewayRefund $record) => in_array($record->origin, [...GatewayRefund::NO_MONEY_ORIGINS, ...$detached], true));
+            if ($kept->isNotEmpty()) {
+                throw new DisplayException(__('The gateway refunded or charged back this payment (:records): it cannot be deleted, its refund history and gateway transaction id must stay. If that refund is not recorded on the payment, record it with «Refund», by hand.',
+                    ['records' => $kept->map(fn (GatewayRefund $record) => $record->reference)->implode(', ')]));
             }
 
             // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
@@ -516,6 +593,16 @@ class RecordPaymentService
             }
             $credit?->save();
 
+            // A refund or a chargeback still waiting for this payment to succeed (it never did) keeps waiting, by the payment's
+            // id at the gateway: a success reported later records it then. The rest moved no money and goes with the payment.
+            if ($reported->isNotEmpty()) {
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', $detached)->modelKeys())->update(['invoice_transaction_id' => null]);
+                GatewayRefund::query()->whereKey($reported->whereIn('origin', GatewayRefund::NO_MONEY_ORIGINS)->modelKeys())->delete();
+                PaymentsLog::info("Payment #{$transaction->id} of invoice #{$invoice->id} deleted with what its gateway reported on it.", [
+                    'transaction_id' => $transaction->transaction_id,
+                    'records' => $reported->map(fn (GatewayRefund $record) => $record->origin . ' ' . $record->reference)->all(),
+                ]);
+            }
             $transaction->delete();
             if ($unbuy) {
                 $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
@@ -524,7 +611,14 @@ class RecordPaymentService
             // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
             $invoice->refresh();
-            if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
+            // Not one staff marked paid by hand BEFORE this payment came: it owed before the payment and owes now, by their
+            // word (REV-780-6). One paid with this money and flagged afterwards (a line raised on it: the word was for the
+            // raise, not for what the payment paid) follows its payment as ever (REV-780-3-1), and the flag goes with it.
+            // By the two times: a raise's flag is always later than every payment then on the invoice (owesByStaffsWord).
+            $byHandBefore = $invoice->paid_by_staff_at !== null && $transaction->created_at !== null
+                && $invoice->paid_by_staff_at->lessThanOrEqualTo($transaction->created_at);
+            if ($invoice->status === Invoice::STATUS_PAID && !$byHandBefore
+                && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
                 $invoice->status = Invoice::STATUS_UNPAID;
                 $invoice->save();
             }
@@ -548,7 +642,10 @@ class RecordPaymentService
 
         return DB::transaction(function () use ($id, $withoutCredit) {
             $locked = $this->lockInvoice($id);
-            if ($locked->status !== Invoice::STATUS_UNPAID) {
+            // A paid one only when it holds more than it bills (staff lowered a line or wrote a note on it, owner
+            // 2026-11-10): the part over becomes credit, the status stays.
+            $paid = $locked->status === Invoice::STATUS_PAID;
+            if ($locked->status !== Invoice::STATUS_UNPAID && !$paid) {
                 return false;
             }
             $locked->withLockedBalance();
@@ -556,6 +653,9 @@ class RecordPaymentService
                 return false;
             }
             $over = -self::toCents($locked->remaining);
+            if ($paid && $over <= 0) {
+                return false;
+            }
             $payments = $locked->transactions->where('status', InvoiceTransactionStatus::Succeeded)->sortByDesc('id');
             $kept = fn (InvoiceTransaction $payment): int => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
                 - self::toCents($payment->credited_amount);
@@ -564,8 +664,10 @@ class RecordPaymentService
             // covered pending invoice paid (InvoiceTransactionCreatedListener), which would do it halfway.
             self::$settling = true;
             try {
-                $locked->status = Invoice::STATUS_PAID;
-                $locked->save();
+                if (!$paid) {
+                    $locked->status = Invoice::STATUS_PAID;
+                    $locked->save();
+                }
             } finally {
                 self::$settling = false;
             }
@@ -664,7 +766,16 @@ class RecordPaymentService
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
-        $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        // Given the invoice itself, its owner is taken from it and nothing is read before the locks (S7-PAYMENTS-1): under
+        // MariaDB's REPEATABLE READ a plain read here fixes the transaction's snapshot BEFORE it waits for the locks, and
+        // every plain read after them (a charge on its way, SavedMethodCharge::onItsWay) then misses what the lock's last
+        // holder committed. A caller whose plain reads decide passes the model; an owner changed since is locked below.
+        if ($invoiceId instanceof Invoice) {
+            $clientId = $invoiceId->client_id;
+            $invoiceId = $invoiceId->getKey();
+        } else {
+            $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        }
         if ($clientId !== null) {
             Client::lock((int) $clientId);
         }
@@ -777,10 +888,15 @@ class RecordPaymentService
             ->exists();
     }
 
-    /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */
-    private function excessCents(Invoice $invoice, int $cents): int
+    /**
+     * The part of a payment the invoice cannot take: all of it unless unpaid/draft, else what exceeds the balance. A paid
+     * one that still owes (staff raised a line or marked it paid by hand, owner 2026-11-10) takes what it owes from a
+     * payment staff record on it, their way to settle it; a gateway's payment on a paid invoice becomes credit as before
+     * (a subscription's sale lands on the last paid invoice and pays the next renewal).
+     */
+    private function excessCents(Invoice $invoice, int $cents, bool $enteredByStaff = false): int
     {
-        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true) && !($enteredByStaff && $invoice->status === Invoice::STATUS_PAID)) {
             return $cents;
         }
 

@@ -54,20 +54,12 @@ class AddAddonReviewTest extends TestCase
         return [$made->product->fresh(), $made->plan->fresh()];
     }
 
-    public function test_aligned_end_of_a_31st_yearly_parent(): void
-    {
-        $parent = $this->parent('2027-03-31', 'year');
-        $parent->forceFill(['billing_day' => 31])->save();
-        [, $plan] = $this->addonProduct();
-        $this->assertSame('2026-11-30', AddAddon::alignedEnd($parent, $plan)->toDateString());
-    }
-
     public function test_billing_day_kept_after_payment(): void
     {
         $parent = $this->parent('2026-11-30');
         $parent->forceFill(['billing_day' => 31])->save();
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
         $this->assertSame(31, (int) $made['service']->fresh()->billing_day);
         (new RecordPaymentService)->handle($made['invoice']->fresh(), null, $made['invoice']->fresh()->remaining, transactionId: 'x1');
         $addon = $made['service']->fresh();
@@ -86,7 +78,7 @@ class AddAddonReviewTest extends TestCase
     {
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, '3.333', false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, '3.333', false, AddAddon::PRORATED);
         $this->assertNotNull($made['invoice']);
     }
 
@@ -95,7 +87,7 @@ class AddAddonReviewTest extends TestCase
         config(['settings.cronjob_order_suspend' => 8]);
         $parent = $this->parent('2026-12-01');
         [$product, $plan] = $this->addonProduct();
-        $made = (new AddAddon)->handle($parent, $product, $plan, 1, null, false, AddAddon::PRORATED);
+        $made = (new AddAddon)->handle($parent, $product, 1, null, false, AddAddon::PRORATED);
         Carbon::setTestNow('2026-12-15 10:00:00');
         (new RecordPaymentService)->handle($made['invoice']->fresh(), null, $made['invoice']->fresh()->remaining, transactionId: 'x2');
         $addon = $made['service']->fresh();

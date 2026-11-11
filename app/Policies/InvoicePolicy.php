@@ -42,13 +42,7 @@ class InvoicePolicy extends BasePolicy
             return $this->adminPermission($user, 'admin.invoices.update');
         }
 
-        $canEdit = $this->adminPermission($user, 'admin.invoices.update', $this->owns($user, $invoice->client_id, 'invoices'));
-
-        if (!config('settings.immutable_invoices_enabled', false)) {
-            return $canEdit;
-        }
-
-        return $canEdit && $invoice->status === Invoice::STATUS_DRAFT;
+        return $this->adminPermission($user, 'admin.invoices.update', $this->owns($user, $invoice->client_id, 'invoices'));
     }
 
     /**

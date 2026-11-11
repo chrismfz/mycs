@@ -21,7 +21,6 @@ use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Support\Actor;
-use App\Support\CurrentClient;
 use App\Support\Domains\DnssecOptions;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
@@ -94,7 +93,13 @@ class Show extends Component
     /** May the login see the account's contacts (where the help's link leads)? Staff in «Login as client» may. */
     private function seesContacts(): bool
     {
-        return Actor::impersonating() || CurrentClient::allows('contacts');
+        if (Actor::impersonating()) {
+            return true;
+        }
+        $user = Auth::guard('web')->user();
+
+        // On the domain's account, not the session's current one (sweep 7, S7-ACCESS-1), as seesInvoices().
+        return $user instanceof User && (bool) ClientUser::liveGrant($user, $this->domain->client_id)?->allows('contacts');
     }
 
     /** A .gr / .ελ name (its fqdn is kept in punycode). */
@@ -612,7 +617,7 @@ class Show extends Component
 
             return;
         }
-        $this->notify(__('services.payment_method_saved'), 'success');
+        $this->notify(ItemPaymentMethod::notice(__('services.payment_method_saved'), 'services.payment_method_saved_open_kept'), 'success');
     }
 
     /**
@@ -629,7 +634,7 @@ class Show extends Component
             return;
         }
         ItemPaymentMethod::setAutoCharge($this->domain, $on);
-        $this->notify($on ? __('services.auto_charge_turned_on') : __('services.auto_charge_turned_off'), 'success');
+        $this->notify($on ? __('services.auto_charge_turned_on') : ItemPaymentMethod::notice(__('services.auto_charge_turned_off'), 'services.auto_charge_turned_off_open_whole'), 'success');
     }
 
     private function setsPaymentMethod(): bool

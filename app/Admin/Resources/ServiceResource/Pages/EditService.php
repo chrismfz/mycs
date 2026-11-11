@@ -41,6 +41,7 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
@@ -93,15 +94,24 @@ class EditService extends EditRecord
             return 'Takes back the change set for the next renewal' . ($service->nextPlan ? " (to {$service->nextPlan->name})." : '.');
         }
         $text = "Recurring amount: {$quote['price']} {$currency} net per unit, {$quote['gross']} {$currency} with tax (now {$service->price} net).";
+        // An addon's kept price is not carried to the new cycle, as the service's own is not (decided 2026-10-14).
+        foreach ($service->addons()->whereKey(array_keys($quote['addons']))->where('price_locked', true)->get() as $addon) {
+            if (($line = $quote['addons'][$addon->id]['line']) !== null) {
+                $text .= " Addon #{$addon->id}'s kept price ({$addon->price} {$currency}) is replaced by the catalogue's for the new cycle ({$line} {$currency} net).";
+            }
+        }
         if ($mode === ChangeCycle::NEXT_RENEWAL) {
             $text .= ' It applies when the next period is billed; an open renewal of the old cycle is cancelled and billed again.';
+            if ($quote['addons'] !== []) {
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it, at the same renewal.';
+            }
         }
         if ($mode === ChangeCycle::NOW) {
             $text .= " Credit for the unused days: {$quote['credit']} {$currency}. New period {$quote['start']?->toDateString()} – "
                 . "{$quote['end']?->toDateString()}, billed {$quote['charge']} {$currency} with tax.";
             if ($quote['addons'] !== []) {
-                // They share its billing day: they move to the new one, on the same invoice (docs/addons.md).
-                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' follow it to its new billing day: their credit and new periods are in these amounts.';
+                // They share its due date and its cycle: they change with it, on the same invoice (docs/addons.md).
+                $text .= ' Its addons #' . implode(', #', array_keys($quote['addons'])) . ' change cycle with it: their credit and new periods are in these amounts.';
             }
         }
 
@@ -270,13 +280,18 @@ class EditService extends EditRecord
             // form's Account, one button each.
             ActionGroup::make([
                 DeleteAction::make()
+                    // Its addons still running go with it (owner 2026-11-10, as WHMCS): named here, before staff confirm.
+                    ->modalDescription(fn (Service $record) => DeleteService::confirmation($record))
                     ->form(function (DeleteAction $action) use ($record) {
                         // A record of an account already gone (terminated straight on the server): untick to delete only it.
+                        // The addons the confirmation names, as it opened: one fastened since is not deleted unseen (REV-779-3).
+                        $shown = Hidden::make('addonIds')->default(fn () => DeleteService::runningAddons($record)->pluck('id')->all());
                         if ($record->isEnded() || $record->status === Service::STATUS_PENDING || !$record->hasServerActions()) {
-                            return [];
+                            return [$shown];
                         }
 
                         return [
+                            $shown,
                             Checkbox::make('deleteExtensionServer')
                                 ->label('Also trigger deletion of server')
                                 ->default(true),
@@ -284,7 +299,8 @@ class EditService extends EditRecord
                     })
                     ->action(function (array $data, Service $record): void {
                         try {
-                            (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
+                            $result = (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false),
+                                withAddons: array_values((array) ($data['addonIds'] ?? [])));
                         } catch (DisplayException $e) {
                             Notification::make('Error')->title(__('Service not deleted'))->body(e($e->getMessage()))->danger()->send();
 
@@ -300,6 +316,10 @@ class EditService extends EditRecord
 
                             // Kept: deleting it would orphan the account on the server and lose its username.
                             return;
+                        }
+                        if (($note = DeleteService::resultNote($result)) !== null) {
+                            $told = Notification::make()->title(__('Service deleted'))->body(e($note));
+                            ($result['kept'] !== [] ? $told->warning()->persistent() : $told->success())->send();
                         }
                         $this->redirect(ServiceResource::getUrl());
                     }),

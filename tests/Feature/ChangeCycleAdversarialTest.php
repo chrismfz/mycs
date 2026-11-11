@@ -98,7 +98,7 @@ class ChangeCycleAdversarialTest extends TestCase
         $line = $invoice->items()->create(['description' => 'Renewal', 'price' => $price, 'quantity' => 1, 'reference_id' => $service->id,
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
         if ($status !== Invoice::STATUS_UNPAID) {
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status]);
+            $this->statusFixture((int) $invoice->id, $status);
         }
 
         return $line;
@@ -386,6 +386,7 @@ class ChangeCycleAdversarialTest extends TestCase
         $service = $this->service(['quantity' => 3]);
         // The year paid for 3 units (360.00): the credit is what was paid (code review B2).
         DB::table('invoice_items')->where('reference_id', $service->id)->update(['quantity' => 3, 'line_total' => 360.00]);
+        DB::table('invoice_transactions')->update(['amount' => 360.00]); // and its payment: the credit is of the money it kept (REV-780-1)
 
         $invoice = ChangeCycle::apply($service->fresh(), $this->monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
 

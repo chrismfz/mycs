@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Api\Admin\InvoiceItems;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
-use App\Services\Invoice\InvoiceItemReference;
 use Illuminate\Validation\Validator;
 
 class UpdateInvoiceItemRequest extends AdminApiRequest
@@ -13,31 +12,34 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'description' => 'sometimes|string|max:65535',
-            'quantity' => 'sometimes|integer|min:1',
+            'description' => ['sometimes', 'string', 'max:65535', self::maxBytes()],
+            'quantity' => 'sometimes|integer|min:1|max:' . self::MAX_QUANTITY,
             'taxed' => 'sometimes|boolean',
-            'price' => 'sometimes|numeric|min:0',
+            // Negative on a line that bills nothing (no reference): a discount, as the panel's form takes it.
+            // A plain decimal, two places at most, nine digits before them: never an exponent (REV-782-5).
+            'price' => ['sometimes', 'numeric', self::SIGNED_AMOUNT],
             'reference_type' => 'sometimes|nullable',
             'reference_id' => 'sometimes|nullable',
         ];
     }
 
     /**
-     * The pair the line will have: what is sent, the stored value for what is not (a type sent alone must not
-     * reinterpret the stored id).
+     * A line keeps what it bills (sweep 6, S6-TAX-EKDOSI-4; cut, KISS): its VAT was decided for that product, so pointed
+     * at another service it would keep the first one's. Staff delete the line and add a new one. The stored pair sent
+     * back as it is (a client that sends the whole line) is no change.
      */
     public function after(): array
     {
         return [function (Validator $validator) {
-            if (!$this->exists('reference_type') && !$this->exists('reference_id')) {
-                return;
-            }
             $item = $this->route('invoice_item');
-            $type = $this->exists('reference_type') ? $this->input('reference_type') : $item?->reference_type;
-            $id = $this->exists('reference_id') ? $this->input('reference_id') : $item?->reference_id;
-            $problem = InvoiceItemReference::problem($item?->invoice, $type, $id);
-            if ($problem !== null) {
-                $validator->errors()->add(...$problem);
+            if (is_numeric($this->input('price')) && (float) $this->input('price') < 0 && filled($item?->reference_type)) {
+                $validator->errors()->add('price', __('Only a line that bills nothing (no reference) takes a negative price.'));
+            }
+            foreach (['reference_type', 'reference_id'] as $field) {
+                $sent = $this->input($field);
+                if ($this->exists($field) && (is_array($sent) || (string) $sent !== (string) $item?->getAttribute($field))) {
+                    $validator->errors()->add($field, __('A line keeps what it bills: delete it and add a new line instead.'));
+                }
             }
         }];
     }

@@ -34,7 +34,8 @@ class MoneyCheckCommand extends Command
             return self::INVALID;
         }
 
-        $findings = (new MoneyCheck)->run($rules);
+        $check = new MoneyCheck;
+        $findings = $check->run($rules);
         if ($findings === []) {
             $this->info('The money adds up: nothing found.');
             PaymentsLog::info('money-check: nothing found.');
@@ -46,6 +47,10 @@ class MoneyCheckCommand extends Command
         }
 
         $this->table(['Rule', 'About', 'Detail'], array_map(fn (array $finding) => array_values($finding), $findings));
+        // service_unbilled by kind, with the services' ids: what a rehearsal's report copies (docs/cutover-runbook.md).
+        foreach ($check->unbilled as $kind => $ids) {
+            $this->line("service_unbilled {$kind}: " . count($ids) . ' (services ' . implode(', ', array_values(array_unique($ids))) . ')');
+        }
         $this->warn(count($findings) . ' finding(s).');
         // Staff first: whatever happens to the log, they hear of it.
         if (!$this->option('no-mail') && $rules === null) {

@@ -143,7 +143,8 @@ class GatewayChargebackTest extends TestCase
         $this->assertSame(1, MoneyEvent::query()->where('kind', MoneyEventKind::Refund->value)->where('cause', MoneyTrail::CAUSE_CHARGEBACK)->count());
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'services are staff\'s to decide');
         $this->assertSame(1, $this->staffMails('Chargeback needs staff attention'));
-        $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
+        // The money adds up; the service runs on the period its charged-back invoice gave it: the daily check says so.
+        $this->assertSame(['service_unbilled'], array_values(array_unique(array_column((new MoneyCheck)->run(), 'rule'))), json_encode((new MoneyCheck)->run()));
     }
 
     public function test_a_won_dispute_undoes_the_chargeback_and_the_invoice_is_paid_again(): void

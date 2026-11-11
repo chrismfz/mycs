@@ -218,6 +218,18 @@
                         {{ $invoice->formattedTotal->format($statement['total']) }}
                     </div>
                 </div>
+                {{-- Paid, yet its total and its payments differ (staff changed it since, or marked it paid by hand: owner
+                     2026-11-10): the page says so, never a silent difference. --}}
+                @if ($invoice->status === \App\Models\Invoice::STATUS_PAID && $statement['balance'] != 0)
+                <div class="flex justify-between" data-paid-balance>
+                    <div class="text-sm font-semibold uppercase {{ $statement['balance'] > 0 ? 'text-warning' : 'text-gray-500 dark:text-base' }}">
+                        {{ $statement['balance'] > 0 ? __('invoices.paid_owes') : __('invoices.paid_over') }}
+                    </div>
+                    <div class="text-base font-bold {{ $statement['balance'] > 0 ? 'text-warning' : 'text-gray-900 dark:text-white' }}">
+                        {{ $invoice->formattedTotal->format(abs($statement['balance'])) }}
+                    </div>
+                </div>
+                @endif
             </div>
 
             {{-- The fiscal documents Ekdosi issued from this invoice (docs/ekdosi-bridge.md, E2): the legal document is that one. --}}

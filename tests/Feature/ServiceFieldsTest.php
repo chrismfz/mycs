@@ -151,6 +151,7 @@ class ServiceFieldsTest extends TestCase
         Carbon::setTestNow('2026-10-20 09:00:00');
         config(['settings.cronjob_order_suspend' => 2, 'settings.cronjob_invoice' => 0]);
         $this->service->update(['expires_at' => '2026-10-10']);
+        $this->billedAhead($this->service->fresh()); // billed before it was due, as the cron does
 
         $this->artisan('app:cron-job');
         $this->assertSame('suspended', $this->service->fresh()->status);

@@ -7,6 +7,7 @@ use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -202,7 +203,8 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->invoice(100, Credit::class);
         $invoice->items()->create(['description' => 'Setup', 'quantity' => 1, 'price' => 20]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 100.0, transactionId: 'wire-1');
-        $this->note($invoice, -30);
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        AdjustmentNote::withoutEvents(fn () => $this->note($invoice, -30));
 
         try {
             (new RecordPaymentService)->settle($invoice);
@@ -227,13 +229,17 @@ class InvoiceSettleAdversarialTest extends TestCase
         $this->assertSame(10000, $this->balanceCents());
 
         $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
-        $invoice->items()->sole()->update(['price' => 70]);
 
+        // Since REV-780-2 the scenario stops one step earlier: a credit purchase that gave its credit keeps its lines,
+        // reopened too. The refusal is asserted, then what S5 was for: closing it gives no credit on top.
         try {
-            (new RecordPaymentService)->settle($invoice);
-        } catch (DisplayException) {
-            // refusing it is a fix too
+            $invoice->items()->sole()->update(['price' => 70]);
+            $this->fail('the line of a credit purchase that gave its credit was lowered');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('gave it already', $e->getMessage());
         }
+        $this->assertSame('100.00', (string) $invoice->items()->sole()->price);
+        (new RecordPaymentService)->settle($invoice->fresh());
 
         $this->assertLessThanOrEqual(10000, $this->balanceCents(), 'S5: 100.00 paid, more than 100.00 of credit held');
     }

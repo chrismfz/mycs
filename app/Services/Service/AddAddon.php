@@ -21,11 +21,13 @@ use Throwable;
 
 /**
  * Staff's «Add addon» (docs/addons.md, step 3): an addon fastened to a running service, billed one of two ways. An addon
- * always shares its parent's due date (owner 2026-11-08): there is no «own date».
- * - prorated (the default, owner 2026-11-04): invoiced now for the days up to the parent's next due date (counted back by
- *   the addon's own cycle when that is shorter), then renewed with it, on the same invoice when due the same day;
- * - no invoice: started now, due on the date a prorated one would end (its parent's, counted back by its own cycle when
- *   that is shorter), free or paid some other way. No other date: there is no field for one (REV-KISS-5).
+ * always shares its parent's due date (owner 2026-11-08) and its parent's billing cycle (owner 2026-11-09): there is no
+ * «own date» and no cycle to choose; it is on its product's plan of the parent's cycle (AddonCycle::plan), and of the
+ * cycle its parent moves to at its next renewal, if one is set.
+ * - prorated (the default, owner 2026-11-04): invoiced now for the days up to the parent's next due date, then renewed
+ *   with it, on the same invoice;
+ * - no invoice: started now, due on its parent's date, free or paid some other way. No other date: there is no field
+ *   for one (REV-KISS-5).
  * Invoiced, it waits pending until paid; paid, it starts and its creation is a task for staff on the parent's machine
  * (RenewServiceService). Started without an invoice, the task is made at once.
  */
@@ -35,39 +37,55 @@ final class AddAddon
 
     public const NO_INVOICE = 'no_invoice';
 
-    /** Why no addon can be added to this service now, or null. */
+    /**
+     * Why no addon can be added to this service now, or null. A service with a cancellation request takes one (owner
+     * 2026-11-10, docs/staff-freedom.md): the addon is prorated to its due date as any other, and the request is its too
+     * (AddonCascade::fastened), so it ends with its service and is never renewed. A pending one does not yet: it has no
+     * period to prorate to and nothing starts an addon with it (docs/addons.md, «Εκκρεμής γονική»).
+     */
     public static function refusal(Service $parent): ?string
     {
         return match (true) {
             $parent->parent_service_id !== null => __('services.addons.add.refused_addon'),
+            $parent->status === Service::STATUS_PENDING => __('services.addons.add.refused_pending'),
             !in_array($parent->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) => __('services.addons.add.refused_status'),
-            $parent->cancellation()->exists() => __('services.addons.add.refused_cancelling'),
             default => null,
         };
     }
 
+    /** What staff are told before adding one to a service that is to be cancelled, or null: it ends with it. */
+    public static function cancellationNote(Service $parent): ?string
+    {
+        $request = $parent->cancellation()->first();
+
+        return match (true) {
+            $request === null => null,
+            $request->type === 'end_of_period' && $parent->expires_at !== null => __('services.addons.add.cancelling_note', ['date' => $parent->expires_at->format('d/m/Y')]),
+            default => __('services.addons.add.cancelling_note_now'),
+        };
+    }
+
     /**
-     * The addon products that can be added to it: addons, not retired, that apply to it, with a recurring or free plan
-     * priced in its currency.
+     * The addon products that can be added to it: addons, not retired, that apply to it. One with no plan of its cycle
+     * (plan) is listed too, and refused with what to do when chosen.
      *
      * @return Collection<int, Product>
      */
     public static function products(Service $parent): Collection
     {
         return Product::query()->where('is_addon', true)->where('retired', false)->with('plans.prices')->orderBy('name')->get()
-            ->filter(fn (Product $product) => $product->appliesTo($parent) && self::plans($product, $parent)->isNotEmpty())->values();
+            ->filter(fn (Product $product) => $product->appliesTo($parent))->values();
     }
 
-    /** @return Collection<int, Plan> its plans an addon of $parent can be on */
-    public static function plans(Product $product, Service $parent): Collection
+    /** The plan an addon of $parent is on: its product's of the parent's cycle, priced in its currency (AddonCycle); null: none. */
+    public static function plan(Product $product, Service $parent): ?Plan
     {
-        return $product->plans->filter(fn (Plan $plan) => in_array($plan->type, ['recurring', 'free'], true) && $plan->hasPriceIn($parent->currency_code))->values();
+        return AddonCycle::plan($product, $parent->plan, $parent->currency_code);
     }
 
     /**
-     * Where a prorated first period ends: the parent's next due date, counted back by the addon's cycle while that is still
-     * ahead (a monthly addon of a yearly service renews monthly on the service's day). Null: nothing to prorate to (no due
-     * date ahead).
+     * Where a prorated first period ends: the parent's next due date. Null: nothing to prorate to (no due date ahead, or
+     * a free plan).
      */
     public static function alignedEnd(Service $parent, Plan $plan, ?CarbonInterface $today = null): ?CarbonImmutable
     {
@@ -76,20 +94,8 @@ final class AddAddon
             return null;
         }
         $due = CarbonImmutable::parse($parent->expires_at)->startOfDay();
-        if (!$due->greaterThan($today)) {
-            return null;
-        }
-        $count = max(1, (int) $plan->billing_period);
-        // Counted back from the parent's date itself, k cycles at once: a 31st stays the 31st where the month has one, never
-        // drifting to the 28th step by step (code review 2 of #637).
-        // On its billing day too: 28 February on the 31st steps back to 31 January (sweep CRON-BILLING-3).
-        $anchor = $parent->billingDay($due);
-        $end = $due;
-        for ($k = 1; ($back = BillingPeriod::start($due, $plan->billing_unit, $count * $k, $anchor))->greaterThan($today); $k++) {
-            $end = $back;
-        }
 
-        return $end;
+        return $due->greaterThan($today) ? $due : null;
     }
 
     /**
@@ -117,6 +123,12 @@ final class AddAddon
         return BillingPeriod::start($end, $plan->billing_unit, max(1, (int) $plan->billing_period), $parent->billingDay($due));
     }
 
+    /** Why it cannot be added: its product has no price for the cycle of $cycle (staff add it in the catalogue first). */
+    public static function noPlan(Product $product, ?Plan $cycle): string
+    {
+        return __('services.addons.add.no_cycle_plan', ['addon' => $product->name, 'cycle' => (string) $cycle?->name]);
+    }
+
     /** Its first invoice charges the plan's setup fee too, on the same line, as an order's first invoice does (code review 5). */
     private static function plusSetupFee(string $amount, Plan $plan, ?string $currency): string
     {
@@ -142,16 +154,16 @@ final class AddAddon
     }
 
     /**
-     * Adds it. $price per unit and cycle (null: the catalog's).
+     * Adds it, on its product's plan of the parent's cycle. $price per unit and cycle (null: the catalog's).
      *
      * @return array{service: Service, invoice: Invoice|null}
      */
-    public function handle(Service $parent, Product $product, Plan $plan, int $quantity, ?string $price, bool $keepPrice, string $start): array
+    public function handle(Service $parent, Product $product, int $quantity, ?string $price, bool $keepPrice, string $start): array
     {
         if (!in_array($start, [self::PRORATED, self::NO_INVOICE], true)) {
             throw new DisplayException(__('services.addons.add.start_unknown'));
         }
-        $result = DB::transaction(function () use ($parent, $product, $plan, $quantity, $price, $keepPrice, $start) {
+        $result = DB::transaction(function () use ($parent, $product, $quantity, $price, $keepPrice, $start) {
             // Under the parent's lock, read again: a payment, the cron or a cancellation may have changed it.
             $parent = Service::query()->whereKey($parent->id)->lockForUpdate()->firstOrFail();
             if (($refused = self::refusal($parent)) !== null) {
@@ -162,7 +174,11 @@ final class AddAddon
             if (!$product->is_addon || $product->retired || !$product->appliesTo($parent)) {
                 throw new DisplayException(__('services.addons.add.not_for_this', ['addon' => $product->name]));
             }
-            $plan = self::plans($product, $parent)->firstWhere('id', $plan->id) ?? throw new DisplayException(__('services.addons.add.plan_unpriced'));
+            $plan = self::plan($product, $parent) ?? throw new DisplayException(self::noPlan($product, $parent->plan));
+            // Its parent changes cycle at its next renewal: so does it, to its plan of that cycle (ChangeCycle).
+            $coming = $parent->next_plan_id !== null && $plan->type === 'recurring' ? RenewalBilling::billedPlan($parent) : null;
+            $next = $coming === null || AddonCycle::same($coming, $plan) ? null
+                : (AddonCycle::plan($product, $coming, $parent->currency_code) ?? throw new DisplayException(self::noPlan($product, $coming)));
             if ($quantity < 1 || ($quantity > 1 && ($product->allow_quantity ?? 'disabled') === 'disabled')) {
                 throw new DisplayException(__('services.addons.add.quantity'));
             }
@@ -195,6 +211,7 @@ final class AddAddon
                 'suspend_reason' => $noInvoice && $parent->status === Service::STATUS_SUSPENDED ? Service::SUSPEND_REASON_PARENT : null,
                 'expires_at' => $due,
             ]);
+            $addon->forceFill(['next_plan_id' => $next?->id]);
             // Prorated to its parent's date: it renews on its parent's day (a 31st stays a 31st through short months).
             // Its effective day, not only a stored one (a 31st with none stored: code review 1 of #637); its payment keeps it
             // (RenewServiceService).

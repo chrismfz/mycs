@@ -8,3 +8,5 @@ routes.scanned.php
 schedule-*
 services.json
 deploy.lock
+console-relay.restart
+deploy-left-down

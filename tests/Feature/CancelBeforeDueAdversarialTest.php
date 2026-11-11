@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Currency;
@@ -356,13 +355,11 @@ class CancelBeforeDueAdversarialTest extends TestCase
         $this->assertSame([1, 1], [count($this->lines($service)), count($this->lines($domain))]);
     }
 
-    /** The ViewInvoice Cancel action, with its defaults: a far-only invoice keeps its period, a near one gives it up. */
-    public function test_defended_view_invoice_toggle_default_follows_the_invoice(): void
+    /** The list's Cancel action, with its defaults: a far-only invoice keeps its period, a near one gives it up. */
+    public function test_defended_list_cancel_default_follows_the_invoice(): void
     {
-        $this->settings(['immutable_invoices_enabled' => [true, 'boolean']]);
         $farService = $this->service(['expires_at' => '2027-03-01']);
         $nearService = $this->service(['expires_at' => '2026-10-22']);
-        // With immutable invoices on, only a draft can be cancelled (InvoicePolicy::update).
         [$far, $near] = array_map(function (array $period) {
             [$service, $start, $end] = $period;
             $invoice = Invoice::query()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_DRAFT, 'due_at' => now(), 'currency_code' => 'EUR']);
@@ -372,11 +369,11 @@ class CancelBeforeDueAdversarialTest extends TestCase
             return $invoice;
         }, [[$farService, '2027-03-01', '2027-04-01'], [$nearService, '2026-10-22', '2026-11-22']]);
         $staff = $this->staff();
-        $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $far->getRouteKey()])
-            ->assertActionVisible('cancel')
-            ->callAction('cancel', ['cancellation_reason' => 'x'])->assertHasNoActionErrors();
-        $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $near->getRouteKey()])
-            ->callAction('cancel', ['cancellation_reason' => 'x'])->assertHasNoActionErrors();
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->assertTableActionVisible('cancel', $far)
+            ->callTableAction('cancel', $far, data: ['cancellation_reason' => 'x'])->assertHasNoTableActionErrors();
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->callTableAction('cancel', $near, data: ['cancellation_reason' => 'x'])->assertHasNoTableActionErrors();
         $this->assertSame([Invoice::STATUS_CANCELLED, Invoice::STATUS_CANCELLED], [$far->fresh()->status, $near->fresh()->status]);
         $this->assertNull($this->lines($farService)[0]->fresh()->forgone_at);
         $this->assertNotNull($this->lines($nearService)[0]->fresh()->forgone_at);

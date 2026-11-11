@@ -599,10 +599,10 @@ class Settings
                     'section' => 'Automatic Module Functions',
                     'label' => 'Minimum days suspended before termination',
                     'type' => 'number',
-                    'default' => 1,
+                    'default' => 7,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a date moved back, the cron down): the customer gets the suspension email first. 0 = as WHMCS.',
+                    'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a service brought back long past due, the cron down): the customer gets the suspension email and these days to pay first. 0 = as WHMCS.',
                 ],
                 [
                     'name' => 'cronjob_dunning_days',
@@ -1413,14 +1413,6 @@ class Settings
                     'database_type' => 'boolean',
                     'default' => true,
                     'description' => 'Customers choose several unpaid invoices and pay them at once through a gateway, as in WHMCS. No combined invoice is made: the payment is recorded on the invoice due first and pays the others in order. Switched off, a choice already made is not paid either (a payment already sent for it still pays its invoices).',
-                ],
-                [
-                    'name' => 'immutable_invoices_enabled',
-                    'label' => 'Immutable Invoices',
-                    'type' => 'checkbox',
-                    'database_type' => 'boolean',
-                    'default' => false,
-                    'description' => 'When enabled, invoices can only be edited while in draft status. Once published, they become read-only. Disable this to allow editing invoices at any status.',
                 ],
                 [
                     'name' => 'notes_client_visible',

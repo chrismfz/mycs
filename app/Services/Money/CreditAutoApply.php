@@ -261,13 +261,19 @@ class CreditAutoApply
         }
         // Staff refunded money of this invoice to credit (PR 2c): paid straight back into it, the refund would be undone
         // and the invoice could never be cancelled (code review and adversarial review of 2c).
-        if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)->exists()) {
+        if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
+            ->whereDoesntHave('reversal')->exists()) { // not one staff undid since (UndoRefund, REV-781-9)
             return false;
         }
         // A domain's renewal the customer no longer renews, or of a domain gone (D5b, adversarial ADV-5): not credit's.
         $domains = $items->where('reference_type', Domain::class)->pluck('reference_id')->filter();
         if ($domains->isNotEmpty() && Domain::query()->whereIn('id', $domains)
             ->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())->orWhere('auto_renew', false))->exists()) {
+            return false;
+        }
+        // Nor of one lapsed past its last recoverable day (sweep 7 S7-DOMAINS-1): the cron cancels this invoice tonight
+        // (domain_invoices_cancelled, the same rule); a payment the customer makes on purpose is theirs to make.
+        if ($domains->isNotEmpty() && Domain::lapsedForGoodIds($domains) !== []) {
             return false;
         }
         $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();

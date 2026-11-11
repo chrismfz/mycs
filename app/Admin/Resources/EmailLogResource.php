@@ -81,7 +81,7 @@ class EmailLogResource extends Resource
         }
 
         return match ($record->related_type ? EmailLog::getActualClassNameForMorph($record->related_type) : null) {
-            Invoice::class => InvoiceResource::getUrl('view', ['record' => $record->related_id]),
+            Invoice::class => InvoiceResource::getUrl('edit', ['record' => $record->related_id]),
             Service::class => ServiceResource::getUrl('edit', ['record' => $record->related_id]),
             Order::class => OrderResource::getUrl('edit', ['record' => $record->related_id]),
             Ticket::class => TicketResource::getUrl('edit', ['record' => $record->related_id]),

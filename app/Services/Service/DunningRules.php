@@ -30,8 +30,7 @@ final class DunningRules
         $cutoff = $asOf->copy()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
         $query = self::unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE), $asOf, $holdDay)
             ->whereDate('expires_at', '<', $cutoff)
-            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
+            ->tap(self::notExempt(...));
 
         return !$overdueInvoice ? $query : $query->whereHas('renewalInvoices', fn ($invoices) => $invoices
             ->where('invoices.status', Invoice::STATUS_UNPAID)
@@ -40,8 +39,8 @@ final class DunningRules
     }
 
     /**
-     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held, not of
-     * a client exempt from it, with no payment on its way (a SEPA payment would land on the invoices the termination
+     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held, not
+     * exempt (as a suspension: notExempt; an imported «One Time» service carrying the mark is never terminated, REV-773-4), with no payment on its way (a SEPA payment would land on the invoices the termination
      * cancels), and no later period already paid (ending it would keep that money without the period: staff decide).
      *
      * @return Builder<Service>
@@ -52,13 +51,25 @@ final class DunningRules
 
         return self::unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED), $asOf)
             ->whereNotNull('dunning_suspended_at')
-            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'))
+            ->tap(self::notExempt(...))
             ->whereDate('expires_at', '<', $asOf->copy()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', $asOf->copy()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString())
+            ->whereDate('dunning_suspended_at', '<=', $asOf->copy()->subDays(self::days('cronjob_terminate_min_suspended_days', 7))->toDateString())
             ->whereNotExists(fn ($line) => $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
                 ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
                 ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
                 ->where('invoices.status', Invoice::STATUS_PAID));
+    }
+
+    /**
+     * Never dunned (suspended or terminated): a free or one-time plan (no period to pay; a service whose plan is gone
+     * is not exempt), a client exempt from it (its own setting or its group's).
+     *
+     * @param  Builder<Service>  $query
+     */
+    private static function notExempt(Builder $query): void
+    {
+        $query->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))
+            ->whereDoesntHave('client', fn ($client) => Client::whereFlag($client, 'dunning_exempt'));
     }
 
     /** A day count setting; never negative (a negative count would act before the due date). */

@@ -397,7 +397,8 @@ class GatewayRefundAdversarialTest extends TestCase
         $this->assertSame([Invoice::STATUS_PAID, Invoice::STATUS_PAID], [$invoices[1]->fresh()->status, $invoices[2]->fresh()->status],
             'the other services stay paid by the sale\'s credit: 20.00 of the refund is staff\'s');
         $this->assertSame(1, $this->staffMails());
-        $this->assertMoneyCheckClean();
+        // The money adds up; the refunded service still runs on its period, which the daily check tells staff.
+        $this->assertSame(['service_unbilled'], array_values(array_unique(array_column((new MoneyCheck)->run(), 'rule'))));
     }
 
     public function test_guard_credit_purchase_partly_spent_takes_back_only_what_is_left_over_two_refund_ids(): void

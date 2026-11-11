@@ -118,7 +118,7 @@ class OrderPageReviewTest extends TestCase
 
         $this->livewireAs($staff)->test(EditOrder::class, ['record' => $order->id])
             ->assertSee('Order Items')
-            ->assertDontSeeHtml(InvoiceResource::getUrl('view', ['record' => $order->invoice_id], panel: 'admin'))
+            ->assertDontSeeHtml(InvoiceResource::getUrl('edit', ['record' => $order->invoice_id], panel: 'admin'))
             ->assertDontSeeHtml(ServiceResource::getUrl('edit', ['record' => $serviceId], panel: 'admin'));
     }
 }

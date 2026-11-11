@@ -9,7 +9,6 @@ use App\Models\Credit;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Models\Order;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Payment\SavedMethodCharge;
@@ -53,19 +52,31 @@ final class InvoiceLineMove
 
     /**
      * Why the lines of this invoice (locked) do not move, or null. Decision 8: an invoice with payments (processing
-     * too) is refused, never unapplied as Blesta does; staff refund or delete the payment first. $orderMovesWith: the order
-     * goes with its invoice (a move to another client, MoveToClient), so being an order's invoice is no reason.
+     * too) is refused, never unapplied as Blesta does; staff refund or delete the payment first.
+     *
+     * No longer reasons (owner 2026-11-10, docs/staff-freedom.md: caution only): a draft, an order's own invoice (its
+     * order follows a merge, MergeInvoices), a note on it (it goes with a merge and stays at a split) and, at a merge,
+     * other billing details (the target's apply). Kept: what would lose or double money, and what is Ekdosi's.
      */
-    public static function refusal(Invoice $invoice, bool $orderMovesWith = false): ?string
+    public static function refusal(Invoice $invoice): ?string
     {
         $label = '#' . ($invoice->number ?: $invoice->id);
-        if ($invoice->status !== Invoice::STATUS_UNPAID) {
-            return __('Invoice :invoice is not unpaid: only unpaid invoices are merged or split.', ['invoice' => $label]);
+        if (!in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
+            return __('Invoice :invoice is not unpaid or a draft: only those are merged or split.', ['invoice' => $label]);
         }
-        // Ekdosi issued a fiscal document for it (on credit): its lines elsewhere would come back to the Inbox and be
-        // issued twice, or carry a document in one account's ΑΦΜ to another account (ADV-2 of #459). Ekdosi cancels it first.
+        // Once it is Ekdosi's, it stays as it is (owner 2026-11-10, «issued is final»; docs/ekdosi-bridge.md): its lines
+        // elsewhere would be issued twice, or under a document of another total or another account's ΑΦΜ. So a split or a
+        // move is always older than what Ekdosi read, and the write-back has nothing to ask about one (S7-TAX-EKDOSI-1).
         if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
-            return __('Invoice :invoice has a fiscal document from Ekdosi: cancel it there first.', ['invoice' => $label]);
+            return __('Invoice :invoice has a fiscal document from Ekdosi: issued is final. It is not merged, split or moved; a correction is made in Ekdosi.', ['invoice' => $label]);
+        }
+        if ($invoice->ekdosi_requested_at !== null) {
+            return __('Invoice :invoice was sent to Ekdosi: withdraw the request («Withdraw from Ekdosi») and archive its copy in Ekdosi\'s inbox first.', ['invoice' => $label]);
+        }
+        // «Immediate invoicing»: Ekdosi reads the account's unpaid invoices with no request, from the day they are issued.
+        // Not with «ignore invoicing» as well: the feed never lists that account (REV-778-5).
+        if (config('settings.ekdosi_enabled') && $invoice->client?->immediate_invoicing && !$invoice->client->ignore_invoicing) {
+            return __('Invoice :invoice is of an account with «immediate invoicing»: Ekdosi reads it as soon as it is issued, so it is not merged, split or moved. Cancel it and issue new ones.', ['invoice' => $label]);
         }
         if ($invoice->hasPayments(lock: true)) {
             return __('Invoice :invoice has payments: refund or delete them first.', ['invoice' => $label]);
@@ -74,9 +85,6 @@ final class InvoiceLineMove
         // charge the other invoice in full and the late payment would land as credit, the card charged twice (sweep).
         if (SavedMethodCharge::onItsWay($invoice)) {
             return __('Invoice :invoice has a card charge on its way or not settled: wait for its outcome, or settle it («Resolve charge»).', ['invoice' => $label]);
-        }
-        if ($invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)->exists()) {
-            return __('Invoice :invoice has a credit note: void it first.', ['invoice' => $label]);
         }
         // The renewal run finishes it (email, credit, charge) in a moment (PR C).
         if ($invoice->finish_pending_at !== null) {
@@ -89,10 +97,6 @@ final class InvoiceLineMove
         // A credit purchase gives its credit when paid, from its own money (GrantBoughtCreditService).
         if ($lines->contains(fn (InvoiceItem $line) => $line->reference_type === Credit::class)) {
             return __('Invoice :invoice buys account credit: it is not merged or split.', ['invoice' => $label]);
-        }
-        // An order's own invoice: «Cancel & Refund» refunds the payments of that invoice (code review CR-4).
-        if (!$orderMovesWith && Order::query()->where('invoice_id', $invoice->id)->exists()) {
-            return __('Invoice :invoice is the invoice of an order: it is not merged or split.', ['invoice' => $label]);
         }
         // Lines of a service that ended, left open for staff (CancelOpenInvoices): moved, they would make another invoice
         // one the customer cannot pay (code review CR-3). A debt kept for it (Δ3a) moves as a debt.
@@ -128,17 +132,20 @@ final class InvoiceLineMove
         }
     }
 
-    /** What the customer was billed as on it (the snapshot taken when it was issued): name, address, tax. */
-    public static function billedAs(Invoice $invoice): ?array
+    /**
+     * A move to another account (MoveToClient) still asks for its notes to be voided first: a note is a gross amount under
+     * the first account's tax and is numbered to it (InvoiceObserver refuses the move of the whole invoice the same way).
+     */
+    public static function noteRefusal(Invoice $invoice): ?string
     {
-        $snapshot = $invoice->snapshot()->first();
+        return $invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)->exists()
+            ? __('Invoice :invoice has a credit note: void it first.', ['invoice' => '#' . ($invoice->number ?: $invoice->id)]) : null;
+    }
 
-        return $snapshot === null ? null : [
-            'name' => $snapshot->name,
-            'properties' => $snapshot->properties,
-            'tax_name' => $snapshot->tax_name,
-            'tax_rate' => $snapshot->tax_rate === null ? null : (string) $snapshot->tax_rate,
-            'tax_country' => $snapshot->tax_country,
-        ];
+    /** The active notes' sum on it, in cents: what a split leaves with the lines that stay. */
+    public static function notesCents(Invoice $invoice): int
+    {
+        return (int) $invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)->get()
+            ->sum(fn ($note) => RecordPaymentService::toCents($note->amount));
     }
 }

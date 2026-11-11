@@ -71,7 +71,9 @@ class Adv634Test extends TestCase
 
     private function openInvoiceFor(Service ...$services): Invoice
     {
-        $invoice = Invoice::factory()->create(['client_id' => $services[0]->client_id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        // Issued a week before the first of them was due.
+        $invoice = Invoice::factory()->create(['client_id' => $services[0]->client_id, 'status' => 'unpaid', 'currency_code' => 'USD',
+            'created_at' => $services[0]->expires_at?->copy()->subWeek() ?? now()]);
         foreach ($services as $service) {
             $start = $service->expires_at;
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',

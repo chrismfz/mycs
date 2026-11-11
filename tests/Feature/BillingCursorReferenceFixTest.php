@@ -190,6 +190,7 @@ class BillingCursorReferenceFixTest extends TestCase
     {
         Queue::fake();
         $service = $this->service(['expires_at' => '2026-10-08']);
+        $this->billedAhead($service);
         $server = Server::create(['name' => 'Queued fake', 'type' => 'server', 'extension' => 'DoesNotExist', 'enabled' => true]);
         $service->product->update(['server_id' => $server->id]);
         $this->artisan('app:cron-job')->assertExitCode(0);

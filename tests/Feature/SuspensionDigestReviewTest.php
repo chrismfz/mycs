@@ -48,11 +48,13 @@ class SuspensionDigestReviewTest extends TestCase
     public function test_a_second_run_does_not_list_the_previous_runs_services(): void
     {
         $first = $this->service(['expires_at' => '2026-10-15']);
+        $this->billedAhead($first);
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(Service::STATUS_SUSPENDED, $first->fresh()->status);
 
         Carbon::setTestNow('2026-10-21 03:00:00');
         $second = $this->service(['expires_at' => '2026-10-17']);
+        $this->billedAhead($second);
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame(Service::STATUS_SUSPENDED, $second->fresh()->status);
 

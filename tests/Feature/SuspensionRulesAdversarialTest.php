@@ -235,17 +235,19 @@ class SuspensionRulesAdversarialTest extends TestCase
         $this->assertSame('suspended', $service->fresh()->status, 'resuspended as dunning, not terminated');
         $this->assertSame('2026-10-20', $service->fresh()->dunning_suspended_at->toDateString());
 
-        // Termination Days count from the due date (as WHMCS), long past: the next day, after «minimum days suspended».
-        // Staff who want time give a hold or move the date, not just unsuspend.
+        // Termination Days count from the due date (as WHMCS), long past: after «minimum days suspended» (7 by default,
+        // S7-CRON-BILLING-1), counted from the new suspension. Staff who want more time give a hold or move the date.
         $this->cron('2026-10-20 23:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
-        $this->cron('2026-10-21 03:00:01');
+        $this->cron('2026-10-26 03:00:01');
+        $this->assertSame('suspended', $service->fresh()->status);
+        $this->cron('2026-10-27 03:00:01');
         $this->assertSame('terminated', $service->fresh()->status);
     }
 
     public function test_holds_terminate_not_after_suspend_waits_one_day(): void
     {
-        config(['settings.cronjob_order_suspend' => 14, 'settings.cronjob_order_terminate' => 2]);
+        config(['settings.cronjob_order_suspend' => 14, 'settings.cronjob_order_terminate' => 2, 'settings.cronjob_terminate_min_suspended_days' => 1]);
         $service = $this->service(['expires_at' => '2026-10-01 00:00:00']);
         $this->invoice($service, '2026-10-01');
 

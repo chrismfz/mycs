@@ -91,7 +91,9 @@ class ServiceFieldsReviewTest extends TestCase
     {
         Http::fake([self::WHM . '/removeacct*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK', 'command' => 'removeacct']]),
             // A terminate on a root login asks first what the account owns (#315): nothing here.
-            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]])]);
+            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]]),
+            // Whose account it is, asked before it is removed (S7-PROVISIONING-1).
+            self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'examplegr', 'domain' => 'example.gr']]]])]);
 
         ExtensionHelper::terminateServer($this->service->fresh());
 

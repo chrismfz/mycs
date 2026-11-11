@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
@@ -27,6 +28,7 @@ use App\Services\Billing\ClientGroupPricing;
 use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
+use App\Services\Import\WhmcsClientCurrency;
 use App\Services\Import\WhmcsContactImport;
 use App\Services\Import\WhmcsCredentialImport;
 use App\Services\Import\WhmcsCustomFieldImport;
@@ -180,6 +182,16 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An unpaid Mass Pay that is no Mass Pay here (it took a part payment, or has another kind of line): it would come as
+        // an ordinary invoice billing its children again (sweep 6 S6-IMPORT-2, owner's decision 2026-11-08). Settled in WHMCS.
+        if (($unsettled = $this->unsettledMassPay()) !== []) {
+            $this->error('WHMCS unpaid Mass Pay invoice(s) with a part payment or a line of another kind: ' . implode('; ', array_map(fn (int $parent, array $children) => "#{$parent}"
+                . ' (children #' . implode(', #', $children) . ')', array_keys($unsettled), $unsettled))
+                . '. Imported as they are they would bill their children twice: move the payment to the children and cancel the Mass Pay invoice in WHMCS'
+                . ' (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
         // An old unpaid order (owner's decision 2026-11-08, sweep 4 C-FIRST-RUN-1): the first cron would pay it with the
         // customer's credit and set the service up or buy the name at the registrar. Cancelled in WHMCS before the dump.
         if (($orders = $this->abandonedOrders()) !== []) {
@@ -188,21 +200,63 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
-        // A renewal WHMCS invoiced and staff cancelled, its nextinvoicedate moved past it (owner's decision 2026-11-08, sweep 5,
-        // replacing sweep 4's C-FIRST-RUN-2 rule): settled in WHMCS before the dump, never guessed here (cutover-runbook.md).
+        // An unpaid Add Funds invoice with a discount (a negative line): here a credit purchase takes none, and its payment
+        // would be recorded on an invoice that stays unpaid and gives no credit (S6-MONEY-LEDGER-1, review of #766).
+        if (($discounted = $this->discountedAddFunds()) !== []) {
+            $this->error('WHMCS unpaid Add Funds invoice(s) with a negative line: #' . implode(', #', $discounted)
+                . '. A credit purchase takes no discount here: cancel them in WHMCS and make new ones for the right amount (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+        // A renewal WHMCS invoiced and staff cancelled or deleted, its nextinvoicedate moved past it (owner's decision 2026-11-08,
+        // sweep 5, replacing sweep 4's C-FIRST-RUN-2 rule; addons and deleted invoices: sweep 6 S6-IMPORT-3/4): settled in WHMCS
+        // before the dump, never guessed here (cutover-runbook.md).
         if (($cancelled = $this->cancelledRenewals()) !== []) {
-            $this->error('WHMCS live service(s) whose renewal invoice was cancelled and next invoice date moved past it: #' . implode(', #', $cancelled)
+            $this->error('WHMCS live service(s) or addon(s) whose renewal invoice was cancelled or deleted and next invoice date moved past it: '
+                . implode(', ', array_map(fn (int|string $id) => is_int($id) ? "#{$id}" : $id, $cancelled))
                 . '. Bill that period again (next invoice date back to the due date) or give it away (due date to the next invoice date) in WHMCS'
                 . ' (cutover-runbook.md), and dump again. Nothing done.');
 
             return self::FAILURE;
         }
 
-        // An addon always shares its parent's due date here (docs/addons.md, owner 2026-11-08): a live recurring one off its
-        // service's billing day is refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
+        // An unpaid renewal invoice of a period the live service or addon is already past (sweep 7 S7-IMPORT-1, owner
+        // 2026-11-10): here it would count as «the renewal is billed already», the next period would never be billed and
+        // the service would be suspended. Cancelled or settled in WHMCS before the dump.
+        if (($stale = $this->staleRenewals()) !== []) {
+            $this->error('WHMCS unpaid invoice(s) with a renewal line of a period its live service or addon is already past (or a first order still unpaid after ' . self::ABANDONED_ORDER_DAYS . ' days): '
+                . implode('; ', array_map(fn (int $invoice, array $of) => "#{$invoice} (" . implode(', ', $of) . ')', array_keys($stale), $stale))
+                . '. Here such an invoice would stand for the next renewal, which would never be billed: cancel it or settle it in WHMCS'
+                . ' (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+        // A domain order paid long ago and still plain «Pending» (sweep 7 S7-IMPORT-2, owner 2026-11-10): the first cron
+        // would register or transfer it at the registrar. Set Cancelled or Active in WHMCS before the dump; a younger one
+        // is sent from here as before (docs/importer.md).
+        if (($pending = $this->stalePaidDomainOrders()) !== []) {
+            $this->error('WHMCS domain order(s) paid more than ' . self::STALE_PAID_ORDER_DAYS . ' days ago and still «Pending»: domain #' . implode(', #', $pending)
+                . '. The first cron would register or transfer them at the registrar: set them Cancelled (not wanted any more) or Active'
+                . ' (registered since) in WHMCS (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+
+        // An addon has its parent's billing cycle here (owner 2026-11-09): with the same cycle and the same date it renews
+        // on its service's invoice every time. One on another cycle is refused, as the other pre-dump conditions.
+        if (($other = $this->addonsOnAnotherCycle()) !== []) {
+            $this->error('WHMCS addon(s) on another billing cycle than their service: #' . implode(', #', $other)
+                . '. An addon is billed on its service\'s cycle here: set its billing cycle (and its recurring amount and next due date) in WHMCS as its service\'s (cutover-runbook.md), and dump again. Nothing done.');
+
+            return self::FAILURE;
+        }
+        // And its parent's due date (docs/addons.md, owner 2026-11-08; the date itself, not its
+        // day of the month: sweep 7 S7-LATEST-FIXES-1, owner 2026-11-10): a live recurring one due on another date is
+        // refused, as the other pre-dump conditions; staff align it in WHMCS (cutover-runbook.md) and dump again.
         if (($apart = $this->addonsApart()) !== []) {
-            $this->error('WHMCS addon(s) off their service\'s billing day: #' . implode(', #', $apart)
-                . '. An addon renews on its service\'s day of the month here: set its next due date in WHMCS to that day (the service\'s date, or that day within its own cycle; cutover-runbook.md), and dump again.'
+            $this->error('WHMCS addon(s) due on another date than their service: #' . implode(', #', $apart)
+                . '. An addon shares its service\'s due date here: set its next due date in WHMCS to its service\'s (cutover-runbook.md), and dump again.'
+                . ' Only a pair whole periods apart because the one behind has its own renewal invoice of that period unpaid is taken as it is.'
                 . ' A service with no next due date cannot carry a recurring addon: give it one or end the addon. Nothing done.');
 
             return self::FAILURE;
@@ -581,9 +635,13 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing currencies... (' . $this->count('tblcurrencies') . ' records)');
 
-        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
+        $codes = [];
+        $hasDefault = false;
+        $this->migrateInBatch('tblcurrencies', 'SELECT * FROM tblcurrencies ORDER BY id LIMIT :limit OFFSET :offset', function ($records) use (&$codes, &$hasDefault) {
             $data = [];
             foreach ($records as $record) {
+                $codes[] = (string) $record['code'];
+                $hasDefault = $hasDefault || $record['default'] == 1;
                 $format = match ($record['format']) {
                     1 => '1 000.00', // 1234.56
                     2 => '1,000.00', // 1,234.56
@@ -608,6 +666,14 @@ class ImportFromWhmcs extends Command
 
             DB::table('currencies')->insert($data);
         });
+        // A WHMCS with no default currency and no EUR: an account whose currency names none is imported in EUR
+        // (WhmcsClientCurrency), so the instance gets that currency too, never money in one it lacks (review of #764, REV-764-4).
+        if (!$hasDefault && !in_array(WhmcsClientCurrency::FALLBACK, $codes, true)) {
+            DB::table('currencies')->insert(['name' => WhmcsClientCurrency::FALLBACK, 'code' => WhmcsClientCurrency::FALLBACK,
+                'prefix' => '€', 'suffix' => '', 'format' => '1.000,00']);
+            $this->warn('WHMCS has no default currency and no ' . WhmcsClientCurrency::FALLBACK . ': ' . WhmcsClientCurrency::FALLBACK
+                . ' added here, for the accounts whose currency names none.');
+        }
     }
 
     /** How the logins' 2FA is read (WHMCS_CC_ENCRYPTION_HASH, WhmcsSecondFactor); the tests set their own. */
@@ -803,6 +869,9 @@ class ImportFromWhmcs extends Command
                     'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
                     'language' => Locales::fromWhmcs($record['language'] ?? null),
                     'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? null : (($record['email_verified_at'] ?? null) ?: null),
+                    // Its address as WHMCS had it (REV-769-1): mail to support from it reaches its account, as in WHMCS,
+                    // verified or not (InboundRouter::routes). Never «verified»: the provider login keeps refusing it.
+                    'imported_email_at' => now(),
                     'created_at' => $date($record['created_at'] ?? null),
                     'updated_at' => $date($record['updated_at'] ?? null),
                 ];
@@ -943,14 +1012,10 @@ class ImportFromWhmcs extends Command
 
                 // Credits
                 if ($record['credit'] > 0) {
-                    $currency = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = :id LIMIT 1');
-                    $currency->bindValue(':id', $record['currency'], PDO::PARAM_INT);
-                    $currency->execute();
-                    $currency = $currency->fetch(PDO::FETCH_ASSOC);
                     array_push($credits, [
                         'client_id' => $record['id'],
                         'amount' => $record['credit'],
-                        'currency_code' => $currency['code'] ?? null,
+                        'currency_code' => $this->currencies()->code((int) $record['id']),
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -974,6 +1039,13 @@ class ImportFromWhmcs extends Command
                 . implode(', #', $this->ownerless) . '). Give each an owner in WHMCS before the final import.');
         }
         $this->importedClients = null; // read again, now that they are in
+        // An account whose currency is 0 or a deleted one: WHMCS bills it in its default currency, and so is it imported
+        // (owner's decision 2026-11-08, sweep 6 S6-IMPORT-1). Named by id, so staff can set it in WHMCS or check it here.
+        $defaulted = array_values(array_diff($this->currencies()->defaulted, $this->ownerless));
+        if ($defaulted !== []) {
+            $this->warn(count($defaulted) . ' WHMCS account(s) whose currency names no currency, imported in the default currency '
+                . $this->currencies()->default . ' (#' . implode(', #', $defaulted) . ').');
+        }
         $this->reportCountries();
     }
 
@@ -1383,7 +1455,7 @@ class ImportFromWhmcs extends Command
                 }
                 // Listed for staff: each live one on a plan with no price in its currency (made here, a cycle WHMCS no longer
                 // sells, or one priced in another currency only): «Recalculate price» would make it 0.00 (review of #628).
-                $currency = (string) ($user['code'] ?? '');
+                $currency = $user['code'];
                 if ($planId !== null && !$freeAccount && $live
                     && ($unpriced["{$planId}|{$currency}"] ??= !DB::table('prices')->where('plan_id', $planId)->where('currency_code', $currency)->exists())) {
                     $offCycle[] = [(int) $record['id'], (string) $record['billingcycle'], (string) DB::table('products')->where('id', $record['packageid'])->value('name')];
@@ -2518,13 +2590,13 @@ class ImportFromWhmcs extends Command
     /** @var array<int, true>|null the services imported (their WHMCS ids) */
     private ?array $importedServices = null;
 
-    /** @return array<int, true> */
     /**
-     * The currency of an account imported here (its tblcurrencies row), or null: an account WHMCS gives no currency, or
-     * one skipped (no owner login, importUsers). Its orders, services and invoices are not imported then: never a row of
-     * an account that is not here (sweep IMPORT-2: an overdue invoice of none stopped the reminders' run).
+     * The currency of an account imported here, or null for one skipped (no owner login, importUsers): its orders,
+     * services and invoices are not imported then, never a row of an account that is not here (sweep IMPORT-2: an overdue
+     * invoice of none stopped the reminders' run). An account whose WHMCS currency names no currency takes the company's
+     * default (WhmcsClientCurrency, sweep 6 S6-IMPORT-1).
      *
-     * @return array<string, mixed>|null
+     * @return array{code: string}|null
      */
     private function clientCurrency(int $clientId): ?array
     {
@@ -2532,14 +2604,14 @@ class ImportFromWhmcs extends Command
         if (!isset($this->importedClients[$clientId])) {
             return null;
         }
-        if (!array_key_exists($clientId, $this->clientCurrencies)) {
-            $stmt = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
-            $stmt->bindValue(':client_id', $clientId, PDO::PARAM_INT);
-            $stmt->execute();
-            $this->clientCurrencies[$clientId] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        }
 
-        return $this->clientCurrencies[$clientId];
+        return ['code' => $this->currencies()->code($clientId)];
+    }
+
+    /** Each WHMCS account's currency, read once. */
+    private function currencies(): WhmcsClientCurrency
+    {
+        return $this->clientCurrencies ??= new WhmcsClientCurrency($this->pdo);
     }
 
     /** @var list<int> WHMCS invoices imported without their number (another invoice's) */
@@ -2562,8 +2634,7 @@ class ImportFromWhmcs extends Command
     /** @var array<int, true>|null the accounts imported here, read once after importUsers */
     private ?array $importedClients = null;
 
-    /** @var array<int, array<string, mixed>|null> */
-    private array $clientCurrencies = [];
+    private ?WhmcsClientCurrency $clientCurrencies = null;
 
     /** @var list<int> WHMCS accounts with no owner login, skipped by importUsers */
     private array $ownerless = [];
@@ -3261,6 +3332,58 @@ class ImportFromWhmcs extends Command
         return $pending;
     }
 
+    /**
+     * Every WHMCS invoice imported unpaid (invoiceStatus: Unpaid, Collections; «Payment Pending» is pendingMassPay's) with
+     * an «Invoice» line that massPayParents does not count: it took a part payment, or has a line of another kind (a late
+     * fee), a child of another customer or a child that is a Mass Pay itself. It would come as an ordinary unpaid invoice
+     * billing its children again while they stay unpaid too (sweep 6 S6-IMPORT-2). The import refuses to run on them
+     * (handle; owner's decision 2026-11-08: no rule of the importer's own, staff settle it in WHMCS), each with its
+     * children. One with no money and only its children's lines is a parent, dropped by the import: not refused. The
+     * runbook's pre-dump check. A source without these tables (a test's): none.
+     *
+     * @return array<int, list<int>> invoice => its children (its «Invoice» lines), by id
+     */
+    private function unsettledMassPay(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblaccounts')) {
+            return [];
+        }
+        $unsettled = [];
+        foreach ($this->pdo->query("SELECT p.id, ii.relid FROM tblinvoices p JOIN tblinvoiceitems ii ON ii.invoiceid = p.id AND ii.type = 'Invoice'"
+            . " WHERE p.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded', 'Payment Pending') ORDER BY p.id, ii.relid")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($this->massPayParents()[(int) $row['id']])) {
+                continue;
+            }
+            $unsettled[(int) $row['id']] ??= [];
+            if (!in_array((int) $row['relid'], $unsettled[(int) $row['id']], true)) {
+                $unsettled[(int) $row['id']][] = (int) $row['relid'];
+            }
+        }
+
+        return $unsettled;
+    }
+
+    /**
+     * Every WHMCS invoice not yet paid (anything but Paid, Cancelled, Refunded: a draft and «Payment Pending» too) with an
+     * «AddFunds» line and a line below zero: a discounted credit purchase. Here its payment of the discounted total does
+     * not cover the credit it buys: recorded, with the invoice left unpaid and no credit given (S6-MONEY-LEDGER-1). The
+     * import refuses to run on them (handle); staff cancel them in WHMCS and make new ones. The runbook's pre-dump query,
+     * the same set. A source without these tables (a test's): none.
+     *
+     * @return list<int>
+     */
+    private function discountedAddFunds(): array
+    {
+        if (!$this->sourceHas('tblinvoices') || !$this->sourceHas('tblinvoiceitems')) {
+            return [];
+        }
+
+        return array_values(array_map('intval', $this->pdo->query("SELECT DISTINCT i.id FROM tblinvoices i
+            JOIN tblinvoiceitems a ON a.invoiceid = i.id AND a.type = 'AddFunds'
+            JOIN tblinvoiceitems d ON d.invoiceid = i.id AND d.amount < 0
+            WHERE i.status NOT IN ('Paid', 'Cancelled', 'Refunded') ORDER BY i.id")->fetchAll(PDO::FETCH_COLUMN)));
+    }
+
     /** Days after which an unpaid WHMCS order invoice refuses the import (abandonedOrders). */
     public const ABANDONED_ORDER_DAYS = 7;
 
@@ -3298,57 +3421,226 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * Live WHMCS services (Active, Suspended) whose nextinvoicedate is past their nextduedate and whose only renewal
-     * invoices due on that nextduedate are Cancelled: WHMCS invoiced that period, staff cancelled it, and WHMCS never
-     * bills it again. Here the period would be billed again from nextduedate. The import refuses to run on them (handle;
-     * owner's decision 2026-11-08, sweep 5, in place of sweep 4's C-FIRST-RUN-2 rule): staff settle each in WHMCS before
-     * the dump. One with a cancellation request is left out: never billed here (RenewalBilling), it ends on its date as
-     * asked (G-MONEY-SERVICE-1). The runbook's pre-dump query, the same set. A source without these tables or
-     * nextinvoicedate (a test's): none.
+     * Live WHMCS services and addons (Active, Suspended) whose nextinvoicedate is past their nextduedate and whose only
+     * renewal invoices for that nextduedate are Cancelled or deleted: WHMCS invoiced that period, staff cancelled or
+     * deleted it, and WHMCS never bills it again. Here the period would be billed again from nextduedate. The import
+     * refuses to run on them (handle; owner's decision 2026-11-08, sweep 5, in place of sweep 4's C-FIRST-RUN-2 rule):
+     * staff settle each in WHMCS before the dump.
      *
-     * @return list<int> tblhosting ids
+     * A deleted invoice leaves its lines behind (tblinvoiceitems with no tblinvoices row): a renewal line is one by its own
+     * due date (ii.duedate, the period WHMCS billed with it; its invoice's due date may be another item's day: review of
+     * #764, REV-764-1/2), so a period with a line on a live invoice refuses nothing, nor does an old deleted invoice of
+     * another period or a service never invoiced for nextduedate (sweep 6 S6-IMPORT-4). An addon is checked as a service, by its
+     * «Addon» lines and its own dates (S6-IMPORT-3); one with no next period (NOT_RECURRING_ADDON_CYCLES) or imported ended with its service is left out, as in addonsApart.
+     * One with a cancellation request (an addon: its service's) is left out: never billed here (RenewalBilling), it ends
+     * on its date as asked (G-MONEY-SERVICE-1). The runbook's pre-dump queries, the same sets. A source without these
+     * tables or columns (a test's): none.
+     *
+     * @return list<int|string> tblhosting ids, then each addon as «addon #id» (tblhostingaddons)
      */
     private function cancelledRenewals(): array
     {
         if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
             return [];
         }
+        $requested = $this->sourceHas('tblcancelrequests');
+        // The lines for the period due, by their own due date: none of them on a live invoice (all cancelled or deleted).
+        $givenUp = fn (string $from, string $type, string $where) => array_map('intval', $this->pdo->query("SELECT s.id FROM {$from}
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id LEFT JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND s.nextinvoicedate > s.nextduedate AND ii.duedate = s.nextduedate
+            GROUP BY s.id HAVING SUM(CASE WHEN COALESCE(i.status, 'Cancelled') = 'Cancelled' THEN 0 ELSE 1 END) = 0 ORDER BY s.id")->fetchAll(PDO::FETCH_COLUMN));
+        // Each on its own: one query failing (a column the source lacks: a test's) never drops the other's refusals.
+        $services = $addons = [];
         try {
-            return array_values(array_map('intval', $this->pdo->query("SELECT h.id FROM tblhosting h
-                JOIN tblinvoiceitems ii ON ii.type = 'Hosting' AND ii.relid = h.id JOIN tblinvoices i ON i.id = ii.invoiceid AND i.duedate = h.nextduedate
-                WHERE h.domainstatus IN ('Active', 'Suspended') AND h.nextduedate > '0000-00-00' AND h.nextinvoicedate > h.nextduedate"
-                . ($this->sourceHas('tblcancelrequests') ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = h.id)' : '')
-                . " GROUP BY h.id HAVING SUM(CASE WHEN i.status = 'Cancelled' THEN 0 ELSE 1 END) = 0 ORDER BY h.id")->fetchAll(PDO::FETCH_COLUMN)));
+            $services = $givenUp('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')"
+                . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.id)' : ''));
         } catch (PDOException) {
-            return []; // no nextinvoicedate in the source
+            // no nextinvoicedate in the source
         }
+        try {
+            $addons = !$this->sourceHas('tblhostingaddons') ? [] : $givenUp('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
+                "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN (" . $this->endedStatuses() . ') AND s.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ')'
+                . ($requested ? ' AND NOT EXISTS (SELECT 1 FROM tblcancelrequests c WHERE c.relid = s.hostingid)' : ''));
+        } catch (PDOException) {
+            // no nextinvoicedate in the source
+        }
+
+        return [...$services, ...array_map(fn (int $id) => "addon #{$id}", $addons)];
     }
 
     /**
-     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE) of a service off its billing day (not on its day of the month:
-     * WhmcsAddonImport::onServiceDay), or of a service with no next due date: the import refuses to run on them (handle).
+     * Unpaid WHMCS invoices (imported unpaid, invoiceStatus: Unpaid, Collections, Payment Pending) with a renewal line of a period its live
+     * service or addon is already past: a Hosting line of an Active or Suspended service, or an Addon line of an Active or
+     * Suspended recurring addon of a service not imported ended, whose own due date (ii.duedate, the period WHMCS billed
+     * with it) is before the item's nextduedate. WHMCS moves nextduedate on only when a period is paid (or staff move it by
+     * hand), so an unpaid renewal still owed has its line due ON nextduedate, however long overdue: never refused. One due
+     * before it is a leftover (the date moved by hand, a duplicate paid) that WHMCS ignores; here its line comes as «the
+     * renewal billed already» (serviceLineReference: no kind, no period) and the next period is never billed (sweep 7
+     * S7-IMPORT-1). The import refuses to run on them (handle): staff cancel or settle them in WHMCS. A line with no due
+     * date of its own (0000-00-00) is left out: nothing says which period it is. A first order's line (due on or before
+     * the item's regdate; a pro rata order's nextduedate is ahead of it from the start) counts only once its invoice is
+     * older than ABANDONED_ORDER_DAYS: a young order is the customer's to pay (review of #775). The runbook's pre-dump
+     * queries, the same sets. A source without these tables (a test's): none.
+     *
+     * @return array<int, list<string>> invoice => what it bills late («service #id», «addon #id»)
+     */
+    private function staleRenewals(): array
+    {
+        if (!$this->sourceHas('tblhosting') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        // A first order's line (due on or before the day the item was made; with pro rata its nextduedate is already ahead)
+        // is the customer's order, not a leftover, while it is young: only one older than an abandoned order's days.
+        $young = $this->pdo->quote(now()->subDays(self::ABANDONED_ORDER_DAYS)->toDateString());
+        $query = fn (string $from, string $type, string $where, string $first) => $this->pdo->query("SELECT DISTINCT i.id, s.id AS item FROM {$from}
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE {$where} AND s.nextduedate > '0000-00-00' AND ii.duedate > '0000-00-00' AND ii.duedate < s.nextduedate{$first}
+            AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded') ORDER BY i.id, s.id")->fetchAll(PDO::FETCH_ASSOC);
+        $stale = function (string $from, string $type, string $where) use ($query, $young) {
+            try {
+                return $query($from, $type, $where, " AND (ii.duedate > s.regdate OR i.date < {$young})");
+            } catch (PDOException) {
+                return $query($from, $type, $where, ''); // no regdate or invoice date in the source (a test's): every such line
+            }
+        };
+        $found = [];
+        foreach ($stale('tblhosting s', 'Hosting', "s.domainstatus IN ('Active', 'Suspended')") as $row) {
+            $found[(int) $row['id']][] = "service #{$row['item']}";
+        }
+        foreach (!$this->sourceHas('tblhostingaddons') ? [] : $stale('tblhostingaddons s JOIN tblhosting h ON h.id = s.hostingid', 'Addon',
+            "s.status IN ('Active', 'Suspended') AND h.domainstatus NOT IN (" . $this->endedStatuses() . ') AND s.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ')') as $row) {
+            $found[(int) $row['id']][] = "addon #{$row['item']}";
+        }
+        ksort($found);
+
+        return $found;
+    }
+
+    /** Days after its payment a WHMCS domain order still plain «Pending» refuses the import (stalePaidDomainOrders). */
+    public const STALE_PAID_ORDER_DAYS = 30;
+
+    /**
+     * WHMCS domains still plain «Pending» (never sent to a registrar there) whose register or transfer line is on an
+     * invoice Paid more than STALE_PAID_ORDER_DAYS ago (by its datepaid, else its date): a registration that failed and was
+     * settled outside WHMCS, the row never closed. Imported, the first cron would send it to the registrar
+     * (DomainOrderFulfilment::due has no age limit; sweep 7 S7-IMPORT-2). The import refuses to run on them (handle): staff
+     * set them Cancelled or Active in WHMCS. A younger one is sent from here as before (R3-2 of #535), and one imported
+     * active (WhmcsDomainImport::registeredWhilePending: it has an expiry ahead) is never sent, so not refused. The unpaid
+     * twin is abandonedOrders'. A source without these tables (a test's): none.
+     *
+     * @return list<int> tbldomains ids
+     */
+    private function stalePaidDomainOrders(): array
+    {
+        if (!$this->sourceHas('tbldomains') || !$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
+            return [];
+        }
+        $query = $this->pdo->prepare("SELECT DISTINCT d.id, d.type, d.expirydate, d.registrationdate,
+            (SELECT COUNT(*) FROM tblinvoiceitems r JOIN tblinvoices ri ON ri.id = r.invoiceid WHERE r.type = 'Domain' AND r.relid = d.id AND ri.status = 'Paid') AS renewals
+            FROM tbldomains d JOIN tblinvoiceitems ii ON ii.type IN ('DomainRegister', 'DomainTransfer') AND ii.relid = d.id
+            JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE d.status = 'Pending' AND i.status = 'Paid' AND (CASE WHEN i.datepaid > '0000-00-00' THEN i.datepaid ELSE i.date END) < ?
+            ORDER BY d.id");
+        $query->execute([now()->subDays(self::STALE_PAID_ORDER_DAYS)->toDateString()]);
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($query->fetchAll(PDO::FETCH_ASSOC),
+            fn (array $row) => !WhmcsDomainImport::registeredWhilePending(
+                stripos((string) $row['type'], 'transfer') !== false ? DomainStatus::PendingTransfer : DomainStatus::PendingRegister, $row, (int) $row['renewals'] > 0))));
+    }
+
+    /** The addon cycles with no next period here (WhmcsAddonImport: no expiry, never renewed): left out of the addon checks. */
+    private const NOT_RECURRING_ADDON_CYCLES = ['Free Account', 'One Time', 'Free'];
+
+    /** @param  list<string>  $values */
+    private function quoted(array $values): string
+    {
+        return implode(', ', array_map(fn (string $value) => $this->pdo->quote($value), $values));
+    }
+
+    /** The WHMCS service statuses imported ended (terminated, cancelled); one not named (e.g. Completed) is imported pending. */
+    private function endedStatuses(): string
+    {
+        return $this->quoted(array_keys(array_filter(self::SERVICE_STATUSES, fn (string $status) => in_array($status, ['terminated', 'cancelled'], true))));
+    }
+
+    /**
+     * Live recurring WHMCS addons (WhmcsAddonImport::LIVE; not a free or one-time one, which bills nothing by period) of a
+     * service not imported ended, with both their cycles and due dates: what the pre-dump refusals below check (handle).
      * An addon of a service imported ended (terminated or cancelled: serviceStatus) is imported ended with it
      * (WhmcsAddonImport), so it is not checked (sweep 5 G-ADDONS-CYCLE-3); every other service is, Completed included
-     * (REV5-G-ADDONS-CYCLE-1). The runbook's pre-dump check. A source without addons: none.
+     * (REV5-G-ADDONS-CYCLE-1). A source without addons: none.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function liveAddons(): array
+    {
+        if (!$this->sourceHas('tblhostingaddons')) {
+            return [];
+        }
+        $live = $this->quoted(WhmcsAddonImport::LIVE);
+        $ended = $this->endedStatuses();
+
+        return $this->pdo->query('SELECT a.id, a.hostingid, a.billingcycle, a.nextduedate, h.nextduedate AS service_due, h.billingcycle AS service_cycle FROM tblhostingaddons a'
+            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
+            . ' AND a.billingcycle NOT IN (' . $this->quoted(self::NOT_RECURRING_ADDON_CYCLES) . ') ORDER BY a.id')->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Those not due on their service's date (owner 2026-11-10, sweep 7 S7-LATEST-FIXES-1: the date itself; the same day in
+     * another month is another date since an addon has its service's cycle), or of a service with no next due date: the
+     * import refuses to run on them. Two shapes are taken as they are, the pair whole periods apart
+     * (WhmcsAddonImport::periodsBehind) because one of the two has not paid its period yet: the addon BEHIND its service
+     * with its own renewal unpaid (an unpaid «Addon» line due on the addon's nextduedate), and its mirror, the addon AHEAD
+     * of its service whose own renewal is unpaid (an unpaid «Hosting» line due on the service's nextduedate; review of
+     * #775, REV-775-4: no change in WHMCS leaves the money alone). Paid here, the one behind catches up and both renew
+     * together. The runbook's pre-dump check.
      *
      * @return list<int> tblhostingaddons ids
      */
     private function addonsApart(): array
     {
-        if (!$this->sourceHas('tblhostingaddons')) {
+        $unpaid = null;
+
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(), function (array $row) use (&$unpaid) {
+            [$cycle, $addonDue, $serviceDue] = [(string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']];
+            $behind = WhmcsAddonImport::periodsBehind($cycle, $addonDue, $serviceDue);
+            if ($behind === 0) {
+                return false;
+            }
+            $unpaid ??= ['Addon' => $this->unpaidRenewals('tblhostingaddons', 'Addon'), 'Hosting' => $this->unpaidRenewals('tblhosting', 'Hosting')];
+
+            return !($behind > 0 ? isset($unpaid['Addon'][(int) $row['id']])
+                : (WhmcsAddonImport::periodsBehind($cycle, $serviceDue, $addonDue) > 0 && isset($unpaid['Hosting'][(int) $row['hostingid']])));
+        })));
+    }
+
+    /**
+     * The WHMCS addons (or services) whose renewal for the period they are in (an «Addon» / «Hosting» line due on their
+     * own nextduedate) is on an invoice imported unpaid (invoiceStatus: Collections and Payment Pending too): overdue, not
+     * misdated. A source without the invoice tables (a test's): none.
+     *
+     * @return array<int, true>
+     */
+    private function unpaidRenewals(string $table, string $type): array
+    {
+        if (!$this->sourceHas('tblinvoiceitems') || !$this->sourceHas('tblinvoices')) {
             return [];
         }
-        $live = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status), WhmcsAddonImport::LIVE));
-        // Only the services imported ended are skipped: one whose status is not named (e.g. Completed) is imported pending.
-        $ended = implode(', ', array_map(fn (string $status) => $this->pdo->quote($status),
-            array_keys(array_filter(self::SERVICE_STATUSES, fn (string $status) => in_array($status, ['terminated', 'cancelled'], true)))));
 
-        $rows = $this->pdo->query('SELECT a.id, a.billingcycle, a.nextduedate, h.nextduedate AS service_due FROM tblhostingaddons a'
-            . " JOIN tblhosting h ON h.id = a.hostingid WHERE a.status IN ({$live}) AND h.domainstatus NOT IN ({$ended})"
-            . " AND a.billingcycle NOT IN ('Free Account', 'One Time', 'Free') ORDER BY a.id")->fetchAll(PDO::FETCH_ASSOC);
+        return array_fill_keys(array_map('intval', $this->pdo->query("SELECT DISTINCT s.id FROM {$table} s
+            JOIN tblinvoiceitems ii ON ii.type = '{$type}' AND ii.relid = s.id AND ii.duedate = s.nextduedate JOIN tblinvoices i ON i.id = ii.invoiceid
+            WHERE s.nextduedate > '0000-00-00' AND i.status NOT IN ('Draft', 'Paid', 'Cancelled', 'Refunded')")->fetchAll(PDO::FETCH_COLUMN)), true);
+    }
 
-        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($rows,
-            fn (array $row) => !WhmcsAddonImport::onServiceDay((string) $row['billingcycle'], (string) $row['nextduedate'], (string) $row['service_due']))));
+    /**
+     * Those on another billing cycle than their service (owner 2026-11-09: an addon is on its parent's cycle): refused too.
+     *
+     * @return list<int> tblhostingaddons ids
+     */
+    private function addonsOnAnotherCycle(): array
+    {
+        return array_values(array_map(fn (array $row) => (int) $row['id'], array_filter($this->liveAddons(),
+            fn (array $row) => !WhmcsAddonImport::sameCycle((string) $row['billingcycle'], (string) $row['service_cycle']))));
     }
 
     /**
@@ -3374,7 +3666,7 @@ class ImportFromWhmcs extends Command
         foreach ($parents as $parent) {
             $parentId = (int) $parent['id'];
             $payments = $this->rows('SELECT id, amountin, amountout, transid, date FROM tblaccounts WHERE invoiceid = ? ORDER BY date, id', [$parentId]);
-            $currency = $this->row('SELECT code FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = ? LIMIT 1) LIMIT 1', [$parent['userid']]);
+            $currency = $this->clientCurrency((int) $parent['userid']);
             if ($currency === null) {
                 continue;
             }

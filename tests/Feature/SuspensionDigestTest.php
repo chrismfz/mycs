@@ -67,6 +67,7 @@ class SuspensionDigestTest extends TestCase
         $first = $this->service(['expires_at' => '2026-10-15', 'domain' => 'first.example']);
         $invoice = $this->unpaidInvoice($first, '2026-10-15');
         $second = $this->service(['expires_at' => '2026-10-17']);
+        $this->billedAhead($second);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -99,6 +100,7 @@ class SuspensionDigestTest extends TestCase
     {
         $held = $this->service(['expires_at' => '2026-10-10', 'suspend_hold_until' => '2026-10-25']);
         $due = $this->service(['expires_at' => '2026-10-10']);
+        $this->billedAhead($due);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -112,6 +114,7 @@ class SuspensionDigestTest extends TestCase
     {
         config(['settings.cronjob_suspension_digest' => false]);
         $service = $this->service(['expires_at' => '2026-10-10']);
+        $this->billedAhead($service);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -126,6 +129,7 @@ class SuspensionDigestTest extends TestCase
         // «Minimum days suspended» 0: suspended and terminated in the same run, listed once, as terminated.
         config(['settings.cronjob_terminate_min_suspended_days' => 0]);
         $both = $this->service(['expires_at' => '2026-09-30']);
+        $this->billedAhead($both);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -140,6 +144,7 @@ class SuspensionDigestTest extends TestCase
     public function test_what_staff_or_customers_typed_is_escaped(): void
     {
         $service = $this->service(['expires_at' => '2026-10-10', 'domain' => '<script>x</script>.example']);
+        $this->billedAhead($service);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

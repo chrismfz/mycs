@@ -2,10 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
+use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Models\Invoice;
 use App\Models\Role;
-use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
@@ -32,21 +31,16 @@ class PermissionReviewTest extends TestCase
         return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
-    /** R1: a role with only «View Invoices» cancels an unpaid invoice from ViewInvoice. */
-    public function test_list_only_staff_cannot_cancel_an_invoice_on_the_view_page(): void
+    /** R1: a role with only «View Invoices» cancels an unpaid invoice (the list's Cancel; the view page is gone, 2026-11-10). */
+    public function test_list_only_staff_cannot_cancel_an_invoice(): void
     {
-        Setting::updateOrCreate(['key' => 'immutable_invoices_enabled'], ['value' => true, 'type' => 'boolean']);
-        config(['settings.immutable_invoices_enabled' => true]);
-
         $viewer = $this->staff(['admin.invoices.viewAny']);
         $invoice = Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
 
         $this->actingAs($viewer);
-        $page = Livewire::test(ViewInvoice::class, ['record' => $invoice->id]);
-
         try {
-            $page->callAction('cancel', ['cancellation_reason' => 'not mine to cancel']);
+            Livewire::test(ListInvoices::class)->callTableAction('cancel', $invoice, data: ['cancellation_reason' => 'not mine to cancel']);
         } catch (\Throwable) {
             // a refusal (403 / hidden action) is the expected outcome
         }

@@ -13,6 +13,9 @@ use Brick\Math\RoundingMode;
  * refund, a refund to credit or a staff credit note on it lowers the invoice's total below its lines, and that money
  * is no longer paid for the days (F-STAFF-ADMIN-MONEY-1). What a cycle change «now» and a downgrade give back is worked
  * out from this, never from the line's total alone.
+ *
+ * And never more than the MONEY its invoice kept (Invoice::moneyKeptCents; REV-780-1, owner 2026-11-10): staff may mark an
+ * invoice paid with no payment, or raise a line after it was paid, and neither is money that can come back as credit.
  */
 final class PaidForPeriod
 {
@@ -40,15 +43,19 @@ final class PaidForPeriod
         return BigDecimal::max(BigDecimal::zero(), $price->minus($setup))->dividedBy($price, 10, RoundingMode::HalfUp);
     }
 
-    /** The share of its lines its invoice kept: its total (refunds and credit notes off, debit notes on) over its lines. */
+    /**
+     * The share of its lines its invoice kept: its total (refunds and credit notes off, debit notes on), and no more than
+     * the money on it, over its lines.
+     */
     private static function keptShare(InvoiceItem $line): BigDecimal
     {
-        $invoice = Invoice::query()->with(['items', 'adjustmentNotes'])->find($line->invoice_id);
+        $invoice = Invoice::query()->with(['items', 'adjustmentNotes', 'transactions'])->whereKey($line->invoice_id)->first();
         if ($invoice === null) {
             return BigDecimal::one();
         }
         $lines = (int) $invoice->items->sum(fn (InvoiceItem $item) => $item->totalCents());
-        $kept = (int) round((float) $invoice->total * 100);
+        // What it bills now, and no more than the money on it.
+        $kept = min((int) round((float) $invoice->total * 100), $invoice->moneyKeptCents());
         if ($lines <= 0 || $kept >= $lines) {
             return BigDecimal::one();
         }

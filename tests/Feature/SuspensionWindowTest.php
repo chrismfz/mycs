@@ -47,9 +47,11 @@ class SuspensionWindowTest extends TestCase
             'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
-        // Its renewal billed, as the daily run does before any suspension (the hourly run leaves an unbilled period to it).
+        // Its renewal billed a week before it was due, as the daily run does before any suspension (the hourly run leaves
+        // an unbilled period to it).
         if ($service->expires_at !== null && $service->status === Service::STATUS_ACTIVE) {
-            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at]);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $service->expires_at,
+                'created_at' => Carbon::parse($service->expires_at)->subWeek()]);
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         }
 
@@ -138,7 +140,8 @@ class SuspensionWindowTest extends TestCase
     {
         // Due Wednesday 21/10: Suspend Days 2, so Saturday 24/10 — on a working-days window, Monday 26/10.
         $service = $this->service(['expires_at' => '2026-10-21']);
-        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-21']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-21',
+            'created_at' => '2026-10-14']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         $this->at('2026-10-22 03:00:00');
 

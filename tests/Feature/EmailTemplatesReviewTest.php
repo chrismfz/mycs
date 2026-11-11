@@ -59,7 +59,8 @@ class EmailTemplatesReviewTest extends TestCase
         $this->assertNull($product->product->server_id, 'fixture: a product without a server');
         $service = Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-08', 'currency_code' => 'USD', 'price' => 10.00]);
-        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-08']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-08',
+            'created_at' => '2026-10-01']);
         $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-08', 'period_end' => '2026-11-08']);
 

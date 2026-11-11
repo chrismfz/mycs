@@ -195,23 +195,33 @@ class EkdosiBridgeAdversarialRound2Test extends TestCase
         $this->assertNotSame(200, $status, 'a MARK on a merged-away invoice is taken silently; Ekdosi is never told its lines moved');
     }
 
-    /** R2-3b. The same with a split: the MARK lands on the source, the lines split off are on a new invoice with none. */
-    public function test_r2_3b_a_mark_after_a_split_does_not_leave_the_split_lines_unfiled(): void
+    /**
+     * R2-3b. The same with a split: the MARK lands on the source, the lines split off are on a new invoice with none.
+     *
+     * Rewritten for the owner's rule of 2026-11-10 («issued is final», S7-TAX-EKDOSI-1). #459 refused the write-back (409
+     * invoice_changed) for an invoice that was ever split, which also refused every right document of one split before
+     * Ekdosi read it. Now the split itself is refused once the invoice is Ekdosi's (here: staff sent it), so the document
+     * of 120.00 is of an invoice still of 120.00, and no line is left without one.
+     */
+    public function test_r2_3b_an_invoice_sent_to_ekdosi_is_not_split_so_no_line_is_left_unfiled(): void
     {
         $a = $this->unpaidInvoice();
         $a->items()->create(['description' => 'Second line', 'quantity' => 1, 'price' => '20.00']);
+        Invoice::query()->whereKey($a->id)->update(['ekdosi_requested_at' => now()]);
         $this->bridge(['op' => 'invoice', 'invoice_id' => $a->id])->assertOk()->assertJsonPath('invoice.total', '120.00');
 
-        $new = app(SplitInvoice::class)->handle($a->id, [(int) $a->items()->orderByDesc('id')->value('id')]);
-        $status = $this->bridge(['op' => 'mark', 'invoice_id' => $a->id, 'mark' => '400001234567890'])->status();
+        try {
+            app(SplitInvoice::class)->handle($a->id, [(int) $a->items()->orderByDesc('id')->value('id')]);
+            $this->fail('split after it was sent to Ekdosi');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('withdraw the request', $e->getMessage());
+        }
+        $this->bridge(['op' => 'mark', 'invoice_id' => $a->id, 'mark' => '400001234567890'])->assertOk();
 
-        $this->assertNotSame(200, $status, 'the document covers 120.00 but the invoice is now 100.00; the 20.00 split off has no document');
-        // Fix of #459 (author): refused (409 invoice_changed), so Ekdosi knows the document it issued is for an invoice that
-        // no longer is (it cancels it); the split-off lines have no document, so once paid they are rightly offered.
-        $this->assertSame(409, $status);
-        $this->pay($new, 'TX-R2-3b');
-        $this->assertContains($new->id, $this->inbox());
-        $this->assertSame(0, EkdosiDocument::query()->count());
+        $this->assertSame(2, $a->items()->count());
+        $this->assertSame(1, EkdosiDocument::query()->where('invoice_id', $a->id)->count());
+        $this->pay($a, 'TX-R2-3b');
+        $this->assertNotContains($a->id, $this->inbox());
     }
 
     /**

@@ -46,7 +46,22 @@ final class ItemPaymentMethod
         if ($gatewayId !== null && !self::options($item)->contains(fn (Gateway $gateway) => (int) $gateway->id === $gatewayId)) {
             throw new DisplayException(__('services.payment_method_not_available'));
         }
+        self::$leftWhole = [];
         $item->update(['payment_gateway_id' => $gatewayId]);
+    }
+
+    /** @var list<string> the open invoices the last change left as they were (they cannot be split): '#N' */
+    private static array $leftWhole = [];
+
+    /**
+     * What the customer is told after set() or setAutoCharge(): $saved, and, of an open invoice the change could not
+     * leave (one that is Ekdosi's, or with a payment on it: InvoiceLineMove::refusal), that it stays as it is (REV-778-4).
+     */
+    public static function notice(string $saved, string $leftWholeKey): string
+    {
+        [$left, self::$leftWhole] = [array_values(array_unique(self::$leftWhole)), []];
+
+        return $left === [] ? $saved : trans_choice($leftWholeKey, count($left), ['invoices' => implode(', ', $left)]);
     }
 
     /** Its own payment method's gateway, still there (a deleted one: none, the account's). Its lines record it when billed. */
@@ -247,6 +262,7 @@ final class ItemPaymentMethod
         if ($item->no_auto_charge === !$on) {
             return;
         }
+        self::$leftWhole = [];
         $item->update(['no_auto_charge' => !$on]);
     }
 
@@ -254,8 +270,9 @@ final class ItemPaymentMethod
      * Its payment method changed (owner 2026-11-01, #568: the open invoice too, no longer «from the next renewal» of #541):
      * the lines of its open invoices take the new way, and the invoice its preferred method when it bills only this item
      * (with its lines of no item, a fee: ADV-568-R3-2). One it shares with items of another way now is split, its lines
-     * to an invoice of their own (SplitInvoice); refused, it stays whole and, of two ways, is charged by no method (its
-     * page says pay it from the invoice). Under the customer → invoice locks, as a split (ADV-568-R3 suspicion 1), each
+     * to an invoice of their own (SplitInvoice). One it shares that cannot be split (it is Ekdosi's, a payment on it:
+     * InvoiceLineMove::refusal, asked BEFORE a line changes, REV-778-4) stays exactly as it is, of one way, charged as it
+     * was: the new method is for the item's next invoices, and the customer is told (notice()). Under the customer → invoice locks, as a split (ADV-568-R3 suspicion 1), each
      * line through the model, audited (R3-3). Never while a charge of the invoice may still land (chargePending): it keeps
      * the way that charge was made with, so another method is never sent a second charge of it.
      */
@@ -273,6 +290,11 @@ final class ItemPaymentMethod
                 $mine = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', $item::class)->where('reference_id', $item->id);
                 $shared = InvoiceItem::query()->where('invoice_id', $invoice->id)->whereIn('reference_type', [Service::class, Domain::class])
                     ->whereNot(fn ($lines) => $lines->where('reference_type', $item::class)->where('reference_id', $item->id))->exists();
+                if ($shared && InvoiceLineMove::refusal($invoice) !== null) {
+                    self::$leftWhole[] = '#' . ($invoice->number ?: $invoice->id);
+
+                    return null;
+                }
                 // The way only (not a money field): no amount, tax or period moves.
                 ($shared ? (clone $mine) : InvoiceItem::query()->where('invoice_id', $invoice->id))->get()
                     ->each(fn (InvoiceItem $line) => $line->update(['payment_gateway_id' => $own]));
@@ -291,7 +313,8 @@ final class ItemPaymentMethod
             try {
                 (new SplitInvoice)->handle($apart[0], $apart[1])->forceFill(['preferred_gateway_id' => $apart[2]])->save();
             } catch (DisplayException) {
-                // Stays whole: of two ways, no method charges it.
+                // Stays whole, of two ways, which no method charges (a part of nothing, an upgrade's lines): told as the others.
+                self::$leftWhole[] = '#' . (Invoice::query()->whereKey($apart[0])->value('number') ?: $apart[0]);
             }
         }
     }
@@ -311,7 +334,8 @@ final class ItemPaymentMethod
     /**
      * Turned off (review 2 of #568): its lines leave an open invoice they share with items still charged, for an invoice of
      * their own (SplitInvoice), so the cron still charges the others. One that cannot be split (a payment on it, a discount
-     * that would be left alone) stays whole and is not charged automatically: autoChargeStatus says so on the others.
+     * that would be left alone, one that is Ekdosi's) stays whole and is not charged automatically: autoChargeStatus says so
+     * on the others, and the customer is told when they turn it off (notice(), REV-778-4).
      */
     public static function keepApart(Service|Domain $item): void
     {
@@ -328,6 +352,7 @@ final class ItemPaymentMethod
                 (new SplitInvoice)->handle((int) $invoiceId, $mine->map(fn ($id) => (int) $id)->all());
             } catch (DisplayException) {
                 // Stays whole, held: its others are paid from it (their page says so).
+                self::$leftWhole[] = '#' . (Invoice::query()->whereKey($invoiceId)->value('number') ?: $invoiceId);
             }
         }
     }

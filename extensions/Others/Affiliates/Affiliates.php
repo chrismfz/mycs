@@ -5,6 +5,7 @@ namespace MyCS\Extensions\Others\Affiliates;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
 use App\Events\Invoice\Paid as InvoicePaid;
+use App\Events\Invoice\PaidByStaffCovered;
 use App\Events\Order\Created as OrderCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\ExtensionHelper;
@@ -108,6 +109,11 @@ class Affiliates extends Extension
         );
         Event::listen(
             InvoicePaid::class,
+            RewardAffiliate::class,
+        );
+        // An invoice staff marked paid by hand rewards nobody until real money covers it (REV-780-3).
+        Event::listen(
+            PaidByStaffCovered::class,
             RewardAffiliate::class,
         );
         Event::listen(

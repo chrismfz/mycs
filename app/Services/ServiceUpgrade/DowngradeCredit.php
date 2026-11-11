@@ -63,7 +63,7 @@ final class DowngradeCredit
     /**
      * What is left after $today of the upgrades paid within the service's period, and of what earlier downgrades gave back
      * for it: also counted by a cycle change «now» (sweep UPGRADES-1), which credits the days left as they were paid. Each
-     * upgrade's money is spread to the end of the period it was made in (any live period line holding its moment, paid or
+     * upgrade's money is spread from the day it was applied (paid: its line followed the days left until then) to the end of the period it was made in (any live period line holding its moment, paid or
      * not), or on to the expiry it was applied at, a renewal paid ahead included (paidEnd, sweep 2); one of an earlier
      * period was spent there and counts nothing (UPGRADES-2). Each line counts what its invoice kept (PaidForPeriod). A service with no line holding it
      * (imported without its lines) counts one made in its current period to its expiry, as before.
@@ -99,12 +99,15 @@ final class DowngradeCredit
             // over them).
             $lines = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get();
             $chargeEnd = self::chargeEnd($upgrade, $lines, $line, $end);
+            // From the day it was applied (paid), not the day it was placed: until then the cron repriced its line each
+            // day to the days left, so what was paid covers the days from its payment on (S6-PLAN-CYCLE-ADDONS-3).
+            $chargeStart = $upgrade->applied_at ?? $upgrade->created_at;
             foreach ($lines as $paid) {
                 if ($paid->invoice?->status !== Invoice::STATUS_PAID) {
                     continue;
                 }
                 $upgrades = (int) $paid->invoice_id === (int) $upgrade->invoice_id
-                    ? $upgrades->plus(self::left(PaidForPeriod::of($paid), $upgrade->created_at, $chargeEnd, $today))
+                    ? $upgrades->plus(self::left(PaidForPeriod::of($paid), $chargeStart, $chargeEnd, $today))
                     : $upgrades->plus(self::left(PaidForPeriod::of($paid), $chargeEnd, $end, $today));
             }
             // What an earlier downgrade gave back for these days (F2).

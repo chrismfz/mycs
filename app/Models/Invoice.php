@@ -8,6 +8,7 @@ use App\Classes\Settings;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
@@ -89,9 +90,6 @@ class Invoice extends Model implements Auditable
 
     /** All its money went back, to the customer or to their credit (PR 2c, as WHMCS). Final: it holds nothing. */
     public const STATUS_REFUNDED = 'refunded';
-
-    /** Settled: they keep their lines and staff notes (MT-1c; refunded too, PR 2c). */
-    public const FROZEN_STATUSES = [self::STATUS_PAID, self::STATUS_REFUNDED];
 
     /** Every status, in the order screens list them. */
     public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
@@ -225,6 +223,8 @@ class Invoice extends Model implements Auditable
         'no_auto_charge' => 'boolean',
         // Staff asked Ekdosi for its document (E5, «Send to Ekdosi»): the feed's `requested`.
         'ekdosi_requested_at' => 'immutable_datetime',
+        // Staff marked it paid with no payment for (all of) it; empty once it leaves «paid» or real money covers it.
+        'paid_by_staff_at' => 'immutable_datetime',
         'ekdosi_requested_by' => 'integer',
     ];
 
@@ -245,6 +245,13 @@ class Invoice extends Model implements Auditable
      * unless true.
      */
     public ?bool $keep_periods_billable = null;
+
+    /**
+     * Staff chose «paid» with money still owed on it and confirmed that no payment is recorded (owner 2026-11-10,
+     * docs/staff-freedom.md): the status select of its page, or the Admin API's `paid_without_payment`. Not stored: this
+     * model, this one save. Without it «paid» follows a payment, as ever (InvoiceObserver). Never for a credit purchase.
+     */
+    public bool $paid_without_payment = false;
 
     /**
      * Cancelled as a consequence of its service (CancelOpenInvoices: it ends, changes cycle), not by staff. Not stored. Such
@@ -312,6 +319,33 @@ class Invoice extends Model implements Auditable
         return parent::save($options);
     }
 
+    /** Set only while owedAgainAfterChargeback() saves: this model, this one save. */
+    private bool $chargedBack = false;
+
+    /**
+     * A chargeback is always recorded (S6-MONEY-LEDGER-2): its paid invoice becomes unpaid even when an item it bills
+     * moved to another customer or was deleted since, which InvoiceObserver refuses for every other reopening. Only
+     * paid to unpaid, only from ExtensionHelper::chargebackAtGateway, under its locks. Staff are told there.
+     */
+    public function owedAgainAfterChargeback(): void
+    {
+        if ($this->status !== self::STATUS_PAID) {
+            throw new \LogicException('Only a paid invoice is owed again after a chargeback.');
+        }
+        $this->chargedBack = true;
+        try {
+            $this->update(['status' => self::STATUS_UNPAID]);
+        } finally {
+            $this->chargedBack = false;
+        }
+    }
+
+    /** True only inside owedAgainAfterChargeback(), for the paid to unpaid change it makes (InvoiceObserver). */
+    public function becomingOwedAfterChargeback(): bool
+    {
+        return $this->chargedBack && $this->getOriginal('status') === self::STATUS_PAID && $this->status === self::STATUS_UNPAID;
+    }
+
     /** Hold the payment locks through both the observer's guard and the actual DELETE. */
     public function delete(): ?bool
     {
@@ -341,6 +375,65 @@ class Invoice extends Model implements Auditable
                 - RecordPaymentService::toCents($payment->credited_amount));
 
         return $kept >= $due;
+    }
+
+    /**
+     * The money it kept, in cents: what its succeeded payments brought (account credit spent on it too), less what was
+     * refunded and what became credit again. The one measure of «was paid for» (REV-780-1): never its status, which
+     * staff may set by hand, nor its lines' totals, which staff may change after it was paid.
+     */
+    public function moneyKeptCents(): int
+    {
+        return (int) $this->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn (InvoiceTransaction $payment) => RecordPaymentService::toCents($payment->amount)
+                - RecordPaymentService::toCents($payment->refunded_amount) - RecordPaymentService::toCents($payment->credited_amount));
+    }
+
+    /**
+     * A change (a line, a note) is about to raise what a PAID invoice bills by $raisedByCents. If it then owes more than its
+     * money, it is paid by staff's word for that part: `paid_by_staff_at` is set (REV-780-2-2), so the money check, the
+     * income report, the Ekdosi feed and the affiliates see one flag, and the change needs what the tick needs, the
+     * permission to record payments. So no route (lower a line to the money on it, set «paid», raise it again) ends
+     * «paid, owing» without the word. A change by the app itself (no staff member, no key) has nobody to ask.
+     */
+    public static function owesByStaffsWord(mixed $invoiceId, int $raisedByCents): void
+    {
+        if ($invoiceId === null || $raisedByCents <= 0) {
+            return;
+        }
+        $invoice = self::query()->with(['items', 'transactions', 'adjustmentNotes'])->whereKey($invoiceId)->first();
+        if ($invoice === null || $invoice->status !== self::STATUS_PAID || $invoice->paid_by_staff_at !== null
+            || RecordPaymentService::toCents($invoice->remaining) + $raisedByCents <= 0) {
+            return;
+        }
+        if (!self::actorMayRecordPayments()) {
+            throw new DisplayException(__('This invoice is paid: a change that makes it owe is «paid by hand» for that part, and needs the permission to record payments.'));
+        }
+        // Later than every payment on it, by a second at least: deleting one of those reopens it as ever, the word being
+        // for the raise and not for what they paid (RecordPaymentService::deleteTransaction, REV-780-3-1).
+        $after = $invoice->transactions->max('created_at')?->copy()->addSecond();
+        self::query()->whereKey($invoiceId)->update(['paid_by_staff_at' => $after !== null && $after->greaterThan(now()) ? $after : now()]);
+    }
+
+    /** Whoever acts now may record payments: the Admin API key by its own list, a staff member by their role; the app itself, yes. */
+    public static function actorMayRecordPayments(): bool
+    {
+        $key = request()->attributes->get('api_key_permissions');
+        if (is_array($key)) {
+            return in_array('admin.invoice_transactions.create', $key, true);
+        }
+        $staff = auth('staff')->user(); // the panel's guard: a customer logged in is not the one changing it
+
+        return $staff === null || $staff->can('create', InvoiceTransaction::class);
+    }
+
+    /**
+     * It has a payment on it (succeeded or processing; paid, or unpaid again with its payment) or staff marked it paid by
+     * hand: the invoices whose lines that bill a service or a domain staff neither add nor remove (StaffLineEdit).
+     */
+    public function holdsMoneyOrWord(): bool
+    {
+        return $this->paid_by_staff_at !== null || $this->hasPayments();
     }
 
     /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */

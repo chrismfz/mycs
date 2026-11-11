@@ -43,7 +43,7 @@ class StaffOrderNotice
             'Client' => "<a href=\"{$admin(ClientResource::class, 'view', $order->client_id)}\">" . e(($order->client->name ?? '') . ' (#' . $order->client_id . ')') . '</a>',
             'Date' => e($order->created_at?->toDateTimeString() ?? ''),
             'Invoice' => $invoice === null ? 'none (nothing to pay)'
-                : "<a href=\"{$admin(InvoiceResource::class, 'view', $invoice->id)}\">#" . e((string) ($invoice->number ?? $invoice->id)) . '</a> ' . e((string) $invoice->formattedTotal),
+                : "<a href=\"{$admin(InvoiceResource::class, 'edit', $invoice->id)}\">#" . e((string) ($invoice->number ?? $invoice->id)) . '</a> ' . e((string) $invoice->formattedTotal),
         ];
         if ($order->ip_address !== null) {
             $rows['IP address'] = e($order->ip_address);

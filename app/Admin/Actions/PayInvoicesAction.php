@@ -68,7 +68,7 @@ class PayInvoicesAction
                     ->maxLength(255),
             ])
             ->action(function (Collection $records, array $data): void {
-                // Each invoice, as staff may change it (immutable invoices, adversarial E-ADV-4 of PR E).
+                // Each invoice, as staff may change it (adversarial E-ADV-4 of PR E).
                 if ($records->contains(fn (Invoice $invoice) => !auth()->user()?->can('update', $invoice))) {
                     Notification::make()->danger()->title(__('Payment not recorded'))->body(__('You may not change one of these invoices.'))->send();
 

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Enums\AdjustmentNoteType;
+use App\Exceptions\DisplayException;
+use App\Models\AdjustmentNote;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -60,8 +62,15 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $this->assertSame('50.00', $this->balance(), 'the credit it bought');
 
         $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]); // staff reopen it to fix the line
-        $invoice->items()->sole()->update(['price' => 30]);
-
+        // Since REV-780-2 the scenario stops one step earlier: a credit purchase that gave its credit keeps its lines,
+        // reopened too. The refusal is asserted, then what the test was for: closing it gives nothing twice.
+        try {
+            $invoice->items()->sole()->update(['price' => 30]);
+            $this->fail('the line of a credit purchase that gave its credit was lowered');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('gave it already', $e->getMessage());
+        }
+        $this->assertSame('50.00', (string) $invoice->items()->sole()->price);
         (new RecordPaymentService)->settle($invoice->fresh());
 
         $this->assertSame('50.00', $this->balance(), 'the customer paid 50.00: never more than 50.00 of credit');
@@ -80,7 +89,8 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $invoice->items()->create(['description' => 'Setup', 'quantity' => 1, 'price' => 30]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 50.0, transactionId: 'wire-c2');
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -40, 'description' => 'Discount']);
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        AdjustmentNote::withoutEvents(fn () => $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -40, 'description' => 'Discount']));
 
         try {
             (new RecordPaymentService)->settle($invoice->fresh());

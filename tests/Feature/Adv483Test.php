@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -67,10 +68,10 @@ class Adv483Test extends TestCase
     }
 
     /**
-     * PIN: a part payment recorded from the header (Mark Paid) locks the lines in the same request (linesKeepAmounts is
-     * memoised by id|status|updated_at, which a part payment could leave as they were: it does not go stale).
+     * PIN, rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-2): a part payment recorded from the header (Mark Paid) leaves
+     * the lines open, and a price brought below it saves with the invoice said to be paid over.
      */
-    public function test_pin_a_part_payment_from_the_header_locks_the_lines_at_once(): void
+    public function test_pin_a_part_payment_from_the_header_leaves_the_lines_open(): void
     {
         $invoice = $this->invoice();
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
@@ -81,8 +82,12 @@ class Adv483Test extends TestCase
             ->assertHasNoActionErrors();
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
-        $page->assertFormFieldIsDisabled("items.{$line}.price")
-            ->assertSee(__('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'));
+        $page->assertFormFieldIsEnabled("items.{$line}.price")
+            ->set("data.items.{$line}.price", '30.00')->call('save')->assertNotified(__('Check its balance'));
+        $this->assertSame('30.00', (string) $invoice->items()->first()->price);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+        $this->assertSame(RecordPaymentService::toCents($invoice->fresh()->total) - 4000, RecordPaymentService::toCents($invoice->fresh()->remaining));
+        $this->assertLessThan(0, $invoice->fresh()->remaining);
     }
 
     /**
@@ -127,8 +132,11 @@ class Adv483Test extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
 
-    /** PIN: a crafted request on a paid invoice (new price, a line added, one removed) moves no amount. */
-    public function test_pin_crafted_line_changes_on_a_paid_invoice_move_no_money(): void
+    /**
+     * PIN, rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-1): a paid invoice's lines change (new price, a line added, one
+     * removed). It stays paid, its payment is untouched and nothing becomes credit by the edit: it is said to be paid over.
+     */
+    public function test_pin_line_changes_on_a_paid_invoice_are_saved_and_move_no_money(): void
     {
         $invoice = $this->invoice();
         $invoice->items()->create(['description' => 'Extra', 'quantity' => 1, 'price' => '10.00']);
@@ -141,24 +149,31 @@ class Adv483Test extends TestCase
         $items[$first]['price'] = '1.00';
         unset($items[$second]);
         $items['new-line'] = ['description' => 'Free', 'quantity' => 1, 'price' => '0.00', 'taxed' => true];
-        $page->set('data.items', $items)->call('save');
+        $page->set('data.items', $items)->call('save')->assertNotified(__('Check its balance'));
 
-        $this->assertSame($total, (string) $invoice->fresh()->total);
-        $this->assertSame(2, $invoice->items()->count());
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        $fresh = $invoice->fresh();
+        $this->assertSame(['1.00', '0.00'], $fresh->items()->orderBy('id')->pluck('price')->map(fn ($price) => (string) $price)->all());
+        $this->assertSame(Invoice::STATUS_PAID, $fresh->status);
+        $this->assertLessThan(0, $fresh->remaining, 'paid over, and said');
+        $payment = $fresh->transactions()->sole();
+        $this->assertSame([number_format((float) $total, 2, '.', ''), '0.00', '0.00'], [number_format((float) $payment->amount, 2, '.', ''), (string) $payment->credited_amount, (string) $payment->refunded_amount]);
     }
 
-    /** PIN: an open invoice with a part payment still refuses a crafted repricing on Save. */
-    public function test_pin_a_crafted_repricing_with_a_part_payment_is_refused(): void
+    /** PIN, rewritten 2026-11-10: an open invoice with a part payment takes a repricing below it, and says it is paid over. */
+    public function test_pin_a_repricing_below_a_part_payment_is_saved_and_said(): void
     {
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice, 'BankTransfer', '40.00', transactionId: 'TX-F');
 
         $page = $this->livewireAs($this->staff())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $line = array_key_first($page->get('data.items'));
-        $page->set("data.items.{$line}.price", '10.00')->call('save')->assertNotified(__('Invoice not saved'));
+        $page->set("data.items.{$line}.price", '10.00')->call('save')->assertNotified(__('Check its balance'));
 
-        $this->assertSame('100.00', (string) $invoice->items()->first()->price);
+        $this->assertSame('10.00', (string) $invoice->items()->first()->price);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'not closed on its own');
+        $this->assertLessThan(0, $invoice->fresh()->remaining);
+        $this->assertSame('40.00', (string) $invoice->transactions()->sole()->amount);
+        $this->assertSame('0.00', (string) $invoice->transactions()->sole()->credited_amount);
     }
 
     /** PIN: once its payment is refunded in full, an open invoice's lines unlock and a repricing saves. */

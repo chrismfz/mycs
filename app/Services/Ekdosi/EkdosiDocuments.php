@@ -20,7 +20,7 @@ final class EkdosiDocuments
 
     public const OTHER_INVOICE = 'mark_on_another_invoice';
 
-    /** The invoice is not what Ekdosi read: merged away, split, or its lines changed since (R2-3 of #459). */
+    /** The invoice is not what Ekdosi read: merged away, or (with a fingerprint) its lines changed since (R2-3 of #459). */
     public const CHANGED = 'invoice_changed';
 
     /**
@@ -91,9 +91,10 @@ final class EkdosiDocuments
     }
 
     /**
-     * Why the invoice is not the one Ekdosi read, or null: merged into another, split (the split off lines on an invoice of
-     * their own), or with the fingerprint Ekdosi read (`mycs.fingerprint`) no longer its own. Without a fingerprint
-     * (an Ekdosi before K1) only a merge or a split is seen.
+     * Why the invoice is not the one Ekdosi read, or null: merged into another, or with the fingerprint Ekdosi read
+     * (`mycs.fingerprint`) no longer its own. A split or a moved service is no reason (owner 2026-11-10, S7-TAX-EKDOSI-1):
+     * an invoice that is Ekdosi's is never split, merged or moved (InvoiceLineMove::refusal), so one that was is older than
+     * what Ekdosi read. Without a fingerprint (an Ekdosi before K1) only a merge is seen.
      */
     private function changed(Invoice $invoice, ?string $fingerprint): ?string
     {
@@ -107,9 +108,6 @@ final class EkdosiDocuments
             $invoice->setRelation('adjustmentNotes', $invoice->adjustmentNotes()->lockForUpdate()->get());
 
             return hash_equals(EkdosiFeed::fingerprint($invoice), $fingerprint) ? null : 'Its lines changed since it was read: read it again.';
-        }
-        if (Invoice::query()->where('split_from_id', $invoice->id)->lockForUpdate()->exists()) {
-            return 'Split since: part of its lines are on another invoice. Read it again (with its fingerprint).';
         }
 
         return null;

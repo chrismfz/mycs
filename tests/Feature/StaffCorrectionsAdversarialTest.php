@@ -24,6 +24,8 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
+use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyTrail;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -136,11 +138,27 @@ class StaffCorrectionsAdversarialTest extends TestCase
             "I1: invoice #{$invoice->id} is paid with {$invoice->remaining} left to pay. {$context}");
     }
 
+    /**
+     * Since the owner's decision of 2026-11-10 (docs/staff-freedom.md) staff may leave a paid invoice with a balance, by
+     * changing its lines or notes: what I1 guards there now is that it is said (the page's notice, the daily check),
+     * never silent.
+     */
+    private function assertPaidBalanceIsSaid(Invoice $invoice, int $cents, string $context): void
+    {
+        $invoice = $invoice->fresh();
+        $this->assertSame([Invoice::STATUS_PAID, $cents], [$invoice->status, self::cents($invoice->remaining)], $context);
+        $this->assertNotNull(StaffLineEdit::balanceNotice($invoice->id), "the page says what invoice #{$invoice->id} owes. {$context}");
+        $this->assertContains("invoice #{$invoice->id}", array_column((new MoneyCheck)->run(['paid_balance']), 'subject'), "the daily check names it. {$context}");
+    }
+
     // ================================================================ I1: findings
 
     /**
      * I1 via the admin API (the B1 actor: an API key). The line is zeroed, the invoice marked paid (nothing left), the
      * line restored: a paid invoice with 100.00 to pay, and its service renewed one period without any money.
+     * As on main after the reviews of #780: a zero invoice closes as paid (main's rule); a raise that would make a paid
+     * invoice owe is staff's word for what it owes and needs the permission to record payments
+     * (Invoice::owesByStaffsWord), which this key has not: the restore is refused.
      */
     public function test_api_line_edits_around_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {
@@ -208,7 +226,8 @@ class StaffCorrectionsAdversarialTest extends TestCase
     public function test_a_credit_purchase_never_grants_credit_without_a_payment(): void
     {
         $invoice = $this->invoice(500, referenceType: Credit::class);
-        $note = $this->note($invoice, -500, 'Discount');
+        // Written before discounts on a credit purchase were refused (S6-MONEY-LEDGER-1): no events, as an import leaves it.
+        $note = AdjustmentNote::withoutEvents(fn () => $this->note($invoice, -500, 'Discount'));
 
         try {
             $invoice->fresh()->update(['status' => Invoice::STATUS_PAID]);
@@ -228,25 +247,21 @@ class StaffCorrectionsAdversarialTest extends TestCase
      * I1 / I4 interplay: voiding a staff discount on an invoice already paid (Mark Paid for what was left) leaves it
      * paid with the discount still to pay. VoidAdjustmentNote checks neither the invoice status nor (on the global
      * Adjustment Notes list) immutable invoices.
+     * Rewritten 2026-11-10 (TIGHT-INVOICES-PAYMENTS-1): the void is allowed on a paid invoice; it stays paid and says it owes.
      */
-    public function test_voiding_a_note_never_leaves_a_paid_invoice_with_a_balance(): void
+    public function test_voiding_a_note_on_a_paid_invoice_leaves_it_paid_and_says_its_balance(): void
     {
         $invoice = $this->invoice(100);
         $discount = $this->note($invoice, -20, 'Discount');
         (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '80.00', 'TRANSFER-80');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
 
-        // The action's own rule (0e74b081): policy, staff note, immutable invoices only while pending. Immutable off.
         $this->actingAs($this->owner());
-        $allowed = VoidAdjustmentNote::allowed($discount->fresh());
-        if ($allowed) {
-            try {
-                $discount->update(['status' => AdjustmentNoteStatus::Voided]); // what VoidAdjustmentNote does, under the locks
-            } catch (DisplayException) {
-            }
-        }
+        $this->assertTrue(VoidAdjustmentNote::allowed($discount->fresh()));
+        $discount->update(['status' => AdjustmentNoteStatus::Voided]); // what VoidAdjustmentNote does, under the locks
 
-        $this->assertNotPaidWithBalance($invoice, 'after voiding a discount on a paid invoice (VoidAdjustmentNote::allowed: ' . var_export($allowed, true) . ')');
+        $this->assertPaidBalanceIsSaid($invoice, 2000, 'after voiding a discount on a paid invoice');
+        $this->assertSame('80.00', (string) $invoice->transactions()->sole()->amount, 'its payment is as it was');
     }
 
     /**

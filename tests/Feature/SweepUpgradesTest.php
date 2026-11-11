@@ -73,7 +73,7 @@ class SweepUpgradesTest extends TestCase
         $invoice->items()->create(['description' => 'Line', 'price' => $price, 'quantity' => 1, 'reference_id' => $ref ?? $service->id,
             'reference_type' => $type, 'period_start' => $start, 'period_end' => $end]);
         // As the importer writes it (the observer lets only a recorded payment mark one paid).
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
 
         return $invoice;
     }

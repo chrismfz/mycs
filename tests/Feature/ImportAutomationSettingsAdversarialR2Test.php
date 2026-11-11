@@ -146,6 +146,7 @@ class ImportAutomationSettingsAdversarialR2Test extends TestCase
             ['id' => 8002, 'nextduedate' => '2026-10-01', 'domainstatus' => 'Active', 'overideautosuspend' => '1', 'overidesuspenduntil' => '2026-11-01'],
         ]);
         $this->assertSame('2026-11-01', $this->service(8002)->suspend_hold_until->toDateString());
+        $this->billedAhead($this->service(8002)); // its WHMCS renewal invoice, issued before it was due
 
         $this->artisan('app:cron-job');
 

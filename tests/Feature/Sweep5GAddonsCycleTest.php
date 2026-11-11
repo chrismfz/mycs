@@ -50,17 +50,18 @@ class Sweep5GAddonsCycleTest extends TestCase
     }
 
     /**
-     * G-ADDONS-CYCLE-2. A yearly addon of a monthly service, on the service's day of the month and due after it (the shape
-     * «Add addon» itself leaves after the addon's first renewal): refused, and with it the whole import.
+     * G-ADDONS-CYCLE-2, as it stands since 2026-11-10 (sweep 7 S7-LATEST-FIXES-1). A yearly addon of a monthly service on
+     * the service's day of the month was accepted by the day check (the shape «Add addon» once left); since an addon has
+     * its service's cycle (2026-11-09) and its date, it is refused twice: another cycle, and another date (ahead of its
+     * service, no whole number of its periods behind it).
      */
-    public function test_g_addons_cycle_2_a_yearly_addon_of_a_monthly_service_on_its_day_is_not_refused(): void
+    public function test_g_addons_cycle_2_a_yearly_addon_of_a_monthly_service_on_its_day_is_refused_now(): void
     {
-        $this->assertTrue(WhmcsAddonImport::onServiceDay('Annually', '2027-03-15', '2026-12-15'),
-            'a yearly addon due 2027-03-15 of a monthly service due 2026-12-15 is on the service\'s billing day (the 15th)');
-        $this->assertSame([], $this->addonsApart(
+        $this->assertNull(WhmcsAddonImport::periodsBehind('Annually', '2027-03-15', '2026-12-15'), 'ahead of its service');
+        $this->assertSame([50], $this->addonsApart(
             ["(2, 'Active', 'Monthly', '2026-12-15')"],
             ["(50, 2, 'Active', 'Annually', '2027-03-15')"],
-        ), 'the import refuses to run on #50, though it is on its service\'s day');
+        ));
     }
 
     /**
@@ -77,15 +78,16 @@ class Sweep5GAddonsCycleTest extends TestCase
 
     /**
      * G-ADDONS-CYCLE-5. A 31st anchor: the service's date 2027-02-28 (February's 31st), its monthly addon due 2027-01-31, a
-     * month of its own cycle before. MyCS itself puts it there (alignedEnd counts back on the billing day, 31); the
-     * importer counts back from the 28th and refuses it.
+     * month before: on the service's billing day (31), so the day check accepts it (the importer once counted back from
+     * the 28th and refused it). Since 2026-11-10 (sweep 7 S7-LATEST-FIXES-1) the addon's date is its service's; the clamped
+     * day is still what tells an addon whole periods behind its service (its own renewal unpaid): one month here.
      */
     public function test_g_addons_cycle_5_a_monthly_addon_on_a_31st_anchor_is_on_its_services_day(): void
     {
         $due = CarbonImmutable::parse('2027-02-28');
         $this->assertSame('2027-01-31', BillingPeriod::start($due, 'month', 1, 31)->toDateString(),
-            'on the 31st, a month before 28 February is 31 January (as AddAddon::alignedEnd counts)');
-        $this->assertTrue(WhmcsAddonImport::onServiceDay('Monthly', '2027-01-31', '2027-02-28'),
+            'on the 31st, a month before 28 February is 31 January');
+        $this->assertSame(1, WhmcsAddonImport::periodsBehind('Monthly', '2027-01-31', '2027-02-28'),
             'refused: counted back from the 28th, never the 31st');
     }
 

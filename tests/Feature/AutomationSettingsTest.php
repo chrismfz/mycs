@@ -61,7 +61,9 @@ class AutomationSettingsTest extends TestCase
     public function test_by_default_suspend_days_are_eight(): void
     {
         $due = $this->service(['expires_at' => '2026-10-11']);
+        $this->billedAhead($due);
         $notYet = $this->service(['expires_at' => '2026-10-12']);
+        $this->billedAhead($notYet);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

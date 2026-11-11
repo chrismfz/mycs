@@ -20,7 +20,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use MyCS\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
 use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
@@ -85,7 +84,7 @@ class Sweep4EPaymentCreditFixTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line = $invoice->items()->create(['description' => 'Period', 'price' => 120.00, 'quantity' => 1, 'reference_id' => $service->id,
             'reference_type' => Service::class, 'period_start' => $start, 'period_end' => $end]);
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status]);
+        $this->statusFixture((int) $invoice->id, $status);
 
         return $line;
     }
@@ -146,7 +145,7 @@ class Sweep4EPaymentCreditFixTest extends TestCase
             $invoice = Invoice::factory()->create(['client_id' => $clientId, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
             $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100.00,
                 'reference_type' => Service::class, 'reference_id' => $service->id]);
-            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+            $this->statusFixture((int) $invoice->id, Invoice::STATUS_PAID);
 
             return $invoice->fresh();
         };

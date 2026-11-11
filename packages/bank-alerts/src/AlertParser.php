@@ -37,7 +37,7 @@ final class AlertParser
         if ($bank === null) {
             return null;
         }
-        $values = fn (string $name) => array_map(fn ($h) => trim($h->getRawValue()), $message->getAllHeadersByName($name));
+        $values = fn (string $name) => Parser::exactHeaders($message, $name);
         // An ARC header written with space before its colon (obsolete syntax) is dropped by the parser but may be read by
         // the verifier: an ARC set we cannot see is no proof (adversarial round 2 of #450).
         $head = (string) preg_split('/\r?\n\r?\n/', $raw, 2)[0];

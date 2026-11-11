@@ -11,8 +11,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Split for staff (PR E, sweep Π2.6): the chosen lines move to a new invoice, in one transaction under the customer →
  * invoice locks, refused as a merge is (InvoiceLineMove::refusal). Lines by id only, never matched by their text; at least
- * one stays. The new invoice has the same customer, currency, due date and billing details (the snapshot taken when the
- * first was issued), and points at the one it left (split_from_id). It gets its number as any new invoice does (none
+ * one stays. The new invoice has the same customer, currency, status (unpaid, or a draft), due date and billing details
+ * (the snapshot taken when the first was issued), and points at the one it left (split_from_id). The notes of the
+ * first stay on it. It gets its number as any new invoice does (none
  * while it is an open proforma). Its email is not sent: staff send it when they want to.
  */
 final class SplitInvoice
@@ -49,7 +50,8 @@ final class SplitInvoice
                 throw new DisplayException(__('An upgrade\'s lines stay together: move its discount with it, or neither.'));
             }
             $moving = (int) $lines->whereIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
-            $staying = (int) $lines->whereNotIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
+            // Its notes stay with the invoice they were written on (owner 2026-11-10: a note no longer stops a split).
+            $staying = (int) $lines->whereNotIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents()) + InvoiceLineMove::notesCents($invoice);
             if ($moving <= 0 || $staying <= 0) {
                 throw new DisplayException(__('Each invoice must bill more than nothing: keep a discount with the lines it discounts.'));
             }
@@ -58,7 +60,7 @@ final class SplitInvoice
                 'client_id' => $invoice->client_id,
                 'currency_code' => $invoice->currency_code,
                 'due_at' => $invoice->due_at,
-                'status' => Invoice::STATUS_UNPAID,
+                'status' => $invoice->status, // unpaid, or a draft as the one it leaves
                 'preferred_gateway_id' => $invoice->preferred_gateway_id, // as WHMCS keeps it on a split
             ]);
             $new->send_create_email = false;

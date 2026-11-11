@@ -3,6 +3,8 @@
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\DeleteInvoiceTransaction;
+use App\Admin\Actions\EditInvoiceTransaction;
+use App\Admin\Actions\UndoRefundAction;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
@@ -45,11 +47,6 @@ class TransactionsRelationManager extends RelationManager
     /** A payment recorded from the page's header: render again, with it (live test of 2026-10-27). */
     #[On(self::PAYMENTS_CHANGED)]
     public function paymentsChanged(): void {}
-
-    protected function canModifyTransactions(): bool
-    {
-        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_UNPAID;
-    }
 
     public function form(Schema $schema): Schema
     {
@@ -105,7 +102,6 @@ class TransactionsRelationManager extends RelationManager
             ])
             ->headerActions([
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyTransactions())
                     // Staff-recorded money follows the same rules as a gateway's (docs/payments.md): what the
                     // invoice cannot take becomes account credit; a replayed transaction id changes nothing.
                     ->using(function (array $data): InvoiceTransaction {
@@ -204,8 +200,10 @@ class TransactionsRelationManager extends RelationManager
                             Auth::user()->can('update', $record)
                     )
                     ->modalSubmitAction(fn (Action $action) => $action->label(__('invoices.refund'))),
+                // Staff's corrections (owner 2026-11-10, docs/staff-freedom.md): one payment or one refund at a time.
+                UndoRefundAction::make(),
+                EditInvoiceTransaction::make(),
                 DeleteAction::make()
-                    ->visible(fn (): bool => $this->canModifyTransactions())
                     ->schema([DeleteInvoiceTransaction::negativeCreditField()])
                     ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false)))
                     ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
@@ -213,16 +211,15 @@ class TransactionsRelationManager extends RelationManager
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
-                        ->visible(fn (): bool => $this->canModifyTransactions())
-                        // One by one through the service, never a mass query delete (credit, money trail).
+                            // One by one through the service, never a mass query delete (credit, money trail).
                         ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record)))
                         ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
                 ]),
             ]);
     }
 
-    /** @return array<string, string> the ways this payment can go back, the default first */
-    private static function refundMethods(InvoiceTransaction $record): array
+    /** @return array<string, string> the ways this payment can go back, the default first (the Admin API offers the same) */
+    public static function refundMethods(InvoiceTransaction $record): array
     {
         if ($record->is_credit_transaction) {
             return ['credit' => __('invoices.refund_method_credit')];

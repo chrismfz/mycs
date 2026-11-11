@@ -16,8 +16,8 @@
 </div>
 @endif
 {{-- Charged automatically or not, and why (owner 2026-11-01: no misunderstanding); its own switch (#568). Who pays the
-account's invoices, as on the domain's page. --}}
-@if(\App\Support\CurrentClient::allows('invoices'))
+account's invoices, as on the domain's page: asked of the service's account, not the session's (sweep 7, S7-ACCESS-1). --}}
+@if(\App\Livewire\Services\Show::loginMay($service, 'invoices'))
 <div class="flex items-center text-base gap-2">
     <span class="mr-2">{{ __('services.auto_pay') }}:</span>
     <span class="text-base/50">{{ \App\Services\Payment\ItemPaymentMethod::autoChargeStatus($service) }}</span>

@@ -11,8 +11,10 @@ use App\Http\Requests\Api\Admin\Invoices\GetInvoicesRequest;
 use App\Http\Requests\Api\Admin\Invoices\UpdateInvoiceRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Models\Invoice;
+use App\Services\Invoice\RecordPaymentService;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
+use Illuminate\Support\Facades\DB;
 use Spatie\QueryBuilder\QueryBuilder;
 
 #[Group(name: 'Invoices', weight: 4)]
@@ -74,6 +76,13 @@ class InvoiceController extends ApiController
     public function update(UpdateInvoiceRequest $request, Invoice $invoice)
     {
         $data = $request->validated();
+        // Staff's word that no payment is recorded (owner 2026-11-10): for this save only, never a column.
+        // It renews what a recorded payment renews: the key needs the permission to record payments too (REV-780-4).
+        if (($data['paid_without_payment'] ?? false) && !in_array('admin.invoice_transactions.create', $request->attributes->get('api_key_permissions', []), true)) {
+            abort(403, 'paid_without_payment needs the permission to record payments (invoice_transactions.create).');
+        }
+        $invoice->paid_without_payment = (bool) ($data['paid_without_payment'] ?? false);
+        unset($data['paid_without_payment']);
         // An invoice with payments keeps its customer and currency (InvoiceObserver::updating, docs/money-trail.md §8).
         $moves = (array_key_exists('client_id', $data) && (int) $data['client_id'] !== (int) $invoice->client_id)
             || (array_key_exists('currency_code', $data) && $data['currency_code'] !== $invoice->currency_code);
@@ -81,11 +90,25 @@ class InvoiceController extends ApiController
             abort(422, 'An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).');
         }
         try {
-            $invoice->update($data);
+            // Back to a draft (owner 2026-11-10: as the panel's select): an unpaid one only, read under the payment locks.
+            if (($data['status'] ?? null) === Invoice::STATUS_DRAFT) {
+                DB::transaction(function () use ($invoice, $data) {
+                    $locked = (new RecordPaymentService)->lockInvoice($invoice->getKey());
+                    if (!in_array($locked->status, Invoice::OPEN_STATUSES, true)) {
+                        throw new DisplayException(__('Only an unpaid invoice is set back to a draft.'));
+                    }
+                    $invoice->setRawAttributes($locked->getAttributes(), true);
+                    $invoice->update($data);
+                });
+            } else {
+                $invoice->update($data);
+            }
         } catch (DisplayException $e) {
             // The model's money rules (InvoiceObserver::updating): paid only without a balance, a cancelled invoice is
             // reopened before it is paid, an invoice with payments keeps its customer and currency.
             abort(422, $e->getMessage());
+        } finally {
+            $invoice->paid_without_payment = false;
         }
 
         // Return the updated invoice as a JSON response

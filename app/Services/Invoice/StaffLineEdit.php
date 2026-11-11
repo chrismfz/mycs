@@ -2,7 +2,6 @@
 
 namespace App\Services\Invoice;
 
-use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
@@ -11,10 +10,10 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Staff change an invoice's lines (the admin form, the API): under the payment locks (customer, then invoice), so a
- * payment landing at the same moment is serialised with the change (sweep Π2.11). An open invoice with payments on it
- * (processing too) keeps its amounts, as Blesta does: a line taken off or lowered would leave a payment over what is
- * owed on an invoice still unpaid. Staff refund the payment first (back, or to account credit), or give a discount
- * with a note; descriptions still change. The app's own changes have their rules (ChangeOpenLine, CancelOpenInvoices).
+ * payment landing at the same moment is serialised with the change (sweep Π2.11). On an invoice with a payment on it
+ * (owner 2026-11-10, docs/staff-freedom.md) prices change and free-text lines come and go: raised, it owes more; lowered
+ * below what was paid, it is paid over and staff are told what to do (balanceNotice). Lines that bill a service or a
+ * domain stay on it (refuseReferencedLine). Nothing is closed, credited or renewed on its own. The app's own changes have their rules (ChangeOpenLine, CancelOpenInvoices).
  */
 final class StaffLineEdit
 {
@@ -24,19 +23,16 @@ final class StaffLineEdit
      * @param  Closure(Invoice): T  $change  runs with the invoice locked
      * @return T
      *
-     * @throws DisplayException when it changes amounts on an invoice with payments
+     * @throws DisplayException when it changes amounts on an invoice Ekdosi issued a document for
      */
     public static function run(mixed $invoiceId, bool $changesAmounts, Closure $change): mixed
     {
         return DB::transaction(function () use ($invoiceId, $changesAmounts, $change) {
             $invoice = (new RecordPaymentService)->lockInvoice($invoiceId);
-            if ($changesAmounts) {
-                self::refuseWithPayments($invoice);
-                // A locking read after the locks (final review of #459): the observer's plain read would miss a document
-                // Ekdosi wrote back while this waited.
-                if (EkdosiDocument::activeOn($invoice->id, lock: true)) {
-                    throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
-                }
+            // A locking read after the locks (final review of #459): the observer's plain read would miss a document
+            // Ekdosi wrote back while this waited.
+            if ($changesAmounts && EkdosiDocument::activeOn($invoice->id, lock: true)) {
+                throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: its lines stay as they are. Cancel the document there first.'));
             }
 
             return $change($invoice);
@@ -44,30 +40,45 @@ final class StaffLineEdit
     }
 
     /**
-     * Call under the payment locks. A paid or refunded invoice keeps its lines anyway (InvoiceItemObserver).
+     * The one rule of staff's line edits on an invoice that holds money or staff's word (Invoice::holdsMoneyOrWord; the cut
+     * of 2026-11-10 after three review rounds found credit made from service lines removed or added again): any line's
+     * price, quantity, taxed and description change, down to 0.00; lines that reference nothing are added and removed; a
+     * line that references anything (a service, a domain, an upgrade, account credit) is neither added nor removed. The
+     * same whether it is paid or set back to unpaid with its payment on it. An invoice with no payment, not paid by hand,
+     * is free as before. Call under the payment locks.
      *
-     * @param  string|null  $statusAfter  the status the same save gives it (a reopening), if any
+     * @param  'add'|'remove'  $what
      */
-    public static function refuseWithPayments(Invoice $invoice, ?string $statusAfter = null): void
+    public static function refuseReferencedLine(Invoice $invoice, ?string $referenceType, string $what): void
     {
-        $open = in_array($invoice->status, Invoice::OPEN_STATUSES, true) || in_array($statusAfter, Invoice::OPEN_STATUSES, true);
-        if ($open && self::holdsMoney($invoice)) {
-            throw new DisplayException(__('This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.'));
+        if ($referenceType === null || $referenceType === '' || !$invoice->holdsMoneyOrWord()) {
+            return;
         }
+        throw new DisplayException($what === 'remove'
+            ? __('This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not removed from it. Set its price to 0.00 instead.')
+            : __('This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not added to it. Make a new invoice for it.'));
     }
 
     /**
-     * Money on it: a payment processing, or succeeded ones less what was refunded or moved to credit (adversarial A2/A3:
-     * once refunded in full, as the refusal tells staff to, its lines change again). Read locked under the payment
-     * locks; unlocked for the form, which only shows it (InvoiceResource::linesKeepAmounts()).
+     * What staff are told after its amounts changed, or null when its money and its total still agree: it owes on while
+     * paid, or holds more than it bills. Read fresh (call it after the change, under the locks or after them).
      */
-    public static function holdsMoney(Invoice $invoice, bool $lock = true): bool
+    public static function balanceNotice(mixed $invoiceId): ?string
     {
-        $payments = $invoice->transactions()->whereIn('status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value]);
+        $invoice = Invoice::query()->with(['items', 'transactions', 'adjustmentNotes'])->whereKey($invoiceId)->first();
+        if ($invoice === null || !in_array($invoice->status, [...Invoice::OPEN_STATUSES, Invoice::STATUS_PAID], true)) {
+            return null;
+        }
+        $remaining = RecordPaymentService::toCents($invoice->remaining);
+        $figures = ['amount' => number_format(abs($remaining) / 100, 2, '.', ''), 'currency' => $invoice->currency_code];
+        $paid = $invoice->status === Invoice::STATUS_PAID;
 
-        return ($lock ? $payments->lockForUpdate() : $payments)->get(['id', 'status', 'amount', 'refunded_amount', 'credited_amount'])
-            ->contains(fn ($payment) => $payment->status === InvoiceTransactionStatus::Processing
-                || RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
-                    - RecordPaymentService::toCents($payment->credited_amount) > 0);
+        return match (true) {
+            $paid && $remaining > 0 => __('This invoice stays paid and now owes :amount :currency: record the payment on it («Add payment»), or leave it. The periods it already gave stay given: nothing is renewed or taken back.', $figures),
+            $paid && $remaining < 0 => __('This invoice stays paid and is now paid :amount :currency over its total: «Close as paid» gives the part over to the customer as account credit. The periods it already gave stay given: nothing is renewed or taken back.', $figures),
+            $remaining < 0 => __('This invoice is now paid :amount :currency over its total: «Close as paid» closes it and gives the part over to the customer as account credit.', $figures),
+            $remaining === 0 && $invoice->hasPayments() && $invoice->items->isNotEmpty() => __('Its payments now cover this invoice: «Close as paid» closes it.'),
+            default => null,
+        };
     }
 }

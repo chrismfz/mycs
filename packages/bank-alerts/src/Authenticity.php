@@ -33,7 +33,7 @@ final class Authenticity
         }
         $top = $authenticationResults === [] ? null : AuthenticationResults::parse($authenticationResults[0]);
         if ($top === null || $top['authserv_id'] !== $authservId) {
-            return new AuthVerdict(false, 'not_our_server');
+            return new AuthVerdict(false, $top === null && $authenticationResults !== [] ? 'unreadable_results' : 'not_our_server');
         }
         if (self::bankPassed($top['results'], $domain)) {
             return new AuthVerdict(true, 'dkim_dmarc_pass');
@@ -93,7 +93,8 @@ final class Authenticity
     {
         $found = [];
         foreach ($values as $value) {
-            $value = trim(str_replace(["\r", "\n"], ' ', $value));
+            // Its folding stays as written: the results are unfolded where they are read.
+            $value = trim($value);
             $i = preg_match('/^i\s*=\s*(\d+)\s*;(.*)$/s', $value, $m) === 1 ? (int) $m[1] : 0;
             $found[$i][] = trim($m[2] ?? $value);
         }

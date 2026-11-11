@@ -298,16 +298,26 @@ class DomainLinePeriodAdversarialTest extends TestCase
         $this->assertCount(1, $this->liveRenewals($domain), 'the charge does not stop the renewal being billed');
     }
 
+    /**
+     * Kept after 2026-11-10 (staff change a paid invoice's prices and free-text lines, docs/staff-freedom.md): no line of
+     * a domain, a renewal or a charge, is added to an invoice with a payment on it (the cut rule: «make a new invoice for
+     * it»); a renewal there would be renewed at the registry by the cron with no payment for it.
+     */
     public function test_def_the_api_refuses_a_renewal_on_a_paid_invoice(): void
     {
         $domain = $this->domain();
         $invoice = $this->invoice();
         $this->line($invoice, $domain, ['price' => '5.00', 'kind' => InvoiceItem::KIND_CHARGE]);
         $this->pay($invoice);
+        $line = ['invoice_id' => $invoice->id, 'description' => 'Renewal', 'price' => 23.33, 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id];
 
-        $this->withToken($this->token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => $invoice->id, 'description' => 'Renewal',
-            'price' => 23.33, 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id])->assertStatus(422);
+        $this->withToken($this->token)->postJson(route('api.v1.admin.invoice-items.store'), $line + ['kind' => InvoiceItem::KIND_RENEWAL])->assertStatus(422);
+        $this->withToken($this->token)->postJson(route('api.v1.admin.invoice-items.store'), $line)->assertStatus(422);
+
+        $this->assertSame(1, $invoice->items()->count());
         $this->assertCount(0, $this->liveRenewals($domain));
+        $this->assertFalse(DomainRenewalService::waitingLines()->where('invoice_id', $invoice->id)->exists(), 'nothing for the cron to renew at the registry');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
 
     public function test_def_two_period_less_lines_on_one_invoice_take_consecutive_years(): void

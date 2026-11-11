@@ -76,7 +76,7 @@ class StaffOrderNoticeTest extends TestCase
         $this->assertStringContainsString('Monthly', $mail->body);
         $this->assertStringContainsString('Please set up before Monday.<br />', $mail->body, 'the notes, line breaks kept');
         $this->assertNotNull($order->invoice_id);
-        $this->assertStringContainsString(e(InvoiceResource::getUrl('view', ['record' => $order->invoice_id], panel: 'admin')), $mail->body, 'a link to its invoice');
+        $this->assertStringContainsString(e(InvoiceResource::getUrl('edit', ['record' => $order->invoice_id], panel: 'admin')), $mail->body, 'a link to its invoice');
     }
 
     public function test_an_order_with_no_notes_is_mailed_too(): void

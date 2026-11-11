@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
+use App\Exceptions\CreditPurchaseNotCovered;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
@@ -22,6 +23,7 @@ use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\InvoiceReaddress;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\UndoRefund;
 use App\Services\Payment\SavedMethodCharge;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
@@ -85,10 +87,11 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
         }
-        // Merged into another invoice (PR E): its lines are there now. Reopened, it would bill nothing.
+        // Merged into another invoice (PR E): its lines are there now. Reopened (owner 2026-11-10: a merge is undone as in
+        // WHMCS), it is an empty invoice like any other and no longer «merged into» anything: the link goes with it.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->merged_into_id !== null) {
-            throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $invoice->merged_into_id]));
+            $invoice->merged_into_id = null;
         }
         // Reopened after its period was billed again on another invoice (a cancellation request withdrawn, adversarial
         // D3A-10): the customer would be asked twice for it. Staff cancel the other one first.
@@ -101,13 +104,16 @@ class InvoiceObserver
         // R2-2 of #357). Staff bill the new customer on a new invoice.
         if ($invoice->isDirty('status') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
             && in_array($invoice->status, Invoice::OPEN_STATUSES, true)
-            && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
-                ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id)) {
+            // Not a chargeback's paid to unpaid: the bank took the money, so it is always recorded and staff are told
+            // (S6-MONEY-LEDGER-2; Invoice::owedAgainAfterChargeback).
+            && !$invoice->becomingOwedAfterChargeback()
+            && self::billsItemOfAnother($invoice)) {
             throw new DisplayException(__('This invoice bills an item that moved to another customer: it is not opened again. Bill that customer on a new invoice.'));
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
         // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
-        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {
+        // But for staff undoing one of its refunds (UndoRefund, owner 2026-11-10): it holds money again.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED && !UndoRefund::undoing()) {
             throw new DisplayException(__('A refunded invoice stays refunded: bill the customer on a new invoice.'));
         }
         // Read locked: Invoice::save holds the payment locks for a change to cancelled or refunded.
@@ -139,19 +145,23 @@ class InvoiceObserver
             }
         }
         // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
-        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
-        // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the
-        // payment locks for this change.
+        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. No code path marks it paid by its
+        // status alone; staff may, on an unpaid invoice, saying so ($paid_without_payment, owner 2026-11-10: its services
+        // renew, as they meant, and no payment row is made up). Never the credit it sells: a credit purchase needs its
+        // money, below. Read locked: Invoice::save holds the payment locks for this change.
         // No longer paid: nothing left to apply (BIL-9); paid again, it is marked again.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
             $invoice->apply_pending_since = null;
+            $invoice->paid_by_staff_at = null; // «paid by hand» is a fact of a paid invoice only
         }
         if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
             && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
             $remaining = RecordPaymentService::toCents($invoice->withLockedBalance()->remaining);
-            if ($remaining > 0) {
+            if ($remaining > 0 && !($invoice->paid_without_payment && $invoice->getOriginal('status') === Invoice::STATUS_UNPAID)) {
                 throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
             }
+            // The fact, kept on it: whatever must not take «paid» for money reads it (REV-780-3, -6).
+            $invoice->paid_by_staff_at = $remaining > 0 ? CarbonImmutable::now() : null;
             // Paid over its total: the part over is the customer's, given only by RecordPaymentService::settle (2b).
             if ($remaining < 0 && !RecordPaymentService::settling()) {
                 throw new DisplayException(__('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.'));
@@ -165,7 +175,7 @@ class InvoiceObserver
             // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative
             // line) brought its balance to zero.
             if (self::creditToGiveCents($invoice) > self::receivedCents($invoice)) {
-                throw new DisplayException(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
+                throw new CreditPurchaseNotCovered(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
             }
         }
         // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md §8): an invoice with a
@@ -182,8 +192,10 @@ class InvoiceObserver
         }
         // A closed one (cancelled, paid, refunded) is an issued document of its customer: reopened first, in the same save
         // too (ADV-554-R2-1/2/3: moved closed, then reopened, it billed the first customer's tax).
-        if ($invoice->isDirty('client_id') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
-            && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)) {
+        // Nor moved and marked paid in one save: «paid» was checked against the first customer's tax, and the lines of a paid
+        // invoice are retaxed now that they change (owner 2026-11-10; it was refused by the lines before).
+        if ($invoice->isDirty('client_id') && (($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID)
+            || (!in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true) && !in_array($invoice->status, Invoice::OPEN_STATUSES, true)))) {
             throw new DisplayException(__('A closed invoice keeps its customer: set it back to unpaid first (a refunded one never moves).'));
         }
         // A credit or debit note staff wrote is a fixed gross amount under the first customer's tax, numbered to them: void
@@ -220,6 +232,13 @@ class InvoiceObserver
         if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
             throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
         }
+    }
+
+    /** A line of it bills a service or domain that is another customer's now (MoveToClient), or deleted. */
+    public static function billsItemOfAnother(Invoice $invoice): bool
+    {
+        return $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
+            ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id);
     }
 
     /** The credit its lines still have to give (applied lines gave theirs already). Lines read locked. */
@@ -367,6 +386,10 @@ class InvoiceObserver
             && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
             self::renewalLines($invoice, domains: true)->update(['forgone_at' => null]);
         }
+        // Refunded no more (staff undid its refund, UndoRefund): the periods its refund gave up are its own again.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {
+            self::renewalLines($invoice, domains: true)->update(['forgone_at' => null]);
+        }
 
         // Reopened: the cancellation's credit note no longer applies, the invoice is payable again
         // (docs/payments.md). Refund notes and other adjustments stay as they are.
@@ -487,18 +510,22 @@ class InvoiceObserver
         if (SavedMethodCharge::onItsWay($invoice)) {
             throw new DisplayException(__('A payment for this invoice is on its way or not settled: it cannot be deleted until it is.'));
         }
+        // Marked paid by staff with no payment (REV-780): it gave its periods, and it took its number. Deleted, those
+        // periods would read as paid before MyCS and their days could come back as credit. Kept while it is so.
+        if ($invoice->paid_by_staff_at !== null) {
+            throw new DisplayException(__('This invoice was marked paid by staff with no payment and gave its periods: it is kept. Set it back to unpaid first if it was a mistake.'));
+        }
         // Ekdosi issued a fiscal document from it: the invoice is that document's record (E2; the key refuses it anyway).
         if (EkdosiDocument::query()->where('invoice_id', $invoice->id)->lockForUpdate()->exists()) {
             throw new DisplayException(__('This invoice has a fiscal document from Ekdosi: it is kept. Cancel or refund it instead.'));
-        }
-        // Where a merge went (PR E, code review CR-7): kept, with the invoice its lines are on.
-        if ($invoice->merged_into_id !== null || Invoice::query()->where('merged_into_id', $invoice->id)->exists()) {
-            throw new DisplayException(__('This invoice is part of a merge: it is kept, so the merge can be traced.'));
         }
         // It records a period given up on (Δ3a, adversarial D3A-6): deleted, the cron would bill that period again.
         if ($invoice->recordsForgonePeriod()) {
             throw new DisplayException(__('This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).'));
         }
+        // Either side of a merge is deleted like any other invoice (owner 2026-11-10; they were kept to trace the merge,
+        // code review CR-7): the invoices merged into this one no longer point at it (MariaDB's key does it; SQLite has none).
+        Invoice::query()->where('merged_into_id', $invoice->id)->update(['merged_into_id' => null]);
     }
 
     /**

@@ -30,6 +30,19 @@ class DomainTld extends Model implements Auditable
 
     public const OPERATIONS = ['register', 'renew', 'transfer', 'grace', 'redemption'];
 
+    /**
+     * The .gr registry's stages (owner 2026-11-10, sweep 7 S7-DOMAINS-1): 15 days of grace after the expiry, no redemption.
+     * Written to a .gr TLD's own fields where WHMCS did not say (the importer's catalogue step, and a migration for the
+     * rows already here); staff may change them like any TLD's.
+     */
+    public const GR_STAGE_DAYS = ['grace_days' => 15, 'redemption_days' => 0];
+
+    /** .gr or one of its second-level forms (com.gr, net.gr, org.gr, edu.gr, gov.gr), as a TLD is stored: no dot, lowercase. */
+    public static function isGr(string $tld): bool
+    {
+        return $tld === 'gr' || str_ends_with($tld, '.gr');
+    }
+
     /** Its domains are every account's, and its connection holds credentials: neither in a JSON or a template (review A4). */
     protected $hidden = ['domains', 'registrarConnection'];
 

@@ -80,8 +80,8 @@ class SendToEkdosi
     }
 
     /**
-     * Sets (or clears) the request on each eligible invoice, once: not through save() (an immutable invoice keeps its other
-     * fields; this is no part of what it bills), each change in the invoice's audit with the staff who made it.
+     * Sets (or clears) the request on each eligible invoice, once: not through save() (this is no part of
+     * what it bills), each change in the invoice's audit with the staff who made it.
      *
      * @param  iterable<Invoice>  $invoices
      * @return int how many changed
