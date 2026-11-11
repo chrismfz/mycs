@@ -232,6 +232,22 @@ class Sweep8OpsTest extends TestCase
         $this->assertSame(0, Service::query()->count());
     }
 
+    /** A new instance, not migrated yet (the cut-over's): a database queue whose table is not there does not stop the import. */
+    public function test_ops2_a_database_queue_whose_table_is_not_there_yet_does_not_stop_the_reset(): void
+    {
+        Schema::disableForeignKeyConstraints();
+        Schema::drop('jobs');
+        config(['queue.connections.unmade' => ['driver' => 'database', 'connection' => null, 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90, 'after_commit' => false],
+            'queue.default' => 'unmade']);
+        try {
+            $this->resetAsTheImportDoes();
+        } finally {
+            config(['queue.default' => 'sync']);
+        }
+
+        $this->assertSame(0, Service::query()->count(), 'the reset went through');
+    }
+
     /** The neighbour of S8-OPS-2: an import refused (its database not named) empties nothing: no row, no job, no cache key. */
     public function test_ops2_an_import_refused_without_its_confirmation_clears_neither_the_queue_nor_the_cache(): void
     {
