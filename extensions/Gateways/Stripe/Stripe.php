@@ -1263,6 +1263,9 @@ class Stripe extends Gateway
             if (self::noAnswer($e)) {
                 throw new ChargeNotSent('Could not reach Stripe: nothing was charged');
             }
+            if (self::keyRefused($e, otherMode: true)) {
+                throw $this->chargeKeyRefused($e, $invoice);
+            }
 
             throw new DisplayException('Could not process payment'); // nothing was charged yet
         }
@@ -1292,6 +1295,9 @@ class Stripe extends Gateway
             if ($e instanceof RequestException && $e->response->status() === 429) {
                 throw new ChargeNotSent('Stripe rate-limited the charge: nothing was charged');
             }
+            if (self::keyRefused($e)) {
+                throw $this->chargeKeyRefused($e, $invoice);
+            }
             if ($e instanceof RequestException && in_array($e->response->status(), [400, 402], true)) {
                 $error = $e->response->object()->error ?? null;
                 // If error is invalid_request_error and message contains "The provided currency" we can show the message
@@ -1318,6 +1324,40 @@ class Stripe extends Gateway
         }
 
         return true;
+    }
+
+    /**
+     * Stripe refuses OUR key (401, 403): it ran nothing and asked no card. On the customer's read ($otherMode) also a key of
+     * the other mode than the stored customers (its 404 «a similar object exists in live mode, but a test mode key was
+     * used», and the reverse). Not on the charge itself: the key has just read the customer, so that 404 is the saved
+     * method's, which fails as any charge (REV-791-4).
+     */
+    private static function keyRefused(Throwable $e, bool $otherMode = false): bool
+    {
+        return $e instanceof RequestException && (in_array($e->response->status(), [401, 403], true)
+            || ($otherMode && $e->response->status() === 404 && str_contains((string) $e->response->json('error.message'), 'similar object exists in')));
+    }
+
+    /**
+     * A saved method's charge Stripe refused for our key (keyRefused): ours to fix, not a decline of the card. Kept as not
+     * sent, so the customer is not told the payment failed and the method's declines are not counted (S8-PAYMENTS-2); staff
+     * are told, once an hour, as for a customer that cannot be read (createOrGetStripeCustomer). The notice never changes
+     * the outcome: when it cannot be made it is reported, and the charge is not sent all the same (REV-791-3).
+     */
+    private function chargeKeyRefused(Throwable $e, Invoice $invoice): ChargeNotSent
+    {
+        try {
+            if (Cache::add('stripe-charge-key-refused', true, now()->addHour())) {
+                $message = 'Stripe refused the secret key saved in the Stripe gateway on a saved method\'s charge (HTTP ' . ($e instanceof RequestException ? $e->response->status() : '?') . ', invoice #' . $invoice->id . '): check the key, its permissions and its mode (live/test). This charge was not sent now and no customer was told it failed; saved cards are not charged until the key works, and the cron tries again as set.';
+                PaymentsLog::warning($message, ['invoice_id' => $invoice->id]);
+                NotificationHelper::sendSystemEmailNotification('Stripe: saved cards cannot be charged', e($message));
+            }
+        } catch (Throwable $notice) {
+            report($notice);
+            rescue(fn () => Cache::forget('stripe-charge-key-refused'), report: false); // told again by the next charge
+        }
+
+        return new ChargeNotSent('Stripe refused our key: the charge was not sent');
     }
 
     /** No answer from Stripe at all (a timeout, a 5xx) or a request it refused to run (429): says nothing of a card. */
