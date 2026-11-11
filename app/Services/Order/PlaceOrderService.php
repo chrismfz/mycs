@@ -316,7 +316,8 @@ final class PlaceOrderService
 
     /**
      * Under the coupon's lock, counted with locking reads so a concurrent order's uses are seen (CART-5): every
-     * discounted unit is a use, not the checkout once.
+     * discounted unit is a use, not the checkout once. What counts as a use: Coupon::uses (not an order cancelled
+     * and never paid).
      */
     /** @param  list<int>  $productIds */
     private function checkCoupon(Client $client, Coupon $coupon, int $uses, array $productIds): void
@@ -332,11 +333,11 @@ final class PlaceOrderService
         if ($uses === 0) {
             return;
         }
-        if ($coupon->max_uses && $this->unitsUsed($coupon->services()) + $uses > $coupon->max_uses) {
+        if ($coupon->max_uses && $this->unitsUsed($coupon->uses()) + $uses > $coupon->max_uses) {
             throw new CouponUnusableException(__('This coupon can no longer be used'));
         }
         if ($coupon->max_uses_per_user
-            && $this->unitsUsed($coupon->services()->where('client_id', $client->id)) + $uses > $coupon->max_uses_per_user) {
+            && $this->unitsUsed($coupon->uses()->where('client_id', $client->id)) + $uses > $coupon->max_uses_per_user) {
             throw new CouponUnusableException(__('This coupon can no longer be used'));
         }
     }
