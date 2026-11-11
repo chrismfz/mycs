@@ -146,6 +146,7 @@ final class WhmcsDomainImport
         $this->counts['tlds'] = $catalog['counts']['tlds'];
         array_push($this->notes, ...$catalog['notes']);
         $this->domains();
+        $this->awaitingFirstRead();
         $this->followCatalog();
         $this->reminders();
 
@@ -490,6 +491,30 @@ final class WhmcsDomainImport
             DB::table('domains')->insert($chunk);
         }
         $this->imported = null;
+    }
+
+    /** Ids listed up to this many; past it, their count alone. */
+    private const LISTED_IDS = 20;
+
+    /**
+     * The live domains of a registrar with an API whose WHMCS expiry is already past their grace and redemption: the dates
+     * would end them, and never do before their registrar is read once (DomainLifecycle, S10-DOMAINS-1). Said, so staff
+     * look at them after the first sync (cutover-runbook).
+     */
+    private function awaitingFirstRead(): void
+    {
+        $today = Carbon::today();
+        $ids = Domain::query()->whereIn('status', [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption])
+            ->whereNotNull('expires_at')->whereNull('last_synced_at')->with(['domainTld', 'registrarConnection'])->orderBy('id')->get()
+            ->filter(fn (Domain $domain) => !in_array($domain->effectiveRegistrarConnection()?->registrar, [null, DomainRegistrarConnection::MANUAL], true)
+                && $domain->graceDays() !== null && $domain->redemptionDays() !== null
+                && ($domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at)->lessThan($today))
+            ->modelKeys();
+        if ($ids !== []) {
+            $this->notes[] = count($ids) . ' live domain(s) whose WHMCS expiry is past their grace and redemption'
+                . (count($ids) <= self::LISTED_IDS ? ' (#' . implode(', #', $ids) . ')' : '')
+                . ': not ended by the dates, they wait for their first registrar read (switch the connections on, sync, then look at the domains never synced: cutover-runbook).';
+        }
     }
 
     /**

@@ -1220,6 +1220,11 @@ dunning τρεις ώρες μετά), με ρολόι που προχωρά κ�
     παλιότερο σταματά το import (`stalePaidDomainOrders`, S7-IMPORT-2). Status που δεν το ξέρουμε έρχεται cancelled και αναφέρεται. Από δύο live με το ίδιο
     όνομα μένει live το τρέχον (active πριν από pending, grace, redemption, expired· μετά η μεταγενέστερη λήξη)· τα άλλα
     έρχονται cancelled και αναφέρονται·
+  - **λήξη του WHMCS που έχει περάσει grace και redemption** (sweep 10, S10-DOMAINS-1): το domain έρχεται όπως είναι και
+    **δεν** γίνεται deleted από τις ημερομηνίες πριν διαβαστεί μία φορά ο registrar του (`docs/domains.md`, #308). Το import
+    λέει πόσα είναι, σε μία γραμμή (ids ως 20, μετά μόνο το πλήθος): «N live domain(s) whose WHMCS expiry is past their
+    grace and redemption (#…): not ended by the dates, they wait for their first registrar read (…)». Μόνο όσα είναι σε
+    σύνδεση με API και έχουν γνωστές μέρες και για τα δύο στάδια· τα manual τελειώνουν με τις ημερομηνίες όπως πριν·
   - registrant και admin η κύρια επαφή του πελάτη, όπως στο `domains:adopt`·
   - τα additional fields (`tbldomainsadditionalfields`, 1.567 στο myip) στο `meta.whmcs_fields`, **κρυπτογραφημένα**,
     γιατί έχουν ημερομηνίες γέννησης, αριθμούς ταυτότητας και ΑΦΜ·

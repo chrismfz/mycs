@@ -24,7 +24,12 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   cron» έχουν ως τότε. Το timezone, το URL, το όνομα, οι γλώσσες και το νόμισμα του `mycs:install` κρατιούνται πάνω από
   το reset της βάσης.
 - **Μετά το import, από το staff:**
-  - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται.
+  - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται. Ως τότε κανένα domain τους δεν γίνεται deleted από
+    τις ημερομηνίες του WHMCS (sweep 10, S10-DOMAINS-1): ο importer λέει πόσα έχουν λήξη περασμένη από grace και redemption
+    («… live domain(s) whose WHMCS expiry is past their grace and redemption …: they wait for their first registrar read»).
+    **Μετά την ενεργοποίηση και το πρώτο πλήρες sync** (`php artisan domains:sync --force`, ώσπου να περάσουν όλα τα
+    batches): Domains, ταξινόμηση κατά «Last synced», και κοιτάζονται όσα γράφουν ακόμη **«Never»**. Κανένα δεν τελειώνει
+    μόνο του: το καθένα ή διαβάζεται (λάθος σύνδεση, id στον registrar) ή κλείνεται με το χέρι.
   - **Gateways (απόφαση ιδιοκτήτη 2026-11-06):** **μετά** την αλλαγή του host (τα webhooks παίρνουν το `APP_URL` της
     στιγμής), `php artisan app:enable-imported-gateways`. Η εντολή ανοίγει όποιο ήρθε ολόκληρο και απαντά:
     - **Stripe:** φτιάχνεται το webhook με τα κλειδιά του (έτσι ελέγχεται και ότι απαντούν· ένα restricted key θέλει το Webhook Endpoints). Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
