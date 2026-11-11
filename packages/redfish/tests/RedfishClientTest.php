@@ -236,4 +236,162 @@ final class RedfishClientTest extends TestCase
         $this->expectException(RedfishException::class);
         new RedfishClient(new FakeTransport, ' ', 'x');
     }
+
+    /** @param  array<string, array{0: int, 1: mixed}>  $answers */
+    private function parts(array $answers, ?FakeTransport &$http = null, float $budget = 45.0): Machine
+    {
+        $http = new FakeTransport($answers);
+
+        return (new RedfishClient($http, 'reader', 's3cret'))->machine(parts: true, budget: $budget);
+    }
+
+    public function test_the_parts_are_read_only_when_asked_for(): void
+    {
+        $plain = $this->read(FakeTransport::bmcWithParts(), $http);
+
+        $this->assertCount(5, $http->sent);
+        $this->assertSame([[], [], [], false], [$plain->fans, $plain->drives, $plain->memory, $plain->partsRead]);
+        $this->assertSame('Example processor family', $plain->cpuModel);
+    }
+
+    public function test_it_reads_the_fans_temperatures_supplies_processors_memory_and_drives(): void
+    {
+        $machine = $this->parts(FakeTransport::bmcWithParts());
+
+        $this->assertTrue($machine->partsRead && $machine->partsComplete);
+        $this->assertSame([['FAN1', 5400.0, null, 'OK'], ['FAN2', null, 40.0, 'OK']], array_map('array_values', $machine->fans)); // the absent one left out
+        $this->assertSame(['CPU Temp', 'Inlet Temp'], array_column($machine->temperatures, 'name'));
+        $this->assertSame(23.5, $machine->inletCelsius());
+        $this->assertSame([['PSU 1', 95.0, 1000.0], ['PSU 2', 92.0, 1000.0]], array_map(fn ($p) => [$p['name'], $p['watts'], $p['capacity']], $machine->powerSupplies));
+        $this->assertSame([['name' => 'CPU1', 'model' => 'Example CPU 4585PX 16-Core', 'cores' => 16, 'threads' => 32, 'health' => 'OK']], $machine->processors);
+        $this->assertSame('Example CPU 4585PX 16-Core', $machine->cpuModel, 'the processor\'s own model, not the summary\'s family');
+        $this->assertSame([['name' => 'DIMMA1', 'gib' => 64.0, 'type' => 'DDR5', 'mhz' => 4800, 'health' => 'OK']], $machine->memory); // the empty slot left out
+        $this->assertSame([['Disk 0', 'D0001', 960.2, 'SSD', 97.0], ['Disk 1', 'D0002', 960.2, 'SSD', 96.0]],
+            array_map(fn ($d) => [$d['name'], $d['serial'], $d['gb'], $d['media'], $d['life']], $machine->drives));
+        $this->assertSame([], $machine->attention());
+        $this->assertSame(182.0, $machine->watts);
+    }
+
+    public function test_the_parts_to_look_at_are_named(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Chassis/1/Thermal'][1]['Fans'][0]['Status'] = ['State' => 'Enabled', 'Health' => 'Critical'];
+        $answers['/redfish/v1/Chassis/1/Thermal'][1]['Temperatures'][1]['ReadingCelsius'] = 41;
+        $answers['/redfish/v1/Chassis/1/Power'][1]['PowerSupplies'][1]['Status'] = ['Health' => 'Warning'];
+        $drive0 = '/redfish/v1/Systems/1/Storage/RAID.1/Drives/Disk.Bay.0:Enclosure.Internal.0-1:RAID.1';
+        $drive1 = '/redfish/v1/Systems/1/Storage/RAID.1/Drives/Disk.Bay.1:Enclosure.Internal.0-1:RAID.1';
+        $answers[$drive0][1]['FailurePredicted'] = true;
+        $answers[$drive1][1]['PredictedMediaLifeLeftPercent'] = 4;
+        unset($answers['/redfish/v1/Systems/1/Memory/DIMM.Socket.A1'][1]['DeviceLocator']);
+        $answers['/redfish/v1/Systems/1/Memory/DIMM.Socket.A1'][1]['Status'] = ['Health' => 'Warning'];
+
+        $this->assertSame(['FAN1: Critical', 'Inlet Temp: 41 °C', 'PSU 2: Warning', 'Memory 1: Warning', 'Disk 0: failure predicted', 'Disk 1: 4% life left'],
+            $this->parts($answers)->attention());
+    }
+
+    public function test_a_bmc_without_the_parts_is_still_a_whole_read(): void
+    {
+        $machine = $this->parts(FakeTransport::bmc());
+
+        $this->assertSame('SYS-1000', $machine->model);
+        $this->assertSame([[], [], [], [], [], []], [$machine->fans, $machine->temperatures, $machine->powerSupplies, $machine->processors, $machine->memory, $machine->drives]);
+        $this->assertTrue($machine->partsComplete);
+        $this->assertNull($machine->inletCelsius());
+    }
+
+    public function test_a_bmc_too_slow_for_its_parts_is_cut_short_and_says_so(): void
+    {
+        $machine = $this->parts(FakeTransport::bmcWithParts(), $http, budget: 0.0);
+
+        $this->assertSame('SYS-1000', $machine->model, 'the machine itself is always read');
+        $this->assertCount(5, $http->sent, 'no part was asked for once the time was up');
+        $this->assertTrue($machine->partsRead);
+        $this->assertFalse($machine->partsComplete);
+        $this->assertSame([], $machine->drives);
+    }
+
+    public function test_a_long_list_of_members_is_not_followed_to_its_end(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Systems/1/Memory'][1]['Members'] = array_map(fn (int $i) => ['@odata.id' => "/redfish/v1/Systems/1/Memory/D{$i}"], range(1, 500));
+        $this->parts($answers, $http);
+
+        $this->assertCount(64, array_filter($http->paths(), fn (string $path) => str_starts_with($path, '/redfish/v1/Systems/1/Memory/D')));
+    }
+
+    public function test_a_firmwares_placeholder_is_no_value(): void
+    {
+        $answers = FakeTransport::bmc();
+        $answers['/redfish/v1/Systems/1'][1] = ['SKU' => 'To be filled by O.E.M.', 'AssetTag' => 'Default string', 'SerialNumber' => 'System Serial Number',
+            'HostName' => 'N/A', 'Model' => 'Not Specified', 'Manufacturer' => 'Contoso'] + $answers['/redfish/v1/Systems/1'][1];
+        $answers['/redfish/v1/Chassis/1'][1]['AssetTag'] = '0000000000';
+        $machine = $this->read($answers);
+
+        $this->assertSame([null, null, null, null, null, 'Contoso'], [$machine->sku, $machine->assetTag, $machine->serial, $machine->hostname, $machine->model, $machine->manufacturer]);
+    }
+
+    public function test_a_read_is_kept_and_given_back_whatever_was_kept_before(): void
+    {
+        $machine = $this->parts(FakeTransport::bmcWithParts());
+        $kept = json_decode((string) json_encode($machine->toArray()), true);
+
+        $this->assertEquals($machine, Machine::fromArray($kept));
+        // An older kept read (fewer fields), one with a field since gone, and one that is not a read at all.
+        $this->assertSame('SYS-1000', Machine::fromArray(['model' => 'SYS-1000', 'gone' => 1])->model);
+        $this->assertNull(Machine::fromArray(['model' => ['x'], 'systems' => 'many'])->model);
+    }
+
+    public function test_one_part_that_does_not_answer_is_left_out_and_the_rest_kept(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Systems/1/Storage'] = [0, '']; // timed out
+        $machine = $this->parts($answers);
+
+        $this->assertSame('SYS-1000', $machine->model);
+        $this->assertCount(2, $machine->fans);
+        $this->assertSame([], $machine->drives);
+        $this->assertFalse($machine->partsComplete);
+
+        // The machine itself not answering is still a failed read.
+        $this->expectException(RedfishException::class);
+        $this->parts(['/redfish/v1/Systems' => [0, '']]);
+    }
+
+    public function test_the_fans_and_temperatures_are_read_before_the_many_parts(): void
+    {
+        $this->parts(FakeTransport::bmcWithParts(), $http);
+
+        $this->assertSame('/redfish/v1/Chassis/1/Thermal', $http->paths()[5]);
+    }
+
+    public function test_a_drive_that_keeps_no_life_count_is_not_at_its_end(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Systems/1/Storage/RAID.1/Drives/Disk.Bay.0:Enclosure.Internal.0-1:RAID.1'][1]['PredictedMediaLifeLeftPercent'] = 0;
+
+        $this->assertSame([], $this->parts($answers)->attention());
+    }
+
+    public function test_a_temperature_with_only_a_critical_threshold_is_named_at_it(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Chassis/1/Thermal'][1]['Temperatures'] = [
+            ['Name' => 'P/S 1 Inlet', 'ReadingCelsius' => 35],
+            ['Name' => '01-Inlet Ambient', 'ReadingCelsius' => 21, 'UpperThresholdCritical' => 42],
+            ['Name' => '02-CPU 1', 'ReadingCelsius' => 71, 'UpperThresholdCritical' => 70],
+            ['Name' => 'Idle', 'ReadingCelsius' => 30, 'UpperThresholdNonCritical' => 0],
+        ];
+        $machine = $this->parts($answers);
+
+        $this->assertSame(['02-CPU 1: 71 °C'], $machine->attention());
+        $this->assertSame(21.0, $machine->inletCelsius(), 'the board\'s, not a power supply\'s');
+    }
+
+    public function test_a_part_named_zero_keeps_its_name(): void
+    {
+        $answers = FakeTransport::bmcWithParts();
+        $answers['/redfish/v1/Systems/1/Storage/RAID.1/Drives/Disk.Bay.0:Enclosure.Internal.0-1:RAID.1'][1]['Name'] = '0';
+
+        $this->assertSame('0', $this->parts($answers)->drives[0]['name']);
+    }
 }

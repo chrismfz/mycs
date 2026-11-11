@@ -46,6 +46,7 @@
                 <dd class="font-medium text-gray-950 dark:text-white sm:col-span-2">{{ $value }}</dd>
             @endforeach
         </dl>
-        <p class="text-xs text-gray-500 dark:text-gray-400">Read from the BMC just now. Nothing is kept: history, graphs and alerts are the monitoring's.</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Read from the BMC just now.</p>
     @endif
+    <p><a href="{{ $page }}" class="font-medium text-primary-600 hover:underline dark:text-primary-400">Fans, temperatures, memory and drives: its page in Utilities → Machines</a></p>
 </div>
