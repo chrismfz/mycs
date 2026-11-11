@@ -15,6 +15,7 @@ use Exception;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -42,6 +43,9 @@ class CPanelClientToolsTest extends TestCase
     /** WHM's answer to passwd / add_pop: null = OK */
     private ?string $refuse = null;
 
+    /** The domain WHM has for the account «zonecl». */
+    private string $whmDomain = 'zonecloud.io';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -66,7 +70,7 @@ class CPanelClientToolsTest extends TestCase
 
             return match (true) {
                 // Asked before the account is opened or changed (S7-PROVISIONING-1): WHM's account is this service's.
-                str_ends_with($call, '/accountsummary') => Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'zonecl', 'domain' => 'zonecloud.io']]]]),
+                str_ends_with($call, '/accountsummary') => Http::response(['metadata' => ['result' => 1], 'data' => ['acct' => [['user' => 'zonecl', 'domain' => $this->whmDomain]]]]),
                 str_ends_with($call, '/create_user_session') => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'],
                     'data' => ['url' => 'https://orion.test:2083/cpsess1/login/?session=x' . ($request['app'] ?? '') . ($request['service'] === 'webmaild' ? 'webmail' : '')]]),
                 str_ends_with($call, '/passwd') => Http::response(['metadata' => $this->refuse === null ? ['result' => 1, 'reason' => 'OK']
@@ -185,6 +189,33 @@ class CPanelClientToolsTest extends TestCase
         $this->assertSame(['zonecl', 'Email', 'add_pop', 'info', 'zonecloud.io'],
             [$call['cpanel_jsonapi_user'], $call['cpanel_jsonapi_module'], $call['cpanel_jsonapi_func'], $call['email'], $call['domain']]);
         $this->assertStringNotContainsString(self::PASSWORD, $call->url());
+    }
+
+    /**
+     * Open item of the sweep-8 reviews (#796): the account WHM has under the service's username is another site's (a
+     * username kept from WHMCS): no mailbox is made in it, as its package is not changed (S8-PROVISIONING-1). The customer
+     * sees the general «could not be confirmed» message; the reason, with both domains, is reported for staff.
+     */
+    public function test_a_mailbox_is_not_made_in_a_strangers_account(): void
+    {
+        $this->whmDomain = 'stranger.example.test';
+
+        $this->page()->set('mailboxName', 'info')->set('mailboxPassword', self::PASSWORD)->call('createMailbox')
+            ->assertDispatched('notify', fn ($event, array $data) => in_array(__('services.cpanel.mailbox_unknown'), Arr::flatten($data), true));
+
+        $this->assertSame([], $this->sent('cpanel'), 'add_pop was sent as the stranger\'s account');
+        $this->assertCount(1, $this->sent('accountsummary'));
+    }
+
+    /** Its neighbour: on the service's own account, as WHM writes its domain, the mailbox is made, after WHM was asked. */
+    public function test_a_mailbox_on_the_services_own_account_is_still_made(): void
+    {
+        $this->whmDomain = 'WWW.ZoneCloud.io';
+
+        $this->page()->set('mailboxName', 'info')->set('mailboxPassword', self::PASSWORD)->call('createMailbox')->assertHasNoErrors();
+
+        $this->assertCount(1, $this->sent('accountsummary'));
+        $this->assertCount(1, $this->sent('cpanel'));
     }
 
     public function test_a_name_naming_another_domain_is_refused_before_whm(): void
