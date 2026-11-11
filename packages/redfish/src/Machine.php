@@ -38,6 +38,10 @@ final class Machine
         public readonly ?int $wattsIntervalMinutes = null,
         /** Systems behind this BMC (a multi-node chassis has several): the first one is read */
         public readonly int $systems = 1,
+        /** Its locate light (UID): on, off, or not said */
+        public readonly ?bool $locating = null,
+        /** What it boots from the next time only (Pxe, BiosSetup, …); null: as its BIOS says */
+        public readonly ?string $bootOnce = null,
         /**
          * Its parts, read only when asked for (RedfishClient::machine(parts: true)); each list as the BMC gave it.
          *

@@ -102,6 +102,8 @@
   - [x] Utilities → Machines (2026-11-11): `redfish:sync` κάθε ώρα, λίστα και σελίδα ανά μηχάνημα με ανεμιστήρες,
         θερμοκρασίες, τροφοδοτικά, CPU, RAM, δίσκους. Μόνο ένδειξη, χωρίς εργασία ή mail. Μένουν event log, RAID,
         δίκτυο και η δοκιμή των εξαρτημάτων σε πραγματικά BMC.
+  - [x] Βήμα 2, ενέργειες για το staff (2026-11-11): power, locate light, boot μία φορά, restart BMC, με δεύτερο
+        λογαριασμό BMC, επιβεβαίωση και audit. Για τον πελάτη και για το suspend: όχι ακόμα (θέλουν απόφαση).
 - [ ] DirectAdmin: αλλαγή κωδικού στον server (`CMD_API_USER_PASSWD`) μετά από live δοκιμή· ως τότε «Save a password
       set elsewhere».
 - [ ] ngm: live δοκιμή σε ngm-debian με άδεια του ιδιοκτήτη· ό,τι κάνει το module του WHMCS και δεν πέρασε ακόμα.

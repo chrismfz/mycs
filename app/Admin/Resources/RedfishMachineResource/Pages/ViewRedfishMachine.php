@@ -3,8 +3,10 @@
 namespace App\Admin\Resources\RedfishMachineResource\Pages;
 
 use App\Admin\Resources\RedfishMachineResource;
+use App\Admin\Resources\RedfishMachineResource\MachineActionButtons;
 use App\Admin\Resources\ServerResource;
 use App\Models\RedfishMachine;
+use App\Services\Redfish\MachineActions;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\View;
@@ -35,6 +37,7 @@ class ViewRedfishMachine extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            ...array_map(fn ($action) => $action->record($this->getRecord()), MachineActionButtons::make()),
             RedfishMachineResource::readAction()->record($this->getRecord()),
             Action::make('server')->label('Server settings')->icon('ri-settings-3-line')->color('gray')
                 ->visible(fn () => ServerResource::canEdit($this->machineRecord()->server))
@@ -50,6 +53,7 @@ class ViewRedfishMachine extends ViewRecord
                 'machine' => $this->machineRecord()->machine(),
                 'given' => RedfishMachine::givenTo($this->machineRecord()->server),
                 'location' => $this->machineRecord()->server->settings->firstWhere('key', 'location')?->value,
+                'actions' => MachineActions::offered($this->machineRecord()->server),
             ])->columnSpanFull(),
         ]);
     }

@@ -114,8 +114,17 @@ jobs:
       - name: MariaDB client
         # A newer client asks for TLS by default, and the service container serves none (2026-11-06: «SSL is required,
         # but the server does not support it» when the schema is loaded): plain TCP to the local container.
+        #
+        # When apt cannot reach its mirrors (2026-11-11: the runner could not resolve Ubuntu's archive hosts for hours,
+        # and every MariaDB job died here before a single test), the client of the service container itself is used:
+        # same version as the server, reached with docker exec, nothing to download.
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client
+          if ! { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client; }; then
+            echo "::warning::apt could not install mariadb-client: using the service container's own client"
+            # Under both names: the framework's schema loader calls one or the other, depending on its version.
+            printf '#!/bin/sh\nexec docker exec -i %s mariadb "$@"\n' "${{ job.services.mariadb.id }}" | sudo tee /usr/local/bin/mariadb /usr/local/bin/mysql > /dev/null
+            sudo chmod +x /usr/local/bin/mariadb /usr/local/bin/mysql
+          fi
           printf '[client]\nskip-ssl\n' > ~/.my.cnf
           mariadb --version
 

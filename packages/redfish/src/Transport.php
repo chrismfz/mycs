@@ -2,7 +2,7 @@
 
 namespace MyCS\Redfish;
 
-/** The HTTP seam: the app sends it (its TLS and IP rules, the BMC's address), the tests answer it. Only ever a GET. */
+/** The HTTP seam: the app sends it (its TLS and IP rules, the BMC's address), the tests answer it. Only ever a GET (changes go through an ActionTransport). */
 interface Transport
 {
     /**
