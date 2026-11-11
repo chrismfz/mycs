@@ -90,9 +90,18 @@ class EditOrder extends EditRecord
             ->visible(fn (Order $record) => !in_array($record->status, [Order::STATUS_CANCELLED, Order::STATUS_FRAUD], true))
             ->authorize('update')
             ->requiresConfirmation()
-            ->modalDescription('Its services are cancelled and their open invoices with them. ' . ($refund
-                ? 'The payments of the order\'s own invoice go back (renewals and upgrades paid later stay: refund them from their invoice). What was refunded already, or taken back by a chargeback, is not given twice. A gateway that cannot refund is left to you, with a notice.'
-                : 'Paid invoices stay: refund them from the invoice if needed.'))
+            ->modalDescription(function (Order $record) use ($refund) {
+                if (!$refund) {
+                    return 'Its services are cancelled and their open invoices with them. Paid invoices stay: refund them from the invoice if needed.';
+                }
+                // What a refund leaves to staff (sweep 8): said before they confirm.
+                $registered = CancelOrder::registeredDomains($record)->pluck('fqdn')->implode(', ');
+                $split = CancelOrder::movedParts($record);
+
+                return 'Its services are cancelled and their open invoices with them. The payments of the order\'s own invoice go back (renewals and upgrades paid later stay: refund them from their invoice). What was refunded already, or taken back by a chargeback, is not given twice. A gateway that cannot refund is left to you, with a notice.'
+                    . ($registered === '' ? '' : " Warning: {$registered} already registered at the registrar: the refund does not undo the registration. The domain stays as it is, and once money goes back a task asks you to deal with it by hand.")
+                    . ($split === [] ? '' : ' Warning: its invoice was split (#' . implode(', #', $split) . '): this will be refused. Refund each invoice from its page and cancel the services with «Cancel Order».');
+            })
             ->schema(array_filter([
                 Checkbox::make('terminate')->label('Terminate accounts already created on the servers')->default(false),
                 $refund ? Radio::make('method')->label('Refund')->required()->default('gateway')->options([
@@ -110,7 +119,9 @@ class EditOrder extends EditRecord
                 try {
                     $left = CancelOrder::handle($record, (bool) ($data['terminate'] ?? false), $refund ? $data['method'] : null, $fraud);
                 } catch (Throwable $e) {
-                    report($e);
+                    if (!$e instanceof DisplayException) {
+                        report($e);
+                    }
                     Notification::make()->danger()->title('The order was not cancelled')->body(e($e->getMessage()))->send();
 
                     return;

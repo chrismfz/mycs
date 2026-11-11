@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
@@ -11,6 +12,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
+use App\Services\Invoice\UndoRefund;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\UnbilledServices;
 use App\Services\ServiceUpgrade\ChangeCycle;
@@ -18,6 +20,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -98,8 +101,6 @@ class Sweep8StaffFreedomTest extends TestCase
      */
     public function test_s8_1_a_refund_of_the_part_paid_over_is_not_given_again_as_credit(): void
     {
-        $this->markTestIncomplete('S8-STAFF-FREEDOM-1: another finding of sweep 8, not about the period of an imported line; still failing, left for its own fix.');
-
         $invoice = $this->renewalPaidHere();
         StaffLineEdit::run($invoice->id, true, fn (Invoice $locked) => $locked->items()->sole()->update(['price' => '6.00']));
         $this->assertSame([Invoice::STATUS_PAID, -400], [$invoice->fresh()->status, RecordPaymentService::toCents($invoice->fresh()->remaining)], 'precondition: paid 4.00 over');
@@ -113,6 +114,72 @@ class Sweep8StaffFreedomTest extends TestCase
         $this->assertSame('0.00', $this->credit(), 'the 4.00 went back in cash: «Close as paid» gives it again as account credit');
         $this->assertFalse($closed);
         $this->assertSame(0, RecordPaymentService::toCents($invoice->fresh()->remaining), 'it bills 6.00 and holds 6.00: nothing over, nothing owed');
+    }
+
+    /** S8-STAFF-FREEDOM-1, to account credit: the part over goes to credit once, by the refund; «Close as paid» adds nothing. */
+    public function test_s8_1_a_refund_to_credit_of_the_part_paid_over_is_not_given_twice(): void
+    {
+        $invoice = $this->renewalPaidHere();
+        StaffLineEdit::run($invoice->id, true, fn (Invoice $locked) => $locked->items()->sole()->update(['price' => '6.00']));
+
+        ExtensionHelper::refundToCredit($invoice->transactions()->sole(), 4.00, notify: false);
+
+        $this->assertSame(['4.00', 0, 0], [$this->credit(), RecordPaymentService::toCents($invoice->fresh()->remaining), $invoice->adjustmentNotes()->count()]);
+        $this->assertFalse((new RecordPaymentService)->settle($invoice->id));
+        $this->assertSame('4.00', $this->credit());
+    }
+
+    /**
+     * S8-STAFF-FREEDOM-1, a refund of more than the part over (7.00 of a 10.00 payment on a line lowered to 6.00): 4.00
+     * were over and lower nothing, the other 3.00 come off what it bills. It bills 3.00 and holds 3.00.
+     */
+    public function test_s8_1_a_refund_of_more_than_the_part_over_takes_only_the_rest_off_the_total(): void
+    {
+        $invoice = $this->renewalPaidHere();
+        StaffLineEdit::run($invoice->id, true, fn (Invoice $locked) => $locked->items()->sole()->update(['price' => '6.00']));
+
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 7.00, notify: false);
+
+        $fresh = $invoice->fresh();
+        $this->assertSame([-300], $fresh->adjustmentNotes()->where('is_refund', true)->get()->map(fn ($note) => RecordPaymentService::toCents($note->amount))->all());
+        $this->assertSame([Invoice::STATUS_PAID, 300, 0], [$fresh->status, RecordPaymentService::toCents($fresh->total), RecordPaymentService::toCents($fresh->remaining)]);
+        $this->assertFalse((new RecordPaymentService)->settle($invoice->id));
+        $this->assertSame('0.00', $this->credit());
+    }
+
+    /** The neighbour: a refund on a paid invoice nobody changed lowers what it bills by the refund, as before. */
+    public function test_s8_1_a_refund_on_an_unchanged_paid_invoice_still_takes_all_of_it_off_the_total(): void
+    {
+        $invoice = $this->renewalPaidHere();
+
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 4.00, notify: false);
+
+        $fresh = $invoice->fresh();
+        $this->assertSame([-400], $fresh->adjustmentNotes()->where('is_refund', true)->get()->map(fn ($note) => RecordPaymentService::toCents($note->amount))->all());
+        $this->assertSame([Invoice::STATUS_PAID, 600, 0], [$fresh->status, RecordPaymentService::toCents($fresh->total), RecordPaymentService::toCents($fresh->remaining)]);
+        $this->assertFalse((new RecordPaymentService)->settle($invoice->id));
+        $this->assertSame('0.00', $this->credit());
+
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 6.00, notify: false); // the rest of it
+        $this->assertSame([Invoice::STATUS_REFUNDED, 0], [$invoice->fresh()->status, RecordPaymentService::toCents($invoice->fresh()->total)]);
+    }
+
+    /** REV-793-1, the notes written before a note named its refund: still found by the refund's exact amount, and undone. */
+    public function test_s8_1_undo_still_finds_a_refund_note_written_before_notes_named_their_refund(): void
+    {
+        $invoice = $this->renewalPaidHere();
+        $payment = $invoice->transactions()->sole();
+        ExtensionHelper::refundLocally($payment, 4.00, notify: false);
+        $note = $invoice->adjustmentNotes()->where('is_refund', true)->sole();
+        $refund = UndoRefund::refunds($payment->fresh())->sole();
+        $this->assertStringEndsWith(UndoRefund::noteKey((int) $refund->id), (string) $note->description);
+        DB::table('adjustment_notes')->where('id', $note->id)->update(['description' => str_replace(UndoRefund::noteKey((int) $refund->id), '', (string) $note->description)]);
+
+        (new UndoRefund)->handle($payment->fresh(), $refund->id);
+
+        $fresh = $invoice->fresh();
+        $this->assertSame(AdjustmentNoteStatus::Voided, $note->fresh()->status);
+        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], [$fresh->status, RecordPaymentService::toCents($fresh->total), RecordPaymentService::toCents($fresh->remaining)]);
     }
 
     /**

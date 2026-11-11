@@ -351,7 +351,7 @@ class Cart
             if ($coupon->starts_at && $coupon->starts_at->isFuture()) {
                 throw new DisplayException(__('Coupon code is not active yet'));
             }
-            if ($coupon->max_uses && $coupon->services()->count() >= $coupon->max_uses) {
+            if ($coupon->max_uses && $coupon->uses()->count() >= $coupon->max_uses) {
                 throw new DisplayException(__('Coupon code has reached its maximum uses'));
             }
             if (Auth::check() && $coupon->hasExceededMaxUsesPerUser(CurrentClient::id())) {

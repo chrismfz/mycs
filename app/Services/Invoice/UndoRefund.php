@@ -45,6 +45,15 @@ class UndoRefund
     /** Ends the description of a note voided with its refund: it says why, and such a note is never made active again. */
     public const NOTE_MARK = ' [refund undone]';
 
+    /**
+     * Ends the description of a note written with a refund: the id of the refund's journal event. The note is for what
+     * the refund left owing, not always the refund's amount (ExtensionHelper::afterRefund), so it is found by this.
+     */
+    public static function noteKey(int $refundId): string
+    {
+        return " [refund #{$refundId}]";
+    }
+
     /** Whether the note was voided because its refund was undone. */
     public static function undone(AdjustmentNote $note): bool
     {
@@ -201,15 +210,23 @@ class UndoRefund
     }
 
     /**
-     * The note a refund wrote on its (then paid) invoice: a refund's note of its payment, for its amount, written with
-     * it. None when the invoice was open at the time (its balance grew back instead).
+     * The note a refund wrote on its (then paid) invoice: the one that names the refund (noteKey), whatever its amount
+     * (REV-793-1). A note written before notes named their refund: a refund's note of its payment, for its amount,
+     * written with it. None when the invoice was open at the time (its balance grew back instead), or when the refund
+     * only gave back what the invoice held over what it bills.
      */
     private static function noteOf(Invoice $invoice, InvoiceTransaction $payment, MoneyEvent $refund): ?AdjustmentNote
     {
+        $notes = $invoice->adjustmentNotes()->where('is_refund', true)->where('status', AdjustmentNoteStatus::Active->value)->lockForUpdate()->get();
+        $named = $notes->first(fn (AdjustmentNote $note) => str_ends_with((string) $note->description, self::noteKey((int) $refund->id)));
+        if ($named !== null) {
+            return $named;
+        }
         $text = ($refund->kind === MoneyEventKind::CreditIn ? 'Refund to account credit for transaction #' : 'Refund for transaction #') . $payment->id;
 
-        return $invoice->adjustmentNotes()->where('is_refund', true)->where('status', AdjustmentNoteStatus::Active->value)->lockForUpdate()->get()
-            ->filter(fn (AdjustmentNote $note) => RecordPaymentService::toCents($note->amount) === -RecordPaymentService::toCents($refund->amount)
+        return $notes
+            ->filter(fn (AdjustmentNote $note) => preg_match('/ \[refund #\d+\]$/', (string) $note->description) !== 1 // another refund's
+                && RecordPaymentService::toCents($note->amount) === -RecordPaymentService::toCents($refund->amount)
                 && preg_match('/^' . preg_quote($text, '/') . '(\D|$)/', (string) $note->description) === 1
                 && $note->created_at !== null && abs($note->created_at->diffInSeconds($refund->occurred_at)) <= 60)
             ->sortBy(fn (AdjustmentNote $note) => abs($note->created_at->diffInSeconds($refund->occurred_at)))->first();

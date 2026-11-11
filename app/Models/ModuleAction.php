@@ -119,8 +119,14 @@ class ModuleAction extends Model
     /** A registrar sync's warning, what it did not apply (DomainSyncService::plan's «_warning»): the same kind of task. */
     public const DOMAIN_CHECK = 'domain_check';
 
+    /**
+     * A registered domain whose order staff cancelled with a refund (CancelOrder, sweep 8 S8-DOMAINS-1): the refund does
+     * not undo the registration, the domain keeps its status. Staff decide by hand; closed only by them («Checked»).
+     */
+    public const DOMAIN_REFUNDED = 'domain_refunded';
+
     /** The tasks that only ask staff to look: nothing to retry, closed by staff («Checked») or by a later read. */
-    public const CHECKS = [self::STRAY_ENDED, self::STRAY_UNMAPPED, self::DOMAIN_CHECK];
+    public const CHECKS = [self::STRAY_ENDED, self::STRAY_UNMAPPED, self::DOMAIN_CHECK, self::DOMAIN_REFUNDED];
 
     /** The resolution of a row staff closed by hand («Mark resolved»). */
     public const RESOLVED_BY_STAFF = 'marked resolved by staff';
@@ -327,7 +333,7 @@ class ModuleAction extends Model
     }
 
     /**
-     * The open «check this» tasks, by kind: accounts (STRAY) and domains (DOMAIN_CHECK).
+     * The open «check this» tasks, by kind: accounts (STRAY) and domains (DOMAIN_CHECK, DOMAIN_REFUNDED).
      *
      * @return array{accounts: int, domains: int}
      */
@@ -336,7 +342,7 @@ class ModuleAction extends Model
         $counts = self::query()->open()->whereIn('action', self::CHECKS)->selectRaw('action, COUNT(*) as total')->groupBy('action')
             ->pluck('total', 'action')->map(fn ($total) => (int) $total);
 
-        return ['accounts' => (int) $counts->only(self::STRAY)->sum(), 'domains' => (int) ($counts[self::DOMAIN_CHECK] ?? 0)];
+        return ['accounts' => (int) $counts->only(self::STRAY)->sum(), 'domains' => (int) $counts->only([self::DOMAIN_CHECK, self::DOMAIN_REFUNDED])->sum()];
     }
 
     /**
