@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
+use App\Models\EmailLog;
 use App\Models\ModuleAction;
 use App\Models\Server;
 use App\Models\Service;
@@ -165,5 +166,25 @@ class Sweep8ProvisioningTest extends TestCase
         $other->fresh()->applyStaffChanges(['status' => 'active']);
         $this->assertSame(0, $open($other));
         $this->assertSame(1, $open($service));
+    }
+
+    /** Review of #796 (REV-796-3): staff were mailed «By hand: terminate»; they are mailed that it is off, only when a task was closed. */
+    public function test_staff_are_told_not_to_terminate_only_when_a_task_was_closed(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test']);
+        $server = Server::query()->create(['name' => 'Offline', 'extension' => 'OfflineVm', 'type' => 'server', 'enabled' => true]);
+        $service = $this->service($server, ['domain' => 'mars.example.test', 'dedicated_ip' => '203.0.113.20']);
+        $none = $this->service($server, ['domain' => 'venus.example.test', 'status' => 'terminated']);
+        ExtensionHelper::terminateServer($service);
+        $service->refresh()->markTerminated();
+        $told = fn (Service $of) => EmailLog::query()->where('subject', "Do NOT terminate service #{$of->id}: it is running again")->get();
+        $this->assertTrue(EmailLog::query()->where('subject', 'like', "By hand: terminate service #{$service->id}%")->exists(), 'the mail the task was made with');
+
+        $service->fresh()->applyStaffChanges(['status' => 'active']);
+        $none->fresh()->applyStaffChanges(['status' => 'active']); // brought back with no task open: nothing to say
+
+        $this->assertCount(1, $told($service));
+        $this->assertStringContainsString('mars.example.test (203.0.113.20) is active again: do not remove it', $told($service)[0]->body);
+        $this->assertCount(0, $told($none));
     }
 }
