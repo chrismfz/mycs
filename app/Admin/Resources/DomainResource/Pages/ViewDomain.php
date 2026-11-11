@@ -53,6 +53,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Throwable;
+use WeakMap;
 
 /**
  * A domain, and what staff do with it from here rather than the registrar's panel (docs/domains.md D4b): sync, its
@@ -83,11 +84,35 @@ class ViewDomain extends ViewRecord
         return DomainOwnerChange::query()->where('domain_id', $record->id)->whereNotNull('declaration_path')->latest('id')->first();
     }
 
+    /** @var WeakMap<Domain, array{open: ?DomainOwnerChange, declaration: ?DomainOwnerChange}>|null */
+    private static ?WeakMap $shown = null;
+
+    /**
+     * What the «is it shown» checks read of the change of holder, once per render: the page asks each action's visible()
+     * several times (the header, «More», the commands row; a Filament update asked them more often still, 19 queries for
+     * one page), and every one of them read the same two rows. Only for showing: an action reads afresh when it runs,
+     * and rendering() forgets what an action before it may have changed.
+     *
+     * @return array{open: ?DomainOwnerChange, declaration: ?DomainOwnerChange}
+     */
+    private static function shown(Domain $record): array
+    {
+        self::$shown ??= new WeakMap;
+
+        return self::$shown[$record] ??= ['open' => DomainOwnerChanges::openFor($record), 'declaration' => self::lastDeclaration($record)];
+    }
+
+    /** Before each render: what was read while an action ran is not what the page shows after it. */
+    public function rendering(): void
+    {
+        self::$shown = null;
+    }
+
     /** The open change of holder's next steps (G8-5b), each for the state it is in. @return list<Action> */
     private static function ownerChangeActions(): array
     {
         $open = fn (Domain $record) => DomainOwnerChanges::openFor($record);
-        $in = fn (Domain $record, string ...$statuses) => self::can('admin.domains.owner_change') && in_array($open($record)?->status, $statuses, true);
+        $in = fn (Domain $record, string ...$statuses) => self::can('admin.domains.owner_change') && in_array(self::shown($record)['open']?->status, $statuses, true);
         $run = function (Closure $do, string $done) {
             try {
                 $do();
@@ -115,7 +140,7 @@ class ViewDomain extends ViewRecord
                     __('domains.owner_change.statuses.cancelled'))),
             // The last declaration kept, open or ended (it is the record of the transfer).
             Action::make('ownerChangeDeclaration')->label(__('domains.owner_change.download'))->icon('heroicon-o-document-arrow-down')->color('gray')
-                ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && self::lastDeclaration($record) !== null)
+                ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && self::shown($record)['declaration'] !== null)
                 ->action(fn (Domain $record) => Storage::disk(DomainOwnerChanges::DISK)->download(self::lastDeclaration($record)->declaration_path,
                     self::lastDeclaration($record)->declaration_name ?: basename(self::lastDeclaration($record)->declaration_path))),
         ];
@@ -545,7 +570,7 @@ class ViewDomain extends ViewRecord
 
                 // A .gr change of holder (G8-5b): a name change or a transfer, charged, sent once paid, never recalled.
                 Action::make('ownerChange')->label(__('domains.owner_change.title'))->icon('heroicon-o-user-group')->color('warning')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && DomainOwnerChanges::openFor($record) === null
+                    ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && self::shown($record)['open'] === null
                         && app(DomainManagementService::class)->changesOwner($record))
                     ->modalWidth('2xl')
                     ->schema(fn (Domain $record) => [

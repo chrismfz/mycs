@@ -5,11 +5,14 @@ namespace Tests\Feature\Domains;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Contracts\ChangesOwner;
 use App\Models\Domain;
+use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarConnection;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Domains\DomainOwnerChanges;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +61,41 @@ class DomainPageCompactAdversarialTest extends TestCase
 
         // The header's own checks (main) plus at most one evaluation of the row; #401 evaluates it ~5 times (11).
         $this->assertLessThanOrEqual(7, $queries, "the commands row's visible() closures run {$queries} owner-change queries on one render");
+    }
+
+    /**
+     * What is read once per render is read again for the next one: a change of holder opened meanwhile takes «Change
+     * holder» off the page (the memo is for one render, never for the page's life).
+     */
+    public function test_what_is_shown_follows_a_change_of_holder_opened_meanwhile(): void
+    {
+        $this->staff(['*']);
+        $gr = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => '.gr', 'is_active' => true, 'mode' => 'production']);
+        $domain = $this->domain('alpha.gr', ['registrar_connection_id' => $gr->id]);
+
+        $page = Livewire::test(ViewDomain::class, ['record' => $domain->getRouteKey()])->assertActionVisible('ownerChange');
+
+        DomainOwnerChange::query()->create(['domain_id' => $domain->id, 'kind' => ChangesOwner::NAME,
+            'contact_id' => $this->owner->clients()->firstOrFail()->ensurePrimaryContact()->id, 'status' => DomainOwnerChange::STATUS_AWAITING_PAYMENT]);
+
+        $page->call('$refresh')->assertActionHidden('ownerChange')->assertActionVisible('ownerChangeCancel');
+    }
+
+    /** And within one request: after an action that ends the change, the page it renders shows what is true now. */
+    public function test_what_is_shown_after_an_action_is_read_again_for_the_render_that_follows(): void
+    {
+        $this->staff(['*']);
+        $gr = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => '.gr', 'is_active' => true, 'mode' => 'production']);
+        $domain = $this->domain('alpha.gr', ['registrar_connection_id' => $gr->id]);
+        DomainOwnerChange::query()->create(['domain_id' => $domain->id, 'kind' => ChangesOwner::NAME,
+            'contact_id' => $this->owner->clients()->firstOrFail()->ensurePrimaryContact()->id, 'status' => DomainOwnerChange::STATUS_AWAITING_PAYMENT]);
+
+        Livewire::test(ViewDomain::class, ['record' => $domain->getRouteKey()])
+            ->assertActionVisible('ownerChangeCancel')
+            ->callAction('ownerChangeCancel', ['reason' => 'asked by mistake'])
+            ->assertHasNoActionErrors()
+            ->assertActionHidden('ownerChangeCancel');
+        $this->assertNull(DomainOwnerChanges::openFor($domain->fresh()));
     }
 
     /** ADV-2: staff who may not see clients are not offered a link to the client's Domains tab (the Client field is guarded). */
