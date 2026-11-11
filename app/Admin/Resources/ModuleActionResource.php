@@ -201,7 +201,7 @@ class ModuleActionResource extends Resource
                         Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
                 Action::make('resolve')->label(fn (ModuleAction $record) => $record->subject === ModuleAction::SUBJECT_BY_HAND ? 'Done' : match ($record->action) {
-                    ModuleAction::STRAY_ENDED, ModuleAction::STRAY_UNMAPPED, ModuleAction::DOMAIN_CHECK => 'Checked',
+                    ModuleAction::STRAY_ENDED, ModuleAction::STRAY_UNMAPPED, ModuleAction::DOMAIN_CHECK, ModuleAction::DOMAIN_REFUNDED => 'Checked',
                     ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Locked by hand' : 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
@@ -218,6 +218,7 @@ class ModuleActionResource extends Resource
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
                         OptionTasks::ACTION => 'Done by hand (the IP given or taken back, noted on the service): closes it.',
                         ModuleAction::STRAY_ENDED, ModuleAction::STRAY_UNMAPPED, ModuleAction::DOMAIN_CHECK => 'Looked at: closes it, and it is not opened again while it stays as it is. It also closes on its own once a read no longer finds it (gone, mapped, marked internal, its service active again; for a domain, a sync with nothing to warn about).',
+                        ModuleAction::DOMAIN_REFUNDED => 'Dealt with by hand (kept and billed, or deleted at the registrar): closes it. Nothing is done at the registrar.',
                         default => 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).',
                     })
                     ->action(function (ModuleAction $record) {
@@ -260,6 +261,7 @@ class ModuleActionResource extends Resource
             ModuleAction::STRAY_ENDED => 'Check: ended in MyCS',
             ModuleAction::STRAY_UNMAPPED => 'Check: not mapped',
             ModuleAction::DOMAIN_CHECK => 'Check: domain sync',
+            ModuleAction::DOMAIN_REFUNDED => 'Check: registered domain refunded',
             default => ucfirst($action),
         };
     }

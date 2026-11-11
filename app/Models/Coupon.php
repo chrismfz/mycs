@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Services\Service\RemoveCoupon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -82,6 +83,28 @@ class Coupon extends Model implements Auditable
     }
 
     /**
+     * Its uses, the one count behind `max_uses`, `max_uses_per_user` and `once_per_client` (sweep 8 S8-CLIENT-PORTAL-3):
+     * the services that carry it, except one **cancelled, billed and never paid** (an order that lapsed unpaid, or that
+     * staff cancelled before any payment): nobody got the discount, so the promotion is not used up and its customer may
+     * use it again.
+     *
+     * «Never paid» is read from what was recorded, not from the invoices' status now (REV-793-5): a use stays a use once
+     * an invoice of it had a payment (succeeded; refunded or charged back since, it is still there), or is paid or
+     * refunded with none (a free first invoice). So does a service with no invoice at all (a free trial: delivered for
+     * nothing, cancelled or not; also one whose cancelled invoice staff deleted, REV-793-8, accepted).
+     *
+     * @return HasMany<Service, $this>
+     */
+    public function uses(): HasMany
+    {
+        return $this->services()->where(fn ($use) => $use->where('services.status', '!=', Service::STATUS_CANCELLED)
+            ->orWhereDoesntHave('invoices')
+            ->orWhereHas('invoices', fn ($invoices) => $invoices->where(fn ($paid) => $paid
+                ->whereIn('invoices.status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])
+                ->orWhereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Succeeded->value)))));
+    }
+
+    /**
      * Check if the user has exceeded the maximum allowed uses of this coupon
      *
      * @param  int  $clientId
@@ -92,7 +115,7 @@ class Coupon extends Model implements Auditable
             return false;
         }
 
-        return $this->services()
+        return $this->uses()
             ->where('client_id', $clientId)
             ->count() >= $this->max_uses_per_user;
     }
@@ -173,7 +196,7 @@ class Coupon extends Model implements Auditable
             if ($this->customers === 'existing' && !(clone $services)->where('status', Service::STATUS_ACTIVE)->exists()) {
                 return __('This promotion is for existing customers only.');
             }
-            if ($this->once_per_client && (clone $services)->where('coupon_id', $this->id)->exists()) {
+            if ($this->once_per_client && $this->uses()->where('client_id', $client->id)->exists()) {
                 return __('You have already used this promotion.');
             }
         }

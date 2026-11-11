@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Classes\Cart;
 use App\Exceptions\CouponUnusableException;
 use App\Livewire\Services\Cancel;
 use App\Models\Client;
@@ -13,6 +14,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Providers\SettingsProvider;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Order\CancelOrder;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -151,8 +153,6 @@ class Sweep8ClientPortalTest extends TestCase
      */
     public function test_a_cancelled_never_paid_order_does_not_use_a_coupon_up(): void
     {
-        $this->markTestIncomplete('S8-CLIENT-PORTAL-3: another finding of sweep 8, not about the period of an imported line; still failing, left for its own fix.');
-
         $this->storeSettings(['cronjob_order_cancel' => 7]);
         SettingsProvider::reload();
         $product = $this->monthly()->product;
@@ -178,5 +178,60 @@ class Sweep8ClientPortalTest extends TestCase
         }
 
         $this->assertSame([], $refused, 'the promotion is still there: its only «use» was an order nobody paid');
+    }
+
+    /**
+     * The neighbour of S8-CLIENT-PORTAL-3: an order that was paid is a use, also once it is cancelled (and refunded). Its
+     * customer is told «already used» (once per client); another customer finds the promotion used up (max_uses).
+     */
+    #[DataProvider('paidOrders')]
+    public function test_a_paid_order_still_uses_a_coupon_up(bool $cancelled, bool $refunded): void
+    {
+        $product = $this->monthly()->product;
+        $coupon = Coupon::query()->create(['code' => 'S8HALF', 'type' => 'percentage', 'value' => 50, 'max_uses' => 1, 'max_uses_per_user' => 1, 'once_per_client' => true]);
+        $placed = $this->order($product, $coupon);
+        $invoice = Invoice::query()->findOrFail($placed->order->invoice_id);
+        (new RecordPaymentService)->handle($invoice, null, (float) $invoice->total, transactionId: 'bank-1');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        if ($cancelled) {
+            CancelOrder::handle($placed->order->fresh(), refund: $refunded ? 'manual' : null);
+            $this->assertSame(Service::STATUS_CANCELLED, Service::query()->where('client_id', $this->client->id)->sole()->status);
+            $this->assertSame($refunded ? Invoice::STATUS_REFUNDED : Invoice::STATUS_PAID, $invoice->fresh()->status);
+        }
+
+        $this->assertSame(1, $coupon->uses()->count());
+        $this->assertTrue($coupon->hasExceededMaxUsesPerUser($this->client->id));
+        $refused = [];
+        foreach (['the same customer' => $this->client, 'another customer' => User::factory()->create()->client()] as $who => $client) {
+            try {
+                $this->order($product, $coupon->fresh(), $client);
+            } catch (CouponUnusableException $e) {
+                $refused[$who] = $e->getMessage();
+            }
+        }
+
+        $this->assertSame(['the same customer' => __('You have already used this promotion.'), 'another customer' => __('This coupon can no longer be used')], $refused);
+    }
+
+    /** @return array<string, array{0: bool, 1: bool}> */
+    public static function paidOrders(): array
+    {
+        return ['paid, running' => [false, false], 'paid, then cancelled' => [true, false], 'paid, cancelled and refunded' => [true, true]];
+    }
+
+    /** The per-customer limit (max_uses_per_user) and the cart's own check read the same count: a lapsed order frees it. */
+    public function test_a_cancelled_never_paid_order_does_not_count_for_the_per_customer_limit_or_in_the_cart(): void
+    {
+        $product = $this->monthly()->product;
+        $coupon = Coupon::query()->create(['code' => 'S8ONCE', 'type' => 'percentage', 'value' => 50, 'max_uses' => 1, 'max_uses_per_user' => 1]);
+        $placed = $this->order($product, $coupon);
+        $this->assertSame([1, true], [$coupon->uses()->count(), $coupon->hasExceededMaxUsesPerUser($this->client->id)], 'an open order holds its use');
+
+        CancelOrder::handle($placed->order->fresh());
+
+        $this->assertSame([1, 0, false], [$coupon->services()->count(), $coupon->uses()->count(), $coupon->hasExceededMaxUsesPerUser($this->client->id)]);
+        $this->assertSame((int) $coupon->id, (int) Cart::validateCoupon('S8ONCE')->id, 'the cart takes it again');
+        $this->order($product, $coupon->fresh());
+        $this->assertSame(1, $coupon->uses()->count());
     }
 }

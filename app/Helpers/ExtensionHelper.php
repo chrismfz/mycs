@@ -34,6 +34,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Observers\InvoiceObserver;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\UndoRefund;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
@@ -1004,7 +1005,10 @@ class ExtensionHelper
             $transaction->increment('credited_amount', $cents / 100);
             (new CreditLedger)->add((int) $invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_REFUND_TO_CREDIT,
                 MoneyTrail::sourceFor($transaction->gateway, (bool) $transaction->is_credit_transaction), $invoice, $transaction);
-            self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id);
+            // Its journal event, just written under these locks: the note names it (UndoRefund::noteOf).
+            $event = MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)->where('kind', MoneyEventKind::CreditIn->value)
+                ->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)->max('id');
+            self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id, refundId: $event === null ? null : (int) $event);
             [$clientId, $currency] = [(int) $invoice->client_id, (string) $invoice->currency_code];
             if ($notify) {
                 self::notifyRefund($transaction, $cents, toCredit: true, byGateway: false, byStaff: true);
@@ -1022,22 +1026,36 @@ class ExtensionHelper
     }
 
     /**
-     * After a refund (back or to credit) is recorded: a paid invoice stays settled, so a note takes the refund off its
-     * total; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is settled by its
-     * cancellation note already (the whole total), and reopened it is to pay in full again (adversarial review of 2c,
-     * R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as they are.
+     * After a refund (back or to credit) is recorded: a paid invoice stays settled, so a note takes off its total what
+     * the refund leaves it owing; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is
+     * settled by its cancellation note already (the whole total), and reopened it is to pay in full again (adversarial
+     * review of 2c, R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as
+     * they are.
+     *
+     * The note is for what the refund leaves owing, at most the refund: money the invoice held over what it bills (staff
+     * lowered a line or wrote a note after it was paid) goes back first and lowers nothing. The refund is counted once
+     * (sweep 8 S8-STAFF-FREEDOM-1): a note for all of it left the invoice as much over as before, and «Close as paid»
+     * gave the refunded money again as account credit.
+     *
+     * The note ends with the id of its refund's journal event (UndoRefund::noteKey): it need not be for the refund's
+     * amount any more, so «Undo refund» finds it by that (REV-793-1), not by its amount.
+     *
      * The rows are locked already (prepareRefund). After a gateway refund ($numberAfterCommit) the note is numbered once
      * the refund is committed (InvoiceNumberListener::numberAfterCommit), so nothing here waits for the credit notes'
      * counter either.
      */
-    private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description, bool $numberAfterCommit = false): void
+    private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description, bool $numberAfterCommit = false, ?int $refundId = null): void
     {
         $invoice = $transaction->invoice;
-        if ($invoice->status === Invoice::STATUS_PAID) {
+        // What it owes now, the refund already off its payment (refunded_amount / credited_amount), read under the locks.
+        $owing = $invoice->status !== Invoice::STATUS_PAID ? 0
+            : RecordPaymentService::toCents(Invoice::query()->findOrFail($invoice->id)->withLockedBalance()->remaining);
+        $noteCents = max(0, min($cents, $owing));
+        if ($invoice->status === Invoice::STATUS_PAID && $noteCents > 0) {
             $note = $invoice->adjustmentNotes()->make([
                 'type' => AdjustmentNoteType::Credit->value,
-                'amount' => -1 * $cents / 100,
-                'description' => $description,
+                'amount' => -1 * $noteCents / 100,
+                'description' => $description . ($refundId === null ? '' : UndoRefund::noteKey($refundId)),
                 'is_refund' => true, // follows refunded_amount / credited_amount: never voided by hand (MT-1c)
             ]);
             $note->numberAfterCommit = $numberAfterCommit;
@@ -1934,8 +1952,8 @@ class ExtensionHelper
         }
         // One rounded amount for the transaction, the note and the journal.
         $transaction->increment('refunded_amount', $cents / 100);
-        $trail->refund($transaction, $transaction->invoice, $cents, $source);
-        self::afterRefund($transaction, $cents, 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')', $numberAfterCommit);
+        $event = $trail->refund($transaction, $transaction->invoice, $cents, $source);
+        self::afterRefund($transaction, $cents, 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')', $numberAfterCommit, (int) $event->id);
 
         return true;
     }
