@@ -29,6 +29,7 @@ use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
+use App\Services\Service\AppliedOpenInvoices;
 use App\Services\Service\DeleteService;
 use App\Services\Service\WelcomeMail;
 use App\Services\ServiceUpgrade\ChangeCycle;
@@ -123,12 +124,19 @@ class EditService extends EditRecord
         /** @var Service $record */
         // Livewire reloads the record on every request: diff against the form as it was filled, so a
         // payment or the cron that ran while the page was open is not written back.
+        // As stored now, not the form's copy of the record (its selects have set the new product on it already).
+        $before = Service::query()->whereKey($record->getKey())->first(['id', 'expires_at', 'product_id']);
         try {
             $record->applyStaffChanges(Arr::except($data, ['ends_billing']), $this->filledAttributes ?: null, (bool) ($data['ends_billing'] ?? false));
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Not saved'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
+        }
+        // The date moved back, or the package changed back, with the invoice that gave it left open (sweep 10): told
+        // here, nothing refused.
+        foreach (AppliedOpenInvoices::warnings($record, $before?->expires_at, $before?->product_id === null ? null : (int) $before->product_id) as $warning) {
+            Notification::make()->warning()->title(__('An applied invoice is still open'))->body(e($warning))->persistent()->send();
         }
 
         return $record;

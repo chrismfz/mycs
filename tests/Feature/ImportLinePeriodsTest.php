@@ -373,7 +373,7 @@ class ImportLinePeriodsTest extends TestCase
 
         $found = (new UnbilledServices)->find();
         $this->assertSame([[UnbilledServices::PERIOD_NOT_PAID, 31]], array_map(fn (array $f) => [$f['kind'], $f['service']], $found));
-        $this->assertStringContainsString('runs to 2026-10-10 on invoice #480, which is unpaid again since 2026-09-20 (owes 10.00 EUR): collect it, or move the due date back to 2026-09-10',
+        $this->assertStringContainsString('runs to 2026-10-10 on invoice #480, which is unpaid again since 2026-09-20 (owes 10.00 EUR): collect it, or cancel the invoice and move the due date back to 2026-09-10',
             $found[0]['detail']);
         $this->assertSame(['service_unbilled'], array_values(array_unique(array_column((new MoneyCheck)->run(), 'rule'))));
 

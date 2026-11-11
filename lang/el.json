@@ -1801,5 +1801,8 @@
     "Charge": "Χρέωση",
     "Addon": "Πρόσθετο",
     "Package change": "Αλλαγή πακέτου",
-    "No invoice lines yet": "Καμία γραμμή τιμολογίου ακόμη"
+    "No invoice lines yet": "Καμία γραμμή τιμολογίου ακόμη",
+    "An applied invoice is still open": "Ένα τιμολόγιο που εφαρμόστηκε είναι ακόμη ανοιχτό",
+    "Invoice #:id is still open and was already applied: paying it will not renew the service again. Cancel it (or collect it and move the date forward).": "Το τιμολόγιο #:id είναι ακόμη ανοιχτό και έχει ήδη εφαρμοστεί: αν πληρωθεί, δεν θα ανανεώσει ξανά την υπηρεσία. Ακύρωσέ το (ή είσπραξέ το και προχώρησε την ημερομηνία).",
+    "Upgrade invoice #:id is still open and its upgrade was already applied: paying it will not change the package again. Cancel it (or collect it and change the package again).": "Το τιμολόγιο αναβάθμισης #:id είναι ακόμη ανοιχτό και η αναβάθμισή του έχει ήδη εφαρμοστεί: αν πληρωθεί, δεν θα αλλάξει ξανά το πακέτο. Ακύρωσέ το (ή είσπραξέ το και άλλαξε ξανά το πακέτο)."
 }
