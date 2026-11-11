@@ -4,7 +4,9 @@ namespace MyCS\Redfish;
 
 /**
  * One server's BMC read over Redfish (DMTF DSP0266) with HTTP Basic, which every implementation accepts: no session to
- * open or leave behind. It only reads (GET): a read-only BMC account is all it needs, and all it should be given.
+ * open or leave behind. Reading (GET) needs a read-only BMC account, and that is what the reads should be given. Its few
+ * actions (reset, locate light, boot once, the BMC's own restart) are sent only through an ActionTransport, by a client
+ * built for them with an Operator account: the client that reads cannot change anything.
  *
  * Read: the first system (model, serial, power state, health, processors, memory), its first chassis (asset tag, the
  * health of fans and power supplies) and the chassis' power (the watts drawn now; the BMC's min/average/max).
@@ -12,6 +14,12 @@ namespace MyCS\Redfish;
 final class RedfishClient
 {
     private const ROOT = '/redfish/v1';
+
+    /** What a machine can be told (ComputerSystem.Reset), by the standard's names. */
+    public const RESETS = ['On', 'GracefulShutdown', 'ForceOff', 'GracefulRestart', 'ForceRestart', 'PowerCycle'];
+
+    /** What its next boot can be from, once. */
+    public const BOOT_ONCE = ['Pxe', 'BiosSetup', 'Hdd', 'Cd'];
 
     /** The longest text kept of what a BMC says. */
     private const TEXT = 200;
@@ -55,9 +63,7 @@ final class RedfishClient
             throw new RedfishException('The BMC lists no system.');
         }
         $system = $this->get($systems[0]);
-        // The system's own chassis where it says one (a BMC may list enclosures too), else the first listed.
-        $links = is_array($system['Links'] ?? null) && is_array($system['Links']['Chassis'] ?? null) ? $system['Links']['Chassis'] : [];
-        $chassisPath = self::link($links[0] ?? null) ?? $this->members(self::ROOT . '/Chassis', optional: true)[0] ?? null;
+        $chassisPath = $this->chassisOf($system);
         $chassis = $chassisPath === null ? [] : ($this->get($chassisPath, optional: true) ?? []);
         $power = $chassisPath === null ? [] : $this->power($chassisPath, $chassis);
         $detail = [];
@@ -99,7 +105,184 @@ final class RedfishClient
             'wattsMax' => $power['max'] ?? null,
             'wattsIntervalMinutes' => isset($power['interval']) ? (int) $power['interval'] : null,
             'systems' => count($systems),
+            'locating' => self::locating($system) ?? self::locating($chassis),
+            'bootOnce' => is_array($system['Boot'] ?? null) && ($system['Boot']['BootSourceOverrideEnabled'] ?? null) === 'Once'
+                ? self::text($system['Boot']['BootSourceOverrideTarget'] ?? null) : null,
         ] + $detail));
+    }
+
+    /**
+     * Power: turn the machine on or off, restart it. Refused before anything is sent when the BMC says it does not
+     * offer that kind. The BMC accepts and does it after: the state read next may still be the old one.
+     */
+    public function reset(string $type): void
+    {
+        if (!in_array($type, self::RESETS, true)) {
+            throw new RedfishException("«{$type}» is not a reset MyCS sends.");
+        }
+        [$path, $system] = $this->firstOf('Systems');
+        [$target, $allowed] = self::action($system, '#ComputerSystem.Reset', self::under($path, 'Actions/ComputerSystem.Reset'));
+        if ($allowed !== null && !in_array($type, $allowed, true)) {
+            throw new RedfishException("This BMC does not offer «{$type}» (it offers: " . implode(', ', $allowed) . ').');
+        }
+        $this->write('POST', $target, ['ResetType' => $type]);
+    }
+
+    /** The locate light (UID): on (blinking where the BMC has no steady one) or off. */
+    public function locate(bool $on): void
+    {
+        [$path, $system] = $this->firstOf('Systems');
+        $candidates = [[$path, $system]];
+        $chassisPath = $this->chassisOf($system);
+        if ($chassisPath !== null) {
+            $candidates[] = [$chassisPath, $this->get($chassisPath, optional: true) ?? []];
+        }
+        foreach ($candidates as [$at, $resource]) {
+            if (array_key_exists('LocationIndicatorActive', $resource)) {
+                $this->write('PATCH', $at, ['LocationIndicatorActive' => $on], $resource);
+
+                return;
+            }
+            if (array_key_exists('IndicatorLED', $resource)) {
+                $this->write('PATCH', $at, ['IndicatorLED' => $on ? 'Blinking' : 'Off'], $resource);
+
+                return;
+            }
+        }
+        throw new RedfishException('This BMC shows no locate light to turn on or off.');
+    }
+
+    /**
+     * What the machine boots from the next time only (the network, its BIOS setup, its disk, a CD), or null: as its BIOS
+     * says, a boot-once set before forgotten. The machine is not restarted here.
+     */
+    public function bootOnce(?string $target): void
+    {
+        if ($target !== null && !in_array($target, self::BOOT_ONCE, true)) {
+            throw new RedfishException("«{$target}» is not a boot source MyCS sets.");
+        }
+        [$path, $system] = $this->firstOf('Systems');
+        $boot = is_array($system['Boot'] ?? null) ? $system['Boot'] : [];
+        $allowed = self::names($boot['BootSourceOverrideTarget@Redfish.AllowableValues'] ?? null);
+        if ($target !== null && $allowed !== null && !in_array($target, $allowed, true)) {
+            throw new RedfishException("This BMC does not boot once from «{$target}» (it offers: " . implode(', ', $allowed) . ').');
+        }
+        $this->write('PATCH', $path, ['Boot' => $target === null ? ['BootSourceOverrideEnabled' => 'Disabled']
+            : ['BootSourceOverrideEnabled' => 'Once', 'BootSourceOverrideTarget' => $target]], $system);
+    }
+
+    /** Restart the BMC itself (when it hangs): the machine keeps running; the BMC is away for a minute or two. */
+    public function resetBmc(): void
+    {
+        [$path, $manager] = $this->firstOf('Managers');
+        [$target, $allowed] = self::action($manager, '#Manager.Reset', self::under($path, 'Actions/Manager.Reset'));
+        $type = match (true) {
+            $allowed === null || in_array('GracefulRestart', $allowed, true) => 'GracefulRestart',
+            in_array('ForceRestart', $allowed, true) => 'ForceRestart',
+            default => throw new RedfishException('This BMC offers no restart of itself (it offers: ' . implode(', ', $allowed) . ').'),
+        };
+        $this->write('POST', $target, ['ResetType' => $type]);
+    }
+
+    /**
+     * The first member of a collection under the root (the system, the manager) and its path.
+     *
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function firstOf(string $collection): array
+    {
+        $path = $this->members(self::ROOT . '/' . $collection)[0] ?? throw new RedfishException("The BMC lists no member of {$collection}.");
+
+        return [$path, $this->get($path)];
+    }
+
+    /**
+     * An action of a resource: where it is sent (the BMC's own target, as a path on this BMC, else the standard's) and
+     * the values the BMC says it takes (null: it does not say).
+     *
+     * @param  array<string, mixed>  $resource
+     * @return array{0: string, 1: list<string>|null}
+     */
+    private static function action(array $resource, string $name, string $default): array
+    {
+        $action = is_array($resource['Actions'] ?? null) && is_array($resource['Actions'][$name] ?? null) ? $resource['Actions'][$name] : [];
+
+        return [self::link(['@odata.id' => $action['target'] ?? null]) ?? $default, self::names($action['ResetType@Redfish.AllowableValues'] ?? null)];
+    }
+
+    /** @return list<string>|null a list of plain names a BMC gave (allowable values), or null when it gave none */
+    private static function names(mixed $values): ?array
+    {
+        $names = array_values(array_filter(is_array($values) ? $values : [], fn ($value) => is_string($value) && preg_match('/^[A-Za-z0-9]{1,40}$/', $value) === 1));
+
+        return $names === [] ? null : array_slice($names, 0, 20);
+    }
+
+    /** @param  array<string, mixed>  $resource */
+    private static function locating(array $resource): ?bool
+    {
+        if (is_bool($resource['LocationIndicatorActive'] ?? null)) {
+            return $resource['LocationIndicatorActive'];
+        }
+
+        return match ($resource['IndicatorLED'] ?? null) {
+            'Lit', 'Blinking' => true,
+            'Off' => false,
+            default => null,
+        };
+    }
+
+    /**
+     * A change sent to the BMC: only through a transport that may (ActionTransport), never the reading one.
+     *
+     * @param  'POST'|'PATCH'  $method
+     * @param  array<string, mixed>  $json
+     * @param  array<string, mixed>  $resource  the resource changed, as just read: its ETag is sent back where it has one
+     */
+    private function write(string $method, string $path, array $json, array $resource = []): void
+    {
+        if (!$this->http instanceof ActionTransport) {
+            throw new RedfishException('This connection to the BMC only reads.');
+        }
+        $headers = [
+            'Authorization' => 'Basic ' . base64_encode($this->username . ':' . $this->password),
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'OData-Version' => '4.0',
+        ];
+        $etag = $resource['@odata.etag'] ?? null;
+        if (is_string($etag) && preg_match('~^(W/)?"[\x21\x23-\x7e]{1,120}"$~D', $etag) === 1) {
+            $headers['If-Match'] = $etag; // some BMCs refuse a PATCH without it
+        }
+        [$status, $body] = $this->http->send($method, $path, $headers, $json);
+        if (in_array($status, [200, 202, 204], true)) {
+            return;
+        }
+        $said = self::said($body);
+        throw new RedfishException(match (true) {
+            $status === 0 => 'The BMC did not answer: it may or may not have done it. Read the machine again before trying once more.',
+            $status === 401 => 'The BMC refused the actions\' login (401): check the actions\' username and password.',
+            $status === 403 => 'The BMC account may not do this (403): the actions\' account needs the Operator role.',
+            default => "The BMC refused (HTTP {$status})" . ($said !== null ? ": {$said}" : '.'),
+        }, $status);
+    }
+
+    /** What a BMC says in an error's body, as text: its first extended message, else its error message. */
+    private static function said(string $body): ?string
+    {
+        $error = json_decode($body, true);
+        $error = is_array($error) && is_array($error['error'] ?? null) ? $error['error'] : [];
+        $extended = is_array($error['@Message.ExtendedInfo'] ?? null) && is_array($error['@Message.ExtendedInfo'][0] ?? null) ? $error['@Message.ExtendedInfo'][0] : [];
+
+        return self::text($extended['Message'] ?? null) ?? self::text($error['message'] ?? null);
+    }
+
+    /** @param  array<string, mixed>  $system  its own chassis where it says one, else the first listed */
+    private function chassisOf(array $system): ?string
+    {
+        $links = is_array($system['Links'] ?? null) && is_array($system['Links']['Chassis'] ?? null) ? $system['Links']['Chassis'] : [];
+
+        return self::link($links[0] ?? null) ?? $this->members(self::ROOT . '/Chassis', optional: true)[0] ?? null;
     }
 
     /**
