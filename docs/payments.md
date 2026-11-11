@@ -888,9 +888,19 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   δέχεται και το ίδιο το `Invoice` (παίρνει τον ιδιοκτήτη από αυτό, χωρίς read πριν από τα locks)· η χρέωση ελέγχει κάτω
   από τα locks ότι η μέθοδος είναι του σημερινού ιδιοκτήτη και ρωτά το gateway με το κλειδωμένο τιμολόγιο (REV-774-6).
 - **Δεν στάλθηκε (`not_sent`, `ChargeNotSent`, sweep 3 L-FAILURES-2):** το gateway δεν απάντησε πριν τη χρέωση (Stripe:
-  timeout, 5xx ή 429 στο `GET /customers`, 429 στη χρέωση· PayPal: 401/429). Δεν πάρθηκε και δεν απορρίφθηκε τίποτα: δεν
+  timeout, 5xx ή 429 στο `GET /customers`, 429 στη χρέωση· PayPal: 401/429 στο order, ή **δεν έδωσε token**: η κλήση
+  `oauth2/token` γίνεται πρώτη και χωριστά, και αν αποτύχει δεν έχει σταλεί order, S8-PAYMENTS-3· αποτυχία **μετά** το
+  POST του order μένει `unknown`). Δεν πάρθηκε και δεν απορρίφθηκε τίποτα: δεν
   κρατά το τιμολόγιο, δεν μετρά στο `failed_count`, ο πελάτης δεν παίρνει «η πληρωμή απέτυχε»· μπαίνει στο mail του staff
   και το cron ξαναδοκιμάζει όπως ορίζεται.
+  - **Το Stripe αρνείται το δικό μας key (S8-PAYMENTS-2):** 401/403 στο `GET /customers` ή στη χρέωση, ή το 404 «a similar
+    object exists in live/test mode» (key άλλου mode). Είναι δικό μας λάθος, όχι απόρριψη κάρτας: `not_sent` όπως πάνω,
+    και το staff παίρνει mail «Stripe: saved cards cannot be charged» (μία φορά την ώρα, και στο log πληρωμών), όπως
+    για τον customer που δεν διαβάζεται στο checkout. Ένα απλό 404 (ο customer δεν υπάρχει πια στο Stripe) μένει αποτυχία.
+  - **Επανάληψη που δεν στάλθηκε (S8-PAYMENTS-1):** όταν μια χρέωση `unknown` ξαναστέλνεται με το κλειδί της και η
+    επανάληψη δεν φτάνει στο gateway (`ChargeNotSent`), η προσπάθεια **μένει `unknown`**, με το αρχικό της σφάλμα, το
+    κλειδί και το κράτημα του τιμολογίου: η επανάληψη δεν λέει τίποτα για την πρώτη αποστολή, που ίσως πήρε τα χρήματα.
+    Μόνο απάντηση του gateway για το ίδιο κλειδί (πέρασε, απορρίφθηκε) ή το staff («Resolve charge») την κλείνει.
 - **Ανοιχτό checkout (sweep 3 L-NO-DOUBLE-CHARGE-2):** όταν ο πελάτης ανοίγει ένα checkout gateway στη σελίδα του
   τιμολογίου ή του Mass Pay (Stripe, Cardlink, Mollie, PayPal), γράφεται `invoices.checkout_opened_at` κάτω από τα ίδια
   locks με τον έλεγχο του `onItsWay` (`SavedMethodCharge::openCheckout`, σε όλα τα τιμολόγια του group). Το cron δεν
