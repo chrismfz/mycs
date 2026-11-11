@@ -1516,7 +1516,9 @@ class ImportFromWhmcs extends Command
                     'currency_code' => $user['code'],
                     // A «Free Account» has no due date here, whatever WHMCS kept: WHMCS never bills nor suspends one, and a
                     // past date would be suspended and terminated here (adversarial ADV-594-1).
-                    'expires_at' => $freeAccount ? null : $this->validateDate($record['nextduedate']),
+                    // Nor a «Pending» one (an order not started): WHMCS keeps its order date there; as an order made here it
+                    // has none, and gets its period from the day its payment starts it (S10-CRON-BILLING-1).
+                    'expires_at' => $freeAccount || $record['domainstatus'] === 'Pending' ? null : $this->validateDate($record['nextduedate']),
                     // Its 0.00 kept («Keep this price»): no reconcile of client group prices ever makes it the catalog's
                     // (ADV-594-3), and the price report reads it as kept.
                     'price_locked' => $freeAccount,

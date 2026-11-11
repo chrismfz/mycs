@@ -107,6 +107,22 @@ class WhmcsRecordParityTest extends TestCase
             ->assertSuccessful()->expectsOutputToContain('No difference.');
     }
 
+    /** A «Pending» WHMCS order comes without a due date (S10-CRON-BILLING-1): no difference; with any date here, one. */
+    public function test_a_pending_order_has_no_due_date_here(): void
+    {
+        $this->whmcs->exec("UPDATE tblhosting SET domainstatus = 'Pending', nextduedate = '2026-12-10'");
+        $this->service->forceFill(['status' => 'pending', 'expires_at' => null])->save();
+        $this->assertSame(0, $this->records()['Services']['count']);
+
+        $this->service->forceFill(['expires_at' => '2027-01-10'])->save();
+        $this->assertContains("service #{$this->service->id}: due 2026-12-10 in WHMCS, 2027-01-10 here", $this->records()['Services']['differ']);
+
+        // An active one without a date is still a difference.
+        $this->whmcs->exec("UPDATE tblhosting SET domainstatus = 'Active'");
+        $this->service->forceFill(['status' => 'active', 'expires_at' => null])->save();
+        $this->assertSame(1, $this->records()['Services']['count']);
+    }
+
     /** One account billed 2.00 more, the other 2.00 less: the totals agree, the records do not. */
     public function test_two_errors_that_cancel_out_in_the_totals_are_seen(): void
     {

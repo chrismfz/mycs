@@ -340,7 +340,7 @@
 
 | WHMCS | MyCS | Πότε το γράφει το MyCS |
 |---|---|---|
-| Pending | `pending` | παραγγελία που δεν ενεργοποιήθηκε |
+| Pending | `pending` | παραγγελία που δεν ενεργοποιήθηκε. **Χωρίς ημερομηνία λήξης** (`expires_at` κενό, sweep 10 S10-CRON-BILLING-1, απόφαση ιδιοκτήτη 2026-11-12): το WHMCS κρατά στο `nextduedate` της τη μέρα της παραγγελίας, και πληρωμένη αργά μετά το cut-over θα ξεκινούσε ήδη ληγμένη (αναστολή το ίδιο βράδυ). Όπως μια παραγγελία που έγινε εδώ, παίρνει ολόκληρο κύκλο από τη μέρα που την ξεκινά η πληρωμή της. Το `mycs:parity --records` το δέχεται (Pending χωρίς ημερομηνία = καμία διαφορά). Μόνο το «Pending»: ένα status που δεν ξέρουμε (π.χ. Completed) έρχεται επίσης `pending` αλλά έχει ξεκινήσει (`activated_at`), οπότε κρατά το `nextduedate` του όπως πριν. Τα addons δεν άλλαξαν (ένα Pending addon κρατά το δικό του `nextduedate`) |
 | Active | `active` | |
 | Suspended | `suspended` | |
 | Terminated | `terminated` | cron για απλήρωτα (Termination Days), ή «Terminate server» από το staff αφού πετύχει |
