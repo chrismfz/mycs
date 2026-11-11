@@ -78,6 +78,8 @@ credentials. Το import της ημέρας τα φέρνει όλα:
      - **«not one cycle … before the due date»**, **«no due date»**: βήμα 2.
      - **«upgraded or downgraded in WHMCS inside the last paid period»**: σωστό όπως είναι· οι αχρησιμοποίητες μέρες
        της μετρούν στην τωρινή τιμή.
+     - **«an invoice of 0.00, or one with no money on it»**: υπηρεσία με promotion 100% ή τιμολόγιο που έκλεισε paid χωρίς
+       πληρωμή· σωστό όπως είναι.
      - **«more than one unpaid line»**: δύο απλήρωτες ανανεώσεις. Καλύτερα να τακτοποιηθούν στο WHMCS πριν από το dump
        (μία πληρώνεται ή ακυρώνεται)· αλλιώς όποια πληρωθεί εδώ παίρνει τον πρώτο απλήρωτο μήνα.
      - **«no paid line»**: βήμα 4 αν είναι πρώτη παραγγελία· αλλιώς υπηρεσία που φτιάχτηκε χωρίς τιμολόγιο.

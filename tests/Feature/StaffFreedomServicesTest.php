@@ -506,6 +506,8 @@ class StaffFreedomServicesTest extends TestCase
         $whmcs->exec("INSERT INTO tblinvoices VALUES (950, {$this->client->id}, '', '2026-11-01', '2026-11-15', '2026-11-10 09:00:00', 'Paid', 13, 0, 0)");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6000, 950, {$this->client->id}, 'Hosting', 1692, 'Business 10', 10, 0, '2026-11-15')");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6001, 950, {$this->client->id}, 'Addon', 123, 'Dedicated IP', 3, 0, '2026-11-15')");
+        // Its payment: a paid invoice with no money on it gets no period (WhmcsLinePeriods, REV-788-R2-2).
+        $whmcs->exec("INSERT INTO tblaccounts (id, userid, invoiceid, gateway, date, amountin) VALUES (950, {$this->client->id}, 950, 'banktransfer', '2026-11-10 09:00:00', 13)");
         $whmcs->exec("INSERT INTO tblinvoices VALUES (951, {$this->client->id}, '', '2026-11-18', '2026-12-15', NULL, 'Unpaid', 13, 0, 0)");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6002, 951, {$this->client->id}, 'Hosting', 1692, 'Business 10', 10, 0, '2026-12-15')");
         $whmcs->exec("INSERT INTO tblinvoiceitems VALUES (6003, 951, {$this->client->id}, 'Addon', 123, 'Dedicated IP', 3, 0, '2026-12-15')");

@@ -734,10 +734,15 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
    `applied_at`. Απλήρωτη γραμμή με άλλη ημερομηνία μένει όπως ήταν.
 
 Ο κανόνας είναι «γράφει μόνο όπου είναι ακριβές, ονομάζει τα υπόλοιπα». **Δεν γράφεται περίοδος:**
-- **στην πληρωμένη γραμμή, όταν το WHMCS έκανε upgrade ή downgrade της υπηρεσίας μέσα στην περίοδό της** (REV-788-4):
-  γραμμή `tblupgrades` (`package` ή `configoptions`) `Completed` με `date` ίδια ή μετά το `duedate` της γραμμής (χωρίς
-  `date`: μετρά ως μέσα). Η γραμμή δεν είναι πια ό,τι πληρώθηκε για εκείνες τις μέρες (το upgrade πληρώθηκε σε δική του
-  γραμμή-χρέωση, το downgrade γύρισε τη διαφορά ως πίστωση στο WHMCS)· χωρίς περίοδο, οι μέρες μετρούν στην τωρινή τιμή·
+- **στην πληρωμένη γραμμή, όταν το WHMCS έκανε upgrade ή downgrade της υπηρεσίας αφότου χρεώθηκε η γραμμή** (REV-788-4,
+  REV-788-R2-1): γραμμή `tblupgrades` (`package` ή `configoptions`) `Completed` με `date` ίδια ή μετά την **ημερομηνία του
+  τιμολογίου** της γραμμής (όχι το `duedate` της: μια ανανέωση που πληρώθηκε νωρίς χρεώνεται πριν από την περίοδό της·
+  χωρίς `date`: μετρά ως μέσα). Η γραμμή δεν είναι πια ό,τι πληρώθηκε για εκείνες τις μέρες (το upgrade πληρώθηκε σε δική
+  του γραμμή-χρέωση, το downgrade γύρισε τη διαφορά ως πίστωση στο WHMCS)· χωρίς περίοδο, οι μέρες μετρούν στην τωρινή τιμή·
+- **στην πληρωμένη γραμμή τιμολογίου που βγαίνει 0,00 ή δεν έχει χρήματα πάνω του** (REV-788-R2-2): σύνολο και πίστωση
+  του WHMCS ως 0,00 (promotion ή ομάδα 100%: 10,00 και −10,00, κλεισμένο paid χωρίς πληρωμή), ή paid χωρίς πίστωση, χωρίς
+  δική του πληρωμή (`tblaccounts`) και χωρίς Mass Pay. Με περίοδο οι μέρες του θα άξιζαν το ποσό της γραμμής, ενώ δεν
+  πληρώθηκε τίποτα· ονομάζεται με δικό του λόγο·
 - **στην ανοιχτή ανανέωση, όταν η υπηρεσία έχει και άλλη απλήρωτη γραμμή** (REV-788-3: δύο απλήρωτες ανανεώσεις· αν ο
   πελάτης πληρώσει τη μεταγενέστερη, η πληρωμή πρέπει να πάρει τον πρώτο απλήρωτο μήνα και να ανανεώσει, όπως πριν και
   όπως στο WHMCS· με περίοδο στην πρώτη, η πληρωμή θα «περίμενε» πίσω της).
@@ -757,7 +762,8 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   ```
   K live service(s) whose last paid line or open renewal got no period: left as before, their next payment or refund goes by the old guess. By reason (cutover-runbook says which to look at):
     1 the last paid line is not one cycle (or a pro rata first period) before the due date: #31 (line #9001 due 2026-09-10, one cycle on 2026-10-10, due date 2026-10-15).
-    1 upgraded or downgraded in WHMCS inside the last paid period: #40 (line #9010 due 2026-09-10).
+    1 upgraded or downgraded in WHMCS inside the last paid period: #40 (line #9010 billed 2026-09-05).
+    1 the last paid line is on an invoice of 0.00, or one with no money on it: #41 (invoice #480).
     1 the last paid line has no due date: #34 (line #9007).
     1 no paid line: #32.
     1 more than one unpaid line: the open renewal is not written: #33 (2 unpaid lines).

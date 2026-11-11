@@ -601,12 +601,15 @@ class ImportLinePeriodsTest extends TestCase
         $this->whmcs->exec("INSERT INTO tblupgrades (relid, type, status, paid, date) VALUES ({$service}, 'package', 'Completed', 'Y', " . ($day === null ? 'NULL' : "'{$day}'") . ')');
     }
 
-    /** REV-788-4: the paid line gets no period when WHMCS changed the package on or after the day it is due; before it, it does. */
-    public function test_a_package_change_in_whmcs_inside_the_last_paid_period_leaves_its_line_without_a_period(): void
+    /**
+     * REV-788-4, REV-788-R2-1: the paid line gets no period when WHMCS changed the package on or after the day the line was
+     * billed (its invoice's date, here 09-05 for a line due 09-10); before it, it does.
+     */
+    public function test_a_package_change_in_whmcs_since_the_last_paid_line_was_billed_leaves_it_without_a_period(): void
     {
-        foreach ([31 => '2026-09-15', 32 => '2026-09-10', 33 => '2026-09-09', 34 => null] as $service => $day) {
+        foreach ([31 => '2026-09-15', 32 => '2026-09-05', 33 => '2026-09-04', 34 => null] as $service => $day) {
             $this->whmcsService($service, '2026-10-10');
-            $this->whmcsInvoice(480 + $service, 'Paid', [$service => 10.0], due: '2026-09-10');
+            $this->whmcsInvoice(480 + $service, 'Paid', [$service => 10.0], due: '2026-09-10', date: '2026-09-05');
             $this->whmcsUpgrade($service, $day);
         }
         // Pending in WHMCS: not done, not a change of what the days were paid.
@@ -618,7 +621,7 @@ class ImportLinePeriodsTest extends TestCase
         foreach ([511, 512, 514] as $invoice) {
             $this->importedWithoutPeriod($invoice);
         }
-        $this->assertSame('2026-09-10', $this->line(513)[0], 'changed the day before the period: the line is what it paid');
+        $this->assertSame('2026-09-10', $this->line(513)[0], 'changed the day before it was billed: the line is what it paid');
         $this->assertSame('2026-09-10', $this->line(515)[0]);
         $said = $this->importSaid();
         $this->assertStringContainsString('3 upgraded or downgraded in WHMCS inside the last paid period: #31 (line #', $said);

@@ -22,8 +22,9 @@ use Throwable;
  *    the service was made, takes `that day .. due date` only when the due date is the end of the first period this app
  *    gives that order (OrderPricing::firstPeriod);
  *  - its open renewal (its ONLY unpaid line, due ON the service's due date) takes `due date .. one cycle on`, not applied.
- * Never the paid line when WHMCS upgraded or downgraded the service inside its period (the line is not what those days
- * were paid, REV-788-4). Never the open renewal when the service has another unpaid line (a payment of the later one
+ * Never the paid line when WHMCS upgraded or downgraded the service since the line was billed (its invoice's date: the
+ * line is not what those days were paid, REV-788-4, REV-788-R2-1), nor one on an invoice that comes to 0.00 or holds no
+ * money (a 100% promotion, closed as paid with no payment: its days were paid nothing, REV-788-R2-2). Never the open renewal when the service has another unpaid line (a payment of the later one
  * must still take the first month not paid for, REV-788-3).
  * A WHMCS discount line beside the line (a client group's, a promotion's: a negative line of its own) changes nothing
  * here: the line gets its period all the same, with two known consequences the owner accepted (2026-11-11,
@@ -42,6 +43,7 @@ final class WhmcsLinePeriods
     public const REASONS = [
         'dates' => 'the last paid line is not one cycle (or a pro rata first period) before the due date',
         'upgrade' => 'upgraded or downgraded in WHMCS inside the last paid period',
+        'no_money' => 'the last paid line is on an invoice of 0.00, or one with no money on it',
         'no_due' => 'the last paid line has no due date',
         'no_paid' => 'no paid line',
         'unpaid' => 'more than one unpaid line: the open renewal is not written',
@@ -75,13 +77,14 @@ final class WhmcsLinePeriods
         try {
             $due = $this->lineDueDates($ids);
             $this->upgrades();
+            $this->moneyless = $this->moneyless();
         } catch (PDOException $e) {
             // Not a WHMCS this importer knows (every one keeps the column): nothing written, and said.
             return ['notes' => ["The lines' due dates (tblinvoiceitems.duedate) could not be read: no invoice line was given its period ({$e->getMessage()})."]] + $none;
         }
         foreach ($services as $id => $service) {
             $this->service($service, array_map(fn (object $line) => ['id' => (int) $line->id, 'invoice' => (int) $line->invoice_id, 'paid' => $line->status === Invoice::STATUS_PAID,
-                'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'due' => $due[(int) $line->id] ?? null], $lines[$id] ?? []));
+                'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'billed' => self::day($line->created_at), 'due' => $due[(int) $line->id] ?? null], $lines[$id] ?? []));
         }
         $named = [];
         foreach (array_keys(self::REASONS) as $reason) {
@@ -165,7 +168,42 @@ final class WhmcsLinePeriods
         }
     }
 
-    /** Upgraded or downgraded in WHMCS on or after $from (the start of its last paid period), or on a day not kept. */
+    /** @var array<int, true> WHMCS invoices that come to 0.00 or hold no money */
+    private array $moneyless = [];
+
+    /**
+     * WHMCS's paid invoices that bill nothing (total and credit used come to 0.00 or less) or hold no money: no credit
+     * used, no payment of their own, and not paid through a Mass Pay invoice (an «Invoice» line of another names them).
+     *
+     * @return array<int, true>
+     */
+    private function moneyless(): array
+    {
+        try {
+            $paidOn = array_fill_keys(array_map('intval', $this->whmcs->query('SELECT invoiceid FROM tblaccounts GROUP BY invoiceid HAVING SUM(COALESCE(amountin, 0) - COALESCE(amountout, 0)) > 0')
+                ->fetchAll(PDO::FETCH_COLUMN)), true);
+            $invoices = $this->whmcs->query("SELECT id, total, credit FROM tblinvoices WHERE status = 'Paid'")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return [];
+        }
+        try {
+            $massPaid = array_fill_keys(array_map('intval', $this->whmcs->query("SELECT relid FROM tblinvoiceitems WHERE type = 'Invoice'")->fetchAll(PDO::FETCH_COLUMN)), true);
+        } catch (PDOException) {
+            $massPaid = [];
+        }
+        $moneyless = [];
+        foreach ($invoices as $invoice) {
+            $id = (int) $invoice['id'];
+            $credit = (int) round((float) $invoice['credit'] * 100);
+            if ((int) round((float) $invoice['total'] * 100) + $credit <= 0 || ($credit <= 0 && !isset($paidOn[$id]) && !isset($massPaid[$id]))) {
+                $moneyless[$id] = true;
+            }
+        }
+
+        return $moneyless;
+    }
+
+    /** Upgraded or downgraded in WHMCS on or after $from (the day its last paid line was billed), or on a day not kept. */
     private function upgradedSince(Service $service, string $from): bool
     {
         if ($service->whmcs_addon_id !== null || !array_key_exists((int) $service->id, $this->upgraded)) {
@@ -181,7 +219,7 @@ final class WhmcsLinePeriods
         $this->named[$reason][(int) $service->id] ??= $detail;
     }
 
-    /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, due: string|null}>  $lines */
+    /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, billed: string|null, due: string|null}>  $lines */
     private function service(Service $service, array $lines): void
     {
         $due = CarbonImmutable::parse($service->expires_at)->startOfDay();
@@ -194,8 +232,10 @@ final class WhmcsLinePeriods
             $this->name('no_paid', $service);
         } elseif ($last['due'] === null) {
             $this->name('no_due', $service, "line #{$last['id']}");
-        } elseif ($this->upgradedSince($service, $last['due'])) {
-            $this->name('upgrade', $service, "line #{$last['id']} due {$last['due']}");
+        } elseif (isset($this->moneyless[$last['invoice']])) {
+            $this->name('no_money', $service, "invoice #{$last['invoice']}");
+        } elseif ($this->upgradedSince($service, min($last['billed'] ?? $last['due'], $last['due']))) {
+            $this->name('upgrade', $service, "line #{$last['id']} billed " . ($last['billed'] ?? $last['due']));
         } else {
             $start = CarbonImmutable::parse($last['due'])->startOfDay();
             $end = $service->periodEnd($start);
