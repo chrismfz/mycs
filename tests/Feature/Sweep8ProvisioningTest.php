@@ -73,6 +73,38 @@ class Sweep8ProvisioningTest extends TestCase
         $this->assertNotNull($refused, 'the upgrade counted as done: staff are not told');
     }
 
+    /** The neighbour of S8-PROVISIONING-1: Change Package on the service's own account (WHM names its domain) is sent. */
+    public function test_change_package_on_the_services_own_account_is_still_sent(): void
+    {
+        $server = Server::query()->create(['name' => 'Rigel', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        foreach (['host' => 'https://whm.test:2087', 'username' => 'root', 'apikey' => 'key'] as $key => $value) {
+            $server->settings()->create(['key' => $key, 'value' => $value]);
+        }
+        $changed = [];
+        Http::fake(function (Request $request) use (&$changed) {
+            $call = basename((string) parse_url($request->url(), PHP_URL_PATH));
+            $ok = fn (array $data = []) => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => $data]);
+            if ($call === 'changepackage') {
+                $changed[] = $request->data();
+            }
+
+            return match ($call) {
+                // The same domain as WHM writes it (www., upper case): the service's own account.
+                'accountsummary' => $ok(['acct' => [['user' => 'shop', 'domain' => 'WWW.Mine.example.test', 'plan' => 'Big', 'owner' => 'root']]]),
+                'listpkgs' => $ok(['pkg' => [['name' => 'Small'], ['name' => 'Big']]]),
+                'listresellers' => $ok(['reseller' => []]),
+                default => $ok(),
+            };
+        });
+        $service = $this->service($server, ['domain' => 'mine.example.test', 'username' => 'shop']);
+
+        ExtensionHelper::upgradeServer($service);
+
+        $this->assertCount(1, $changed);
+        $this->assertSame('shop', $changed[0]['user'] ?? null);
+        $this->assertSame('Small', $changed[0]['pkg'] ?? null);
+    }
+
     /**
      * S8-PROVISIONING-2: «destroy it by hand» stays in Pending Module Actions after staff bring the service back to active.
      */
