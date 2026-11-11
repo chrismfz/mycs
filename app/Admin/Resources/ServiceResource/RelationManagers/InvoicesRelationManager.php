@@ -2,66 +2,83 @@
 
 namespace App\Admin\Resources\ServiceResource\RelationManagers;
 
-use App\Admin\Resources\InvoiceResource;
-use App\Models\Invoice;
+use App\Admin\Resources\InvoiceResource\RelatedInvoiceLines;
 use App\Models\InvoiceItem;
-use Filament\Actions\ViewAction;
-use Filament\Forms\Components\TextInput;
+use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Schemas\Schema;
-use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
+/**
+ * The service's invoice lines (RelatedInvoiceLines): its own, its package changes' and its addons', each saying which.
+ * In place of the list per invoice that was here (number, the whole invoice's total, status; owner 2026-11-11: one tab).
+ */
 class InvoicesRelationManager extends RelationManager
 {
-    protected static string $relationship = 'invoices';
+    protected static string $relationship = 'invoiceItems';
 
-    // Edit query
-    protected function getTableQuery(): Builder|Relation|null
+    /** @var Collection<int, Service>|null its addons by id, read once a request */
+    private ?Collection $addons = null;
+
+    public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
-        return Invoice::query()->whereIn('id', InvoiceItem::query()
-            ->where(function ($query) {
-                $query->where('reference_type', 'App\Models\Service')
-                    ->where('reference_id', $this->ownerRecord->id);
-            })->orWhere(function ($query) {
-                $query->where('reference_type', 'App\Models\ServiceUpgrade')
-                    ->whereIn('reference_id', $this->ownerRecord->upgrade()->pluck('id')->filter());
-            })->pluck('invoice_id'));
+        return __('Invoices');
     }
 
-    public function form(Schema $schema): Schema
+    public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
-        return $schema
-            ->components([
-                TextInput::make('id')
-                    ->required()
-                    ->maxLength(255),
+        return RelatedInvoiceLines::canView();
+    }
 
-            ]);
+    public function isReadOnly(): bool
+    {
+        return true;
+    }
+
+    /** @return Collection<int, Service> */
+    private function addons(): Collection
+    {
+        $service = $this->getOwnerRecord();
+
+        return $this->addons ??= $service instanceof Service ? $service->addons()->with('product')->get()->keyBy('id') : new Collection;
+    }
+
+    /** @return Builder<InvoiceItem> */
+    protected function getTableQuery(): Builder|Relation|null
+    {
+        $service = $this->getOwnerRecord();
+        abort_unless($service instanceof Service, 404);
+        $services = [$service->id, ...$this->addons()->keys()->all()];
+
+        return InvoiceItem::query()->where(fn (Builder $lines) => $lines
+            ->where(fn (Builder $own) => $own->where('reference_type', (new Service)->getMorphClass())->whereIn('reference_id', $services))
+            ->orWhere(fn (Builder $changes) => $changes->where('reference_type', (new ServiceUpgrade)->getMorphClass())
+                ->whereIn('reference_id', $service->upgrade()->select('id'))));
+    }
+
+    /** Not public: a public method of a Livewire component is callable from the browser (review of #789). */
+    private function type(InvoiceItem $line): string
+    {
+        $what = match (true) {
+            $line->reference_type === (new ServiceUpgrade)->getMorphClass() => __('Package change'),
+            (int) $line->reference_id !== (int) $this->getOwnerRecord()->getKey() => __('Addon')
+                . (($name = $this->addons()->get((int) $line->reference_id)?->product?->name) ? ': ' . $name : ''),
+            default => __('Service'),
+        };
+
+        return $what . match ($line->kind) {
+            InvoiceItem::KIND_CHARGE => ' · ' . __('Charge'),
+            InvoiceItem::KIND_DISCOUNT => ' · ' . __('Discount'),
+            default => '',
+        };
     }
 
     public function table(Table $table): Table
     {
-        return $table
-            ->recordTitleAttribute('id')
-            ->columns([
-                TextColumn::make('id')->sortable(),
-                TextColumn::make('formattedTotal')->label('Total'),
-                TextColumn::make('status')
-                    ->label('Status')
-                    ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))
-                    ->badge()
-                    ->color(fn (string $state): string => Invoice::statusColor($state)),
-            ])
-            ->filters([
-                //
-            ])
-            ->headerActions([])
-            ->recordActions([
-                ViewAction::make()->url(fn ($record) => InvoiceResource::getUrl('edit', ['record' => $record])),
-            ])
-            ->defaultSort('invoices.id', 'desc');
+        return RelatedInvoiceLines::table($table, fn (InvoiceItem $record) => $this->type($record));
     }
 }

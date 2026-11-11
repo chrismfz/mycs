@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * «Related invoices» of a service or a domain (owner 2026-11-11: «when was what paid, with which invoice», without
+ * The «Invoices» tab of a service or a domain (owner 2026-11-11: «when was what paid, with which invoice», without
  * opening invoices one by one): one row per invoice line of it, newest first, with the line's own amount and period, its
  * invoice's status, when it was paid and how. Read-only. A line the importer brought without a period shows none: never
  * a guess.

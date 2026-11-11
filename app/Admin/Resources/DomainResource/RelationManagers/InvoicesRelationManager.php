@@ -16,13 +16,13 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  * The domain's invoice lines (RelatedInvoiceLines): its registration or transfer, its renewals with their period, its fees,
  * and the fee of a change of its holder (billed on the change, not on the domain: DomainOwnerChanges).
  */
-class RelatedInvoicesRelationManager extends RelationManager
+class InvoicesRelationManager extends RelationManager
 {
     protected static string $relationship = 'invoiceItems';
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
-        return __('Related invoices');
+        return __('Invoices');
     }
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool

@@ -1791,7 +1791,6 @@
     "This invoice is paid: a change that makes it owe is «paid by hand» for that part, and needs the permission to record payments.": "Αυτό το τιμολόγιο είναι εξοφλημένο: μια αλλαγή που το κάνει να χρωστά είναι «εξόφληση με το χέρι» για το ποσό αυτό και θέλει το δικαίωμα καταγραφής πληρωμών.",
     "This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not removed from it. Set its price to 0.00 instead.": "Αυτό το τιμολόγιο έχει πληρωμή (ή σημειώθηκε εξοφλημένο με το χέρι): γραμμή υπηρεσίας, domain ή πίστωσης δεν αφαιρείται από αυτό. Βάλε την τιμή της 0.00.",
     "This invoice has a payment on it (or was marked paid by hand): a line of a service, a domain or account credit is not added to it. Make a new invoice for it.": "Αυτό το τιμολόγιο έχει πληρωμή (ή σημειώθηκε εξοφλημένο με το χέρι): γραμμή υπηρεσίας, domain ή πίστωσης δεν προστίθεται σε αυτό. Φτιάξε νέο τιμολόγιο γι' αυτήν.",
-    "Related invoices": "Σχετικά τιμολόγια",
     "Amount (net)": "Ποσό (καθαρό)",
     "Registration": "Καταχώριση",
     "Discount": "Έκπτωση",

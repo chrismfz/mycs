@@ -4,12 +4,11 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
-use App\Admin\Resources\DomainResource\RelationManagers\RelatedInvoicesRelationManager as DomainRelatedInvoices;
+use App\Admin\Resources\DomainResource\RelationManagers\InvoicesRelationManager as DomainRelatedInvoices;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
-use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
-use App\Admin\Resources\ServiceResource\RelationManagers\RelatedInvoicesRelationManager as ServiceRelatedInvoices;
+use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager as ServiceRelatedInvoices;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
@@ -29,11 +28,11 @@ use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * «Related invoices» on a service and on a domain (owner 2026-11-11): each of its invoice lines with the line's own
+ * The «Invoices» tab of a service and of a domain (owner 2026-11-11; one tab on the service, in place of the list per invoice): each of its invoice lines with the line's own
  * amount and period, its invoice's status, when it was paid and how; never a line of another service, domain or client;
  * only for staff who may list invoices.
  */
-class RelatedInvoicesTest extends TestCase
+class ServiceAndDomainInvoicesTabTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -214,6 +213,17 @@ class RelatedInvoicesTest extends TestCase
         $this->assertSame(7, $manager->getTableRecords()->total());
     }
 
+    /**
+     * The relation managers the page shows this staff (Filament drops those they may not view).
+     *
+     * @param  class-string  $page
+     * @return list<class-string>
+     */
+    private function tabs(string $page, Service|Domain $record): array
+    {
+        return array_values(Livewire::test($page, ['record' => $record->getRouteKey()])->assertOk()->instance()->getRelationManagers());
+    }
+
     public function test_staff_who_may_not_list_invoices_do_not_see_it(): void
     {
         $service = $this->service();
@@ -222,7 +232,6 @@ class RelatedInvoicesTest extends TestCase
         $this->assertTrue(ServiceRelatedInvoices::canViewForRecord($service, EditService::class));
         $this->assertTrue(DomainRelatedInvoices::canViewForRecord($domain, ViewDomain::class));
         $this->assertContains(ServiceRelatedInvoices::class, ServiceResource::getRelations());
-        $this->assertContains(InvoicesRelationManager::class, ServiceResource::getRelations(), '«Invoices» stays next to it');
         $this->assertContains(DomainRelatedInvoices::class, DomainResource::getRelations());
 
         $this->actingAs($this->staff(['admin.services.viewAny', 'admin.services.view', 'admin.services.update', 'admin.domains.viewAny', 'admin.domains.view']), 'staff');
@@ -232,12 +241,12 @@ class RelatedInvoicesTest extends TestCase
         // Mounted directly, past the tab: refused.
         Livewire::test(ServiceRelatedInvoices::class, ['ownerRecord' => $service, 'pageClass' => EditService::class])->assertForbidden();
         Livewire::test(DomainRelatedInvoices::class, ['ownerRecord' => $domain, 'pageClass' => ViewDomain::class])->assertForbidden();
-        // On the pages: no tab of it (a tab's content loads when opened, so its label is what the page has).
-        Livewire::test(ViewDomain::class, ['record' => $domain->getRouteKey()])->assertOk()->assertDontSee('Related invoices');
-        Livewire::test(EditService::class, ['record' => $service->getRouteKey()])->assertOk()->assertDontSee('Related invoices');
+        // On the pages: not among their tabs.
+        $this->assertNotContains(DomainRelatedInvoices::class, $this->tabs(ViewDomain::class, $domain));
+        $this->assertNotContains(ServiceRelatedInvoices::class, $this->tabs(EditService::class, $service));
 
         $this->actingAs($this->staff(['*']), 'staff');
-        Livewire::test(ViewDomain::class, ['record' => $domain->getRouteKey()])->assertSee('Related invoices');
-        Livewire::test(EditService::class, ['record' => $service->getRouteKey()])->assertSee('Related invoices');
+        $this->assertContains(DomainRelatedInvoices::class, $this->tabs(ViewDomain::class, $domain));
+        $this->assertContains(ServiceRelatedInvoices::class, $this->tabs(EditService::class, $service));
     }
 }

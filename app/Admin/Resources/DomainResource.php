@@ -6,8 +6,8 @@ use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\DomainResource\DomainContactActions;
 use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Admin\Resources\DomainResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\DomainResource\RelationManagers\RegistrarLogsRelationManager;
-use App\Admin\Resources\DomainResource\RelationManagers\RelatedInvoicesRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Enums\DomainStatus;
 use App\Models\Client;
@@ -446,7 +446,7 @@ class DomainResource extends Resource
 
     public static function getRelations(): array
     {
-        return [RegistrarLogsRelationManager::class, RelatedInvoicesRelationManager::class];
+        return [RegistrarLogsRelationManager::class, InvoicesRelationManager::class];
     }
 
     public static function getPages(): array
