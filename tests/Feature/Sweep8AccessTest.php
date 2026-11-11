@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -73,16 +74,20 @@ class Sweep8AccessTest extends TestCase
         $this->actingAs($user);
 
         foreach (['invite', 'invite/some-token'] as $path) {
-            $request = Request::create('/livewire/update', 'POST', ['components' => [['snapshot' => json_encode(['memo' => ['path' => $path]])]]]);
+            $request = Request::create(app('livewire')->getUpdateUri(), 'POST', ['components' => [['snapshot' => json_encode(['memo' => ['path' => $path]])]]]);
             $request->headers->set('X-Livewire', '1');
+            $route = Route::getRoutes()->match($request); // Livewire's own update route: only there is the page it came from asked
+            $request->setRouteResolver(fn () => $route);
             $this->app->instance('request', $request);
             (new EnsureClientAccount)->handle($request, fn () => new Response);
             $this->assertSame(0, ClientUser::query()->where('user_id', $user->id)->count(), "a call from /{$path} opened an own account");
         }
 
         // A call from any other page, also one whose address only starts alike: its own account, as before.
-        $request = Request::create('/livewire/update', 'POST', ['components' => [['snapshot' => json_encode(['memo' => ['path' => 'invitex']])]]]);
+        $request = Request::create(app('livewire')->getUpdateUri(), 'POST', ['components' => [['snapshot' => json_encode(['memo' => ['path' => 'invitex']])]]]);
         $request->headers->set('X-Livewire', '1');
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(fn () => $route);
         $this->app->instance('request', $request);
         (new EnsureClientAccount)->handle($request, fn () => new Response);
         $this->assertSame(1, ClientUser::query()->where('user_id', $user->id)->where('owner', true)->count());
