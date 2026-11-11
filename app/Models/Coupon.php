@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Services\Service\RemoveCoupon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -83,25 +82,21 @@ class Coupon extends Model implements Auditable
     }
 
     /**
-     * Its uses, the one count behind `max_uses`, `max_uses_per_user` and `once_per_client` (sweep 8 S8-CLIENT-PORTAL-3):
-     * the services that carry it, except one **cancelled, billed and never paid** (an order that lapsed unpaid, or that
-     * staff cancelled before any payment): nobody got the discount, so the promotion is not used up and its customer may
-     * use it again.
+     * Its uses, the one count behind `max_uses`, `max_uses_per_user` and `once_per_client`: the services that carry it,
+     * except one **cancelled that never started** (an order that lapsed unpaid, or was cancelled while still pending):
+     * nobody got anything, so the promotion is not used up and its customer may use it again (S8-CLIENT-PORTAL-3).
      *
-     * «Never paid» is read from what was recorded, not from the invoices' status now (REV-793-5): a use stays a use once
-     * an invoice of it had a payment (succeeded; refunded or charged back since, it is still there), or is paid or
-     * refunded with none (a free first invoice). So does a service with no invoice at all (a free trial: delivered for
-     * nothing, cancelled or not; also one whose cancelled invoice staff deleted, REV-793-8, accepted).
+     * «Started» is `services.activated_at`: set the first time the service is active, by whatever way (a payment, a free
+     * order, staff; an import sets it for all but WHMCS's Pending), and never cleared. What ran once, paid or free, is
+     * a use for ever, whatever happened to its invoices since (sweep 9 S9-COUPONS-CHECKOUT-1: a free trial cancelled
+     * with its first renewal unpaid was free again). No invoice or payment is read.
      *
      * @return HasMany<Service, $this>
      */
     public function uses(): HasMany
     {
         return $this->services()->where(fn ($use) => $use->where('services.status', '!=', Service::STATUS_CANCELLED)
-            ->orWhereDoesntHave('invoices')
-            ->orWhereHas('invoices', fn ($invoices) => $invoices->where(fn ($paid) => $paid
-                ->whereIn('invoices.status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])
-                ->orWhereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Succeeded->value)))));
+            ->orWhereNotNull('services.activated_at'));
     }
 
     /**
