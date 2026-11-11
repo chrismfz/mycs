@@ -325,8 +325,6 @@ class Rev793Test extends TestCase
      */
     public function test_rev_793_8_deleting_the_cancelled_invoice_of_a_never_paid_order_does_not_use_the_coupon_up(): void
     {
-        $this->markTestIncomplete('REV-793-8 accepted (2026-11-11): rare, a staff action, and it errs on the safe side (the coupon stays used).');
-
         $product = $this->createProduct()->product;
         $coupon = Coupon::query()->create(['code' => 'REV793B', 'type' => 'percentage', 'value' => 50, 'max_uses' => 1, 'once_per_client' => true]);
         $placed = (new PlaceOrderService)->place($this->user->client(), 'USD',

@@ -208,7 +208,7 @@ class OffersAdversarialTest extends TestCase
         $this->assertNull($this->cart()->coupon_id);
 
         $trial->update(['expires_at' => null, 'max_uses' => 1]);
-        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'coupon_id' => $trial->id, 'product_id' => $product->id]);
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'coupon_id' => $trial->id, 'product_id' => $product->id, 'status' => Service::STATUS_ACTIVE]);
         Cart::query()->delete();
         $this->get('/offer/kit')->assertSessionHas('offer', fn ($o) => $o['coupon'] === null && $o['error'] !== null);
         $this->assertNull($this->cart()->coupon_id);
@@ -233,7 +233,7 @@ class OffersAdversarialTest extends TestCase
         $trial = $this->trial([$product], ['once_per_client' => true]);
         $this->offer([$product], $trial);
         $user = User::factory()->create();
-        Service::factory()->create(['client_id' => $user->client()->id, 'coupon_id' => $trial->id, 'product_id' => $product->id]);
+        Service::factory()->create(['client_id' => $user->client()->id, 'coupon_id' => $trial->id, 'product_id' => $product->id, 'status' => Service::STATUS_ACTIVE]);
 
         $this->asCustomer($user)->get('/offer/kit')->assertSessionHas('offer', fn ($o) => $o['coupon'] === null && $o['error'] === __('You have already used this promotion.'));
         $this->assertNull($this->cart()->coupon_id);
