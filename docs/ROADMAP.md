@@ -95,6 +95,9 @@
 ### Provisioning
 - [ ] **Dedicated servers με BMC: ένα extension Redfish** (ιδέα 2026-11-04): ανάγνωση, power, suspend από θύρα ή BMC,
       console. Το σχέδιο και οι κανόνες ασφάλειας στο αρχείο του ιστορικού, ενότητα «Provisioning».
+  - [x] Βήμα 1, ανάγνωση (2026-11-11): module «Redfish», ένα μηχάνημα = ένας server, «Hardware» με μοντέλο, serial,
+        power state, health και watt (`docs/provisioning.md`, «Μηχανήματα με BMC»). Μένει η δοκιμή σε πραγματικό
+        Supermicro, και από το βήμα 1 οι θερμοκρασίες και το inventory.
 - [ ] DirectAdmin: αλλαγή κωδικού στον server (`CMD_API_USER_PASSWD`) μετά από live δοκιμή· ως τότε «Save a password
       set elsewhere».
 - [ ] ngm: live δοκιμή σε ngm-debian με άδεια του ιδιοκτήτη· ό,τι κάνει το module του WHMCS και δεν πέρασε ακόμα.

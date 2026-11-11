@@ -38,7 +38,8 @@ class Servers extends Widget
         $rows = Server::query()->where('enabled', true)->orderBy('name')->get()
             ->map(function (Server $server) use ($counts): array {
                 $used = (int) ($counts[$server->id] ?? 0);
-                $max = $server->max_accounts ? (int) $server->max_accounts : null;
+                // 0 is a limit too (a machine of our own, never given): shown as «0 / 0», without a bar.
+                $max = $server->max_accounts !== null ? (int) $server->max_accounts : null;
                 $share = $max ? $used / $max : null;
 
                 return [

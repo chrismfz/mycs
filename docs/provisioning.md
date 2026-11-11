@@ -331,6 +331,46 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
   πελάτη (domains, mailboxes, βάσεις), η λίστα πακέτων από το `GET /packages` στη
   ρύθμιση του προϊόντος, τα όρια ανά account (`/limits`), η μεταφορά του token από το WHMCS (`accesshash`).
 
+## Μηχανήματα με BMC: Redfish (υπεύθυνος, 2026-11-11)
+
+Πρώτο βήμα του «extension Redfish» του ROADMAP: **μόνο ανάγνωση**, για να δοκιμαστεί σε ένα Supermicro.
+
+- **Ένα μηχάνημα = ένας server** (Servers → Create server, module «Redfish»). Δεν υπάρχει ξεχωριστό «inventory».
+  - **Δοσμένο σε πελάτη:** η υπηρεσία που έχει αυτόν τον server (`services.server_id`), όπως σε κάθε module.
+  - **Ελεύθερο:** «Max Accounts» 1 και καμία υπηρεσία πάνω του. Μέσα σε server group, μια παραγγελία παίρνει το πρώτο
+    ελεύθερο (`ServerSelector`)· όταν τελειώσουν, το create αποτυγχάνει και το βλέπει το staff.
+  - **Δικό μας:** «Max Accounts» **0**: δεν δίνεται ποτέ σε παραγγελία. Το 0 ισχύει πια για κάθε server (πριν η φόρμα
+    δεχόταν από 1· κενό = χωρίς όριο, όπως πριν).
+    Προσοχή: ο importer γράφει το «maxaccounts» του WHMCS σε κάθε εκτέλεση, και το 0 του WHMCS σημαίνει «χωρίς
+    όριο»: ένα 0 που έβαλε το staff σε **εισαγμένο** server χάνεται στην επόμενη εκτέλεση. Οι servers Redfish δεν
+    εισάγονται, άρα δεν τους αφορά.
+- **Ρυθμίσεις του server:** διεύθυνση του BMC (`https://…`, στο management δίκτυο), IP και «Self-signed» όπως στα
+  panels (`PanelConnection`: μόνο https, self-signed μόνο προς γνωστή IP, ποτέ redirect), username, κωδικός
+  (κρυπτογραφημένος), «Location» (ελεύθερο κείμενο).
+- **Λογαριασμός στο BMC: μόνο ανάγνωση.** Το MyCS κάνει μόνο GET· δεν χρειάζεται και δεν πρέπει να έχει Operator ή
+  Administrator όσο δεν υπάρχουν ενέργειες. Το BMC δεν βγαίνει ποτέ δημόσια.
+- **Τι διαβάζει** (`packages/redfish`, `RedfishClient::machine()`, 3–5 αιτήματα): κατασκευαστή, μοντέλο, serial, SKU,
+  asset tag, hostname, BIOS, επεξεργαστές, μνήμη, **power state**, **health** (το χειρότερο από system και chassis: εκεί
+  φαίνονται ανεμιστήρες και τροφοδοτικά) και **watt**: την τωρινή κατανάλωση (`Chassis/…/Power` → το πρώτο
+  `PowerControl`, που είναι το σύνολο του μηχανήματος· αλλιώς `EnvironmentMetrics`) και, όπου τα δίνει το BMC, ελάχιστο/μέσο/μέγιστο του τελευταίου
+  διαστήματός του.
+- **Πότε:** μόνο όταν το ζητήσει το staff: «Test Connection» στη φόρμα και το κουμπί **«Hardware»** στη σελίδα του server
+  (δείχνει και ποιος το έχει). Η σελίδα δεν περιμένει ποτέ BMC. **Τίποτα δεν αποθηκεύεται:** ιστορικό, γραφήματα, kWh
+  και alerts είναι δουλειά του monitoring (LibreNMS), όχι του MyCS.
+- **Ενέργειες υπηρεσίας** (create, suspend, unsuspend, terminate, αλλαγή πακέτου): εργασίες του staff στα Pending Module
+  Actions, όπως στο Offline Dedicated (`OfflineMachineServer`). Το module δεν αγγίζει το μηχάνημα.
+- **Στην υπηρεσία** μένουν δύο πεδία, «Operating system» και «Notes», με τα ίδια κλειδιά του Offline Dedicated: μια
+  υπηρεσία που αλλάζει server από «Manual (offline)» σε Redfish κρατά ό,τι είχε γράψει το staff (και τα υπόλοιπα
+  `machine_*` μένουν στη βάση, απλώς δεν φαίνονται).
+- **Χρόνος:** κάθε ανάγνωση περιμένει ως 8 δευτερόλεπτα· BMC που δεν απαντά δίνει μήνυμα στο staff, όχι timeout της
+  σελίδας. Ένα redirect του BMC δεν ακολουθείται· ζητείται μία φορά το ίδιο path με ή χωρίς το τελικό «/».
+- **Ό,τι λέει ένα BMC είναι ξένο κείμενο:** κόβεται στους 200 χαρακτήρες, χωρίς control characters, και δείχνεται πάντα
+  escaped. Ένα link του BMC ακολουθείται μόνο ως path κάτω από `/redfish/v1/` του ίδιου BMC.
+- **Δεν έγιναν** (επόμενα βήματα του ROADMAP, το καθένα με απόφαση): θερμοκρασίες και inventory δίσκων, ημερήσιος έλεγχος
+  health που ανοίγει εργασία, power on/off, suspend από θύρα ή BMC, console, ο,τιδήποτε προς τον πελάτη.
+- **Δοκιμή σε πραγματικό BMC:** δεν έχει γίνει· τα tests απαντούν με ψεύτικο BMC (`Http::preventStrayRequests`). Τα
+  παλιά firmware (Supermicro X10, iDRAC 7/8) έχουν ελλιπές Redfish: το «Test Connection» λέει τι λείπει.
+
 ## Provisioning fixes (sweep §2, §4, §7)
 - **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:
   το WHM το αγνοεί (μόνο ένα «Unrecognized modifyacct parameter» στο log του) και απαντά `result: 1`, «Account
