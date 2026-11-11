@@ -7,15 +7,18 @@ use App\Exceptions\ChargeNeedsAction;
 use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -80,6 +83,25 @@ final class SavedMethodCharge
             ->latest('id'))->first();
 
         return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
+    }
+
+    /**
+     * A gateway refused OUR credentials on a saved method's charge (Stripe: the key; PayPal: the client ID and secret at the
+     * token call): ours to fix, not a decline and not an outage. Staff are told, in the payments log and by mail, once an
+     * hour per $claim. The notice never changes the charge's outcome: when it cannot be made (the cache or the queue is
+     * down) it is reported, its claim dropped so the next charge tells again, and the caller's «not sent» stands (REV-791-3).
+     */
+    public static function tellCredentialsRefused(string $claim, string $subject, string $message, Invoice $invoice): void
+    {
+        try {
+            if (Cache::add($claim, true, now()->addHour())) {
+                PaymentsLog::warning($message, ['invoice_id' => $invoice->id]);
+                NotificationHelper::sendSystemEmailNotification($subject, e($message));
+            }
+        } catch (Throwable $notice) {
+            report($notice);
+            rescue(fn () => Cache::forget($claim), report: false);
+        }
     }
 
     /**

@@ -179,6 +179,12 @@ class PayPal extends Gateway
             $this->generateAccessToken();
         } catch (Throwable $e) {
             report($e);
+            // PayPal refuses OUR client ID and secret (401, or 400 invalid_client): not an outage, and trying again does not
+            // help. Not sent all the same; staff are told, once an hour, as for a key Stripe refuses (sweep-8 reviews, #791).
+            if ($e instanceof PayPalApiException && ($e->status === 401 || ($e->status === 400 && $e->name === 'invalid_client'))) {
+                SavedMethodCharge::tellCredentialsRefused('paypal-charge-credentials-refused', 'PayPal: saved methods cannot be charged',
+                    'PayPal refused the client ID and secret saved in the PayPal gateway when a saved method was to be charged (HTTP ' . $e->status . ($e->name !== null ? ' ' . $e->name : '') . ', invoice #' . $invoice->id . '): check the credentials and their mode (live/sandbox). This charge was not sent now and no customer was told it failed; saved PayPal methods are not charged until the credentials work, and the cron tries again as set.', $invoice);
+            }
 
             throw new ChargeNotSent(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
         }

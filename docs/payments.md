@@ -910,6 +910,12 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
     object exists in live/test mode» στο `GET /customers` μόνο (key άλλου mode· στη χρέωση το ίδιο 404 είναι της μεθόδου και μένει αποτυχία, REV-791-4). Είναι δικό μας λάθος, όχι απόρριψη κάρτας: `not_sent` όπως πάνω,
     και το staff παίρνει mail «Stripe: saved cards cannot be charged» (μία φορά την ώρα, και στο log πληρωμών), όπως
     για τον customer που δεν διαβάζεται στο checkout. Ένα απλό 404 (ο customer δεν υπάρχει πια στο Stripe) μένει αποτυχία.
+  - **Το PayPal αρνείται τα δικά μας στοιχεία (reviews του sweep 8, #791):** η κλήση `oauth2/token` μιας χρέωσης
+    αποθηκευμένης μεθόδου απαντά 401, ή 400 `invalid_client` (λάθος client ID/secret, ή άλλου mode). `not_sent` όπως πάνω,
+    και το staff παίρνει mail «PayPal: saved methods cannot be charged» (μία φορά την ώρα, και στο log πληρωμών), με τον
+    ίδιο κώδικα όπως το Stripe (`SavedMethodCharge::tellCredentialsRefused`): αν η ειδοποίηση αποτύχει, καταγράφεται και η
+    χρέωση μένει «δεν στάλθηκε» (REV-791-3). Διακοπή του PayPal (5xx, καμία σύνδεση, 429) ή άλλο σφάλμα του token: καμία
+    ειδοποίηση, μόνο η γραμμή στο digest του cron (`Sweep8OpenPayPalCredentialsTest`).
   - **Η επανάληψη μόνο επιβεβαιώνει πληρωμή (S8-PAYMENTS-1, REV-791-1/-2):** όταν μια χρέωση `unknown` ξαναστέλνεται με
     το κλειδί της, **μόνο η επιτυχία την κλείνει** (`succeeded`). Ό,τι άλλο φέρει η επανάληψη (δεν στάλθηκε, άρνηση πριν
     από τη χρέωση όπως customer 404 ή μέθοδος που αφαιρέθηκε, 409 `idempotency_key_in_use`, απόρριψη, ξανά timeout) δεν
