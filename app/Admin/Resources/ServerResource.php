@@ -22,6 +22,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
@@ -67,8 +68,8 @@ class ServerResource extends Resource
                     ->placeholder('Enter the name of the server'),
                 TextInput::make('max_accounts')
                     ->label('Max Accounts')
-                    ->numeric()->minValue(1)->nullable()
-                    ->helperText('New accounts of a server group go to servers under this limit (WHMCS «Maximum No. of Accounts»). Empty: no limit.'),
+                    ->numeric()->minValue(0)->nullable()
+                    ->helperText('New accounts of a server group go to servers under this limit (WHMCS «Maximum No. of Accounts»). Empty: no limit. 0: none, ever (a machine of our own).'),
                 Select::make('extension')
                     ->label('Server')
                     ->required()
@@ -131,10 +132,12 @@ class ServerResource extends Resource
                 TextColumn::make('extension')->label('Module'),
                 // Accounts on it (active, suspended, pending) against its limit, as WHMCS's server list.
                 TextColumn::make('accounts')->label('Accounts')
-                    ->state(fn (Server $record) => $record->accountsCount() . ($record->max_accounts ? ' / ' . $record->max_accounts : '')),
+                    ->state(fn (Server $record) => $record->accountsCount() . ($record->max_accounts !== null ? ' / ' . $record->max_accounts : '')),
             ])
             ->filters([
-                //
+                // Panels and machines in one list (a Redfish machine is a server each).
+                SelectFilter::make('extension')->label('Module')
+                    ->options(fn () => Server::query()->distinct()->orderBy('extension')->pluck('extension', 'extension')->all()),
             ])
             ->recordActions([
                 EditAction::make(),

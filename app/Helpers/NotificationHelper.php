@@ -708,7 +708,7 @@ class NotificationHelper
     private const HOSTING = ['CPanel', 'DirectAdmin', 'Ngm'];
 
     /** Machines the customer signs in to as root (WHMCS's «Dedicated/VPS Server Welcome Email»). */
-    private const MACHINES = ['Proxmox', 'OfflineDedicated', 'OfflineVm'];
+    private const MACHINES = ['Proxmox', 'OfflineDedicated', 'OfflineVm', 'Redfish'];
 
     /**
      * The welcome mail's «Server» (and the customer's service page): the hosting panel's hostname and IP (cPanel,

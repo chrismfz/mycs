@@ -1,0 +1,75 @@
+<?php
+
+namespace MyCS\Extensions\Servers\Redfish;
+
+use App\Attributes\ExtensionMeta;
+use App\Classes\Extension\OfflineMachineServer;
+use App\Support\PanelConnection;
+use App\Support\Redfish\PanelTransport;
+use MyCS\Redfish\Machine;
+use MyCS\Redfish\RedfishClient;
+use Throwable;
+
+/**
+ * One physical machine with a BMC that speaks Redfish (Supermicro, iDRAC, iLO; owner 2026-11-11): **one server per
+ * machine**, with «Max Accounts» 1. The service on it is the customer who rents the whole machine; none on it and the
+ * machine is free; «Max Accounts» 0 and it is our own, never given to an order. MyCS only reads its BMC (what it is,
+ * on or off, health, watts), and only when staff ask («Hardware» on the server's page): no history, no alerts
+ * (LibreNMS's), no power actions. Every server action on its service is a task for staff, as an offline machine's.
+ */
+#[ExtensionMeta(
+    name: 'Redfish machine',
+    description: 'One physical server read through its BMC (Redfish): model, serial, power state, health, watts. Read-only; every action a task for staff',
+    version: 'builtin',
+    author: 'MyCS',
+)]
+class Redfish extends OfflineMachineServer
+{
+    public function getConfig($values = []): array
+    {
+        return [
+            ['name' => 'host', 'type' => 'text', 'label' => 'BMC address', 'placeholder' => 'https://10.0.0.20', 'validation' => 'url:https', 'required' => true,
+                'description' => 'The machine\'s BMC (IPMI / iDRAC / iLO web address), on the management network. One server here per machine: set «Max Accounts» to 1, or to 0 for a machine of our own.'],
+            ...PanelConnection::fields(),
+            ['name' => 'username', 'type' => 'text', 'label' => 'BMC username', 'required' => true,
+                'description' => 'A read-only account (Supermicro «User», iDRAC «Read Only», iLO with login only): MyCS only reads.'],
+            ['name' => 'password', 'type' => 'password', 'label' => 'BMC password', 'required' => true, 'encrypted' => true],
+            ['name' => 'location', 'type' => 'text', 'label' => 'Location', 'required' => false, 'placeholder' => 'Rack 4, U12',
+                'description' => 'Where it is: datacenter, rack, unit.'],
+        ];
+    }
+
+    /** What stays on the service: the keys of an Offline Dedicated's, so a service moved here keeps what staff wrote. */
+    public function serviceFields(): array
+    {
+        return [
+            ['name' => 'machine_os', 'label' => 'Operating system', 'type' => 'text'],
+            ['name' => 'machine_notes', 'label' => 'Notes', 'type' => 'textarea'],
+        ];
+    }
+
+    public function client(): RedfishClient
+    {
+        $base = rtrim(trim((string) $this->config('host')), '/');
+
+        return new RedfishClient(new PanelTransport($base, trim((string) $this->config('ip')) ?: null, (bool) $this->config('self_signed')),
+            trim((string) $this->config('username')), (string) $this->config('password'));
+    }
+
+    /** The machine as its BMC says it now (three to five requests, seconds on a slow BMC). */
+    public function hardware(): Machine
+    {
+        return $this->client()->machine();
+    }
+
+    public function testConfig(): bool|string
+    {
+        try {
+            $this->hardware();
+        } catch (Throwable $e) {
+            return $e->getMessage();
+        }
+
+        return true;
+    }
+}
