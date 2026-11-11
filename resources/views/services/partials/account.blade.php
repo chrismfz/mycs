@@ -17,6 +17,15 @@
     <span class="text-base/50 whitespace-pre-line">{{ $service->assigned_ips }}</span>
 </div>
 @endif
+{{-- Where a hosting account lives (WHMCS's «Server Information»), for its DNS and its mail and FTP programs. --}}
+@foreach(['server_hostname', 'server_ip', 'nameservers'] as $serverKey)
+@if(filled($serverInfo[$serverKey] ?? null))
+<div class="flex items-center text-base">
+    <span class="mr-2">{{ __('services.' . $serverKey) }}:</span>
+    <span class="text-base/50">{{ $serverInfo[$serverKey] }}</span>
+</div>
+@endif
+@endforeach
 @can('update', $service)
 @if(filled($service->username))
 <div class="flex items-center text-base">

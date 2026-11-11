@@ -57,9 +57,32 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 | Module | Τιμές |
 |---|---|
 | CentovaCast | `centova_host`, `centova_port`, `centova_source_password` (διαβάζονται από το Centova τη στιγμή της αποστολής· αν δεν απαντά, μένει το port που κρατά η υπηρεσία και ο κωδικός πηγής λείπει) |
+| CPanel | `panel_url` (`https://<hostname>:2083`), `webmail_url` (`:2096`), και `whm_url` (`:2087`) μόνο σε λογαριασμό reseller. Από το hostname του server, χωρίς κλήση. |
+| Ngm | `panel_url` (η σελίδα σύνδεσης του panel, όπως τη δείχνει η σελίδα της υπηρεσίας) |
 
 Γράφονται μέσα σε `{% if centova_source_password %} … {% endif %}`, ώστε να μη μένει μισή γραμμή. Ο importer αντιστοιχίζει
 μόνο αυτές τις δύο γραμμές του Smarty του WHMCS (`importer.md` → Welcome email προϊόντος).
+
+## Τι λέει το welcome email για hosting και μηχανήματα (ιδιοκτήτης 2026-11-11)
+Ό,τι έλεγαν τα «Hosting / Reseller / Dedicated-VPS Welcome» του WHMCS και δεν έλεγε το δικό μας. Όλα υπό συνθήκη, ώστε
+ένα προϊόν χωρίς αυτά να μη δείχνει άδειο μπλοκ:
+
+| Τιμή | Πότε | Από πού |
+|---|---|---|
+| `panel_url`, `webmail_url`, `whm_url` | cPanel, ngm | `welcomeData` του module (πίνακας παραπάνω) |
+| `server_hostname`, `server_ip` | cPanel, DirectAdmin | ο server της υπηρεσίας· με το hostname μπαίνουν και οι γραμμές FTP (μόνο όταν το email έχει username) και `mail.<domain>`. Το hostname μόνο ως **όνομα**: server ορισμένος με διεύθυνση IP (συχνά του LAN) δεν δίνει hostname ούτε links (`NotificationHelper::hostName`)· η IP μόνο αν είναι δημόσια. |
+| `nameservers` | cPanel, DirectAdmin, ngm | οι ρυθμίσεις «Default Nameserver 1–5» (Ordering): όλοι οι servers του myip είχαν τους ίδιους στο WHMCS, άρα **δεν** υπάρχει πεδίο ανά server. Κενές = το μπλοκ λείπει. |
+| `ssh_host` | Proxmox, Offline Dedicated, Offline VM | η πρώτη IP της υπηρεσίας (`ssh root@…`, port 22). Για μηχάνημα Windows το staff αλλάζει το template ή το snippet του προϊόντος. |
+| `service_ips` | όλα | dedicated και assigned IPs |
+
+Τα ίδια `server_hostname`, `server_ip`, `nameservers` φαίνονται και στη σελίδα της υπηρεσίας του πελάτη
+(`NotificationHelper::welcomeServer`, το «Server Information» του WHMCS). Μόνο σε υπηρεσία active ή suspended: μια
+απλήρωτη παραγγελία ή μια υπηρεσία που έληξε δεν έχει λογαριασμό εκεί. Η migration `2027_02_22_000000` προσθέτει το
+μπλοκ μόνο σε template που είναι ακόμα όπως το έγραψε ο seeder.
+
+**Δεν μεταφέρθηκαν, με απόφαση:** το προσωρινό URL `http://IP/~user/`, οι custom nameservers ενός VPS (1 υπηρεσία) και ο
+οδηγός εκκίνησης WHM των resellers: ο τελευταίος γράφεται με το χέρι ως snippet στα προϊόντα reseller (Admin → προϊόν →
+«Email template»), μία φορά.
 
 ## Μετάβαση
 Η migration `2026_10_11_000000_templates_without_blade` αντικαθιστά κάθε πεδίο που είναι ακόμα σε Blade με τη νέα

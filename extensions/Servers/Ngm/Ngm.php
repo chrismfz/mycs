@@ -432,6 +432,16 @@ class Ngm extends Server implements ReadsServiceUsage
     }
 
     /**
+     * For the welcome mail: the panel's sign-in page (the one the service page shows). No call to the server.
+     *
+     * @return array<string, string>
+     */
+    public function welcomeData(Service $service, $settings, $properties): array
+    {
+        return self::username($service, $properties) === null ? [] : ['panel_url' => $this->api()->panelUrl()];
+    }
+
+    /**
      * Usage of every account here, from one GET /usage (ngm's MB; a limit of -1 is none; bandwidth is web traffic only);
      * a service whose account ngm does not list is left out.
      *
