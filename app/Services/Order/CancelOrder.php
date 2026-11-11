@@ -11,11 +11,13 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -30,9 +32,12 @@ use Throwable;
  * a refund or a chargeback already gave back is not given twice (refundable_amount). An order invoice that also bills
  * something else is left to staff, as anything the invoices' own rules leave open.
  *
- * A case a refund leaves to staff (sweep 8, owner 2026-11-11, KISS): the order's invoice was split (#780) and a part
- * still bills the order. «Cancel & Refund» is refused whole, before anything is cancelled (splitParts). Staff refund each
- * invoice and cancel by hand; no refund over many invoices here.
+ * Two cases a refund leaves to staff (sweep 8, owner 2026-11-11, KISS):
+ * - The order's invoice was split (#780) and a part still bills the order: «Cancel & Refund» is refused whole, before
+ *   anything is cancelled (splitParts). Staff refund each invoice and cancel by hand; no refund over many invoices here.
+ * - A domain of the order is registered already (registeredDomains): the refund goes ahead and does not undo the
+ *   registration. The registrar is never called and the domain keeps its status: staff are told, with a notice and a
+ *   «check this» task (ModuleAction::DOMAIN_REFUNDED) that names the domain.
  *
  * Only its items still its customer's: one moved to another customer since (MoveToClient) is that customer's now, never
  * cancelled with the first one's order (adversarial R2-1 of #357).
@@ -93,6 +98,7 @@ final class CancelOrder
             $left['refund'] = new DisplayException('Not refunded: a domain of this order was sent to its registrar. Refund by hand what is due.');
         } elseif ($refund !== null) {
             $left += self::refund($order, $refund);
+            $left += self::tellOfRegisteredDomains($order);
         }
         foreach ($services as $service) {
             $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
@@ -126,6 +132,39 @@ final class CancelOrder
                 ->where(fn ($q) => $q->where('reference_type', Service::class)->whereIn('reference_id', $services))
                 ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereIn('reference_id', $domains))))
             ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Its domains registered (or transferred in) already: neither pending nor ended. Their registration was paid at the
+     * registrar; a refund of the order does not undo it.
+     *
+     * @return Collection<int, Domain>
+     */
+    public static function registeredDomains(Order $order): Collection
+    {
+        return Domain::query()->where('order_id', $order->id)->where('client_id', $order->client_id)
+            ->whereNotIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value, ...DomainStatus::terminalValues()])
+            ->orderBy('id')->get();
+    }
+
+    /**
+     * After a refund: each registered domain told to staff, as a notice and as a «check this» task that stays until they
+     * close it. Nothing is done at the registrar and the domain keeps its status.
+     *
+     * @return array<string, Throwable>
+     */
+    private static function tellOfRegisteredDomains(Order $order): array
+    {
+        $left = [];
+        foreach (self::registeredDomains($order) as $domain) {
+            $message = "{$domain->fqdn} is already registered at the registrar: the refund of order #{$order->id} does not undo the registration."
+                . " It stays {$domain->status->value}: keep it (and bill it), or delete it at the registrar, by hand.";
+            ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_REFUNDED, 'status' => ModuleAction::STATUS_OPEN,
+                'attempts' => 0, 'last_attempt_at' => now(), 'given_up_at' => now(), 'last_error' => $message]);
+            $left["domain #{$domain->id}"] = new DisplayException($message);
+        }
+
+        return $left;
     }
 
     /**

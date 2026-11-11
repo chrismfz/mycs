@@ -13,6 +13,7 @@ use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Domains\Lookup\LaravelTransport;
@@ -213,6 +214,66 @@ class Sweep8DomainsTest extends TestCase
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status, 'the domain stays registered and Active');
         $this->assertFalse($refunded && $left === [],
             'the payment of a domain registered at the registrar (paid there by us) was refunded in full, the domain stays Active, and staff were told nothing');
+    }
+
+    /**
+     * S8-DOMAINS-1, the fix (owner 2026-11-11: tell staff, no automation): the refund goes ahead, the registrar is not
+     * called, the domain keeps its status, and staff get a notice and a «check this» task that names the domain.
+     */
+    public function test_s8_domains_1_cancel_and_refund_of_a_registered_domain_opens_a_task_that_names_it(): void
+    {
+        $domain = $this->order('add', 'mybusiness.com');
+        $this->pay($domain);
+        $this->runJobs();
+        $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+        $order = Order::query()->sole();
+        $this->assertSame(['mybusiness.com'], CancelOrder::registeredDomains($order)->pluck('fqdn')->all(), 'what the confirmation warns about');
+        $calls = count($this->created);
+        Http::fake(fn (Request $request) => $this->fail('Cancel & Refund called the registrar: ' . $request->url()));
+
+        $left = CancelOrder::handle($order, refund: 'credit');
+
+        $this->assertSame(["domain #{$domain->id}"], array_keys($left));
+        $this->assertStringContainsString('mybusiness.com is already registered at the registrar: the refund', $left["domain #{$domain->id}"]->getMessage());
+        $task = ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REFUNDED)->sole();
+        $this->assertSame(ModuleAction::STATUS_OPEN, $task->status);
+        $this->assertStringContainsString('mybusiness.com', (string) $task->last_error);
+        $this->assertTrue($task->isCheck(), 'a task to look at, not a failure');
+        $this->assertSame(1, ModuleAction::openChecks()['domains']);
+        $this->assertSame(DomainStatus::Active, $domain->fresh()->status, 'its status is not changed');
+        $this->assertSame($calls, count($this->created));
+        $this->assertSame(Invoice::STATUS_REFUNDED, $this->invoiceOf($domain)->fresh()->status, 'the refund staff asked for was made');
+        $this->assertSame('23.33', number_format((float) DB::table('credits')->where('client_id', $this->user->client()->id)->sum('amount'), 2, '.', ''));
+
+        $task->markResolved(null);
+        $this->assertSame(ModuleAction::STATUS_RESOLVED, $task->fresh()->status, 'closed by staff («Checked»)');
+    }
+
+    /** The neighbour: «Cancel Order» (no refund) of a registered domain tells nothing new. */
+    public function test_cancel_order_without_a_refund_of_a_registered_domain_opens_no_task(): void
+    {
+        $domain = $this->order('add', 'mybusiness.com');
+        $this->pay($domain);
+        $this->runJobs();
+
+        $this->assertSame([], CancelOrder::handle(Order::query()->sole()));
+
+        $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+        $this->assertSame(Invoice::STATUS_PAID, $this->invoiceOf($domain)->fresh()->status);
+        $this->assertSame(0, ModuleAction::query()->where('action', ModuleAction::DOMAIN_REFUNDED)->count());
+    }
+
+    /** The neighbour: a domain ordered and never sent is cancelled with its order as before, with nothing to tell. */
+    public function test_cancel_and_refund_of_a_domain_not_registered_cancels_it_as_before(): void
+    {
+        $pending = $this->order('add', 'mybusiness.com');
+        $order = Order::query()->sole();
+        $this->assertSame([], CancelOrder::registeredDomains($order)->all());
+
+        $this->assertSame([], CancelOrder::handle($order, refund: 'credit'));
+
+        $this->assertSame(DomainStatus::Cancelled, $pending->fresh()->status);
+        $this->assertSame(0, ModuleAction::query()->where('action', ModuleAction::DOMAIN_REFUNDED)->count());
     }
 
     private static function ns(string $hosts): array
