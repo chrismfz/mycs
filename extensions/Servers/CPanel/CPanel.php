@@ -541,6 +541,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']); // never a stranger's package, quota or reseller limits (S8-PROVISIONING-1)
 
         // WHM's «Change Package» (sweep §2/§4): modifyacct ignores a `plan` (an «Unrecognized modifyacct parameter»
         // warning in WHM's log) and answers result 1, so the package never changed. Verified on WHM 138 (2026-10-15).

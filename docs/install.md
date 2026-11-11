@@ -80,6 +80,23 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
 (systemd), mail (SMTP/SPF/DKIM), TLS. Σε server cPanel όπου τρέχει και το ίδιο το MyCS: ο λογαριασμός του στα
 «Protected accounts» του server, για να μην τον αγγίζει ποτέ ένα module action.
 
+### Redis και cache
+- **Κάθε instance έχει το δικό του κομμάτι του Redis** (sweep 8, S8-OPS-1). Το `.env.example` δίνει `CACHE_STORE=redis` και
+  `QUEUE_CONNECTION=redis` με `APP_NAME=MyCS`: δύο checkouts στον ίδιο host (παραγωγή και δοκιμαστικό, nixpal και myip)
+  που αλλάζουν μόνο `DB_*`, `APP_URL`, `MAIL_*` μοιράζονται την ίδια ουρά (`queues:default`), την ίδια cache ρυθμίσεων,
+  το ίδιο lock του `app:cron-job` και τα ίδια mutexes του scheduler. Στο `.env` κάθε instance ορίζονται δικοί του αριθμοί
+  βάσης: **`REDIS_DB`** (ουρά, locks και sessions, προεπιλογή `0`) και **`REDIS_CACHE_DB`** (cache, προεπιλογή `1`), π.χ.
+  `2` και `3` για το δεύτερο. Επιπλέον ή, όπου δεν φτάνουν οι αριθμοί, αντί γι' αυτούς: **`REDIS_PREFIX`** (όλα τα κλειδιά
+  του Redis, προεπιλογή `mycs_database_` από το `APP_NAME`) και **`CACHE_PREFIX`** (τα κλειδιά της cache, προεπιλογή
+  `mycs_cache_`). Το prefix χωρίζει τα κλειδιά αλλά όχι ένα flush: το `cache:clear` και το import του WHMCS
+  (`docs/importer.md`) κάνουν `FLUSHDB` σε όλη τη `REDIS_CACHE_DB`: αδειάζουν ό,τι έχει εκεί **οποιαδήποτε** άλλη εφαρμογή
+  μοιράζεται αυτή τη βάση του Redis, όχι μόνο ένα δεύτερο checkout του MyCS. Γι' αυτό προτιμώνται δικοί του αριθμοί, που
+  δεν τους χρησιμοποιεί τίποτε άλλο στον host. Μετά την
+  αλλαγή: `php artisan config:cache` και restart του queue worker.
+- **Στην παραγωγή η cache είναι Redis, όχι `file`** (S8-OPS-3· το store `database` θέλει πίνακα `cache`, που το σχήμα δεν έχει): στο store `file` τίποτα δεν σβήνει τα
+  ληγμένα κλειδιά (π.χ. τα δύο αρχεία ανά επισκέπτη κάθε throttle), μόνο όταν ξαναζητηθεί το ίδιο κλειδί· ο φάκελος
+  `storage/framework/cache` μεγαλώνει χωρίς όριο. Το `file` μένει για το devbox.
+
 ## Ενημέρωση
 ```bash
 su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh <tag|branch>
